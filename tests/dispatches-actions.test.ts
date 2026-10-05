@@ -117,7 +117,6 @@ async function stateOf(issueNumber: number): Promise<string> {
 /**
  * Read the single row the tab is showing.
  *
- * @param rt - The mounted panel.
  * @returns The one row the fixture put on screen.
  * @throws {Error} When the list held no row.
  */

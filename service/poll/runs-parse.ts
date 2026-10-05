@@ -294,7 +294,6 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
  * Project validated storage fields into the run model.
  *
  * @param raw - The stored row, already known to carry its identity members.
- * @param parts - The independently validated parts, prompt included.
  * @returns The run.
  */
 function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run {

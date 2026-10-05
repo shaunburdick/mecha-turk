@@ -677,7 +677,6 @@ function containmentDetection(issueNumber: number): EventSnapshot {
  * — so the snapshot under scan is the one a real detection would compose,
  * not a fixture's hand-built copy (004 FR-080).
  *
- * @param input - The loop, the issue to enqueue, and the logger the queue write reports through.
  * @throws {Error} When the stored records do not resolve into a three-source snapshot.
  */
 async function enqueueThreeTierRun(input: {

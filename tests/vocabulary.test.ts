@@ -133,7 +133,6 @@ function scanModules(dirs: readonly string[]): readonly ScannedModule[] {
 /**
  * Collect the relative module specifiers one module imports statically.
  *
- * @param text - The module's source.
  * @returns Each specifier that starts with `./` or `../`, in source order.
  */
 function relativeSpecifiers(text: string): readonly string[] {
@@ -152,7 +151,6 @@ function relativeSpecifiers(text: string): readonly string[] {
 /**
  * Resolve each module's relative specifiers against its own directory.
  *
- * @param modules - The modules to check.
  * @returns One entry per specifier that names a file that does not exist.
  */
 function unresolvedImports(modules: readonly ScannedModule[]): readonly BrokenImport[] {

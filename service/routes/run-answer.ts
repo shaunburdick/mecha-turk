@@ -72,7 +72,6 @@ export function unknownRunResponse(): HttpResponse {
  * "must not be swallowed" obligation is the same obligation for all eight
  * operations and one log line is what makes it observable in the service log.
  *
- * @param operation - The operation name, for that log line.
  * @param success - Builds the `200` body from the run; a duplicate gets the same
  *   body, because a repeat changed nothing and must look like it.
  * @returns The response to write.

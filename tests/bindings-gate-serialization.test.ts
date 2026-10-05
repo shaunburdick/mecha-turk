@@ -346,7 +346,6 @@ function detection(): EventSnapshot {
 /**
  * Enqueue one detection and claim it, as the panel would.
  *
- * @param log - The logger the enqueue and the claim report through.
  * @returns The claim coordinates a reserve needs.
  */
 async function seedAndClaim(log: ServiceLogger): Promise<{
@@ -372,8 +371,6 @@ async function seedAndClaim(log: ServiceLogger): Promise<{
  * A decorator rather than a fake: the assertion is about **which real operation
  * reaches the disk first**, so both sides have to be the real ones.
  *
- * @param inner - The store every other call is delegated to.
- * @param hooks - The observation points to install.
  * @param events - The ordered record of `bindings.json` and `runs.json` traffic.
  * @returns The decorated store.
  */

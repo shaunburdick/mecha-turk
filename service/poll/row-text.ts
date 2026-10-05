@@ -38,7 +38,6 @@ export function boundText(value: string): string {
 /**
  * {@link boundText} for the optional members, which pass `null` through.
  *
- * @param value - The optional detail value.
  * @returns The bounded value, or `null`.
  */
 export function rowText(value: string | null): string | null {

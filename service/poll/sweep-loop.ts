@@ -104,7 +104,6 @@ export async function readSweepDurations(input: SweepLoopInput): Promise<SweepDu
 /**
  * Schedule the next tick on an unref'd timer.
  *
- * @param input - The loop's state and the callback its next tick runs.
  * @param durations - The cadence the next tick waits.
  */
 function arm(

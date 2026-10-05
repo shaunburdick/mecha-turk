@@ -265,7 +265,6 @@ function bound(pattern: string): string {
 /**
  * The body one operation's handler needs, plus the shared run identity.
  *
- * @param operation - The operation whose contract section supplies the members.
  * @returns The body to post to {@link bound}'s path.
  */
 function bodyFor(operation: OperationFixture): Record<string, unknown> {

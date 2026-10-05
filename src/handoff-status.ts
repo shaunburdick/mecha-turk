@@ -31,7 +31,6 @@ export interface StatusSnapshot {
 /**
  * Parse the status document defensively; a shape it cannot read is `null`.
  *
- * @param result - The service's `/v1/status` response.
  * @returns The snapshot, or `null` when the body is not a usable status.
  */
 function parseStatus(result: GuestRequestResult): StatusSnapshot | null {

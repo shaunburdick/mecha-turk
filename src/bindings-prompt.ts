@@ -151,8 +151,6 @@ export function mountBindingPrompt(input: {
  * creating a binding to *select* one is copy FR-063 never asked for, and
  * FR-089 applies the five facts to this field whether or not a row is
  * selected. Only the readiness of the form still follows the selection.
- *
- * @param controls - The mounted field.
  */
 export function repaintBindingPrompt(rt: PanelRuntime, controls: BindingPromptControls): void {
     const state = rt.state.bindings;

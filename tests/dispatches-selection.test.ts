@@ -153,7 +153,6 @@ function runRow(state: RunRow['state']): RunRow {
 /**
  * Build the Dispatches state a body mounts with.
  *
- * @param input - The one row's state, and whether the operator has it open.
  * @returns A ready list holding that single row.
  */
 function runsState(input: { readonly state: RunRow['state']; readonly open: boolean }): DispatchesState {

@@ -148,7 +148,6 @@ function currentValueOf(envelope: ConfigEnvelope, descriptor: FieldDescriptor): 
  * the service refuses it on its merits — and a confirmation for a write that
  * deletes nothing would be the noise FR-051 exists to prevent.
  *
- * @param current - The limit in force.
  * @returns `true` only for a numeric lowering.
  */
 function lowers(current: string, proposed: string): boolean {
@@ -189,7 +188,6 @@ export function loweredRetention(input: {
 /**
  * The eight content items the contract owes for one lowered knob (§2).
  *
- * @param input - The lowering, and the rule that describes its knob.
  * @returns The lines, already in the order the contract lists them.
  */
 function loweringBlock(input: {

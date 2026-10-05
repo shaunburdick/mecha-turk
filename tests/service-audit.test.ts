@@ -79,7 +79,6 @@ function countReads(store: ServiceStore): { readonly count: () => number } {
 /**
  * Write a valid audit line directly into the trail (fixtures for "pre-existing").
  *
- * @param entry - The line to plant, already carrying its own `seq`.
  * @returns The serialized NDJSON line.
  */
 function plantedLine(entry: Readonly<Record<string, unknown>>): string {

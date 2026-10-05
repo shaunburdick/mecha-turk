@@ -405,8 +405,6 @@ function repaintResolutions(input: {
  * row** — *Retry dispatch for #412 in owner/name* — because a list of
  * identically-labelled buttons is a list an operator cannot act on with a
  * screen reader.
- *
- * @param board - The mounted runs half.
  */
 export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard): void {
     const { dispatches: runs } = rt.state;

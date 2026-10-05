@@ -440,7 +440,6 @@ function accountFixture(overrides: Partial<PanelAccount> = {}): PanelAccount {
 /**
  * Read one select's option list out of the props it was handed.
  *
- * @param props - The mount or repaint props of the select.
  * @returns Its `{ id, label }` options, or an empty list when it has none.
  */
 function optionsOf(props: Record<string, unknown> | undefined): readonly { id: string; label: string }[] {

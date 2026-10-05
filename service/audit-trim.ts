@@ -290,7 +290,6 @@ async function protectedSeqsOf(input: {
  * never marks a row too old — an undatable row is kept, never guessed out of
  * the file.
  *
- * @param input - The ordered trail, the protected set, and the two limits.
  * @returns The survivors and removals, with the limit that tripped first.
  */
 function planRemoval(input: {

@@ -66,7 +66,6 @@ export interface ContextBlock {
 /**
  * Elide one block delimiter out of untrusted text.
  *
- * @param marker - The literal marker to neutralize.
  * @returns The marker with its hyphens substituted, so it can no longer match.
  */
 function elideMarker(marker: string): string {

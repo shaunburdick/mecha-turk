@@ -239,8 +239,6 @@ function dropUnobserved(state: PromptObservationState, observed: ReadonlySet<str
 /**
  * Append one difference's row, or log its failure and count nothing.
  *
- * @param context - The observation, the binding, its snapshot, and both
- *   fingerprints.
  * @returns `1` when the row reached the trail, `0` when the append failed.
  */
 async function recordOneChange(context: {

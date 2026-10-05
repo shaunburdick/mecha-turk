@@ -167,8 +167,6 @@ export function composeStatus(bindings: BindingsTabState): string {
 
 /**
  * Repaint the pane from state.
- *
- * @param view - The mounted pane.
  */
 export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void {
     const { bindings } = rt.state;

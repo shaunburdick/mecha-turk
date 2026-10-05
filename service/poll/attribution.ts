@@ -91,7 +91,6 @@ export function isAttributableAuthor(authorLogin: string, authorType: string): b
 /**
  * Bound one attributed login to the length a row may carry.
  *
- * @param authorLogin - The login the feed reported.
  * @returns The bounded login.
  */
 export function actorLoginOf(authorLogin: string): string {

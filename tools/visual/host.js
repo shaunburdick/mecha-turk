@@ -411,7 +411,6 @@ function align(name) {
  * `getComputedStyle` for every `[hidden]` element in the live document, so a
  * capture cannot publish a stray control the panel meant to remove.
  *
- * @param panel - The panel's document.
  * @returns One entry per painted element: its tag, its classes, its display.
  */
 function paintedHidden(panel) {

@@ -115,7 +115,6 @@ function invalidTransition(state: RunState): RunRefusal {
  * the same way: one writer for the family is what keeps "every refusal writes
  * exactly one row naming its cause" true across all five operations.
  *
- * @param input - The operation's store and logger, the run, and the verdict.
  * @returns The refusal, carrying whether its row reached the trail.
  */
 export async function refused(input: RefusalTarget & {

@@ -265,7 +265,6 @@ async function acceptVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
 /**
  * Run one handoff from body to response.
  *
- * @param request - The panel's `POST /v1/accounts/verify`.
  * @returns The documented response for this outcome.
  */
 async function handleVerify(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {

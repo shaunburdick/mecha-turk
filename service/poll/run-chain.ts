@@ -56,7 +56,6 @@ export interface RunTaskContext {
  * Generic over the answer so an operation that carries extra members on its
  * success case keeps them typed instead of widening them away.
  *
- * @param task - The operation to perform.
  * @returns The operation's answer, or `not-found` when no run carries the id.
  * @throws {StorageUnavailableError} When the run document cannot be read or
  *   written; the route layer turns that into `503 storage-unavailable`.

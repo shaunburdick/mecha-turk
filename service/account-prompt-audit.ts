@@ -235,7 +235,6 @@ export async function appendAccountPromptChange(input: AccountPromptChange): Pro
 /**
  * Append one difference's row, or log its failure and count nothing.
  *
- * @param context - The observation, the account, its snapshot, and both fingerprints.
  * @returns `1` when the row reached the trail, `0` when the append failed.
  */
 async function recordOneChange(context: {

@@ -151,8 +151,6 @@ export interface HandoffSubmission {
  * typed one: an empty or blank field omits the `expectedLogin` member
  * entirely, which is how the service is told *no constraint* and stores
  * `expectedLogin: null`.
- *
- * @param submission - The pasted credential and its optional constraint.
  */
 export async function submitHandoffAndRepaint(
     rt: PanelRuntime,

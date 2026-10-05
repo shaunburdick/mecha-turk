@@ -505,7 +505,6 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
 /**
  * Claim every waiting run through one mount's own service bridge.
  *
- * @param rt - The mount whose bridge claims.
  * @returns The offer the service answered with.
  * @throws {Error} When the claim was refused or unreadable.
  */
