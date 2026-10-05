@@ -146,7 +146,6 @@ export interface StatusView {
     readonly bindings: readonly StatusBindingView[];
     /** The computed polling block. */
     readonly polling: StatusPollingView;
-    /** The agent pin. */
     readonly agentPin: StatusAgentPinView;
     /** Whether this host surface can run a service at all. */
     readonly supported: boolean;

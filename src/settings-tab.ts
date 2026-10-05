@@ -312,7 +312,6 @@ function repaintRows(input: {
 function saveControlsFor(slice: SettingsTabState): {
     /** Whether a write is in flight. */
     readonly saving: boolean;
-    /** The armed confirmation, or `null`. */
     readonly armed: SettingsConfirmation | null;
     /** Whether Save may act. */
     readonly saveDisabled: boolean;

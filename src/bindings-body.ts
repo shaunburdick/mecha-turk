@@ -94,7 +94,6 @@ interface Board {
     readonly status: TextHandle;
     /** The tab's note line, under the status. */
     readonly note: TextHandle;
-    /** Bindings list. */
     readonly bindingsList: ListHandle;
     /** The toolbar row under the list, shared by the list's four controls. */
     readonly toolbar: HTMLElement;
@@ -108,19 +107,14 @@ interface Form {
     readonly editorState: TextHandle;
     /** Repository input. */
     readonly repoField: TextFieldHandle;
-    /** Account select. */
     readonly accountSelect: SelectHandle;
     /** Mention-token line under the account field. */
     readonly mentionToken: TextHandle;
-    /** Project select. */
     readonly projectSelect: SelectHandle;
-    /** Assignment checkbox. */
     readonly assignment: CheckboxHandle;
-    /** Mention checkbox. */
     readonly mention: CheckboxHandle;
     /** Review-request checkbox. */
     readonly reviewRequest: CheckboxHandle;
-    /** Worktree select. */
     readonly worktree: SelectHandle;
     /** The actor allow-list field, beside the mention-token override. */
     readonly actors: BindingActorControls;
@@ -140,9 +134,7 @@ interface SelectedDetail {
 interface BodyParts {
     /** Element the two blocks mounted into. */
     readonly pane: HTMLElement;
-    /** The list block. */
     readonly listBlock: Block;
-    /** The editor block. */
     readonly editorBlock: Block;
     /** Status, note, list, and toolbar half. */
     readonly board: Board;
