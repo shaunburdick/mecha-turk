@@ -63,8 +63,9 @@ export function underBase(baseUrl: string, pagePath: string): string {
  * `underBase` against the base this build actually uses.
  *
  * `BASE_URL` is read inside the function rather than at module scope so that
- * `tests/base-path.test.mjs` can exercise the join against every spelling of it
- * without a build — the spelling that matters is the one the build does not use.
+ * `tests/base-path.assertions.mjs` can exercise the join against every spelling
+ * of it without a build — the spelling that matters is the one the build does
+ * not use.
  */
 export function withBase(pagePath: string): string {
     return underBase(import.meta.env.BASE_URL, pagePath);
