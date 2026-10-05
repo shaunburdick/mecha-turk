@@ -12,6 +12,13 @@ export default [
             'service/main.js',
             'node_modules/**',
             'coverage/**',
+            // The installed agent-skill directory: a third-party skill file
+            // added by `npx skills add`, not code this repository authors.
+            // `eslint .` descends into dot-directories and lints a `.mjs`/`.ts`
+            // file placed there — verified with a probe at `.agents/probe.mjs`
+            // — so the directory is excluded by config rather than escaping
+            // only because its current content happens to be markdown.
+            '.agents/**',
         ],
     },
     ...shaunburdick.config.js,

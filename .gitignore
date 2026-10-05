@@ -13,6 +13,14 @@ node_modules/
 coverage/
 *.tsbuildinfo
 
+# Documentation-site build output. `site/` is its own npm project and Astro
+# writes these two directories on every build and every `astro check`. The
+# patterns are unanchored, as `node_modules/` above is, so they match at any
+# depth; `site/node_modules/` is matched by that same unanchored pattern and
+# needs no line of its own.
+dist/
+.astro/
+
 # Logs and OS noise
 *.log
 npm-debug.log*
