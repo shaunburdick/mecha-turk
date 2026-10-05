@@ -915,29 +915,29 @@ describe('event kind round-trip (nullable Slice-2 fields)', () => {
 
     it('reads a row written before M7 — no headSha/baseRef at all — as null', async () => {
         {
-            const stored: Record<string, unknown> = {
-                ...createEvent({
-                    bindingId: MENTION_BINDING,
-                    repository: REPO_LABEL,
-                    accountNumericUserId: ACCOUNT_ID,
-                    accountLogin: ACCOUNT_LOGIN,
-                    projectId: PROJECT_ID,
-                    worktreeOption: 'none',
-                    kind: 'assignment',
-                    issue: {
-                        issueNumber: 2,
-                        issueTitle: 'Ticket #2',
-                        issueUrl: 'https://github.com/acme/widget/issues/2',
-                        issueBodyExcerpt: '',
-                    },
-                    actorLogin: HUMAN_AUTHOR_LOGIN,
-                    actorAttribution: LEGACY_BASIS,
-                    triggerNote: 'Issue assigned to the bound account',
-                    detectedAt: STAMP,
-                }),
-            };
-            delete stored.headSha;
-            delete stored.baseRef;
+            const stored = Object.fromEntries(
+                Object.entries(
+                    createEvent({
+                        bindingId: MENTION_BINDING,
+                        repository: REPO_LABEL,
+                        accountNumericUserId: ACCOUNT_ID,
+                        accountLogin: ACCOUNT_LOGIN,
+                        projectId: PROJECT_ID,
+                        worktreeOption: 'none',
+                        kind: 'assignment',
+                        issue: {
+                            issueNumber: 2,
+                            issueTitle: 'Ticket #2',
+                            issueUrl: 'https://github.com/acme/widget/issues/2',
+                            issueBodyExcerpt: '',
+                        },
+                        actorLogin: HUMAN_AUTHOR_LOGIN,
+                        actorAttribution: LEGACY_BASIS,
+                        triggerNote: 'Issue assigned to the bound account',
+                        detectedAt: STAMP,
+                    }),
+                ).filter(([key]) => key !== 'headSha' && key !== 'baseRef'),
+            );
 
             const parsed = parseStoredEvent(stored);
 

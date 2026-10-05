@@ -41,7 +41,7 @@ const SUBJECT: RunKeyInput = {
 };
 
 /** A GitHub-shaped personal access token, for the redaction half. */
-const PAT = `ghp_${'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6'}`;
+const PAT = 'ghp_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6';
 
 /** A dispatch token minted for attempt 1 of the fixture run. */
 const TOKEN = buildDispatchToken(buildRunKey(SUBJECT), 1);

@@ -96,11 +96,7 @@ export interface RawExchangeOptions {
 export async function startTestService(options: StartTestServiceOptions = {}): Promise<TestService> {
     const token = randomBytes(TOKEN_BYTES).toString('hex');
     const home = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
-    const env: Record<string, string | undefined> = {};
-    env.HOME = home;
-    env.OPENCHAMBER_SERVICE_PORT = OS_ASSIGNED_PORT;
-    env.OPENCHAMBER_SERVICE_TOKEN = token;
-    Object.assign(env, options.env ?? {});
+    const env: Record<string, string | undefined> = { HOME: home,  OPENCHAMBER_SERVICE_PORT: OS_ASSIGNED_PORT,  OPENCHAMBER_SERVICE_TOKEN: token,  ...options.env };
     const dataDir = options.dataDir ?? join(home, 'store');
     const logLines: string[] = [];
     const log = createLogger({
@@ -127,7 +123,7 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
         call: async (path, init = {}) =>
             await fetch(`${baseUrl}${path}`, {
                 ...init,
-                headers: { authorization: `Bearer ${token}`, ...(init.headers ?? {}) },
+                headers: { authorization: `Bearer ${token}`, ...init.headers },
             }),
         shutdown: async () => {
             await handle.shutdown();

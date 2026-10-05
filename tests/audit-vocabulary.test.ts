@@ -320,10 +320,10 @@ function firstSeqFor(input: {
     /** The run whose row must match. */
     readonly correlationId: string;
 }): number {
-    const [row] = rowsOf(input.trail, input.eventType)
-        .filter((entry) => entry.correlationId === input.correlationId);
+    const row = rowsOf(input.trail, input.eventType)
+        .find((entry) => entry.correlationId === input.correlationId);
 
-    return row === undefined ? Number.NaN : row.seq;
+    return row === undefined ? NaN : row.seq;
 }
 
 describe('AC-115 every vocabulary entry is present with its required details', () => {

@@ -774,7 +774,7 @@ describe('T-033 golden-string oracles (FR-084, FR-086, AC-146, SC-121, SC-130, A
             // run of two blank lines: each of the two gaps is exactly one.
             expect(composed.split(OPERATOR_PROMPT_FENCE_BEGIN).length - 1).toBe(1);
             expect(composed.endsWith(GOLDEN_FRAME)).toBe(true);
-            expect(composed).not.toContain('\n\n\n');
+            expect(composed).not.toContain('\n'.repeat(3));
         }
         {
             const snapshot = resolvePromptSnapshot({
@@ -863,7 +863,7 @@ const MAXIMAL_BODY = MAXIMAL_STACK?.text ?? '';
 function quotedRegion(message: string): string {
     const beginAt = message.indexOf(BEGIN_UNTRUSTED);
     const endAt = message.indexOf(END_UNTRUSTED);
-    if (beginAt < 0 || endAt < beginAt) {
+    if (beginAt === -1 || endAt < beginAt) {
         throw new Error('the composed message carries no untrusted block');
     }
 

@@ -54,10 +54,12 @@ const resetFixture = async (): Promise<void> => {
         entry = null;
     }
 
-    if (home !== null) {
-        await rm(home, { recursive: true, force: true });
-        home = null;
+    if (home === null) {
+        return;
     }
+
+    await rm(home, { recursive: true, force: true });
+    home = null;
 };
 
 afterEach(resetFixture);
@@ -73,11 +75,7 @@ afterEach(resetFixture);
  * @returns The environment to spawn the bundle with.
  */
 function buildEnv(tempHome: string): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = {};
-    env.PATH = process.env.PATH;
-    env.HOME = tempHome;
-    env.OPENCHAMBER_SERVICE_PORT = OS_ASSIGNED_PORT;
-    env.OPENCHAMBER_SERVICE_TOKEN = TOKEN;
+    const env: NodeJS.ProcessEnv = { PATH: process.env.PATH,  HOME: tempHome,  OPENCHAMBER_SERVICE_PORT: OS_ASSIGNED_PORT,  OPENCHAMBER_SERVICE_TOKEN: TOKEN, };
 
     return env;
 }
@@ -99,10 +97,12 @@ function readListeningPort(child: ChildProcess): Promise<number> {
         const capture = (chunk: Buffer): void => {
             output += chunk.toString('utf8');
             const match = /"port":(\d+)/.exec(output);
-            if (match?.[1] !== undefined) {
-                clearTimeout(timer);
-                resolve(Number(match[1]));
+            if (match?.[1] === undefined) {
+                return;
             }
+
+            clearTimeout(timer);
+            resolve(Number(match[1]));
         };
 
         child.stdout?.on('data', capture);

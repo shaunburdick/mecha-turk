@@ -49,7 +49,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -489,8 +489,7 @@ describe('exactly one tab body is in the layout', () => {
      * @returns The element the cascade is asked about.
      */
     function bodyProbe(input: { readonly id: string; readonly hidden: boolean }): ProbeElement {
-        const attributes: Record<string, string> = { role: 'tabpanel' };
-        attributes['data-body'] = input.id;
+        const attributes: Record<string, string> = { role: 'tabpanel' , ['data-body']: input.id, };
 
         if (input.hidden) {
             attributes.hidden = '';

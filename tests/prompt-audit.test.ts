@@ -123,9 +123,7 @@ async function promptRows(store: ServiceStore): Promise<readonly AuditEntry[]> {
 
 /** One binding document holding a single prompt value. */
 function bindingDocument(prompt: string | null): readonly ObservedBinding[] {
-    return prompt === null
-        ? [{ bindingId: 'bnd-one' }]
-        : [{ bindingId: 'bnd-one', startingPrompt: prompt }];
+    return [prompt === null ? { bindingId: 'bnd-one' } : { bindingId: 'bnd-one', startingPrompt: prompt }];
 }
 
 describe('T-004 recordPromptChanges: one row per change, never the text (FR-051, AC-139)', () => {
@@ -375,9 +373,7 @@ const ACCOUNT_ROW_ID = '77331';
 
 /** One account document holding a single prompt value. */
 function accountDocument(prompt: string | null): readonly ObservedAccount[] {
-    return prompt === null
-        ? [{ numericUserId: ACCOUNT_ROW_ID }]
-        : [{ numericUserId: ACCOUNT_ROW_ID, startingPrompt: prompt }];
+    return [prompt === null ? { numericUserId: ACCOUNT_ROW_ID } : { numericUserId: ACCOUNT_ROW_ID, startingPrompt: prompt }];
 }
 
 /**

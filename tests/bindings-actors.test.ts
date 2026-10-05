@@ -122,7 +122,7 @@ function sdkHandle(key: string, id: number): {
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): ReturnType<typeof sdkHandle> => {
@@ -478,7 +478,7 @@ function listFieldProps(): Record<string, unknown> {
         }
     }
 
-    const props: Record<string, unknown> = { ...(mounts.log[at]?.props as Record<string, unknown>) };
+    const props = { ...mounts.log[at]?.props as Record<string, unknown> };
     for (const update of mounts.updates) {
         if (update.key === TEXT_FIELD && update.id === id) {
             Object.assign(props, update.props);
@@ -1152,7 +1152,7 @@ describe('AC-146 no user-facing string implies a policy the service did not repo
                         bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY }),
                         bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY }),
                     ]),
-                }).flatMap((row) => [String(row.title), String(row.subtitle), String(row.leading)]),
+                }).flatMap((row) => [row.title, String(row.subtitle), String(row.leading)]),
                 // Status: the roll-up and every per-binding line.
                 ...actorPolicyLines(open),
                 ...bindingLines(open),
@@ -1200,7 +1200,7 @@ describe('AC-146 no user-facing string implies a policy the service did not repo
             for (const name of sourceNames) {
                 const text = readFileSync(resolve(dir, name), 'utf8');
                 const hits = wordsFound(stringLiterals(text).join(' '));
-                if (hits.length > 0 && !EXEMPT.some(([file]) => file === name)) {
+                if (hits.length > 0 && EXEMPT.every(([file]) => file !== name)) {
                     offenders.push(`${name}: ${hits.join(', ')}`);
                 }
             }
@@ -1320,12 +1320,14 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
             for (const [, switches] of SUBSETS) {
                 const clause = derivedTriggerClause(switches);
 
-                if (clause !== null) {
-                    expect(clause).not.toContain(LOGIN);
-                    expect(clause).not.toContain('octocat');
-                    // …and it says *the account*, never the login.
-                    expect(clause).toContain('the account');
+                if (clause === null) {
+                    continue;
                 }
+
+                expect(clause).not.toContain(LOGIN);
+                expect(clause).not.toContain('octocat');
+                // …and it says *the account*, never the login.
+                expect(clause).toContain('the account');
             }
         }
 
@@ -1517,7 +1519,7 @@ describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability a
 
                 const strings = [
                     ...bindingRows(mounted.rt.state.bindings)
-                        .flatMap((row) => [String(row.title), String(row.subtitle), String(row.leading)]),
+                        .flatMap((row) => [row.title, String(row.subtitle), String(row.leading)]),
                     String(listFieldProps().helper),
                     String(listFieldProps().placeholder),
                     // Status speaks about bindings too, so its roll-up is in the

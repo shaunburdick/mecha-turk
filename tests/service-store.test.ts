@@ -44,8 +44,7 @@ const STORE_RELATIVE_PATH = '.config/openchamber/mecha-turk';
 
 /** Environment the host would provide, built without quoting non-camel keys. */
 function homeEnv(home: string): Record<string, string | undefined> {
-    const env: Record<string, string | undefined> = {};
-    env.HOME = home;
+    const env: Record<string, string | undefined> = { HOME: home, };
 
     return env;
 }
@@ -398,7 +397,7 @@ describe('SEC-13 atomic credential window', () => {
 
             await store.writeJson('accounts/123.json', { token: 'x' });
             const entries = await readdir(dataDir, { recursive: true });
-            const debris = entries.filter((entry) => isTempDebris(String(entry)));
+            const debris = entries.filter((entry) => isTempDebris(entry));
 
             expect(debris).toEqual([]);
         }

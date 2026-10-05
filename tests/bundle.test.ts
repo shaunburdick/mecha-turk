@@ -1365,15 +1365,15 @@ describe('003 v1.8.0 no permitted login reaches any surface (NFR-113, AC-132)', 
     });
 
     it('introduces no suppression and no `any` into a Wave-2 module (invariant 7)', () => {
-        const modules: readonly string[] = [
+        const modules: ReadonlySet<string> = new Set([
             'service/poll/dispatch-actor-gate.ts',
             'service/bindings-read.ts',
             'src/relay-gates.ts',
             'src/run-actor.ts',
             'src/dispatches-detail.ts',
-        ];
-        const sources = scanSources().filter((file) => modules.includes(file.path));
-        expect(sources).toHaveLength(modules.length);
+        ]);
+        const sources = scanSources().filter((file) => modules.has(file.path));
+        expect(sources).toHaveLength(modules.size);
         for (const file of sources) {
             const directives = file.text.match(/eslint-disable[^\n]*/gu) ?? [];
             for (const directive of directives) {

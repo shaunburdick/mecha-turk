@@ -59,7 +59,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -291,12 +291,7 @@ function isSpecs006Field(name: string): boolean {
  * @returns The envelope a build carrying only 006's fields answers with.
  */
 function specs006OnlyEnvelope(): ConfigEnvelope {
-    const config: Record<string, unknown> = {};
-    for (const [name, value] of Object.entries(DEFAULT_CONFIG)) {
-        if (isSpecs006Field(name)) {
-            config[name] = value;
-        }
-    }
+    const config = Object.fromEntries(Object.entries(DEFAULT_CONFIG).filter(([name]) => isSpecs006Field(name)));
 
     const parsed = parseConfigEnvelope(
         envelopeBody({

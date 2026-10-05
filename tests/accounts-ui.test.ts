@@ -75,7 +75,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -159,9 +159,7 @@ describe('silent account adoption (MVP blocker 2)', () => {
         // account mirror. Only the service still holds the account.
         const host = await scriptedRuntime(
             (request) => {
-                return request.path === ACCOUNTS_PATH
-                    ? { status: 200, body: accountsBody }
-                    : { status: 200, body: STATUS_BODY };
+                return ({ status: 200, body: request.path === ACCOUNTS_PATH ? accountsBody : STATUS_BODY });
             },
             {},
         );

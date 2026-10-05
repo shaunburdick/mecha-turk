@@ -113,7 +113,7 @@ describe('002 FR-042 / AC-022 the two operator documents describe the shipped pa
             for (const doc of PAGES) {
                 // Prose asserts against whitespace-normalized text: both documents
                 // wrap at ~80 columns, so a phrase's words can be on two lines.
-                const prose = page(doc).replace(/\s+/g, ' ');
+                const prose = page(doc).replaceAll(/\s+/g, ' ');
                 expect(prose, `${doc} does not point at the configuration document`).toContain('GET /v1/config');
                 // 006 T-029 (extending 005 T-033): the read-only era is history —
                 // the tab edits, and the documents must say so rather than repeat

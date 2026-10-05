@@ -176,10 +176,7 @@ function fixtureDocument(runs: readonly unknown[]): RunsDocument {
  * @returns The row, as an untrusted record.
  */
 function poisoned(field: string, value: unknown): Record<string, unknown> {
-    const row: Record<string, unknown> = { ...fixtureRun() };
-    row[field] = value;
-
-    return row;
+    return { ...fixtureRun(), [field]: value };
 }
 
 /**
@@ -204,15 +201,9 @@ function poisonedState(value: unknown): Record<string, unknown> {
  * @returns The row, missing those fields.
  */
 function without(...fields: readonly string[]): Record<string, unknown> {
-    const row: Record<string, unknown> = { ...fixtureRun() };
-    const kept: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(row)) {
-        if (!fields.includes(key)) {
-            kept[key] = value;
-        }
-    }
+    const row = { ...fixtureRun() };
 
-    return kept;
+    return Object.fromEntries(Object.entries(row).filter(([key]) => !fields.includes(key)));
 }
 
 /**

@@ -116,10 +116,12 @@ afterEach(async (): Promise<void> => {
         running = null;
     }
 
-    if (scratch !== null) {
-        await rm(scratch, { recursive: true, force: true });
-        scratch = null;
+    if (scratch === null) {
+        return;
     }
+
+    await rm(scratch, { recursive: true, force: true });
+    scratch = null;
 });
 
 /**
@@ -317,7 +319,7 @@ describe('T-045 the pass adopts under the stamp it judges with', () => {
         // that stamp and one millisecond before the pass's stamp — so it reads
         // as expired to a pass from *any* moment, including one whose clock
         // sample predates this mint (the shape that failed).
-        expect(recovery?.details.leaseExpiry).toBe(String(fixture.legacyRow.claimedAt));
+        expect(recovery?.details.leaseExpiry).toBe(fixture.legacyRow.claimedAt);
         expect(outcome.auditWritten, JSON.stringify({ log: lines })).toBe(true);
         const rows = await leaseExpiryRows(store);
         expect(rows).toHaveLength(1);

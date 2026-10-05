@@ -51,7 +51,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -467,7 +467,7 @@ describe('the repository link opens through the host (2026-10-01 scrub)', () => 
             const view = await mountAbout({ answer: healthyService });
             const link = lastProps(
                 'mountText',
-                (props) => typeof props.text === 'string' && String(props.text).startsWith('Repository: '),
+                (props) => typeof props.text === 'string' && props.text.startsWith('Repository: '),
             );
 
             expect(link?.text).toBe(`Repository: [${REPOSITORY_URL}](${REPOSITORY_URL})`);

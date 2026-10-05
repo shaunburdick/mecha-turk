@@ -195,13 +195,13 @@ function unfilteredRow(values) {
     const { filter, line, previous, bytesPerPixel } = values;
     const current = Buffer.alloc(line.length);
 
-    for (let index = 0; index < line.length; index++) {
+    for (const [index, element] of line.entries()) {
         const left = index >= bytesPerPixel ? current[index - bytesPerPixel] : 0;
         const above = previous[index];
         const upperLeft = index >= bytesPerPixel ? previous[index - bytesPerPixel] : 0;
         const added = predictor({ filter, left, above, upperLeft });
 
-        current[index] = (line[index] + added) % BYTE_WRAP;
+        current[index] = (element + added) % BYTE_WRAP;
     }
 
     return current;
@@ -244,11 +244,11 @@ function expandRgb(pixels) {
 function expandGray(pixels) {
     const rgba = Buffer.alloc(pixels.length * 4);
 
-    for (let index = 0; index < pixels.length; index++) {
+    for (const [index, pixel] of pixels.entries()) {
         const target = index * 4;
-        rgba[target] = pixels[index];
-        rgba[target + 1] = pixels[index];
-        rgba[target + 2] = pixels[index];
+        rgba[target] = pixel;
+        rgba[target + 1] = pixel;
+        rgba[target + 2] = pixel;
         rgba[target + 3] = OPAQUE_ALPHA;
     }
 
@@ -280,13 +280,13 @@ function expandPalette(input) {
 
     const rgba = Buffer.alloc(pixels.length * 4);
 
-    for (let index = 0; index < pixels.length; index++) {
-        const entry = pixels[index] * 3;
+    for (const [index, pixel] of pixels.entries()) {
+        const entry = pixel * 3;
         const target = index * 4;
         rgba[target] = palette[entry];
         rgba[target + 1] = palette[entry + 1];
         rgba[target + 2] = palette[entry + 2];
-        rgba[target + 3] = transparency === null ? OPAQUE_ALPHA : transparency[pixels[index]];
+        rgba[target + 3] = transparency === null ? OPAQUE_ALPHA : transparency[pixel];
     }
 
     return rgba;

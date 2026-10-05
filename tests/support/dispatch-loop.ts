@@ -291,10 +291,12 @@ function buildHost(input: {
 function stopMount(rt: PanelRuntime): void {
     rt.disposed = true;
     rt.relayArmed = false;
-    if (rt.state.relay.timer !== null) {
-        clearInterval(rt.state.relay.timer);
-        rt.state.relay.timer = null;
+    if (rt.state.relay.timer === null) {
+        return;
     }
+
+    clearInterval(rt.state.relay.timer);
+    rt.state.relay.timer = null;
 }
 
 /** Drain every mount (pending read-backs first) and the instance itself. */
@@ -308,11 +310,13 @@ async function drainLoop(input: {
 }): Promise<void> {
     while (input.mounts.length > 0) {
         const rt = input.mounts.pop();
-        if (rt !== undefined) {
-            stopMount(rt);
-            if (rt.pendingVerifications.length > 0) {
-                await drainVerifications(rt);
-            }
+        if (rt === undefined) {
+            continue;
+        }
+
+        stopMount(rt);
+        if (rt.pendingVerifications.length > 0) {
+            await drainVerifications(rt);
         }
     }
 

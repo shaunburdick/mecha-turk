@@ -904,7 +904,7 @@ describe('002 FR-024 the allow-list refusals: one rule set, every issue at once'
                 const issues = await refusalIssues(refused.text);
                 expect(issues.map((issue) => issue.field), label).toEqual(['allowedUsers']);
                 // The remediation names the shape to send, never the text typed.
-                expect(issues[0]?.remediation, label).not.toContain(String(JSON.stringify(value)));
+                expect(issues[0]?.remediation, label).not.toContain(JSON.stringify(value));
                 expect(await storedBytes(service), label).toBe(bytesBefore);
             }
 
@@ -919,7 +919,7 @@ describe('002 FR-024 the allow-list refusals: one rule set, every issue at once'
                 const issues = await refusalIssues(refused.text);
                 expect(issues.map((issue) => issue.field), label).toEqual(['allowedUsers']);
                 // One refusal for the whole field, and no echo of the bad element.
-                expect(issues[0]?.remediation, label).not.toContain(String(JSON.stringify(element)));
+                expect(issues[0]?.remediation, label).not.toContain(JSON.stringify(element));
                 expect(await storedBytes(service), label).toBe(bytesBefore);
             }
         }

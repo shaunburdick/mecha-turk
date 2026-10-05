@@ -190,7 +190,7 @@ function answerStorage(message) {
 
 /** Answer one `service-request` from the fixture route table. */
 function answerServiceRequest(message) {
-    const path = String(message.payload.path).split('?')[0];
+    const path = String(message.payload.path).split('?', 1)[0];
     const key = `${message.payload.method} ${path}`;
     const route = routes[key];
 
@@ -234,27 +234,34 @@ function answerStartSession(message) {
 /** Route one validated guest message to its answer. */
 function dispatch(message) {
     switch (message.type) {
-        case 'hello':
+        case 'hello': {
             sendReady();
             return;
-        case 'storage':
+        }
+        case 'storage': {
             answerStorage(message);
             return;
-        case 'service-request':
+        }
+        case 'service-request': {
             answerServiceRequest(message);
             return;
+        }
         case 'workspace-read':
-        case 'workspace-subscribe':
+        case 'workspace-subscribe': {
             answerWorkspace(message);
             return;
-        case 'service-status':
+        }
+        case 'service-status': {
             reply(message.id, { status: 'ready' });
             return;
-        case 'start-session':
+        }
+        case 'start-session': {
             answerStartSession(message);
             return;
-        default:
+        }
+        default: {
             reply(message.id, {});
+        }
     }
 }
 

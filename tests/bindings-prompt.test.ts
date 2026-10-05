@@ -101,7 +101,7 @@ function sdkHandle(key: string, id: number): {
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): ReturnType<typeof sdkHandle> => {
@@ -726,7 +726,7 @@ function promptFieldProps(): Record<string, unknown> {
         }
     }
 
-    const props: Record<string, unknown> = { ...(mounts.log[at]?.props as Record<string, unknown>) };
+    const props = { ...mounts.log[at]?.props as Record<string, unknown> };
     for (const update of mounts.updates) {
         if (update.key === TEXT_FIELD && update.id === id) {
             Object.assign(props, update.props);

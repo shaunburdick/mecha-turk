@@ -370,12 +370,8 @@ function verificationRun(agent: string): VerificationRun {
  * @returns The response body.
  */
 function configBody(expectedAgent?: string): string {
-    const config: Record<string, unknown> = { ...DEFAULT_CONFIG };
-    if (expectedAgent === undefined) {
-        delete config.expectedAgent;
-    } else {
-        config.expectedAgent = expectedAgent;
-    }
+    const base = Object.fromEntries(Object.entries(DEFAULT_CONFIG).filter(([key]) => key !== 'expectedAgent'));
+    const config = expectedAgent === undefined ? base : { ...base, expectedAgent };
 
     return JSON.stringify({ config });
 }

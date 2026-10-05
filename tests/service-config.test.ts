@@ -185,10 +185,12 @@ afterEach(async (): Promise<void> => {
         running = null;
     }
 
-    if (scratch !== null) {
-        await rm(scratch, { recursive: true, force: true });
-        scratch = null;
+    if (scratch === null) {
+        return;
     }
+
+    await rm(scratch, { recursive: true, force: true });
+    scratch = null;
 });
 
 /**
@@ -1057,10 +1059,9 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
 
     it('emits descriptors in exactly the order a full refusal reports issues', async () => {
         {
-            const candidate: Record<string, unknown> = {};
-            for (const descriptor of configSchema()) {
-                candidate[descriptor.name] = refusedValueFor(descriptor);
-            }
+            const candidate = Object.fromEntries(
+                configSchema().map((descriptor) => [descriptor.name, refusedValueFor(descriptor)]),
+            );
 
             const result = validateConfig(candidate);
 
@@ -1198,10 +1199,7 @@ describe('logLevel is immediate (006 FR-033, FR-037, AC-103, SC-105)', () => {
             'utf8',
         );
 
-        const hostEnv: Record<string, string | undefined> = {};
-        hostEnv.HOME = home;
-        hostEnv.OPENCHAMBER_SERVICE_PORT = '0';
-        hostEnv.OPENCHAMBER_SERVICE_TOKEN = BEARER_TOKEN;
+        const hostEnv: Record<string, string | undefined> = { HOME: home,  OPENCHAMBER_SERVICE_PORT: '0',  OPENCHAMBER_SERVICE_TOKEN: BEARER_TOKEN, };
         const handle = await startService({
             env: readServiceEnv(hostEnv),
             dataDir,

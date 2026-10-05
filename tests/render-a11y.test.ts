@@ -50,7 +50,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -363,9 +363,9 @@ describe('FR-081 every control and row action has an accessible name', () => {
     it('gives every button, field, select, banner, and list a name', async () => {
         {
             const rendered = await renderSixTabs();
-            const namedKinds = ['mountButton', 'mountTextField', 'mountSelect', 'mountBanner', 'mountList'];
+            const namedKinds = new Set(['mountButton', 'mountTextField', 'mountSelect', 'mountBanner', 'mountList']);
             const named = rendered.log.filter((entry) =>
-                entry.key.startsWith('mount') && !entry.key.includes(':') && namedKinds.includes(entry.key));
+                entry.key.startsWith('mount') && !entry.key.includes(':') && namedKinds.has(entry.key));
 
             expect(named.length).toBeGreaterThan(10);
             for (const entry of named) {

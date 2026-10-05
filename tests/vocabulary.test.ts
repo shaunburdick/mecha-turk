@@ -257,7 +257,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -489,11 +489,11 @@ describe('FR-028: a test is named for the layer its subject is in', () => {
     it('titles no test with a retired capital noun', () => {
         const titles: string[] = [];
         for (const entry of readdirSync(resolve(ROOT, 'tests'))) {
-            if (!String(entry).endsWith('.ts')) {
+            if (!entry.endsWith('.ts')) {
                 continue;
             }
 
-            const source = readFileSync(resolve(ROOT, 'tests', String(entry)), 'utf8');
+            const source = readFileSync(resolve(ROOT, 'tests', entry), 'utf8');
             // `it(` / `describe(` / `test(` at a call site — not `.test(`,
             // which is how a matcher's own fixture would read as a title.
             const call = /(?:^|[\s;{(])(?:it|describe|test)\(\s*'([^']*)'/g;

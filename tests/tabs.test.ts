@@ -67,10 +67,12 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
             const paint = (activeId: string): void => {
                 for (const item of initial.items) {
                     const button = strip.buttons[initial.items.indexOf(item)];
-                    if (button !== undefined) {
-                        button.setAttribute('aria-selected', item.id === activeId ? 'true' : 'false');
-                        button.tabIndex = item.id === activeId ? 0 : -1;
+                    if (button === undefined) {
+                        continue;
                     }
+
+                    button.setAttribute('aria-selected', item.id === activeId ? 'true' : 'false');
+                    button.tabIndex = item.id === activeId ? 0 : -1;
                 }
             };
 

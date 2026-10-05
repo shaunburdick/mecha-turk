@@ -590,8 +590,9 @@ describe('T-040e lease provenance is typed, and the parser refuses anything else
                     if (candidate.correlationId !== run.correlationId || candidate.lease === null) {
                         return candidate;
                     }
-                    const lease: Record<string, unknown> = { ...candidate.lease };
-                    delete lease.provenance;
+                    const lease = Object.fromEntries(
+                        Object.entries(candidate.lease).filter(([key]) => key !== 'provenance'),
+                    );
 
                     return { ...candidate, lease };
                 }),

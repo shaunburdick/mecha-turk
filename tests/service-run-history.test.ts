@@ -513,7 +513,7 @@ describe('T-016 the history row carries every member contract §1 names', () => 
         expect(afterClaim.row.state).toBe('claimed');
         expect(afterClaim.row.leaseExpiresAt).toBe(leased.lease?.expiresAt ?? null);
         expect(afterClaim.row.claimedAt).toBe(leased.lease?.issuedAt ?? null);
-        expect(String(afterClaim.row.stateReason)).toContain(String(leased.lease?.expiresAt));
+        expect(afterClaim.row.stateReason).toContain(String(leased.lease?.expiresAt));
 
         // Authorized: the result deadline joins, and it is the reserve's own.
         const reserved = await reserve(service, run);

@@ -525,7 +525,7 @@ describe('the wait delays the schedule instead of being caught up (002 FR-022)',
             };
 
             try {
-                await flush(() => fetchStamps.length >= 1);
+                await flush(() => fetchStamps.length > 0);
                 expect(loop.state().nextPollAtMs).toBeNull();
 
                 await vi.advanceTimersByTimeAsync(LADDER.baseMs + LADDER.baseMs * 2);

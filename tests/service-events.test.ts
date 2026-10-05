@@ -313,9 +313,7 @@ function recordingPoller(issues: readonly PollIssue[]): RecordedPoller {
             seenEvents.push(input.issueNumber);
             const candidate = issues.find((issue) => issue.issueNumber === input.issueNumber);
 
-            return candidate === undefined
-                ? { kind: 'ok', events: [], exhausted: false }
-                : { kind: 'ok', events: namingEventFor(candidate), exhausted: false };
+            return ({ kind: 'ok', events: candidate === undefined ? [] : namingEventFor(candidate), exhausted: false });
         },
     };
 
@@ -447,8 +445,7 @@ describe('parseStoredEvent (the issueNumber boundary)', () => {
 
     it('still refuses a missing, text, or non-positive issueNumber', () => {
         const event = createEvent(fixtureSnapshot(2, ''));
-        const withoutNumber: Record<string, unknown> = { ...event };
-        delete withoutNumber.issueNumber;
+        const withoutNumber = Object.fromEntries(Object.entries(event).filter(([key]) => key !== 'issueNumber'));
 
         expect(parseStoredEvent(withoutNumber)).toBeNull();
         expect(parseStoredEvent({ ...event, issueNumber: '2' })).toBeNull();
@@ -1344,18 +1341,18 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
         // The docblock promises a `[A-Za-z0-9._~]`-only, one-path-segment id of
         // the form `evt-<owner>~<repo>~<issue>~<account>` plus its discriminator.
         // Every produced id is checked against that promise, not against itself.
-        const ids = [
-            ...['', '~mention~body', '~mention~4242', '~review'].map((discriminator) => buildEventId({
+        const ids =
+            ['', '~mention~body', '~mention~4242', '~review'].map((discriminator) => buildEventId({
                 repository: { owner: 'acme', name: 'widget' },
                 issueNumber: 12,
                 accountNumericUserId: ACCOUNT_ID,
                 ...(discriminator !== '' && { discriminator }),
-            })),
-        ];
+            }))
+        ;
 
         for (const id of ids) {
             expect(id).toMatch(/^evt-[A-Za-z0-9._~|-]+$/);
-            expect(id.split('~')[0]).toBe('evt-acme');
+            expect(id.split('~', 1)[0]).toBe('evt-acme');
             expect(id).not.toContain('/');
             // "One URL path segment" means it needs no percent-encoding at all.
             expect(encodeURIComponent(id)).toBe(id);

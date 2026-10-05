@@ -390,7 +390,7 @@ describe('method and path validation', () => {
     it('refuses absolute-form and protocol-relative targets', async () => {
         {
             const service = await startServiceForTest();
-            const targets = [`http://evil.example${HEALTH_PATH}`, `//evil.example${HEALTH_PATH}`];
+            const targets = [`https://evil.example${HEALTH_PATH}`, `//evil.example${HEALTH_PATH}`];
 
             for (const target of targets) {
                 const reply = await rawExchange({

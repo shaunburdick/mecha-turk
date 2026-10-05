@@ -37,7 +37,7 @@ import { ISSUE_URL, createTestRuntime, fakeHost } from './support/panel.ts';
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (root: unknown, props: unknown): {

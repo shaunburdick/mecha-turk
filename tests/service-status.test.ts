@@ -105,10 +105,12 @@ afterEach(async (): Promise<void> => {
         await service?.shutdown();
     }
 
-    if (scratch !== null) {
-        await rm(scratch, { recursive: true, force: true });
-        scratch = null;
+    if (scratch === null) {
+        return;
     }
+
+    await rm(scratch, { recursive: true, force: true });
+    scratch = null;
 });
 
 /**

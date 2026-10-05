@@ -199,8 +199,8 @@ async function seedRows(input: {
             entity: { kind: 'run', id: input.correlationId },
             correlationId: input.correlationId,
             reason: `fixture row ${index}`,
-            ...(input.row ?? {}),
-            details: { ...(input.details ?? {}), fixture: index },
+            ...input.row,
+            details: { ...input.details, fixture: index },
         }));
     }
 

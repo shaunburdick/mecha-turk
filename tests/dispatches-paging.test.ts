@@ -563,7 +563,7 @@ function pagedSource(
     calls: string[],
 ): (request: GuestRequest) => Promise<GuestRequestResult> {
     return async (request) => {
-        const url = new URL(request.path, 'http://panel.invalid');
+        const url = new URL(request.path, 'https://panel.invalid');
         const limit = Number(url.searchParams.get('limit') ?? '25');
         const start = Number(url.searchParams.get('cursor') ?? '0');
         const slice = rows.slice(start, start + limit);

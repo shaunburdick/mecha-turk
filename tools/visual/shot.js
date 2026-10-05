@@ -209,26 +209,46 @@ function parseArgs(argv) {
     for (let index = 0; index < argv.length; index++) {
         const argument = argv[index];
 
-        if (argument === '--out') {
-            options.outDir = optionValue(argv, index);
-            index++;
-        } else if (argument === '--width') {
-            options.width = Number(optionValue(argv, index));
-            index++;
-        } else if (argument === '--max-height') {
-            options.maxHeight = Number(optionValue(argv, index));
-            index++;
-        } else if (argument === '--session') {
-            options.session = optionValue(argv, index);
-            index++;
-        } else if (argument === '--no-full') {
-            options.full = false;
-        } else if (argument === '--help') {
-            options.help = true;
-        } else if (argument.startsWith('-')) {
-            throw new Error(`unknown option ${argument}\n${USAGE}`);
-        } else {
+        switch (argument) {
+            case '--out': {
+                options.outDir = optionValue(argv, index);
+                index++;
+
+                break;
+            }
+            case '--width': {
+                options.width = Number(optionValue(argv, index));
+                index++;
+
+                break;
+            }
+            case '--max-height': {
+                options.maxHeight = Number(optionValue(argv, index));
+                index++;
+
+                break;
+            }
+            case '--session': {
+                options.session = optionValue(argv, index);
+                index++;
+
+                break;
+            }
+            case '--no-full': {
+                options.full = false;
+
+                break;
+            }
+            case '--help': {
+                options.help = true;
+
+                break;
+            }
+            default: { if (argument.startsWith('-')) {
+                throw new Error(`unknown option ${argument}\n${USAGE}`);
+            }
             options.tabs.push(argument);
+            }
         }
     }
 
