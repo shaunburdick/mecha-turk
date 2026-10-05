@@ -86,8 +86,6 @@ export interface ServiceStore {
     readLines<T>(relativePath: string, parse: (raw: unknown) => T | null): Promise<NdjsonReadResult<T>>;
     /**
      * List the entries of a directory inside the data directory.
-     *
-     * @returns Entry names; a missing directory is an empty list.
      */
     listDir(relativePath: string): Promise<readonly string[]>;
     /**

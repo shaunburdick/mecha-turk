@@ -220,8 +220,6 @@ async function startSeededService(options: { readonly registered?: boolean } = {
 
 /**
  * Build the detection one fixture delivery is assembled from.
- *
- * @returns A complete event snapshot of the kind asked for.
  */
 function detection(input: {
     readonly issueNumber: number;

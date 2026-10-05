@@ -223,7 +223,6 @@ async function plantTrail(rows: readonly Record<string, unknown>[]): Promise<voi
  * The configuration one pass runs on, with any knob overridden.
  *
  * @param overrides - Knobs to move off their documented defaults.
- * @returns A complete configuration document.
  */
 function configWith(overrides: Partial<ServiceConfig> = {}): ServiceConfig {
     return { ...DEFAULT_CONFIG, ...overrides };

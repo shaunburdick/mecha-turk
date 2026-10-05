@@ -467,8 +467,6 @@ function configAnswer(body: string): (request: GuestRequest) => GuestRequestResu
 
 /**
  * Build a Settings read state with only the members a case changes.
- *
- * @returns A complete Settings read state.
  */
 function settingsSlice(overrides: Partial<SettingsTabState> = {}): SettingsTabState {
     return { phase: 'idle', at: null, problem: null, stale: false, doc: null, edit: emptyEdit(), ...overrides };

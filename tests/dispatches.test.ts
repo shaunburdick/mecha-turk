@@ -232,8 +232,6 @@ function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {
 
 /**
  * Build a Dispatches-section state around the given rows.
- *
- * @returns A complete state object.
  */
 function runsState(overrides: Partial<DispatchesState> = {}): DispatchesState {
     return { ...initialDispatches(), ...overrides };
@@ -1270,8 +1268,6 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
 
 /**
  * Build one audit entry the way the trail stores it (contract §2).
- *
- * @returns A complete, valid entry.
  */
 function auditEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {

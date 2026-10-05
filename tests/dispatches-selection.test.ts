@@ -106,8 +106,6 @@ interface MountedDispatches {
 
 /**
  * Build one runs row the way the service projects it.
- *
- * @returns A complete, valid row (003 contract §2's projection).
  */
 function runRow(state: RunRow['state']): RunRow {
     return {

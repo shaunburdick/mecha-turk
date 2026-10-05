@@ -207,8 +207,6 @@ async function seedRows(input: {
 
 /**
  * The one detection this suite's real run is enqueued from.
- *
- * @returns A complete assignment snapshot.
  */
 function detection(): EventSnapshot {
     return {

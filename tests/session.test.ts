@@ -110,8 +110,6 @@ function issue(overrides: Partial<GitHubIssue> = {}): GitHubIssue {
 
 /**
  * Build one source reference the bounded context quotes.
- *
- * @returns A complete source reference.
  */
 function source(overrides: Partial<ContextSource> = {}): ContextSource {
     return {

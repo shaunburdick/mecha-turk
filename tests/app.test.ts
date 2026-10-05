@@ -85,8 +85,6 @@ function settingsOf(entries: readonly (readonly [string, string])[] = []): Reado
 
 /**
  * Build one enabled service binding, as `GET /v1/bindings` answers.
- *
- * @returns A binding row matching the panel test fixtures.
  */
 function activeBinding(): PanelBinding {
     return {

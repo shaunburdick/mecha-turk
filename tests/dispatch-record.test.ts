@@ -51,8 +51,6 @@ const RECORDED_AT = '2026-09-29T10:00:00.000Z';
 
 /**
  * Build one stored attempt.
- *
- * @returns A complete, parseable record.
  */
 function attempt(overrides: Partial<DispatchAttemptRecord> = {}): DispatchAttemptRecord {
     return {

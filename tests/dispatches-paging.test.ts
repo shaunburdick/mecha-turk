@@ -483,7 +483,6 @@ const PAGE_ONE_STATE_FILTERED = 'GET /v1/events?limit=25&state=failed';
  * Build one row the way the service projects it, keyed by its position.
  *
  * @param index - One-based position in the fixture set; also its issue number.
- * @returns A complete, parseable row.
  */
 function fixtureRow(index: number, overrides: Partial<RunRow> = {}): RunRow {
     const id = `mt-run-${index.toString(16).padStart(24, '0')}`;

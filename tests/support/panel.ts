@@ -117,8 +117,6 @@ export const SESSIONS: GuestSessionsSnapshot = {
  *
  * Every default is a neutral, type-correct answer rather than a throw, so a
  * test only fails where it genuinely diverges from the documented behaviour.
- *
- * @returns A complete {@link PanelHost}.
  */
 export function fakeHost(overrides: Partial<PanelHost> = {}): PanelHost {
     return {
@@ -185,8 +183,6 @@ export function fakeWindow(): WindowDouble {
 
 /**
  * Build the validated configuration used across the panel tests.
- *
- * @returns A complete spike configuration.
  */
 export function testConfig(overrides: Partial<BindingContext> = {}): BindingContext {
     return {

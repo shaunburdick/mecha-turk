@@ -325,8 +325,6 @@ function disabledBinding(): PanelBinding {
 
 /**
  * Build a bindings state around one row, so the row copy can be asserted.
- *
- * @returns A complete bindings state.
  */
 function bindingsState(input: {
     /** The one binding to render. */
