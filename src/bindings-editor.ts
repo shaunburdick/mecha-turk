@@ -37,6 +37,7 @@ import { mountButton, mountText } from '@openchamber/sdk/ui';
 import type { ButtonHandle, SelectOption, TextHandle } from '@openchamber/sdk/ui';
 import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 import type { PanelBinding } from './bindings-service.ts';
+import { accountGate, accountsRead } from './bindings-accounts.ts';
 import { STATE_OFF, STATE_ON } from './bindings-chips.ts';
 
 /** Label of the primary control while the form is adding a binding. */
@@ -150,7 +151,10 @@ export function repaintBindingActions(input: {
         disabled: bindings.status !== 'ready',
     });
     actions.cancel.update({ disabled: !bindings.editorOpen });
-    actions.newBinding.update({ disabled: bindings.status !== 'ready' });
+    // FR-120: the gate is zero accounts **at all**, and it is conjunctive with the
+    // read-state condition already here — so it cannot fire on a read that never
+    // succeeded. The predicate is the shared one, not a second `status` test.
+    actions.newBinding.update({ disabled: !accountsRead(bindings) || accountGate(bindings).blocked });
     actions.toggle.update({ disabled: bindings.selectedBinding === null });
     actions.removeSelected.update({ disabled: bindings.selectedBinding === null });
 }

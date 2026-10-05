@@ -178,6 +178,27 @@ const stateMeaning: Readonly<Record<string, string>> = {
         nagging about what the panel cannot read would teach you to ignore the banner.
     </p>
 
+    <h2>How Status keeps itself current</h2>
+
+    <p>
+        <strong>Status</strong> is the one tab that refreshes itself. It reads again on the interval the
+        last status document reported — the same interval the service is polling on — so the numbers on
+        screen are not frozen at the moment you opened the panel. The tab states that period in words
+        beside <strong>Refresh status</strong>, so a page whose values move on their own never does it
+        without saying how often.
+    </p>
+
+    <p>
+        The period follows the service rather than the panel: change the poll interval and the next read
+        carries the new one, so the tab moves with it. Until that first read has landed the tab says it
+        is <strong>not refreshing itself</strong> rather than showing a plausible-looking number nobody
+        reported — the panel holds no default for one. The tick belongs to <strong>Status</strong> alone,
+        so switching to another tab stops it, and switching back reads straight away instead of waiting
+        out what was left of the old period. <strong>Refresh status</strong> is there whenever you want a
+        read now, and a read that fails keeps the last document and marks it stale rather than blanking
+        the tab with a summary built from nothing.
+    </p>
+
     <p>
         When a dispatch does not go through, the <a href={withBase('/debug/')}>debug page</a> matches the
         symptom string to a cause and an action.

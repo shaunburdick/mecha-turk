@@ -42,6 +42,13 @@ import type { BindingActorControls } from './bindings-actors.ts';
 import { disposeBindingPrompt, mountBindingPrompt } from './bindings-prompt.ts';
 import type { BindingPromptControls } from './bindings-prompt.ts';
 import {
+    ACCOUNT_PICKER_PLACEHOLDER,
+    disposeAccountReason,
+    emptyBindingsText,
+    mountAccountReason,
+} from './bindings-accounts.ts';
+import type { AccountReasonControls } from './bindings-accounts.ts';
+import {
     accountFieldView,
     editorStateLine,
     mountBindingActions,
@@ -75,9 +82,6 @@ const LIST_COLUMNS: readonly string[] = ['State', 'Repository and project', 'Pen
 /** Class of the one row the list's controls share. */
 const TOOLBAR_CLASS = 'mt-toolbar';
 
-/** What the list says when the store holds nothing, naming the way to add one. */
-const LIST_EMPTY = 'No binding yet — select New binding to add one, or refresh.';
-
 /** Inputs the mounts share (runtime, pane root, handlers). */
 interface MountInputs {
     /** Runtime whose state repaints the control. */
@@ -99,6 +103,14 @@ interface Board {
     readonly toolbar: HTMLElement;
     /** Refresh button (mounted into {@link Board.toolbar}). */
     readonly refreshBindings: ButtonHandle;
+    /**
+     * FR-121's reason line, mounted **directly after** the toolbar.
+     *
+     * Beside the control it explains rather than inside the editor the operator
+     * has not been able to open, and hidden outright whenever the gate does not
+     * hold.
+     */
+    readonly newBindingReason: AccountReasonControls;
 }
 
 /** The editor half of the pane, which the list opens on request. */
@@ -181,7 +193,7 @@ function mountBindingsBoard(input: MountInputs): Board {
     const list = mountList(grid, {
         items: [],
         ariaLabel: 'Bindings',
-        emptyText: LIST_EMPTY,
+        emptyText: emptyBindingsText(rt.state.bindings),
         onSelect: (id: string) => handlers.selectBinding(id),
     });
     const toolbar = createToolbar(pane);
@@ -189,7 +201,9 @@ function mountBindingsBoard(input: MountInputs): Board {
         toolbar,
         { label: 'Refresh bindings', variant: 'outline', onClick: handlers.refresh },
     );
-    return { status, note, bindingsList: list, toolbar, refreshBindings: refresh };
+    // FR-121: the reason belongs directly under the control row it explains.
+    const newBindingReason = mountAccountReason({ rt, pane });
+    return { status, note, bindingsList: list, toolbar, refreshBindings: refresh, newBindingReason };
 }
 
 function mountRepoField(input: MountInputs): TextFieldHandle {
@@ -209,7 +223,7 @@ function mountAccountSelect(input: MountInputs): SelectHandle {
         value: view.value,
         options: view.options,
         searchable: true,
-        placeholder: 'Select a verified account',
+        placeholder: ACCOUNT_PICKER_PLACEHOLDER,
         disabled: view.disabled,
         onChange: (id) => input.handlers.selectAccount(id),
     });
@@ -353,6 +367,7 @@ function disposeBindingsBody(input: BodyParts): void {
     detail.detailBox.remove();
     disposeBindingActors(actors);
     disposeBindingPrompt(prompt);
+    disposeAccountReason(board.newBindingReason);
     detail.detailChips.dispose();
     detail.selectedDetail.dispose();
     listBlock.dispose();
@@ -398,6 +413,7 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
         note: board.note,
         bindingsList: board.bindingsList,
         refreshBindings: board.refreshBindings,
+        newBindingReason: board.newBindingReason,
         newBinding: actions.newBinding,
         toggleSelected: actions.toggle,
         removeSelected: actions.removeSelected,

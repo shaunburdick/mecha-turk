@@ -22,13 +22,15 @@
  *   store as a module constant.
  */
 
+import { join } from 'node:path';
+
 import { findSecretLeak } from '../src/redaction.ts';
 import { expectedAgentIssue } from './config-agent.ts';
 import { startingPromptIssue } from './config-prompt.ts';
 import { truncatedFieldName } from './http.ts';
 import { isRecord } from './json.ts';
 import { validateStartingPrompt } from './prompt.ts';
-import type { JsonReadResult } from './store/index.ts';
+import type { JsonReadResult, ServiceStore } from './store/index.ts';
 import type { LogLevel, ServiceLogger } from './log.ts';
 
 /** Store file this configuration is persisted to. */
@@ -521,6 +523,81 @@ export function configFromStore(result: JsonReadResult<StoredConfigRead>, log: S
     }
 
     return { config: DEFAULT_CONFIG, source: 'default', defaultsApplied: [] };
+}
+
+/**
+ * Prefix every quarantined copy of the configuration keeps.
+ *
+ * The store renames an unusable document to `<CONFIG_FILE>.corrupt-<stamp>-<uuid>`
+ * beside its target, so this prefix is the durable record of a set-aside
+ * document — the same shape, and the same spelling, as the queue's evidence in
+ * `service/poll/events.ts`. It is written out rather than imported so this
+ * module keeps no runtime dependency on the store: the naming rule belongs to
+ * whoever writes the file, and a reader only has to agree with it.
+ */
+const QUARANTINE_EVIDENCE_PREFIX = `${CONFIG_FILE}.corrupt-`;
+
+/**
+ * Find where the configuration was last set aside, if it ever was.
+ *
+ * Names are `<target>.corrupt-<stamp>-<uuid>` and the stamp is a fixed-width
+ * `Date.now()`, so sorting the names orders the quarantines chronologically and
+ * the last one is the operator's most recent unusable document.
+ *
+ * @returns Absolute path of the newest quarantined copy, or `null` when the
+ *   store has never set one aside.
+ * @throws {StorageUnavailableError} When the store directory cannot be listed,
+ *   which is a setup failure the route answers `503` for — never the absence
+ *   this function is asked to confirm.
+ */
+async function latestQuarantineEvidence(store: ServiceStore): Promise<string | null> {
+    const entries = await store.listDir('.');
+    const quarantined = entries
+        .filter((entry) => entry.startsWith(QUARANTINE_EVIDENCE_PREFIX))
+        .toSorted((left, right) => left.localeCompare(right));
+    const newest = quarantined.at(-1);
+
+    return newest === undefined ? null : join(store.dataDir, newest);
+}
+
+/**
+ * Read the effective configuration, keeping a set-aside document a fact.
+ *
+ * A quarantine **renames** the file, so every read arriving after the winning
+ * reader's rename finds nothing at all — and answering `default` there would
+ * tell the operator that nothing was ever wrong, which is the one account the
+ * contract's *invalid file ⇒ `quarantined`* rule refuses. The evidence the
+ * quarantine left beside the target says what happened and is still on disk, so
+ * it stands in for the observation: whichever of this service's several readers
+ * reaches the unusable document first, every reader reports the same thing.
+ *
+ * This is the event queue's own rule for the same shape
+ * (`service/poll/events.ts`, *recover a queue loss this process never saw
+ * happen*), scoped to the one read whose `source` is observable. The service's
+ * internal readers take the effective document only, which is `DEFAULT_CONFIG`
+ * under either answer, so scanning for them would cost a directory listing per
+ * cycle and repeat a warn line per cycle for nothing.
+ *
+ * @returns The effective document, where it came from, and which documented
+ *   keys this read filled (always `[]` unless `source` is `stored`).
+ */
+export async function readStoredConfig(input: {
+    /** Open store the document lives in. */
+    readonly store: ServiceStore;
+    /** Structured logger the quarantine line is written through. */
+    readonly log: ServiceLogger;
+}): Promise<ConfigRead> {
+    const result = await input.store.readJson(CONFIG_FILE, parseStoredConfig);
+    if (result.status !== 'absent') {
+        return configFromStore(result, input.log);
+    }
+
+    const evidence = await latestQuarantineEvidence(input.store);
+
+    return configFromStore(
+        evidence === null ? result : { status: 'quarantined', quarantinePath: evidence },
+        input.log,
+    );
 }
 
 /**

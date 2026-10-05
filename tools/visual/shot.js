@@ -47,6 +47,7 @@
  * Plus: the sentinel must be absent from the delivered frame. Five
  * independent answers to "is this the picture I just asked for?".
  */
+import { readFileSync } from 'node:fs';
 import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import process from 'node:process';
@@ -102,6 +103,28 @@ const NARROW_COLOR = 7;
 
 /** Sentinel colour for the full-height frame. */
 const FULL_COLOR = 13;
+
+/**
+ * The harness fixture document, read once for the scene table.
+ *
+ * A scene's **delta** lives in `fixtures.json`, not here: the harness fetches
+ * that document itself and merges the delta over it in the browser, so a copy of
+ * the delta in this file would be a second spelling of a fixture that could
+ * drift from the one actually served. Only the *names* are needed here — to
+ * advertise `--scene` and to refuse an unknown one before a browser is opened —
+ * and reading them from the same file is what keeps the usage line and the
+ * harness's own table in step.
+ *
+ * @returns Scene name to its fixture record.
+ */
+function readScenes() {
+    const document_ = JSON.parse(readFileSync(join(import.meta.dirname, 'fixtures.json'), 'utf8'));
+
+    return document_.scenes ?? {};
+}
+
+/** Every scene the fixture document defines, in name order. */
+const SCENES = readScenes();
 
 /**
  * The default capture width: the width the host really gives a rail panel,
@@ -162,9 +185,11 @@ const DEFAULT_OUT_DIR = join(import.meta.dirname, '..', '..', 'screenshots');
 const USAGE = [
     'usage: node tools/visual/shot.js [tab …] [--out DIR] [--width PX] [--max-height PX]',
     `       tabs: ${TABS.map((entry) => entry.id).join(', ')} (default: all six)`,
+    `       scenes: ${Object.keys(SCENES).join(', ') || 'none'} (--scene NAME; default: the base fixture)`,
     '       flags: --no-full (skip panel-full.png), --session NAME, --help',
     `       every tab is captured at ${DEFAULT_WIDTH}px (or --width) and again at ${NARROW_WIDTH}px`,
     `       as panel-<tab>-narrow.png; --width ${NARROW_WIDTH} or narrower skips the second frame`,
+    '       a --scene run writes panel-<tab>-<scene>.png, and captures the named tabs only',
     '       default --out: screenshots/ at the repository root (git-ignored)',
 ].join('\n');
 
@@ -190,10 +215,72 @@ function optionValue(argv, index) {
 }
 
 /**
+ * Resolve a requested scene, refusing anything unknown.
+ *
+ * Refused here rather than passed through: an unknown name reaching the harness
+ * would either boot the base document — publishing a picture of the *wrong*
+ * frame, under this scene's filename — or fail with a browser-side message that
+ * names no scene at all.
+ *
+ * @param name - The scene asked for.
+ * @returns The scene's name.
+ * @throws {Error} When no such scene exists.
+ */
+function selectScene(name) {
+    if (!Object.hasOwn(SCENES, name)) {
+        throw new Error(
+            `unknown scene "${name}" — try: ${Object.keys(SCENES).join(', ') || 'none defined'}`,
+        );
+    }
+
+    return name;
+}
+
+/**
+ * The options that take a value, and how each one lands in the options object.
+ *
+ * A table rather than a branch per option: `parseArgs` steps one value at a
+ * time, and one `if` per value option is what pushed it past the complexity
+ * this codebase allows — a fifth of them did. `--scene` differs only in being
+ * **validated** as it is read.
+ *
+ * A `Map` because the keys are protocol tokens — command-line flags — which are
+ * not names this codebase is free to spell, and which a plain object would also
+ * answer from the prototype chain (`--constructor` is not an option).
+ */
+const VALUE_OPTIONS = new Map([
+    ['--out', (options, value) => {
+        options.outDir = value;
+    }],
+    ['--width', (options, value) => {
+        options.width = Number(value);
+    }],
+    ['--max-height', (options, value) => {
+        options.maxHeight = Number(value);
+    }],
+    ['--session', (options, value) => {
+        options.session = value;
+    }],
+    ['--scene', (options, value) => {
+        options.scene = selectScene(value);
+    }],
+]);
+
+/** The options that are switches, and what each one sets. */
+const FLAG_OPTIONS = new Map([
+    ['--no-full', (options) => {
+        options.full = false;
+    }],
+    ['--help', (options) => {
+        options.help = true;
+    }],
+]);
+
+/**
  * Read the command line.
  *
  * @param argv - Arguments after the script name.
- * @returns `{ tabs, outDir, width, maxHeight, session, full, help }`.
+ * @returns `{ tabs, outDir, width, maxHeight, session, scene, full, help }`.
  */
 function parseArgs(argv) {
     const options = {
@@ -202,52 +289,28 @@ function parseArgs(argv) {
         width: DEFAULT_WIDTH,
         maxHeight: DEFAULT_MAX_HEIGHT,
         session: undefined,
+        scene: null,
         full: true,
         help: false,
     };
 
     // `index` is stepped by hand for the options that take a value, so each one
-    // that consumes the next argument ends in `continue` rather than a `break`
-    // out of a `switch` nested in the loop.
+    // that consumes the next argument advances it and lands in the table's own
+    // writer rather than repeating the same branch five times over.
     for (let index = 0; index < argv.length; index++) {
         const argument = argv[index];
 
-        if (argument === '--out') {
-            options.outDir = optionValue(argv, index);
+        const takesValue = VALUE_OPTIONS.get(argument);
+        if (takesValue !== undefined) {
+            takesValue(options, optionValue(argv, index));
             index++;
 
             continue;
         }
 
-        if (argument === '--width') {
-            options.width = Number(optionValue(argv, index));
-            index++;
-
-            continue;
-        }
-
-        if (argument === '--max-height') {
-            options.maxHeight = Number(optionValue(argv, index));
-            index++;
-
-            continue;
-        }
-
-        if (argument === '--session') {
-            options.session = optionValue(argv, index);
-            index++;
-
-            continue;
-        }
-
-        if (argument === '--no-full') {
-            options.full = false;
-
-            continue;
-        }
-
-        if (argument === '--help') {
-            options.help = true;
+        const flag = FLAG_OPTIONS.get(argument);
+        if (flag !== undefined) {
+            flag(options);
 
             continue;
         }
@@ -367,7 +430,8 @@ async function captureFrame(input) {
  * @returns One result per frame captured, in capture order.
  */
 async function captureTab(input) {
-    const { browser, context, tab, wideColor, narrowColor } = input;
+    const { browser, context, tab, wideColor, narrowColor, scene } = input;
+    const stem = `panel-${tab.id}${scene === null ? '' : `-${scene}`}`;
 
     await activateTab({ browser, tab, refs: context.refs });
 
@@ -378,7 +442,7 @@ async function captureTab(input) {
             tab,
             width: context.width,
             probeColor: wideColor,
-            name: `panel-${tab.id}`,
+            name: stem,
         }),
     ];
 
@@ -390,7 +454,7 @@ async function captureTab(input) {
                 tab,
                 width: NARROW_WIDTH,
                 probeColor: narrowColor,
-                name: `panel-${tab.id}-narrow`,
+                name: `${stem}-narrow`,
             }),
         );
     }
@@ -476,7 +540,7 @@ function report(result) {
 
 /** Boot the harness, prove the capture path, then capture what was asked for. */
 async function runCapture(input) {
-    const { browser, context, tabs, includeFull } = input;
+    const { browser, context, tabs, includeFull, scene } = input;
 
     await browser.close();
     await openHarness(browser, context.url);
@@ -494,12 +558,17 @@ async function runCapture(input) {
     const results = [];
 
     for (const tab of tabs) {
+        // The tab's **own** wide and narrow colours, reused as they are: a scene
+        // is its own process, so the per-width freshness chain starts empty and
+        // `verifyDelivered` refuses any frame carrying a probe colour — no new
+        // colour, index arithmetic, or diff rule is needed to keep that proof.
         const captured = await captureTab({
             browser,
             context,
             tab,
             wideColor: PROBE_COLORS[WIDE_COLOR + TABS.indexOf(tab)],
             narrowColor: PROBE_COLORS[NARROW_COLOR + TABS.indexOf(tab)],
+            scene,
         });
 
         results.push(...captured);
@@ -535,17 +604,24 @@ async function main() {
 
     assertOptions(options);
     assertCodec(selfTest());
+    const { scene } = options;
     const tabs = selectTabs(options.tabs);
+    // A scene captures the tabs it was asked about and nothing else: a
+    // full-height frame of a different scene would be a picture of the base
+    // document wearing the scene's filename, which is the one thing a scene must
+    // never publish.
+    const includeFull = options.full && scene === null;
     await mkdir(options.outDir, { recursive: true });
 
     const server = await startServer({ port: 0 });
     const browser = createBrowser({ session: options.session });
+    const query = scene === null ? '' : `?scene=${scene}`;
     const context = {
         outDir: options.outDir,
         width: options.width,
         maxHeight: options.maxHeight,
         probeColors: PROBE_COLORS,
-        url: `${server.url}/tools/visual/index.html`,
+        url: `${server.url}/tools/visual/index.html${query}`,
         refs: {},
         previousByWidth: new Map(),
     };
@@ -553,9 +629,12 @@ async function main() {
     writeLine(
         `freshness: sentinel probe, strip and width read-back, same-width diff — ${context.url}`,
     );
+    if (scene !== null) {
+        writeLine(`scene ${scene}: ${SCENES[scene].summary ?? 'no summary'}`);
+    }
 
     try {
-        const results = await runCapture({ browser, context, tabs, includeFull: options.full });
+        const results = await runCapture({ browser, context, tabs, includeFull, scene });
         writeLine(`captured ${results.length} images in ${options.outDir}`);
     } finally {
         await restoreHarness(browser);

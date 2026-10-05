@@ -54,22 +54,21 @@
  * | --- | --- | --- |
  * | `README.md` + walkthrough at `d2d3f40` (the budget AC-016 names) | 446 | 5,770 |
  * | `README.md` + walkthrough now | 82 | 1,110 |
- * | the five site pages now | 436 | 4,827 |
- * | **site content + README (the spend)** | **462** | **5,040** |
+ * | the five site pages now | 450 | 5,017 |
+ * | **site content + README (the spend)** | **476** | **5,233** |
  *
- * Read by words — the metric AC-016 names — the move is a move: 5,040 against a
- * 5,770 budget, **730 words under**, so the shipped state **meets** AC-016.
+ * Read by words — the metric AC-016 names — the move is a move: 5,233 against a
+ * 5,770 budget, **537 words under**, so the shipped state **meets** AC-016.
  *
  * Read by prose lines it does not, and that is exactly why lines are not the
- * metric: 462 against 446, **16 lines over (3.6%)**. The sixteen are **not** a
- * wrap artifact, and this was checked rather than assumed. The site's pages carry
- * fewer words in *more* lines, so they are less dense per line than the documents
- * were — 10.9 words per line against 12.9 — because the site's content is broken
- * into more, shorter units (headings, list items, definition terms, table cells)
- * rather than the documents' paragraphs. Re-flowing the whole site at the
- * pre-feature 80 columns was measured too: 450 lines, still over 446. **A budget
- * that punishes the format the spec requires is measuring the wrong thing** — the
- * unit is words, and the sixteen are preserved here as the record of why.
+ * metric: 476 against 446, **30 lines over (6.7%)**. Those thirty are **not** a
+ * wrap artifact. The site's pages carry fewer words in *more* lines, so they are
+ * less dense per line than the documents were — 11.0 words per line against 12.9 —
+ * because the site's content is broken into more, shorter units (headings, list
+ * items, definition terms, table cells) rather than the documents' paragraphs.
+ * **A budget that punishes the format the spec requires is measuring the wrong
+ * thing** — the unit is words, and the thirty are preserved here as the record of
+ * why.
  *
  * ## Provenance of the pre-feature figures
  *
@@ -124,7 +123,7 @@ const BEFORE = { lines: 446, words: 5_770 } as const;
 
 /**
  * The one enforced ceiling in this file: **prose words**, at the pre-feature
- * figure itself. The shipped site measures 5,040 — 730 words under — so AC-016 is
+ * figure itself. The shipped site measures 5,233 — 537 words under — so AC-016 is
  * met with room rather than against a ceiling raised to fit the tree. Growth past
  * it fails visibly; admitting a legitimate increase is a one-line diff to this
  * constant, reviewed in the pull request.
@@ -137,8 +136,12 @@ const CEILING = { words: 5_770 } as const;
  * which is why AC-016 measures words. The count is asserted so it cannot move
  * unnoticed, and a changed figure says the *shape* of the prose moved, which is
  * itself worth seeing in a diff. It bounds nothing.
+ *
+ * Moved 462 → 476 with the *How Status keeps itself current* section on `/use/`
+ * (14 lines, 190 words): content the site is now measured against, not a reflow.
+ * The word ceiling is untouched, so the enforced bound did not move with it.
  */
-const PINNED_LINES = 462;
+const PINNED_LINES = 476;
 
 /** The prose each bound document measures now, so growth cannot pass unnoticed. */
 const REDUCED = { readme: 26, walkthrough: 56 } as const;
@@ -498,7 +501,7 @@ describe('007 AC-016 the site is measured, page by page', () => {
     it('meets the enforced word ceiling, which the pre-feature figure sets', () => {
         // The enforced bound, and the only one. It is the pre-feature figure itself
         // rather than a number raised to fit the tree, so AC-016 is met because the
-        // move was a move: 5,040 words against 5,770, 730 under. A re-wrap, a
+        // move was a move: 5,233 words against 5,770, 537 under. A re-wrap, a
         // re-indent, or a paragraph cut into a list cannot move this.
         const measured = spend();
         expect(
@@ -510,10 +513,13 @@ describe('007 AC-016 the site is measured, page by page', () => {
     it('pins the reported line figure without enforcing it as a ceiling', () => {
         // Lines are reported, not bounded. This asserts the figure so it cannot
         // move unnoticed, and the message says plainly that no budget is here: the
-        // sixteen lines over the pre-feature count are the record of a structural
+        // thirty lines over the pre-feature count are the record of a structural
         // fact — the site's content is cut into more, shorter units — not a miss.
-        // Re-flowing the whole site at the pre-feature width measures 450, still
-        // over 446, so there is no wrapping that reaches the old number either.
+        // The figure last moved when `/use/` gained *How Status keeps itself
+        // current* (14 lines, 190 words), which the product owner asked for so
+        // main's Status cadence has a home the README reduction did not leave it.
+        // That is content, not a re-flow, so the pin moved with it and the word
+        // ceiling above is what still bounds reader burden.
         const measured = spend();
         const enforced = `the enforced bound is ${String(CEILING.words)} words`;
         expect(

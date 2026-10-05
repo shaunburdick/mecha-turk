@@ -22,8 +22,19 @@ permissions:
 
 jobs:
   verify:
+    # The Node version is in the job name so a red leg identifies the release
+    # that failed from the checks list and the run list, without opening the
+    # log. `run-name` would put it on the run, but that expression has no
+    # access to `matrix` — only job names do.
+    name: verify (node ${{ matrix.node }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      # One red leg must not cancel the other: a break at the floor and a
+      # break at the newest patch are different bugs and both are reported.
+      fail-fast: false
+      matrix:
+        node: ['24.15.0', '24']
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -32,13 +43,21 @@ jobs:
           # is never written into the workspace's git configuration.
           persist-credentials: false
 
-      # package.json engines.node is ">=20.19.0" — a floor, not a chosen
-      # release. Node 24 is the major this suite is verified green on, and
-      # setup-node resolves '24' to its newest patch release.
+      # package.json engines.node is ">=24.15.0" — a floor, not a chosen
+      # release. Two legs, and the floor is the reason there are two: 24.15.0
+      # is the lowest release every `engines.node` range in package-lock.json
+      # admits (vitest, eslint-plugin-jsdoc and eslint each name it), so it is
+      # the lower edge of what this tree installs on at all. A leg pinned to
+      # the newest 24.x never runs it, and a floor that has drifted above a
+      # break stays invisible until someone's own machine hits it — which is
+      # how the stale `>=20.19.0` floor survived here. The second leg is '24',
+      # which setup-node resolves to the newest 24.x patch, covering the open
+      # end of the range too. tests/manifest.test.ts re-checks the same subset
+      # offline, so the floor cannot drift again without the gate going red.
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node }}
           # One line: cache npm's download cache keyed on package-lock.json,
           # so `npm ci` re-downloads nothing on a warm run.
           cache: npm

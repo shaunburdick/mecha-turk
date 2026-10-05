@@ -10,6 +10,11 @@
  * *not checkable* / *not available* / an outcome — never "ok" (FR-033,
  * AC-106). FR-080 applies in full: these strings are rendered as text.
  *
+ * {@link cadenceLine} is the one rule here about the panel's own behaviour
+ * rather than the service's: a tab whose values change on their own says so,
+ * and a tab with no known period says *not refreshing itself* rather than
+ * showing a number nobody reported (005 FR-100, FR-101, NFR-112).
+ *
  * {@link actorPolicyLines} is the same rule applied to the one value where a
  * plausible-looking default would be a security control that does not exist:
  * an open allow-list is stated as a **count with its consequence**, a count of
@@ -30,6 +35,18 @@ const MS_PER_SECOND = 1_000;
 const SECONDS_PER_HOUR = 3_600;
 
 const SECONDS_PER_MINUTE = 60;
+
+/** Milliseconds in one minute — the cadence statement's coarser unit. */
+const MS_PER_MINUTE = MS_PER_SECOND * SECONDS_PER_MINUTE;
+
+/**
+ * Where the cadence statement starts naming minutes rather than seconds.
+ *
+ * English convention rather than a round number: *every 90 seconds* is what a
+ * person says, *every 2 minutes* is what they say next. It also leaves 60 000
+ * rendering as *60 seconds*, which is the form 005 FR-101 names.
+ */
+const MINUTE_WORD_AFTER_MS = 2 * MS_PER_MINUTE;
 
 /** Copy for a rate budget nothing has measured yet. */
 const RATE_UNMEASURED = 'not measured yet';
@@ -457,4 +474,76 @@ export function readStateLine(slice: StatusTabState): string {
     }
 
     return `Status could not be re-read: ${cause}. Showing the read from ${slice.at}, which may be stale.`;
+}
+
+/**
+ * Render a period as the words an operator reads, not as a machine string.
+ *
+ * **Not** {@link formatUptime}, which is uptime's shape: it always emits at
+ * least a seconds part and always emits minutes once hours are present, so
+ * 60 000 would read `1m 0s` and 300 000 `5m 0s` — trailing `0s` noise inside a
+ * sentence, and no better than the digits it replaces. Its `0s` for a
+ * non-positive input is right for an uptime counting up from zero and wrong
+ * for a period, where it would claim a duration the service never reported.
+ *
+ * The range this has to cover is the one `service/config.ts` validates, 15 000
+ * – 300 000 ms, and the panel arms whatever period the document carries rather
+ * than re-validating it (005 `### Edge Cases`), so anything outside that range
+ * still has to render honestly: a whole minute at or above
+ * {@link MINUTE_WORD_AFTER_MS} as minutes, a whole second below it as seconds,
+ * and anything shorter or non-numeric back in the machine form the Polling
+ * block uses, because rounding it into prose would be inventing a period.
+ *
+ * @param ms - The period to render.
+ * @returns e.g. `15 seconds`, `60 seconds`, `5 minutes`.
+ */
+function periodText(ms: number): string {
+    if (!Number.isFinite(ms) || ms < MS_PER_SECOND) {
+        return `${intervalText(ms)} ms`;
+    }
+
+    if (ms >= MINUTE_WORD_AFTER_MS && ms % MS_PER_MINUTE === 0) {
+        const minutes = ms / MS_PER_MINUTE;
+
+        return `${minutes} minutes`;
+    }
+
+    const seconds = ms / MS_PER_SECOND;
+
+    return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
+}
+
+/** Inputs for {@link cadenceLine}; one value, which is the whole statement. */
+export interface CadenceLineInput {
+    /**
+     * The period the tab's refresh tick runs on, or `null` when no tick is
+     * armed.
+     *
+     * The armed period is passed rather than read from a timer handle so this
+     * function stays a pure function of one number: the honest value for an
+     * unknown cadence is *not refreshing*, and a function that could not tell
+     * armed from unarmed would have no honest value to return.
+     */
+    readonly refreshMs: number | null;
+}
+
+/**
+ * Render the tab's own refresh cadence in words (005 FR-101).
+ *
+ * One statement, and the same one whatever caused the read in front of the
+ * operator: a page whose values move with no stated reason is a page an
+ * operator cannot trust to be current (NFR-111). With no tick armed the
+ * statement is *not refreshing itself* and names `Refresh status` — never a
+ * plausible-looking period, because the panel holds no default for one
+ * (NFR-112), and the copy renders as text rather than colour (FR-083).
+ *
+ * @returns The cadence line.
+ */
+export function cadenceLine(input: CadenceLineInput): string {
+    if (input.refreshMs === null) {
+        return 'This tab is not refreshing itself — no interval has been read, so it '
+            + 'refreshes only when you ask. Use Refresh status.';
+    }
+
+    return `This tab re-reads itself every ${periodText(input.refreshMs)}.`;
 }

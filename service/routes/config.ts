@@ -14,6 +14,7 @@ import {
     CONFIG_FILE,
     configFromStore,
     parseStoredConfig,
+    readStoredConfig,
     validateConfig,
     validationResponse,
 } from '../config.ts';
@@ -49,6 +50,11 @@ export const CONFIG_PATH = '/v1/config';
  * A fresh store has no `config.json`, so the defaults answer — the same
  * document `PUT` would persist if the operator chose to edit it.
  *
+ * The read goes through `readStoredConfig` rather than `configFromStore`
+ * directly because `source` is the one thing here the operator is shown: a
+ * configuration that was set aside has to read as set aside on every read, not
+ * only on the one that happened to observe it.
+ *
  * @returns The envelope above, or the 503 when the store is unusable.
  */
 async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
@@ -56,8 +62,7 @@ async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
         return storageUnavailableResponse();
     }
 
-    const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
-    const read = configFromStore(result, context.log);
+    const read = await readStoredConfig({ store: context.store, log: context.log });
 
     return {
         status: STATUS.ok,

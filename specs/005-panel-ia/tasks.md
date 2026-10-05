@@ -401,3 +401,417 @@ input the service would refuse") and 005 AC-142 ("submitting `[]` is refused by 
 can then never remove a list — or omits the key. **Chosen:** omit the key, and discharge AC-142's
 `[]` case against the service plus the panel's own refusal-rendering path. **One confirmation
 requested** from the product owner (research §Q3).
+
+---
+
+---
+
+## Issue #20 block — the Status tab's refresh cadence (added 2026-10-05)
+
+**Spec**: [spec.md](./spec.md) v1.16.0 — `FR-014` (as re-cut), `FR-019` (as re-cut), `FR-030`, `FR-039`,
+`FR-100`, `FR-101`, `NFR-104` (as re-cut), `NFR-108`, `NFR-111`, `NFR-112`, `005 SC-114`,
+`005 AC-150`, `005 AC-151`, `005 AC-152`. **Plan**: [plan.md](./plan.md) §D — **this block's
+decisions are D19 … D23** and its flagged items are D.5.
+
+**Bar**: the Status tab keeps its own answer current without being asked, says in words that it is
+doing so and on what period, and never shows a period no document reported. **The panel holds no
+default for the cadence** and falls back to nothing — not to 60 000 ms, not to the service default,
+not to the configured interval. Tests are offline and driven by a fake clock (`vi.useFakeTimers` over
+`setInterval`/`clearInterval`/`Date`), with the production `tabSpecs` mounted against the fake host
+and the fake DOM.
+
+- [x] **T-037** [US1] **Runtime slots and the one id two modules must agree on** — `src/panel-state.ts`:
+  export `STATUS_TAB` (the one `TabId` that owns a cadence, named rather than spelled at each
+  comparison because `status-tab.ts` and `tabs.ts` both test against it and a mismatch is a cadence
+  that arms for a hidden tab), and add `statusRefreshTimer` + `statusRefreshMs` to `PanelRuntime`,
+  both initialised to `null` and documented as one fact in two slots written only by the arm/stop
+  pair. Replace the `activeTab: 'status'` literal in `createPanelRuntime` with the constant.
+  *Tests*: none of its own — a slot declaration has no behaviour; its first assertion is T-039's.
+  *(FR-100, FR-101, NFR-112)*
+- [x] **T-038** [US1] **The tick, its lifecycle, and the copy** — `src/status-tab.ts` +
+  `src/status-lines.ts`: add `armStatusRefresh` / `stopStatusRefresh` following `relay.ts`'s
+  `startRelayPolling` / `stopRelayPolling` precedent exactly — `setInterval`, `.unref()` when
+  present, idempotent arm, and a clear on teardown — with the tick's body passed in rather than
+  named (plan D19, because the read arms the timer and the timer calls the read); arm from **inside**
+  `loadStatus`, after the slice lands and before the repaint, on `view.polling.intervalMs` and on
+  nothing else (plan D20); clear in `disposeStatusTab` so the tick is one of the timers FR-017's
+  disposers release; add `cadenceLine` to `StatusTabUi` and render it in the toolbar row beside
+  `Refresh status` and the read-state line (plan D22), with its interval-less value naming the cause
+  of the ignorance (plan D23) and **no branch that can invent a period**. **Leave `loadStatus`'s
+  `phase === 'loading'` guard exactly as it is** — it is FR-100 §2's in-flight rule and must not be
+  weakened. *Tests*: the copy assertions are T-039's rendering half; the lifecycle assertions are
+  T-039's clock half. *(FR-100, FR-101, FR-019, FR-014, NFR-108, NFR-111, NFR-112)*
+- [x] **T-039** [US8] **The driven-clock suite** — `tests/status-refresh.test.ts` (new), covering
+  **all eight `005 SC-114` clauses** and `005 AC-150` – `AC-152`: **(a)** one read at activation and
+  one more per period, asserted at 59 s / 60 s / 180 s and from the request log's gaps;
+  **(b)** the whole panel's request count unmoved across three periods while it sits on Bindings;
+  **(c)** re-activation issues zero requests on each of the other five tabs, per tab, with a
+  non-vacuity assertion that one of them really does read at activation;
+  **(d)** after teardown the timer count is back to its pre-mount value and three further periods
+  move no read — asserted **from Status and from another tab**, because NFR-108 counts both;
+  **(e)** a later `intervalMs: 30_000` re-arms and the old period stops firing;
+  **(f)** the refused read, the document the fail-closed parser refuses over an unreadable
+  `intervalMs` (plan D.5 #1), a configured interval that disagrees with the effective one, and a
+  failed `GET /v1/config` — none arms a tick, none renders a period (the test scans every rendered
+  string for six candidate numbers), and `Refresh status` reads on demand in all of them;
+  **(g)** three refused ticks leave **one** stale marker naming only the latest cause, the stamp
+  unmoved, the button live, and the request-log gaps exactly one interval each;
+  **(h)** a tick during an in-flight read issues one request, and the button press is refused by the
+  same guard. Plus the statements FR-101 makes: the armed copy carries the period, and it is identical
+  after activation, after a tick, and after a press. *Tests*: the suite is the gate; it is proved
+  non-vacuous by mutation (dropping the idempotent arm, dropping the disarm, hard-coding the period,
+  dropping the period from the copy, dropping the interval-less copy, and forgetting the disposer's
+  clear each fail at least one case). *(FR-100, FR-101, FR-014, FR-019, `005 SC-114`, `005 AC-150`,
+  `005 AC-151`, `005 AC-152`, NFR-105, NFR-108, NFR-111, NFR-112)*
+- [x] **T-040** [US5] **Activation is where the cadence's lifetime is driven** — `src/tabs.ts`:
+  split `activate()`'s single `id === rt.activeTab` early return so that (i) leaving Status calls
+  `stopStatusRefresh` **before** anything else runs, so the window between the click and the next
+  repaint is one in which a backgrounded tab can still read; (ii) re-activating the already-active
+  tab stays a pure no-op on the five tabs that own no cadence and reads on **Status**; and (iii)
+  switching *to* Status reads immediately. Re-cut the module docblock's "activation is idempotent"
+  bullet to state the exception and its two reasons. *Tests*: T-039's clauses (b), (c), and (d).
+  *(FR-014 as re-cut, FR-100, NFR-104)*
+- [x] **T-041** [US8] **Final gate** — `npm run verify` green (build → lint → typecheck → test) with
+  **zero** suppressions and **zero** `any` introduced; the rebuilt `panel/main.js` **committed with
+  its sources** (invariant 1); `SERVICE_VERSION` still `0.0.1`; `contracts/panel-service.md`
+  **unmodified** and no other feature's document touched; `git status` clean of unintended files;
+  per-clause status for `005 SC-114` and `005 AC-150` – `AC-152` in the commit body with the
+  `Generated-By` attribution trailer. *(FR-087, FR-088, NFR-109, NFR-110)*
+
+**Wave boundary**: `npm run verify` green + rebuilt bundle committed.
+
+### Requirement → task coverage (this block)
+
+| Requirement | Tasks |
+| --- | --- |
+| FR-014 (as re-cut at v1.16.0), NFR-104 (as re-cut) | T-038, T-039, T-040 |
+| FR-019 (as re-cut: a failing tick is a failing read) | T-038, T-039 |
+| FR-030 (the Polling block's effective interval is also the panel's period) | T-038, T-039 |
+| FR-039 (no fallback to the configured interval; not a configuration field) | T-039 |
+| FR-100 (lifecycle, in-flight guard, the interval-less window, cadence ≠ retry) | T-037, T-038, T-039, T-040 |
+| FR-101 (the worded cadence statement) | T-038, T-039 |
+| NFR-105 (offline determinism), NFR-108 (teardown completeness), NFR-111 (observability), NFR-112 (honest defaults) | T-037, T-038, T-039 |
+| `005 SC-114` (a) – (h) | T-039 |
+| `005 AC-150`, `005 AC-151`, `005 AC-152` | T-039 |
+| FR-087, FR-088, NFR-109, NFR-110 (release discipline) | T-041 |
+---
+
+## Issue #18 block — the zero-account binding gate, and the reason copy that must be true either way (added 2026-10-05)
+
+**Task ids `K-1 … K-12`.** [plan.md §K.3](./plan.md) (amendment record — 005 v1.17.0) is the design of
+record: `D19`–`D26` and the truth table in §K.3. [spec.md](./spec.md) v1.16.0 block L is the
+requirement of record: `FR-120` – `FR-124`, `005 SC-115`, `005 AC-154` – `005 AC-156`, Clarification
+rows **49 – 53** (decisions at 49, 50, 51, 53; row 59 is the scope/divergence record).
+
+**Bar**: with **zero accounts at all**, *New binding* is disabled, one worded line under the list's
+toolbar says so, and the list's empty text stops instructing the operator to press the control the
+same fix disables. Five requirements, **five** ratified decisions, **three** empty-text rows over one
+predicate, **four** Edge Cases bullets, **four** `## Out of Scope` entries, **one** residual (FR-124's
+`usable`-versus-`exists` divergence). **Panel-side only** (FR-124): no service, route, wire member,
+status or error code, stored document, `host.storage` key, or contract moves.
+
+**This block deviates from the C-block's convention, deliberately.** The issue #9 block is a locality
+index pointing at `002-agent-event-extension/tasks.md`, because three features shared one task list.
+**Issue #18 touches one feature and one panel tab**, so the full task text lives here, in the
+directory whose `spec.md` and `plan.md` own it. Nothing is forked from the C-block.
+
+### The one structural requirement — read this before writing the selector
+
+FR-122's **consistency rule** is only real if the **gate** and the **empty-text selector** consume the
+**same named predicate**: D20's `accountsRead(bindings)`. Two separately-written tests of
+`status === 'ready'` can drift, and a **length-keyed** selector reintroduces the defect Clarification
+row 60 closed — `loadBindings` deliberately **retains the previous accounts list** when a read fails
+(`src/bindings.ts:186–190`), so a failed read after a successful read of an **empty** list leaves
+`accounts.length === 0` and a length test would tell an operator with a **broken service** that they
+have no accounts. **K-4 exists for this alone** and carries a source-level assertion, not a comment.
+
+### Dependencies
+
+`K-1` → everything. `K-2` → `K-3`, `K-4`. `K-3` + `K-4` → `K-5`. `K-5` → `K-6`, `K-7`, `K-8`.
+`K-6`, `K-7`, `K-8` → `K-9`. `K-9` → `K-10`, `K-11`. `K-10`, `K-11` → `K-12`.
+
+### Wave K-a — the shared module and its three branches
+
+**Goal**: the tab's account-side derivations exist as one leaf, with the predicate named once.
+Independent test: `emptyBindingsText` and `accountGate` over the §K.3 truth table, and a source scan
+proving both read the one predicate.
+
+- [x] **K-1** `npm ci` — the toolchain install, before anything else. **`node_modules` is absent in
+  this worktree**, so `npm run verify`, `npm run build`, `npm test` and `npm run shot` all fail with
+  a missing-binary error until this runs. Node ≥ 24.15 per `engines.node`; bun arrives via `bunx` at
+  build time. No source change, no commit of its own. *Gate*: `npx vitest run --reporter=dot` reaches
+  the existing suite and it is green before any task below starts, so a later red is this block's.
+- [x] **K-2** Create **`src/bindings-accounts.ts`** — the new leaf (D23). It imports only
+  `@openchamber/sdk/ui` and types, so **no cycle** is introduced; it is composed by `bindings-body.ts`,
+  `bindings-ui.ts`, `bindings-editor.ts` and `bindings-draft.ts`, never the reverse. Contents:
+  - the **seven string constants** — `ACCOUNT_REQUIRED_REASON` (FR-121's line, and FR-123's refusal
+    row 1: **one** constant, two positions), `EMPTY_TEXT_NO_ACCOUNTS`, `EMPTY_TEXT_WITH_ACCOUNT`
+    (**the retained `LIST_EMPTY`, verbatim**), `EMPTY_TEXT_NOT_KNOWN` (FR-122's third row),
+    `ACCOUNT_PICKER_PLACEHOLDER`, `NO_ACTIVE_ACCOUNT_REFUSAL`, `PICK_ACCOUNT_REFUSAL` (**the retained
+    `ACCOUNT_NOTE`, verbatim**);
+  - **`accountsRead(bindings)`** — the single named read-success predicate (D20);
+  - **`accountGate(bindings)`** — `blocked ⇔ accountsRead(bindings) ∧ accounts.length === 0`,
+    consumed by `K-6`;
+  - **`emptyBindingsText(bindings)`** — D21's **three** branches, in order: branch 1 tests
+    `accountsRead` and **never** `accounts.length`; branch 2 the empty list; branch 3 the retained
+    string;
+  - **`accountSelectionRefusal(bindings)`** — D22's total three-case dispatch, ordered *none exist →
+    some `usable` → otherwise*, returning `ACCOUNT_REQUIRED_REASON` for case 1;
+  - each constant's docblock naming the requirement it serves and, where it is retained copy, the
+    string it replaces.
+  **Do not** mount, repaint, or read a DOM handle in this task — the derived half is pure and is
+  provable without a browser. *Tests* (`tests/bindings-accounts.test.ts`, created here, pure cases
+  first): the §K.3 truth table row by row for `accountGate` and `emptyBindingsText` — `idle` /
+  `loading` / `error` ⇒ the *not-known* string with **any** `accounts.length`, including the stale
+  `0`; `ready` + `0` ⇒ the *add an account* string; `ready` + `≥ 1` ⇒ the retained string;
+  `accountSelectionRefusal`'s three rows; `ACCOUNT_REQUIRED_REASON` returned by **both** call sites is
+  the **same string value**, asserted by identity as well as by text. **(FR-120, FR-122, FR-123)**
+- [x] **K-3** **The single-named-predicate assertion — this task's whole content.** FR-122's  consistency rule is a claim about *shape*, so it is asserted at the source level, in the same suite:
+  1. **`emptyBindingsText` and `accountGate` consume one predicate.** Read
+    `src/bindings-accounts.ts` and assert there is exactly **one** occurrence of a
+    `status === 'ready'` comparison across the module, that it sits in `accountsRead`, and that
+    **neither** `accountGate` **nor** `emptyBindingsText` compares `bindings.status` itself. Two
+    copies of the comparison fail this; so does moving the gate's test inline.
+  2. **The selector is not length-keyed.** Assert `emptyBindingsText`'s source contains **no**
+    `accounts.length` test *before* its `accountsRead` branch — the stale-empty case would render the
+    wrong row otherwise. Behaviourally, the table-driven stale fixture in `K-2` already covers it;
+    this assertion is what stops a later "simplification".
+  3. **The gate is not pre-read** and not `usable`-keyed: `accountGate` returns `blocked: false` for
+    `idle`, `loading`, and `error` with an empty list, and for `ready` with accounts that are all
+    `usable: false`.
+  Written as a scan with **named exemptions in data** (the shape `tests/bindings-actors.test.ts` uses
+  for AC-146), so a widening fails **with the offender's name** rather than a bare `false`. No
+  suppression, no `any` (invariant 7). *Gate*: the assertion fails against a selector whose branch 1
+  reads `accounts.length === 0` instead of `accountsRead(bindings)` — prove it by trying that edit
+  and watching it go red, then reverting. **(FR-122's consistency rule, FR-120, clarification row 60)**
+- [x] **K-4** The mounted half of the same module (D19), still no caller changed: `mountAccountReason`  appends a `div` carrying `hidden` and a `mountText` line **into the list block, directly after
+  `createToolbar(pane)`** — DOM order `status → note → list grid → toolbar → reason → selected-row
+  detail`; `repaintAccountReason` sets `hidden` from `accountGate` **and** clears the text when the
+  gate does not hold, so "absent" survives a DOM reading and not only a visual one; `disposeAccountReason`
+  releases both. The wrapper is the codebase's own idiom (`detailBox`, `editorBox`, `agentNoticeBox`)
+  and needs no SDK capability beyond `mountText`. *Tests*: mount into the DOM double and assert the
+  line's position is immediately after the toolbar and **before** the selected-row detail; assert
+  `hidden` **and** empty text when the gate does not hold; assert dispose releases both. **No button,
+  link, or any other control is added anywhere on the tab** (FR-121) — asserted by counting the
+  mounted primitives on the list block. **(FR-121, FR-120)**
+
+**Wave K-a boundary**: `npm run verify` green; `npm run build`; the rebuilt bundles committed with the
+sources. *The derivations exist and the consistency rule is asserted.*
+
+---
+
+### Wave K-b — the three callers, each with the test that proves it
+
+**Goal**: the gate, the reason line, the placeholder and the refusal are live on the tab. Independent
+test: mount the tab in each of the §K.3 states and read the props the operator would meet.
+
+- [x] **K-5** Wire the **mount and the repaint** (`src/bindings-body.ts`, `src/bindings-ui.ts`):
+  `mountBindingsBody` mounts the reason line after the list toolbar and adds its handle to `BindingsPane`
+  (**exactly one** new member) and to the disposer; `mountBindingsBoard` calls
+  `emptyBindingsText(rt.state.bindings)` at the `mountList` call and `LIST_EMPTY` (line 79) is
+  **deleted**; `repaintBindingsPane` gains **exactly two** lines — the reason repaint, and `emptyText`
+  on the existing `bindingsList.update({ … })` (`ListHandle.update` already accepts it; see
+  `src/dispatches-ui.ts:419`). *Tests* (`tests/bindings-accounts.test.ts` extended, DOM double +
+  mount journal): zero accounts ⇒ the reason line reads FR-121's sentence as **text** while *New
+  binding* is disabled — FR-083's "text, not colour or the attribute alone"; one account ⇒ the line is
+  **absent** (hidden **and** empty, not present-and-blank) and the empty text is the retained string;
+  **both directions**, because a constant that is always on or always off passes a one-sided suite;
+  the empty text reaches `emptyText` on the **repaint** path and not only at mount; no control is
+  added to the toolbar, the list, or anywhere on the tab. **Corrected 2026-10-05**: the pre-read /
+  unread case asserted only that the tab's note line did **not** restate the empty text, over a
+  `bindingsState` whose `note` was `''` in every state of that loop — so both halves of that
+  assertion were vacuous. `bindingsState` now takes an optional `note`, the `error` states carry the
+  **real** failed-read sentence, and the case asserts both real halves: exactly one `mountText`
+  element carries that cause after a failed read and none before one, and the empty text restates
+  neither the sentence nor the claim it is built out of. **(FR-121, FR-122, AC-154, SC-114)**
+- [x] **K-6** **The gate** (`src/bindings-editor.ts`): `repaintBindingActions`'s `newBinding` line
+  gains the gate **conjunctively** — `disabled: !accountsRead(bindings) || accountGate(bindings).blocked`  — and the `add`, `cancel`, `toggle` and `removeSelected` lines are **untouched**. The gate is
+  `accountGate`, the shared predicate, and the read-state conjunct is read through the **same**
+  `accountsRead` rather than through a second literal `status === 'ready'` at this site.
+  **Corrected 2026-10-05**: the line first shipped as `bindings.status !== 'ready' || …`, under a
+  comment claiming *"The predicate is the shared one, not a second `status` test"* — the line **was**
+  that second test, and **K-3's scan cannot see it**, being scoped to `src/bindings-accounts.ts`, so
+  the drift the module exists to prevent was live here and green. The shared call is what makes the
+  comment true; the `add` line at `:151` and the picker at `:340` keep their own literals by FR-100
+  and FR-103, which forbid touching them.
+  Gating `add` as well is forbidden (K.7). *Tests*: zero accounts ⇒ `newBinding.disabled === true`;
+  **one** account ⇒ `false`; **two accounts, neither `active`** ⇒ `false` (the gate is zero-*at-all*,
+  not zero-*usable*, FR-120); `idle` / `loading` / `error` with an empty list ⇒ `true` by the read-state
+  condition **alone**, with the reason line absent and no *no-accounts* string (AC-156's three read
+  states); the other four controls' `disabled` are byte-identical to before this change. **(FR-120, FR-124, AC-154, AC-156)**
+- [x] **K-7** **The refusal dispatch** (`src/bindings-draft.ts`): delete `ACCOUNT_NOTE` (line 74) and  have `draftAccount` assign `accountSelectionRefusal(bindings)` to `bindings.note` — **the add form's
+  existing note channel**, which is where the operator is when they press *Add binding* (FR-121's
+  channel rule reserves the toolbar line for the gate). *Tests*: accounts present and **none**
+  `usable`, none selected ⇒ the refusal is `No active account — fix or replace an account on the
+  Accounts tab`, **never** the old *Pick the account…*; **at least one** `active`, none selected ⇒ the
+  **unchanged** *Pick the account this repository polls under.*, because there is something to pick;
+  zero accounts with the editor already open ⇒ FR-123's row 1, asserted as the **same string value**
+  as the toolbar line's; the refusal never echoes anything submitted (FR-085); in all three pre-read
+  states *Add binding* is disabled, so **no** pre-read submission reaches `draftAccount` and the third
+  row creates no new refusal path. **(FR-123, FR-085, AC-154)**
+- [x] **K-8** **The placeholder** (`src/bindings-body.ts`, `mountAccountSelect`): `Select a verified  account` becomes the imported `ACCOUNT_PICKER_PLACEHOLDER` — `Select an active account` — **in
+  place**, as a mount-time constant that **does not vary by case** and is **not** added to the
+  repaint path. The field's `disabled` beside it is **untouched**: FR-123 governs the placeholder's
+  **wording, never its presence**, so the picker stays disabled when its option list is empty. *Tests*:
+  two accounts neither `active` ⇒ placeholder `Select an active account` **by string equality** (a
+  placeholder is a constant, and equality is the stronger assertion a scan could replace), option
+  list empty, field disabled; **one** account that **is** `active` ⇒ the **same** placeholder, which
+  is what makes the fix a reword and **not** a conditional; **zero** accounts with the editor open ⇒
+  the same placeholder and the picker still disabled. **(FR-123, AC-155)**
+
+**Wave K-b boundary**: `npm run verify` green; `npm run build`; rebuilt bundles committed. *The tab
+says true in every state of §K.3's truth table.*
+
+---
+
+### Wave K-c — the copy scans, each proved non-vacuous
+
+**Goal**: no string on this tab instructs the operator to press a control that is disabled in the state
+rendering it, and the withdrawn placeholder is gone — with each claim proved able to fail.
+
+- [x] **K-9** **The two copy scans and their three positive fixtures** (`tests/bindings-accounts.test.ts`,
+  against **mounted props** via the mount journal `tests/bindings-actors.test.ts` uses — a string can
+  sit in the source and never reach the DOM):
+  1. **The state-keyed scan over the empty text**, forbidding the withdrawn `select New binding`
+     instruction (and `select` / `click` / `press` / `choose` for anything the operator cannot
+     currently do), run over **every** read state. **Two positive fixtures**, because the instruction
+     appeared in two states before the fix: AC-154's **one-account** fixture — whose empty text
+     **does** contain `select New binding`, proving the matcher can find what it forbids — and AC-156's
+     **mounted-at-`idle`** fixture, the state the third row governs and the one where the pre-fix code
+     rendered it. Also assert the third row's string by equality, that it asserts **no account count**
+     (no *no accounts*, *0 accounts*, *none*), and that it names **only Refresh** — FR-120's
+     accounts gate never disables it, though the in-flight window does at `loading`
+     (`005 AC-157`). **`005 AC-157`'s predicate needs a `ready` fixture to be honest at all**:
+     the three pre-read states AC-156 names all have `accountGate(...).blocked === false` by FR-120's
+     own bar, so on their own they cannot tell the shipped line from one that *spreads*
+     `accountGate` onto Refresh. **Corrected 2026-10-05**: the pre-read loop asserted only
+     `disabled === (status === 'loading')`, and applying that mutation kept all **1339** tests green —
+     `ready`, the only read state where the gate holds, was absent from the set. The loop now also
+     mounts at `ready` with **zero** accounts and with **one**, and asserts Refresh is enabled in both.
+  2. **AC-155's phrase-keyed scan, kept separate and kept a phrase**: forbids the **string**     `Select a verified account` across the Bindings surfaces, proved non-vacuous by an
+     **Accounts-tab** fixture that still renders an account's `verifiedAt` stamp — because the rule
+     forbids the **string**, not the word, and a scan banning *verified* panel-wide would forbid
+     FR-062's correct, unchanged row. **The two scans must not be merged**: merging would make the
+     Accounts-tab fixture prove a claim about the empty text, and widening the second would forbid
+     `verifiedAt`. Assert both separations explicitly, in data, with named exemptions so a widening
+     fails with the offender's name.
+  3. **`tests/bundle.test.ts`**: one case over the committed `panel/main.js` asserting it carries
+     `Select an active account` and **not** `Select a verified account` — the shipped artifact, not
+     only the source. **Exemptions are asserted to still carry their word**, so an exemption that
+     quietly stopped existing cannot leave a scan proving nothing.
+  *Gate*: each of the three fixtures makes its scan fail when the string is put back, and passes as
+  written. **(AC-154, AC-155, AC-156, FR-122, FR-123, SC-114)**
+
+**Wave K-c boundary**: `npm run verify` green.
+
+---
+
+### Wave K-d — verification, bundles, and the visual check
+
+**Goal**: prove the shipped artifact, not just the tree.
+
+- [x] **K-10** `tools/visual/shot.js` gains `--scene <name>` (D26): a `scenes` delta in
+  `fixtures.json` merged over the base document by `fixtures.js`, where `no-accounts` sets
+  `accounts: { accounts: [] }`. A scene run captures **one** tab at **both** widths and writes
+  `panel-<tab>-<scene>.png` / `-narrow.png`, **reusing that tab's existing wide/narrow sentinel
+  colours** — so no probe colour, index arithmetic, or diff rule changes, and `AGENTS.md`'s
+  "every image is decoded and proven current" machinery is untouched (a scene run is its own process,
+  so the per-width freshness chain starts empty). *Tests* (`tests/visual-tooling.test.ts`): the flag is
+  advertised and rejects an unknown scene name; the delta merges **over** the base document (a scene
+  that omits a route leaves it answering); `no-accounts` yields an **empty** account list; a scene run
+  writes both widths and `verifyDelivered` accepts them. **(D26)**
+- [x] **K-11** **The visual check.** `npm run shot bindings` on the **default** fixture — which has two
+  accounts **and a binding**, so *none* of FR-122's three rows renders and the reason line is  correctly absent: this proves the correction did **not** leak into the live-control case. Then
+  `npm run shot bindings --scene no-accounts --out screenshots/no-accounts` — the frame in which the
+  **reason line** appears over a **full** list, and `npm run shot bindings --scene
+  no-accounts-no-bindings --out screenshots/no-accounts-no-bindings` — the frame in which an
+  **empty-text row** renders at all. *(Corrected 2026-10-05: this task previously named `no-accounts`
+  as the frame in which the **third row** "becomes visible at all", which holds only of `idle` at
+  mount, before the fixture's answers land — a window no capture can photograph, since a capture is
+  taken after boot and `status` is then `ready`. See the Phase-6 note below and `plan.md` §K.6 /
+  `K-11`.)* **Decided: yes, a Bindings capture belongs in
+  verification** — this change is operator-visible on the tab the rail shows first, an 80-character
+  sentence's wrapping at **560px** is exactly what a screenshot catches, and the defect class this
+  block exists to end was found by a screenshot. Assert the reason line and the empty-text row
+  are legible and unwrapped at 720px and 560px, and that `panel-bindings.png` (default) still shows
+  the gate **live**. Images land in git-ignored `screenshots/` and are never committed. **(FR-121, FR-122, AC-139, AGENTS.md §Visual verification)**
+- [x] **K-12** **Ship it**: `npm run verify` green (build → lint → typecheck → test); `npm run build`  regenerating **both** committed bundles — `panel/main.js` (IIFE) **and** `service/main.js` (ESM) —
+  and **both committed in the same commit as their sources** (invariant 1). **The service bundle MUST
+  be byte-identical**: no `service/*.ts` changes here, so `git diff --stat service/main.js` is empty
+  and that emptiness is the proof no service code moved (invariant 1 names both bundles, and a
+  changed service bundle means something outside this block's scope did). Re-read the out-of-scope
+  guard: no wire, route, store, storage key, capability, permission, SDK re-pin, or version bump; the
+  `usable`-versus-`exists` divergence **untouched** (FR-124, the block's one residual). Confirm
+  zero suppressions and zero `any` (invariant 7) and that every new string renders through the
+  non-HTML path (FR-080). Commit message per `AGENTS.md` (Conventional Commits, `Generated-By`
+  trailer via `git-agent-commit`; branch `issue-18-no-bindings-without-account`, **not** `main`).
+  **(AC-139, FR-124, invariant 1, invariant 7)**
+
+**Wave K-d boundary**: `npm run verify` green, both bundles committed with their sources, screenshots
+in git-ignored `screenshots/`.
+
+### Acceptance criterion → task coverage (this block only)
+
+| Criterion | Tasks |
+| --- | --- |
+| `005 AC-154` (zero-account gate, its reason, FR-122's table, both refusal cases, the unreadable read, the copy scan) | K-2, K-5, K-6, K-7, K-9 |
+| `005 AC-155` (placeholder equality in three states; the phrase-keyed scan) | K-8, K-9 |
+| `005 AC-156` (the third row in all three read states; gate and FR-121's line **absent** in each; no account-count claim; the mounted-at-`idle` positive fixture) | K-2, K-3, K-5, K-6, K-9 |
+| `005 SC-115` (answer both questions from the Bindings tab alone; no string instructs pressing a disabled control) | K-5, K-9, K-11 |
+| AC-139 (bundles rebuilt and committed with sources; `npm run verify` green) | every wave boundary, K-12 |
+| FR-122's **consistency rule** (one predicate, three rows, gate and selector cannot disagree) | **K-3** (the assertion), K-2 (the code it pins) |
+
+### Out-of-scope guard for this block (check before any task feels like "just one more")
+
+No service, route, wire member, status or error code, stored document, `host.storage` key, or contract
+change (FR-124). No change to `PUT /v1/bindings`' validation, to `hasAccount`, or to the
+`usable`-versus-`exists` divergence — **recorded as a decision, not a backlog item** (FR-124,
+clarification row 59; the block's **one** residual). No gate on *Add binding*, *Cancel*, *Toggle* or
+*Remove*: `newBinding` alone changes. **No gate that fires before the accounts read has succeeded, and
+no `usable`-keyed gate** — FR-120's bar is untouched and the third row was chosen *because* the frame
+is answered in copy rather than by starting the gate early (clarification row 60). **No fourth
+empty-text row**: the three rows partition one predicate, so a state fitting none is a **new
+predicate** — a spec amendment, not a task. No navigation control, link, or button to Accounts from
+anywhere (FR-010, FR-039); *Refresh* is named in the third row and already on the toolbar. No use of
+`rt.state.bindings.note` for the reason, and no restating of the failed read's cause or retry inside
+the empty text (FR-019, FR-121's channel rule). No new state member and **no second read** — the
+third row is answered from read state the panel already holds. No version bump, capability,
+permission, or SDK re-pin. No prompt or allow-list behaviour touched.
+
+### Phase-6 note — one tooling divergence from D26, recorded 2026-10-05
+
+`K-10` shipped a **second** scene, `no-accounts-no-bindings`, beside the planned
+`no-accounts`, because D26's premise about which frame shows which row was false
+in a way no capture could reveal. This note originally carried the whole
+argument. **The owner ruled the plan's premise corrected rather than left
+standing**, so §K.6 and `K-11` now carry the reasoning and this note keeps only
+what is a Phase-6 record.
+
+**What shipped, and why the divergence was forced.** `no-accounts` empties
+`accounts` alone, so the fixture's three **bindings** still render, and a capture
+is taken after boot — by which point `status` is `ready`. So `no-accounts`
+photographs the **reason line over a full list**, which is the frame the gate
+belongs in and was worth having. The second scene empties `bindings` as well,
+which is the only way an empty-text row reaches a camera: it renders
+`No binding yet — add an account on the Accounts tab first.` beside the same
+reason line, with *New binding* disabled. **This is a tooling delta** — two more
+JSON members, no panel code.
+
+**D26 holds as written.** The scenes reuse their tab's own sentinel colours, no
+probe colour, index, or diff rule moved, and `AGENTS.md`'s "every image is proven
+current" machinery is untouched. `AGENTS.md` now documents `--scene NAME` under
+Visual verification.
+
+**Where the corrected reasoning lives:** `plan.md` §K.6 (the risk row this note
+contradicted) and `K-11`. Both carry the false premise **struck**, what each scene
+actually photographs, and *why the second scene must not be deleted* — a reader
+who trusts the old premise would see `no-accounts` as already covering the
+empty-text row and remove the scene that uniquely provides it. The third row's
+truth is asserted by `005 AC-152`'s read-state fixtures rather than by a capture.
+
+### Phase 5 note on the earlier gate flag
+
+This block introduces **no** gate flag. The C-block's empty-list round trip (005 FR-090 vs `005
+AC-142`) is untouched by issue #18, and the issue #18 question this section *had* — the pre-read and
+unread frame — was **resolved by the owner's ruling of 2026-10-05** (clarification row 60, `005
+AC-156`), recorded as resolved-but-reasoning-retained in [plan.md §K.5 item 1](./plan.md).

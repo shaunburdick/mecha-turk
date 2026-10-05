@@ -981,6 +981,9 @@ async function reconcileInterruptedAccounts(deps) {
   return { examined: stranded.length, marked, restored };
 }
 
+// service/config.ts
+import { join } from "node:path";
+
 // service/config-agent.ts
 var EXPECTED_AGENT_RULE = {
   maxLength: 80,
@@ -1325,6 +1328,21 @@ function configFromStore(result, log) {
     return { config: DEFAULT_CONFIG, source: "quarantined", defaultsApplied: [] };
   }
   return { config: DEFAULT_CONFIG, source: "default", defaultsApplied: [] };
+}
+var QUARANTINE_EVIDENCE_PREFIX = `${CONFIG_FILE}.corrupt-`;
+async function latestQuarantineEvidence(store) {
+  const entries = await store.listDir(".");
+  const quarantined = entries.filter((entry) => entry.startsWith(QUARANTINE_EVIDENCE_PREFIX)).toSorted((left, right) => left.localeCompare(right));
+  const newest = quarantined.at(-1);
+  return newest === undefined ? null : join(store.dataDir, newest);
+}
+async function readStoredConfig(input) {
+  const result = await input.store.readJson(CONFIG_FILE, parseStoredConfig);
+  if (result.status !== "absent") {
+    return configFromStore(result, input.log);
+  }
+  const evidence = await latestQuarantineEvidence(input.store);
+  return configFromStore(evidence === null ? result : { status: "quarantined", quarantinePath: evidence }, input.log);
 }
 
 // service/github.ts
@@ -1745,7 +1763,7 @@ async function trimAudit(input) {
 }
 
 // service/poll/events.ts
-import { basename, join } from "node:path";
+import { basename, join as join2 } from "node:path";
 
 // service/poll/attribution.ts
 var AUTHOR_LOGIN_MAX_CHARS = 60;
@@ -3597,12 +3615,12 @@ async function recoverQuarantinedQueue(input) {
   input.log.info("scan windows reset after the event queue was quarantined", { bindingsReset });
   await recordQueueRecovery({ ...input, bindingsReset });
 }
-var QUARANTINE_EVIDENCE_PREFIX = `${EVENTS_FILE}.corrupt-`;
+var QUARANTINE_EVIDENCE_PREFIX2 = `${EVENTS_FILE}.corrupt-`;
 async function recoverFromEvidence(input) {
   const entries = await input.store.listDir(".");
   for (const entry of entries) {
-    if (entry.startsWith(QUARANTINE_EVIDENCE_PREFIX)) {
-      await recoverQuarantinedQueue({ ...input, quarantinePath: join(input.store.dataDir, entry) });
+    if (entry.startsWith(QUARANTINE_EVIDENCE_PREFIX2)) {
+      await recoverQuarantinedQueue({ ...input, quarantinePath: join2(input.store.dataDir, entry) });
     }
   }
 }
@@ -3873,7 +3891,7 @@ async function ensureDir(dirPath) {
 // service/store/json.ts
 import { randomUUID } from "node:crypto";
 import { promises as fs3 } from "node:fs";
-import { dirname, join as join2 } from "node:path";
+import { dirname, join as join3 } from "node:path";
 
 // service/store/files.ts
 import { promises as fs2 } from "node:fs";
@@ -3953,7 +3971,7 @@ async function sweepTempDebris(dirPath, depth = SWEEP_MAX_DEPTH) {
   }
   let removed = 0;
   for (const entry of entries) {
-    const target = join2(dirPath, entry.name);
+    const target = join3(dirPath, entry.name);
     if (entry.isDirectory()) {
       removed += await sweepTempDebris(target, depth - 1);
     } else if (entry.isFile() && isTempDebris(entry.name)) {
@@ -5109,8 +5127,7 @@ async function handleGetConfig(context) {
   if (context.store === null) {
     return storageUnavailableResponse();
   }
-  const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
-  const read = configFromStore(result, context.log);
+  const read = await readStoredConfig({ store: context.store, log: context.log });
   return {
     status: STATUS.ok,
     body: {

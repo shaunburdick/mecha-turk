@@ -40,13 +40,23 @@ walkthrough is `specs/002-agent-event-extension/quickstart.md`.
 ## Commands
 
 ```sh
-npm ci            # toolchain install (Node >= 20.19; bun for the bundler)
+npm ci            # toolchain install (Node >= 24.15; bun for the bundler)
 npm run verify    # build -> lint -> typecheck -> test — THE gate, run before every commit
 npm run build     # bundles panel/main.js (IIFE) + service/main.js (ESM)
-npm test          # vitest, offline (1302 tests)
+npm test          # vitest, offline
 npm run format    # eslint --fix
 npm run shot      # screenshot all six panel tabs at 720px and 560px into screenshots/
 ```
+
+`engines.node` is the *toolchain* floor, not a support statement: the host
+never reads it (`parseManifestJson` accepts any value there, including a
+nonsensical one — only `openchamber.engines.openchamber`, per invariant 6, is
+validated), so raising it removes nobody from the install path. The shipped
+`service/main.js` needs only the Node-20-era API surface it was written against
+(global `fetch`, `node:http`, `crypto.timingSafeEqual`, `fs.promises`,
+`AbortSignal.timeout`); that surface is guaranteed by
+`openchamber.engines.openchamber >= 1.24.0` and by the Node the host bundles,
+not by `engines.node`.
 
 ### Visual verification
 
@@ -63,6 +73,15 @@ particular size). The widths come from the host's own arithmetic, not a
 guess: extension panels are `plugin:<id>` context surfaces, whose
 `defaultWidthFraction` is `0.45` of the available content region, clamped
 between `320px` and `region − 400px` — ≈500px at 1440 and ≈715px at 1920.
+
+**`--scene NAME`** runs the capture against a fixture delta merged over the base
+document (`scenes` in `tools/visual/fixtures.json`), writing
+`panel-<tab>-<scene>.png`. It exists because the default fixture holds **both**
+accounts and a binding, so a state the default capture cannot reach — an account
+list that is empty, an empty binding list — has no frame at all. A scene reuses
+its tab's own sentinel colours, so every proof below still runs unchanged.
+`npm run shot -- --help` lists the scenes.
+
 It runs offline, needs
 `agent-browser` on PATH, takes about a minute, and never touches `panel/`,
 `src/`, or `service/`. Every image is decoded and proven current before it is
@@ -149,9 +168,12 @@ changing it. The shape:
 
 - `src/` — panel modules, one responsibility each. `app.ts` wires mount,
   subscribe and teardown; `tabs.ts` and `tab-bodies.ts` own the six-tab
-  shell; `relay*.ts` claim a run and hand off one `host.startSession()`;
-  `*-service.ts` files are the fail-closed readers of a service answer, and
-  `*-rows.ts` / `*-detail.ts` files are pure rendering.
+  shell; `status-tab.ts` owns the Status projection's read **and** the refresh
+  tick armed from the interval that document reports — Status is the only tab
+  with a cadence, and the panel holds no default for it; `relay*.ts` claim a
+  run and hand off one `host.startSession()`; `*-service.ts` files are the
+  fail-closed readers of a service answer, and `*-rows.ts` / `*-detail.ts`
+  files are pure rendering.
 - `service/` — the stdlib-only local service. `server.ts` / `http.ts` /
   `routes/` are the loopback HTTP surface, `poll/` is the scan loop, event
   queue and run lifecycle, `store/` is the 0700/0600 durable store, and

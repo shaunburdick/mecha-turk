@@ -63,6 +63,16 @@ export type TabId = 'status' | 'dispatches' | 'bindings' | 'accounts' | 'setting
 /** Every {@link TabId}, in strip order — the strip's declaration (FR-010). */
 export const TAB_IDS: readonly TabId[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'];
 
+/**
+ * The tab that owns a repeating read, and the only one (005 FR-100).
+ *
+ * Named rather than spelled at each comparison because two modules have to
+ * agree on it — `status-tab.ts` arms the refresh tick only while this tab is
+ * the active one, and a panel that armed for a hidden tab would repaint a
+ * background body under the operator's hands.
+ */
+export const STATUS_TAB: TabId = 'status';
+
 /** Banner content shown at the top of the panel. */
 export interface PanelStatus {
     readonly tone: BannerTone;
@@ -247,6 +257,22 @@ export interface PanelRuntime {
     tabLastRead: Map<TabId, string | null>;
     /** Registered unload listener, so teardown can remove exactly what it added. */
     pagehideListener: (() => void) | null;
+    /**
+     * The Status tab's refresh tick: its timer handle, or `null` while nothing
+     * is armed (005 FR-100).
+     *
+     * Written **only** by `status-tab.ts`'s `armStatusRefresh` /
+     * `stopStatusRefresh`, which set and clear it together with
+     * `statusRefreshMs` — two slots for one fact, because a period with no
+     * handle behind it is a period the tab would claim to be running on and is
+     * not (NFR-112, 005 FR-101).
+     */
+    statusRefreshTimer: ReturnType<typeof setInterval> | null;
+    /**
+     * The period that tick runs on — the effective `polling.intervalMs` the
+     * last landed status document carried — or `null` while nothing is armed.
+     */
+    statusRefreshMs: number | null;
     /** Whether the event relay loop is armed on this runtime. */
     relayArmed: boolean;
     /**
@@ -403,10 +429,12 @@ export function createPanelRuntime(
         aboutUi: null,
         disposed: false,
         started: false,
-        activeTab: 'status',
+        activeTab: STATUS_TAB,
         tabMounted: new Set<TabId>(),
         tabLastRead: new Map<TabId, string | null>(),
         pagehideListener: null,
+        statusRefreshTimer: null,
+        statusRefreshMs: null,
         relayArmed: false,
         reconcileSettled: true,
         relayArmPending: false,
