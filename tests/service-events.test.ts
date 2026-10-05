@@ -544,7 +544,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
     });
 
     it('accepts both members when present and refuses an unrecognized basis', () => {
-        const row: Record<string, unknown> = { ...structuredClone(createEvent(fixtureSnapshot(4, ''))) };
+        const row = { ...structuredClone(createEvent(fixtureSnapshot(4, ''))) };
 
         expect(parseStoredEvent(row)).toMatchObject({ actorLogin: 'alice', actorAttribution: LEGACY_BASIS });
         expect(parseStoredEvent({ ...row, actorAttribution: 'direct' })).toMatchObject({ actorAttribution: 'direct' });

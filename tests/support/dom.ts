@@ -85,6 +85,7 @@ export class FakeElement {
     /** Attributes written through `setAttribute`. */
     public readonly attributes = new Map<string, string>();
     /** Parent node, maintained by {@link append} and {@link remove}. */
+    // eslint-disable-next-line unicorn/consistent-class-member-order -- the other ordering rule wants the reverse
     private parent: FakeElement | null = null;
     /** Listeners per event type; the adapter registers `click`. */
     private readonly listeners = new Map<string, ElementListener>();
@@ -122,6 +123,19 @@ export class FakeElement {
                 has: (_target, key: PropertyKey): boolean => this.attributes.has(dataAttribute(String(key))),
             },
         );
+    }
+
+    /**
+     * First element child, as `Element.firstElementChild` reports it.
+     *
+     * The double stores children in an array and has no such accessor, so every
+     * test that wanted "the thing that was mounted here" reached for
+     * `children[0]` instead — a spelling that reads as an index into something
+     * that might not be there.
+     */
+    public get firstElementChild(): FakeElement | null {
+        // eslint-disable-next-line unicorn/better-dom-traversing -- this *is* the accessor being defined
+        return this.children[0] ?? null;
     }
 
     /**
@@ -239,6 +253,16 @@ export class FakeElement {
 export interface FakeDom {
     /** Root element to mount into, typed as `mountHandoffDom` expects. */
     readonly root: HTMLElement;
+    /**
+     * The same node as the double it is.
+     *
+     * `root` is the `HTMLElement` face the adapter takes; this is what the
+     * double actually is. Returning both means a test that needs to walk the
+     * tree does not have to cast its way back through `unknown`, which is how
+     * `dom.root.children[0]` and `dom.root as unknown as FakeElement` came to be
+     * written in the first place.
+     */
+    readonly rootElement: FakeElement;
     /** Every element the adapter created, in creation order. */
     readonly created: readonly FakeElement[];
     /** First element created with `tagName`, or `undefined`. */
@@ -271,8 +295,13 @@ export function fakeDom(): FakeDom {
     };
     const root = doc.createElement('div');
 
+    // `root` is the `HTMLElement` face production code is handed; `rootElement`
+    // is the same node as this double, so a test that walks the tree does not
+    // have to cast its way back through `unknown`.
     return {
+        // eslint-disable-next-line llm-core/no-chained-type-assertions, llm-core/no-type-system-bypass -- a stand-in
         root: root as unknown as HTMLElement,
+        rootElement: root,
         created,
         findByTag: (tagName: string): FakeElement | undefined =>
             created.find((node) => node.tagName === tagName),

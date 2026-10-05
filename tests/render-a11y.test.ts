@@ -395,8 +395,8 @@ describe('FR-081 every control and row action has an accessible name', () => {
                     readonly items?: readonly { readonly title?: string }[];
                 };
                 expect(props.ariaLabel?.trim(), 'a list has no accessible name').not.toBe('');
-                const items = props.items ?? [];
-                for (const item of items) {
+                const rows = props.items ?? [];
+                for (const item of rows) {
                     expect(item.title?.trim(), 'a list row has no title').not.toBe('');
                 }
             }

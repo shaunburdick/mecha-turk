@@ -105,6 +105,22 @@ const DARK_THEME = {
     radius: '8px',
 };
 
+/**
+ * The body container the shell made for one tab.
+ *
+ * `name` is a tab id — six lowercase literals from `TAB_IDS` — so nothing needs
+ * escaping, and `CSS` is absent from this harness anyway, so
+ * `unicorn/require-css-escape` cannot be satisfied here at all.
+ *
+ * @param {Element} panel - The panel root.
+ * @param {string} name - Tab id.
+ * @returns {Element | null} The body, or null when the tab has not mounted.
+ */
+function bodyOf(panel, name) {
+    // eslint-disable-next-line unicorn/require-css-escape -- a tab id, and `CSS` is absent in this harness
+    return panel.querySelector(`[data-body="${name}"]`);
+}
+
 const harnessDoc = globalThis.document;
 const frame = harnessDoc.querySelector('#panel');
 const sentinelLayer = harnessDoc.querySelector('#sentinel');
@@ -317,8 +333,7 @@ function measure(name) {
         return null;
     }
 
-    // eslint-disable-next-line unicorn/require-css-escape -- `name` is a tab id; `CSS` is absent in this harness.
-    const body = panel.querySelector(`[data-body="${name}"]`);
+    const body = bodyOf(panel, name);
     const region = panel.querySelector('[data-body-region]');
     const root = panel.querySelector('#root');
 
@@ -374,8 +389,7 @@ function align(name) {
         return null;
     }
 
-    // eslint-disable-next-line unicorn/require-css-escape -- `name` is a tab id; `CSS` is absent here.
-    const body = panel.querySelector(`[data-body="${name}"]`);
+    const body = bodyOf(panel, name);
     const region = panel.querySelector('[data-body-region]');
 
     if (body === null || region === null) {
@@ -558,6 +572,7 @@ async function boot() {
     state.harnessError = error;
     state.routes = table;
     state.projects = list;
+    // eslint-disable-next-line unicorn/no-global-object-property-assignment -- this is the harness's channel to shot.js
     globalThis.__MT_HARNESS_ERROR__ = state.harnessError;
     frame.src = frame.dataset.src;
 }
@@ -567,6 +582,7 @@ frame.addEventListener('load', sendReady);
 void boot();
 
 /** The control surface `shot.js` drives over `agent-browser eval`. */
+// eslint-disable-next-line unicorn/no-global-object-property-assignment -- the surface shot.js drives
 globalThis.__MT__ = {
     booted,
     error: () => state.harnessError,

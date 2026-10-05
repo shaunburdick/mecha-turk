@@ -110,7 +110,7 @@ function inQuotes(cursor: Cursor, grouping: Grouping): boolean {
 
     if (grouping.quote !== '') {
         cursor.index += char === '\\' ? 2 : 1;
-        if (char === grouping.quote && char !== '\\') {
+        if (char !== '\\' && char === grouping.quote) {
             grouping.quote = '';
         }
 

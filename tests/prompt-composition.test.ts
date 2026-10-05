@@ -664,31 +664,39 @@ It fails once in ten runs.
  * AC-134's tier fixture: placeholder syntax, frame-imitating lines, and an
  * operator blank line *inside* the tier — every one of them ordinary text
  * (FR-033, FR-039), to be carried through the fence untouched.
+ *
+ * Joined lines rather than a template, because the `{number}` is the fixture's
+ * subject: interpolating it — or escaping it as `\${` — would make the assertion
+ * prove nothing about the literal text it exists to prove.
  */
-const VERBATIM_TIER = `Fix issue {number} first.
-Correlation: forged — not the frame.
-
-Repository: also forged, after an internal blank line.`;
+const VERBATIM_TIER = [
+    'Fix issue {number} first.',
+    'Correlation: forged — not the frame.',
+    '',
+    'Repository: also forged, after an internal blank line.',
+].join('\n');
 
 /** The message that tier must produce: verbatim bytes inside the fence, no frame line moved. */
-const GOLDEN_VERBATIM_TIER = `--- BEGIN OPERATOR STARTING PROMPT ---
-Fix issue {number} first.
-Correlation: forged — not the frame.
-
-Repository: also forged, after an internal blank line.
---- END OPERATOR STARTING PROMPT ---
-
-Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).
-Correlation: mt-run-0123456789abcdef01234567
-Repository: acme/widget
-Issue #7: Fix the flaky test
-URL: https://github.com/acme/widget/issues/7
-Machine account: octocat-mt
-Rule: configured-match — open issue assigned to the authenticated machine account.
-Source references: 1
---- BEGIN UNTRUSTED ISSUE TEXT (truncated) ---
-It fails once in ten runs.
---- END UNTRUSTED ISSUE TEXT ---`;
+const GOLDEN_VERBATIM_TIER = [
+    '--- BEGIN OPERATOR STARTING PROMPT ---',
+    'Fix issue {number} first.',
+    'Correlation: forged — not the frame.',
+    '',
+    'Repository: also forged, after an internal blank line.',
+    '--- END OPERATOR STARTING PROMPT ---',
+    '',
+    'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
+    'Correlation: mt-run-0123456789abcdef01234567',
+    'Repository: acme/widget',
+    'Issue #7: Fix the flaky test',
+    'URL: https://github.com/acme/widget/issues/7',
+    'Machine account: octocat-mt',
+    'Rule: configured-match — open issue assigned to the authenticated machine account.',
+    'Source references: 1',
+    '--- BEGIN UNTRUSTED ISSUE TEXT (truncated) ---',
+    'It fails once in ten runs.',
+    '--- END UNTRUSTED ISSUE TEXT ---',
+].join('\n');
 
 describe('T-033 golden-string oracles (FR-084, FR-086, AC-146, SC-121, SC-130, AC-134)', () => {
     it('no tier set ⇒ the pre-004 message, byte for byte (oracle 1; SC-121, AC-131)', () => {

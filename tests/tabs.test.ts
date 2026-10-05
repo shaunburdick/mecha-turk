@@ -42,17 +42,12 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual: Record<string, unknown> = await importOriginal();
     return {
         ...actual,
-        mountTabs: (root: Element, initial: {
+        mountTabs: (root: FakeElement, initial: {
             readonly items: readonly { readonly id: string; readonly label: string }[];
             readonly activeId: string;
             readonly onChange: (id: string) => void;
             readonly trackBackground?: boolean;
         }): { update: (next: { readonly activeId: string }) => void; dispose: () => void } => {
-            const host = root as unknown as {
-                readonly ownerDocument: { createElement(tagName: string): FakeElement };
-                append(...nodes: FakeElement[]): void;
-                addEventListener(type: string, listener: () => void): void;
-            };
             strip.labels = initial.items.map((item) => item.label);
             strip.activeId = initial.activeId;
             strip.onChange = initial.onChange;
@@ -60,9 +55,9 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
             strip.disposed = false;
             strip.key = null;
 
-            const track = host.ownerDocument.createElement('div');
+            const track = root.ownerDocument.createElement('div');
             track.setAttribute('role', 'tablist');
-            host.append(track);
+            root.append(track);
 
             const paint = (activeId: string): void => {
                 for (const item of initial.items) {
@@ -77,14 +72,14 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
             };
 
             strip.buttons = initial.items.map((item) => {
-                const button = host.ownerDocument.createElement('button');
+                const button = root.ownerDocument.createElement('button');
                 button.setAttribute('role', 'tab');
-                button.setAttribute('data-id', item.id);
+                button.dataset.id = item.id;
                 track.append(button);
                 return button;
             });
             paint(initial.activeId);
-            host.addEventListener('keydown', (): void => undefined);
+            root.addEventListener('keydown', (): void => undefined);
             track.addEventListener('keydown', (): void => undefined);
 
             return {
@@ -165,7 +160,7 @@ function mountShell(): {
     const { specs, counts } = countedSpecs();
     const shell = mountTabShell({ rt, root: dom.root, specs });
 
-    return { rt, root: dom.root as unknown as FakeElement, counts, shell };
+    return { rt, root: dom.rootElement, counts, shell };
 }
 
 /**
@@ -225,9 +220,9 @@ describe('mountTabShell (the six-tab shell, 005 FR-010)', () => {
         {
             const { root } = mountShell();
 
-            expect(root.children[0]?.attribute('role')).toBe('tablist');
-            const region = root.children[1];
-            expect(region?.children[0]?.attribute('data-body')).toBe('status');
+            expect(root.firstElementChild?.attribute('role')).toBe('tablist');
+            const region = regionOf(root);
+            expect(region?.firstElementChild?.attribute('data-body')).toBe('status');
         }
         {
             mountShell();
@@ -257,7 +252,7 @@ describe('the strip holds its layout while content scrolls (005 FR-082)', () => 
         {
             const { root } = mountShell();
             const region = regionOf(root);
-            const stripElement = root.children[0];
+            const stripElement = root.firstElementChild;
 
             expect(stripElement?.attribute('role')).toBe('tablist');
             expect(region).toBeDefined();

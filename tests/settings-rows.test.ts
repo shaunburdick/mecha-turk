@@ -722,7 +722,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
             const interval = controls.find((entry) => {
                 const { label } = entry.props as { readonly label?: string };
 
-                return label !== undefined && label.startsWith('intervalMs');
+                return label?.startsWith('intervalMs') === true;
             });
             expect(interval).toBeDefined();
             const { label } = (interval?.props as { readonly label: string });

@@ -528,11 +528,11 @@ describe('POST /v1/events/:correlationId/retry (wire delta from 003)', () => {
         expect(response.status).toBe(404);
         expect(body.error.code).toBe('unknown-run');
         // The delivery row is byte-identical: a refusal moves nothing.
-        expect(await storedQueue(service)).toEqual([fixtureEvent({
+        expect(await storedQueue(service)).toEqual([{ ...fixtureEvent({
             issueNumber: 4,
             detectedAt: STAMP,
             kind: 'assignment',
-        }) as unknown as Record<string, unknown>]);
+        }) }]);
     });
 });
 

@@ -56,7 +56,7 @@ import {
 import type { EnqueueInput } from './fixture-enqueue.ts';
 import { offlinePoller } from './github.ts';
 import {
-    HAS_NOTHING_TO_RELEASE,
+    hasNothingToRelease,
     PROJECT_ID,
     PROJECTS,
     SESSION_CREATED,
@@ -211,7 +211,7 @@ async function forward(input: {
     const { service, request, options, lost, timeline } = input;
     timeline.push(`${request.method} ${request.path}`);
     const isResult = request.method === 'POST' && request.path.endsWith('/dispatched');
-    if (options.loseFirstReport === true && isResult && !lost.value) {
+    if (isResult && !lost.value && options.loseFirstReport === true) {
         lost.value = true;
 
         return { status: LOST_REPORT_STATUS, body: LOST_REPORT_BODY };
@@ -281,7 +281,7 @@ function buildHost(input: {
         onSession: (listener) => {
             listener(SESSION_SNAPSHOT);
 
-            return HAS_NOTHING_TO_RELEASE;
+            return hasNothingToRelease;
         },
         storage,
     });

@@ -307,10 +307,10 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
 
     it('declares no version-shaped literal anywhere in the panel source', async () => {
         {
-            const files = readdirSync(resolve(import.meta.dirname, '../src'), { recursive: true })
+            const fromSrc = readdirSync(resolve(import.meta.dirname, '../src'), { recursive: true })
                 .map((entry) => `src/${String(entry)}`)
-                .filter((path) => path.endsWith('.ts'))
-                .concat('panel/main.ts');
+                .filter((path) => path.endsWith('.ts'));
+            const files = [...fromSrc, 'panel/main.ts'];
             const offenders: string[] = [];
 
             for (const path of files) {

@@ -463,8 +463,10 @@ function strippedReference(reference: Run['sourceReferences'][number]): Record<s
  * @returns The same run, with its references' actor members removed.
  */
 function runWithoutAttribution(run: Run): Run {
+    const references = run.sourceReferences.map((reference) => strippedReference(reference));
+
     // eslint-disable-next-line llm-core/no-type-system-bypass, llm-core/no-chained-type-assertions -- 002 FR-045
-    return { ...run, sourceReferences: run.sourceReferences.map(strippedReference) } as unknown as Run;
+    return { ...run, sourceReferences: references } as unknown as Run;
 }
 
 async function stripAttribution(correlationId: string): Promise<void> {

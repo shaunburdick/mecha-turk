@@ -236,10 +236,12 @@ describe('ServiceConfig validation', () => {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [field]: value });
 
                 expect(result.ok, `${field} = ${String(value)} must be refused`).toBe(false);
-                if (!result.ok) {
-                    const issue = result.issues.find((candidate) => candidate.field === field);
-                    expect(issue?.remediation, `${field} remediation must name the field`).toContain(field);
+                if (result.ok) {
+                    continue;
                 }
+
+                const issue = result.issues.find((candidate) => candidate.field === field);
+                expect(issue?.remediation, `${field} remediation must name the field`).toContain(field);
             }
         }
     });
@@ -601,15 +603,17 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: value });
 
                 expect(result.ok, `${shape} must be refused`).toBe(false);
-                if (!result.ok) {
-                    const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
-                    expect(issue?.remediation, `${shape} remediation`).toBe(remediation);
-                    expect(issue?.remediation, `${shape} must not echo whitespace`).not.toContain(' '.repeat(4));
-                    const submitted = value.trim();
-                    if (submitted !== '') {
-                        expect(JSON.stringify(result.issues), `${shape} must not echo the value`)
-                            .not.toContain(submitted);
-                    }
+                if (result.ok) {
+                    continue;
+                }
+
+                const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
+                expect(issue?.remediation, `${shape} remediation`).toBe(remediation);
+                expect(issue?.remediation, `${shape} must not echo whitespace`).not.toContain(' '.repeat(4));
+                const submitted = value.trim();
+                if (submitted !== '') {
+                    expect(JSON.stringify(result.issues), `${shape} must not echo the value`)
+                        .not.toContain(submitted);
                 }
             }
         }
@@ -642,12 +646,14 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: absent });
 
                 expect(result.ok, `${typeof absent} must be refused`).toBe(false);
-                if (!result.ok) {
-                    const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
-                    expect(issue?.remediation).toBe(
-                        'set expectedAgent to a string; leave it empty for no baseline',
-                    );
+                if (result.ok) {
+                    continue;
                 }
+
+                const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
+                expect(issue?.remediation).toBe(
+                    'set expectedAgent to a string; leave it empty for no baseline',
+                );
             }
 
             // The whole-document rule refuses an omitted key (FR-100(b)), even
@@ -795,16 +801,18 @@ describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', 
         const refused = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: OVER_CAP_PROMPT });
 
         expect(refused.ok, 'one code point past the cap must be refused').toBe(false);
-        if (!refused.ok) {
-            const issue = refused.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
-
-            expect(issue, 'the refusal must name the field').toBeDefined();
-            expect(issue?.remediation).toContain(String(CAP));
-            // No echo — neither the value nor any run of it appears anywhere
-            // in the additive issue list (004 FR-003, AC-133).
-            expect(JSON.stringify(refused.issues)).not.toContain(OVER_CAP_PROMPT);
-            expect(JSON.stringify(refused.issues)).not.toContain('a'.repeat(64));
+        if (refused.ok) {
+            return;
         }
+
+        const issue = refused.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
+
+        expect(issue, 'the refusal must name the field').toBeDefined();
+        expect(issue?.remediation).toContain(String(CAP));
+        // No echo — neither the value nor any run of it appears anywhere
+        // in the additive issue list (004 FR-003, AC-133).
+        expect(JSON.stringify(refused.issues)).not.toContain(OVER_CAP_PROMPT);
+        expect(JSON.stringify(refused.issues)).not.toContain('a'.repeat(64));
     });
 
     it('refuses a credential-shaped value with the shipped shape label, over the model and the wire', async () => {
@@ -849,11 +857,13 @@ describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', 
             const result = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: wrong });
 
             expect(result.ok, `${JSON.stringify(wrong)} must be refused`).toBe(false);
-            if (!result.ok) {
-                const issue = result.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
-
-                expect(issue?.remediation).toContain(STARTING_PROMPT_FIELD);
+            if (result.ok) {
+                continue;
             }
+
+            const issue = result.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
+
+            expect(issue?.remediation).toContain(STARTING_PROMPT_FIELD);
         }
 
         // …and a PUT that omits the member entirely is the same 422: a member

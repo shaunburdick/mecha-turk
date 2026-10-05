@@ -120,6 +120,20 @@ export function userBody(identity: { readonly id: number; readonly login: string
 }
 
 /**
+ * An error the scripted endpoint throws under a chosen `name`.
+ *
+ * A subclass rather than a `name` written onto an `Error`, because the name is
+ * the whole point of the fixture: production branches on `error.name`, so the
+ * test has to be able to pick it.
+ */
+class ScriptedFailureError extends Error {
+    public constructor(message: string, name: string) {
+        super(message);
+        this.name = name;
+    }
+}
+
+/**
  * Build a fake GitHub whose `fetch` answers from a script.
  *
  * @param script - Answers for `/user` and `/rate_limit`.
@@ -141,9 +155,7 @@ export function fakeGitHub(script: GitHubScript): FakeGitHub {
         }
 
         if (endpoint.failWithName !== undefined) {
-            const failure = new Error('upstream call did not complete');
-            failure.name = endpoint.failWithName;
-            throw failure;
+            throw new ScriptedFailureError('upstream call did not complete', endpoint.failWithName);
         }
 
         return new Response(endpoint.body ?? '', {

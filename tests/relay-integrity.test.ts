@@ -61,7 +61,7 @@ import type { PanelRuntime } from '../src/panel-state.ts';
 import {
     DEFAULT_STATUS,
     FIXTURE_TIMESTAMP,
-    HAS_NOTHING_TO_RELEASE,
+    hasNothingToRelease,
     LOGIN,
     PROJECT_ID,
     PROJECTS,
@@ -318,7 +318,7 @@ function harness(
         onSession: (listener) => {
             listener(sessionSnapshot());
 
-            return HAS_NOTHING_TO_RELEASE;
+            return hasNothingToRelease;
         },
         openSession: async (sessionId) => {
             timeline.push(`openSession:${sessionId}`);

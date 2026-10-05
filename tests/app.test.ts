@@ -20,7 +20,7 @@ import { selectedProjectId } from '../src/project-picker.ts';
 import type { PanelBinding } from '../src/bindings-service.ts';
 import {
     FIXTURE_TIMESTAMP,
-    HAS_NOTHING_TO_RELEASE,
+    hasNothingToRelease,
     LOGIN,
     PROJECT_DIR,
     PROJECT_ID,
@@ -118,7 +118,7 @@ describe('teardown', () => {
         // The one loop the panel owns at teardown is the relay's (FR-018);
         // arm it by hand so "no timer survives teardown" is about the loop
         // that actually exists rather than a retired one.
-        runtime.state.relay.timer = setInterval(HAS_NOTHING_TO_RELEASE, 60_000);
+        runtime.state.relay.timer = setInterval(hasNothingToRelease, 60_000);
         const fired: string[] = [];
         runtime.pagehideListener = () => {
             fired.push('pagehide');

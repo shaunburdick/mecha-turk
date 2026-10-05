@@ -191,10 +191,11 @@ const isInvokedDirectly =
     process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isInvokedDirectly) {
-    startServer({ port: portFromEnv() })
-        .then((server) => writeLine(`harness: ${server.url}/tools/visual/index.html`))
-        .catch((error) => {
-            const detail = error instanceof Error ? error.message : String(error);
-            writeError(`harness could not start: ${detail}`);
-        });
+    try {
+        const server = await startServer({ port: portFromEnv() });
+        writeLine(`harness: ${server.url}/tools/visual/index.html`);
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        writeError(`harness could not start: ${detail}`);
+    }
 }

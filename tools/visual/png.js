@@ -319,6 +319,65 @@ function expandToRgba(input) {
     throw new Error(`unsupported PNG colour type ${colorType}`);
 }
 
+/**
+ * Record one chunk, and say whether the scan should go on.
+ *
+ * Its own function so the scan loop has no `break` buried inside it: `IEND`
+ * answering "stop" is a fact about the format, and the loop reading that answer
+ * is the whole shape of the thing.
+ *
+ * @param {object} chunks - The accumulator the scan fills.
+ * @param {string} type - Four-character chunk type.
+ * @param {Buffer} body - The chunk's bytes.
+ * @returns `false` at `IEND`, `true` otherwise.
+ */
+function applyChunk(chunks, type, body) {
+    switch (type) {
+        case 'IHDR': {
+            chunks.header = readHeader(body);
+
+            return true;
+        }
+
+        case 'PLTE': {
+            chunks.palette = Buffer.from(body);
+
+            return true;
+        }
+
+        case 'tRNS': {
+            chunks.transparency = Buffer.from(body);
+
+            return true;
+        }
+
+        case 'IDAT': {
+            chunks.data.push(Buffer.from(body));
+
+            return true;
+        }
+
+        default: {
+            return type !== 'IEND';
+        }
+    }
+}
+
+/**
+ * The chunks a finished file must have produced.
+ *
+ * A separate step so the scan can stop the moment it sees `IEND` *and* still go
+ * through the same check: reaching the end of the buffer without an `IEND` is
+ * just as truncated as one that ends early.
+ */
+function finishedChunks(chunks) {
+    if (chunks.header === null || chunks.data.length === 0) {
+        throw new Error('not a PNG: no header or no image data');
+    }
+
+    return chunks;
+}
+
 /** Split the file into its header, palette, and concatenated image data. */
 function parseChunks(buffer) {
     const chunks = { header: null, palette: null, transparency: null, data: [] };
@@ -329,26 +388,14 @@ function parseChunks(buffer) {
         const type = buffer.toString('ascii', offset + CHUNK.typeAt, offset + CHUNK.bodyAt);
         const body = buffer.subarray(offset + CHUNK.bodyAt, offset + CHUNK.bodyAt + length);
 
-        if (type === 'IHDR') {
-            chunks.header = readHeader(body);
-        } else if (type === 'PLTE') {
-            chunks.palette = Buffer.from(body);
-        } else if (type === 'tRNS') {
-            chunks.transparency = Buffer.from(body);
-        } else if (type === 'IDAT') {
-            chunks.data.push(Buffer.from(body));
-        } else if (type === 'IEND') {
+        offset += CHUNK.frame + length;
+
+        if (!applyChunk(chunks, type, body)) {
             break;
         }
-
-        offset += CHUNK.frame + length;
     }
 
-    if (chunks.header === null || chunks.data.length === 0) {
-        throw new Error('not a PNG: no header or no image data');
-    }
-
-    return chunks;
+    return finishedChunks(chunks);
 }
 
 /**

@@ -99,7 +99,7 @@ const DELETES_HISTORY = 'deletes history';
 const RESTORE_LABEL = 'Restore defaults';
 
 /** The configuration as stored, with every field at its default. */
-const STORED_CONFIG: Record<string, unknown> = { ...DEFAULT_CONFIG };
+const STORED_CONFIG = { ...DEFAULT_CONFIG };
 
 /** One `GET /v1/config` body, assembled the way the service sends it. */
 function envelopeBody(config: Record<string, unknown> = STORED_CONFIG): string {

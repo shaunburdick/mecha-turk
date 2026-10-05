@@ -147,7 +147,7 @@ function binding(bindingId: string): BindingRecord {
 
 /** Persist the bindings the status reader is given, so the store agrees. */
 async function storeBindings(...ids: readonly string[]): Promise<void> {
-    await writeBindings({ store, bindings: ids.map(binding) });
+    await writeBindings({ store, bindings: ids.map((id) => binding(id)) });
 }
 
 /** Claim with the shared fixture holder and stamp. */

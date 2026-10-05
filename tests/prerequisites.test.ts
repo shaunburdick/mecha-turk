@@ -379,8 +379,8 @@ function mountedNotice(): {
     configureForNotice(rt);
     const dom = fakeDom();
     mountPrerequisiteNotice({ rt, parent: dom.root });
-    const box = (dom.root as unknown as FakeElement).children[0];
-    if (box === undefined) {
+    const box = dom.rootElement.firstElementChild;
+    if (box === null) {
         throw new Error('the notice wrapper did not mount');
     }
 

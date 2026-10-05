@@ -29,6 +29,16 @@ export default [
         // / `no-redundant-logic` disabled outright. See the changelog in
         // eslint/CHANGELOG.md at 11.3.0 for each.
         rules: {
+            // The shared cap is two inline disables per file and recommends a
+            // block-level disable instead. This repo's invariant 7 (owner-ruled
+            // 2026-10-04) allows a described line-scoped disable anywhere and
+            // only bars a *file-wide* one below five sites in that file, so the
+            // two policies disagree on the same question and the repo's is the
+            // newer. Raising the cap to that threshold keeps the machine check
+            // and the written policy saying the same thing: a file that needs
+            // six is the signal, and five is the line. `eslint.config.mjs` is
+            // already exempt in the shared config, which is right for it.
+            'shaunburdick/max-inline-disables': ['warn', { max: 5 }],
             // It asks for an explicit length check before reading a first or
             // last element. This repo has `noUncheckedIndexedAccess` on, so an
             // unguarded read is already `T | undefined`, and the codebase
@@ -52,19 +62,20 @@ export default [
             // rather than accidental.
             'llm-core/consistent-catch-param-name': 'off',
             'unicorn/catch-error-name': 'off',
-            // 46 findings, and 13 of them sit in a function that must *not* become
-            // async. These are the chain-join and memoisation helpers —
-            // inWriteChain in audit.ts and scan.ts, inQueueChain and
-            // whenQueueIdle in runs-document.ts, auditCacheFor, serializeAudit,
-            // serializeScan, startAdoption, startReconciliation, startBootSweep
-            // — and each one either assigns to the chain it is joining before
+            // 46 findings, and 13 of them sit in a function that must not become
+            // asynchronous: the chain-join and memoisation helpers. The two
+            // chain joiners in the audit and scan stores, the queue chain in the
+            // run store, and eight seed-and-memoise openers behind the audit
+            // cache, serialisation, adoption, reconciliation, and boot sweep.
+            // Each one either assigns to the chain it is joining before
             // returning, or memoises its promise synchronously so that
-            // concurrent first callers share one seed read. `await` inserts a
+            // concurrent first callers share one seed read. Awaiting inserts a
             // suspension point before that assignment, so complying would break
-            // the invariant the surrounding docblocks state as the reason the
-            // function exists. prefer-then-catch compounds it: the two-armed
-            // `.then(task, task)` is deliberate, because the chain must carry a
-            // previous rejection into the next slot without wedging.
+            // the invariant the surrounding docblocks give as the reason each
+            // helper exists at all. prefer-then-catch compounds it: handing one
+            // task to both arms of a promise chain is deliberate, because the
+            // chain must carry a previous rejection into the next slot without
+            // wedging.
             'unicorn/prefer-await': 'off',
             // The plugin ships a per-module opinion and for `node:path` it is
             // `default`: `import path from 'node:path'`. This repo is the other

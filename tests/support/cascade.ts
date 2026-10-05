@@ -596,10 +596,10 @@ function inlineCandidate(element: ProbeElement): Candidate | null {
  * @returns The winning value, or null when nothing declares `display`.
  */
 export function cascadedDisplay(input: CascadeInput): string | null {
-    const winner = input.rules.reduce<Candidate | null>(
-        (current, rule) => applyRule({ rule, element: input.element, media: input.media, current }),
-        inlineCandidate(input.element),
-    );
+    let winner: Candidate | null = inlineCandidate(input.element);
+    for (const rule of input.rules) {
+        winner = applyRule({ rule, element: input.element, media: input.media, current: winner });
+    }
 
     return winner === null ? null : winner.value;
 }

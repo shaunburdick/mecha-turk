@@ -60,7 +60,9 @@ export const DEFAULT_STATUS = 404;
 export const DEFAULT_BODY = '{"message":"unconfigured"}';
 
 /** Dispose double: the base host registers nothing, so there is nothing to release. */
-export const HAS_NOTHING_TO_RELEASE = (): boolean => false;
+export function hasNothingToRelease(): boolean {
+    return false;
+}
 
 /** Result double for `startSession` when a test does not exercise dispatch. */
 export const NO_SESSION: StartSessionResult = {
@@ -136,15 +138,15 @@ export function fakeHost(overrides: Partial<PanelHost> = {}): PanelHost {
         listProjects: async () => PROJECTS,
         listWorktrees: async () => WORKTREES,
         listSessions: async () => SESSIONS,
-        onProjects: async () => HAS_NOTHING_TO_RELEASE,
-        onWorktrees: async () => HAS_NOTHING_TO_RELEASE,
-        onSessions: async () => HAS_NOTHING_TO_RELEASE,
-        onSession: () => HAS_NOTHING_TO_RELEASE,
-        onSessionLifecycle: () => HAS_NOTHING_TO_RELEASE,
-        onReady: () => HAS_NOTHING_TO_RELEASE,
-        onSettings: () => HAS_NOTHING_TO_RELEASE,
-        onConnection: () => HAS_NOTHING_TO_RELEASE,
-        dispose: HAS_NOTHING_TO_RELEASE,
+        onProjects: async () => hasNothingToRelease,
+        onWorktrees: async () => hasNothingToRelease,
+        onSessions: async () => hasNothingToRelease,
+        onSession: () => hasNothingToRelease,
+        onSessionLifecycle: () => hasNothingToRelease,
+        onReady: () => hasNothingToRelease,
+        onSettings: () => hasNothingToRelease,
+        onConnection: () => hasNothingToRelease,
+        dispose: hasNothingToRelease,
         ...overrides,
     };
 }
@@ -232,7 +234,10 @@ export function testEvidence(overrides: Partial<PanelEvidence> = {}): PanelEvide
  * @param panelWindow - Frame window; defaults to {@link fakeWindow}.
  * @returns A runtime with the fixture dispatch context.
  */
-export function createTestRuntime(host: PanelHost, panelWindow = fakeWindow().window): PanelRuntime {
+export function createTestRuntime(
+    host: PanelHost,
+    panelWindow: ReturnType<typeof fakeWindow>['window'] = fakeWindow().window,
+): PanelRuntime {
     const runtime = createPanelRuntime(host, panelWindow);
     runtime.state.config = testConfig();
 

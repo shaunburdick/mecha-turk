@@ -18,7 +18,7 @@ import type { ContextSource, PanelHost } from '../src/session.ts';
 import {
     FIXTURE_CORRELATION,
     FIXTURE_TIMESTAMP,
-    HAS_NOTHING_TO_RELEASE,
+    hasNothingToRelease,
     ISSUE_URL,
     LOGIN,
     PROJECT_DIR,
@@ -170,15 +170,15 @@ function freshHost(): PanelHost {
     return fakeHost({
         onProjects: async (listener) => {
             listener(PROJECTS);
-            return HAS_NOTHING_TO_RELEASE;
+            return hasNothingToRelease;
         },
         onWorktrees: async (projectId, listener) => {
             listener({ ...WORKTREES, projectId });
-            return HAS_NOTHING_TO_RELEASE;
+            return hasNothingToRelease;
         },
         onSessions: async (projectId, listener) => {
             listener({ ...SESSIONS, projectId });
-            return HAS_NOTHING_TO_RELEASE;
+            return hasNothingToRelease;
         },
     });
 }

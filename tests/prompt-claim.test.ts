@@ -157,7 +157,7 @@ async function seed(input: SeedInput): Promise<void> {
     await enqueueEvents({
         store: storeOf(service),
         log: LOGGER,
-        incoming: snapshots.map((snapshot) => createEvent(snapshot)),
+        incoming: snapshots.map((detected) => createEvent(detected)),
         ...(snapshot !== null && { prompt: snapshot }),
     });
 }
