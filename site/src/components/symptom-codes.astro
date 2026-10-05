@@ -1,0 +1,97 @@
+---
+/**
+ * The debug page's symptom table (T-020, FR-041, AC-011).
+ *
+ * The first column is the **exact** token or string the product renders, and
+ * every row is derived by import rather than typed: `declarations.ts` reads the
+ * panel's own `HOST_COPY`, `SERVICE_COPY`, and `REASON_COPY` out of
+ * `src/handoff-copy.ts`, plus the three sentences it renders with no code in
+ * front of them and the one sentence `src/session.ts` builds for itself.
+ *
+ * That derivation is the whole point of the table. A retyped token is the one
+ * failure this page cannot survive: the reader searches for what the product
+ * prints, finds no row, and concludes the product is broken — which is worse
+ * than having no table at all. So the words come out of the same `Map`s the panel
+ * renders from, and `tests/debug-page.assertions.mjs` asserts that no row's text
+ * appears as a literal here, which is what makes "derived" checkable rather than
+ * claimed.
+ *
+ * Two kinds of row share the table, and the caption says which is which:
+ *
+ * - a **token** row, whose first cell is a code or status string and whose
+ *   second cell is the panel's own sentence for it — the shipped copy already
+ *   states both the meaning and the remediation, so a paraphrase beside it could
+ *   only be worse;
+ * - a **sentence** row, where the first cell *is* the whole rendered string,
+ *   because that is what the reader is looking at and there is no code to look
+ *   it up by. The prose for those arrives as a required prop keyed by the
+ *   sentence, so a row that could not be described is refused at build time
+ *   rather than shipped with an empty cell (FR-052).
+ *
+ * The row order is the panel's own lookup order — host transport failures, then
+ * the service's error codes, then credential-rejection reasons — because that is
+ * the order a reader meets the tokens in.
+ */
+import { PANEL_PROBLEM_SHAPES, SYMPTOM_CODES, SYMPTOM_MESSAGES } from '../data/declarations.ts';
+
+interface Props {
+    /**
+     * What each sentence the panel renders on its own means, and what to do,
+     * keyed by that sentence exactly as the panel renders it.
+     */
+    readonly describe: Readonly<Record<string, string>>;
+}
+
+const { describe } = Astro.props;
+
+/**
+ * The prose for a row whose first cell is a whole sentence.
+ *
+ * @param sentence The rendered string, which is also the key.
+ * @returns The line to print beside it.
+ * @throws When the page supplied no line, so the row cannot ship empty.
+ */
+function lineFor(sentence: string): string {
+    const line = describe[sentence];
+    if (line === undefined || line.trim() === '') {
+        throw new Error(
+            `the symptom table has no description for ${JSON.stringify(sentence)}; every failure the `
+            + 'panel renders on its own must say what it means and what to do (FR-041)',
+        );
+    }
+
+    return line;
+}
+
+/** Token rows first, in the panel's lookup order, then the bare sentences. */
+const rows = [
+    ...SYMPTOM_CODES.map((code) => ({ rendered: code.token, line: code.meaning })),
+    ...SYMPTOM_MESSAGES.map((sentence) => ({ rendered: sentence, line: lineFor(sentence) })),
+    ...PANEL_PROBLEM_SHAPES.map((shape) => ({ rendered: shape, line: lineFor(shape) })),
+];
+---
+
+<table>
+    <caption>
+        Every failure token the panel prints, with the panel's own sentence for it. Rows run in the order
+        the panel looks them up: host transport failures, then the service's error codes, then
+        credential-rejection reasons. The rows after those print a whole sentence rather than a token,
+        because a sentence is what the panel renders when there is no code in front of it.
+    </caption>
+    <thead>
+        <tr>
+            <th scope="col">What the panel prints</th>
+            <th scope="col">What it means, and what to do</th>
+        </tr>
+    </thead>
+    <tbody>
+        {
+            rows.map((row) => (
+                <tr>
+                    <th scope="row"><code>{row.rendered}</code></th>
+                    <td>{row.line}</td>
+                </tr>
+            ))
+        }
+    </tbody>
+</table>

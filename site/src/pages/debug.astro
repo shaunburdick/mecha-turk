@@ -1,0 +1,396 @@
+---
+/**
+ * The debug page (T-020, FR-041 – FR-045) and the identifier-mapping table
+ * (T-021, FR-051, AC-013).
+ *
+ * Every failure token below is **generated**: `SymptomCodes` imports the panel's
+ * own `HOST_COPY`, `SERVICE_COPY`, and `REASON_COPY` out of `src/handoff-copy.ts`
+ * rather than restating them, so a retyped token — the one failure a lookup table
+ * cannot survive — is not available to write. The bare sentences the panel renders
+ * with no code in front of them are keyed by their own text, so a rename there
+ * leaves this page with a row nothing describes, which `SymptomCodes` refuses at
+ * build time instead of shipping.
+ *
+ * The two tables beside it are hand-authored, and both are read back from the
+ * shipped sources by `tests/debug-page.assertions.mjs`: every store entry is a name
+ * `service/` declares, and every identifier in the mapping table is a string that
+ * appears in `src/` or `service/`. A page cannot name a file or a prefix the build
+ * does not have (FR-048).
+ *
+ * **Why `.astro` and not `.md`.** Astro 7 renders a markdown page as markdown: a
+ * component element in the body is emitted as literal text, so the symptom table
+ * this page must carry cannot be rendered from a markdown file at all. Measured on
+ * this tree: a component tag in a `.md` body reaches the output escaped, and a
+ * `{expression}` reaches it unevaluated — the Markdown renderer, not the component
+ * renderer. Nothing about the table's *content* changes; only the file it is written
+ * in does.
+ */
+import Layout from '../layout.astro';
+import SymptomCodes from '../components/symptom-codes.astro';
+
+/** One entry of the service's store, and where an operator meets it. */
+interface StoreEntry {
+    /** The store-relative name, exactly as the service declares it. */
+    readonly entry: string;
+    /** What the file holds. */
+    readonly holds: string;
+    /** The panel surface that shows it, or that nothing does. */
+    readonly surface: string;
+}
+
+/** Every file the service's store declares, in the order an operator meets them. */
+const storeEntries: readonly StoreEntry[] = [
+    { entry: 'config.json', holds: 'the whole service configuration', surface: 'Settings' },
+    { entry: 'bindings.json', holds: 'the bindings you have added', surface: 'Bindings' },
+    {
+        entry: 'accounts/<id>.json',
+        holds: 'one file per GitHub account, including its token',
+        surface: 'Accounts',
+    },
+    { entry: 'runs.json', holds: 'the dispatch records', surface: 'Dispatches' },
+    { entry: 'events.json', holds: 'detected events still waiting to become a dispatch', surface: '' },
+    { entry: 'audit.ndjson', holds: 'the append-only audit trail', surface: 'Audit history' },
+    {
+        entry: 'scan-state.json',
+        holds: 'per binding, when the last scan finished and what stopped it',
+        surface: '',
+    },
+    { entry: 'state.json', holds: 'the store’s schema version and when it was created', surface: '' },
+];
+
+/** One record an operator may be reading, and the question it answers. */
+interface Trail {
+    readonly name: string;
+    readonly where: string;
+    readonly answers: string;
+    readonly after: string;
+}
+
+/** The two records the product keeps, which is the distinction FR-044 is about. */
+const trails: readonly Trail[] = [
+    {
+        name: 'Audit trail',
+        where: 'the service store, as audit.ndjson',
+        answers: 'What the service did, to which entity, when, and under whose decision',
+        after: 'survives',
+    },
+    {
+        name: 'Redacted ledger',
+        where: 'extension storage',
+        answers: 'What the panel observed: a poll attempt, a match, a session, a host check',
+        after: 'wiped',
+    },
+];
+
+/** One name a reader may encounter, and the surface that produces it. */
+interface MappingRow {
+    /** The names as they are written, in the order a reader meets them. */
+    readonly names: readonly string[];
+    /** What the name is, in the product's own vocabulary. */
+    readonly is: string;
+    /** The surface that produces it. */
+    readonly produced: string;
+}
+
+/**
+ * The identifier mapping 005 FR-029 requires and the panel does not render.
+ *
+ * The retired words appear here and nowhere else on the site: this table is a table
+ * *about* them, and D14 keeps that to one home. Every other name is an identifier
+ * the rename deliberately left alone, and the assertions hold each of them to a
+ * string that exists in `src/` or `service/` today.
+ *
+ * The rows are wrapped in a `data-vocabulary-mapping` section rather than marked
+ * with HTML comments, because Astro strips comments from a template — so a comment
+ * marker would scope the exclusion in the source and vanish from the output, and
+ * the vocabulary scan (T-032) has to be able to cut this table out of either.
+ */
+const mappingRows: readonly MappingRow[] = [
+    {
+        names: ['Runs', 'Run'],
+        is: 'a dispatch: one unit of work, and one row on the Dispatches tab',
+        produced: 'the panel’s own tab and row labels',
+    },
+    {
+        names: ['Repositories'],
+        is: 'a binding: the watch configuration for one repository',
+        produced: 'the panel’s own tab and row labels',
+    },
+    {
+        names: ['runs.json'],
+        is: 'the dispatch records',
+        produced: 'the service store, listed by the Dispatches tab',
+    },
+    {
+        names: ['run key'],
+        is: 'the tuple naming which dispatch this is: provider, account, repository, item kind, item number, occurrence',
+        produced: 'derived by the service, and shown beside the correlation id',
+    },
+    {
+        names: ['mt-run-…'],
+        is: 'the correlation identifier the service mints for one dispatch',
+        produced: 'the service, on the dispatch row and on every audit row about it',
+    },
+    {
+        names: ['evt-…'],
+        is: 'the deterministic id of a detected event, so one GitHub item is not detected twice',
+        produced: 'the poll loop, when it enqueues the event',
+    },
+    {
+        names: ['lse-…'],
+        is: 'a lease id',
+        produced: 'the service, when the panel claims a dispatch',
+    },
+    {
+        names: ['dtk-…'],
+        is: 'the single-use token that makes a second session for one dispatch impossible',
+        produced: 'the service, at reservation; its value is never written down anywhere',
+    },
+    {
+        names: ['tokfp-…'],
+        is: 'a one-way fingerprint of that token, safe to record',
+        produced: 'the audit trail, where a row has to name the token',
+    },
+    {
+        names: ['bnd-…'],
+        is: 'a binding’s id',
+        produced: 'the panel, when it drafts a binding',
+    },
+    {
+        names: ['mtp-…'],
+        is: 'a fingerprint of a starting prompt: a hash, never the text',
+        produced: 'the panel and the service, in audit rows and on dispatch records',
+    },
+    {
+        names: ['run.', 'dispatch.', 'binding.', 'account.', 'config.changed'],
+        is: 'prefixes on the audit trail’s row types, each naming the entity its row is about — and there are more than these',
+        produced: 'the audit trail, read through Audit history',
+    },
+    {
+        names: ['repositories'],
+        is: 'the member the service’s status answer uses for your bindings',
+        produced: 'that answer; rendered as your bindings on Status and on Bindings',
+    },
+    {
+        names: ['Correlation:', 'Repository:'],
+        is: 'the opening lines of the session a dispatch starts',
+        produced: 'the panel, in the text handed to the agent',
+    },
+    {
+        names: ['mecha-turk:project', 'mecha-turk:dispatches', 'mecha-turk:ledger', 'mecha-turk:evidence'],
+        is: 'the panel’s own storage keys',
+        produced: 'extension storage, and wiped with it',
+    },
+];
+
+/** What each of the panel's bare sentences means, keyed by the sentence itself. */
+const describeBareSentences: Readonly<Record<string, string>> = {
+    'Setup is incomplete: the service storage is not writable.':
+        'The panel will not send your token while the store is unwritable, so fix the data directory’s permissions '
+        + 'first and paste the token again.',
+    'The service status could not be read — check the service, then retry.':
+        'The panel checks the service’s health before it sends anything and got no answer. This is the service half '
+        + 'of the running state described above, not a fault in your token.',
+    'The handoff failed — paste the token again.':
+        'The request failed without a code the panel recognises, so it has nothing more specific to say. Paste the '
+        + 'token again; if it keeps failing, read the section above on the service not running.',
+    'project "<id>" is not registered in OpenChamber':
+        'The binding names a project OpenChamber does not have, usually one removed after the binding was made. '
+        + 'Register the project again and let the work be detected afresh: nothing here re-dispatches it by itself.',
+};
+---
+
+<Layout title="Debug">
+    <h1>Debug</h1>
+
+    <p>
+        Four things go wrong in the field: the service is not running, a file is not where you thought, a record
+        holds a name you do not recognise, or a hand edit did not validate. Each has a section below, and if you
+        arrived with a message already on screen, the lookup table is where to start.
+    </p>
+
+    <h2>Looking up a failure the panel printed</h2>
+
+    <p>
+        The first column is the exact token or string the panel renders — nothing here is retyped — and the second is
+        the sentence it puts beside it, which is also what to do about it. Match what you see against the first
+        column; the panel's own wording is the one you will be reading on screen.
+    </p>
+
+    <SymptomCodes describe={describeBareSentences} />
+
+    <h2>Both halves have to be running</h2>
+
+    <p>
+        Polling and dispatch need <strong>OpenChamber</strong> <em>and</em> the extension’s own local service.
+        Nothing is polled and nothing is dispatched while OpenChamber is closed, while the extension is disabled, or
+        while its service is down. Mecha Turk does not paper over that: the panel reports the stopped state rather
+        than a working one.
+    </p>
+
+    <p>
+        The honest state is read on the <strong>Status</strong> tab — the service’s health, when the next poll is
+        due, your accounts and bindings, the agent pin, and the absolute path of the data directory.
+        Its <strong>Setup prerequisites</strong> section states each thing a first dispatch needs in one of
+        three states: <em>met</em>, <em>not met</em>, or <em>not checkable by the panel</em>. Each carries its
+        own remediation, and anything checkable-and-unmet is also raised as a notice above the tabs. A
+        prerequisite the panel genuinely cannot read says so, rather than reporting a state it did not check.
+    </p>
+
+    <h2>Where your data lives</h2>
+
+    <p>
+        The service’s durable store is one folder under your own home directory, <code>.config/openchamber/mecha-turk/</code>.
+        The directory is created <code>0700</code> and every file in it is written <code>0600</code>, so nothing in
+        it is readable by another account. <strong>Status</strong> prints the absolute path: there is nothing to
+        guess and nothing to reconstruct.
+    </p>
+
+    <table>
+        <caption>Every file the store holds, and the surface an operator meets it on.</caption>
+        <thead>
+            <tr>
+                <th scope="col">In the store</th>
+                <th scope="col">What it holds</th>
+                <th scope="col">Read it in</th>
+            </tr>
+        </thead>
+        <tbody>
+            {
+                storeEntries.map((row) => (
+                    <tr>
+                        <th scope="row"><code>{row.entry}</code></th>
+                        <td>{row.holds}</td>
+                        <td>{row.surface === '' ? 'not rendered' : <strong>{row.surface}</strong>}</td>
+                    </tr>
+                ))
+            }
+        </tbody>
+    </table>
+
+    <p>
+        The panel keeps its own state elsewhere: OpenChamber extension storage, under a <code>mecha-turk:</code> prefix. No token is kept there.
+    </p>
+
+    <p>
+        What survives an uninstall is worth stating plainly: <strong>the service store does</strong>, because it
+        lives outside extension storage — which is exactly what makes it the folder to back up. Extension storage
+        does not survive it: removing the extension stops the service and wipes that storage, ledger included. Mecha
+        Turk never deletes sessions, worktrees, or projects; remove those through OpenChamber’s own surfaces.
+    </p>
+
+    <p>
+        Treat the service folder the way you would treat <code>~/.ssh</code>: include it in backups deliberately,
+        never commit it, and revoke a token on GitHub as soon as you no longer need it.
+    </p>
+
+    <h2>Which trail answers which question</h2>
+
+    <table>
+        <caption>Two records, two questions. Neither carries a credential.</caption>
+        <thead>
+            <tr>
+                <th scope="col">Trail</th>
+                <th scope="col">Where it lives</th>
+                <th scope="col">The question it answers</th>
+                <th scope="col">After an uninstall</th>
+            </tr>
+        </thead>
+        <tbody>
+            {
+                trails.map((trail) => (
+                    <tr>
+                        <th scope="row">{trail.name}</th>
+                        <td>{trail.where}</td>
+                        <td>{trail.answers}</td>
+                        <td>{trail.after}</td>
+                    </tr>
+                ))
+            }
+        </tbody>
+    </table>
+
+    <p>
+        Read the audit trail from a dispatch: select its row and press <strong>Audit history</strong>. The panel
+        never writes to that file, so what you read there is what the service actually did.
+    </p>
+
+    <p>
+        A <strong>correlation identifier</strong> ties one piece of work together across both records. The service
+        derives it from the run key when it creates the dispatch record; the panel shows it on the dispatch row
+        beside its <strong>Copy correlation id</strong> control, prints it on the opening lines of the session the
+        dispatch started, and every audit row belonging to that same work carries it — which is how you follow one
+        dispatch’s whole history in order.
+    </p>
+
+    <p>
+        No credential appears in either record. Values are redacted before anything is written, a secret-shaped
+        value offered to the ledger is set aside rather than stored, and the test suite scans the committed bundles
+        for token material, so a leak fails the build rather than shipping.
+    </p>
+
+    <h2>A name you do not recognise</h2>
+
+    <section aria-label="Identifier mapping" data-vocabulary-mapping="true">
+        <p>
+            The product renamed what it calls things once, and the old words survive where the rename deliberately
+            stopped: in files, in the audit trail, and in the identifiers they derive. This is the only page on the
+            site that carries the old words, and it carries them so you can read a name you already have and find
+            the surface that produced it.
+        </p>
+
+        <table>
+            <caption>
+                A name you may meet in a file, an audit row or a session, and the surface that produces it.
+            </caption>
+            <thead>
+                <tr>
+                    <th scope="col">Name you may see</th>
+                    <th scope="col">What it is here</th>
+                    <th scope="col">Where it is produced</th>
+                </tr>
+            </thead>
+            <tbody>
+                {
+                    mappingRows.map((row) => (
+                        <tr>
+                            <th scope="row">
+                                {row.names.map((name, index) => (
+                                    <>
+                                        {index === 0 ? '' : ', '}
+                                        <code>{name}</code>
+                                    </>
+                                ))}
+                            </th>
+                            <td>{row.is}</td>
+                            <td>{row.produced}</td>
+                        </tr>
+                    ))
+                }
+            </tbody>
+        </table>
+    </section>
+
+    <h2>A hand-edited file that failed validation</h2>
+
+    <p>
+        Edit a file in the store by hand and it is <strong>set aside, never repaired</strong>. A file that cannot be
+        understood is renamed to <code>&lt;name&gt;.corrupt-&lt;timestamp&gt;-&lt;identifier&gt;</code>, the reason
+        is logged naming the <strong>field</strong> that failed and never the value that failed it, and whatever
+        depended on that file stops until you put it right:
+    </p>
+
+    <ul>
+        <li>a quarantined <code>bindings.json</code> means nothing is scanned at all until you repair it;</li>
+        <li>
+            a quarantined <code>config.json</code> means <strong>Settings</strong> shows the documented defaults and
+            says the stored configuration was set aside.
+        </li>
+    </ul>
+
+    <p>
+        No file is silently rewritten and nothing is silently dropped — the evidence moves aside under a name you can
+        find. <code>state.json</code> is the one exception: it is a schema marker rather than operator data, so a
+        marker this build cannot read is replaced instead.
+    </p>
+</Layout>
