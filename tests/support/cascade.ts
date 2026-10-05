@@ -209,7 +209,6 @@ function parsePseudo(piece: string): Token {
 /**
  * Read one token that opens with `[` or `:` through to its closing delimiter.
  *
- * @param compound - The compound selector being read.
  * @param index - Where the delimiter sits.
  * @returns The token, and the index just past it.
  */
@@ -226,7 +225,6 @@ function readDelimited(compound: string, index: number): Step {
 /**
  * Read one token that opens with `#` or `.`.
  *
- * @param compound - The compound selector being read.
  * @param index - Where the token starts.
  * @returns The token, and the index just past it.
  */
@@ -240,7 +238,6 @@ function readNamed(compound: string, index: number): Step {
 /**
  * Read one token of a compound selector, whatever it opens with.
  *
- * @param compound - The compound selector being read.
  * @param index - Where the token starts.
  * @returns The token, and the index just past it.
  */
@@ -314,7 +311,6 @@ function matchesNth(argument: string, element: ProbeElement): boolean {
  * Whether one attribute selector holds for an element.
  *
  * @param token - The parsed attribute selector.
- * @param element - The element under test.
  * @returns True when the attribute is there and any modelled test passes.
  */
 function matchesAttribute(token: Token, element: ProbeElement): boolean {
@@ -342,7 +338,6 @@ function matchesAttribute(token: Token, element: ProbeElement): boolean {
  * else, `:not` included, is answered optimistically (see the module header).
  *
  * @param token - The parsed pseudo-class.
- * @param element - The element under test.
  * @returns False for a positional class it can rule out, true otherwise.
  */
 function matchesPseudo(token: Token, element: ProbeElement): boolean {
@@ -365,7 +360,6 @@ function matchesPseudo(token: Token, element: ProbeElement): boolean {
  * Whether one parsed token selects an element.
  *
  * @param token - The token to test.
- * @param element - The element under test.
  * @returns True when the token holds.
  */
 function matchesToken(token: Token, element: ProbeElement): boolean {
@@ -392,7 +386,6 @@ function matchesToken(token: Token, element: ProbeElement): boolean {
  * Whether every token of one compound selector holds.
  *
  * @param compound - The compound selector text.
- * @param element - The element under test.
  * @returns True when no token rules the element out.
  */
 function matchesCompound(compound: string, element: ProbeElement): boolean {
@@ -442,7 +435,6 @@ function splitCompounds(selector: string): readonly string[] {
  * rather than walked, which is the optimism the module header describes.
  *
  * @param selector - A single selector from a rule's list.
- * @param element - The element under test.
  * @returns True when the selector applies to it.
  */
 function matchesSelector(selector: string, element: ProbeElement): boolean {
@@ -568,7 +560,6 @@ function applyRule(input: RuleInput): Candidate | null {
  * source order when importance and weight are both equal, and this candidate
  * is alone at the top of the scale.
  *
- * @param element - The element under test.
  * @returns The inline `display` candidate, or null when the attribute holds none.
  */
 function inlineCandidate(element: ProbeElement): Candidate | null {

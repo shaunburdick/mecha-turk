@@ -535,7 +535,6 @@ async function seedPrePromptConfig(): Promise<Buffer> {
  * One wire answer read as an untrusted record (never a typed shortcut).
  *
  * @typeParam T - The envelope shape the caller asserts on.
- * @param service - The running instance to call.
  * @param path - Route to fetch.
  * @returns The parsed body, as the caller's envelope.
  * @throws {Error} When the route answers anything but `200`.
@@ -552,7 +551,6 @@ async function wireGet<T>(service: TestService, path: string): Promise<T> {
 /**
  * The bindings the booted service serves, as records.
  *
- * @param service - The running instance to call.
  * @returns Every stored binding row.
  */
 async function servedBindings(service: TestService): Promise<readonly Record<string, unknown>[]> {
@@ -564,7 +562,6 @@ async function servedBindings(service: TestService): Promise<readonly Record<str
 /**
  * The accounts the booted service serves, as credential-free records.
  *
- * @param service - The running instance to call.
  * @returns Every stored account row.
  */
 async function servedAccounts(service: TestService): Promise<readonly Record<string, unknown>[]> {

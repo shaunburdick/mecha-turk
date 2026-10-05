@@ -155,7 +155,6 @@ type RouteTable = Readonly<Record<string, RouteAnswer>>;
 /**
  * Build one runs row the way the service projects it.
  *
- * @param overrides - Fields the test changes.
  * @returns A complete, valid row.
  */
 /** Hostile markup for the tests that prove the list primitive never evaluates it. */
@@ -218,7 +217,6 @@ function runFixture(overrides: Partial<RunRow> = {}): RunRow {
 /**
  * Build one source reference the way the service projects it (FR-013).
  *
- * @param overrides - Fields the test changes.
  * @returns A complete, valid reference.
  */
 function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {
@@ -236,7 +234,6 @@ function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {
 /**
  * Build a Dispatches-section state around the given rows.
  *
- * @param overrides - Fields the test changes.
  * @returns A complete state object.
  */
 function runsState(overrides: Partial<DispatchesState> = {}): DispatchesState {
@@ -1278,7 +1275,6 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
 /**
  * Build one audit entry the way the trail stores it (contract §2).
  *
- * @param overrides - Fields the test changes.
  * @returns A complete, valid entry.
  */
 function auditEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {

@@ -376,7 +376,6 @@ interface ReportMembers {
  * (contract §5 as 003 v1.7.0 widens it; 002 FR-029 case (ii)), and an
  * unbounded observed agent or note would land uncut in a durable row (T-043e).
  *
- * @param fields - The body's members.
  * @param expectedAgent - The baseline the same body carried.
  * @returns The members, or the `422` naming whichever of them failed.
  */

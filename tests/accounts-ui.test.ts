@@ -247,7 +247,6 @@ function scopeMatrixAll(verdict: ScopeResult): AccountScopeMatrix {
 /**
  * Build one credential-free account for the row fixtures.
  *
- * @param overrides - Fields the test changes.
  * @returns One complete account.
  */
 function accountFixture(overrides: Partial<PanelAccount> = {}): PanelAccount {

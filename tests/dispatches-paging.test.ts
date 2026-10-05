@@ -81,7 +81,6 @@ const PAGE_ONE_FILTERED = 'GET /v1/events?limit=25&bindingId=bnd_one';
 /**
  * The `page` member a fixture answer carries.
  *
- * @param overrides - Members to replace.
  * @returns The member.
  */
 function pageMember(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -489,7 +488,6 @@ const PAGE_ONE_STATE_FILTERED = 'GET /v1/events?limit=25&state=failed';
  * Build one row the way the service projects it, keyed by its position.
  *
  * @param index - One-based position in the fixture set; also its issue number.
- * @param overrides - Fields the test changes.
  * @returns A complete, parseable row.
  */
 function fixtureRow(index: number, overrides: Partial<RunRow> = {}): RunRow {
@@ -539,7 +537,6 @@ function fixtureRow(index: number, overrides: Partial<RunRow> = {}): RunRow {
 /**
  * Build one source reference the way the service projects it (FR-013).
  *
- * @param overrides - Fields the test changes.
  * @returns A complete, valid reference.
  */
 function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {

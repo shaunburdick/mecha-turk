@@ -126,7 +126,6 @@ const STALE_RESERVE_REFUSAL: RouteAnswer = {
 /**
  * Build one offered run.
  *
- * @param overrides - Fields the test changes.
  * @returns A complete, parseable offer.
  */
 function claimedRun(overrides: Partial<ClaimedRun> = {}): ClaimedRun {

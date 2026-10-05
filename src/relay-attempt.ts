@@ -71,7 +71,6 @@ export interface HostCall {
 /**
  * Build the matched-issue record one offered run maps into.
  *
- * @param run - The offered run.
  * @returns The issue the context builder and the attachment both read.
  */
 function issueOf(run: ClaimedRun): GitHubIssue {
@@ -89,7 +88,6 @@ function issueOf(run: ClaimedRun): GitHubIssue {
 /**
  * Project the run's source references into the context's sources.
  *
- * @param run - The offered run.
  * @returns One context source per retained reference, in join order.
  */
 function contextSourcesOf(run: ClaimedRun): ContextSource[] {

@@ -150,7 +150,6 @@ async function startServiceForTest(options: { readonly unreadableTrail?: boolean
 /**
  * Read `GET /v1/audit` with whatever query the caller names.
  *
- * @param service - The running instance to call.
  * @param query - Query string without the leading `?`; `''` for none.
  * @returns The status, parsed body, and raw text.
  */

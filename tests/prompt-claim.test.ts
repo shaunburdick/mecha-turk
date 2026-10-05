@@ -62,7 +62,6 @@ interface Attempt {
 /**
  * Build the header map the run-scoped operations take.
  *
- * @param pairs - Header name/value pairs.
  * @returns The headers as `fetch` accepts them.
  */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -175,7 +174,6 @@ interface Attempt {
 /**
  * Claim through the route and return the first offered run's coordinates.
  *
- * @param service - Harness instance.
  * @param query - Optional query string for the claim.
  * @returns The coordinates, or a failure when nothing was offered.
  */

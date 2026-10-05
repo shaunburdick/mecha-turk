@@ -172,7 +172,6 @@ async function claim(service: TestService): Promise<readonly ClaimedRun[]> {
 /**
  * The harness service's open store; a boot-sweep test cannot run without one.
  *
- * @param instance - The running service.
  * @returns Its store handle.
  */
 function openHarnessStore(instance: TestService): NonNullable<TestService['handle']['store']> {

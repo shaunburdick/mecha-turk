@@ -47,7 +47,6 @@ export interface ClaimPrompt extends PromptReference {
  * source list riding an absent reference, refuses the entry rather than
  * defaulting to one (AGENTS invariant 8).
  *
- * @param record - The parsed entry.
  * @returns The explicit unset quartet, or `null` when a member disagrees.
  */
 function absentReference(record: Record<string, unknown>): PromptReference | null {
@@ -68,7 +67,6 @@ function absentReference(record: Record<string, unknown>): PromptReference | nul
  * missing list, an explicit `null`, an empty list, an unknown tier, and an
  * out-of-order or duplicated list each refuse the entry.
  *
- * @param record - The parsed entry.
  * @returns The reference, or `null` when any member is unusable.
  */
 function presentReference(record: Record<string, unknown>): PromptReference | null {
@@ -91,7 +89,6 @@ function presentReference(record: Record<string, unknown>): PromptReference | nu
 /**
  * Read the four reference members off a claim entry or a run-history row.
  *
- * @param record - The parsed entry.
  * @returns The reference, or `null` when the answer is not one this build may
  *   half-apply (004 FR-028, FR-087; AGENTS invariant 8).
  */

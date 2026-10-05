@@ -356,7 +356,6 @@ function refuseThenAcceptService(): {
 /**
  * Read the PUT a test drove, failing loudly when none was sent.
  *
- * @param requests - The legs the service recorded.
  * @returns The raw body the panel put on the wire.
  * @throws {Error} When the panel never sent one.
  */

@@ -55,7 +55,6 @@ const BAD_REPOSITORY = 'not-a-repository';
 /**
  * Build a header map without writing HTTP header names as object keys.
  *
- * @param pairs - Header name/value pairs.
  * @returns The headers as `fetch` accepts them.
  */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -124,7 +123,6 @@ function bindingFixture(): Record<string, unknown> {
 /**
  * Grant the fixture binding through the panel's own whole-file PUT.
  *
- * @param service - Harness instance.
  * @param bindings - The list to store.
  * @returns The parsed answer, so a caller can assert on it too.
  */

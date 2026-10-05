@@ -45,7 +45,6 @@ import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
  * coalesces them on the same subject key.
  *
  * @param issue - Normalized issue.
- * @param bindingLogin - The bound account's login.
  * @returns `true` when the issue is open and assigned to that account.
  */
 export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boolean {

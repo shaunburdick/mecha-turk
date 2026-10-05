@@ -84,7 +84,6 @@ const STATE_TRANSITION_EVENTS: ReadonlySet<string> = new Set([
 /**
  * Decide whether a row is run-scoped (data-model §4.2's reading of FR-056).
  *
- * @param entry - Trail row.
  * @returns `true` for a `run` entity or a `run.`/`dispatch.`/`agent.` event.
  */
 function isRunScoped(entry: AuditEntry): boolean {
@@ -98,7 +97,6 @@ function isRunScoped(entry: AuditEntry): boolean {
 /**
  * Decide whether a row records a policy or configuration decision (FR-056(d)).
  *
- * @param entry - Trail row.
  * @returns `true` for the two vocabulary names the rule names.
  */
 function isDecisionEvent(entry: AuditEntry): boolean {
@@ -108,7 +106,6 @@ function isDecisionEvent(entry: AuditEntry): boolean {
 /**
  * Decide whether a row records a hop to a new run state (003 data-model §4.3).
  *
- * @param entry - Trail row.
  * @returns `true` for a name in the closed set
  *   {@link STATE_TRANSITION_EVENTS}; nothing outside it counts.
  */

@@ -51,7 +51,6 @@ async function startServiceForTest(): Promise<TestService> {
 /**
  * Request the ready probe with an explicit bearer credential.
  *
- * @param service - Harness instance.
  * @param authorization - Complete `Authorization` header value.
  * @returns The response.
  */

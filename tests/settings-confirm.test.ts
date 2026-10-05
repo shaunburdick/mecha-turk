@@ -115,7 +115,6 @@ const ACCEPTED = envelopeBody({ ...DEFAULT_CONFIG, auditRetentionDays: 30 });
 /**
  * Read an envelope from a body, failing loudly when it is not one.
  *
- * @param body - Response body text.
  * @returns The parsed envelope.
  */
 function envelopeOf(body: string): ConfigEnvelope {

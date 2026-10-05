@@ -135,7 +135,6 @@ function sourceModules(dir: string): readonly SourceModule[] {
  * identifier or a retired setting is the record of the retirement, exactly
  * like the specification corpus.
  *
- * @param text - File text.
  * @returns The code lines, in order.
  */
 function codeLines(text: string): readonly string[] {
@@ -148,7 +147,6 @@ function codeLines(text: string): readonly string[] {
 /**
  * The environment reads one module performs, in source order.
  *
- * @param text - File text.
  * @returns The read expressions, as written.
  */
 function envReadsIn(text: string): readonly string[] {

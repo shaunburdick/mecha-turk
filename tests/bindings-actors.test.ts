@@ -513,7 +513,6 @@ function typeIntoListField(text: string): void {
 /**
  * Read the PUT a test drove, failing loudly when none was sent.
  *
- * @param requests - The legs the service recorded.
  * @returns The raw body the panel put on the wire.
  * @throws {Error} When the panel never put the bindings list.
  */
@@ -529,7 +528,6 @@ function putBody(requests: readonly GuestRequest[]): string {
 /**
  * The rows one grant put on the wire, as raw JSON.
  *
- * @param requests - The legs the service recorded.
  * @returns Each submitted row.
  */
 function grantedRows(requests: readonly GuestRequest[]): readonly Record<string, unknown>[] {

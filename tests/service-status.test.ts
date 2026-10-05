@@ -129,7 +129,6 @@ async function start(options: Parameters<typeof startTestService>[0] = {}): Prom
 /**
  * Read the status document through the loopback route.
  *
- * @param service - The running instance.
  * @returns The parsed health model.
  */
 async function readStatus(service: TestService): Promise<ServiceStatusBody> {
@@ -197,7 +196,6 @@ function bindingRow(suffix: string, state = 'active'): Record<string, unknown> {
 /**
  * Plant bindings straight into the operator's store.
  *
- * @param service - The running instance.
  * @param rows - The rows to write.
  */
 async function plantBindings(service: TestService, rows: readonly Record<string, unknown>[]): Promise<void> {
@@ -211,7 +209,6 @@ async function plantBindings(service: TestService, rows: readonly Record<string,
  * the slot the first one planted, which is exactly the mistake this signature
  * makes impossible to repeat.
  *
- * @param service - The running instance.
  * @param slots - Slots keyed by binding id.
  */
 async function plantScanState(

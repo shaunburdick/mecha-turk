@@ -132,7 +132,6 @@ async function startService(): Promise<TestService> {
 /**
  * The service's open store, asserted present.
  *
- * @param service - The running instance.
  * @returns Its store handle.
  */
 function storeOf(service: TestService): NonNullable<TestService['handle']['store']> {
@@ -147,7 +146,6 @@ function storeOf(service: TestService): NonNullable<TestService['handle']['store
 /**
  * Read every row the trail holds.
  *
- * @param service - The running instance.
  * @returns The rows, oldest first.
  */
 async function trailOf(service: TestService): Promise<readonly AuditEntry[]> {
@@ -157,7 +155,6 @@ async function trailOf(service: TestService): Promise<readonly AuditEntry[]> {
 /**
  * Send one whole-document replacement.
  *
- * @param service - The running instance.
  * @param body - The complete document to write.
  * @returns The parsed answer plus its status.
  */

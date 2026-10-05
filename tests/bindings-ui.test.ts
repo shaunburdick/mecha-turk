@@ -254,7 +254,6 @@ function lastPropsOf(
 /**
  * Build one binding for the row and detail copy.
  *
- * @param overrides - Fields the test changes.
  * @returns One complete binding.
  */
 function bindingFixture(overrides: Partial<PanelBinding> = {}): PanelBinding {
@@ -276,7 +275,6 @@ function bindingFixture(overrides: Partial<PanelBinding> = {}): PanelBinding {
 /**
  * Build one scan-status row for the selected binding's line.
  *
- * @param overrides - Fields the test changes.
  * @returns One complete status row.
  */
 function statusFixture(overrides: Partial<BindingStatusRow> = {}): BindingStatusRow {
@@ -430,7 +428,6 @@ describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => 
 /**
  * Build one credential-free account the editor's fixtures offer.
  *
- * @param overrides - Fields the test changes.
  * @returns One complete account.
  */
 function accountFixture(overrides: Partial<PanelAccount> = {}): PanelAccount {

@@ -107,7 +107,6 @@ afterEach(async (): Promise<void> => {
 /**
  * Build a header map without writing HTTP header names as object keys.
  *
- * @param pairs - Header name/value pairs.
  * @returns The headers as `fetch` accepts them.
  */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -184,7 +183,6 @@ function credentialBody(token: string): string {
 /**
  * Verify the fixture credential once, registering the account.
  *
- * @param service - Harness instance.
  * @returns The `201` response.
  */
 function registerAccount(service: TestService): Promise<Response> {
@@ -198,7 +196,6 @@ function registerAccount(service: TestService): Promise<Response> {
 /**
  * Verify the fixture credential, exercising the full handoff.
  *
- * @param service - Harness instance.
  * @returns The decoded `201` body.
  */
 async function verifyOk(service: TestService): Promise<Record<string, unknown>> {
@@ -211,7 +208,6 @@ async function verifyOk(service: TestService): Promise<Record<string, unknown>> 
 /**
  * Rotate the fixture account's credential.
  *
- * @param service - Harness instance.
  * @param token - Replacement credential.
  * @param userId - Path id; defaults to the fixture account.
  * @returns The response.
@@ -627,7 +623,6 @@ function putProfileAt(options: {
 /**
  * PUT one profile body against the fixture account's path.
  *
- * @param service - Harness instance.
  * @param body - The request body exactly as the client would send it.
  * @returns The response.
  */
@@ -638,7 +633,6 @@ function putProfile(service: TestService, body: string): Promise<Response> {
 /**
  * PUT one profile body and report the response status alone.
  *
- * @param service - Harness instance.
  * @param body - The request body exactly as the client would send it.
  * @returns The HTTP status the service answered.
  */
@@ -655,7 +649,6 @@ async function putStatus(service: TestService, body: string): Promise<number> {
  * `expect(await statusOf(service, { … }))` — instead of four, and most call sites
  * here are that assertion.
  *
- * @param service - The running service.
  * @param doc - The profile document to write.
  * @returns The HTTP status the service answered.
  */
@@ -666,7 +659,6 @@ async function statusOf(service: TestService, doc: Record<string, unknown>): Pro
 /**
  * The response a profile write of exactly this document receives.
  *
- * @param service - The running service.
  * @param doc - The profile document to write.
  * @returns The response the service answered.
  */

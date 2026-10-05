@@ -404,7 +404,6 @@ async function driveAndClaim(issueNumber: number): Promise<{ readonly run: Run; 
 /**
  * The concrete path one run-scoped route answers on, bound to a run id.
  *
- * @param pattern - The route's declared pattern.
  * @param correlationId - The run the path should name.
  * @returns The same path with its parameter bound.
  */
@@ -423,7 +422,6 @@ interface WireAnswer {
 /**
  * POST one run-scoped body over the loopback service.
  *
- * @param service - The running instance to call.
  * @param request - The concrete path and the body to post.
  * @returns The status and the parsed body.
  */

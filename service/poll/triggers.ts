@@ -73,7 +73,6 @@ function isLoginCharacter(character: string): boolean {
  * ever reaches a regular-expression engine.
  *
  * @param body - Comment or issue body; untrusted source text.
- * @param login - The bound account's login.
  * @returns `true` when the body mentions that account.
  */
 export function mentionsLogin(body: string, login: string): boolean {
@@ -101,7 +100,6 @@ export function mentionsLogin(body: string, login: string): boolean {
  * Decide whether one comment is a mention the binding should react to.
  *
  * @param comment - Normalized comment.
- * @param bindingLogin - The bound account's login.
  * @returns `true` when a human commented `@<login>` on this issue.
  */
 export function isMentionComment(comment: PollComment, bindingLogin: string): boolean {
@@ -121,7 +119,6 @@ export function isMentionComment(comment: PollComment, bindingLogin: string): bo
  * match is the same bounded, case-insensitive one.
  *
  * @param issue - Normalized issue.
- * @param bindingLogin - The bound account's login.
  * @returns `true` when a human opened this issue with `@<login>` in its body.
  */
 export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): boolean {

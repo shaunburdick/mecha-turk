@@ -147,7 +147,6 @@ export function boundedText(text: string): string {
 /**
  * Check a claimed run's guards before any authorization is requested.
  *
- * @param run - The offered run.
  * @returns The verdict, carrying the confirmed project when it passes.
  */
 export async function guardRun(rt: PanelRuntime, run: ClaimedRun): Promise<GuardVerdict> {
@@ -342,7 +341,6 @@ export function actorGateFailure(refusal: {
  * that additionally owes a `blocked:` report is the actor-policy gate's,
  * and it arrives as `failure` for {@link refuseWithBlocked} to post.
  *
- * @param run - The offered run.
  * @returns The reservation, or the refusal — carrying the gate's failure when
  *   this refusal is the gate's.
  */

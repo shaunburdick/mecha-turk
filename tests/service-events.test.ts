@@ -189,7 +189,6 @@ function fixtureSnapshot(issueNumber: number, excerpt: string): EventSnapshot {
 /**
  * Build one stored binding row.
  *
- * @param bindingId - Id of the binding.
  * @returns A complete active binding with the assignment trigger on.
  */
 function fixtureBinding(bindingId: string): BindingRecord {
@@ -1010,7 +1009,6 @@ interface RefusalBody {
  * Both awaits are separate statements on purpose: awaiting a member call on an
  * awaited response reads as one expression nobody can step through.
  *
- * @param service - The running instance.
  * @param query - Path plus query string.
  * @returns The parsed answer.
  */

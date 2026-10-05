@@ -126,7 +126,6 @@ function capturingLogger(): { readonly log: ServiceLogger; readonly lines: strin
 /**
  * Build one active binding with only the assignment trigger on.
  *
- * @param bindingId - Id of the binding.
  * @returns A complete stored binding record.
  */
 function fixtureBinding(bindingId: string): BindingRecord {

@@ -149,7 +149,6 @@ function provenanceIssue(provenance: BaselineProvenance, expectedAgent: string):
  * it is closed to three words, and it must agree with the emptiness of
  * `expectedAgent` it arrived beside.
  *
- * @param fields - The body's members.
  * @param expectedAgent - The baseline the same body carried.
  * @returns The provenance, or the `422` issue naming what was wrong with it.
  */
@@ -218,7 +217,6 @@ export function sessionIdIssue(value: string | null): FieldIssue | null {
  *
  * A blank member stays absent: nothing was said, so there is nothing to refuse.
  *
- * @param fields - The body's members.
  * @param names - The optional free-text names this operation reads.
  * @returns The `422` naming whichever member was too long, else `null`.
  */

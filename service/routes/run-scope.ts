@@ -126,7 +126,6 @@ function isBodyObject(raw: unknown): boolean {
 /**
  * The one rejected body member, and what would fix it.
  *
- * @param record - The body's members.
  * @param correlationId - The run the path named.
  * @returns The `correlationId` issue when the echo disagrees, else `null`.
  */
@@ -254,7 +253,6 @@ interface ReadRequest {
 /**
  * Read an operation's body when it required a lease id.
  *
- * @param input - The parsed body, the run, and the operation's requirements.
  * @returns The request with a non-null lease id, or the `422`.
  */
 export function readRunScopeRequest(input: ReadRequest & {
@@ -265,7 +263,6 @@ export function readRunScopeRequest(input: ReadRequest & {
 /**
  * Read an operation's body when it required a dispatch token.
  *
- * @param input - The parsed body, the run, and the operation's requirements.
  * @returns The request with a non-null token, or the `422`.
  */
 export function readRunScopeRequest(input: ReadRequest & {
@@ -276,7 +273,6 @@ export function readRunScopeRequest(input: ReadRequest & {
 /**
  * Read an operation's body when it required neither optional member.
  *
- * @param input - The parsed body, the run, and the operation's requirements.
  * @returns The request, or the `422`.
  */
 export function readRunScopeRequest(input: ReadRequest & {

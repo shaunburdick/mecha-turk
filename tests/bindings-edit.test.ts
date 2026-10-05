@@ -91,7 +91,6 @@ function jsonHeaders(): Record<string, string> {
  * complete bridge: the panel code under test cannot tell it from the host's
  * own implementation.
  *
- * @param service - Running harness instance.
  * @returns The host double the runtime runs against.
  */
 function panelHost(service: TestService): PanelHost {
@@ -159,7 +158,6 @@ function panelRow(): PanelBinding {
 /**
  * Write the fixture row through the real `PUT /v1/bindings`.
  *
- * @param service - Running harness instance.
  * @param row - The binding to store.
  */
 async function seedRow(service: TestService, row: PanelBinding): Promise<void> {
@@ -174,7 +172,6 @@ async function seedRow(service: TestService, row: PanelBinding): Promise<void> {
 /**
  * Read the bindings back **out of the service** (never out of panel state).
  *
- * @param service - Running harness instance.
  * @returns The stored rows, as the panel's own parser reads them.
  */
 async function storedBindings(service: TestService): Promise<readonly PanelBinding[]> {

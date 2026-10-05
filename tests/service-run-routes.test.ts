@@ -258,7 +258,6 @@ async function startServiceForTest(): Promise<TestService> {
 /**
  * The concrete path one run-scoped operation answers on.
  *
- * @param pattern - The route's declared pattern.
  * @returns The same path with the parameter bound to {@link RUN_ID}.
  */
 function bound(pattern: string): string {

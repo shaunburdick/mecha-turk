@@ -72,7 +72,6 @@ function envelopeBody(overrides: {
 /**
  * Read an envelope, failing the test when the body is not one.
  *
- * @param body - Response body text.
  * @returns The envelope.
  */
 function read(body: string): ConfigEnvelope {

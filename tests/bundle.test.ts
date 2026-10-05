@@ -593,7 +593,6 @@ function containmentBinding(): Record<string, unknown> {
 /**
  * Build a header map without writing HTTP header names as object keys.
  *
- * @param pairs - Header name/value pairs.
  * @returns The headers as `fetch` accepts them.
  */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -1122,7 +1121,6 @@ function testModules(): readonly ScannedFile[] {
  * The lines of a file that are not comments — the offline scan is about what
  * a test *does*, so a doc comment that names a URL is not a request.
  *
- * @param text - File text.
  * @returns The code lines, trimmed.
  */
 function codeLinesOf(text: string): readonly string[] {

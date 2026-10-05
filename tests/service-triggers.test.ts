@@ -176,7 +176,6 @@ afterEach(async (): Promise<void> => {
 /**
  * Build one stored binding with the given trigger set.
  *
- * @param bindingId - Id of the binding.
  * @param triggers - The switches this fixture turns on.
  * @returns A complete active binding.
  */

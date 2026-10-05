@@ -309,7 +309,6 @@ function specs006OnlyEnvelope(): ConfigEnvelope {
 /**
  * Read an envelope, failing the test when the body is not one.
  *
- * @param body - Response body text.
  * @returns The envelope.
  */
 function envelopeFor(body: string): ConfigEnvelope {
@@ -374,7 +373,6 @@ function combinedEnvelope(): ConfigEnvelope {
 /**
  * Build the rows a body produces.
  *
- * @param body - Response body text.
  * @returns The rows, in paint order.
  */
 function rowsFor(body: string): readonly SettingsRow[] {
@@ -469,7 +467,6 @@ async function mountSettings(input: {
 /**
  * Build an answer for a successful `GET /v1/config`.
  *
- * @param body - Response body text.
  * @returns The answer, or `undefined` for any other path.
  */
 function configAnswer(body: string): (request: GuestRequest) => GuestRequestResult {
@@ -480,7 +477,6 @@ function configAnswer(body: string): (request: GuestRequest) => GuestRequestResu
 /**
  * Build a Settings read state with only the members a case changes.
  *
- * @param overrides - Members to replace.
  * @returns A complete Settings read state.
  */
 function settingsSlice(overrides: Partial<SettingsTabState> = {}): SettingsTabState {

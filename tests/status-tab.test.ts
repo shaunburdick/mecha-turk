@@ -87,7 +87,6 @@ const EMPTY_CONFIG = '{"config":{}}';
 /**
  * Merge overrides into one service block.
  *
- * @param overrides - Members to replace.
  * @returns The service block.
  */
 function serviceFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -104,7 +103,6 @@ function serviceFixture(overrides: Record<string, unknown> = {}): Record<string,
 /**
  * Merge overrides into one account row: measured nothing yet (FR-034).
  *
- * @param overrides - Members to replace.
  * @returns One `accounts[]` element.
  */
 function accountFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -121,7 +119,6 @@ function accountFixture(overrides: Record<string, unknown> = {}): Record<string,
 /**
  * Merge overrides into one binding row.
  *
- * @param overrides - Members to replace.
  * @returns One `repositories[]` element.
  */
 function bindingFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -145,7 +142,6 @@ function bindingFixture(overrides: Record<string, unknown> = {}): Record<string,
 /**
  * Merge overrides into one agent-pin block.
  *
- * @param overrides - Members to replace.
  * @returns The `agentPin` member.
  */
 function agentPinFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -155,7 +151,6 @@ function agentPinFixture(overrides: Record<string, unknown> = {}): Record<string
 /**
  * Merge overrides into one polling block.
  *
- * @param overrides - Members to replace.
  * @returns The `polling` member.
  */
 function pollingFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -190,7 +185,6 @@ function statusFixture(overrides: Record<string, unknown> = {}): Record<string, 
  * Replace one top-level member of a fixture document.
  *
  * @param member - Member to replace.
- * @param value - Its new value.
  * @returns A new document; the fixture is never mutated in place.
  */
 function withMember(member: string, value: unknown): Record<string, unknown> {
@@ -227,7 +221,6 @@ function viewOf(document: Record<string, unknown>): StatusView {
  * assertions spell out, named once so a test reads as one line of arrangement.
  *
  * @param member - The member to replace.
- * @param value - Its new value.
  * @returns The parsed view.
  */
 function viewForMember(member: string, value: unknown): StatusView {
@@ -251,7 +244,6 @@ function defaultView(): StatusView {
  * cannot give them.
  *
  * @param member - The member to replace.
- * @param value - Its new value.
  * @returns The parsed view, or `null` when the fixture does not parse.
  */
 function parseMember(member: string, value: unknown): StatusView | null {

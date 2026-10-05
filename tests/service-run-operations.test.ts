@@ -427,7 +427,6 @@ async function claimLeaseOf(correlationId: string, holder: string): Promise<stri
  * `sha256(runKey|attempt)`, so the reset at step five returns the run to attempt
  * 1 and the reserve at step seven re-mints attempt 1's exact bytes.
  *
- * @param issueNumber - Issue to build the run from.
  * @returns The run's identity, both chains' tokens, and the second claim's lease.
  */
 async function crashPermutation(issueNumber: number): Promise<{

@@ -23,7 +23,6 @@ import type { TestService } from './service.ts';
 /**
  * Build a header map without writing HTTP header names as object keys.
  *
- * @param pairs - Header name/value pairs.
  * @returns The headers as `fetch` accepts them.
  */
 export function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -147,7 +146,6 @@ export function verifyBody(token: string, extra: Readonly<Record<string, unknown
 /**
  * POST a verify body to the running service.
  *
- * @param service - Harness instance.
  * @param body - Serialized request body.
  * @returns The response.
  */

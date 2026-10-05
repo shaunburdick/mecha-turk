@@ -101,7 +101,6 @@ afterEach(async () => {
 /**
  * Read one stored run by its subject number.
  *
- * @param issueNumber - Issue the run is about.
  * @returns The run as the service holds it.
  * @throws {Error} When no run exists for that subject.
  */
@@ -118,7 +117,6 @@ async function runOf(issueNumber: number): Promise<Run> {
 /**
  * The stored state of one subject's run, read through {@link runOf}.
  *
- * @param issueNumber - Issue the run is about.
  * @returns The run's current state.
  */
 async function stateOf(issueNumber: number): Promise<string> {

@@ -383,7 +383,6 @@ function jsonHeaders(): Record<string, string> {
 /**
  * The concrete path one run-scoped route answers on.
  *
- * @param pattern - The route's declared pattern.
  * @returns The same path with its parameter bound to {@link RUN_ID}.
  */
 function routePath(pattern: string): string {
@@ -561,7 +560,6 @@ async function block(input: {
 /**
  * Seed one run directly in a state, with the record that state implies.
  *
- * @param issueNumber - Issue to build the run from.
  * @param state - The state to seed.
  * @returns The seeded run.
  */
@@ -621,7 +619,6 @@ async function seedRunInState(input: {
  * shape a dispatched run actually has, and the reserve refusal the fixture
  * reaches has to survive having no lease to ride on (T-042e, AC-112).
  *
- * @param issueNumber - Issue to build the run from.
  * @param sessionId - The session the run recorded.
  * @returns The seeded run.
  */

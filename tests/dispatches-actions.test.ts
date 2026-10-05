@@ -90,7 +90,6 @@ afterEach(async (): Promise<void> => {
 /**
  * Read the one run a fixture issue produced.
  *
- * @param issueNumber - Issue the run is about.
  * @returns The run as the service holds it.
  * @throws {Error} When no run exists for that subject.
  */
@@ -107,7 +106,6 @@ async function runFor(issueNumber: number): Promise<Run> {
 /**
  * Read one subject's run state straight from the service.
  *
- * @param issueNumber - Issue the run is about.
  * @returns The state the service holds for it.
  */
 async function stateOf(issueNumber: number): Promise<string> {

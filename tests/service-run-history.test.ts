@@ -344,7 +344,6 @@ async function readRun(correlationId: string): Promise<Run> {
 /**
  * The concrete path one run-scoped route answers on, bound to a run id.
  *
- * @param pattern - The route's declared pattern.
  * @param correlationId - The run the path should name.
  * @returns The same path with its parameter bound.
  */
@@ -355,7 +354,6 @@ function bound(pattern: string, correlationId: string): string {
 /**
  * POST one run-scoped body over the loopback service.
  *
- * @param service - The running instance to call.
  * @param request - The concrete path and the body to post.
  * @returns The status and the parsed body.
  */
@@ -375,7 +373,6 @@ async function post(
 /**
  * Claim every waiting run, exactly as the relay does.
  *
- * @param service - The running instance to call.
  * @returns The claim answer, for the lease it issued.
  */
 async function claim(service: TestService): Promise<WireAnswer> {
@@ -387,7 +384,6 @@ async function claim(service: TestService): Promise<WireAnswer> {
 /**
  * Read the history route and return its single row with the raw text beside it.
  *
- * @param service - The running instance to call.
  * @returns The one row this suite's fixtures produce, plus the answer text.
  * @throws {Error} When the answer is not exactly one row.
  */
@@ -410,7 +406,6 @@ async function onlyRow(service: TestService): Promise<{ readonly row: RunHistory
 /**
  * Reserve the fixture run under the lease its claim just issued.
  *
- * @param service - The running instance to call.
  * @param run - The claimed run.
  * @returns The reserve answer, carrying the token and both deadlines.
  */
