@@ -46,7 +46,7 @@ const RUN_CREATED_EVENT = 'run.created';
 const RUN_COALESCED_EVENT = 'run.coalesced';
 const CLAIM_EXPIRY = '2026-09-28T12:05:00.000Z';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let dataDir = '';

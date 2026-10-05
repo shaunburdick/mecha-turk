@@ -53,9 +53,11 @@ const WAITING_FOR_BINDING = 'Waiting for a binding';
 function retiredSpikeCallers(): readonly string[] {
     const root = resolvePath(import.meta.dirname, '..');
     const callSite = /\b(?:startPolling|restartPolling|runPoll|ensureIdentity|handleConnection|onConnection)\s*\(/;
-    const modules = readdirSync(resolvePath(root, 'src'), { recursive: true }).map(String);
+    const modules = readdirSync(resolvePath(root, 'src'), { recursive: true })
+        .map(String)
+        .filter((entry) => entry.endsWith('.ts'));
     const callers: string[] = [];
-    for (const name of modules.filter((entry) => entry.endsWith('.ts'))) {
+    for (const name of modules) {
         const lines = readFileSync(resolvePath(root, 'src', name), 'utf8').split('\n');
         for (const line of lines) {
             if (callSite.test(line)) {
@@ -123,8 +125,8 @@ describe('teardown', () => {
         };
         const released: string[] = [];
         runtime.unsubscribes.push(
-            () => released.push('projects'),
-            () => released.push('sessions'),
+            () => void released.push('projects'),
+            () => void released.push('sessions'),
         );
 
         teardown(runtime);

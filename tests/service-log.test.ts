@@ -42,7 +42,7 @@ function capturingLogger(level: 'debug' | 'info' | 'warn' | 'error'): {
     readonly lines: string[];
 } {
     const lines: string[] = [];
-    const log = createLogger({ level, sink: (line) => lines.push(line) });
+    const log = createLogger({ level, sink: (line) => void lines.push(line) });
 
     return { log, lines };
 }

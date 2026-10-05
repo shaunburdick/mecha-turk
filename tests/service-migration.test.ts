@@ -67,7 +67,7 @@ const SCAN_STATE_FILE = 'scan-state.json';
 const MIGRATION_TEST_LEASE_ID = `lse-${'c'.repeat(24)}`;
 const MIGRATED_EVENT = 'run.migrated';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /** Account numeric id the shipped binding and its credential file share. */
 const ACCOUNT_ID = '77331';

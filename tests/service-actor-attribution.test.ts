@@ -669,7 +669,7 @@ async function seed(input: {
 }): Promise<Seeded> {
     const store = await openStore({ dataDir: join(tempRoot, 'store') });
     const lines: string[] = [];
-    const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+    const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
     await writeBindings({ store, bindings: [fixtureBinding(input.triggers)] });
     await writeAccount(store, fixtureAccount());
     await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, retryMaxAttempts: NO_RETRIES });
@@ -951,7 +951,7 @@ describe('FR-051 the window is a client-side comparison, and the walk is one-dir
             [EVENTS_PATH]: { body: (request) => wireUnqualifyingPage(Number(request.page ?? '1')) },
         });
         const lines: string[] = [];
-        const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+        const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
 
         const outcome = await resolveCandidateActor({
             poller: pollerOver(github, log),
@@ -1051,7 +1051,7 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
             },
         });
         const lines: string[] = [];
-        const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+        const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
 
         const outcome = await resolveCandidateActor({
             poller: pollerOver(github, log),

@@ -82,7 +82,7 @@ const DEAD_LETTERED = 'run.dead_lettered';
 /** A stored dispatch token, used only where a run must record having reserved. */
 const FIXTURE_DISPATCH_TOKEN = 'dtk-0123456789abcdef0123456789abcdef';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let dataDir = '';

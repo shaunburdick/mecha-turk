@@ -78,7 +78,7 @@ const SENT_ROWS = ['dispatch.reserved', 'dispatch.result'] as const;
 
 /** Log sink for the enqueue calls; nothing here asserts on it. */
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /** Running harness instances, drained between tests. */
 const running: TestService[] = [];

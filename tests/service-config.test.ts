@@ -958,7 +958,7 @@ describe('GET /v1/config widens without changing what it already said (006 FR-02
 describe('a lost quarantine rename still answers quarantined (006 contract §3 rule 9)', () => {
     it('maps a pathless quarantine to source quarantined, and keeps real absence at default', () => {
         const logLines: string[] = [];
-        const log = createLogger({ level: 'warn', sink: (line) => logLines.push(line) });
+        const log = createLogger({ level: 'warn', sink: (line) => void logLines.push(line) });
 
         // The per-cycle config reader and an operator's request can both
         // reject the same stored document; the loser's rename finds the file

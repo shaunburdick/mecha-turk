@@ -132,10 +132,10 @@ function source(overrides: Partial<ContextSource> = {}): ContextSource {
  * @returns A host that behaves like a live, subscribed panel.
  */
 function recordingHost(teardowns: string[]): PanelHost {
-    const stopProjects = (): number => teardowns.push('projects');
-    const stopWorktrees = (): number => teardowns.push('worktrees');
-    const stopSessions = (): number => teardowns.push('sessions');
-    const stopLifecycle = (): number => teardowns.push('lifecycle');
+    const stopProjects = (): void => void teardowns.push('projects');
+    const stopWorktrees = (): void => void teardowns.push('worktrees');
+    const stopSessions = (): void => void teardowns.push('sessions');
+    const stopLifecycle = (): void => void teardowns.push('lifecycle');
 
     return fakeHost({
         onProjects: async (listener) => {

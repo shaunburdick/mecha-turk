@@ -70,7 +70,7 @@ const LEASE_EXPIRED = 'dispatch.lease-expired';
 const DEAD_LETTERED = 'run.dead_lettered';
 const UNCONFIRMED = 'dispatch.unconfirmed';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let dataDir = '';

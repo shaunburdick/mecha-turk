@@ -61,7 +61,7 @@ const BINDING_ID = 'bnd-bounds';
 const REPOSITORY = 'acme/widget';
 const ACCOUNT_ID = '77331';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /**
  * Time budget for the two-full-reference-run proof, sized to its measured

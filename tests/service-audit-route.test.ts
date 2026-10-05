@@ -79,7 +79,7 @@ const WRONG_METHOD = 'PATCH';
 const LOG_LINES: string[] = [];
 
 /** Logger every direct store call in this suite reports through. */
-const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /** One answer, with its status and parsed body. */
 interface AuditAnswer {

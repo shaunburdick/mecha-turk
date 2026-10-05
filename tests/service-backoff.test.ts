@@ -274,7 +274,7 @@ describe('the ladder arithmetic (006 FR-058)', () => {
                 guidanceSeconds: null,
                 sleep,
                 random: () => 1,
-                onWait: (wait) => seen.push(wait),
+                onWait: (wait) => void seen.push(wait),
             });
 
             expect(seen).toEqual([record]);

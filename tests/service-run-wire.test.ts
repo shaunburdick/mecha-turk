@@ -147,7 +147,7 @@ const REPOSITORY = 'acme/wire';
 const ACCOUNT_ID = '77331';
 
 const LOG_LINES: string[] = [];
-const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let store: ServiceStore;
@@ -689,7 +689,7 @@ describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
             };
 
             const response = runOutcomeResponse({
-                context: answerContext((line) => lines.push(line)),
+                context: answerContext((line) => void lines.push(line)),
                 operation: 'reserve',
                 outcome: refused,
                 success: (found, auditWritten) =>
@@ -718,7 +718,7 @@ describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
             };
 
             runOutcomeResponse({
-                context: answerContext((line) => lines.push(line)),
+                context: answerContext((line) => void lines.push(line)),
                 operation: 'retry',
                 outcome: refused,
                 success: (found, auditWritten) =>

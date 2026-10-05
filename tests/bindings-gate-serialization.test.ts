@@ -239,7 +239,7 @@ let store: ServiceStore;
 
 /** Capture sink; this suite asserts on locking, not on log text. */
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
 
 /** Per-test setup: a fresh store, a live lease window, and no log noise. */
 beforeEach(async (): Promise<void> => {

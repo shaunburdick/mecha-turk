@@ -113,7 +113,7 @@ const LOST_REPORT_STATUS = 503;
 const LOG_LINES: string[] = [];
 
 /** Logger every direct store call in the loop reports through. */
-const LOOP_LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOOP_LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /** The read-back snapshot the fixture host replays to the verifier. */
 const SESSION_SNAPSHOT: SessionSnapshot = {

@@ -60,7 +60,7 @@ const BINDING_ID = 'bnd-ops';
 const REPOSITORY = 'acme/widget';
 const ACCOUNT_ID = '77331';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
 
 /** The state word the distinct retry refusals all carry as their wire code. */
 const INVALID_TRANSITION = 'invalid-transition';

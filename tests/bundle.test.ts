@@ -845,7 +845,7 @@ describe('004 full-cycle containment (AC-133, AC-143, AC-151, FR-053, NFR-121)',
         const loop = await startDispatchLoop();
         // Every line the direct queue write produced, scanned with the service's.
         const enqueueLines: string[] = [];
-        const enqueueLog = createLogger({ level: 'debug', sink: (line) => enqueueLines.push(line) });
+        const enqueueLog = createLogger({ level: 'debug', sink: (line) => void enqueueLines.push(line) });
         try {
             // SAVE — three tiers, three documented paths (FR-081, FR-082, FR-014):
             // the configuration document, the account profile, the whole-file
@@ -1270,7 +1270,7 @@ describe('003 v1.8.0 no permitted login reaches any surface (NFR-113, AC-132)', 
                 store: loop.store,
                 // The queue's own logger lines are scanned below; this sink keeps
                 // them out of the test output the way the harness's does.
-                log: createLogger({ level: 'error', sink: (line) => scanLogLines.push(line) }),
+                log: createLogger({ level: 'error', sink: (line) => void scanLogLines.push(line) }),
                 incoming: [createEvent({
                     ...containmentDetection(SCANNED_ISSUE),
                     bindingId: BINDING_ID,

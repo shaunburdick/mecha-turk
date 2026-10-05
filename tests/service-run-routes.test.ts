@@ -492,7 +492,7 @@ describe('T-015 an unreadable run document surfaces as storage-unavailable', () 
         // A sink that keeps what it is given rather than an empty callback, which
         // the lint rules (rightly) refuse to read as deliberate.
         const logLines: string[] = [];
-        const log = createLogger({ level: 'error', sink: (line) => logLines.push(line) });
+        const log = createLogger({ level: 'error', sink: (line) => void logLines.push(line) });
 
         for (const probe of storageProbes(store, log)) {
             await expect(

@@ -297,7 +297,7 @@ describe('T-045 the pass adopts under the stamp it judges with', () => {
         const store = await openStore({ dataDir });
         await store.writeJson(EVENTS_FILE, [fixture.legacyRow]);
         const lines: string[] = [];
-        const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+        const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
 
         // The captured failing input: a pass whose stamp is injected, on a
         // store no one has read yet, so the read adopts. Adoption must mint the
@@ -347,7 +347,7 @@ describe('T-010 the periodic sweep', () => {
             scratch = root;
             const store = await openStore({ dataDir: join(root, 'store') });
             const lines: string[] = [];
-            const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+            const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
 
             const loop = startSweep({ store, log });
             loop.stop();

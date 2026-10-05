@@ -141,7 +141,7 @@ const FIXTURE_BASIS: ActorAttribution = PROXY_BASIS;
 const PROJECT_ID = 'prj_42';
 
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let store: ServiceStore;

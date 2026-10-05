@@ -110,7 +110,7 @@ const NO_STORE = 'the harness started without a store';
 
 /** Log sink shared by the seeding handle and the booted service. */
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let dataDir = '';

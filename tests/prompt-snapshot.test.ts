@@ -73,7 +73,7 @@ const ACCOUNT_TEXT = 'Account context.';
 
 /** Log sink shared by every reader this suite drives. */
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let store: ServiceStore;

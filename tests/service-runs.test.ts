@@ -327,7 +327,7 @@ function storeOf(service: TestService): ServiceStore {
  * @returns A logger that keeps its lines out of the test output.
  */
 function suiteLogger(): ServiceLogger {
-    return createLogger({ level: 'error', sink: (line) => SEED_LOG_LINES.push(line) });
+    return createLogger({ level: 'error', sink: (line) => void SEED_LOG_LINES.push(line) });
 }
 
 /**

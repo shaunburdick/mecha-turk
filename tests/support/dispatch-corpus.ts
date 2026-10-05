@@ -91,7 +91,7 @@ const CONTENT_TYPE_HEADER = 'content-type';
 const LOG_LINES: string[] = [];
 
 /** Logger every direct store call in the corpus reports through. */
-const CORPUS_LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const CORPUS_LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /** One refusal the corpus took, with the verdict it observed on the wire. */
 export interface RefusalObservation {

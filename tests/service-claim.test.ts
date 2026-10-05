@@ -50,7 +50,7 @@ const SUBJECT_KEY = `github|${ACCOUNT_ID}|${REPOSITORY}|issue|`;
 const CLAIM_PATH = '/v1/events/pending';
 const CLAIMED_EVENT = 'dispatch.claimed';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let dataDir = '';
