@@ -3,12 +3,28 @@
  * The landing page: the one page a reader who has not installed anything sees,
  * and the doorway to the other four.
  *
- * The five sections below are the skeleton Wave 4 fills; each heading names the
- * requirement it discharges, so the page's obligations are visible while it is
- * still empty. Navigation to the four documentation pages and to the licence
- * comes from the layout, so this page carries them already (FR-018).
+ * The five sections are the order a reader needs them — what it is, what it
+ * will not do, the panel it adds, the two places its state lives, what it needs
+ * first — and each heading is the spec's own noun rather than one invented for
+ * the page (FR-013 – FR-019). Two of them discharge the constitution and not
+ * only the specification: the second states that nothing runs while OpenChamber
+ * is off and names the Status tab that reports it (AC-030), and the fourth
+ * publishes both storage locations with what each holds and which survive an
+ * uninstall (AC-031). Nothing here claims or implies a hosted control plane
+ * (Principle V): the service that reads GitHub is the reader's own, spawned by
+ * their own OpenChamber.
+ *
+ * **What this page deliberately does not carry.** FR-018's four documentation
+ * links and the licence link arrive with `Layout`, so repeating them would be a
+ * second list of the same five addresses — and a one-line summary of each
+ * documentation page would be a fifth place its subject is described, which is
+ * the drift FR-049 exists to prevent. No permission, configuration field,
+ * dispatch state or endpoint is named here either: each is a documentation
+ * page's subject, and three of the four derive theirs from the shipped
+ * declaration rather than from a second copy (FR-048).
  */
 import Layout from '../layout.astro';
+import { PRODUCT_ID } from '../data/product.ts';
 ---
 
 <Layout>
@@ -16,21 +32,153 @@ import Layout from '../layout.astro';
 
     <section>
         <h2>What Mecha Turk does</h2>
+        <p>
+            Mecha Turk turns GitHub work meant for you into OpenChamber agent
+            sessions. A local service polls the GitHub repositories you bind to
+            it, watching for issues assigned to your account, review requests,
+            and mentions. Each match becomes a queued dispatch, and the panel
+            turns that dispatch into one session — inside a project you have
+            already registered, where OpenChamber builds the worktree and the
+            chat.
+        </p>
+        <p>
+            Work travels one way: GitHub activity in, OpenChamber sessions out.
+            Everything between those two ends happens on your own machine. Your
+            OpenChamber installation runs the panel, spawns the service that
+            polls, and holds the state — there is no Mecha Turk server, no
+            account to sign in to, and nothing to keep running elsewhere.
+        </p>
     </section>
 
     <section>
         <h2>What Mecha Turk will not do</h2>
+        <ul>
+            <li>
+                <strong>It never creates a project or a worktree.</strong> It
+                asks OpenChamber for sessions inside projects you registered
+                yourself; a binding whose project is missing stops and says so
+                rather than making one.
+            </li>
+            <li>
+                <strong>Nothing runs while OpenChamber is off.</strong> Polling
+                and dispatch stop when OpenChamber stops, when the extension is
+                disabled, or when its service is not running.
+                The <strong>Status</strong> tab is where that honest state is
+                read: whether the service is up, when it last read, and whether
+                what you are in front of is current or stale.
+            </li>
+            <li>
+                <strong>The only GitHub traffic is that outbound polling.</strong> Nothing
+                connects in, there are no webhooks, and the panel itself makes
+                no GitHub request of its own.
+            </li>
+            <li>
+                <strong>It cannot write to GitHub.</strong> It reads issues and
+                pull requests; it cannot comment, label, assign, or merge.
+            </li>
+        </ul>
     </section>
 
     <section>
         <h2>The panel</h2>
+        <p>
+            Mecha Turk adds one panel to the OpenChamber rail, with six tabs in
+            this order.
+        </p>
+        <dl>
+            <dt>Status</dt>
+            <dd>
+                Whether the service is up and polling, your accounts, your
+                bindings, the agent pin, and the setup prerequisites — each with
+                its own state and its own remediation.
+            </dd>
+            <dt>Dispatches</dt>
+            <dd>
+                Every dispatch queued, started, or finished, with the reason and
+                the controls that move it: retry it, resolve it, return it to
+                waiting, or read its audit history.
+            </dd>
+            <dt>Bindings</dt>
+            <dd>
+                The repositories you watch, the OpenChamber project each one
+                dispatches into, and the form that adds another.
+            </dd>
+            <dt>Accounts</dt>
+            <dd>
+                The GitHub accounts it polls as, each one's connection state and
+                scopes, and the form that adds another.
+            </dd>
+            <dt>Settings</dt>
+            <dd>
+                The service's whole configuration, one row per field with its
+                bounds and the line saying when a change takes effect.
+            </dd>
+            <dt>About</dt>
+            <dd>
+                The name, the version the service reports, where the source
+                lives, and read-only diagnostics behind a disclosure.
+            </dd>
+        </dl>
     </section>
 
     <section>
         <h2>Where your data lives</h2>
+        <p>
+            Two locations, and only two. Everything that has to survive is in
+            the first one.
+        </p>
+        <dl>
+            <dt><code>~/.config/openchamber/mecha-turk/</code></dt>
+            <dd>
+                The service's own store: your accounts — including the tokens,
+                written as plain text — your bindings, the queued events and
+                their dispatches, the audit trail, and the configuration
+                document. <strong>It survives an uninstall.</strong> Nothing
+                deletes it for you, so remove it yourself when you are done.
+            </dd>
+            <dt>OpenChamber's extension storage, under <code>{PRODUCT_ID}:</code> keys</dt>
+            <dd>
+                The panel's own state: the project you picked, the evidence
+                record for the last match, its dispatch records, and a redacted
+                test ledger. <strong>It is wiped on uninstall</strong>, which is
+                why nothing that has to be kept lives there — the audit trail is
+                in the folder above, where you control it and can back it up.
+            </dd>
+        </dl>
+        <p>
+            Treat that folder the way you treat <code>~/.ssh</code>: back it up
+            deliberately, never commit it, and revoke a token on GitHub as soon
+            as you no longer need it.
+        </p>
     </section>
 
     <section>
         <h2>Before you start</h2>
+        <ul>
+            <li>
+                <strong>OpenChamber desktop or web.</strong> The VS Code and
+                mobile builds do not spawn a local service, so the extension is
+                unsupported there.
+            </li>
+            <li>
+                <strong>A registered OpenChamber project for every repository
+                you bind.</strong> Register it in OpenChamber first; the
+                extension cannot create one.
+            </li>
+            <li>
+                <strong>A personal access token per account</strong>, fine-grained
+                preferred, with read access to <code>Metadata</code> and to
+                read <code>Issues</code> and <code>Pull requests</code> as well,
+                plus <code>Contents</code> if you pass repository metadata to
+                OpenChamber, and <strong>no write scopes</strong> at all —
+                organization approval where your organization requires it.
+            </li>
+            <li>
+                <strong>Recommended:</strong> pin the Default Agent in
+                OpenChamber's session defaults, then set <code>expectedAgent</code> on
+                the Settings tab to the same name, so a session that ran under a
+                different agent is pointed out to you.
+            </li>
+        </ul>
     </section>
 </Layout>
