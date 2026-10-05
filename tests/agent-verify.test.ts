@@ -34,7 +34,7 @@ import type { ClaimedRun } from '../src/claim-service.ts';
 import type { RunRow } from '../src/dispatches-service.ts';
 import {
     FIXTURE_TIMESTAMP,
-    IDLE_UNSUBSCRIBE,
+    HAS_NOTHING_TO_RELEASE,
     ISSUE_URL,
     LOGIN,
     PROJECT_ID,
@@ -523,7 +523,7 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
             onSession: (listener) => {
                 listener(snapshot('executor'));
 
-                return IDLE_UNSUBSCRIBE;
+                return HAS_NOTHING_TO_RELEASE;
             },
             serviceRequest: async (request) => {
                 calls.push(`${request.method} ${request.path}`);
@@ -845,7 +845,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
                 onSession: (listener) => {
                     held.deliver = (agent) => listener(snapshot(agent));
 
-                    return IDLE_UNSUBSCRIBE;
+                    return HAS_NOTHING_TO_RELEASE;
                 },
                 serviceRequest: async (request) => {
                     calls.push(`${request.method} ${request.path}`);

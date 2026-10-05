@@ -56,7 +56,7 @@ import {
 import type { EnqueueInput } from './fixture-enqueue.ts';
 import { offlinePoller } from './github.ts';
 import {
-    IDLE_UNSUBSCRIBE,
+    HAS_NOTHING_TO_RELEASE,
     PROJECT_ID,
     PROJECTS,
     SESSION_CREATED,
@@ -281,7 +281,7 @@ function buildHost(input: {
         onSession: (listener) => {
             listener(SESSION_SNAPSHOT);
 
-            return IDLE_UNSUBSCRIBE;
+            return HAS_NOTHING_TO_RELEASE;
         },
         storage,
     });

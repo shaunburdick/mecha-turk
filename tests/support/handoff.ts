@@ -92,8 +92,8 @@ export interface RecordingView {
 export function recordingView(): RecordingView {
     const record: RecordingView = {
         view: {
-            setTokenEnabled: (enabled: boolean): void => {
-                record.tokenEnabled = enabled;
+            setTokenEnabled: (isEnabled: boolean): void => {
+                record.tokenEnabled = isEnabled;
             },
             setTokenValue: (value: string): void => {
                 record.tokenValue = value;
@@ -108,11 +108,11 @@ export function recordingView(): RecordingView {
                     record.rendered.push(text);
                 }
             },
-            setPasteVisible: (visible: boolean): void => {
-                record.pasteVisible = visible;
+            setPasteVisible: (isVisible: boolean): void => {
+                record.pasteVisible = isVisible;
             },
-            setSubmitEnabled: (enabled: boolean): void => {
-                record.submitEnabled = enabled;
+            setSubmitEnabled: (isEnabled: boolean): void => {
+                record.submitEnabled = isEnabled;
             },
             dispose: (): void => {
                 record.disposed = true;

@@ -132,14 +132,14 @@ function checkMetrics(sample) {
     const band = boxAverage(sample, { x: 0, y: 0, width: SAMPLE.width, height: SAMPLE.band });
     const unchanged = diffFraction(sample, sample);
     const changed = diffFraction(sample, invert(sample));
-    const ok =
+    const isOk =
         Math.abs(red - EXPECTED_RED_FRACTION) < FRACTION_SLACK &&
         unchanged === 0 &&
         changed > EXPECTED_FULL_DIFF;
 
     return outcome({
         name: 'colorFraction, boxAverage, and diffFraction agree with the sample',
-        ok,
+        ok: isOk,
         detail: `red=${red.toFixed(3)} band=${band.join('/')} same=${unchanged} inverted=${changed.toFixed(3)}`,
     });
 }

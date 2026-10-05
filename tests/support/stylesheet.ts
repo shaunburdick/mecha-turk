@@ -136,14 +136,14 @@ function inQuotes(cursor: Cursor, grouping: Grouping): boolean {
  */
 function inGroup(cursor: Cursor, grouping: Grouping): boolean {
     const char = cursor.text.charAt(cursor.index);
-    const opens = char === '(' || char === '[';
-    const closes = char === ')' || char === ']';
+    const isOpening = char === '(' || char === '[';
+    const isClosing = char === ')' || char === ']';
 
-    if (!opens && !closes) {
+    if (!isOpening && !isClosing) {
         return false;
     }
 
-    grouping.depth = Math.max(grouping.depth + (opens ? 1 : -1), 0);
+    grouping.depth = Math.max(grouping.depth + (isOpening ? 1 : -1), 0);
     cursor.index += 1;
 
     return true;

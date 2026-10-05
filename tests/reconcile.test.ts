@@ -191,8 +191,8 @@ async function record(rt: PanelRuntime, input: {
     /** What the host call produced. */
     readonly outcome: { readonly kind: 'dispatched'; readonly sessionId: string };
 }): Promise<void> {
-    const written = await recordDispatchOutcome(rt, { dispatchToken: TOKEN, ...input });
-    expect(written).toBe(true);
+    const isWritten = await recordDispatchOutcome(rt, { dispatchToken: TOKEN, ...input });
+    expect(isWritten).toBe(true);
 }
 
 describe('reconcile mount order (FR-025, AC-111)', () => {

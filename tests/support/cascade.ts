@@ -181,9 +181,9 @@ function parseAttribute(piece: string): Token {
 
     const before = inner.slice(0, equals).trim();
     const tail = before.slice(-1);
-    const symbolic = ATTRIBUTE_OPERATORS.includes(tail);
-    const name = symbolic ? before.slice(0, -1) : before;
-    const operator = symbolic ? `${tail}${EQUALS}` : EQUALS;
+    const isSymbolic = ATTRIBUTE_OPERATORS.includes(tail);
+    const name = isSymbolic ? before.slice(0, -1) : before;
+    const operator = isSymbolic ? `${tail}${EQUALS}` : EQUALS;
     const value = inner.slice(equals + 1).trim().replaceAll(QUOTED, '');
 
     return { kind: ATTRIBUTE_KIND, name, detail: `${operator}${value}` };
@@ -214,13 +214,13 @@ function parsePseudo(piece: string): Token {
  * @returns The token, and the index just past it.
  */
 function readDelimited(compound: string, index: number): Step {
-    const bracketed = compound.charAt(index) === '[';
-    const closer = bracketed ? ']' : ')';
+    const isBracketed = compound.charAt(index) === '[';
+    const closer = isBracketed ? ']' : ')';
     const close = compound.indexOf(closer, index);
     const end = close === -1 ? compound.length : close + 1;
     const text = compound.slice(index, end);
 
-    return { token: bracketed ? parseAttribute(text) : parsePseudo(text), next: end };
+    return { token: isBracketed ? parseAttribute(text) : parsePseudo(text), next: end };
 }
 
 /**

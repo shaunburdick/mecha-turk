@@ -61,7 +61,7 @@ import type { PanelRuntime } from '../src/panel-state.ts';
 import {
     DEFAULT_STATUS,
     FIXTURE_TIMESTAMP,
-    IDLE_UNSUBSCRIBE,
+    HAS_NOTHING_TO_RELEASE,
     LOGIN,
     PROJECT_ID,
     PROJECTS,
@@ -175,11 +175,11 @@ function claimedRun(overrides: Partial<ClaimedRun> = {}): ClaimedRun {
  * Serialize one claim answer.
  *
  * @param runs - The runs the service offers.
- * @param auditWritten - What FR-063's member reports.
+ * @param isAuditWritten - What FR-063's member reports.
  * @returns The body.
  */
-function claimBody(runs: readonly ClaimedRun[], auditWritten = true): string {
-    return JSON.stringify({ events: runs, status: [], auditWritten });
+function claimBody(runs: readonly ClaimedRun[], isAuditWritten = true): string {
+    return JSON.stringify({ events: runs, status: [], auditWritten: isAuditWritten });
 }
 
 /** The routes a fully co-operative service answers with. */
@@ -318,7 +318,7 @@ function harness(
         onSession: (listener) => {
             listener(sessionSnapshot());
 
-            return IDLE_UNSUBSCRIBE;
+            return HAS_NOTHING_TO_RELEASE;
         },
         openSession: async (sessionId) => {
             timeline.push(`openSession:${sessionId}`);

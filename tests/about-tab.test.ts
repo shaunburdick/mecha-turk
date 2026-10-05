@@ -224,18 +224,18 @@ function ledgerRowsIn(strings: readonly string[]): readonly string[] {
  * The props the last call to one primitive received — what is on screen now.
  *
  * @param key - The primitive's name (`mountButton`, `mountText`, …).
- * @param match - Selects the call by its own props.
+ * @param isMatch - Selects the call by its own props.
  * @returns Those props, or `undefined` when nothing matched.
  */
 function lastProps(
     key: string,
-    match: (props: Record<string, unknown>) => boolean,
+    isMatch: (props: Record<string, unknown>) => boolean,
 ): Record<string, unknown> | undefined {
     const calls = mounts.log
         .filter((entry) => entry.key === key || entry.key === `${key}:update`)
         .map((entry) => entry.props)
         .filter((props): props is Record<string, unknown> => typeof props === 'object' && props !== null)
-        .filter(match);
+        .filter((props) => isMatch(props));
 
     return calls.at(-1);
 }

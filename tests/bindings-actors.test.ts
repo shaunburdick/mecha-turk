@@ -624,18 +624,18 @@ function runRow(overrides: Partial<RunRow> = {}): RunRow {
  * shape the parser would have refused.
  *
  * @param policy - The allow-list shape both rows report.
- * @param active - Whether both rows are enabled; the Status denominator's own
+ * @param isActive - Whether both rows are enabled; the Status denominator's own
  *   member (FR-093 as re-cut at v1.14.0).
  * @returns The parsed document.
  * @throws {Error} When the fixture document cannot be read.
  */
-function statusView(policy: 'open' | 'restricted', active = true): StatusView {
+function statusView(policy: 'open' | 'restricted', isActive = true): StatusView {
     const repository = (bindingId: string, name: string): Record<string, unknown> => ({
         bindingId,
         repository: name,
         projectId: PROJECT_ID,
         accountLogin: LOGIN,
-        active,
+        active: isActive,
         lastScanAt: FIXTURE_TIMESTAMP,
         lastError: null,
         pendingCount: 0,
@@ -1300,8 +1300,8 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
             for (const [switched, phrase] of PHRASES) {
                 for (const [name, switches, clause] of SUBSETS) {
                     const shouldName = switches[switched];
-                    const named = clause?.includes(phrase) ?? false;
-                    expect(named, `${phrase} in the ${name} subset`).toBe(shouldName);
+                    const isNamed = clause?.includes(phrase) ?? false;
+                    expect(isNamed, `${phrase} in the ${name} subset`).toBe(shouldName);
                 }
             }
         }

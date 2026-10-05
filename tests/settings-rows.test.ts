@@ -188,7 +188,7 @@ function configurationLiteralsIn(source: PanelSource): {
     /** Declaration-shaped numerics: `min:` / `max:` / `defaultValue:` + a number. */
     readonly declarationNumbers: readonly string[];
     /** The level set's sentinel, which a copied enum would carry. */
-    readonly levelSentinel: boolean;
+    readonly hasLevelSentinel: boolean;
     /** Default strings, by declaration shape (the allow-list keys off these). */
     readonly stringDefaults: readonly { readonly value: string; readonly line: number }[];
     /** Lines carrying a class token *and* a field name — a claim about a row. */
@@ -199,7 +199,7 @@ function configurationLiteralsIn(source: PanelSource): {
     const declarationNumbers = [...source.text.matchAll(/\b(?:min|max|defaultValue)\s*:\s*[0-9]/g)].map(
         (match) => match[0],
     );
-    const levelSentinel = source.text.includes("'debug'");
+    const hasLevelSentinel = source.text.includes("'debug'");
     const stringDefaults = lines
         .map((line, index) => ({ line: index + 1, text: line }))
         .flatMap((line) => {
@@ -224,7 +224,7 @@ function configurationLiteralsIn(source: PanelSource): {
         return FIELD_NAMES.some((name) => window.includes(`'${name}'`)) ? [line] : [];
     });
 
-    return { units, declarationNumbers, levelSentinel, stringDefaults, attachedClasses };
+    return { units, declarationNumbers, hasLevelSentinel, stringDefaults, attachedClasses };
 }
 
 /**
@@ -499,7 +499,7 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
             const offending = sources.filter((source) => {
                 const found = configurationLiteralsIn(source);
 
-                return found.units.length > 0 || found.declarationNumbers.length > 0 || found.levelSentinel;
+                return found.units.length > 0 || found.declarationNumbers.length > 0 || found.hasLevelSentinel;
             });
 
             expect(offending.map((source) => source.name)).toEqual([]);
@@ -557,7 +557,7 @@ describe('the panel source carries no configuration literal (006 AC-106)', () =>
 
             expect(found.units).toEqual(['milliseconds']);
             expect(found.declarationNumbers.length).toBeGreaterThan(0);
-            expect(found.levelSentinel).toBe(true);
+            expect(found.hasLevelSentinel).toBe(true);
             // The default rule bites on a *second* default literal even though
             // the documented default is now blank: the stand-in declares
             // `project-manager`, which is exactly the copy the scan exists to

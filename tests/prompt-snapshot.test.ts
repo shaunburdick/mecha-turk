@@ -168,7 +168,7 @@ function rawRuns(raw: unknown): Record<string, unknown>[] {
 
 /** A valid stored document with one run whose `prompt` member is replaced. */
 // eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
-function storedDocumentWith(prompt: unknown, present: boolean): unknown {
+function storedDocumentWith(prompt: unknown, isPresent: boolean): unknown {
     const planned = applyEnqueue({
         document: emptyRunsDocument(),
         deliveries: [createEvent(assignment(1))],
@@ -180,7 +180,7 @@ function storedDocumentWith(prompt: unknown, present: boolean): unknown {
         throw new Error('the fixture produced no run');
     }
 
-    if (present) {
+    if (isPresent) {
         row.prompt = prompt;
     } else {
         delete row.prompt;

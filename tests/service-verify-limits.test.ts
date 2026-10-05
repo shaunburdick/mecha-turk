@@ -181,9 +181,9 @@ describe('POST /v1/accounts/:id/token — the same throttle rules as verify (M5b
     it('answers 429 verify-busy while another rotation holds the single slot', async () => {
         {
             let release: (() => void) | undefined;
-            let hang = false;
+            let shouldHang = false;
             const scripted = scriptedVerifier(async (): Promise<VerifyOutcome> => {
-                if (!hang) {
+                if (!shouldHang) {
                     return OK_OUTCOME;
                 }
 
@@ -197,7 +197,7 @@ describe('POST /v1/accounts/:id/token — the same throttle rules as verify (M5b
             const registered = await postVerify(service, verifyBody(REGISTERED_TOKEN));
             expect(registered.status).toBe(201);
 
-            hang = true;
+            shouldHang = true;
             const rotation = rotateFixture(service, ROTATED_TOKEN);
             expect(await waitFor(() => release !== undefined)).toBe(true);
             const second = await rotateFixture(service, REGISTERED_TOKEN);

@@ -174,7 +174,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
         {
             const { rt, storage } = runtimeWith();
 
-            const written = await recordDispatchOutcome(rt, {
+            const isWritten = await recordDispatchOutcome(rt, {
                 correlationId: CORRELATION,
                 runKey: RUN_KEY,
                 attempt: 1,
@@ -182,7 +182,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 outcome: { kind: 'dispatched', sessionId: 'ses_1' },
             });
 
-            expect(written).toBe(true);
+            expect(isWritten).toBe(true);
             expect(storage.operations).toEqual([`get:${DISPATCH_STORAGE_KEY}`, `set:${DISPATCH_STORAGE_KEY}`]);
             const read = await loadDispatchRecord(rt);
             expect(read.ok).toBe(true);
@@ -228,7 +228,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
         {
             const { rt, storage } = runtimeWith();
 
-            const written = await recordDispatchOutcome(rt, {
+            const isWritten = await recordDispatchOutcome(rt, {
                 correlationId: CORRELATION,
                 runKey: RUN_KEY,
                 attempt: 1,
@@ -236,7 +236,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 outcome: { kind: 'dispatched', sessionId: 'ses_1' },
             });
 
-            expect(written).toBe(false);
+            expect(isWritten).toBe(false);
             expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
         }
     });
@@ -244,7 +244,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
     it('appends newest last so a remount replays attempts in order', async () => {
         {
             const { rt } = runtimeWith();
-            const record = async (attemptNumber: number): Promise<boolean> =>
+            const isRecorded = async (attemptNumber: number): Promise<boolean> =>
                 await recordDispatchOutcome(rt, {
                     correlationId: CORRELATION,
                     runKey: RUN_KEY,
@@ -253,8 +253,8 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                     outcome: { kind: 'failed', reason: 'no-session' },
                 });
 
-            expect(await record(1)).toBe(true);
-            expect(await record(2)).toBe(true);
+            expect(await isRecorded(1)).toBe(true);
+            expect(await isRecorded(2)).toBe(true);
 
             const read = await loadDispatchRecord(rt);
             expect(read.ok).toBe(true);

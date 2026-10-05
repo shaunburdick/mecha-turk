@@ -340,8 +340,8 @@ describe('002 AC-021 — no reader takes a card id from ctx.settings', () => {
                 for (const id of CARD_SETTING_IDS) {
                     const single = `'${id}'`;
                     const double = `"${id}"`;
-                    const quoted = source.includes(single) || source.includes(double);
-                    expect(quoted, `${path} reads the card id ${id}`).toBe(false);
+                    const isQuoted = source.includes(single) || source.includes(double);
+                    expect(isQuoted, `${path} reads the card id ${id}`).toBe(false);
                 }
             }
         }

@@ -597,13 +597,13 @@ const HIDDEN_SHAPES: readonly HiddenShape[] = [
  * One of those shapes as the cascade sees it.
  *
  * @param shape - Which element to build.
- * @param hidden - Whether the panel has marked it hidden, the way `src/` does.
+ * @param isHidden - Whether the panel has marked it hidden, the way `src/` does.
  * @returns The probe to resolve a `display` for.
  */
-function shapeProbe(shape: HiddenShape, hidden: boolean): ProbeElement {
+function shapeProbe(shape: HiddenShape, isHidden: boolean): ProbeElement {
     const attributes: Record<string, string> = {};
 
-    if (hidden) {
+    if (isHidden) {
         attributes.hidden = '';
     }
 

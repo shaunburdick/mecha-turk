@@ -347,7 +347,7 @@ async function report(input: {
     readonly reason?: string | null;
     readonly now?: string;
 }) {
-    const abandoned = input.operation === 'abandon';
+    const isAbandoned = input.operation === 'abandon';
 
     return await reportDispatch({
         store,
@@ -355,8 +355,8 @@ async function report(input: {
         correlationId: input.correlationId,
         dispatchToken: input.dispatchToken,
         attempt: input.attempt ?? 1,
-        operation: abandoned ? 'abandon' : 'result',
-        outcome: abandoned
+        operation: isAbandoned ? 'abandon' : 'result',
+        outcome: isAbandoned
             ? { attemptOutcome: 'abandoned', sessionId: null, reason: input.reason ?? '' }
             : {
                 attemptOutcome: input.sessionId === undefined || input.sessionId === null ? FAILED : 'dispatched',
@@ -571,12 +571,12 @@ async function seedRunInState(input: {
         );
     }
 
-    const holdsLease = input.liveLease === true || leaseFor(state) !== null;
+    const hasLease = input.liveLease === true || leaseFor(state) !== null;
     const run: Run = {
         ...created,
         state,
         stateReason: `seeded as ${state}`,
-        lease: holdsLease ? leaseFor(state) ?? liveLease() : null,
+        lease: hasLease ? leaseFor(state) ?? liveLease() : null,
         reservation: state === STARTING
             ? {
                 dispatchToken: 'dtk-0123456789abcdef0123456789abcdef',

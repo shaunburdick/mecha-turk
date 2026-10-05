@@ -113,11 +113,11 @@ async function visitAllTabs(): Promise<LifecycleRun> {
     mounts.log.length = 0;
     mounts.disposed.length = 0;
     const requests: string[] = [];
-    let failing = false;
+    let isFailing = false;
     const host = fakeHost({
         serviceRequest: async (request) => {
             requests.push(`${request.method} ${request.path}`);
-            if (failing) {
+            if (isFailing) {
                 throw new Error('connection refused');
             }
 
@@ -146,7 +146,7 @@ async function visitAllTabs(): Promise<LifecycleRun> {
         root: dom.root,
         requests,
         fail: (): void => {
-            failing = true;
+            isFailing = true;
         },
     };
 }

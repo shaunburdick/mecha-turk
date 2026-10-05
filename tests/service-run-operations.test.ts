@@ -291,14 +291,14 @@ function seededAttempt(input: {
     /** Session the fixture says the run produced, else `null`. */
     readonly sessionId: string | null;
     /** Whether the state holds an authorization. */
-    readonly holdsReservation: boolean;
+    readonly hasReservation: boolean;
 }): DispatchAttempt {
-    const { attempt, sessionId, holdsReservation } = input;
+    const { attempt, sessionId, hasReservation } = input;
 
     return {
         attempt,
-        dispatchToken: holdsReservation ? SEEDED_TOKEN : null,
-        reservedAt: holdsReservation ? STAMP : null,
+        dispatchToken: hasReservation ? SEEDED_TOKEN : null,
+        reservedAt: hasReservation ? STAMP : null,
         outcome: seededOutcome(input.state, sessionId),
         sessionId,
         reason: input.state === 'failed' ? SEEDED_FAILURE : null,
@@ -335,8 +335,8 @@ async function seedRun(input: {
 
     const attempt = input.attempt ?? 1;
     const sessionId = input.sessionId ?? null;
-    const holdsLease = input.state === 'claimed' || input.state === 'starting';
-    const holdsReservation = input.state === 'starting' || input.state === 'unconfirmed';
+    const hasLease = input.state === 'claimed' || input.state === 'starting';
+    const hasReservation = input.state === 'starting' || input.state === 'unconfirmed';
 
     const run: Run = {
         ...created,
@@ -344,10 +344,10 @@ async function seedRun(input: {
         stateReason: `seeded as ${input.state}`,
         attempt,
         requeuesUsed: input.requeuesUsed ?? 0,
-        lease: holdsLease ? seededLease(attempt) : null,
-        reservation: holdsReservation ? seededReservation(attempt) : null,
+        lease: hasLease ? seededLease(attempt) : null,
+        reservation: hasReservation ? seededReservation(attempt) : null,
         session: sessionId === null ? null : seededSession(created, sessionId),
-        attempts: [seededAttempt({ attempt, state: input.state, sessionId, holdsReservation })],
+        attempts: [seededAttempt({ attempt, state: input.state, sessionId, hasReservation })],
     };
 
     await writeRunsDocument({

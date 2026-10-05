@@ -298,8 +298,8 @@ describe('GET /v1/accounts — credential-free DTOs (contract §2.2)', () => {
             // Compile-time proof: if `credential` ever joins the DTO, this line
             // stops type-checking and `npm run verify` fails (contract §2.2).
             type NeverWhenCredentialed = 'credential' extends keyof AccountDto ? never : true;
-            const credentialFree: NeverWhenCredentialed = true;
-            expect(credentialFree).toBe(true);
+            const isCredentialFree: NeverWhenCredentialed = true;
+            expect(isCredentialFree).toBe(true);
         }
     });
 

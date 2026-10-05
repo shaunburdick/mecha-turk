@@ -237,12 +237,12 @@ describe('T-006 run-aware enqueue', () => {
 
     it('heals a crash after runs.json by joining the redetected delivery once', async () => {
         {
-            let failQueueWrite = true;
+            let shouldFailQueueWrite = true;
             const interruptedStore: ServiceStore = {
                 ...store,
                 writeJson: async (path, value) => {
-                    if (path === 'events.json' && failQueueWrite) {
-                        failQueueWrite = false;
+                    if (path === 'events.json' && shouldFailQueueWrite) {
+                        shouldFailQueueWrite = false;
                         throw new Error('simulated queue write interruption');
                     }
 
@@ -477,12 +477,12 @@ describe('T-003 run transition invariants', () => {
 describe('T-037 durable run creation audit intent', () => {
     it('recovers a creation audit missed after the run and delivery writes', async () => {
         {
-            let failAuditAppend = true;
+            let shouldFailAuditAppend = true;
             const interruptedStore: ServiceStore = {
                 ...store,
                 appendLine: async (path, value) => {
-                    if (path === AUDIT_FILE && failAuditAppend) {
-                        failAuditAppend = false;
+                    if (path === AUDIT_FILE && shouldFailAuditAppend) {
+                        shouldFailAuditAppend = false;
                         throw new Error('simulated process interruption before audit append');
                     }
 

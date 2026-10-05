@@ -143,16 +143,16 @@ function delay(milliseconds: number): Promise<void> {
  * modes — the service never logged, and the machine was too slow — are
  * different bugs and should not look the same.
  *
- * @param predicate - Condition to poll for (log lines, counters).
- * @throws {Error} When the predicate has not held by the deadline.
+ * @param isDone - Condition to poll for (log lines, counters).
+ * @throws {Error} When the condition has not held by the deadline.
  */
-async function waitFor(predicate: () => boolean): Promise<void> {
+async function waitFor(isDone: () => boolean): Promise<void> {
     const deadline = Date.now() + WAIT_MS;
-    while (!predicate() && Date.now() < deadline) {
+    while (!isDone() && Date.now() < deadline) {
         await delay(POLL_MS);
     }
 
-    if (!predicate()) {
+    if (!isDone()) {
         throw new Error(`predicate never held within ${WAIT_MS}ms`);
     }
 }

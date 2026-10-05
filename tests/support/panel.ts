@@ -59,8 +59,8 @@ export const DEFAULT_STATUS = 404;
 /** Body the request double answers with when a test does not override it. */
 export const DEFAULT_BODY = '{"message":"unconfigured"}';
 
-/** Unsubscribe double: the base host registers nothing, so nothing is released. */
-export const IDLE_UNSUBSCRIBE = (): boolean => false;
+/** Dispose double: the base host registers nothing, so there is nothing to release. */
+export const HAS_NOTHING_TO_RELEASE = (): boolean => false;
 
 /** Result double for `startSession` when a test does not exercise dispatch. */
 export const NO_SESSION: StartSessionResult = {
@@ -136,15 +136,15 @@ export function fakeHost(overrides: Partial<PanelHost> = {}): PanelHost {
         listProjects: async () => PROJECTS,
         listWorktrees: async () => WORKTREES,
         listSessions: async () => SESSIONS,
-        onProjects: async () => IDLE_UNSUBSCRIBE,
-        onWorktrees: async () => IDLE_UNSUBSCRIBE,
-        onSessions: async () => IDLE_UNSUBSCRIBE,
-        onSession: () => IDLE_UNSUBSCRIBE,
-        onSessionLifecycle: () => IDLE_UNSUBSCRIBE,
-        onReady: () => IDLE_UNSUBSCRIBE,
-        onSettings: () => IDLE_UNSUBSCRIBE,
-        onConnection: () => IDLE_UNSUBSCRIBE,
-        dispose: IDLE_UNSUBSCRIBE,
+        onProjects: async () => HAS_NOTHING_TO_RELEASE,
+        onWorktrees: async () => HAS_NOTHING_TO_RELEASE,
+        onSessions: async () => HAS_NOTHING_TO_RELEASE,
+        onSession: () => HAS_NOTHING_TO_RELEASE,
+        onSessionLifecycle: () => HAS_NOTHING_TO_RELEASE,
+        onReady: () => HAS_NOTHING_TO_RELEASE,
+        onSettings: () => HAS_NOTHING_TO_RELEASE,
+        onConnection: () => HAS_NOTHING_TO_RELEASE,
+        dispose: HAS_NOTHING_TO_RELEASE,
         ...overrides,
     };
 }

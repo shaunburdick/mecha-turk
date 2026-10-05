@@ -512,11 +512,11 @@ describe('the wait delays the schedule instead of being caught up (002 FR-022)',
              * is wall-clock, not a turn count, because a loaded worker pool
              * needs more turns to finish the same handful of reads.
              *
-             * @param until - Condition worth waiting for.
+             * @param isDone - Condition worth waiting for.
              */
-            const flush = async (until: () => boolean): Promise<void> => {
+            const flush = async (isDone: () => boolean): Promise<void> => {
                 const deadline = performance.now() + 5_000;
-                while (!until() && performance.now() < deadline) {
+                while (!isDone() && performance.now() < deadline) {
                     await vi.advanceTimersByTimeAsync(0);
                     await new Promise<void>((resolve) => {
                         setImmediate(resolve);

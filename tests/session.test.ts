@@ -18,7 +18,7 @@ import type { ContextSource, PanelHost } from '../src/session.ts';
 import {
     FIXTURE_CORRELATION,
     FIXTURE_TIMESTAMP,
-    IDLE_UNSUBSCRIBE,
+    HAS_NOTHING_TO_RELEASE,
     ISSUE_URL,
     LOGIN,
     PROJECT_DIR,
@@ -170,15 +170,15 @@ function freshHost(): PanelHost {
     return fakeHost({
         onProjects: async (listener) => {
             listener(PROJECTS);
-            return IDLE_UNSUBSCRIBE;
+            return HAS_NOTHING_TO_RELEASE;
         },
         onWorktrees: async (projectId, listener) => {
             listener({ ...WORKTREES, projectId });
-            return IDLE_UNSUBSCRIBE;
+            return HAS_NOTHING_TO_RELEASE;
         },
         onSessions: async (projectId, listener) => {
             listener({ ...SESSIONS, projectId });
-            return IDLE_UNSUBSCRIBE;
+            return HAS_NOTHING_TO_RELEASE;
         },
     });
 }

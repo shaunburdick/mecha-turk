@@ -250,20 +250,20 @@ export async function accountFileExists(service: TestService): Promise<boolean> 
  * is loaded enough to starve the timer, and every caller asserts this return
  * value, so a slow run should not read as the behaviour being broken.
  *
- * @param predicate - Condition to poll for.
- * @returns Whether the predicate held before the deadline.
+ * @param isDone - Condition to poll for.
+ * @returns Whether the condition held before the deadline.
  */
-export async function waitFor(predicate: () => boolean): Promise<boolean> {
+export async function waitFor(isDone: () => boolean): Promise<boolean> {
     const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
-        if (predicate()) {
+        if (isDone()) {
             return true;
         }
 
         await new Promise((resolve) => setTimeout(resolve, 5));
     }
 
-    return predicate();
+    return isDone();
 }
 
 /** A `VerifyOutcome` that recovers the fixture identity. */

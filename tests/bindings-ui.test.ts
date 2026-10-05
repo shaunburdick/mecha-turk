@@ -200,38 +200,38 @@ function mountBindingsTab(options: {
  * Read the props of one mounted — or repainted — SDK primitive.
  *
  * @param key - The primitive's name, e.g. `mountSelect`.
- * @param match - Selects the one call to read, by its own props.
+ * @param isMatch - Selects the call by its own props.
  * @returns The props that call received, or `undefined` when there is none.
  */
 /**
  * Every call to one primitive whose props match, oldest first.
  *
  * @param key - The primitive's name, e.g. `mountSelect`.
- * @param match - Filters the calls, by their own props.
+ * @param isMatch - Filters the calls, by their own props.
  * @returns The matching props, in call order.
  */
 function propsLog(
     key: string,
-    match: (props: Record<string, unknown>) => boolean,
+    isMatch: (props: Record<string, unknown>) => boolean,
 ): readonly Record<string, unknown>[] {
     return mounts.log
         .filter((entry) => entry.key === key || entry.key === `${key}:update`)
         .map((entry) => entry.props as Record<string, unknown>)
-        .filter((props) => match(props));
+        .filter((props) => isMatch(props));
 }
 
 /**
  * Read the props of the first call to one primitive — what it mounted with.
  *
  * @param key - The primitive's name, e.g. `mountSelect`.
- * @param match - Selects the one call to read, by its own props.
+ * @param isMatch - Selects the call by its own props.
  * @returns The props that call received, or `undefined` when there is none.
  */
 function propsOf(
     key: string,
-    match: (props: Record<string, unknown>) => boolean,
+    isMatch: (props: Record<string, unknown>) => boolean,
 ): Record<string, unknown> | undefined {
-    return propsLog(key, match)[0];
+    return propsLog(key, isMatch)[0];
 }
 
 /**
@@ -239,14 +239,14 @@ function propsOf(
  * repaint handed it, which is what is on screen now.
  *
  * @param key - The primitive's name, e.g. `mountSelect`.
- * @param match - Selects the one call to read, by its own props.
+ * @param isMatch - Selects the call by its own props.
  * @returns The props that call received, or `undefined` when there is none.
  */
 function lastPropsOf(
     key: string,
-    match: (props: Record<string, unknown>) => boolean,
+    isMatch: (props: Record<string, unknown>) => boolean,
 ): Record<string, unknown> | undefined {
-    const all = propsLog(key, match);
+    const all = propsLog(key, isMatch);
 
     return all.at(-1);
 }
@@ -655,12 +655,12 @@ describe('T-036 the editor opens on request and states what it holds (FR-050, FR
         {
             const { rt, dispose } = mountBindingsTab({ setup: withSelectedRow });
             const strings = renderedStrings();
-            const editorOpen = rt.bindingsUi?.editorBox.hidden === false;
+            const isEditorOpen = rt.bindingsUi?.editorBox.hidden === false;
             dispose();
 
             // The list is the tab: the editor block is shut until a row click or
             // New binding opens it (2026-10-01 review).
-            expect(editorOpen).toBe(false);
+            expect(isEditorOpen).toBe(false);
             expect(strings).toContain('Remove');
             // One primary control with a contextual label; the separate Edit row
             // button is gone — the row click *is* the Edit affordance.
