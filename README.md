@@ -50,7 +50,7 @@ The rail panel has one strip with six tabs, in order:
 
 | Tab | What it is for |
 | --- | --- |
-| **Status** | The honest projection — service, polling, accounts, bindings, agent pin — plus the **Setup prerequisites** section: five lines, each *met*, *not met*, or **not checkable by the panel**, each with its own remediation, with any checkable-and-unmet item raised as a notice above the tabs |
+| **Status** | The honest projection — service, polling, accounts, bindings, agent pin — plus the **Setup prerequisites** section: five lines, each *met*, *not met*, or **not checkable by the panel**, each with its own remediation, with any checkable-and-unmet item raised as a notice above the tabs. It re-reads itself on the service's own poll interval while you have it open, says so in words beside **Refresh status**, and stops as soon as you switch to another tab |
 | **Dispatches** | Every queued, running, and finished dispatch, newest first, with cursor paging and server-side filters by binding and by state; each row carries its state, its reason line, its correlation id, its source references, and the controls that move it (open, retry, resolve, return to waiting, audit history) |
 | **Bindings** | The repositories you watch, the project picker with its *not listed?* guidance, and the add form |
 | **Accounts** | Every GitHub account with its lifecycle, connection, and scope matrix, plus the add form: paste PAT → connect, under the always-visible Accounts disclaimer, with the optional expected GitHub login |

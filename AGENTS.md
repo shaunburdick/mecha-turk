@@ -40,7 +40,7 @@ walkthrough is `specs/002-agent-event-extension/quickstart.md`.
 npm ci            # toolchain install (Node >= 24.15; bun for the bundler)
 npm run verify    # build -> lint -> typecheck -> test — THE gate, run before every commit
 npm run build     # bundles panel/main.js (IIFE) + service/main.js (ESM)
-npm test          # vitest, offline (1305 tests)
+npm test          # vitest, offline (1322 tests)
 npm run format    # eslint --fix
 npm run shot      # screenshot all six panel tabs at 720px and 560px into screenshots/
 ```
@@ -154,9 +154,12 @@ changing it. The shape:
 
 - `src/` — panel modules, one responsibility each. `app.ts` wires mount,
   subscribe and teardown; `tabs.ts` and `tab-bodies.ts` own the six-tab
-  shell; `relay*.ts` claim a run and hand off one `host.startSession()`;
-  `*-service.ts` files are the fail-closed readers of a service answer, and
-  `*-rows.ts` / `*-detail.ts` files are pure rendering.
+  shell; `status-tab.ts` owns the Status projection's read **and** the refresh
+  tick armed from the interval that document reports — Status is the only tab
+  with a cadence, and the panel holds no default for it; `relay*.ts` claim a
+  run and hand off one `host.startSession()`; `*-service.ts` files are the
+  fail-closed readers of a service answer, and `*-rows.ts` / `*-detail.ts`
+  files are pure rendering.
 - `service/` — the stdlib-only local service. `server.ts` / `http.ts` /
   `routes/` are the loopback HTTP surface, `poll/` is the scan loop, event
   queue and run lifecycle, `store/` is the 0700/0600 durable store, and

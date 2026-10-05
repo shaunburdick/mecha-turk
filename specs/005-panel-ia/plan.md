@@ -499,3 +499,142 @@ no storage key.
 The consolidated execution list lives in
 [`002-agent-event-extension/tasks.md`](../002-agent-event-extension/tasks.md) §"Issue #9 block
 (2026-10-03)"; 005's own tasks are `C-1 … C-6`.
+
+---
+
+# Amendment record — 005 v1.16.0 (2026-10-05): the Status tab's refresh cadence (GitHub issue #20)
+
+> **This section is a dated Phase-4 record added on 2026-10-05.** Everything above it is the plan of
+> 2026-09-28 and is retained as written, as is the v1.11.0 record above. The v1.16.0 amendment is
+> **panel-side only**: it adds no wire surface, no route, no member, and no contract edit, and it
+> amends no other specification. `specs/002-agent-event-extension/contracts/panel-service.md` is
+> **not edited** — the cadence is not a retry loop, so §1's rule stands uncontradicted.
+>
+> **The three product-owner decisions are fixed and not re-litigated here:** Status tab only; the
+> period is the effective `polling.intervalMs` the document reports rather than a fixed 60 s; and
+> every activation reads while a repeating tick runs only while Status is active. Everything below
+> is how the panel implements them, and what it had to decide that the requirements did not settle.
+
+## D.1 Scope of 005's half
+
+| Requirement | What 005 builds | Where |
+| --- | --- | --- |
+| FR-100 §1 | one `setInterval` armed from the interval the last landed document reported, disarmed the moment another tab activates, cleared by the tab's disposer, idempotent for an unchanged period | `src/status-tab.ts`, `src/tabs.ts`, `src/panel-state.ts` |
+| FR-100 §2 | nothing new — the existing `phase === 'loading'` guard in `loadStatus` **is** the in-flight rule, and it is left exactly as it was | `src/status-tab.ts` (unchanged guard) |
+| FR-100 §3 | the interval-less window: no arm at mount, no default, no fallback to the configured interval, and the tab says so | `src/status-tab.ts`, `src/status-lines.ts` |
+| FR-100 §4 | nothing new — the period is read from the document and never from the last read's outcome, which is what makes a backoff unreachable rather than merely forbidden | `src/status-tab.ts` |
+| FR-101 | one worded cadence statement beside the refresh control, identical after a tick and after a press | `src/status-lines.ts`, `src/status-tab.ts` |
+| FR-014, FR-019, FR-030, FR-039 | re-cut / extended in the spec at v1.16.0; **no new rendering** beyond the cadence line | `src/tabs.ts`, `src/status-tab.ts` |
+
+## D.2 Module map delta (005's files only)
+
+| Module | Change | Requirements |
+| --- | --- | --- |
+| `src/panel-state.ts` | `STATUS_TAB` (the one id two modules must agree on) and two runtime slots, `statusRefreshTimer` + `statusRefreshMs`, written only by the arm/stop pair | FR-100, FR-101 |
+| `src/status-tab.ts` | `armStatusRefresh` / `stopStatusRefresh`; the arm after a landed read and before the repaint; the clear in `disposeStatusTab`; `StatusTabUi.cadenceLine` | FR-100, FR-101, NFR-108 |
+| `src/tabs.ts` | `activate()`'s re-activation exception for Status, its read on switching **to** Status, and its disarm on switching away | FR-014 (re-cut), FR-100 |
+| `src/status-lines.ts` | `cadenceLine` — the one statement, and its interval-less value | FR-101, NFR-112 |
+
+**No new module.** The cadence is two functions and one line of copy in modules that already own
+those jobs, and `AGENTS.md`'s module map and `tests/vocabulary.test.ts`'s assertion that every
+`src/` file is listed both stay true without an edit.
+
+## D.3 Key decisions — the refresh cadence (added 2026-10-05)
+
+> Numbered `D19…D23` to continue this plan's own `D1…D12` and the v1.11.0 block's `D13…D18`.
+
+| # | Decision | Rationale | Rejected alternative |
+| --- | --- | --- | --- |
+| **D19** | **The tick's body is a parameter of `armStatusRefresh`, not a call to `loadStatus`.** `loadStatus` arms the timer and the timer calls `loadStatus`, so naming the read inside the arming makes the two mutually referential; the arm is told what the timer runs. | FR-100's tick *is* `loadStatus` — nothing else would satisfy "a tick that fires during an in-flight read is a no-op" without reimplementing the guard — but the arming rule (idempotent, refused for a hidden or torn-down tab, re-armed on a changed period) is a property of the **timer**, not of the read, and taking the body as an argument says so at the signature. It also keeps the arming readable without a forward declaration or a lint suppression, which invariant 7 forbids. | Calling `loadStatus` directly from the timer callback: two mutually referential functions, which the analyzer flags as use-before-define in whichever order they are written, and the only resolutions are a reorder that fails in the other direction or a suppression. |
+| **D20** | **One arming site: inside `loadStatus`, after the slice lands and before the repaint.** Ordering is load-bearing rather than incidental — the repaint is what renders the cadence statement, so arming after it would show the *previous* period for one frame, and a changed interval would briefly claim a period the document no longer reports (FR-101, NFR-112). | FR-100 §3 says the tick is armed *from the document*, and one site is what makes "at most one tick" a property rather than a convention: every path that could arm goes through the same idempotent arm. | Arming from `activate()` as well as from the read, which would arm a tick before the activation read has landed — arming on the *previous* document's interval, and therefore briefly refreshing on a period the service may have changed (FR-100 §1's "not pinned to the interval it was armed with"). |
+| **D21** | **Two runtime slots for one fact, both written only by the arm/stop pair**, rather than deriving "is a tick armed?" from the timer handle inside the copy layer. | `statusLines.cadenceLine` takes a **number or `null`** and never sees a handle, which keeps it a pure function of one number — the same discipline the rest of `status-lines.ts` follows, and the reason a test can assert the copy without a runtime. The cost is one invariant (the two move together), and it is stated on both slots and enforced by the pair being the only writer. | Passing the `PanelRuntime` into the copy layer so it could read `statusRefreshTimer !== null`, which turns a pure function into one that knows about the runtime and cannot be asserted from its own inputs. |
+| **D22** | **The cadence statement renders in the tab's own toolbar row, beside `Refresh status` and the read-state line — not in the Polling block.** | FR-101 puts it wherever the tab carries it, and the Polling block is the one place the two intervals are compared (FR-039); a third number there would be a third thing an operator has to tell apart. Beside the control the copy names in its interval-less form is also where the operator looks when the sentence says "use `Refresh status`". | A row in the Polling block, which reads as though the *service's* scheduler had a third cadence and competes with the effective-vs-configured comparison. |
+| **D23** | **The interval-less copy names the cause of the ignorance — *no interval has been read*** — rather than only stating the fact. | FR-101 requires the tab to say it is not refreshing itself and name `Refresh status`; saying **why** costs one clause and is what turns the line from an unexplained silence into an answer, and it is the one clause that stays true across every state the line renders in (nothing read yet, a refused read, a document the parser refused, a hidden tab). | Naming a specific cause per state, which would mean the line lies whenever the state changed between the read and the paint — the same fabrication NFR-112 forbids in the number. |
+
+## D.4 Constitution alignment (v1.3.0) — re-read for this amendment
+
+| Principle / gate | How the cadence satisfies it |
+| --- | --- |
+| **I. Polling-first, contract-first** | Untouched, and the source of the whole resolution: the period rides a contract the service already publishes (`polling.intervalMs`), so the amendment needs **no** new wire surface and edits **no** contract file. |
+| **II. Safe autonomy by default** | **Strengthened, not weakened.** The panel claims *less* about itself when it does not know: no invented interval, no fallback to the configured value, and *not refreshing* rather than a plausible number. A missing, stale, or ambiguous authorization is a stop condition; a missing interval is treated the same way. |
+| **III. Durable and idempotent work** | A repeated **read** creates no work and no durable state. The in-flight guard makes a repeated read idempotent in the only sense available here: one request at a time, and a missed tick missed rather than queued. |
+| **IV. Human-visible auditability** | The principle this amendment serves most directly. FR-101 requires the tab to *say* that it refreshes itself and on what period, and FR-100 §4 keeps a failing tick rendered exactly as a manual read fails — last document kept, marked stale, cause named, retry offered, stamp unmoved. |
+| **V. Minimal, self-hosted deployment** | No new process, dependency, capability, permission, container, or SDK re-pin; one `setInterval` in a panel that already runs one. |
+| **VI. Specification and verification before implementation** | Why the behaviour is asserted against a **driven clock** clause by clause rather than described, and why `005 SC-114` enumerates eight cases instead of one. |
+| **VII. Thin orchestration boundary** | No host capability, no host call, no new host API. The tick calls the same documented `host.serviceRequest()` the mount read already calls. |
+| **Quality gates** | Strict TS + lint, zero suppressions, zero `any` (FR-088, NFR-109); offline suite per task; `npm run verify` at the wave boundary; the rebuilt `panel/main.js` committed with its source (FR-087, invariant 1). |
+
+**`AGENTS.md` invariants — how the cadence touches each of the ten.** (1) committed bundles ship, and
+the rebuilt `panel/main.js` is in this change; (2) **no `version` bump** — a bump is a product-owner
+release decision (FR-087); (3) `capabilities[]` untouched, `contributes.service` gains no
+`permissions`; (4) kebab-case identity and every `mecha-turk:` key untouched — the tick reads
+`GET /v1/status`, which the tab already read, and touches no `host.storage` (FR-025, invariant 9);
+(5) `SERVICE_VERSION` untouched; (6) SDK pin untouched; (7) zero suppressions and zero `any` — which
+is why D19 exists, because the alternative was a forward declaration or a disable; (8) **fail
+closed** — an unreadable document still refuses the whole document rather than partially applying it,
+so the interval-less window is reached only by a genuine refusal; (9) secrets never leave the service
+store, and the cadence reads the same credential-free projection the tab already renders;
+(10) **`extension-spike-1` untouched**.
+
+## D.5 Flagged items (Phase-5 findings — recorded, not decided in code)
+
+1. **The unparseable-`intervalMs` case resolves through the fail-closed parser, so it is
+   indistinguishable from a transport refusal on the tab.** `005 AC-151` anticipates "a status read
+   that **succeeds** but carries an unparseable `polling.intervalMs**" rendering as *loaded, with its
+   values and no cause claimed*. The shipped parser refuses the **whole document** over an
+   unreadable required member (invariant 8, FR-003), so that state is unreachable: a document with an
+   unreadable interval is a document that did not parse. **Chosen:** keep the parser fail-closed and
+   discharge the case as *the document is refused* — which satisfies every observable in FR-100 §3
+   and `005 SC-114`(f) (no tick, no period, `Refresh status` live, the tab says it is not refreshing)
+   and keeps invariant 8 intact. **Rejected:** widening `StatusPollingView.intervalMs` to
+   `number | null` and relaxing the parser, which would let a service answer with a half-readable
+   status document and render the rest of it as though it were whole. **If the owner prefers
+   AC-151's literal reading**, the parser's `polling` block needs the same treatment and the
+   spec's `### Wire Surface Delta` row amended to say so.
+2. **The cadence sentence is new operator-facing copy.** Its exact wording is a product decision the
+   specification deliberately left open ("for example *re-reads every 60 seconds*"). **Chosen, after
+   `npm run shot` caught the first attempt on the same tab:** *This tab re-reads itself every 60
+   seconds.* / *This tab is not refreshing itself — no interval has been read, so it refreshes only
+   when you ask. Use Refresh status.* Recorded here so a copy review can change it without re-reading
+   the implementation, and so `tests/status-refresh.test.ts` is where the assertion moves.
+
+   The first attempt rendered the armed branch as ***This tab re-reads itself every 60,000 ms*** and
+   is superseded by the wording above. Visual verification caught it for three reasons, all of which
+   are properties of *where* a number appears rather than of the number: `intervalText()`'s `en-US`
+   grouping exists because the Polling block's `Effective interval 60,000 ms` is a **data row** whose
+   `ms` declares the unit, and the same tab was therefore showing one duration two ways (`8h 2m 13s`
+   from `formatUptime` in a row, `60,000 ms` in a sentence); FR-101 names *re-reads every 60 seconds*
+   as its example; and it degraded worst at the top of the range, where an operator at the validated
+   maximum read *every 300,000 ms* where the human form is *every 5 minutes*. The period is now
+   rendered in words by a **period-shaped** formatter in `status-lines.ts` — whole minutes at or above
+   two minutes, whole seconds below, and the machine form only for a period too short to say in
+   seconds, because rounding that into prose would invent a duration. **`formatUptime()` was not
+   reused**: its shape is uptime's (it always emits at least a seconds part, and always emits minutes
+   once hours are present), so it answers `1m 0s` for 60 000 and `5m 0s` for 300 000 — trailing `0s`
+   inside a sentence, and no better than the digits it replaces. **The Polling block's own
+   `Effective interval` / `Configured interval` rows are unchanged and out of scope**: their `ms`
+   declares a unit on a data row, which is exactly what that rendering is for.
+
+## D.6 Risks and mitigations (this amendment only)
+
+| Risk | Mitigation |
+| --- | --- |
+| Two timers survive because two paths armed | One arming site (D20) and an idempotent arm for an unchanged period; `tests/status-refresh.test.ts` asserts the timer count is `pre-mount + 1` across three leave-and-return rounds |
+| A hidden Status tab repaints itself under the operator's hands | `armStatusRefresh` refuses for a non-Status active tab and `activate()` disarms on the way out, both before any repaint (D20) |
+| The cadence becomes a retry loop with a backoff | The period is read from the document and from nothing else; the test asserts the request-log gaps are exactly one interval each across three refused ticks |
+| The interval-less window shows a plausible number | `cadenceLine` takes `number | null` and the copy has no branch that can invent a value; the test scans every rendered string for six candidate periods |
+| A tick fires while a read is in flight and stacks a request | `loadStatus`'s existing guard, unmodified; the test holds a read open across a period boundary and asserts one request |
+| The other five tabs acquire a cadence by accident | `activate()`'s read and disarm are both keyed on `STATUS_TAB`; the test asserts the whole panel's request count is unmoved across three periods on Bindings, and re-activation reads nothing on all five |
+
+## D.7 Out-of-scope guard for the issue-#20 block (checked at every task)
+
+No service-side change, no new route, no new status member, no request shape, and no edit to
+`specs/002-agent-event-extension/contracts/panel-service.md`. No cadence on any other tab. No
+automatic retry of anything. No count-down, no pause/resume control, no per-tab refresh toggle, and
+no settings field. No version bump, no capability, no permission, no SDK re-pin, no `host.storage`
+key, and no change to the other five tabs' behaviour.
+
+## D.8 Phase-6 task block for this amendment
+
+The execution list is this feature's own: `T-037 … T-041` in
+[`tasks.md`](./tasks.md) §"Issue #20 block — the Status tab's refresh cadence (added 2026-10-05)".

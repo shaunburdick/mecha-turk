@@ -11,9 +11,15 @@
  * - **Mount on first activation, never before** (FR-013): the host clears
  *   subscriptions on unmount, so six eagerly-mounted bodies would be six read
  *   paths to tear down. The registry records each mount once.
- * - **Activation is idempotent** (FR-014): activating the tab that already
- *   shows is a no-op that performs no service read — a panel that re-reads
- *   because it was looked at cannot be looked at (NFR-104).
+ * - **Activation is idempotent, except on Status** (FR-014 as re-cut at 005
+ *   v1.16.0): activating the tab that already shows reads nothing on the five
+ *   tabs that own no cadence, and reads on **Status** — `GET /v1/status` is a
+ *   read, so looking at the tab cannot cause work, only a fresh answer. This is
+ *   the one place the shell names a specific tab, and it names it for two
+ *   reasons that both belong to activation and to nowhere else: the re-activation
+ *   exception, and the tick's lifetime (FR-100) — a Status tab left in the
+ *   background must issue no reads, and a tab that outlived its own activation
+ *   would repaint a hidden body under the operator's hands.
  * - **The association is re-stamped after every repaint** (FR-016): the SDK
  *   repaints its strip by clearing the track, so an `id`/`aria-labelledby`
  *   pair stamped once would vanish on the first selection change.
@@ -21,8 +27,9 @@
 
 import { mountTabs } from '@openchamber/sdk/ui';
 import type { TabsHandle } from '@openchamber/sdk/ui';
-import { TAB_IDS } from './panel-state.ts';
+import { STATUS_TAB, TAB_IDS } from './panel-state.ts';
 import type { PanelRuntime, TabId } from './panel-state.ts';
+import { loadStatus, stopStatusRefresh } from './status-tab.ts';
 
 /** A disposer for one tab body, or `null` when the mount owns nothing. */
 export type TabDisposer = () => void;
@@ -203,7 +210,27 @@ function createActivation(input: {
     };
 
     const activate = (id: TabId): void => {
-        if (rt.disposed || id === rt.activeTab) {
+        if (rt.disposed) {
+            return;
+        }
+
+        // Leaving Status disarms the tick **before** anything else runs, so the
+        // window between the click and the next repaint is one in which a
+        // backgrounded tab can still issue a read (FR-100).
+        if (id !== STATUS_TAB && rt.activeTab === STATUS_TAB) {
+            stopStatusRefresh(rt);
+        }
+
+        if (id === rt.activeTab) {
+            // Re-activating the tab that already shows stays a no-op on the five
+            // tabs that own no cadence, and reads on Status — the exception
+            // FR-014's re-cut made, because a look causes only a read (FR-100).
+            // `loadStatus` refuses to stack behind an in-flight read, so
+            // pressing the tab repeatedly cannot pile requests up.
+            if (id === STATUS_TAB) {
+                void loadStatus(rt);
+            }
+
             return;
         }
 
@@ -211,6 +238,13 @@ function createActivation(input: {
         tabs.update({ activeId: id });
         mountOnce(mountInput, id);
         paint();
+
+        // Switching *to* Status reads immediately, for the same reason: the tab
+        // the operator just asked for answers from a fresh read rather than
+        // from whatever was on screen when they left it (FR-100).
+        if (id === STATUS_TAB) {
+            void loadStatus(rt);
+        }
     };
 
     const mountActive = (): void => mountOnce(mountInput, rt.activeTab);

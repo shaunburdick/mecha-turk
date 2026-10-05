@@ -401,3 +401,96 @@ input the service would refuse") and 005 AC-142 ("submitting `[]` is refused by 
 can then never remove a list — or omits the key. **Chosen:** omit the key, and discharge AC-142's
 `[]` case against the service plus the panel's own refusal-rendering path. **One confirmation
 requested** from the product owner (research §Q3).
+
+---
+
+---
+
+## Issue #20 block — the Status tab's refresh cadence (added 2026-10-05)
+
+**Spec**: [spec.md](./spec.md) v1.16.0 — `FR-014` (as re-cut), `FR-019` (as re-cut), `FR-030`, `FR-039`,
+`FR-100`, `FR-101`, `NFR-104` (as re-cut), `NFR-108`, `NFR-111`, `NFR-112`, `005 SC-114`,
+`005 AC-150`, `005 AC-151`, `005 AC-152`. **Plan**: [plan.md](./plan.md) §D — **this block's
+decisions are D19 … D23** and its flagged items are D.5.
+
+**Bar**: the Status tab keeps its own answer current without being asked, says in words that it is
+doing so and on what period, and never shows a period no document reported. **The panel holds no
+default for the cadence** and falls back to nothing — not to 60 000 ms, not to the service default,
+not to the configured interval. Tests are offline and driven by a fake clock (`vi.useFakeTimers` over
+`setInterval`/`clearInterval`/`Date`), with the production `tabSpecs` mounted against the fake host
+and the fake DOM.
+
+- [x] **T-037** [US1] **Runtime slots and the one id two modules must agree on** — `src/panel-state.ts`:
+  export `STATUS_TAB` (the one `TabId` that owns a cadence, named rather than spelled at each
+  comparison because `status-tab.ts` and `tabs.ts` both test against it and a mismatch is a cadence
+  that arms for a hidden tab), and add `statusRefreshTimer` + `statusRefreshMs` to `PanelRuntime`,
+  both initialised to `null` and documented as one fact in two slots written only by the arm/stop
+  pair. Replace the `activeTab: 'status'` literal in `createPanelRuntime` with the constant.
+  *Tests*: none of its own — a slot declaration has no behaviour; its first assertion is T-039's.
+  *(FR-100, FR-101, NFR-112)*
+- [x] **T-038** [US1] **The tick, its lifecycle, and the copy** — `src/status-tab.ts` +
+  `src/status-lines.ts`: add `armStatusRefresh` / `stopStatusRefresh` following `relay.ts`'s
+  `startRelayPolling` / `stopRelayPolling` precedent exactly — `setInterval`, `.unref()` when
+  present, idempotent arm, and a clear on teardown — with the tick's body passed in rather than
+  named (plan D19, because the read arms the timer and the timer calls the read); arm from **inside**
+  `loadStatus`, after the slice lands and before the repaint, on `view.polling.intervalMs` and on
+  nothing else (plan D20); clear in `disposeStatusTab` so the tick is one of the timers FR-017's
+  disposers release; add `cadenceLine` to `StatusTabUi` and render it in the toolbar row beside
+  `Refresh status` and the read-state line (plan D22), with its interval-less value naming the cause
+  of the ignorance (plan D23) and **no branch that can invent a period**. **Leave `loadStatus`'s
+  `phase === 'loading'` guard exactly as it is** — it is FR-100 §2's in-flight rule and must not be
+  weakened. *Tests*: the copy assertions are T-039's rendering half; the lifecycle assertions are
+  T-039's clock half. *(FR-100, FR-101, FR-019, FR-014, NFR-108, NFR-111, NFR-112)*
+- [x] **T-039** [US8] **The driven-clock suite** — `tests/status-refresh.test.ts` (new), covering
+  **all eight `005 SC-114` clauses** and `005 AC-150` – `AC-152`: **(a)** one read at activation and
+  one more per period, asserted at 59 s / 60 s / 180 s and from the request log's gaps;
+  **(b)** the whole panel's request count unmoved across three periods while it sits on Bindings;
+  **(c)** re-activation issues zero requests on each of the other five tabs, per tab, with a
+  non-vacuity assertion that one of them really does read at activation;
+  **(d)** after teardown the timer count is back to its pre-mount value and three further periods
+  move no read — asserted **from Status and from another tab**, because NFR-108 counts both;
+  **(e)** a later `intervalMs: 30_000` re-arms and the old period stops firing;
+  **(f)** the refused read, the document the fail-closed parser refuses over an unreadable
+  `intervalMs` (plan D.5 #1), a configured interval that disagrees with the effective one, and a
+  failed `GET /v1/config` — none arms a tick, none renders a period (the test scans every rendered
+  string for six candidate numbers), and `Refresh status` reads on demand in all of them;
+  **(g)** three refused ticks leave **one** stale marker naming only the latest cause, the stamp
+  unmoved, the button live, and the request-log gaps exactly one interval each;
+  **(h)** a tick during an in-flight read issues one request, and the button press is refused by the
+  same guard. Plus the statements FR-101 makes: the armed copy carries the period, and it is identical
+  after activation, after a tick, and after a press. *Tests*: the suite is the gate; it is proved
+  non-vacuous by mutation (dropping the idempotent arm, dropping the disarm, hard-coding the period,
+  dropping the period from the copy, dropping the interval-less copy, and forgetting the disposer's
+  clear each fail at least one case). *(FR-100, FR-101, FR-014, FR-019, `005 SC-114`, `005 AC-150`,
+  `005 AC-151`, `005 AC-152`, NFR-105, NFR-108, NFR-111, NFR-112)*
+- [x] **T-040** [US5] **Activation is where the cadence's lifetime is driven** — `src/tabs.ts`:
+  split `activate()`'s single `id === rt.activeTab` early return so that (i) leaving Status calls
+  `stopStatusRefresh` **before** anything else runs, so the window between the click and the next
+  repaint is one in which a backgrounded tab can still read; (ii) re-activating the already-active
+  tab stays a pure no-op on the five tabs that own no cadence and reads on **Status**; and (iii)
+  switching *to* Status reads immediately. Re-cut the module docblock's "activation is idempotent"
+  bullet to state the exception and its two reasons. *Tests*: T-039's clauses (b), (c), and (d).
+  *(FR-014 as re-cut, FR-100, NFR-104)*
+- [x] **T-041** [US8] **Final gate** — `npm run verify` green (build → lint → typecheck → test) with
+  **zero** suppressions and **zero** `any` introduced; the rebuilt `panel/main.js` **committed with
+  its sources** (invariant 1); `SERVICE_VERSION` still `0.0.1`; `contracts/panel-service.md`
+  **unmodified** and no other feature's document touched; `git status` clean of unintended files;
+  per-clause status for `005 SC-114` and `005 AC-150` – `AC-152` in the commit body with the
+  `Generated-By` attribution trailer. *(FR-087, FR-088, NFR-109, NFR-110)*
+
+**Wave boundary**: `npm run verify` green + rebuilt bundle committed.
+
+### Requirement → task coverage (this block)
+
+| Requirement | Tasks |
+| --- | --- |
+| FR-014 (as re-cut at v1.16.0), NFR-104 (as re-cut) | T-038, T-039, T-040 |
+| FR-019 (as re-cut: a failing tick is a failing read) | T-038, T-039 |
+| FR-030 (the Polling block's effective interval is also the panel's period) | T-038, T-039 |
+| FR-039 (no fallback to the configured interval; not a configuration field) | T-039 |
+| FR-100 (lifecycle, in-flight guard, the interval-less window, cadence ≠ retry) | T-037, T-038, T-039, T-040 |
+| FR-101 (the worded cadence statement) | T-038, T-039 |
+| NFR-105 (offline determinism), NFR-108 (teardown completeness), NFR-111 (observability), NFR-112 (honest defaults) | T-037, T-038, T-039 |
+| `005 SC-114` (a) – (h) | T-039 |
+| `005 AC-150`, `005 AC-151`, `005 AC-152` | T-039 |
+| FR-087, FR-088, NFR-109, NFR-110 (release discipline) | T-041 |
