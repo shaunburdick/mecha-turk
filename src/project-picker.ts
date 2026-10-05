@@ -269,8 +269,6 @@ export function selectedProjectId(state: PanelState): string | null {
  * instead of surprising. Since 002 FR-041 emptied the integration card there
  * are exactly two answers: the operator's own picker selection, or the
  * binding that already carries a project.
- *
- * @returns One line describing the effective selection.
  */
 export function describeProjectSelection(state: PanelState): string {
     const selected = selectedProjectId(state);

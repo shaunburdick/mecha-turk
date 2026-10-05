@@ -380,7 +380,6 @@ function sharedStorageFor(input: {
  * The open store of whichever instance is running, demanded rather than
  * defaulted: a loop that cannot read its runs cannot answer for a dispatch.
  *
- * @returns Its open store.
  * @throws {Error} When the instance opened no store.
  */
 function currentStoreOf(service: TestService): ServiceStore {

@@ -90,7 +90,6 @@ export interface MountContext {
  * a silently fresh state.
  *
  * @param existing - Ledger read from storage, or `null` when absent/unusable.
- * @returns Generation and storage-presence context for the new mount.
  */
 export function buildMountContext(existing: PanelLedger | null): MountContext {
     if (existing === null) {

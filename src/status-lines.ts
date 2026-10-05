@@ -105,8 +105,6 @@ export function rateLine(rate: StatusAccountView['rate']): string {
 
 /**
  * The projection's service block.
- *
- * @returns One line per service fact.
  */
 export function serviceLines(view: StatusView): readonly string[] {
     const { service } = view;
@@ -173,8 +171,6 @@ function configuredIntervalLine(configured: number | null): string {
  *
  * While the surface cannot run a service at all, nothing here claims a loop
  * is running.
- *
- * @returns One line per polling fact.
  */
 export function pollingLines(input: PollingLinesInput): readonly string[] {
     const { view, configured, nowMs } = input;

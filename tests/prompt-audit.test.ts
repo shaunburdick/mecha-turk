@@ -381,8 +381,6 @@ function accountDocument(prompt: string | null): readonly ObservedAccount[] {
 
 /**
  * Observe one account document for one prompt value.
- *
- * @returns How many rows the observation appended.
  */
 function observeAccounts(input: {
     /** Open store. */

@@ -176,7 +176,6 @@ function claimLimitOf(raw: string | null): number | null {
  * count derived from runs, and that is what this reads — the same document the
  * claim answers from, so the two can never disagree.
  *
- * @returns One row per binding, with scan state and pending count.
  * @throws {StorageUnavailableError} When the run document cannot be read.
  */
 export async function readStatusRows(input: {

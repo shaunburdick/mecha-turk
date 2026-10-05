@@ -251,8 +251,6 @@ function lastPropsOf(
 
 /**
  * Build one binding for the row and detail copy.
- *
- * @returns One complete binding.
  */
 function bindingFixture(overrides: Partial<PanelBinding> = {}): PanelBinding {
     return {
@@ -272,8 +270,6 @@ function bindingFixture(overrides: Partial<PanelBinding> = {}): PanelBinding {
 
 /**
  * Build one scan-status row for the selected binding's line.
- *
- * @returns One complete status row.
  */
 function statusFixture(overrides: Partial<BindingStatusRow> = {}): BindingStatusRow {
     return {

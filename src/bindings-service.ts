@@ -389,8 +389,6 @@ export function eventKindOf(value: unknown): EventKind {
 
 /**
  * Count the enabled bindings in a list.
- *
- * @returns How many are currently `active`.
  */
 export function countEnabledBindings(bindings: readonly PanelBinding[]): number {
     return bindings.filter((binding) => binding.state === 'active').length;

@@ -644,8 +644,6 @@ const ACCOUNT_TIER_PROMPT = 'Prefer the smallest diff that closes the failing te
 /**
  * The detection the fixture queue would have written for this issue (003's
  * fixture shape), so the run claims and dispatches exactly as a scanned one.
- *
- * @returns One assignment snapshot.
  */
 function containmentDetection(issueNumber: number): EventSnapshot {
     return {

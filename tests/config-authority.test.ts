@@ -96,7 +96,6 @@ interface SourceModule {
  * Read one tracked file's text, skipping what cannot be text.
  *
  * @param path - Repository-relative path.
- * @returns Its contents.
  */
 function trackedText(path: string): string {
     return readFileSync(resolve(ROOT, path), 'utf8');

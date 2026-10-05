@@ -310,8 +310,6 @@ export function mentionTokenView(bindings: BindingsTabState): MentionTokenView {
  * makes a displayed value and a saved value unable to disagree. Add mode
  * lists the accounts available to bind (`usable` only: an account that cannot
  * poll is not an account a binding should be created under).
- *
- * @returns How the select must render.
  */
 export function accountFieldView(bindings: BindingsTabState): AccountFieldView {
     const binding = selectedBinding(bindings);

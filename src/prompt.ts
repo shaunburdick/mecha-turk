@@ -210,8 +210,6 @@ export function normaliseLineEndings(text: string): string {
  * Spreading a string iterates code points, so a surrogate pair (an emoji, a
  * rare ideograph) counts as one — the unit the specification's 2,000-character
  * cap is written in.
- *
- * @returns How many code points the text holds.
  */
 export function countCodePoints(text: string): number {
     return [...text].length;

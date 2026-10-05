@@ -146,8 +146,6 @@ function countedSpecs(): { readonly specs: readonly TabSpec[]; readonly counts: 
 
 /**
  * Mount the shell over a fresh runtime and a fake root.
- *
- * @returns Everything a test needs to read back: runtime, root, specs, counts.
  */
 function mountShell(): {
     readonly rt: ReturnType<typeof createTestRuntime>;
