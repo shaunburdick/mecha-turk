@@ -1,0 +1,158 @@
+# The documentation site's gate and its publisher.
+#
+# This file exists because `site/` is a self-contained subproject with its own
+# `package.json` and its own lockfile, and no root command reaches into it —
+# `verify.yml` runs `npm run verify` from the repository root, which lints,
+# type-checks, and builds `src/`, `panel/`, `service/`, and `tests/` only.
+# Without this workflow nothing type-checks the pages, nothing builds them,
+# nothing asserts the built artefact's shape, and nothing publishes them.
+#
+# Action versions are pinned to commit SHAs, with the `# vX.Y.Z` comment
+# keeping them readable — the same convention `verify.yml` has used since it
+# was written. `tests/manifest.test.ts` holds this file to it.
+name: Site
+
+# Both triggers answer to the default branch, for the reason `verify.yml` gives:
+# a pull request carries its own checks, and the build runs again on the merge
+# because a green pull request does not prove the merge landed as reviewed.
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# Read-only at the workflow level, which is also the `build` job's whole grant —
+# it checks the repository out, installs from a committed lockfile, and reads
+# pages. Everything else the token can do is `none` until the `deploy` job asks
+# for two specific scopes by name.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing in this workflow talks to git over the network, so the token
+          # is never written into the workspace's git configuration. Matches
+          # `verify.yml`.
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # `site/package.json`'s engines.node is ">=22.12.0" — a floor, not a
+          # chosen release. Node 24 is the major `verify.yml` already uses and is
+          # verified green on, so this introduces no second Node version; 24 ≥
+          # 22.12.0 satisfies the site's floor.
+          node-version: '24'
+          cache: npm
+          # setup-node's cache defaults to the lockfile at the *repository root*,
+          # which is the root project's — this job installs the site's. Without
+          # this the cache would be keyed on a lockfile no step in this job
+          # reads, and the run would re-download astro on every push.
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install the site's dependencies
+        # `npm ci`, never `npm install`: the build is reproducible from the
+        # site's own committed lockfile, and a silent lockfile rewrite in CI is
+        # how a green build stops meaning the same thing twice.
+        run: npm ci
+        working-directory: site
+
+      # `astro check` first, because `astro build` does not type-check. A
+      # `const n: number = "x"` in a page builds clean; only this step catches
+      # it, which is why a build that goes green without it proves less than it
+      # appears to.
+      - name: Type-check the pages
+        run: npm run check
+        working-directory: site
+
+      # The site's own 140 assertions, which no other job in this repository
+      # runs: the root vitest glob cannot collect them (FR-070), and they read
+      # fixtures rather than the working tree, so they are safe to run before
+      # the build.
+      - name: Test the site's assertions
+        run: npm test
+        working-directory: site
+
+      # `astro build` followed by `scripts/assert-build.mjs`, so the artefact's
+      # shape is checked by the same step that produced it — the next step
+      # uploads whatever this leaves behind, unexamined otherwise.
+      - name: Build the site and assert the artefact
+        run: npm run build
+        working-directory: site
+
+      # This step archives the workspace of *this* runner, which is the only
+      # place `site/dist` exists: a GitHub Actions job gets a fresh machine and
+      # an empty workspace, so the artefact has to be uploaded here, in the job
+      # that built it, for `deploy` to find it. Uploaded on pushes only, so a
+      # pull request never leaves a deployable artefact behind for the
+      # `deploy` job to find.
+      - name: Upload the built site as the Pages artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          # The whole directory, uploaded as-is: no adapter, no server entry
+          # point, nothing Pages-specific generated into it. The action names
+          # the artefact `github-pages`, which is the name `deploy-pages` looks
+          # for, so the default is load-bearing and left alone.
+          path: site/dist
+
+  deploy:
+    # `needs` for ordering and `if` for authority. The event test is the reason
+    # a pull request — including one from a fork, which this workflow's
+    # `pull_request` trigger will happily start — can never reach `deploy-pages`
+    # with `id-token: write` in hand. The grant below is the most dangerous
+    # permission in the repository and this condition is what keeps it
+    # unreachable from untrusted code.
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Job-level permissions *replace* the workflow-level set rather than adding
+    # to it, so this job holds `pages: write` and `id-token: write` and nothing
+    # else — not even `contents: read`. It checks nothing out and reads no
+    # repository content: `configure-pages` and `deploy-pages` call only the
+    # Pages API and fetch the artefact from this run.
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      # The deployment records the address it published to, which is the first
+      # and only report that this Pages site has ever served anything.
+      url: ${{ steps.deployment.outputs.page_url }}
+    # GitHub's Pages template puts a `pages` concurrency group at the workflow
+    # level, which also makes every pull-request build queue behind an
+    # in-flight deployment. Scoping the group to this job gets the same
+    # guarantee — one deployment at a time, queued rather than cancelled, so the
+    # older commit can never finish last — without a gate waiting on a publish.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      # The Pages site is already enabled and configured for Actions, so this
+      # step has nothing to create: `enablement: false` (its default, stated
+      # because the alternative needs a credential this repository does not have
+      # and must not be given) means the action only reads. Its value is as the
+      # step that fails loudly when the repository is *not* configured for
+      # Actions-based publishing — the misconfiguration this file's sibling
+      # contract is about, caught before anything is published.
+      #
+      # No `static_site_generator` input: the action accepts only `nuxt`,
+      # `next`, `gatsby`, and `sveltekit`, and `astro` reaches a `default:`
+      # branch that throws — which its own try/catch downgrades to a warning, so
+      # passing it would buy a permanent warning on every deploy and no
+      # configuration. The action is here for its outputs and its check.
+      - name: Read the Pages site's metadata
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+        with:
+          enablement: false
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
