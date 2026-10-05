@@ -151,8 +151,6 @@ const EQUALS = '=';
 /**
  * Read how far an identifier runs from one position.
  *
- * @param text - The selector text.
- * @param start - Where the name begins.
  * @returns The index just past the name, or `start` when there is none.
  */
 function scanName(text: string, start: number): number {
@@ -209,7 +207,6 @@ function parsePseudo(piece: string): Token {
 /**
  * Read one token that opens with `[` or `:` through to its closing delimiter.
  *
- * @param index - Where the delimiter sits.
  * @returns The token, and the index just past it.
  */
 function readDelimited(compound: string, index: number): Step {
@@ -472,7 +469,6 @@ function specificity(selector: string): number {
  * Whether one candidate out-ranks the incumbent, in cascade order.
  *
  * @param candidate - The declaration under consideration.
- * @param incumbent - The winner so far.
  * @returns True when the candidate should replace it.
  */
 function beats(candidate: Candidate, incumbent: Candidate): boolean {

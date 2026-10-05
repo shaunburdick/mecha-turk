@@ -132,7 +132,6 @@ export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): bool
  * Translate one listing entry's `pull_request` marker into the subject shape
  * the run key stores.
  *
- * @param isPullRequest - Whether GitHub listed the entry as a pull request.
  * @returns The subject shape for the row this detection produces.
  */
 function subjectShapeOf(isPullRequest: boolean): SubjectType {

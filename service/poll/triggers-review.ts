@@ -106,7 +106,6 @@ function reviewEvent(input: {
  * their own outcomes through {@link resolveCandidateActor}, whose two
  * no-event answers are recorded rather than silent.
  *
- * @param input - The shared scan input.
  * @returns The review events, or the failure that ended the branch.
  */
 export async function reviewRequestEvents(input: TriggerScanInput): Promise<TriggerEvents> {

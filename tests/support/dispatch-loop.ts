@@ -356,7 +356,6 @@ async function ageStoredLeases(input: { readonly store: ServiceStore }): Promise
  * Build the shared `host.storage` the mounts read and write, recording each
  * dispatch-record flip on the loop's timeline.
  *
- * @param input - The storage double to wrap and the timeline to record on.
  * @returns The storage surface every mount runs on.
  */
 function sharedStorageFor(input: {

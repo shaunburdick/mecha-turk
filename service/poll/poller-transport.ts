@@ -211,7 +211,6 @@ function parseListPage<T>(input: {
 /**
  * Classify a non-200 answer.
  *
- * @param response - Upstream response.
  * @returns The classified failure.
  */
 async function classifyOutcome(response: Response): Promise<PollFailure> {
@@ -247,7 +246,6 @@ interface WaitContext {
  * and it carries the path, the attempt, the length, and the source — never a
  * header value and never a credential (FR-058's log requirement; 002 FR-007).
  *
- * @param context - The request context the wait belongs to.
  * @param wait - The attempt the wait precedes (the first is never waited for)
  *   and the rate-limit guidance in seconds, or `null`.
  */
@@ -282,7 +280,6 @@ async function waitBeforeNextAttempt(
  * Each wait is reported before it starts, naming its length and its source,
  * with no header value and no credential in the line.
  *
- * @param input - Transport, poller injectables, credential, URL, and pace.
  * @returns The response, or the failure the last attempt produced.
  */
 async function requestPage(input: {
@@ -343,8 +340,6 @@ async function requestPage(input: {
  * page falls entirely outside the scan window. Two callers, one
  * page reader.
  *
- * @param input - Transport, poller injectables, the URL for this page, the
- *   pace, and the page reader.
  * @returns The normalized entries, or the page failure's class.
  */
 export async function readOnePage<T>(input: {
@@ -392,8 +387,6 @@ export async function readOnePage<T>(input: {
  * never sees a burst; a page that keeps failing under the ladder stops the
  * paging and reports its class alone.
  *
- * @param input - Transport, poller injectables, the URL to page through, the
- *   pace, and the page reader.
  * @returns The normalized items, or the page failure's class.
  */
 export async function listPages<T>(input: {

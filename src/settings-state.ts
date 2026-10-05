@@ -191,7 +191,6 @@ export function writeFailureLines(failure: SettingsFailure): readonly string[] {
  * and the unauthorised case is the grant the panel will not work around
  * (constitution II).
  *
- * @param problem - The wrapper's problem string for the failed read.
  * @returns The notice body.
  */
 export function readFailureBody(problem: string): string {

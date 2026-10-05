@@ -113,7 +113,6 @@ export interface GitHubIssuePoller {
     /**
      * List the open pull requests of one repository, newest-updated first (M7).
      *
-     * @param query - Token and repository.
      * @returns The classified outcome; upstream detail never escapes as text.
      */
     listOpenPulls(query: RepoListQuery): Promise<PullListOutcome>;
@@ -129,7 +128,6 @@ export interface GitHubIssuePoller {
      * endpoint has no `since` parameter, so the caller's window is compared
      * against `created_at` here rather than sent.
      *
-     * @param query - Token, repository, item number, window start, and pace.
      * @returns The events read plus whether the page bound was reached, or the
      *   classified failure; upstream detail never escapes as text.
      */

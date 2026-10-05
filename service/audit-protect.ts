@@ -136,7 +136,6 @@ function openersOf(entries: readonly AuditEntry[]): ReadonlyMap<string, AuditEnt
  * takes — the outcome axis and the hop axis are two calls of this one rule.
  *
  * @param entries - Trail rows, in any order.
- * @param isAccepted - Whether this row belongs on the axis at all.
  * @returns The latest accepted row of every chain, keyed by correlation id.
  */
 function latestOf(

@@ -36,7 +36,6 @@ export function nowIso(): string {
 /**
  * Zero-pad one `Date` getter to two characters.
  *
- * @param part - UTC field from a `Date`.
  * @returns The field as two digits.
  */
 function padTwoDigits(part: number): string {

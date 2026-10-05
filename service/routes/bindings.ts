@@ -93,8 +93,6 @@ function omittedPromptIds(submitted: readonly unknown[]): ReadonlySet<string> {
 /**
  * Attach the stored prompt to every submitted row that left the field out.
  *
- * @param input - The validated rows, the ids that omitted the field, and the
- *   stored document read fresh inside the same chain as the write.
  * @returns The document to write: submitted values where the field was sent,
  *   stored values where it was not.
  */

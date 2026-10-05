@@ -143,7 +143,6 @@ async function grantBindings(
  * Plant the operator's scan-state bytes in the store directory.
  *
  * @param service - Harness instance owning the data directory.
- * @param slot - The per-binding slot to record.
  */
 async function plantScanState(
     service: TestService,

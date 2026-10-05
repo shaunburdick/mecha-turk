@@ -75,7 +75,6 @@ export interface TabShell {
  * deliberately leaves to this element; its `flex-shrink: 0` rule covers
  * every other child of `#root`.
  *
- * @param specs - The six specs order.
  * @returns The region and the containers it holds, keyed by tab id.
  */
 function createBodyRegion(
@@ -112,7 +111,6 @@ function createBodyRegion(
  * no `id`/`aria-controls` pair — so the shell owns the association and
  * re-stamps it whenever the strip repaints (FR-016, D4).
  *
- * @param specs - The six specs, in strip order.
  * @param bodies - The containers keyed by tab id.
  */
 function associate(input: {

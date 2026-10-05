@@ -80,7 +80,6 @@ function headers(pairs: readonly (readonly [string, string])[]): Record<string, 
 /**
  * A scheduler stub whose state is scripted and whose `stop()` really stops it.
  *
- * @param state - The state to report before anyone stops it.
  * @returns A loop handle the view can read.
  */
 function scriptedLoop(state: { readonly stopped: boolean; readonly nextPollAtMs: number | null }): PollLoop {

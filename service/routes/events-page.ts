@@ -264,7 +264,6 @@ export function listQueryOf(
 /**
  * Whether a row belongs to the filtered set the query describes.
  *
- * @param query - The validated filters.
  * @returns `true` when the row survives both filters.
  */
 export function matchesFilters(row: RunHistoryRow, query: ListQuery): boolean {

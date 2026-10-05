@@ -481,7 +481,6 @@ describe('exactly one tab body is in the layout', () => {
     /**
      * One body container: classless, so only attribute selectors can reach it.
      *
-     * @param input - Which body, and whether the shell marked it hidden.
      * @returns The element the cascade is asked about.
      */
     function bodyProbe(input: { readonly id: string; readonly hidden: boolean }): ProbeElement {
@@ -590,8 +589,6 @@ const HIDDEN_SHAPES: readonly HiddenShape[] = [
 /**
  * One of those shapes as the cascade sees it.
  *
- * @param shape - Which element to build.
- * @param isHidden - Whether the panel has marked it hidden, the way `src/` does.
  * @returns The probe to resolve a `display` for.
  */
 function shapeProbe(shape: HiddenShape, isHidden: boolean): ProbeElement {

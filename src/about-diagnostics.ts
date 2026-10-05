@@ -36,7 +36,6 @@ const LEDGER_EMPTY = 'No ledger entries yet.';
 /**
  * Format an RFC 3339 timestamp as `HH:MM:SS`.
  *
- * @param iso - Timestamp to format.
  * @returns The time slice, or the raw value when it is too short.
  */
 function formatTime(iso: string): string {

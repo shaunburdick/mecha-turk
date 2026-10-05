@@ -307,7 +307,6 @@ const TRUNCATED_WINDOW_GUIDANCE = 'this run collected more triggers than the ser
  * operator a wasted edit, whereas the wrong branch would have them dead-letter a
  * run one login would have dispatched.
  *
- * @param refusal - The refusal's own members, as the answer carried them.
  * @returns The failure to report as `blocked:actor-not-allowed`, else `null`.
  */
 export function actorGateFailure(refusal: {

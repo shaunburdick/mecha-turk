@@ -115,8 +115,6 @@ async function readOpenConfig(store: ServiceStore, log: ServiceLogger): Promise<
  * Run both passes once, at store open, before the listener accepts (FR-055(a),
  * FR-057's "once at service start").
  *
- * @param input - The store (or `null` when the directory was unusable) and the
- *   logger. A degraded start runs no pass: there is no store to trim.
  * @returns Resolves when both passes have settled; never rejects.
  */
 export async function runRetentionAtOpen(input: {

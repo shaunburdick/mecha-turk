@@ -159,7 +159,6 @@ const READ_ROUTES: readonly { readonly name: string; readonly method: string; re
  * logger as arguments rather than closing over module state, so this fixture
  * reads the same way before and after the suites that start a service.
  *
- * @param store - The store holding the unreadable run document.
  * @param log - Logger the operations report through.
  * @returns The bound operations.
  */

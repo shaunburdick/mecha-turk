@@ -103,7 +103,6 @@ function contextSourcesOf(run: ClaimedRun): ContextSource[] {
 /**
  * The failure reason a start with no session carries, bounded for the wire.
  *
- * @param summary - What `startSession` reported.
  * @returns A non-empty reason no longer than the routes accept.
  */
 function failureReason(summary: LedgerDetail): string {

@@ -389,8 +389,6 @@ function editor(input: {
 
 /**
  * Release one case's mounted body and stop the relay a granted list armed.
- *
- * @param mounted - What {@link editor} answered with.
  */
 function release(mounted: Editor): void {
     stopRelayPolling(mounted.rt);

@@ -237,7 +237,6 @@ const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] a
  * from the capability tuple exactly as the service does (same shape, same
  * cast, no invented verdict).
  *
- * @param verdict - The verdict every capability carries.
  * @returns The four-capability matrix.
  */
 function scopeMatrixAll(verdict: ScopeResult): AccountScopeMatrix {
@@ -570,7 +569,6 @@ interface DisplaySpec {
 /**
  * Mount the runtime the profile write runs against, over a recording host.
  *
- * @param spec - The write's answer and the label a re-read reports.
  * @returns The runtime and every request it made.
  */
 async function displayRuntime(spec: DisplaySpec): Promise<{
@@ -741,7 +739,6 @@ describe('T-026 the display name is written by the service, never by the panel (
 /**
  * Read an accounts body carrying exactly the members a test names (004 FR-082).
  *
- * @param members - The record members to seed the one account with.
  * @returns The parsed accounts, or the reader's refusal.
  */
 function readAccounts(members: Record<string, unknown>): PanelAccount[] | null {

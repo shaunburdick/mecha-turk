@@ -89,7 +89,6 @@ const UNROUTED_BODY = '{"error":{"code":"not-found","message":"unrouted"}}';
 /**
  * Build a host whose `serviceRequest` answers per path and records leg order.
  *
- * @param answer - What each request should return.
  * @returns The host double plus its recorded requests.
  */
 function recordingService(answer: (request: GuestRequest) => GuestRequestResult): RecordingHost {

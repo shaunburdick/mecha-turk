@@ -166,7 +166,6 @@ function pollingFixture(overrides: Record<string, unknown> = {}): Record<string,
 /**
  * The status document every fixture starts from.
  *
- * @param overrides - Top-level members to replace.
  * @returns The object `GET /v1/status` is modeled as answering.
  */
 function statusFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {

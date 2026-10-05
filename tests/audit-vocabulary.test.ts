@@ -629,7 +629,6 @@ const SYNTHETIC_BINDING = 'bnd-sources';
  * value, because the row builders read only `correlationId`, `bindingId`,
  * `attempt`, `attachmentId`, and `prompt`.
  *
- * @param prompt - The snapshot this run was queued with, or `null`.
  * @returns A run `reservedRow` and `resultRow` both accept.
  */
 function runWith(prompt: PromptSnapshot | null): Run {

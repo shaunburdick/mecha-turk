@@ -172,7 +172,6 @@ function excerptCost(excerpt: string): number {
  * fields are never dropped — and a reference whose excerpt did not fit carries
  * {@link EXCERPT_OMITTED_MARKER}.
  *
- * @param input - The stored references, the delivery rows keyed by id, and the budget.
  * @returns One claim-transport row per reference, in join order.
  */
 export function projectReferences(input: {
@@ -210,7 +209,6 @@ export function projectReferences(input: {
  * writes, so a page that fits here fits there; the difference between this and
  * the transport's own check is exactly the envelope members the reserve covers.
  *
- * @param runs - The projected claim rows the answer would carry.
  * @returns The serialized length in characters.
  */
 export function measureEvents(runs: readonly unknown[]): number {

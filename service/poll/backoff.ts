@@ -66,7 +66,6 @@ export type RandomFn = () => number;
 /**
  * Clamp a jitter source to the `[0, 1]` fraction the ladder assumes.
  *
- * @param value - Whatever the injected source returned.
  * @returns The value, bounded to the unit interval.
  */
 function unitFraction(value: number): number {
@@ -83,8 +82,6 @@ const MILLISECONDS_PER_SECOND = 1_000;
 /**
  * The jittered ladder delay before an attempt.
  *
- * @param input - The policy, the attempt about to run (1 is immediate, so 2
- *   is `base`), and the injected jitter source in `[0, 1)`.
  * @returns Milliseconds, never above `policy.maxMs`.
  */
 export function backoffDelayMs(input: {

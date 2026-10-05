@@ -54,7 +54,6 @@ function bindingFixture(): PanelBinding {
 /**
  * Build the status row one case plants for the fixture binding.
  *
- * @param slot - The scan slice the row carries.
  * @returns The complete status row the service answers.
  */
 function statusFixture(slot: {

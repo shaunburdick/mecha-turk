@@ -177,7 +177,6 @@ function latch(): Latch {
 /**
  * Arm one observation point, holding or watching as asked.
  *
- * @param input - Which file, which half of its traffic, and whether to hold.
  * @returns The hook, with `reached` still pending.
  */
 function armHook(input: {
@@ -439,7 +438,6 @@ function routeContext(target: ServiceStore): RouteContext {
 /**
  * One whole-file grant through the **real** route handler.
  *
- * @param target - The store the grant writes through.
  * @returns The response status.
  */
 async function grant(target: ServiceStore, allowedUsers: readonly string[]): Promise<number> {
@@ -458,7 +456,6 @@ async function grant(target: ServiceStore, allowedUsers: readonly string[]): Pro
 /**
  * One reserve through the **real** module, as the panel's relay calls it.
  *
- * @param target - The store the gate reads and writes through.
  * @param claim - The claim coordinates the reserve presents.
  * @returns Whatever the reserve answered.
  */

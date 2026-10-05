@@ -154,7 +154,6 @@ function recordedValue(field: ServiceConfigField, value: number | string): Confi
  * deliberately **raw** — a fingerprint decides nothing here, it only labels the
  * row afterwards.
  *
- * @param next - The validated candidate about to be written.
  * @returns The changes, ordered by field name as FR-071 requires.
  */
 export function configChanges(previous: ServiceConfig, next: ServiceConfig): readonly ConfigChange[] {

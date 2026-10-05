@@ -221,7 +221,6 @@ export function mountPrerequisiteNotice(input: {
  * inside any of them.
  *
  * @param parent - The block body to append the card into.
- * @param item - The prerequisite this card shows.
  * @returns The card, repainted and disposed as one unit.
  */
 function mountPrereqCard(parent: HTMLElement, item: Prerequisite): PrereqCard {

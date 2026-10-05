@@ -91,7 +91,6 @@ interface TabRender {
 /**
  * Every string inside one mount's props, however deeply nested.
  *
- * @param value - Whatever the primitive was handed.
  * @param found - Accumulator the caller owns.
  */
 function collectStrings(value: unknown, found: string[]): void {

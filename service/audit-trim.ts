@@ -220,7 +220,6 @@ async function existingBindingIds(input: {
 /**
  * The `seq` numbers the floor rule protects: rows naming a subject that exists.
  *
- * @param input - Trail rows, the store, and the logger.
  * @returns The protected `seq` numbers this half of the rule contributes.
  */
 async function subjectSeqs(input: {
@@ -345,8 +344,6 @@ function planRemoval(input: {
 /**
  * Build the `audit.trimmed` row for a plan that removed something.
  *
- * @param input - The plan, the limit that tripped, the protected count, the
- *   unreadable-line count this rewrite is erasing, and the open store.
  * @returns The composed row, ready to be written beside its removals.
  */
 async function composeTrimRow(input: {

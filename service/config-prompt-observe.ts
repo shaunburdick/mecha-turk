@@ -168,7 +168,6 @@ function baselineFromTrail(entries: readonly AuditEntry[]): string | null {
 /**
  * Seed the baseline from the audit trail, once per store handle.
  *
- * @param input - The store, the state to fill, and the logger.
  * @returns `true` when the baseline is established; `false` when the trail
  *   could not be read — the caller then **skips its diff** rather than
  *   inventing a `from`, and the next attempt reads the trail again.
@@ -213,7 +212,6 @@ async function ensureSeeded(input: {
  * rejects for its own caller without wedging the next one — the same shape the
  * other two lanes' chains use, deliberately: three chains, one discipline.
  *
- * @param task - The read/diff/write work to serialise.
  * @returns The task's result or rejection, exactly as the task produced it.
  */
 export async function runConfigPromptChain<T>(store: ServiceStore, task: () => Promise<T>): Promise<T> {
@@ -284,7 +282,6 @@ export async function recordConfigPromptChanges(input: ConfigPromptObservation):
  * unknown value: the next observation seeds from the trail, which is where the
  * write's row landed.
  *
- * @param input - The store, its logger, and the document just isWritten.
  * @returns Nothing; a failed seed is logged by {@link ensureSeeded} and leaves
  *   the baseline pending, which is the fail-closed answer.
  */

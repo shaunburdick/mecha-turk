@@ -100,7 +100,6 @@ export function styleText(html: string): string {
 /**
  * Consume a quoted run or open a new one; false when the char is not a quote.
  *
- * @param grouping - The scan's depth and current quote character.
  * @returns True when the character belonged to a string.
  */
 function inQuotes(cursor: Cursor, grouping: Grouping): boolean {

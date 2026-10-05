@@ -148,7 +148,6 @@ function conflict(run: Run): RunRefusal {
  * contradicting each other: every *other* record carrying a closed token is a
  * token from a chain the run has already left, and none of them may ever apply.
  *
- * @param dispatchToken - Token the report presented.
  * @returns `true` when some record other than the live reservation's own already
  *   closed this token.
  */
@@ -394,7 +393,6 @@ async function duplicateReport(input: ReportInput, run: Run): Promise<RunDuplica
 /**
  * Apply a verdict: settle the run and record the row, or refuse.
  *
- * @param verdict - What the judge decided.
  * @param persist - The chain task's write.
  * @returns The operation's answer.
  */

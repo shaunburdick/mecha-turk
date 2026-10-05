@@ -281,7 +281,6 @@ const REPOSITORY = { owner: OWNER, name: REPO_NAME };
 /**
  * Write one active binding the fixtures scan.
  *
- * @param triggers - Which switches this binding turns on.
  * @returns A complete active binding.
  */
 function fixtureBinding(triggers: BindingRecord['triggers']): BindingRecord {
@@ -501,7 +500,6 @@ function wireRow(input: {
 /**
  * Serialize a whole page of rows.
  *
- * @param rows - The rows the page carries, as wire text.
  * @returns A JSON array body.
  */
 function wirePage(rows: readonly string[]): string {
@@ -728,9 +726,6 @@ function pollerOver(github: FakeGitHub, log: ServiceLogger): GitHubIssuePoller {
 /**
  * The routes a scan fixture needs: the two list feeds plus the per-item read.
  *
- * @param events - What the events endpoint answers, per request.
- * @param issues - What the issues list answers.
- * @param pulls - What the pulls list answers.
  * @returns The script, keyed by path prefix.
  */
 function scanRoutes(input: {

@@ -152,8 +152,6 @@ export function memberRefusal(accounts: AccountsTabState, member: AccountMember)
  *
  * The refusal belongs to the field it was answered for: a prompt that could
  * paint itself onto the label's slot would report the wrong field's failure.
- *
- * @param input - The state, the member the answer belongs to, and its copy.
  */
 export function setMemberRefusal(input: {
     /** The Accounts tab's working state. */
@@ -173,8 +171,6 @@ export function setMemberRefusal(input: {
  * Selection loads both members from the account the operator opened; removal
  * of that account clears both, because a draft that outlived its row would
  * label — or prompt — whatever account is opened next.
- *
- * @param input - The state, the member to load, its row, and the text.
  */
 export function setMemberEdit(input: {
     /** The Accounts tab's working state. */

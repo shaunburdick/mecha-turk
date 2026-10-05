@@ -274,7 +274,6 @@ async function plantLinkedQueue(
 /**
  * Read one stored queue row by issue number.
  *
- * @param queue - The stored queue.
  * @returns The row, or `undefined` when the queue holds no such issue.
  */
 function rowFor(queue: readonly QueuedEvent[], issueNumber: number): QueuedEvent | undefined {

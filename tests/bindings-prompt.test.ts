@@ -786,8 +786,6 @@ function mountedBindings(): {
 
 /**
  * Release one case's mounted body and stop the relay a granted list armed.
- *
- * @param mounted - What {@link mountedBindings} answered with.
  */
 function releaseBindings(mounted: ReturnType<typeof mountedBindings>): void {
     stopRelayPolling(mounted.rt);

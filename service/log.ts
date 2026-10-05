@@ -56,8 +56,6 @@ export interface LoggerControl {
      * The **next** entry is judged against the new level — there is no queue
      * to drain and no restart to survive, which is exactly what makes
      * `logLevel` `immediate` rather than `next-cycle`.
-     *
-     * @param level - Threshold the emit path reads from now on.
      */
     setLevel(level: LogLevel): void;
 }

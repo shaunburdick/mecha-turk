@@ -101,7 +101,6 @@ const scanChain: { write: Promise<unknown> } = { write: Promise.resolve() };
 /**
  * Serialize one scan-state read-modify-write.
  *
- * @param task - The work to chain.
  * @returns Whatever `task` produced.
  */
 export function serializeScan<T>(task: () => Promise<T>): Promise<T> {

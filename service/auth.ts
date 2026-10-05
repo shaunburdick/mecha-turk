@@ -35,7 +35,6 @@ function bearerCredential(header: string | undefined): string {
 /**
  * Compare two strings in constant time via their digests.
  *
- * @param expected - Token the service was started with.
  * @returns `true` when the digests are byte-identical.
  */
 function digestsMatch(presented: string, expected: string): boolean {

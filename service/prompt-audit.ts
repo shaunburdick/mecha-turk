@@ -226,7 +226,6 @@ interface PromptObservation {
  * the baseline means re-adding it later reads as a fresh `set` rather than
  * inheriting a fingerprint nobody holds any more.
  *
- * @param state - The store's observation state.
  * @param observed - The binding ids this document carried.
  */
 function dropUnobserved(state: PromptObservationState, observed: ReadonlySet<string>): void {

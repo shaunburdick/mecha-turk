@@ -164,7 +164,6 @@ function defaultAgentPin(): Prerequisite {
 /**
  * Whether OpenChamber is running: the host has answered this panel or not.
  *
- * @param hasAnswered - Whether a settings/ready snapshot has arrived.
  * @returns `met` once the host answers, `not-checkable` before that.
  */
 function openChamberRunning(hasAnswered: boolean): Prerequisite {

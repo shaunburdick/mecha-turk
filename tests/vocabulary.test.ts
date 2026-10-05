@@ -369,7 +369,6 @@ function stringsIn(props: unknown): readonly string[] {
 /**
  * Find the retired-noun uses in a text.
  *
- * @param rules - Which rules to apply.
  * @param text - The text to scan.
  * @returns One finding per match: the rule and the word it caught.
  */

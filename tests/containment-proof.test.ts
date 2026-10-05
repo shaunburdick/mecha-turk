@@ -644,7 +644,6 @@ function acBinding(prompt: string): Record<string, unknown> {
 /**
  * Read the bytes of every file a prompt tier is stored in, right now.
  *
- * @param dataDir - The service's data directory.
  * @returns Store-relative path → file bytes.
  */
 function tierBytes(dataDir: string): ReadonlyMap<string, string> {

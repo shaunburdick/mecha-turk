@@ -85,8 +85,6 @@ interface VerifyHostDouble {
 /**
  * Build the verification host double.
  *
- * @param input - The snapshot to deliver when the surface opens (or nothing)
- *   and an optional error `openSession` should fail with.
  * @returns The double.
  */
 function verifyHost(input: {

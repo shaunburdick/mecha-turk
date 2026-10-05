@@ -118,7 +118,6 @@ function detection(input: {
  * Build the fixture events one {@link EnqueueInput} maps onto, as one scan's
  * detections.
  *
- * @param input - The subject, its triggers, and its detection stamp.
  * @returns The events a queue write would receive for that subject.
  */
 function eventsFor(input: EnqueueInput): ReturnType<typeof createEvent>[] {
@@ -133,9 +132,6 @@ function eventsFor(input: EnqueueInput): ReturnType<typeof createEvent>[] {
 
 /**
  * Write one scan's detections through the real queue path.
- *
- * @param input - The store to write through, the logger to report to, the
- *   subjects detected, and the binding prompt snapshotted onto their runs.
  */
 async function enqueueThroughQueue(input: {
     /** Open store to write through. */

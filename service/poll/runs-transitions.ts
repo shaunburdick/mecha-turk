@@ -57,7 +57,6 @@ export interface LeaseCoordinates {
  * holds it and until when, and the current attempt's record is opened so the
  * outcome transitions have something to close.
  *
- * @param input - The waiting run, the lease coordinates, and the stamp.
  * @returns The claimed run, or `null` when the run is not claimable — a state
  *   other than `pending`, or a history that already records a session
  *   (FR-037's "under any condition" clause).
@@ -100,8 +99,6 @@ export function leaseRun(input: {
  * of an adopted claim does not (data-model §1 — the budget bounds a
  * crashed-panel loop, and an adoption cannot loop).
  *
- * @param input - The stranded run, the service-clock stamp expiry is judged
- *   against, and whether this requeue spends budget.
  * @returns The waiting run, or `null` when the run is not an expired,
  *   unreserved claim.
  */

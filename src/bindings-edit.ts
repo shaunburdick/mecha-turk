@@ -169,8 +169,6 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
  * whichever field it names and never reports the value as
  * saved; the stored list stays byte-identical because the grant is
  * all-or-nothing after validation.
- *
- * @param input - The tab state, the grant's answer, and the row this save wrote.
  */
 function applySaveOutcome(input: {
     /** The Bindings tab's state. */

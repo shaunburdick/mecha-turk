@@ -256,7 +256,6 @@ function seededReservation(attempt: number): NonNullable<Run['reservation']> {
  * The session pointer a seeded dispatched run records.
  *
  * @param run - The run as `applyEnqueue` created it, for the attachment id.
- * @param sessionId - The session the fixture says it produced.
  * @returns The reference stored on the run.
  */
 function seededSession(run: Run, sessionId: string): NonNullable<Run['session']> {
@@ -315,7 +314,6 @@ function seededAttempt(input: {
  * store's parser (rightly) refuses an id or attempt this build could not have
  * written (T-040e, T-037).
  *
- * @param input - The state to seed and, where the state implies one, a session.
  * @returns The seeded run.
  */
 async function seedRun(input: {

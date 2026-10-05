@@ -207,8 +207,6 @@ type VerifyGate =
  * about. The agent is still reported — an observation is evidence whether or
  * not anyone configured a comparison — but the outcome is `uncompared`.
  *
- * @param input - The snapshot (or `null` on timeout), the expected agent,
- *   and the budget the caller waited with, for the timeout copy.
  * @returns The verification outcome.
  */
 function judgeSnapshot(input: {

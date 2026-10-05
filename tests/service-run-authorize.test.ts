@@ -219,7 +219,6 @@ function assignment(issueNumber: number, attribution: AttributionOverrides = {})
  * would hold is minted by the real claim (T-040e's parser refuses an id or
  * provenance this build could never have written).
  *
- * @param state - The state being seeded.
  * @returns The lease, or `null` for a state that holds none.
  */
 function leaseFor(state: Run['state']): Run['lease'] {
@@ -554,7 +553,6 @@ async function block(input: {
 /**
  * Seed one run directly in a state, with the record that state implies.
  *
- * @param state - The state to seed.
  * @returns The seeded run.
  */
 async function seedRunInState(input: {
@@ -613,7 +611,6 @@ async function seedRunInState(input: {
  * shape a dispatched run actually has, and the reserve refusal the fixture
  * reaches has to survive having no lease to ride on (T-042e, AC-112).
  *
- * @param sessionId - The session the run recorded.
  * @returns The seeded run.
  */
 async function seedRunWithSession(input: {

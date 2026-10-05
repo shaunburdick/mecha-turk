@@ -324,7 +324,6 @@ async function driveToDeadLetter(correlationId: string): Promise<Run> {
  * verdict pass against a shape the product can never produce.
  *
  * @param issueNumber - Issue to detect for this run.
- * @param target - The state to reach.
  * @returns The run as it stands in that state.
  */
 async function driveTo(issueNumber: number, target: Run['state']): Promise<Run> {
@@ -460,7 +459,6 @@ function errorOf(body: Record<string, unknown>): { readonly code: string; readon
  * The document read first drains the durable outbox (T-037), so a count taken
  * without it is one row short of what the operations actually owed.
  *
- * @param eventType - The vocabulary entry to collect.
  * @returns That row type's `details`, in trail order.
  */
 async function rowsOf(eventType: string): Promise<readonly Record<string, unknown>[]> {

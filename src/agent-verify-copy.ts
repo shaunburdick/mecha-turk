@@ -38,7 +38,6 @@ type ObservationFailure = Extract<AgentVerification, { readonly status: 'timeout
  * `info`, not `warning`: nothing went wrong, and the operator is told where
  * the comparison they may expect actually comes from.
  *
- * @param result - The uncompared outcome.
  * @returns The banner content.
  */
 function uncomparedNotice(result: Uncompared): PanelStatus {

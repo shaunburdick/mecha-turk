@@ -93,7 +93,6 @@ export interface RefusalTarget {
  * tells the operator nothing is wrong, "a dispatched run cannot be retried"
  * tells them the opposite, and a generic refusal would collapse them into one.
  *
- * @param state - The state the run was found in.
  * @returns The refusal, naming that state in its own words.
  */
 function invalidTransition(state: RunState): RunRefusal {

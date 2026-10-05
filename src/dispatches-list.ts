@@ -153,7 +153,6 @@ export function parseDispatchListBody(text: string): DispatchListAnswer | null {
  * it is on — so the barest call is still the closest analogue of an unfiltered
  * first page rather than a filter nobody chose.
  *
- * @param runs - The section's filters and paging position.
  * @returns `GET /v1/events` with this read's parameters.
  */
 export function dispatchListPath(runs: DispatchesState): string {

@@ -333,8 +333,6 @@ export interface EnqueueInput {
  * the next ordinal. Pure — the caller owns the chain, the two
  * writes, and the audit rows, in that order.
  *
- * @param input - The stored document, the deduped deliveries, the stamp, and
- *   the binding's prompt snapshot.
  * @returns The document to persist plus the effects to audit and link.
  */
 export function applyEnqueue(input: EnqueueInput): EnqueueOutcome {

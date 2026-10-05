@@ -415,8 +415,6 @@ export async function requeueRun(rt: PanelRuntime): Promise<void> {
  * The state guard is the point: the two resolutions are the *only* paths out
  * of the fail-closed wedge, so they are reachable from that state and from
  * nowhere else, and the second click — never the first — is what posts.
- *
- * @param decision - Which resolution the operator confirmed.
  */
 async function resolveRun(rt: PanelRuntime, decision: ResolveDecision): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -473,8 +471,6 @@ export async function resolveNoSession(rt: PanelRuntime): Promise<void> {
 
 /**
  * Record the session id the operator types for the first resolution.
- *
- * @param value - What the field holds now.
  */
 export function setSessionInput(rt: PanelRuntime, value: string): void {
     if (rt.disposed) {

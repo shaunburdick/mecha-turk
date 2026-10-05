@@ -143,7 +143,6 @@ interface EnqueueCall {
 /**
  * Enqueue snapshots through the production path, optionally with a prompt.
  *
- * @param call - The store, the detections, and the snapshot to carry.
  * @returns The `events.json` and `runs.json` texts this store now holds.
  */
 async function enqueueInto(call: EnqueueCall): Promise<{ readonly events: string; readonly runs: string }> {
