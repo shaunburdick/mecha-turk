@@ -267,11 +267,9 @@ function disposeRegions(input: {
     readonly pane: HTMLElement;
     /** Tab heading. */
     readonly heading: TextHandle;
-    /** The banner. */
     readonly banner: BannerHandle;
     /** The read row's handles. */
     readonly controls: { readonly refresh: ButtonHandle; readonly readLine: TextHandle };
-    /** The failure notice. */
     readonly notice: { readonly box: HTMLElement; readonly failure: BannerHandle };
     /** The rows region. */
     readonly region: RowRegion;
@@ -320,11 +318,9 @@ export function buildTabUi(input: {
     readonly pane: HTMLElement;
     /** Tab heading. */
     readonly heading: TextHandle;
-    /** The banner. */
     readonly banner: BannerHandle;
     /** The read row's handles. */
     readonly controls: { readonly refresh: ButtonHandle; readonly readLine: TextHandle };
-    /** The failure notice. */
     readonly notice: { readonly box: HTMLElement; readonly failure: BannerHandle };
     /** The rows region. */
     readonly region: RowRegion;

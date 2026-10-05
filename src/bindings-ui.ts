@@ -53,7 +53,6 @@ export interface BindingsPane {
     readonly note: TextHandle;
     /** Bindings list with per-binding scan lines. */
     readonly bindingsList: ListHandle;
-    /** Bindings refresh button. */
     readonly refreshBindings: ButtonHandle;
     /** Opens the editor on an empty draft. */
     readonly newBinding: ButtonHandle;

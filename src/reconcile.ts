@@ -190,7 +190,6 @@ interface PassResult {
  * @returns What the loop reached, before anything is published.
  */
 async function reportOutstanding(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The stored record this pass works from. */
     readonly document: DispatchRecordDocument;

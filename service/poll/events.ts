@@ -183,7 +183,6 @@ function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boole
 async function resetScanWindows(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<number> {
     return await serializeScan(async () => {
@@ -210,7 +209,6 @@ async function resetScanWindows(input: {
 async function recordQueueRecovery(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
     /** Where the unusable queue was set aside. */
     readonly quarantinePath: string;
@@ -248,7 +246,6 @@ async function recordQueueRecovery(input: {
 async function recoverQuarantinedQueue(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
     /** Where the unusable queue was set aside. */
     readonly quarantinePath: string;
@@ -281,7 +278,6 @@ const QUARANTINE_EVIDENCE_PREFIX = `${EVENTS_FILE}.corrupt-`;
 async function recoverFromEvidence(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<void> {
     const entries = await input.store.listDir('.');
@@ -306,7 +302,6 @@ async function recoverFromEvidence(input: {
 async function readQueue(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent[]> {
     const result = await input.store.readJson(EVENTS_FILE, parseStoredEvents);
@@ -347,7 +342,6 @@ async function readQueue(input: {
 export async function readEvents(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent[]> {
     try {
@@ -414,7 +408,6 @@ async function enqueueWithinChain(input: {
 export async function enqueueEvents(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
     /** Fresh events this scan produced. */
     readonly incoming: readonly QueuedEvent[];

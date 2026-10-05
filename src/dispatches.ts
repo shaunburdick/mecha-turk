@@ -272,7 +272,6 @@ async function causeMembers(rt: PanelRuntime, row: RunRow): Promise<CauseMembers
  * @returns `true` when the control was already armed and may act now.
  */
 function armControl(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** Which control the click belongs to; a different arm is replaced. */
     readonly action: RunPendingAction;
@@ -302,7 +301,6 @@ function armControl(input: {
  * @returns The outcome the tab renders once the answer is accepted.
  */
 async function postRunOperation(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** Run-scoped path to POST to. */
     readonly path: string;

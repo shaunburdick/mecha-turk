@@ -61,7 +61,6 @@ export interface QueuedEvent {
     readonly projectId: string;
     /** Worktree option snapshotted at enqueue (`none`/`generated`/`new:<name>`). */
     readonly worktreeOption: string;
-    /** Issue number. */
     readonly issueNumber: number;
     /** Issue title; untrusted source text. */
     readonly issueTitle: string;

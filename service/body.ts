@@ -80,7 +80,6 @@ function readBytes(request: IncomingMessage): Promise<BufferOutcome> {
 }
 
 /**
- * Read a request body as JSON.
  *
  * @param request - Incoming message from the host proxy.
  * @returns The parsed value, an empty/invalid/too-large marker, and whether

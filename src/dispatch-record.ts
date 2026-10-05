@@ -163,7 +163,6 @@ function readNullableText(record: Record<string, JsonValue>, field: string): str
 interface AttemptHead {
     /** Run identity. */
     readonly correlationId: string;
-    /** Run key. */
     readonly runKey: string;
     /** Single-use token. */
     readonly dispatchToken: string;
@@ -197,7 +196,6 @@ function readAttemptHead(record: Record<string, JsonValue>): AttemptHead | null 
 
 /** The two bookkeeping members of one stored attempt. */
 interface AttemptFlags {
-    /** Attempt number. */
     readonly attempt: number;
     /** Whether its 2xx has come back. */
     readonly acknowledged: boolean;
@@ -480,7 +478,6 @@ export async function recordDispatchOutcome(rt: PanelRuntime, input: {
  *   write could not be persisted.
  */
 export async function acknowledgeDispatch(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** Run the 2xx was for. */
     readonly correlationId: string;

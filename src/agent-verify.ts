@@ -312,7 +312,6 @@ function observedAgentOf(result: AgentVerification): string | null {
 
 /** Record the read-back where the operator looks: ledger entry and banner. */
 function recordReadBack(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The run the read-back belongs to. */
     readonly correlationId: string;
@@ -353,7 +352,6 @@ function recordReadBack(input: {
  * the rule for a lifecycle row that did not reach the trail.
  */
 async function postReadBack(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The run the read-back belongs to. */
     readonly correlationId: string;
@@ -415,7 +413,6 @@ async function postReadBack(input: {
  * unhandled rejection the relay would never see.
  */
 export async function verifyAgentAfterDispatch(inputs: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The run whose dispatch produced the session (003: the correlation id). */
     readonly correlationId: string;

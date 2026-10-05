@@ -196,7 +196,6 @@ function readGenerationField(record: Record<string, JsonValue>): number | null {
 interface EvidenceFields {
     /** `owner/name` of the polled repository. */
     readonly repository: string;
-    /** Issue number as a string. */
     readonly issueId: string;
     /** Canonical issue URL. */
     readonly issueUrl: string;

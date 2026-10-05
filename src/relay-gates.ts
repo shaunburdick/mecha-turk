@@ -200,7 +200,6 @@ export async function guardRun(rt: PanelRuntime, run: ClaimedRun): Promise<Guard
  * once it clears, rather than the panel pretending the run was dispatched.
  */
 export async function refuseWithBlocked(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The offered run. */
     readonly run: ClaimedRun;
@@ -407,7 +406,6 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
  * (contract §3).
  */
 export async function abandonReservation(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The offered run. */
     readonly run: ClaimedRun;

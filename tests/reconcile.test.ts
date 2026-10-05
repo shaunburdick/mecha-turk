@@ -182,7 +182,6 @@ async function record(rt: PanelRuntime, input: {
     readonly correlationId: string;
     /** FR-010's run tuple. */
     readonly runKey: string;
-    /** Attempt number. */
     readonly attempt: number;
     /** What the host call produced. */
     readonly outcome: { readonly kind: 'dispatched'; readonly sessionId: string };

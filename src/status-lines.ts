@@ -27,10 +27,8 @@ const INTERVAL_GROUPING = 'en-US';
 /** Milliseconds in one second. */
 const MS_PER_SECOND = 1_000;
 
-/** Seconds in one hour. */
 const SECONDS_PER_HOUR = 3_600;
 
-/** Seconds in one minute. */
 const SECONDS_PER_MINUTE = 60;
 
 /** Copy for a rate budget nothing has measured yet. */

@@ -88,7 +88,6 @@ export interface DefRow {
     readonly element: HTMLElement;
     /** The label cell, or `null` when the row is a note. */
     readonly key: Cell | null;
-    /** The value cell. */
     readonly value: Cell;
     /** Release both cells and remove the row element. */
     dispose(): void;

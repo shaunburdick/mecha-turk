@@ -90,7 +90,6 @@ function parseBindingsFile(raw: unknown, note: RefusalNote): BindingRecord[] | n
 export async function readBindingsUnobserved(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<BindingRecord[]> {
     const { store, log } = input;
@@ -133,7 +132,6 @@ export async function readBindingsUnobserved(input: {
 export async function readBindings(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<BindingRecord[]> {
     const bindings = await readBindingsUnobserved(input);
@@ -185,7 +183,6 @@ export type AuthorizationBindings =
 export async function readBindingsForAuthorization(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<AuthorizationBindings> {
     const { store, log } = input;

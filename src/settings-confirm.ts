@@ -102,7 +102,6 @@ const SURVIVORS =
     'records its outcome, account and binding rows, and decision rows — are never removed, and the trim ' +
     'appends an audit.trimmed row recording exactly what it took.';
 
-/** Raising a limit deletes nothing. */
 const RAISE = 'Raising a limit deletes nothing.';
 
 /** Trimming has no undo in this feature (006 `## Out of Scope`). */

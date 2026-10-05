@@ -31,11 +31,8 @@ interface BaseEventSnapshot {
     readonly worktreeOption: string;
     /** Issue fields, already normalized. */
     readonly issue: {
-        /** Issue number. */
         readonly issueNumber: number;
-        /** Issue title. */
         readonly issueTitle: string;
-        /** Issue URL. */
         readonly issueUrl: string;
         /** The (bounded) issue body excerpt. */
         readonly issueBodyExcerpt: string;

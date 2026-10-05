@@ -202,7 +202,6 @@ export async function servicePutConfig(input: {
 export async function servicePost(input: {
     /** Host surface. */
     readonly serviceRequest: ServiceRequester;
-    /** Path. */
     readonly path: string;
     /** Body — sent only when defined. */
     readonly body?: string;

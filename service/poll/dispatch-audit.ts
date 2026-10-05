@@ -246,7 +246,6 @@ export function retryRow(input: {
     readonly priorState: RunState;
     /** Attempt before the operator's action. */
     readonly attemptBefore: number;
-    /** Attempt after it. */
     readonly attemptAfter: number;
     /** Whether the operator reported the cause cleared, else `null`. */
     readonly causeReportedCleared: boolean | null;

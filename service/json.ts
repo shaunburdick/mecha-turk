@@ -89,7 +89,6 @@ export function readPositiveInt(value: unknown): number | null {
 }
 
 /**
- * Read one value as a boolean.
  *
  * @returns The flag, or `null` when it is neither `true` nor `false`.
  */

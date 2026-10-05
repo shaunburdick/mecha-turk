@@ -1867,7 +1867,6 @@ async function reserveAs(input: {
     readonly issueNumber: number;
     /** The attributed actor. */
     readonly login: string;
-    /** The attribution basis. */
     readonly basis: ActorAttribution;
 }) {
     const claim = await seedAndClaim(input.issueNumber, {

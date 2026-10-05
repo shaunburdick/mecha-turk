@@ -193,7 +193,6 @@ function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRu
  * @returns The request exactly as the host would receive it.
  */
 export function runRequestOf(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The offered run. */
     readonly run: ClaimedRun;
@@ -262,7 +261,6 @@ export function runRequestOf(input: {
  *   record, and the report.
  */
 export async function startRunSession(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The offered run. */
     readonly run: ClaimedRun;
@@ -309,7 +307,6 @@ export async function startRunSession(input: {
  * Report one attempt's outcome, then acknowledge it on its own 2xx.
  */
 export async function reportAndAcknowledge(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The offered run. */
     readonly run: ClaimedRun;
@@ -365,7 +362,6 @@ export async function reportAndAcknowledge(input: {
  * report that never lands has to leave the truth recoverable on this side.
  */
 export async function closeAttempt(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The offered run. */
     readonly run: ClaimedRun;

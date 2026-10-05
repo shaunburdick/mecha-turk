@@ -119,7 +119,6 @@ export function serializeScan<T>(task: () => Promise<T>): Promise<T> {
 export async function readScanState(deps: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<ScanState> {
     const { store, log } = deps;

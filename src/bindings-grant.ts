@@ -203,7 +203,6 @@ function unreadableListRefusal(): ServiceErrorResult {
  * @returns The service's answer, including its refusal when it sent one.
  */
 export async function grantBindings(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The replacement list. */
     readonly bindings: readonly PanelBinding[];

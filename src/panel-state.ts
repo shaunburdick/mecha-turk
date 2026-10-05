@@ -65,7 +65,6 @@ export const TAB_IDS: readonly TabId[] = ['status', 'dispatches', 'bindings', 'a
 
 /** Banner content shown at the top of the panel. */
 export interface PanelStatus {
-    /** Banner tone. */
     readonly tone: BannerTone;
     /** One-line headline. */
     readonly title: string;

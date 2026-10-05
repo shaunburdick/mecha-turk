@@ -299,7 +299,6 @@ async function appendClaimAudit(input: {
     readonly store: ServiceStore;
     /** Structured logger. */
     readonly log: ServiceLogger;
-    /** The claim to record. */
     readonly claim: ClaimRecord;
 }): Promise<boolean> {
     try {

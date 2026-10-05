@@ -68,7 +68,6 @@ function reportQuarantine(input: {
     readonly result: JsonReadResult<Account>;
     /** What was set aside, for the log line. */
     readonly subject: string;
-    /** Logger. */
     readonly log: ServiceLogger;
     /** First `field: remediation` the parser refused, when one was named. */
     readonly note: AccountRefusalNote;

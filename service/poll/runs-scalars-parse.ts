@@ -50,9 +50,7 @@ export interface RunScalars {
     readonly stateReason: string | null;
     /** Subject shape. */
     readonly subjectType: Run['subjectType'];
-    /** Ordinal. */
     readonly ordinal: number;
-    /** Subject number. */
     readonly subjectNumber: number;
     /** Attempt count. */
     readonly attempt: number;

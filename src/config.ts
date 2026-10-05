@@ -132,7 +132,6 @@ export function parseRepository(value: string): RepositoryRef | null {
 }
 
 /**
- * Parse a worktree option value.
  *
  * Accepted values are `none` (and the empty string), `generated`, and
  * `new:<branch-name>`. A new-branch name must be a plain branch name: no path

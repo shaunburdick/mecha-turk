@@ -57,7 +57,6 @@ export type LedgerScalar = string | number | boolean | null;
 /** Bounded, credential-free detail payload for one entry. */
 export type LedgerDetail = Record<string, LedgerScalar>;
 
-/** One ledger entry. */
 export interface LedgerEntry {
     /** Monotonic sequence number within the ledger. */
     readonly seq: number;
@@ -124,7 +123,6 @@ function readNumberField(record: Record<string, JsonValue>, field: string): numb
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-/** Read a boolean field from a record. */
 function readBooleanField(record: Record<string, JsonValue>, field: string): boolean | null {
     const value = record[field];
     return typeof value === 'boolean' ? value : null;
