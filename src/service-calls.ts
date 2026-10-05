@@ -327,7 +327,6 @@ export function verificationPath(correlationId: string): string {
 /**
  * Build the correlation-filtered audit-read path.
  *
- * @param correlationId - The run whose rows to read.
  * @returns `GET` path carrying the filter as a query parameter.
  */
 export function auditPath(correlationId: string): string {

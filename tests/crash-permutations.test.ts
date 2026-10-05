@@ -129,7 +129,6 @@ async function stateOf(issueNumber: number): Promise<string> {
  * Reserve through one mount's bridge, then let that mount die.
  *
  * @param rt - The mount that reports intent to start a session.
- * @param run - The run it claimed.
  * @returns The single-use dispatch token the service answered with.
  * @throws {Error} When the reservation was refused or unreadable.
  */

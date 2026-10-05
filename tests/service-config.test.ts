@@ -1018,7 +1018,6 @@ const STRING_REFUSALS: Readonly<Record<string, unknown>> = {
 /**
  * Build a value that each descriptor's own kind refuses.
  *
- * @param descriptor - The projected field to fail.
  * @returns A value outside that field's rule, for the ordering assertion.
  * @throws {Error} When a string field has no refusal fixture — a new string
  *   field must declare what fails it rather than inheriting another field's

@@ -334,7 +334,6 @@ async function reserve(input: {
 /**
  * Report one outcome through the real route module.
  *
- * @param input - The run, token, and outcome being reported.
  * @returns Whatever the report answered.
  */
 async function report(input: {
@@ -423,7 +422,6 @@ interface AttributionOverrides {
 /**
  * One stored reference with its two actor members removed.
  *
- * @param reference - The reference to strip.
  * @returns The record as a hand edit would leave it.
  */
 function strippedReference(reference: Run['sourceReferences'][number]): Record<string, unknown> {

@@ -224,7 +224,6 @@ async function writeGrant(input: {
  * chain is what keeps an operator's allow-list edit and the authorization gate's
  * read-and-mint from interleaving.
  *
- * @param request - The routed request carrying the full replacement body.
  * @returns `200 { bindings, status }` after the write, or the field-level 422.
  */
 async function handlePutBindings(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {

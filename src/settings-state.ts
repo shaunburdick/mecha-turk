@@ -172,7 +172,6 @@ export function writeFailure(input: {
  * service's own problem beside it, and — when the envelope carried one — the
  * correlation identifier as its own line of copyable text.
  *
- * @param failure - The recorded failure.
  * @returns The lines, in render order.
  */
 export function writeFailureLines(failure: SettingsFailure): readonly string[] {

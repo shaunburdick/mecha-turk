@@ -122,7 +122,6 @@ export function isDispatchedTerminal(event: QueuedEvent): boolean {
  * The pending and in-flight events always come forward; the dispatched tail
  * is bounded so the file stays small no matter how long the operator works.
  *
- * @param events - The queue to store.
  * @returns The array to write.
  */
 function serializedQueue(events: readonly QueuedEvent[], retainedRunIds?: ReadonlySet<string>): QueuedEvent[] {

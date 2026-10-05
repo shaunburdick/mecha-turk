@@ -212,7 +212,6 @@ function deliveryView(input: {
  * refused any present snapshot without a well-formed one, so the two members
  * cannot disagree by the time a run reaches the answer.
  *
- * @param run - The run being offered.
  * @returns The five members, credential-free by construction — tier names and
  *   scalars on the wire, never the instruction's text except as claim
  *   transport (004 FR-053, data-model §3.1).

@@ -91,7 +91,6 @@ function baseline(): ConfigEnvelope {
 /**
  * Load a fresh state from a read.
  *
- * @param envelope - The read to adopt.
  * @returns The state after adoption.
  */
 function loaded(envelope: ConfigEnvelope): SettingsEdit {

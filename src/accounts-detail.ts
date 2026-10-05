@@ -82,7 +82,6 @@ export interface DetailControls {
  * Neither field mounts a save of its own: the one control belongs to the
  * **pair**, and {@link mountDetailControls} mounts it beside them.
  *
- * @param input - The runtime, the pane, the member, and its callbacks.
  * @returns The field and its disposer.
  */
 function mountMemberControls(input: {
@@ -165,7 +164,6 @@ function mountRowControls(input: {
  * They live **inside** the detail box, so a row with nothing selected hides
  * them with it — a control that acts on a selection cannot exist without one.
  *
- * @param input - The runtime, the detail box, and the callbacks to wire.
  * @returns The handles plus their disposer.
  */
 export function mountDetailControls(input: {

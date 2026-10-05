@@ -392,7 +392,6 @@ function assignedEvent(input: {
 /**
  * The naming `review_requested` event a matched review candidate is answered by.
  *
- * @param input - The pull request, the requester the event names, and overrides.
  * @returns One in-window naming event.
  */
 function reviewRequestedEvent(input: {

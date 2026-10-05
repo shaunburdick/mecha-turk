@@ -299,7 +299,6 @@ function serviceDouble(table: RouteTable): ServiceDouble {
 /**
  * Build a runtime whose selected run is `row`, against the given routes.
  *
- * @param row - The run the section holds and has selected.
  * @param table - Route table the service answers with.
  * @returns The runtime and its service double.
  */

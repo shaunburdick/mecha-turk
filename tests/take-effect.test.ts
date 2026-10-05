@@ -398,8 +398,6 @@ function reportOf(run: VerificationRun): Record<string, unknown> {
  * caller can change the scripted document the moment this returns — which is
  * what makes "already in flight" an observable state rather than a claim.
  *
- * @param run - The scripted run.
- * @param id - The run's correlation identifier.
  * @returns The verification's promise.
  */
 function startVerification(run: VerificationRun, id: string): Promise<void> {

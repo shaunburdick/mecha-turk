@@ -191,8 +191,6 @@ function bindingRow(suffix: string, state = 'active'): Record<string, unknown> {
 
 /**
  * Plant bindings straight into the operator's store.
- *
- * @param rows - The rows to write.
  */
 async function plantBindings(service: TestService, rows: readonly Record<string, unknown>[]): Promise<void> {
     await writeFile(join(service.dataDir, BINDINGS_FILE), JSON.stringify(rows, null, 2), 'utf8');

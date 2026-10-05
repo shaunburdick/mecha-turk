@@ -158,7 +158,6 @@ export async function appendRefusalRow(input: {
  * source link comes from the run's first retained reference, which is the same
  * delivery the dispatch was built from.
  *
- * @param input - The run, the session id, and the service-clock stamp.
  * @returns The reference stored on the run.
  */
 export function sessionRefOf(input: {

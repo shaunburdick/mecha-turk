@@ -150,9 +150,6 @@ export async function refused(input: RefusalTarget & {
  * would increment a counter the caller never saw, which is precisely the
  * half-apply that rule exists to prevent.
  *
- * @param input - The run, the attempt the operator names, whether they reported
- *   the cause cleared, and the live binding table for the causes the service can
- *   re-check itself.
  * @returns The refusal, or how the cause was shown to have cleared.
  */
 function judgeRetry(input: {
@@ -388,7 +385,6 @@ export async function requeueDispatch(input: {
 /**
  * Judge a resolve (contract §8).
  *
- * @param input - The run being resolved.
  * @returns The refusal, or `null` when this `unconfirmed` run may be resolved.
  */
 function judgeResolve(input: { readonly run: Run }): RunRefusal | null {

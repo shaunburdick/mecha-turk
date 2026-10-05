@@ -157,8 +157,6 @@ function queuedRow(seed: QueueSeed): Record<string, unknown> {
 
 /**
  * The mixed fixture: one clearable row and five that must not be cleared.
- *
- * @param rows - The rows to write into `events.json`.
  */
 async function plantQueue(rows: readonly Record<string, unknown>[]): Promise<void> {
     await store.writeJson(EVENTS_FILE, rows);

@@ -191,7 +191,6 @@ const NO_MEDIA: ReadonlySet<string> = new Set<string>();
  * The stylesheet with the named hiding rules stripped — the panel as it was
  * before them, which is the answer a non-vacuity case must fall back to.
  *
- * @param source - The rules to strip.
  * @param selectors - A rule is dropped when it carries any of these.
  * @returns The rules that are left, in their original order.
  */
@@ -209,7 +208,6 @@ const SETTINGS_HEAD_SELECTOR = '.mt-head--settings';
  * `.mt-head`'s `display: grid` is the only declaration left, so a narrow
  * assertion that still answered `none` would be asserting nothing.
  *
- * @param rules - The rules to filter.
  * @returns Every rule but the unguarded one, in their original order.
  */
 function withoutNarrowDefault(rules: readonly StyleRule[]): readonly StyleRule[] {
@@ -261,7 +259,6 @@ async function renderSixTabs(): Promise<{ readonly dom: FakeDom; readonly log: r
 /**
  * Every string one SDK mount was handed, at any depth.
  *
- * @param log - The recorded mounts.
  * @returns The strings among them, in property order.
  */
 function stringsIn(log: readonly MountRecord[]): readonly string[] {

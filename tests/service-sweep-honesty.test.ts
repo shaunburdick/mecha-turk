@@ -196,7 +196,6 @@ async function storedIntents(): Promise<readonly unknown[] | null> {
  * would not carry the run's current attempt, which the store's parser (rightly)
  * refuses — so only the expiry is moved.
  *
- * @param correlationId - The run whose lease should lapse.
  * @returns The run as it now stands.
  */
 async function lapseLeaseOf(correlationId: string): Promise<Run> {

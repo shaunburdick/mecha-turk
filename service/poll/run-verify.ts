@@ -37,8 +37,6 @@ const INVALID_TRANSITION = 'invalid-transition';
 /**
  * Judge a verification report (contract §5).
  *
- * @param input - The run, the attempt the panel names, and the session the
- *   read-back came from.
  * @returns The refusal, or `null` when this run may record the read-back.
  */
 function judgeVerification(input: {

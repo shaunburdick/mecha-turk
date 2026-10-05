@@ -194,7 +194,6 @@ async function mountAbout(input: {
  * Answer the health route and the status read; anything else keeps the
  * neutral 404.
  *
- * @param request - The request the tab made.
  * @returns The answer for that path.
  */
 function healthyService(request: GuestRequest): GuestRequestResult {

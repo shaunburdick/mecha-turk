@@ -156,7 +156,6 @@ type MemberIssue = FieldIssue;
 /**
  * Read one shared member and collect its issue, when the operation requires it.
  *
- * @param input - The record, the member's name, its shape, and whether it is required.
  * @returns The member as received.
  */
 function requiredMember(input: {

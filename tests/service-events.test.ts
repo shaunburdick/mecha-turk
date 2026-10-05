@@ -881,7 +881,6 @@ afterEach(async (): Promise<void> => {
 /**
  * Build the delivery snapshot one seed describes.
  *
- * @param seed - The run to detect.
  * @returns The event the run is created from.
  */
 function snapshotFor(seed: RunSeed): EventSnapshot {
@@ -943,7 +942,6 @@ function documentFor(seeds: readonly RunSeed[]): RunsDocument {
 /**
  * Start a service whose store already holds the seeded runs.
  *
- * @param seeds - The runs to serve.
  * @returns The running instance.
  */
 async function startWithRuns(seeds: readonly RunSeed[]): Promise<TestService> {

@@ -275,7 +275,6 @@ function detection(input: {
 /**
  * The dispatch token a stored run holds, or the fixture's own failure.
  *
- * @param run - The run whose reservation carries the token.
  * @returns The token the reserve minted.
  */
 function tokenOf(run: Run): string {

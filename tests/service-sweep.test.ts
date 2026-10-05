@@ -151,7 +151,6 @@ async function seedRun(issueNumber: number): Promise<Run> {
 /**
  * Rewrite one stored run through the store's own writer.
  *
- * @param correlationId - The run to patch.
  * @param patch - The new row, given the one being replaced.
  * @returns Nothing; the caller reads the run back with {@link readRun}.
  */

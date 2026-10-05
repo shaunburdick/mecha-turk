@@ -383,7 +383,6 @@ async function readRun(correlationId: string): Promise<Run> {
  * `reportDispatch` writes it: the token, the outcome, and the stamp that closes
  * it.
  *
- * @param run - The run whose history gains the closed record.
  * @returns The token attempt 1 of this run's key mints.
  */
 async function recordEarlierChain(run: Run): Promise<string> {

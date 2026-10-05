@@ -394,7 +394,6 @@ async function duplicateReport(input: ReportInput, run: Run): Promise<RunDuplica
 /**
  * Apply a verdict: settle the run and record the row, or refuse.
  *
- * @param run - The run as the chain task read it.
  * @param verdict - What the judge decided.
  * @param persist - The chain task's write.
  * @returns The operation's answer.

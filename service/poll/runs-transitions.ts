@@ -144,7 +144,6 @@ export function expireLease(input: {
 /**
  * The `dead-lettered` park.
  *
- * @param input - The run to park, the stamp, and the cause to record.
  * @returns The parked run, or `null` when the run is terminal or already
  *   produced a session.
  */

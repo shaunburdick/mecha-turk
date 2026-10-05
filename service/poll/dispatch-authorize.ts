@@ -99,7 +99,6 @@ const STALE_MESSAGE = 'the lease is expired or does not match this run';
  * carry the evidence only in its attempt history, and a refusal that must *name*
  * the session cannot name one it cannot find.
  *
- * @param run - The run being refused on.
  * @returns The session id, or `null` when the run records none.
  */
 export function sessionIdOf(run: Run): string | null {
@@ -119,8 +118,6 @@ export function sessionIdOf(run: Run): string | null {
  * operations share it because a guard runs in the same window — it holds a live
  * claim and has made no authorization (contract §4).
  *
- * @param input - The run, the lease the caller presented, the attempt it claims
- *   to be made under, and the service clock.
  * @returns The refusal, or `null` when the lease is live and current.
  */
 export function judgeLease(input: {
@@ -264,7 +261,6 @@ async function readResultDeadlineMs(store: ServiceStore, log: ServiceLogger): Pr
 /**
  * Answer a refused reserve with its one `dispatch.refused` row.
  *
- * @param input - The reserve's own input, the run, and the verdict.
  * @returns The refusal, carrying whether its row reached the trail.
  */
 async function refusedReserve(input: {

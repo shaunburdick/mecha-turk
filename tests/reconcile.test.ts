@@ -176,8 +176,6 @@ function harness(routes: RouteTable = okRoutes(), options: { readonly failAcknow
 
 /**
  * Record one dispatch outcome the way the relay does, durably, unacknowledged.
- *
- * @param input - The run, its attempt, and the outcome.
  */
 async function record(rt: PanelRuntime, input: {
     /** Run the attempt belongs to. */

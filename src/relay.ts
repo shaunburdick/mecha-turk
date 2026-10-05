@@ -115,8 +115,6 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
  * mount, so a re-poll can never double-start the same attempt,
  * whatever the service did — and a failed report never clears the entry, so it
  * can never become a licence to dispatch it again.
- *
- * @param run - The run to dispatch.
  */
 export async function dispatchClaimedRun(rt: PanelRuntime, run: ClaimedRun): Promise<void> {
     const key = handledKey(run);

@@ -95,7 +95,6 @@ export function createPollingView(): PollingViewSlot {
 /**
  * The `nextPollAt` member of the polling block (contract §1).
  *
- * @param view - The scheduler view the route reads.
  * @param intervalMs - The effective configured interval the route already read.
  * @returns The next-poll stamp while polling runs, `null` while it does not.
  */

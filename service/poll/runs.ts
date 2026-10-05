@@ -142,7 +142,6 @@ export async function claimRun(input: ClaimInput): Promise<RunChange> {
  * operator parked it. Terminal runs and runs that already produced a session
  * are never parked.
  *
- * @param input - The run to park and the cause to record.
  * @returns The parked run, or why the park was refused.
  */
 export async function deadLetterRun(input: RunTransitionInput & { readonly reason: string }): Promise<RunChange> {

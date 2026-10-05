@@ -134,7 +134,6 @@ export function holderOf(raw: string | null): string {
  * is a deterministic function of answer-visible inputs, so an operator reading
  * the audit trail can recompute it.
  *
- * @param input - The run, the attempt, and the RFC 3339 issue stamp.
  * @returns `lse-<24 hex characters>` — one path-safe segment.
  */
 export function buildLeaseId(input: {
@@ -189,7 +188,6 @@ interface ClaimPlanInput {
  * budget is consulted, so a run the answer cannot carry is never leased and
  * never audited.
  *
- * @param run - The run being considered.
  * @returns The leased run, its lease, and its answer row; `null` when it is not claimable.
  */
 function planOne(input: ClaimPlanInput, run: Run): ClaimRecord | null {

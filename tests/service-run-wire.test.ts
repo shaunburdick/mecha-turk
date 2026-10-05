@@ -299,7 +299,6 @@ async function settle(run: Run, sessionId: string | null): Promise<Run> {
  * Three requeues, then the park — asserted by looping rather than by a count so
  * the fixture follows whatever AC-106 pins instead of restating it.
  *
- * @param correlationId - The run to exhaust.
  * @returns The `dead-lettered` run.
  */
 async function driveToDeadLetter(correlationId: string): Promise<Run> {
@@ -439,7 +438,6 @@ async function post(
 /**
  * The code and message of a failure envelope, read without trusting its shape.
  *
- * @param body - The response body.
  * @returns The envelope's code and message, or empty strings when it carries none.
  */
 function errorOf(body: Record<string, unknown>): { readonly code: string; readonly message: string } {

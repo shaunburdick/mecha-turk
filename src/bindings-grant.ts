@@ -108,7 +108,6 @@ function rowForGrant(input: {
 /**
  * Serialize one whole-file grant.
  *
- * @param overrides - The replacement list and the two per-binding overrides.
  * @returns The request body.
  */
 function grantBody(overrides: GrantOverrides): string {
@@ -155,8 +154,6 @@ export function armRelayForBindings(rt: PanelRuntime, bindings: readonly PanelBi
  * service's own field-level copy is **not** rendered here: it goes to the field
  * it names, which the caller splits out of the answer this
  * returns.
- *
- * @param result - The refused answer.
  */
 function noteRefusal(rt: PanelRuntime, result: ServiceErrorResult): void {
     if (result.ok) {

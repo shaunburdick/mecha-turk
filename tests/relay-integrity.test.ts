@@ -173,7 +173,6 @@ function claimedRun(overrides: Partial<ClaimedRun> = {}): ClaimedRun {
 /**
  * Serialize one claim answer.
  *
- * @param runs - The runs the service offers.
  * @param isAuditWritten - What FR-063's member reports.
  * @returns The body.
  */

@@ -63,7 +63,6 @@ export const PREREQUISITES_HEADING = 'Setup prerequisites';
 /**
  * Render one prerequisite as the line its `TextHandle` shows.
  *
- * @param item - The prerequisite to render.
  * @returns `title · state — detail remediation`, in that order, so the state
  *   is readable even when the line wraps.
  */

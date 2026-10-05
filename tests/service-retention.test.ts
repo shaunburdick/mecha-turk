@@ -247,7 +247,6 @@ function idlePoller(): GitHubIssuePoller {
 /**
  * Wrap a store so every `config.json` read fails the way a bad disk would.
  *
- * @param inner - The real store behind the wrapper.
  * @returns A store whose only difference is that refusal.
  */
 function brokenConfigStore(inner: ServiceStore): ServiceStore {
