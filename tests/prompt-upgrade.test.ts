@@ -278,7 +278,6 @@ async function bootPre004Store(): Promise<TestService> {
  * The message a dispatch of the seeded run would compose, built exactly the
  * way the relay builds it: the run's own snapshot, the delivery's own text.
  *
- * @param target - The service whose store holds the run.
  * @returns The complete first message.
  */
 async function composedMessageFor(target: TestService): Promise<string> {

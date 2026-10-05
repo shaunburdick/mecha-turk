@@ -92,7 +92,6 @@ export function fixtureBindingRow(
  * this twice (across a restart, say) wants the same single fixture binding
  * rather than an accumulation.
  *
- * @param store - Open store to write through.
  * @param bindings - Each binding's id and overrides.
  * @returns A promise that settles once the document is durable.
  */
@@ -134,7 +133,6 @@ export async function writeOpenBinding(input: {
  * `POST …/reserve` and denies when it cannot (003 FR-076, constitution II). The
  * two must agree: a run exists because this binding's scan created it.
  *
- * @param store - Open store to write through.
  * @returns A promise that settles once the document is durable.
  */
 export async function writeLoopBinding(store: ServiceStore): Promise<void> {

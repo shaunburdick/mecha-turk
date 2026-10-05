@@ -327,7 +327,6 @@ async function enqueueRun(snapshot: EventSnapshot, prompt?: PromptSnapshot): Pro
 /**
  * Read one stored run back, by the id the fixture created it with.
  *
- * @param correlationId - The run to read.
  * @returns The stored run.
  * @throws {Error} When the run is no longer stored.
  */
@@ -344,7 +343,6 @@ async function readRun(correlationId: string): Promise<Run> {
 /**
  * The concrete path one run-scoped route answers on, bound to a run id.
  *
- * @param correlationId - The run the path should name.
  * @returns The same path with its parameter bound.
  */
 function bound(pattern: string, correlationId: string): string {

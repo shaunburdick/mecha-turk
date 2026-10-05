@@ -285,7 +285,6 @@ function accountsState(input: {
 /**
  * Read every string one mount was handed.
  *
- * @param props - Whatever the SDK primitive received.
  * @returns The strings among them, in property order.
  */
 function stringsIn(props: unknown): readonly string[] {

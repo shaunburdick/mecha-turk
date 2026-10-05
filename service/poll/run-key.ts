@@ -169,7 +169,6 @@ export function buildCorrelationId(runKey: string): string {
 /**
  * Derive a run's attachment id: the correlation id, verbatim.
  *
- * @param correlationId - The run's correlation id.
  * @returns The same string, as the attachment id.
  * @throws {Error} When the id is not a single path-safe segment or exceeds
  *   {@link ATTACHMENT_ID_MAX} — a derivation bug must fail loudly rather than

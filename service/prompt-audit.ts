@@ -83,7 +83,6 @@ function stateFor(store: ServiceStore): PromptObservationState {
 /**
  * Seed the baseline from the audit trail: highest-`seq` row per binding.
  *
- * @param store - Open store holding `audit.ndjson`.
  * @param baseline - The map to fill (empty on first use for this handle).
  * @throws {StorageUnavailableError} When the trail cannot be read — a chain
  *   that cannot establish its baseline must not start guessing at diffs.

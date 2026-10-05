@@ -337,7 +337,6 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
  * logged once at the end with counts only. The cycle keeps walking the
  * remaining bindings so one broken account cannot block another.
  *
- * @param deps - Store, logger, and poller.
  * @returns The cycle outcome.
  */
 /**

@@ -220,7 +220,6 @@ function loweringBlock(input: {
 /**
  * Compose the block for every retention knob this draft lowers.
  *
- * @param input - The last read and the draft.
  * @returns The lines, empty when the draft lowers no retention knob.
  */
 function loweringLines(input: {
@@ -253,7 +252,6 @@ interface DraftChange {
  * default` baseline the draft itself is built from — so the list a restore
  * names and the list it writes can never disagree.
  *
- * @param input - The last read and the draft.
  * @returns The changes, in the service's field order.
  */
 function changesIn(input: {

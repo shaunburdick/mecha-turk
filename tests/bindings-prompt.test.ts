@@ -283,7 +283,6 @@ function freshJournal(): void {
  * under test are about what reaches the field, not about what sits in
  * state.
  *
- * @param input - The binding rows to load, and the service to mount against.
  * @returns The runtime, the pane's handler table, and the service double.
  */
 function promptEditor(input: {
@@ -417,7 +416,6 @@ function tierHost(): ReturnType<typeof fakeHost> {
 /**
  * Read one mount's props as the object the count compares over.
  *
- * @param raw - Whatever the SDK primitive was handed.
  * @returns The props as a plain record (a bare string prop reads as `text`).
  */
 function propsOf(raw: unknown): Record<string, unknown> {
@@ -443,7 +441,6 @@ function propsOf(raw: unknown): Record<string, unknown> {
  * element — while a second element carrying the same text counts as two,
  * which is the duplication AC-123 fails on.
  *
- * @param sentinel - The text to look for.
  * @returns The elements carrying it, each named by its SDK primitive.
  */
 function elementsCarrying(sentinel: string): readonly { readonly key: string }[] {
@@ -743,7 +740,6 @@ function promptFieldProps(): Record<string, unknown> {
  * before its `onChange` is reached, loudly instead of as a silent no-op that
  * would let a dead field read as a working one.
  *
- * @param text - What the operator types.
  * @throws {Error} When the field is disabled, or wired no handler at all.
  */
 function typeIntoPromptField(text: string): void {

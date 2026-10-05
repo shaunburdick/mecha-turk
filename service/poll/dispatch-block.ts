@@ -93,7 +93,6 @@ export interface BlockInput {
  * §4's table declares no such code for a guard report while FR-022 still requires
  * the refusal to name the session.
  *
- * @param input - The run, the lease, the attempt, and the service clock.
  * @returns The refusal, or `null` when the run may be blocked now.
  */
 function judgeBlock(input: {

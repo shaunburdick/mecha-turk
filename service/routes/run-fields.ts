@@ -51,7 +51,6 @@ const MAX_SESSION_ID_CHARS = 128;
  * rather than a silently absent value, which is {@link readOptionalText}'s step.
  *
  * @param value - The member as received.
- * @param bound - Longest value accepted.
  * @returns The trimmed text, or `null`.
  */
 export function textMember(value: unknown, bound: number = MAX_BODY_TEXT_CHARS): string | null {
@@ -75,7 +74,6 @@ export function textMember(value: unknown, bound: number = MAX_BODY_TEXT_CHARS):
  * only its emptiness is permitted.
  *
  * @param value - The member as received.
- * @param bound - Longest value accepted.
  * @returns The trimmed text, possibly empty, or `null` when the member is
  *   absent, not a string, or over the bound.
  */

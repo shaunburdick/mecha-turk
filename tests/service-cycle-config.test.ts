@@ -169,7 +169,6 @@ function fixtureAccount(): Account {
 /**
  * Build one open issue assigned to the fixture account.
  *
- * @param issueNumber - Issue number to report.
  * @param updatedAt - `updated_at` stamp the window is matched against.
  * @returns The normalized issue a fake poller answers with.
  */
@@ -199,7 +198,6 @@ interface RecordedCall {
 /**
  * Build a poller that answers with one fixed issue list and records its calls.
  *
- * @param issues - Issues to return on every call.
  * @returns The poller plus what each call was handed.
  */
 function recordingPoller(issues: readonly PollIssue[]): {
@@ -248,7 +246,6 @@ function recordingPoller(issues: readonly PollIssue[]): {
 /**
  * Wrap a store so the configuration reads can be counted.
  *
- * @param inner - The real store.
  * @param onConfigRead - Called once per `config.json` read.
  * @returns A store whose only difference is that counter.
  */
@@ -271,7 +268,6 @@ function countingStore(inner: ServiceStore, onConfigRead: () => void): ServiceSt
 /**
  * Wrap a store so the configuration read fails the way a bad disk would.
  *
- * @param inner - The real store.
  * @returns A store that rejects every `config.json` read and nothing else.
  */
 function brokenConfigStore(inner: ServiceStore): ServiceStore {
@@ -564,7 +560,6 @@ function configRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {
 /**
  * Read a row's `changes` as triples, without casting anything through `any`.
  *
- * @param row - One stored row, or `undefined`.
  * @returns Every entry that already has the triple's three members.
  */
 function changesOf(row: AuditEntry | undefined): readonly ChangeTriple[] {

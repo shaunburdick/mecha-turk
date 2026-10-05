@@ -294,8 +294,6 @@ const TWO_PROJECTS: GuestProjectsSnapshot = {
 
 /**
  * Mark the picker list as loaded, with the host's settings snapshot recorded.
- *
- * @param runtime - Runtime under test.
  */
 function configureWithLoadedProjects(runtime: PanelRuntime): void {
     applySettings(runtime, settingsOf());

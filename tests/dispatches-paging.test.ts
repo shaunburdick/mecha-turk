@@ -126,8 +126,6 @@ const NO_FILTERS: DispatchesState['filters'] = { bindingId: null, state: null };
 /**
  * Build a section state with the paging position a test needs.
  *
- * @param page - The position to start from.
- * @param filters - Filters to apply.
  * @returns The section state.
  */
 function section(
@@ -140,8 +138,6 @@ function section(
 /**
  * The path a section state would request.
  *
- * @param page - The position to start from.
- * @param filters - Filters to apply.
  * @returns The path, built the way the service reads it back.
  */
 function pathFor(

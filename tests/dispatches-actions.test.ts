@@ -142,7 +142,6 @@ function retryPosts(): number {
 /**
  * Claim and reserve one run through a mount's own service bridge.
  *
- * @param issueNumber - Issue to claim for.
  * @returns The claim and the single-use token the reservation issued.
  * @throws {Error} When the claim offered nothing or the reservation refused.
  */

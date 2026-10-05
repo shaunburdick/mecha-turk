@@ -290,7 +290,6 @@ async function seedAccount(): Promise<void> {
 /**
  * The one binding row, with the allow-list the case under test submits.
  *
- * @param allowedUsers - The list the operator is saving.
  * @returns The row exactly as the panel's whole-file grant sends it.
  */
 function bindingRow(allowedUsers: readonly string[]): Record<string, unknown> {
@@ -316,7 +315,6 @@ function bindingRow(allowedUsers: readonly string[]): Record<string, unknown> {
  * suite is the locking, and driving the setup through the route would put the
  * operation under test on both sides of it.
  *
- * @param allowedUsers - The list to store.
  * @returns A promise that settles once the document is durable.
  */
 async function seedBindings(allowedUsers: readonly string[]): Promise<void> {
@@ -444,7 +442,6 @@ function routeContext(target: ServiceStore): RouteContext {
  * One whole-file grant through the **real** route handler.
  *
  * @param target - The store the grant writes through.
- * @param allowedUsers - The list the operator is saving.
  * @returns The response status.
  */
 async function grant(target: ServiceStore, allowedUsers: readonly string[]): Promise<number> {

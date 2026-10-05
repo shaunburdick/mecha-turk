@@ -110,7 +110,6 @@ function stateFor(store: ServiceStore): AccountPromptObservationState {
 /**
  * Seed the baseline from the audit trail: highest-`seq` row per account.
  *
- * @param store - Open store holding `audit.ndjson`.
  * @param baseline - The map to fill (empty on first use for this handle).
  * @throws {StorageUnavailableError} When the trail cannot be read — a chain
  *   that cannot establish its baseline must not start guessing at diffs.
@@ -280,7 +279,6 @@ async function recordOneChange(context: {
  * **Must run inside {@link runAccountPromptChain}** — the baseline it reads and
  * writes is only safe while no other observation can interleave with it.
  *
- * @param input - The accounts seen, the ids proved absent, the actor, the logger.
  * @returns How many rows this observation appended.
  */
 export async function recordAccountPromptChanges(input: AccountPromptObservation): Promise<number> {
@@ -329,7 +327,6 @@ export async function recordAccountPromptChanges(input: AccountPromptObservation
  * panel is recorded by whoever the service could actually attribute the change
  * to.
  *
- * @param input - The accounts seen, the ids proved absent, the actor, the logger.
  * @returns How many rows this observation appended.
  */
 export async function observeAccountPromptChanges(input: AccountPromptObservation): Promise<number> {

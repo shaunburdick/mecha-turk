@@ -163,7 +163,6 @@ async function startWithAccount(): Promise<TestService> {
 /**
  * Build one binding this suite grants.
  *
- * @param overrides - Members to replace on the base row.
  * @returns The submitted record.
  */
 function bindingRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {

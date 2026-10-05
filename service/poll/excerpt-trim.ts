@@ -122,7 +122,6 @@ async function readRunStates(input: {
  * Decide whether one row's dispatch is finished, on the authority its schema
  * gives it.
  *
- * @param event - One stored queue row.
  * @param runStates - correlation id → run state, as {@link readRunStates}
  *   read them (empty when unknown).
  * @returns `true` for a legacy row in the terminal `dispatched` state, or a

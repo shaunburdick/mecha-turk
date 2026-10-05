@@ -226,7 +226,6 @@ export type RunResult = RunOutcome | RunNotFound;
 /**
  * Narrow an operation result to a refusal the caller must answer `4xx`.
  *
- * @param outcome - Whatever the operation returned.
  * @returns The refusal shape, or `null` when the operation applied, duplicated,
  *   or found nothing at all.
  */

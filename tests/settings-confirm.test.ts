@@ -199,7 +199,6 @@ function scriptedAnswer(input: {
 /**
  * Mount only the Settings body against the recording doubles.
  *
- * @param input - How the service should answer each method.
  * @returns The runtime, the disposer, and everything the requests recorded.
  */
 async function mountSettings(input: {
@@ -276,7 +275,6 @@ async function activate(label: string, times = 1): Promise<void> {
  * Type into one field's control, as the operator would.
  *
  * @param field - Field name (the label starts with it).
- * @param value - The text to enter.
  */
 function typeInto(field: string, value: string): void {
     const entry = mounts.log.find(
@@ -293,7 +291,6 @@ function typeInto(field: string, value: string): void {
 /**
  * The writes one mount has sent, so "nothing was written" is a count.
  *
- * @param view - The mounted body.
  * @returns The `PUT /v1/config` requests, in order.
  */
 function writes(view: SettingsMount): readonly GuestRequest[] {

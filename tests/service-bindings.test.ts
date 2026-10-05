@@ -123,7 +123,6 @@ function bindingFixture(): Record<string, unknown> {
 /**
  * Grant the fixture binding through the panel's own whole-file PUT.
  *
- * @param bindings - The list to store.
  * @returns The parsed answer, so a caller can assert on it too.
  */
 async function grantBindings(
@@ -428,7 +427,6 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
 /**
  * Every row in the service's audit trail, oldest first.
  *
- * @param service - Harness instance whose store holds the trail.
  * @returns The trail as the service wrote it, one parsed object per line.
  */
 async function auditTrail(service: TestService): Promise<readonly Record<string, unknown>[]> {
@@ -474,7 +472,6 @@ const SECOND_REPOSITORY = 'acme/other';
  * A panel-shaped row: every field the shipped panel writes, and never the
  * prompt member it does not know exists.
  *
- * @param overrides - Members to replace on the base row.
  * @returns The submitted record.
  */
 function panelRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {

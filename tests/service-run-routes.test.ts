@@ -96,7 +96,6 @@ function jsonHeaders(): Record<string, string> {
 /**
  * Read the code out of a response's documented error envelope, without trusting it.
  *
- * @param response - Response whose body should be read.
  * @returns The envelope's code, or an empty string when it carries none.
  */
 async function codeOf(response: Response): Promise<string> {

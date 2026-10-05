@@ -70,7 +70,6 @@ export interface HandoffView {
  * The input stays disabled until the pre-flight proved the service storage is
  * writable (F10/SEC-08).
  *
- * @param state - Current handoff state.
  * @returns `true` when the operator may type and submit a credential.
  */
 export function handoffInputEnabled(state: HandoffState): boolean {
@@ -84,7 +83,6 @@ export function handoffInputEnabled(state: HandoffState): boolean {
  * hides the paste row: the paste field must not offer a credential the
  * service already holds (MVP blocker 2).
  *
- * @param state - Current handoff state.
  * @param view - Surface to write to.
  */
 export function renderHandoff(state: HandoffState, view: HandoffView): void {

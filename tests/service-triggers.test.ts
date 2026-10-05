@@ -473,8 +473,6 @@ function recordingPoller(feeds: {
 /**
  * Run one cycle over the given binding and answer its queued events.
  *
- * @param binding - The binding to scan.
- * @param recorded - The poller feeding that scan.
  * @returns The events the cycle enqueued, in queue order.
  */
 async function scan(binding: BindingRecord, recorded: RecordedPoller): Promise<readonly QueuedEvent[]> {
@@ -994,8 +992,6 @@ const ALL_KINDS = { assignment: true, mention: true, reviewRequest: true } as co
  * stores, so the helper reads all three rather than making each case repeat the
  * plumbing: the queue's events, the run document's runs, and the audit trail.
  *
- * @param binding - The binding to scan.
- * @param recorded - The poller feeding that scan.
  * @returns The events, the runs, and the audit rows the scan wrote.
  */
 async function scanAndRead(

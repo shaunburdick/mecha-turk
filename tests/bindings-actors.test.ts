@@ -367,7 +367,6 @@ interface Editor {
 /**
  * Mount the Bindings body over the rows a case supplies, with nothing selected.
  *
- * @param input - The binding rows to load, and the service to mount against.
  * @returns The runtime, its handler table, and the service double.
  */
 function editor(input: {
@@ -403,7 +402,6 @@ function release(mounted: Editor): void {
 /**
  * Read one mount's props as the object a count compares over.
  *
- * @param raw - Whatever the SDK primitive was handed.
  * @returns The props as a plain record (a bare string prop reads as `text`).
  */
 function propsOf(raw: unknown): Record<string, unknown> {
@@ -426,7 +424,6 @@ function propsOf(raw: unknown): Record<string, unknown> {
  * painted with the text a beat later still counts as **one** element — while a
  * second element carrying the same text counts as two.
  *
- * @param sentinel - The text to look for.
  * @returns The elements carrying it, each named by its SDK primitive.
  */
 function elementsCarrying(sentinel: string): readonly { readonly key: string }[] {
@@ -494,7 +491,6 @@ function listFieldProps(): Record<string, unknown> {
  * A disabled control fires no handler, so the input is refused here loudly
  * rather than as a silent no-op that would let a dead field read as a live one.
  *
- * @param text - What the operator types.
  * @throws {Error} When the field is disabled, or wired no handler at all.
  */
 function typeIntoListField(text: string): void {
@@ -674,7 +670,6 @@ function statusView(policy: 'open' | 'restricted', isActive = true): StatusView 
  * that *documents* the rule in a comment may say `restricted` freely, while a
  * literal that reaches the DOM may not.
  *
- * @param source - The file's text.
  * @returns Each literal's own contents, unquoted.
  */
 function stringLiterals(source: string): readonly string[] {
@@ -696,7 +691,6 @@ function stringLiterals(source: string): readonly string[] {
  * in a copy constant alike, and `restricts` is left to the composition scan
  * above rather than guessed at here.
  *
- * @param source - The file's text.
  * @returns The distinct words found, sorted.
  */
 function wordsFound(source: string): readonly string[] {

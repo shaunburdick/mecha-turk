@@ -330,7 +330,6 @@ const DOMAIN_PROSE_RULE: NounRule = {
  * Tab labels, list titles, and subtitles all live one level down, so a
  * shallow read would skip exactly the rows FR-020 names first.
  *
- * @param value - Anything a mount was handed.
  * @param found - Accumulator the caller owns.
  */
 function collectStrings(value: unknown, found: string[]): void {
@@ -358,7 +357,6 @@ function collectStrings(value: unknown, found: string[]): void {
 /**
  * Every string one SDK mount was handed, at any depth.
  *
- * @param props - Whatever the primitive received.
  * @returns The strings among them, in property order.
  */
 function stringsIn(props: unknown): readonly string[] {

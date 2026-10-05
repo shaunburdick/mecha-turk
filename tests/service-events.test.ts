@@ -232,7 +232,6 @@ function fixtureAccount(): Account {
 /**
  * Build one open issue assigned to the fixture account.
  *
- * @param issueNumber - Issue number to report.
  * @param updatedAt - `updated_at` stamp the window is matched against.
  * @returns The normalized issue the poller would return.
  */
@@ -289,7 +288,6 @@ function namingEventFor(issue: PollIssue): readonly PollItemEvent[] {
 /**
  * Build a poller that answers with one fixed issue list and records its windows.
  *
- * @param issues - Issues to return on every call.
  * @returns The poller, the windows it was asked to open, and the items its
  *   per-item actor read was asked about.
  */
@@ -321,8 +319,6 @@ function recordingPoller(issues: readonly PollIssue[]): RecordedPoller {
 
 /**
  * Write one queue document straight into the store directory.
- *
- * @param rows - Rows to plant as the `events.json` array.
  */
 async function plantQueue(rows: readonly unknown[]): Promise<void> {
     await writeFile(join(dataDir, EVENTS_FILE), JSON.stringify(rows), 'utf8');

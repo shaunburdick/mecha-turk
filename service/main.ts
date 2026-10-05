@@ -68,8 +68,6 @@ function scheduleForceExit(log: ServiceLogger): void {
 /**
  * Drain the service and record how the process should exit.
  *
- * @param handle - Running service to stop.
- * @param log - Logger for the outcome.
  */
 async function stopService(handle: ServiceHandle, log: ServiceLogger): Promise<void> {
     try {
@@ -85,8 +83,6 @@ async function stopService(handle: ServiceHandle, log: ServiceLogger): Promise<v
 /**
  * Build the listener for one shutdown signal.
  *
- * @param handle - Running service to stop.
- * @param log - Logger for the outcome.
  * @returns A listener taking the signal's label for the log entry.
  */
 function createShutdownHandler(handle: ServiceHandle, log: ServiceLogger): (label: string) => void {

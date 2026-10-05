@@ -78,7 +78,6 @@ import {
  * for that row, never on a fingerprint and never on whichever row was
  * selected before.
  *
- * @param rt - Panel runtime the actions read and repaint.
  * @returns The handlers the fields invoke.
  */
 function promptHandlers(rt: PanelRuntime): Pick<
@@ -156,7 +155,6 @@ function cancelNote(rt: PanelRuntime): string {
  * the handlers stay one-line delegations and the tab cannot diverge from what
  * the runtime knows.
  *
- * @param rt - Panel runtime the actions read and repaint.
  * @returns The handler table for {@link mountBindingsPane}.
  */
 export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {

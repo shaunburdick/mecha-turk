@@ -128,7 +128,6 @@ function mutableService(initial: GuestRequestResult): MutableService {
  * Arming starts a real interval; leaving it running would let a later test's
  * host double answer a stale tick.
  *
- * @param rt - Runtime under test.
  * @param scenario - The assertions to run while the relay is armed.
  */
 async function withRelay(rt: PanelRuntime, scenario: () => Promise<void> | void): Promise<void> {

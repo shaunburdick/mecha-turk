@@ -392,7 +392,6 @@ async function driveTo(issueNumber: number, target: Run['state']): Promise<Run> 
 /**
  * Enqueue one issue and claim it, for the verdicts a lease decides.
  *
- * @param issueNumber - Issue to detect and claim.
  * @returns The claimed run and the lease the claim minted for it.
  */
 async function driveAndClaim(issueNumber: number): Promise<{ readonly run: Run; readonly leaseId: string }> {
@@ -404,7 +403,6 @@ async function driveAndClaim(issueNumber: number): Promise<{ readonly run: Run; 
 /**
  * The concrete path one run-scoped route answers on, bound to a run id.
  *
- * @param correlationId - The run the path should name.
  * @returns The same path with its parameter bound.
  */
 function bound(pattern: string, correlationId: string): string {

@@ -73,7 +73,6 @@ function parseFilterEcho(value: unknown): DispatchFilters | null {
 /**
  * Check the three members that bound the read itself.
  *
- * @param page - The `page` record.
  * @returns `true` when the size is one of the four the contract accepts, the
  *   boundary is a string or `null`, and the flag is a boolean.
  */
@@ -89,7 +88,6 @@ function pageBoundsUsable(page: Record<string, unknown>): boolean {
 /**
  * Check the two members that label the answer.
  *
- * @param page - The `page` record.
  * @returns `true` when the total is a number or `null` and the stamp is a string.
  */
 function pageLabelsUsable(page: Record<string, unknown>): boolean {

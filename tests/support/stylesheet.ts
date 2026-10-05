@@ -101,7 +101,6 @@ export function styleText(html: string): string {
 /**
  * Consume a quoted run or open a new one; false when the char is not a quote.
  *
- * @param cursor - Cursor to advance.
  * @param grouping - The scan's depth and current quote character.
  * @returns True when the character belonged to a string.
  */
@@ -130,7 +129,6 @@ function inQuotes(cursor: Cursor, grouping: Grouping): boolean {
 /**
  * Consume a parenthesised or bracketed run; false for any other character.
  *
- * @param cursor - Cursor to advance.
  * @param grouping - The scan's depth, moved by the group it walked into.
  * @returns True when the character belonged to a group.
  */

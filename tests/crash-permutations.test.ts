@@ -160,7 +160,6 @@ async function reserveThenDie(rt: PanelRuntime, run: ClaimedRun): Promise<string
 /**
  * Claim and reserve one run without any panel (a second mount's own attempt).
  *
- * @param issueNumber - Issue to claim for.
  * @returns The claimed offer and the token it reserved with.
  */
 async function claimAndReserve(issueNumber: number): Promise<{ readonly run: ClaimedRun; readonly token: string }> {

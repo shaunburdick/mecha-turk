@@ -222,7 +222,6 @@ async function plantQueue(target: ServiceStore): Promise<void> {
 /**
  * The `audit.trimmed` rows a trail holds.
  *
- * @param trail - The trail to filter.
  * @returns The trim rows, in trail order.
  */
 function trimRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {

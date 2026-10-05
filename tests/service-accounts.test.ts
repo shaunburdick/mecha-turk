@@ -173,7 +173,6 @@ async function startService(script: GitHubScript, dataDir?: string): Promise<Tes
 /**
  * Build the current credential-route body.
  *
- * @param token - Credential to present.
  * @returns The serialized request body.
  */
 function credentialBody(token: string): string {
@@ -208,7 +207,6 @@ async function verifyOk(service: TestService): Promise<Record<string, unknown>> 
 /**
  * Rotate the fixture account's credential.
  *
- * @param token - Replacement credential.
  * @param userId - Path id; defaults to the fixture account.
  * @returns The response.
  */
@@ -649,7 +647,6 @@ async function putStatus(service: TestService, body: string): Promise<number> {
  * `expect(await statusOf(service, { … }))` — instead of four, and most call sites
  * here are that assertion.
  *
- * @param doc - The profile document to write.
  * @returns The HTTP status the service answered.
  */
 async function statusOf(service: TestService, doc: Record<string, unknown>): Promise<number> {
@@ -659,7 +656,6 @@ async function statusOf(service: TestService, doc: Record<string, unknown>): Pro
 /**
  * The response a profile write of exactly this document receives.
  *
- * @param doc - The profile document to write.
  * @returns The response the service answered.
  */
 async function profileFor(service: TestService, doc: Record<string, unknown>): Promise<Response> {
@@ -669,7 +665,6 @@ async function profileFor(service: TestService, doc: Record<string, unknown>): P
 /**
  * Read every issue a `422 validation` answer carries (invariant 6's list).
  *
- * @param response - The refusal.
  * @returns Its structured issues; an envelope listing none answers `[]`.
  */
 async function issuesOf(response: Response): Promise<readonly Issue[]> {
@@ -683,7 +678,6 @@ async function issuesOf(response: Response): Promise<readonly Issue[]> {
 /**
  * Read the first issue a `422 validation` answer carries.
  *
- * @param response - The refusal.
  * @returns Its `field` and remediation, or an empty pair when none is listed.
  */
 async function issueOf(response: Response): Promise<Issue> {
@@ -695,7 +689,6 @@ async function issueOf(response: Response): Promise<Issue> {
 /**
  * Read the stored account document straight from the service's directory.
  *
- * @param service - Harness instance owning the directory.
  * @returns The parsed record.
  */
 async function storedAccount(service: TestService): Promise<Record<string, unknown>> {
@@ -705,7 +698,6 @@ async function storedAccount(service: TestService): Promise<Record<string, unkno
 /**
  * The absolute path of the fixture account's stored record.
  *
- * @param service - Harness instance owning the directory.
  * @returns The path.
  */
 function accountFileOf(service: TestService): string {
@@ -726,7 +718,6 @@ function changedKeys(before: Record<string, unknown>, after: Record<string, unkn
 /**
  * Every `account.prompt-updated` row in the service's own trail (FR-088).
  *
- * @param service - Harness instance whose store holds the trail.
  * @returns The rows, oldest first.
  * @throws {Error} When the harness started without a store.
  */

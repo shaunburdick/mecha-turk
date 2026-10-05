@@ -364,7 +364,6 @@ export function mountDispatchesControls(input: DispatchControlsInput): PagingCon
  * The list is display-only — rows are evidence, not a selection — so its
  * `onSelect` is a no-op exactly like the audit trail's.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The row-detail handles and its wrapper.
  */
 export function mountRowDetail(input: DispatchControlsInput): RowDetail {

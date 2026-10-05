@@ -47,7 +47,6 @@ const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] a
  * kebab-case capability names stay array elements instead of quoted object
  * keys (repo lint keeps object keys camelCase).
  *
- * @param result - `ok`, `missing`, or `unknown`.
  * @returns The matrix exactly as the service and the account mirror record it.
  */
 export function scopeResults(result: 'ok' | 'missing' | 'unknown'): Record<string, string> {

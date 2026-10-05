@@ -273,7 +273,6 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
  * still answers which token was outstanding because the fingerprint is derived
  * from it and is reproducible by the service.
  *
- * @param input - The authorized run and the service-clock stamp.
  * @returns The recovery, or `null` when the run is not past its deadline.
  */
 function recoverLateResult(input: { readonly run: Run; readonly now: string }): PlannedRecovery | null {

@@ -312,8 +312,6 @@ export async function startRunSession(input: {
 
 /**
  * Report one attempt's outcome, then acknowledge it on its own 2xx.
- *
- * @param input - Runtime, the run, its token, and what the host produced.
  */
 export async function reportAndAcknowledge(input: {
     /** Panel runtime. */
@@ -370,8 +368,6 @@ export async function reportAndAcknowledge(input: {
  * so nothing below can refuse a call the reservation permits. The order is the
  * contract's: the record is durable **before** the report leaves, because a
  * report that never lands has to leave the truth recoverable on this side.
- *
- * @param input - Runtime, the run, its token, and what the host produced.
  */
 export async function closeAttempt(input: {
     /** Panel runtime. */

@@ -401,7 +401,6 @@ function scanSources(): readonly ScannedFile[] {
 /**
  * Read one service answer as the text an operator's client would see.
  *
- * @param loop - The running loop to call.
  * @param path - Path to fetch.
  * @returns The response text.
  * @throws {Error} When the route answers anything but `200`.
@@ -647,7 +646,6 @@ const ACCOUNT_TIER_PROMPT = 'Prefer the smallest diff that closes the failing te
  * The detection the fixture queue would have written for this issue (003's
  * fixture shape), so the run claims and dispatches exactly as a scanned one.
  *
- * @param issueNumber - Issue the detection is about.
  * @returns One assignment snapshot.
  */
 function containmentDetection(issueNumber: number): EventSnapshot {

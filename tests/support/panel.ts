@@ -187,7 +187,6 @@ export function fakeWindow(): WindowDouble {
 /**
  * Build the validated configuration used across the panel tests.
  *
- * @param overrides - Members to replace with test-specific values.
  * @returns A complete spike configuration.
  */
 export function testConfig(overrides: Partial<BindingContext> = {}): BindingContext {
@@ -204,7 +203,6 @@ export function testConfig(overrides: Partial<BindingContext> = {}): BindingCont
 /**
  * Build the evidence record for the fixture issue.
  *
- * @param overrides - Members to replace with test-specific values.
  * @returns A valid evidence record.
  */
 export function testEvidence(overrides: Partial<PanelEvidence> = {}): PanelEvidence {

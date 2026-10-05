@@ -179,7 +179,6 @@ function createToolbar(into: HTMLElement): HTMLElement {
  * a note reports what an action *did* — a refused write, a removal, a failed
  * read — and the editor being closed must not hide that answer.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The board handles.
  */
 function mountBindingsBoard(input: MountInputs): Board {

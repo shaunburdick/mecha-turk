@@ -107,7 +107,6 @@ export async function stopAllServices(): Promise<void> {
 /**
  * Build an FR-010 scope matrix where every capability carries one result.
  *
- * @param result - `ok`, `missing`, or `unknown`.
  * @returns The matrix, keyed as the data model declares.
  */
 export function scopeResults(result: ScopeResult): Record<ScopeCapability, ScopeResult> {
@@ -135,7 +134,6 @@ export async function startWithGitHub(script: GitHubScript): Promise<{ service: 
 /**
  * Build a `POST /v1/accounts/verify` body.
  *
- * @param token - Credential to present.
  * @param extra - Additional fields, e.g. `expectedLogin`.
  * @returns The serialized request body.
  */

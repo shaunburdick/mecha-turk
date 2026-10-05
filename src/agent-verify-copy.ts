@@ -98,7 +98,6 @@ function observationFailureNotice(result: ObservationFailure): PanelStatus {
  * amended — a mismatch warning fires only when a real baseline exists and
  * differs).
  *
- * @param result - Outcome the verification reached.
  * @returns The banner content, already redacted.
  */
 export function verificationNotice(result: AgentVerification): PanelStatus {
@@ -133,7 +132,6 @@ export function verificationNotice(result: AgentVerification): PanelStatus {
 /**
  * Phrase the read-back for the service's `note` member (contract §5).
  *
- * @param result - Outcome the verification reached.
  * @returns The note, or `null` when there is nothing to add to the evidence.
  */
 export function readBackNote(result: AgentVerification): string | null {

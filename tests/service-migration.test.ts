@@ -700,7 +700,6 @@ async function fileBytes(name: string): Promise<Buffer> {
  * The message a dispatch of one adopted run would compose, built exactly the
  * way the relay builds it: the run's own snapshot, the delivery's own text.
  *
- * @param target - The service whose store holds the run.
  * @param run - The adopted run to compose for.
  * @returns The complete first message.
  * @throws {Error} When the store is missing or the run lost its delivery.

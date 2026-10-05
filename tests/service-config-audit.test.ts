@@ -170,7 +170,6 @@ async function putConfig(
 /**
  * The rows that record a configuration write.
  *
- * @param trail - The trail to filter.
  * @returns The `config.changed` rows, oldest first.
  */
 function configRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {
@@ -200,7 +199,6 @@ function isChangeTriple(value: unknown): value is ChangeTriple {
 /**
  * Read a row's `changes` as triples, without casting anything through `any`.
  *
- * @param row - One stored row, or `undefined`.
  * @returns Every entry that already has the triple's three members.
  */
 function changesOf(row: AuditEntry | undefined): readonly ChangeTriple[] {

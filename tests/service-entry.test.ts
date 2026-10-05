@@ -126,7 +126,6 @@ function readListeningPort(child: ChildProcess): Promise<number> {
  * service is the expectation and the captured output is what proves the
  * refusal was secret-free.
  *
- * @param child - Spawned bundle.
  * @returns The exit code (`null` when killed by a signal) and combined output.
  */
 function readExitWithOutput(child: ChildProcess): Promise<{ readonly code: number | null; readonly output: string }> {
@@ -147,7 +146,6 @@ function readExitWithOutput(child: ChildProcess): Promise<{ readonly code: numbe
 /**
  * Wait for the spawned service to exit.
  *
- * @param child - Spawned bundle.
  * @returns The process exit code (`null` when killed by a signal).
  */
 function waitForExit(child: ChildProcess): Promise<number | null> {

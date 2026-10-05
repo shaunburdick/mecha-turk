@@ -159,7 +159,6 @@ export function judgeLease(input: {
  * the contract's table names them, so the order is the one in which both stay
  * reachable, and contract §1's prose states exactly this.
  *
- * @param input - The run, the lease, the attempt, and the service clock.
  * @returns The refusal, or `null` when this run may be authorized now.
  */
 function judgeReserve(input: {

@@ -44,7 +44,6 @@ import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
  * and the review trigger can both fire on one pull request; the run layer
  * coalesces them on the same subject key.
  *
- * @param issue - Normalized issue.
  * @returns `true` when the issue is open and assigned to that account.
  */
 export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boolean {
@@ -115,7 +114,6 @@ function assignmentEvent(input: {
  * requiring both is what stops a merely-touched issue from re-firing on a
  * months-old assignment.
  *
- * @param input - The shared scan input plus the issues the cycle listed.
  * @returns The assignment events, or the failure that ended the read.
  */
 export async function assignmentEvents(input: TriggerScanInput & {

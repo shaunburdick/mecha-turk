@@ -50,7 +50,6 @@ const DELETE_PATH = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUN
  * Rotate the fixture account's credential (contract §2.2, M5b).
  *
  * @param service - Harness instance; its bearer token is attached for you.
- * @param token - Replacement credential.
  * @returns The rotation response.
  */
 function rotateFixture(service: TestService, token: string): Promise<Response> {

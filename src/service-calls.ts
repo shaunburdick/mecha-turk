@@ -321,7 +321,6 @@ export function resolvePath(correlationId: string): string {
 /**
  * Build the verification path: the post-dispatch agent read-back.
  *
- * @param correlationId - The run's correlation id.
  * @returns The path segment to POST to.
  */
 export function verificationPath(correlationId: string): string {

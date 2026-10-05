@@ -161,8 +161,6 @@ export interface DispatchLoop {
      * Enqueue many subjects' fixture deliveries through **one** real
      * `enqueueEvents` call — a scan-sized batch, exactly how the production
      * loop hands one binding's scan to the queue (`service/poll/loop.ts`).
-     *
-     * @param inputs - Every subject detected in this simulated scan.
      */
     enqueueScan(inputs: readonly EnqueueInput[]): Promise<void>;
     /** Mount a panel on this loop; the caller unmounts or lets it die. */

@@ -118,7 +118,6 @@ export function isMentionComment(comment: PollComment, bindingLogin: string): bo
  * bot-authored and unreadable-author text never triggers, and the token
  * match is the same bounded, case-insensitive one.
  *
- * @param issue - Normalized issue.
  * @returns `true` when a human opened this issue with `@<login>` in its body.
  */
 export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): boolean {
@@ -307,7 +306,6 @@ function bodyMentionEvents(input: {
  * List the comment feed the mention switch asks for and collect its events,
  * including the issue-body mentions the issue list already covers (M6).
  *
- * @param input - The shared scan input plus the issues the cycle listed.
  * @returns The events, or the list failure that ends the scan.
  */
 async function mentionEventsOf(input: TriggerScanInput & {

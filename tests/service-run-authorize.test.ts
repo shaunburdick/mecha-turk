@@ -185,7 +185,6 @@ afterEach(closeFixture);
  * readable actor is only reachable by hand-editing the store, and the FR-080
  * cases model it that way rather than forging an impossible detection.
  *
- * @param issueNumber - Issue the detection is about.
  * @param attribution - The actor and basis to record.
  * @returns A complete event snapshot.
  */
@@ -400,7 +399,6 @@ interface Claim {
 /**
  * Seed one issue, claim it, and hand back the coordinates a reserve needs.
  *
- * @param issueNumber - Issue to detect and claim.
  * @param overrides - Detection members the case under test changes — the
  *   attribution, in the gate's cases.
  * @returns The claimed run's correlation id and the lease it was claimed under.
@@ -447,7 +445,6 @@ function strippedReference(reference: Run['sourceReferences'][number]): Record<s
  * from a hand-edited store — which is precisely the case FR-080 names, and the
  * reason the gate must refuse such a run rather than default it.
  *
- * @param correlationId - The run to rewrite.
  * @returns A promise that settles once the document is durable.
  */
 /**
@@ -458,7 +455,6 @@ function strippedReference(reference: Run['sourceReferences'][number]): Record<s
  * produces can carry this shape — which is exactly the row FR-080 names and the
  * reason the gate must refuse it rather than default it.
  *
- * @param run - The run to rewrite.
  * @returns The same run, with its references' actor members removed.
  */
 function runWithoutAttribution(run: Run): Run {

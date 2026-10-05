@@ -492,7 +492,6 @@ function beats(candidate: Candidate, incumbent: Candidate): boolean {
 /**
  * Fold one rule's `display` declarations into the winner so far.
  *
- * @param input - The rule, the element, the media in force, and the incumbent.
  * @returns The incumbent, or the rule's declaration when it out-ranks it.
  */
 function applySelector(input: SelectorInput): Candidate | null {
@@ -528,7 +527,6 @@ function applySelector(input: SelectorInput): Candidate | null {
 /**
  * Fold one rule into the winner so far, skipping media that is not in force.
  *
- * @param input - The rule, the element, the media in force, and the incumbent.
  * @returns The incumbent, or a better declaration the rule contributes.
  */
 function applyRule(input: RuleInput): Candidate | null {

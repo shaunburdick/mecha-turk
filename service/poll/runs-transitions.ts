@@ -178,7 +178,6 @@ export function parkRun(input: { readonly run: Run; readonly now: string; readon
  * The fail-closed state: once a reservation exists and its result is
  * late, the run is never re-dispatched, re-leased, or retried automatically.
  *
- * @param input - The authorized run and the service-clock stamp.
  * @returns The wedged run, or `null` when the run is not an authorized attempt
  *   waiting on a result.
  */

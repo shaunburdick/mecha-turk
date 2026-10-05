@@ -110,7 +110,6 @@ export type {
  * state itself (`poll/excerpt-trim.ts`) rather than asking this function to
  * guess.
  *
- * @param event - One stored queue row.
  * @returns `true` only for a row in the terminal `dispatched` state.
  */
 export function isDispatchedTerminal(event: QueuedEvent): boolean {

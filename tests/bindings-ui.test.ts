@@ -139,7 +139,6 @@ const TWO_MINUTES_AGO = new Date(Date.now() - 120_000).toISOString();
 /**
  * Read the string values one mount was handed.
  *
- * @param props - Whatever the SDK primitive received.
  * @returns The strings among them, in property order.
  */
 function stringsIn(props: unknown): readonly string[] {

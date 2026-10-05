@@ -74,7 +74,6 @@ export function unknownRunResponse(): HttpResponse {
  *
  * @param context - Route context, for the log a degraded trail leaves.
  * @param operation - The operation name, for that log line.
- * @param outcome - Whatever the operation returned.
  * @param success - Builds the `200` body from the run; a duplicate gets the same
  *   body, because a repeat changed nothing and must look like it.
  * @returns The response to write.

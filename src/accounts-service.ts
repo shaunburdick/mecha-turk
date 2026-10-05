@@ -123,7 +123,6 @@ type PanelMembers =
  * Extracted so `parseAccountsBody` stays inside its complexity budget: one
  * pass, one refusal, and the unset prompt's key simply not written.
  *
- * @param record - One entry of the `accounts` array.
  * @returns Both members, or the refusal that stops the read.
  */
 function readPanelMembers(record: Record<string, unknown>): PanelMembers {
@@ -157,7 +156,6 @@ type AccountDetail = Pick<
  * an account as unexplained. Absent stays absent: a member this DTO did not
  * carry reads as *not reported*, never as a plausible default.
  *
- * @param record - One entry of the `accounts` array.
  * @returns The detail, or `null` when a member was present but unusable.
  */
 function readAccountDetail(record: Record<string, unknown>): AccountDetail | null {

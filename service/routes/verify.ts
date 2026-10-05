@@ -199,7 +199,6 @@ async function recordVerified(input: {
 /**
  * Persist a freshly verified account and answer `201` (SEC-05 ordering).
  *
- * @param attempt - The accepted handoff attempt.
  * @returns The `201` identity body (contract §2.2).
  */
 async function persistVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
@@ -243,7 +242,6 @@ async function persistVerified(attempt: AcceptedAttempt): Promise<HttpResponse> 
 /**
  * Accept a successful verification: identity rules, then persist.
  *
- * @param attempt - The accepted handoff attempt.
  * @returns The `201` body, or the fail-closed refusal that beat it.
  */
 async function acceptVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {

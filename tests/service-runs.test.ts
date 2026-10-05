@@ -176,7 +176,6 @@ async function startEmpty(): Promise<TestService> {
 /**
  * Build the snapshot one fixture event is assembled from.
  *
- * @param input - Issue number, detection stamp, and trigger kind.
  * @returns A complete event snapshot.
  */
 function snapshotOf(input: {
@@ -230,7 +229,6 @@ function snapshotOf(input: {
  * rows and the legacy claim still answers them (FR-005), so the suite seeds
  * the shape those paths were written against.
  *
- * @param input - Issue number, detection stamp, and trigger kind.
  * @returns The queued event.
  */
 function fixtureEvent(input: {
@@ -264,7 +262,6 @@ function detectionStamp(issueNumber: number): string {
  * Write the queue document straight into the service's data directory.
  *
  * @param service - Harness instance owning the data directory.
- * @param rows - Rows to plant as the `events.json` array.
  */
 async function plantQueue(service: TestService, rows: readonly QueuedEvent[]): Promise<void> {
     await writeFile(join(service.dataDir, EVENTS_FILE), JSON.stringify(rows), 'utf8');
@@ -310,7 +307,6 @@ async function startWithQueue(rows: readonly QueuedEvent[]): Promise<TestService
 /**
  * The harness's open store, which the seeding helpers need non-null.
  *
- * @param service - Harness instance serving the store.
  * @returns The handle every direct store call in this suite uses.
  */
 function storeOf(service: TestService): ServiceStore {
@@ -333,7 +329,6 @@ function suiteLogger(): ServiceLogger {
 /**
  * The runs as the service's own document holds them, for read-side assertions.
  *
- * @param service - Harness instance serving the store.
  * @returns Every retained run, in creation order.
  * @throws {StorageUnavailableError} When the run document cannot be read.
  */

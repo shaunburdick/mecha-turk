@@ -136,7 +136,6 @@ async function restoreAccount(input: {
 /**
  * Reconcile one stranded account: mark it, then try to re-verify it.
  *
- * @param deps - Store, verifier, and logger.
  * @param account - The account in a transient state.
  * @returns What happened to this account, for the summary.
  */
@@ -188,7 +187,6 @@ async function reconcileAccount(
 /**
  * Run the startup reconciliation pass.
  *
- * @param deps - Store, verifier, and logger.
  * @returns How many accounts were examined, marked, and restored.
  */
 export async function reconcileInterruptedAccounts(deps: ReconcileDeps): Promise<ReconcileSummary> {

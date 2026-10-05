@@ -278,7 +278,6 @@ function envelopeBody(input: {
 /**
  * Whether a field name is one of the twelve 006 itself declares (AC-101, 006 v1.6.0).
  *
- * @param name - Document member name.
  * @returns `true` for 006's own fields.
  */
 function isSpecs006Field(name: string): boolean {
@@ -324,7 +323,6 @@ function envelopeFor(body: string): ConfigEnvelope {
  * The projected descriptor for one field, so an assertion reads the service's
  * own declaration instead of restating it.
  *
- * @param name - Document member name.
  * @param envelope - The envelope the descriptor was read from.
  * @returns The descriptor, or the test fails here.
  */
@@ -382,7 +380,6 @@ function rowsFor(body: string): readonly SettingsRow[] {
 /**
  * Read every row line a render produced.
  *
- * @param strings - Every string the SDK mounts were handed.
  * @returns The row lines, in paint order.
  */
 function renderedRows(strings: readonly string[]): readonly string[] {
@@ -406,7 +403,6 @@ interface SettingsMount {
 /**
  * Mount only the Settings body against the recording SDK stub.
  *
- * @param input - How the service should answer, and state to arrange first.
  * @returns The runtime, the disposer, and everything the render recorded.
  */
 async function mountSettings(input: {

@@ -111,7 +111,6 @@ export interface AccountMirror {
 /**
  * Narrow a stored entry to an account mirror.
  *
- * @param value - One entry from the `accounts` storage key.
  * @returns `true` only for a mirror this panel wrote itself (contract §3's
  *   four fields; a pre-M1 entry without `scopeCheck` is not one).
  */
@@ -200,7 +199,6 @@ export async function removeAccountMirror(rt: PanelRuntime, numericUserId: strin
  *
  * Exported for callers that render an identity they read back from storage.
  *
- * @param value - One entry from the `accounts` storage key.
  * @returns The mirror, or `null` when the entry is not one of this panel's.
  */
 export function parseAccountMirror(value: unknown): AccountMirror | null {

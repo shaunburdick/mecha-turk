@@ -47,7 +47,6 @@ export interface DetailChips {
  * underneath it edits — so the chips and the form cannot disagree about which
  * row they are about.
  *
- * @param detailBox - The wrapper the detail line lives in.
  * @returns The chip row, repainted and disposed as one unit.
  */
 export function mountDetailChips(detailBox: HTMLElement): DetailChips {

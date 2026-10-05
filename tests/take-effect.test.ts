@@ -379,7 +379,6 @@ function configBody(expectedAgent?: string): string {
 /**
  * The report the verification posted, parsed from the recorded bodies.
  *
- * @param run - The run to read.
  * @returns The POST body.
  */
 function reportOf(run: VerificationRun): Record<string, unknown> {

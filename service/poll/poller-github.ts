@@ -140,7 +140,6 @@ export interface GitHubIssuePoller {
  * Run the M1 issue list and answer it under the field the interface promises.
  *
  * @param runtime - Transport plus the poller's injectables.
- * @param query - Credential, repository, window, and pace.
  * @returns The classified outcome; upstream detail never escapes as text.
  */
 async function issuesList(runtime: PollerRuntime, query: WindowedListQuery): Promise<IssueListOutcome> {
@@ -166,7 +165,6 @@ async function issuesList(runtime: PollerRuntime, query: WindowedListQuery): Pro
  * Run the M6 issue-comments list and answer it under its promised field.
  *
  * @param runtime - Transport plus the poller's injectables.
- * @param query - Credential, repository, window, and pace.
  * @returns The classified outcome; upstream detail never escapes as text.
  */
 async function commentsList(runtime: PollerRuntime, query: WindowedListQuery): Promise<CommentListOutcome> {

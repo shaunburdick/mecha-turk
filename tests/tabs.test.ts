@@ -167,7 +167,6 @@ function mountShell(): {
  * Read the body container the shell created for one tab (they live inside the
  * body region, one level below the root the strip also appended to).
  *
- * @param root - The fake panel root.
  * @param id - The tab id the container carries.
  * @returns The container, or `undefined` when the shell never made one.
  */
@@ -193,7 +192,6 @@ function bodyOf(root: FakeElement, id: string): FakeElement | undefined {
  * Read the body region the shell created — the one element carrying
  * `data-body-region`, and the panel's only scroller (005 FR-082).
  *
- * @param root - The fake panel root.
  * @returns The region, or `undefined` when the shell made none.
  */
 function regionOf(root: FakeElement): FakeElement | undefined {

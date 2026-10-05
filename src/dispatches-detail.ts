@@ -281,7 +281,6 @@ function referenceLine(reference: RunReference): string {
 /**
  * Every source reference of one row, as the reveal lists them.
  *
- * @param row - The selected row.
  * @returns One line per retained reference, earliest first.
  */
 export function referenceDetailLines(row: RunRow): readonly string[] {
@@ -291,7 +290,6 @@ export function referenceDetailLines(row: RunRow): readonly string[] {
 /**
  * The same lines as list items, each keyed so the list cannot collide.
  *
- * @param row - The selected row.
  * @returns The reveal's items.
  */
 export function referenceDetailItems(row: RunRow): ListItem[] {

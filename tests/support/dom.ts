@@ -141,7 +141,6 @@ export class FakeElement {
     /**
      * Record an attribute, as `Element.setAttribute` does.
      *
-     * @param name - Attribute name.
      * @param value - Attribute value.
      */
     public setAttribute(name: string, value: string): void {
@@ -151,7 +150,6 @@ export class FakeElement {
     /**
      * Read an attribute recorded by {@link setAttribute}.
      *
-     * @param name - Attribute name.
      * @returns The value, or `null` when it was never set.
      */
     public attribute(name: string): string | null {

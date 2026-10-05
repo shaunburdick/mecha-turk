@@ -127,7 +127,6 @@ interface AboutMount {
 /**
  * Mount only the About body against the recording SDK stub.
  *
- * @param input - How the service should answer, and state to arrange first.
  * @returns The runtime, the disposer, and everything the render recorded.
  */
 async function mountAbout(input: {
@@ -213,7 +212,6 @@ function healthyService(request: GuestRequest): GuestRequestResult {
 /**
  * Read every ledger line a render produced.
  *
- * @param strings - Every string the SDK mounts were handed.
  * @returns The lines that describe ledger entries.
  */
 function ledgerRowsIn(strings: readonly string[]): readonly string[] {

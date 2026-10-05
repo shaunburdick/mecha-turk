@@ -365,7 +365,6 @@ function dispatchTimeline(timeline: readonly string[]): string[] {
 /**
  * The body the panel sent to one path, failing loudly when it sent none.
  *
- * @param relay - The recorded double.
  * @param key - `METHOD path` the assertion is about.
  * @returns The body text.
  */
@@ -1413,7 +1412,6 @@ function promptRoutes(
 /**
  * The `problem` one attempt report carried, read without trusting its shape.
  *
- * @param relay - The recorded double.
  * @returns The problem text, or `''` when the report carried none.
  */
 function reportedProblem(relay: Harness): string {

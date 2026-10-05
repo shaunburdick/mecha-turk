@@ -147,7 +147,6 @@ interface ProbeState {
  * Attach one probe to the shared collector.
  *
  * @param input - Surface name, subscribe function, and listen window.
- * @param state - Collector to update.
  */
 async function addProbe<T>(input: ProbeInput<T>, state: ProbeState): Promise<void> {
     const probe = await probeSubscription(input.subscribe, input.waitMs);
@@ -168,7 +167,6 @@ async function addProbe<T>(input: ProbeInput<T>, state: ProbeState): Promise<voi
  * Register the lifecycle listener, recording the probe when registration fails.
  *
  * @param host - Host client.
- * @param state - Collector to update.
  * @returns The teardown for the registered listener, or `null` on refusal.
  */
 function registerLifecycleListener(

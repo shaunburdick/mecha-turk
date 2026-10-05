@@ -411,7 +411,6 @@ function candidate(overrides: Partial<Parameters<typeof namingEventOf>[1]> = {})
 /**
  * A normalized `simple-user` member with an explicit type.
  *
- * @param login - The account's login.
  * @param type - The account's type.
  * @returns The member.
  */
@@ -441,7 +440,6 @@ function issueMember(issueNumber?: number): string {
 /**
  * A `simple-user` member as GitHub sends a named account.
  *
- * @param login - The account's login.
  * @param type - The account's type, defaulting to a human.
  * @returns The member as wire JSON text.
  */

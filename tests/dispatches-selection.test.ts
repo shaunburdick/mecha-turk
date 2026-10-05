@@ -192,7 +192,6 @@ function mountBoard(setup?: (rt: PanelRuntime) => void): MountedDispatches {
  * what proves *where* a node sits: a heading under a hidden block is not on
  * screen, whatever its own flags say.
  *
- * @param dom - The mounted tree.
  * @returns Every child mapped to the node that appended it.
  */
 function parentsOf(dom: FakeDom): Map<HidableNode, HidableNode> {
@@ -234,7 +233,6 @@ function isOutOfLayout(parents: Map<HidableNode, HidableNode>, node: HidableNode
  * answer is a heading the panel never mounted at all — a failure that says so
  * rather than an `undefined` assertion downstream.
  *
- * @param dom - The mounted tree.
  * @param text - Exact text to find.
  * @returns The first node carrying it.
  * @throws {Error} When no node carries the text.

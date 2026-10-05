@@ -220,7 +220,6 @@ function viewOf(document: Record<string, unknown>): StatusView {
  * The view for a fixture with one member replaced — the pipeline twenty-odd
  * assertions spell out, named once so a test reads as one line of arrangement.
  *
- * @param member - The member to replace.
  * @returns The parsed view.
  */
 function viewForMember(member: string, value: unknown): StatusView {
@@ -243,7 +242,6 @@ function defaultView(): StatusView {
  * throwing, which is what the rejection tests need and what {@link viewOf}
  * cannot give them.
  *
- * @param member - The member to replace.
  * @returns The parsed view, or `null` when the fixture does not parse.
  */
 function parseMember(member: string, value: unknown): StatusView | null {

@@ -77,7 +77,6 @@ function scopeTone(account: PanelAccount): Tone {
  * They describe the *selected* account, which is exactly the one the display
  * name, rotation, and removal controls underneath them act on.
  *
- * @param detailBox - The wrapper the detail line lives in.
  * @returns The chip row, repainted and disposed as one unit.
  */
 export function mountDetailChips(detailBox: HTMLElement): DetailChips {

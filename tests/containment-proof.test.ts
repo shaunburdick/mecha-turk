@@ -577,7 +577,6 @@ async function acPutBindings(
 /**
  * One whole-document `PUT /v1/config`, patched over the stored document.
  *
- * @param loop - The running loop to call.
  * @param patch - Members to replace in the document as `GET` reports it.
  * @returns The response.
  */

@@ -25,7 +25,6 @@ export type { PollLoop };
  * shutdown path cancels it through {@link PollLoop.stop}. A cycle still
  * running when the next timer fires is skipped rather than overlapped.
  *
- * @param deps - Store, logger, and poller.
  * @returns A handle that stops the loop.
  */
 export function startPollLoop(deps: ScanDeps): PollLoop {

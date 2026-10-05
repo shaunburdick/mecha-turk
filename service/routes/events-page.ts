@@ -265,7 +265,6 @@ export function listQueryOf(
 /**
  * Whether a row belongs to the filtered set the query describes.
  *
- * @param row - Row being tested.
  * @param query - The validated filters.
  * @returns `true` when the row survives both filters.
  */
@@ -307,7 +306,6 @@ export function newestFirst(left: RunHistoryRow, right: RunHistoryRow): number {
 /**
  * Whether a row sits after the page boundary in the retained order.
  *
- * @param row - Row being tested.
  * @param boundary - The last row the previous page served.
  * @returns `true` when the row belongs to a later page.
  */

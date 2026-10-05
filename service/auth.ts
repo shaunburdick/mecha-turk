@@ -21,7 +21,6 @@ const DIGEST_ALGORITHM = 'sha256';
 /**
  * Extract the credential behind the `Bearer ` prefix.
  *
- * @param header - Raw `Authorization` header value, if any.
  * @returns The presented credential, or `''` for a missing or differently
  *   shaped header (indistinguishable from an empty credential by design).
  */
@@ -50,7 +49,6 @@ function digestsMatch(presented: string, expected: string): boolean {
 /**
  * Decide whether an `Authorization` header carries the expected token.
  *
- * @param header - Raw `Authorization` header value, if any.
  * @param token - The expected `OPENCHAMBER_SERVICE_TOKEN`.
  * @returns `true` only when the bearer credential matches in constant time.
  */

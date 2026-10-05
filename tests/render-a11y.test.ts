@@ -130,7 +130,6 @@ const SRC_DIR = 'src';
 /**
  * Collect every string inside one SDK mount's props, however deeply nested.
  *
- * @param value - Anything a mount was handed.
  * @param found - Accumulator the caller owns.
  */
 function collectStrings(value: unknown, found: string[]): void {
@@ -158,7 +157,6 @@ function collectStrings(value: unknown, found: string[]): void {
 /**
  * Every string one SDK mount was handed, at any depth.
  *
- * @param props - Whatever the primitive received.
  * @returns The strings among them, in property order.
  */
 function stringsIn(props: unknown): readonly string[] {
@@ -283,7 +281,6 @@ interface SixTabs {
 /**
  * Mount all six tabs against hostile fixtures and collect everything.
  *
- * @param input - How the service should answer, and state to arrange first.
  * @returns The strings, the requests, and the mount records.
  */
 async function renderSixTabs(input: {

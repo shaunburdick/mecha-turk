@@ -129,7 +129,6 @@ function recordedStrings(): readonly string[] {
 /**
  * Mount only the Settings body against the recording doubles.
  *
- * @param input - How the service should answer each method.
  * @returns The runtime, the disposer, and everything the render recorded.
  */
 async function mountSettings(input: {
@@ -198,7 +197,6 @@ function buttonProps(label: string): { readonly onClick?: () => void } {
  * Type into one field's control, as the operator would.
  *
  * @param field - Field name (the label starts with it).
- * @param value - The text to enter.
  */
 function typeInto(field: string, value: string): void {
     const entry = mounts.log.find(
@@ -250,7 +248,6 @@ function fieldProps(field: string): {
 /**
  * Run one save activation and let the answer land.
  *
- * @param view - The mounted body.
  * @param activations - How many times to activate, for the busy-gate case.
  */
 async function activateSave(view: SettingsMount, activations = 1): Promise<void> {

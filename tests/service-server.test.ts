@@ -113,7 +113,6 @@ async function startServiceForTest(): Promise<TestService> {
 /**
  * Parse a response body as the documented error envelope.
  *
- * @param response - Response whose body should be read.
  * @returns The error's code and message (empty strings when absent).
  */
 async function errorOf(response: Response): Promise<{ readonly code: string; readonly message: string }> {
