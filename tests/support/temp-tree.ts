@@ -9,7 +9,8 @@ import { join } from 'node:path';
  * `afterEach`. That is twenty-six chances to type one half of the option pair
  * wrongly, and a teardown that omits `force` fails the whole run on a directory
  * another test is still holding open. Both halves live here so a suite cannot
- * get one without the other.
+ * get one without the other — together with the retry budget a removal needs
+ * when something is still writing into the tree.
  */
 
 /**
@@ -27,12 +28,39 @@ export async function makeTempTree(prefix: string): Promise<string> {
 }
 
 /**
+ * Removal attempts while a write the caller never waited for lands underneath.
+ *
+ * Each retry waits a multiple of {@link REMOVE_RETRY_MS} longer than the last,
+ * and Node re-lists the directory on every attempt, so a straggler's file is
+ * collected by the next pass instead of failing the removal.
+ */
+const REMOVE_RETRIES = 10;
+
+/** Base delay between removal attempts, in milliseconds. */
+const REMOVE_RETRY_MS = 50;
+
+/**
  * Remove a temp tree and everything under it.
+ *
+ * The retries are the only defence against a producer that is still writing.
+ * A service shutdown stops both schedulers from re-arming but never awaits a
+ * fire-and-forget pass already in flight — the first scan cycle of an instance
+ * started over an existing store — so its `scan-state.json` can land while
+ * this walk is deleting the directory, and `rmdir` answers `ENOTEMPTY`. That
+ * fails the teardown of a test whose assertions all passed, which is a worse
+ * report than the one it was hiding. The budget is finite, so what the retries
+ * absorb is a *bounded* straggler — one late write — and not a writer that never
+ * stops.
  *
  * @param root - Directory {@link makeTempTree} returned.
  */
 export async function removeTempTree(root: string): Promise<void> {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, {
+        recursive: true,
+        force: true,
+        maxRetries: REMOVE_RETRIES,
+        retryDelay: REMOVE_RETRY_MS,
+    });
 }
 
 /** A temp tree and the `store/` child a service resolves its data directory from. */

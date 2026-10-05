@@ -16,7 +16,7 @@
  * stamps the caller injects — no test ever waits on a clock (NFR-112).
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -41,7 +41,6 @@ import type { ClaimedRun } from '../../src/claim-service.ts';
 import type { PanelRuntime } from '../../src/panel-state.ts';
 import type { PanelBinding } from '../../src/bindings-service.ts';
 import type { PanelHost } from '../../src/session.ts';
-import type { GitHubIssuePoller } from '../../service/poll/poller-github.ts';
 import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
 import {
@@ -54,7 +53,6 @@ import {
     bindEnqueue,
 } from './fixture-enqueue.ts';
 import type { EnqueueInput } from './fixture-enqueue.ts';
-import { offlinePoller } from './github.ts';
 import {
     hasNothingToRelease,
     PROJECT_ID,
@@ -65,34 +63,13 @@ import {
     fakeHost,
 } from './panel.ts';
 import type { StorageDouble } from './panel.ts';
+import { removeTempTree } from './temp-tree.ts';
 import { startTestService } from './service.ts';
 import type { TestService } from './service.ts';
 import { writeLoopBinding } from './binding-fixture.ts';
 
 /** Prefix under the system temp directory for one loop. */
 const TEMP_PREFIX = 'mecha-turk-loop-';
-
-/**
- * Poller every loop instance's background scan runs under.
- *
- * The rationale — why the background scan must not reach GitHub from a fixture
- * that seeds a binding, and why empty answers keep it on the test's own clock —
- * lives with the double itself in `support/github.ts`, beside the offline
- * verifier it answers the same question for the credential side.
- */
-const OFFLINE_POLLER: GitHubIssuePoller = offlinePoller();
-
-/**
- * Removal attempts for one loop's temp root while a straggler write lands.
- *
- * Each retry waits a multiple of {@link ROOT_REMOVE_RETRY_MS} longer than the
- * last, and Node re-lists the directory on every attempt, so a straggler's file
- * is collected by the next pass instead of failing the removal.
- */
-const ROOT_REMOVE_RETRIES = 10;
-
-/** Base delay between removal attempts, in milliseconds. */
-const ROOT_REMOVE_RETRY_MS = 50;
 
 /** Stamp a fixture-aged lease reads as expired against (the service's clock). */
 const EXPIRED_LEASE_STAMP = '2000-01-01T00:00:00.000Z';
@@ -319,17 +296,7 @@ async function drainLoop(input: {
     }
 
     await input.service.shutdown();
-    // `shutdown()` drains in-flight requests and stops both schedulers from
-    // re-arming, but it does not await a fire-and-forget pass already in
-    // flight (the first scan cycle, startup reconciliation). `maxRetries`
-    // makes the removal re-list the tree on every ENOTEMPTY instead of
-    // failing: a straggler's file is picked up by the next attempt.
-    await rm(input.root, {
-        recursive: true,
-        force: true,
-        maxRetries: ROOT_REMOVE_RETRIES,
-        retryDelay: ROOT_REMOVE_RETRY_MS,
-    });
+    await removeTempTree(input.root);
     LOG_LINES.length = 0;
 }
 
@@ -418,13 +385,13 @@ function mountPanel(input: {
 }
 
 /**
- * Start one loop instance: the harness defaults plus the offline poller.
+ * Start one loop instance on the harness defaults.
  *
  * @param dataDir - Store directory the instance serves.
  * @returns The running instance.
  */
 async function startLoopService(dataDir: string): Promise<TestService> {
-    return await startTestService({ dataDir, poller: OFFLINE_POLLER });
+    return await startTestService({ dataDir });
 }
 
 /**

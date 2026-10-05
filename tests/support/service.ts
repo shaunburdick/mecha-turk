@@ -10,7 +10,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp } from 'node:fs/promises';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,7 +20,8 @@ import { startService } from '../../service/server.ts';
 import type { GitHubVerifier } from '../../service/github.ts';
 import type { GitHubIssuePoller } from '../../service/poll/poller-github.ts';
 import type { ServiceHandle } from '../../service/server.ts';
-import { offlineVerifier } from './github.ts';
+import { offlinePoller, offlineVerifier } from './github.ts';
+import { removeTempTree } from './temp-tree.ts';
 
 /** Port value the harness hands the service so the OS picks one. */
 const OS_ASSIGNED_PORT = '0';
@@ -51,12 +52,13 @@ export interface StartTestServiceOptions {
     /**
      * GitHub issue poller the background scan loop runs under.
      *
-     * Defaults to the process `fetch`-backed poller, exactly as production
-     * does. A harness whose fixture seeds an active binding injects an
-     * offline one instead: `startService` arms its first scan cycle
-     * fire-and-forget, so with a real poller that cycle reaches GitHub and
-     * writes `scan-state.json` on a schedule no shutdown drains — the
-     * ENOTEMPTY teardown race this option exists to remove.
+     * Defaults to the harness's offline poller, so no suite reaches the network
+     * by starting a service. That is more than a rule about tests. `startService`
+     * arms its first scan cycle fire-and-forget, and a real poller spends it in
+     * a round trip to GitHub that no shutdown waits for: the cycle's
+     * `scan-state.json` write then lands while the harness is deleting the
+     * directory it belongs in, and `rmdir` answers `ENOTEMPTY`. Inject a double
+     * only to feed a suite specific answers.
      */
     readonly poller?: GitHubIssuePoller;
 }
@@ -114,7 +116,7 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
         dataDir,
         log,
         github: options.github ?? offlineVerifier(),
-        ...(options.poller !== undefined && { poller: options.poller }),
+        poller: options.poller ?? offlinePoller(),
     });
     const baseUrl = `http://${HOST}:${handle.port}`;
 
@@ -135,9 +137,11 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
             // binds and never awaits it (readiness must not wait on GitHub),
             // and `handle.shutdown()` does not drain it either. The harness
             // awaits it here so a reconcile write can never land under the
-            // removal below.
+            // removal below. The first scan cycle is the one writer left: it is
+            // armed fire-and-forget too, and only `removeTempTree`'s retries
+            // absorb it.
             await handle.reconciled;
-            await rm(home, { recursive: true, force: true });
+            await removeTempTree(home);
         },
     };
 }

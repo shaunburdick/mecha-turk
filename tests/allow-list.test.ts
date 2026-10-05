@@ -25,8 +25,9 @@
  *    D9, 003 FR-076).
  *
  * Offline and deterministic: a real service on a temp data directory, a fake
- * GitHub, a poller that answers every feed empty so the background scan can
- * never reach the network, and no credential that is not a fixture value.
+ * GitHub, the harness's poller that answers every feed empty so the background
+ * scan can never reach the network, and no credential that is not a fixture
+ * value.
  */
 
 import { readdir, readFile, writeFile } from 'node:fs/promises';
@@ -37,7 +38,6 @@ import { BINDINGS_FILE } from '../service/bindings.ts';
 import { isActorAllowed } from '../service/bindings-allow-list.ts';
 import { BINDINGS_PATH } from '../service/routes/bindings.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
-import type { GitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
@@ -115,26 +115,6 @@ const afterEachDrain = async (): Promise<void> => {
 afterEach(afterEachDrain);
 
 /**
- * A poller whose every feed answers empty.
- *
- * The harness binds a real, active binding, so the background scan loop would
- * otherwise list against GitHub. Injecting this keeps the suite offline and
- * keeps the scan from writing anything the leak scan then has to reason about.
- *
- * @returns The poller the harness hands the cycle.
- */
-function silentPoller(): GitHubIssuePoller {
-    const empty = { kind: 'ok' as const };
-
-    return {
-        listOpenIssues: async () => ({ ...empty, issues: [] }),
-        listIssueComments: async () => ({ ...empty, comments: [] }),
-        listOpenPulls: async () => ({ ...empty, pulls: [] }),
-        listIssueEvents: async () => ({ ...empty, events: [], exhausted: false }),
-    };
-}
-
-/**
  * Start the service against a fake GitHub and register the fixture account.
  */
 async function startWithAccount(): Promise<TestService> {
@@ -144,7 +124,7 @@ async function startWithAccount(): Promise<TestService> {
             headers: headerMap([['x-oauth-sopes', 'repo, user']]),
         },
     });
-    const service = await startTestService({ github: github.verifier, poller: silentPoller() });
+    const service = await startTestService({ github: github.verifier });
     running.push(service);
     await service.handle.reconciled;
 
