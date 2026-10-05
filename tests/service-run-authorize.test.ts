@@ -386,7 +386,7 @@ function jsonHeaders(): Record<string, string> {
  * @returns The same path with its parameter bound to {@link RUN_ID}.
  */
 function routePath(pattern: string): string {
-    return pattern.replace(CORRELATION_PARAM, RUN_ID);
+    return pattern.replace(CORRELATION_PARAM, () => RUN_ID);
 }
 
 /** The claim coordinates a reserve or a block report needs. */

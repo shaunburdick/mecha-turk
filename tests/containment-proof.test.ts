@@ -600,7 +600,7 @@ function acPutProfile(
     loop: Awaited<ReturnType<typeof startDispatchLoop>>,
     body: Record<string, unknown>,
 ): Promise<Response> {
-    return loop.service.call(ACCOUNT_PATH.replace(':numericUserId', ACCOUNT_ID), {
+    return loop.service.call(ACCOUNT_PATH.replace(':numericUserId', () => ACCOUNT_ID), {
         method: 'PUT',
         headers: acJsonHeaders(),
         body: JSON.stringify(body),

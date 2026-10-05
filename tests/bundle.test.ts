@@ -631,7 +631,7 @@ async function putConfig(loop: DispatchLoop, patch: Readonly<Record<string, unkn
 
 /** One `PUT /v1/accounts/:numericUserId` profile write against the seeded account. */
 function putProfile(loop: DispatchLoop, body: Record<string, unknown>): Promise<Response> {
-    return loop.service.call(ACCOUNT_PATH.replace(':numericUserId', SCANNED_ACCOUNT_ID), {
+    return loop.service.call(ACCOUNT_PATH.replace(':numericUserId', () => SCANNED_ACCOUNT_ID), {
         method: 'PUT',
         headers: jsonHeaders(),
         body: JSON.stringify(body),

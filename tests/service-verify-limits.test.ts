@@ -41,10 +41,10 @@ afterEach(stopAllServices);
 const ACCOUNT_PATH_PARAM = ':numericUserId';
 
 /** Routed path of the fixture account's credential resource. */
-const ROTATION_PATH = ACCOUNT_TOKEN_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+const ROTATION_PATH = ACCOUNT_TOKEN_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUNT_ID));
 
 /** Routed path of the fixture account resource (delete). */
-const DELETE_PATH = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+const DELETE_PATH = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUNT_ID));
 
 /**
  * Rotate the fixture account's credential (contract §2.2, M5b).

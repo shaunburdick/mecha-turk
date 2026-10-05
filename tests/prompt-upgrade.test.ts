@@ -744,7 +744,7 @@ describe('T-036 arrival writes nothing (FR-018, FR-089, SC-128, AC-131, AC-142)'
         const accountBytes = await fileBytes(ACCOUNT_FILE);
         const bindingsBytes = await fileBytes(BINDINGS_FILE);
         const service = await bootPre004Store();
-        const profilePath = ACCOUNT_PATH.replace(':numericUserId', ACCOUNT_ID);
+        const profilePath = ACCOUNT_PATH.replace(':numericUserId', () => ACCOUNT_ID);
 
         for (const { label, value, forbidden } of NON_TEXT_VALUES) {
             // The configuration write is a whole-document replacement: the

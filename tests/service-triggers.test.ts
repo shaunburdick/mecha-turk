@@ -907,7 +907,7 @@ describe('event kind round-trip (nullable Slice-2 fields)', () => {
             };
             const event = createEvent(snapshot);
 
-            expect(parseStoredEvent(JSON.parse(JSON.stringify(event)) as unknown)).toEqual(event);
+            expect(parseStoredEvent(structuredClone(event))).toEqual(event);
             expect(event.headSha).toBe(HEAD_SHA);
             expect(event.baseRef).toBe(BASE_REF);
         }

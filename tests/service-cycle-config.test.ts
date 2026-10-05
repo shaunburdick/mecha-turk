@@ -323,9 +323,9 @@ function issuePage(count: number, updatedAt: string): string {
     const entries: string[] = [];
     for (let index = 1; index <= count; index += 1) {
         const one = entry
-            .replaceAll('ISSUE', String(index))
-            .replace('LOGIN', ACCOUNT_LOGIN)
-            .replace('STAMP', updatedAt);
+            .replaceAll('ISSUE', () => String(index))
+            .replace('LOGIN', () => ACCOUNT_LOGIN)
+            .replace('STAMP', () => updatedAt);
         entries.push(one);
     }
 

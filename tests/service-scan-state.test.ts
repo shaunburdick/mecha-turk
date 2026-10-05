@@ -142,7 +142,7 @@ describe('parseStoredScanState (never-scanned slot, MVP fix 1)', () => {
         {
             // The operator's exact on-disk file, as it arrives after a JSON load.
             const stored = { bindings: { [BINDING_ID]: { lastScanAt: null, lastError: SKIP_REASON } } };
-            const reloaded = JSON.parse(JSON.stringify(stored)) as Record<string, unknown>;
+            const reloaded = structuredClone(stored) as Record<string, unknown>;
 
             const parsed = parseStoredScanState(reloaded);
 

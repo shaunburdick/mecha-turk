@@ -262,7 +262,7 @@ async function startServiceForTest(): Promise<TestService> {
  * @returns The same path with the parameter bound to {@link RUN_ID}.
  */
 function bound(pattern: string): string {
-    return pattern.replace(':correlationId', RUN_ID);
+    return pattern.replace(':correlationId', () => RUN_ID);
 }
 
 /**

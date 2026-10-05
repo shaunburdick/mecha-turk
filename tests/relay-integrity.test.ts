@@ -549,8 +549,8 @@ describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
 describe('the relay dispatches only what it was offered, leased (FR-035)', () => {
     it('dispatches nothing and says so when the offer carries no lease', async () => {
         {
-            const offer = JSON.parse(JSON.stringify(claimedRun())) as Record<string, unknown>;
-            delete offer.lease;
+            const { lease, ...offer } = structuredClone(claimedRun());
+            void lease;
             const relay = harness({
                 [PENDING_GET]: {
                     status: 200,
@@ -567,8 +567,7 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 
     it('dispatches nothing when an offered run is not in the state it was offered in', async () => {
         {
-            const offer = JSON.parse(JSON.stringify(claimedRun())) as Record<string, unknown>;
-            offer.state = 'claimed';
+            const offer = { ...structuredClone(claimedRun()), state: 'claimed' };
             const relay = harness({
                 [PENDING_GET]: {
                     status: 200,

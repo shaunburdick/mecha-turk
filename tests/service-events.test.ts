@@ -440,7 +440,7 @@ describe('event queue round-trip (writer → reader)', () => {
 describe('parseStoredEvent (the issueNumber boundary)', () => {
     it('accepts the writer\'s numeric issueNumber as stored', () => {
         const event = createEvent(fixtureSnapshot(2, ''));
-        const stored = JSON.parse(JSON.stringify(event)) as unknown;
+        const stored = structuredClone(event);
 
         expect(parseStoredEvent(stored)).toEqual(event);
     });
@@ -460,7 +460,7 @@ describe('parseStoredEvent (the issueNumber boundary)', () => {
 describe('delivery row shapes (003 run layer, T-004)', () => {
     it('writes no lifecycle state onto a new row, and does carry its subject type', () => {
         const row = createEvent(fixtureSnapshot(2, ''));
-        const stored = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+        const stored = structuredClone(row);
 
         expect('state' in stored).toBe(false);
         expect('claimedAt' in stored).toBe(false);
@@ -479,7 +479,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
 
     it('parses an old-shape (shipped) row and a new-shape row alike', () => {
         const oldShape = shippedRow();
-        const newShape = JSON.parse(JSON.stringify(createEvent(fixtureSnapshot(7, '')))) as unknown;
+        const newShape = structuredClone(createEvent(fixtureSnapshot(7, '')));
 
         expect(parseStoredEvent(oldShape)).toEqual(oldShape);
         expect(parseStoredEvent(newShape)).toEqual(newShape);
@@ -526,7 +526,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
     // observed twice is still one event.
     it('carries the actor and its basis onto the row, and round-trips on real bytes', async () => {
         const row = createEvent({ ...fixtureSnapshot(9, 'body'), actorLogin: 'Alice', actorAttribution: 'direct' });
-        const stored = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+        const stored = structuredClone(row);
 
         expect(stored.actorLogin).toBe('Alice');
         expect(stored.actorAttribution).toBe('direct');
@@ -547,7 +547,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
     });
 
     it('accepts both members when present and refuses an unrecognized basis', () => {
-        const row = JSON.parse(JSON.stringify(createEvent(fixtureSnapshot(4, '')))) as Record<string, unknown>;
+        const row: Record<string, unknown> = { ...structuredClone(createEvent(fixtureSnapshot(4, ''))) };
 
         expect(parseStoredEvent(row)).toMatchObject({ actorLogin: 'alice', actorAttribution: LEGACY_BASIS });
         expect(parseStoredEvent({ ...row, actorAttribution: 'direct' })).toMatchObject({ actorAttribution: 'direct' });

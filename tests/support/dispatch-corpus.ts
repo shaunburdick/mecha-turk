@@ -307,7 +307,7 @@ export async function post(input: {
 
 /** The concrete path one run-scoped route answers on. */
 export function bound(pattern: string, correlationId: string): string {
-    return pattern.replace(':correlationId', correlationId);
+    return pattern.replace(':correlationId', () => correlationId);
 }
 
 /** The error code a failure envelope carries, read without trusting its shape. */

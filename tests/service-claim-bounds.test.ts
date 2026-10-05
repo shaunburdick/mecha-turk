@@ -429,7 +429,7 @@ describe('T-039 excerpt text is bounded with an explicit marker (FR-014, FR-013)
             // The panel's context builder (T-020) reads these strings back; a
             // marker that changed shape on the wire would be read as source text.
             for (const marker of [EXCERPT_OMITTED_MARKER, `excerpt${EXCERPT_TRUNCATION_MARKER}`]) {
-                expect(JSON.parse(JSON.stringify({ excerpt: marker })).excerpt).toBe(marker);
+                expect(structuredClone({ excerpt: marker }).excerpt).toBe(marker);
                 expect(isExcerptMarker(marker)).toBe(true);
             }
             // A genuine empty excerpt (an issue with no body) is not a marker.

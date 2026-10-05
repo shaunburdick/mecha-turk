@@ -32,6 +32,7 @@ import { EVENTS_PATH, EVENTS_PENDING_PATH } from '../service/routes/events.ts';
 import { promptFingerprint, resolvePromptSnapshot } from '../service/prompt.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
+import type { AuditEntry } from '../service/audit.ts';
 import { startTestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
 import type { TestService } from './support/service.ts';
@@ -208,7 +209,7 @@ interface DispatchInput {
 async function dispatchOnce(service: TestService, input: DispatchInput): Promise<Attempt> {
     const attempt = await claimFirst(service, input.query ?? '');
     const scoped = (suffix: string): string =>
-        suffix.replace(':correlationId', encodeURIComponent(attempt.correlationId));
+        suffix.replace(':correlationId', () => encodeURIComponent(attempt.correlationId));
 
     const reserve = await service.call(scoped(RESERVE_PATH), {
         method: 'POST',
@@ -242,12 +243,12 @@ async function dispatchOnce(service: TestService, input: DispatchInput): Promise
 }
 
 /** Every stored row of one event type, as plain records. */
-async function rowsOf(service: TestService, eventType: string): Promise<readonly Record<string, unknown>[]> {
+async function rowsOf(service: TestService, eventType: string): Promise<readonly AuditEntry[]> {
     const entries = await readAuditEntries(storeOf(service));
 
     return entries
         .filter((entry) => entry.eventType === eventType)
-        .map((entry) => JSON.parse(JSON.stringify(entry)) as Record<string, unknown>);
+        .map((entry) => structuredClone(entry));
 }
 
 describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037, FR-087)', () => {

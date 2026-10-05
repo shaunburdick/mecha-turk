@@ -349,7 +349,7 @@ async function readRun(correlationId: string): Promise<Run> {
  * @returns The same path with its parameter bound.
  */
 function bound(pattern: string, correlationId: string): string {
-    return pattern.replace(':correlationId', correlationId);
+    return pattern.replace(':correlationId', () => correlationId);
 }
 
 /**

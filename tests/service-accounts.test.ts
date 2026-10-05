@@ -226,7 +226,7 @@ function rotateToken(options: {
 }): Promise<Response> {
     const { service, token, userId = String(ACCOUNT_ID) } = options;
 
-    return service.call(ACCOUNT_TOKEN_PATH.replace(ACCOUNT_PATH_PARAM, userId), {
+    return service.call(ACCOUNT_TOKEN_PATH.replace(ACCOUNT_PATH_PARAM, () => userId), {
         method: 'POST',
         headers: jsonHeaders(),
         body: credentialBody(token),
@@ -422,7 +422,7 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
 
-            const response = await service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID)), {
+            const response = await service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUNT_ID)), {
                 method: 'DELETE',
             });
             const body = (await response.json()) as { removed?: boolean };
@@ -441,7 +441,7 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
             await verifyOk(service);
             const binding = { bindingId: 'bind-1', accountNumericUserId: String(ACCOUNT_ID), state: 'active' };
             await writeFile(join(service.dataDir, BINDINGS_FILE), JSON.stringify([binding]), 'utf8');
-            const path = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+            const path = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUNT_ID));
 
             const refused = await service.call(path, { method: 'DELETE' });
             const error = (await refused.json()) as { error?: { code?: string } };
@@ -467,7 +467,7 @@ describe('DELETE /v1/accounts/:id — operator-driven removal (§2.2, §4 rule 7
             const service = await startService({ user: USER_OK });
 
             for (const id of [String(OTHER_ACCOUNT_ID), 'not-a-number']) {
-                const response = await service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, id), { method: 'DELETE' });
+                const response = await service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => id), { method: 'DELETE' });
                 const error = (await response.json()) as { error?: { code?: string } };
                 expect(response.status).toBe(404);
                 expect(error.error?.code).toBe(UNKNOWN_ACCOUNT_CODE);
@@ -616,7 +616,7 @@ function putProfileAt(options: {
 }): Promise<Response> {
     const { service, userId, body } = options;
 
-    return service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, userId), {
+    return service.call(ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => userId), {
         method: 'PUT',
         headers: jsonHeaders(),
         body,
@@ -783,7 +783,7 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             await verifyOk(service);
             const file = accountFileOf(service);
             const before = await readFile(file, 'utf8');
-            const profilePath = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+            const profilePath = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUNT_ID));
 
             // `{}`, an array, an explicit `null`, and no body at all carry
             // neither member; every one is a refusal, never a silent `200`.
@@ -1302,7 +1302,7 @@ describe('the retired routes resolve nowhere (005 v1.10.0, account-display-name 
     it('answers the unknown-route refusal for both and keeps no reference', async () => {
         const service = await startService({ user: USER_OK });
         await verifyOk(service);
-        const profilePath = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+        const profilePath = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUNT_ID));
 
         // No alias, no redirect, no legacy handler: each retired suffix reaches
         // a path no route entry matches, so the pipeline answers its own
@@ -1492,7 +1492,7 @@ describe('account.prompt-updated — one row per tier change, never the text (00
 
         const binding = { bindingId: 'bind-1', accountNumericUserId: String(ACCOUNT_ID), state: 'active' };
         await writeFile(join(service.dataDir, BINDINGS_FILE), JSON.stringify([binding]), 'utf8');
-        const path = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+        const path = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUNT_ID));
 
         const forced = await service.call(`${path}?force=1`, { method: 'DELETE' });
         expect(forced.status).toBe(200);

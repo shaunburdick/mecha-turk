@@ -174,7 +174,7 @@ function storedDocumentWith(prompt: unknown, present: boolean): unknown {
         deliveries: [createEvent(assignment(1))],
         now: STAMP,
     });
-    const raw = JSON.parse(JSON.stringify(planned.document)) as Record<string, unknown>;
+    const raw = structuredClone(planned.document);
     const [row] = rawRuns(raw);
     if (row === undefined) {
         throw new Error('the fixture produced no run');

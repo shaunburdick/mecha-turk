@@ -595,7 +595,7 @@ describe('T-030 the shipped store boots through the upgraded service (NFR-103, A
         const failed = rowFor(history, 5);
         const retry = await answer({
             service,
-            path: RETRY_PATH.replace(':correlationId', textOf(failed, 'correlationId')),
+            path: RETRY_PATH.replace(':correlationId', () => textOf(failed, 'correlationId')),
             body: {
                 correlationId: failed.correlationId,
                 attempt: failed.attempt,
@@ -611,7 +611,7 @@ describe('T-030 the shipped store boots through the upgraded service (NFR-103, A
         // answers its own distinct refusal (FR-041).
         const dispatched = rowFor(history, 4);
         const refused = await service.call(
-            RETRY_PATH.replace(':correlationId', textOf(dispatched, 'correlationId')),
+            RETRY_PATH.replace(':correlationId', () => textOf(dispatched, 'correlationId')),
             {
                 method: 'POST',
                 headers: { [CONTENT_TYPE_HEADER]: 'application/json' },

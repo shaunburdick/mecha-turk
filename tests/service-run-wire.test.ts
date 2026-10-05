@@ -409,7 +409,7 @@ async function driveAndClaim(issueNumber: number): Promise<{ readonly run: Run; 
  * @returns The same path with its parameter bound.
  */
 function bound(pattern: string, correlationId: string): string {
-    return pattern.replace(':correlationId', correlationId);
+    return pattern.replace(':correlationId', () => correlationId);
 }
 
 /** One response, with its status and parsed body. */
