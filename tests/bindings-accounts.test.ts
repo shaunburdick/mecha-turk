@@ -222,6 +222,15 @@ const OTHER_IDLE_LOGIN = 'revoked-mt';
 const LAST_VERIFIED_AT = FIXTURE_TIMESTAMP;
 
 /**
+ * The tab's own failed-read line, verbatim as `loadBindings` writes it on a
+ * failed read (`src/bindings.ts`): the cause and the retry, in the one channel
+ * FR-019 and FR-101's channel rule give them to. It is **not** exported by the
+ * panel, so it is pinned here as the literal the panel paints — which is what
+ * makes the assertions about it assertions about rendered copy.
+ */
+const FAILED_READ_NOTE = 'One of the reads failed — refresh to retry.';
+
+/**
  * Build one credential-free account the gate's fixtures offer.
  *
  * @returns A complete account; `usable` alone drives the picker's scope.
@@ -278,18 +287,25 @@ function otherInactiveAccount(): PanelAccount {
  * (a **failed** read after a **successful** read of an empty list) expressible
  * without inventing a state member.
  *
- * @returns A Bindings-tab state with the read state and accounts loaded.
+ * @returns A Bindings-tab state with the read state, accounts, and note loaded.
  */
 function bindingsState(input: {
     /** Where the accounts read stands. */
     readonly status?: BindingsStatus;
     /** Accounts the panel's list holds, in any lifecycle state. */
     readonly accounts?: readonly PanelAccount[];
+    /**
+     * The tab's own failed-read line, rendered verbatim by `repaintBindingsPane`
+     * — the channel FR-019 and FR-101's channel rule hand the cause and the
+     * retry to, so a case about that channel has to put text in it.
+     */
+    readonly note?: string;
 }): BindingsTabState {
     return {
         ...initialBindings(),
         status: input.status ?? 'ready',
         accounts: input.accounts ?? [],
+        note: input.note ?? '',
     };
 }
 
@@ -1341,19 +1357,35 @@ describe('K-5 and K-6 the mount, the repaint, and the gate (AC-150, AC-152)', ()
         for (const status of ['idle', 'loading', 'error'] as const) {
             // The stale-list case: a **failed** read after a **successful** read
             // of an empty list leaves `accounts: []` on the panel's own state.
-            const mounted = mountedBindings({ state: bindingsState({ status, accounts: [] }) });
+            // Only a failed read has a cause to report, so only `error` gets the
+            // failed-read line the tab would really be carrying.
+            const mounted = mountedBindings({
+                state: bindingsState({
+                    status,
+                    accounts: [],
+                    note: status === 'error' ? FAILED_READ_NOTE : '',
+                }),
+            });
 
             expect(newBindingProps().disabled, status).toBe(true);
             expect(elementsCarryingCount(ACCOUNT_REQUIRED_REASON), status).toBe(0);
             expect(elementsCarryingCount(EMPTY_TEXT_NO_ACCOUNTS), status).toBe(0);
             expect(elementsCarryingCount(EMPTY_TEXT_NOT_KNOWN), status).toBe(1);
             expect(listProps().emptyText, status).toBe(EMPTY_TEXT_NOT_KNOWN);
-            // The tab's own failed-read channel keeps carrying the cause, and the
-            // empty text does not restate it (FR-101's channel rule, FR-019).
-            // `repaintBindingsPane` paints `bindings.note` verbatim, so the
-            // state's note is the rendered note.
-            expect(mounted.rt.state.bindings.note, status).not.toContain('account list is not known');
-            expect(mounted.rt.state.bindings.note, status).not.toContain(EMPTY_TEXT_NOT_KNOWN);
+            // The tab's own failed-read channel keeps carrying the cause and the
+            // retry — read from the **element** that renders it, since
+            // `repaintBindingsPane` paints `bindings.note` verbatim and the claim
+            // is about rendered copy. One `mountText` carries it after a failed
+            // read, and none does before one, because there is no cause to report
+            // (FR-019).
+            expect(
+                elementsCarrying(FAILED_READ_NOTE).map((entry) => entry.key),
+                status,
+            ).toEqual(status === 'error' ? ['mountText'] : []);
+            // …and the empty text restates none of it: not the sentence, and not
+            // the claim or the retry it is built out of (FR-101's channel rule).
+            expect(listProps().emptyText, status).not.toContain(FAILED_READ_NOTE);
+            expect(listProps().emptyText, status).not.toMatch(/failed|refresh to retry/iu);
             release(mounted);
         }
     });
@@ -1577,6 +1609,22 @@ describe('K-9 the state-keyed copy scan forbids pressing a disabled control, and
             expect(buttonProps('Refresh bindings').disabled, label).toBe(status === 'loading');
             // And it does not restate the failed read's cause or its retry.
             expect(frame.emptyText, label).not.toMatch(/failed|refresh to retry/iu);
+            release(mounted);
+        }
+
+        // …and FR-100's gate must not reach this control either. `ready` is the
+        // **only** read state where the gate holds, so it is the only state a
+        // gate spread onto *Refresh* could show in — the four pre-read states
+        // above all have `blocked === false` by FR-100's own bar, so on their own
+        // they cannot tell the shipped line from a spread one, and a failure
+        // names the state it was looked for in.
+        for (const [label, accounts] of [
+            ['ready · none', []],
+            ['ready · one', [accountFixture()]],
+        ] as const) {
+            const { mounted } = emptyTextFrame({ label, status: 'ready', accounts });
+
+            expect(buttonProps('Refresh bindings').disabled, label).toBe(false);
             release(mounted);
         }
     });

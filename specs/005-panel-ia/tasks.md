@@ -617,10 +617,23 @@ test: mount the tab in each of the §K.3 states and read the props the operator 
   **absent** (hidden **and** empty, not present-and-blank) and the empty text is the retained string;
   **both directions**, because a constant that is always on or always off passes a one-sided suite;
   the empty text reaches `emptyText` on the **repaint** path and not only at mount; no control is
-  added to the toolbar, the list, or anywhere on the tab. **(FR-121, FR-122, AC-154, SC-114)**
-- [x] **K-6** **The gate** (`src/bindings-editor.ts`): `repaintBindingActions`'s `newBinding` line  gains the gate **conjunctively** — `disabled: bindings.status !== 'ready' || accountGate(bindings).blocked`
-  — and the `add`, `cancel`, `toggle` and `removeSelected` lines are **untouched**. The gate is
-  `accountGate`, the shared predicate: **no second comparison of `status`** here (K-3 asserts it).
+  added to the toolbar, the list, or anywhere on the tab. **Corrected 2026-10-05**: the pre-read /
+  unread case asserted only that the tab's note line did **not** restate the empty text, over a
+  `bindingsState` whose `note` was `''` in every state of that loop — so both halves of that
+  assertion were vacuous. `bindingsState` now takes an optional `note`, the `error` states carry the
+  **real** failed-read sentence, and the case asserts both real halves: exactly one `mountText`
+  element carries that cause after a failed read and none before one, and the empty text restates
+  neither the sentence nor the claim it is built out of. **(FR-121, FR-122, AC-154, SC-114)**
+- [x] **K-6** **The gate** (`src/bindings-editor.ts`): `repaintBindingActions`'s `newBinding` line
+  gains the gate **conjunctively** — `disabled: !accountsRead(bindings) || accountGate(bindings).blocked`  — and the `add`, `cancel`, `toggle` and `removeSelected` lines are **untouched**. The gate is
+  `accountGate`, the shared predicate, and the read-state conjunct is read through the **same**
+  `accountsRead` rather than through a second literal `status === 'ready'` at this site.
+  **Corrected 2026-10-05**: the line first shipped as `bindings.status !== 'ready' || …`, under a
+  comment claiming *"The predicate is the shared one, not a second `status` test"* — the line **was**
+  that second test, and **K-3's scan cannot see it**, being scoped to `src/bindings-accounts.ts`, so
+  the drift the module exists to prevent was live here and green. The shared call is what makes the
+  comment true; the `add` line at `:151` and the picker at `:340` keep their own literals by FR-100
+  and FR-103, which forbid touching them.
   Gating `add` as well is forbidden (K.7). *Tests*: zero accounts ⇒ `newBinding.disabled === true`;
   **one** account ⇒ `false`; **two accounts, neither `active`** ⇒ `false` (the gate is zero-*at-all*,
   not zero-*usable*, FR-120); `idle` / `loading` / `error` with an empty list ⇒ `true` by the read-state
@@ -666,10 +679,16 @@ rendering it, and the withdrawn placeholder is gone — with each claim proved a
      **does** contain `select New binding`, proving the matcher can find what it forbids — and AC-156's
      **mounted-at-`idle`** fixture, the state the third row governs and the one where the pre-fix code
      rendered it. Also assert the third row's string by equality, that it asserts **no account count**
-     (no *no accounts*, *0 accounts*, *none*), and that it names **only Refresh** — which nothing
-     gates on the accounts read.
-  2. **AC-155's phrase-keyed scan, kept separate and kept a phrase**: forbids the **string**
-     `Select a verified account` across the Bindings surfaces, proved non-vacuous by an
+     (no *no accounts*, *0 accounts*, *none*), and that it names **only Refresh** — FR-120's
+     accounts gate never disables it, though the in-flight window does at `loading`
+     (`005 AC-157`). **`005 AC-157`'s predicate needs a `ready` fixture to be honest at all**:
+     the three pre-read states AC-156 names all have `accountGate(...).blocked === false` by FR-120's
+     own bar, so on their own they cannot tell the shipped line from one that *spreads*
+     `accountGate` onto Refresh. **Corrected 2026-10-05**: the pre-read loop asserted only
+     `disabled === (status === 'loading')`, and applying that mutation kept all **1339** tests green —
+     `ready`, the only read state where the gate holds, was absent from the set. The loop now also
+     mounts at `ready` with **zero** accounts and with **one**, and asserts Refresh is enabled in both.
+  2. **AC-155's phrase-keyed scan, kept separate and kept a phrase**: forbids the **string**     `Select a verified account` across the Bindings surfaces, proved non-vacuous by an
      **Accounts-tab** fixture that still renders an account's `verifiedAt` stamp — because the rule
      forbids the **string**, not the word, and a scan banning *verified* panel-wide would forbid
      FR-062's correct, unchanged row. **The two scans must not be merged**: merging would make the
@@ -704,11 +723,16 @@ rendering it, and the withdrawn placeholder is gone — with each claim proved a
 - [x] **K-11** **The visual check.** `npm run shot bindings` on the **default** fixture — which has two
   accounts **and a binding**, so *none* of FR-122's three rows renders and the reason line is  correctly absent: this proves the correction did **not** leak into the live-control case. Then
   `npm run shot bindings --scene no-accounts --out screenshots/no-accounts` — the frame in which the
-  **third row** becomes visible at all (`idle` at mount, before the fixture's answers land), and the
-  reason line appears once the empty read succeeds. **Decided: yes, a Bindings capture belongs in
+  **reason line** appears over a **full** list, and `npm run shot bindings --scene
+  no-accounts-no-bindings --out screenshots/no-accounts-no-bindings` — the frame in which an
+  **empty-text row** renders at all. *(Corrected 2026-10-05: this task previously named `no-accounts`
+  as the frame in which the **third row** "becomes visible at all", which holds only of `idle` at
+  mount, before the fixture's answers land — a window no capture can photograph, since a capture is
+  taken after boot and `status` is then `ready`. See the Phase-6 note below and `plan.md` §K.6 /
+  `K-11`.)* **Decided: yes, a Bindings capture belongs in
   verification** — this change is operator-visible on the tab the rail shows first, an 80-character
   sentence's wrapping at **560px** is exactly what a screenshot catches, and the defect class this
-  block exists to end was found by a screenshot. Assert the reason line and the third-row empty text
+  block exists to end was found by a screenshot. Assert the reason line and the empty-text row
   are legible and unwrapped at 720px and 560px, and that `panel-bindings.png` (default) still shows
   the gate **live**. Images land in git-ignored `screenshots/` and are never committed. **(FR-121, FR-122, AC-139, AGENTS.md §Visual verification)**
 - [x] **K-12** **Ship it**: `npm run verify` green (build → lint → typecheck → test); `npm run build`  regenerating **both** committed bundles — `panel/main.js` (IIFE) **and** `service/main.js` (ESM) —
@@ -757,33 +781,33 @@ permission, or SDK re-pin. No prompt or allow-list behaviour touched.
 ### Phase-6 note — one tooling divergence from D26, recorded 2026-10-05
 
 `K-10` shipped a **second** scene, `no-accounts-no-bindings`, beside the planned
-`no-accounts`, and the reason is a premise the plan states that the fixture does
-not satisfy.
+`no-accounts`, because D26's premise about which frame shows which row was false
+in a way no capture could reveal. This note originally carried the whole
+argument. **The owner ruled the plan's premise corrected rather than left
+standing**, so §K.6 and `K-11` now carry the reasoning and this note keeps only
+what is a Phase-6 record.
 
-D26 says `no-accounts` is *"also the only screenshot in which any empty-text row
-renders at all, since the default fixture carries a binding"* (§K.6), and `K-11`
-describes it as *"the frame in which the **third row** becomes visible at all
-(`idle` at mount, before the fixture's answers land)"*. **Both are true only of
-the third row, and only in a window no capture can photograph**: the scene's
-delta empties `accounts` alone, so the fixture's three **bindings** still render
-and the list is never empty once the read lands. The capture is taken after
-boot, by which point `status` is `ready`, so the *not-known* row is gone too.
-What `no-accounts` actually photographs — verified at 720px and 560px — is the
-**reason line** with a full list under it, which is the frame the gate belongs in
-and was worth having.
+**What shipped, and why the divergence was forced.** `no-accounts` empties
+`accounts` alone, so the fixture's three **bindings** still render, and a capture
+is taken after boot — by which point `status` is `ready`. So `no-accounts`
+photographs the **reason line over a full list**, which is the frame the gate
+belongs in and was worth having. The second scene empties `bindings` as well,
+which is the only way an empty-text row reaches a camera: it renders
+`No binding yet — add an account on the Accounts tab first.` beside the same
+reason line, with *New binding* disabled. **This is a tooling delta** — two more
+JSON members, no panel code.
 
-So the second scene empties `bindings` as well, which is the only way an
-empty-text row reaches a camera at all: it renders `No binding yet — add an
-account on the Accounts tab first.` beside the same reason line, with *New
-binding* disabled. This is a **tooling** delta — two more JSON members, no panel
-code — and it changes nothing about D26's decision, which holds as written: the
-scenes reuse their tab's own sentinel colours, no probe colour, index, or diff
-rule moved, and `AGENTS.md`'s "every image is proven current" machinery is
-untouched.
+**D26 holds as written.** The scenes reuse their tab's own sentinel colours, no
+probe colour, index, or diff rule moved, and `AGENTS.md`'s "every image is proven
+current" machinery is untouched. `AGENTS.md` now documents `--scene NAME` under
+Visual verification.
 
-The plan's premise is **not** amended here: §K.6 and `K-11` are Phase-4 and
-Phase-5 records, and correcting their reasoning is a spec amendment rather than a
-Phase-6 task. Flagged for the product owner with the commit.
+**Where the corrected reasoning lives:** `plan.md` §K.6 (the risk row this note
+contradicted) and `K-11`. Both carry the false premise **struck**, what each scene
+actually photographs, and *why the second scene must not be deleted* — a reader
+who trusts the old premise would see `no-accounts` as already covering the
+empty-text row and remove the scene that uniquely provides it. The third row's
+truth is asserted by `005 AC-152`'s read-state fixtures rather than by a capture.
 
 ### Phase 5 note on the earlier gate flag
 

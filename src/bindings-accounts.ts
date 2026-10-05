@@ -73,9 +73,13 @@ export const EMPTY_TEXT_WITH_ACCOUNT = 'No binding yet — select New binding to
  * started, in flight, or failed (FR-102's first row).
  *
  * It states an absence of **knowledge**, never of accounts, and names only
- * *Refresh*, which nothing gates on the accounts read. It does **not** restate
- * the failed read's cause or its retry: those belong to the tab's own
- * failed-read channel, which renders them once (FR-019, FR-101's channel rule).
+ * *Refresh* — FR-100's accounts gate never disables it, though the in-flight
+ * window does at `loading` (`005 AC-153`), which leaves the advice actionable
+ * at `idle` and after a failed read.
+ *
+ * It does **not** restate the failed read's cause or its retry: those belong to
+ * the tab's own failed-read channel, which renders them once (FR-019, FR-101's
+ * channel rule).
  */
 export const EMPTY_TEXT_NOT_KNOWN = 'No binding yet — the account list is not known. Refresh to read it.';
 

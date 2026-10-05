@@ -137,7 +137,7 @@ describe('the visual capture tooling stays wired up', () => {
             expect(tool).toContain('const DEFAULT_WIDTH = 720;');
             expect(tool).toContain('const NARROW_WIDTH = 560;');
             // Every tab keeps a second frame at the tight end of that band. The stem is a
-            // The stem is a variable now (a scene run suffixes it), so the narrow
+            // variable now (a scene run suffixes it), so the narrow
             // frame is named from that stem rather than from the template itself.
             expect(tool).toMatch(/name: .*-narrow./u);
             expect(tool).not.toContain('VIEWPORT_WIDTH');
@@ -162,8 +162,10 @@ describe('the visual capture tooling stays wired up', () => {
  * The shipped fixture holds two accounts **and** a binding, so none of 005
  * FR-102's three empty-text rows renders and FR-101's reason line is correctly
  * absent: under it, the copy 005 AC-150 governs is invisible. `no-accounts` is
- * the frame in which the third row appears at all, and these four checks are
- * what keep it a *frame* rather than a filename.
+ * the frame in which the **reason line** appears over a full list; an
+ * **empty-text row** needs `no-accounts-no-bindings`, and the not-known row is
+ * asserted by `005 AC-152`'s read-state fixtures rather than by a capture. These
+ * four checks are what keep each scene a *frame* rather than a filename.
  * ------------------------------------------------------------------------- */
 
 describe('a capture can run under a fixture scene', () => {

@@ -215,15 +215,6 @@ function optionValue(argv, index) {
 }
 
 /**
- * The options that take a value, and how each one lands in the options object.
- *
- * A table rather than a branch per option: `parseArgs` steps one value at a
- * time, and one `if` per value option is what pushed it past the complexity
- * this codebase allows — a fifth of them did. `--scene` differs only in being
- * **validated** as it is read, which is what stops an unknown name reaching the
- * browser and publishing a frame of the base document.
- */
-/**
  * Resolve a requested scene, refusing anything unknown.
  *
  * Refused here rather than passed through: an unknown name reaching the harness
