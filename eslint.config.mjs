@@ -19,6 +19,27 @@ export default [
             // — so the directory is excluded by config rather than escaping
             // only because its current content happens to be markdown.
             '.agents/**',
+            // `site/` is a self-contained npm subproject with its own manifest,
+            // its own lockfile, and its own Node floor (FR-007, FR-008); the
+            // root manifest must stay the OpenChamber installable manifest and
+            // cannot list it as a workspace. Its gate is `astro check` under
+            // `astro/tsconfigs/strictest` plus its own tests, run by the site's
+            // build job, which is the only gate that can reach it.
+            //
+            // The exclusion is required, not tidiness: `eslint .` reaches
+            // `site/astro.config.ts` under this config's TypeScript block and
+            // aborts the whole run — verified, the failure is
+            // `EslintPluginImportResolveError: node with invalid interface
+            // loaded as resolver`, because the import resolver inherits the
+            // root tsconfig, in which `site/` is not a project. That is a
+            // crash of the repository's own gate, not a finding.
+            //
+            // Excluding the directory is a scope exclusion of a separately-owned
+            // subproject — the same shape as the two committed bundles above —
+            // and not a rule suppression: no rule is turned off, and nothing in
+            // `site/` is exempted from a check that applies to it (FR-070,
+            // FR-072).
+            'site/**',
         ],
     },
     ...shaunburdick.config.js,
