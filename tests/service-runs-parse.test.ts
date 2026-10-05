@@ -370,6 +370,8 @@ describe('fail-closed document and row validation', () => {
         readonly document: unknown;
     }
 
+    const shortPrompt = 'x'.repeat(12);
+    const longPrompt = 'x'.repeat(6_005);
     const broken: readonly BadCase[] = [
         { name: 'not an object', document: 'runs' },
         { name: 'array document', document: [] },
@@ -451,17 +453,17 @@ describe('fail-closed document and row validation', () => {
         {
             name: 'prompt without its sources',
             document: fixtureDocument([poisoned('prompt', {
-                text: 'x'.repeat(12),
-                fingerprint: promptFingerprint('x'.repeat(12)),
-                length: 12,
+                text: shortPrompt,
+                fingerprint: promptFingerprint(shortPrompt),
+                length: shortPrompt.length,
             })]),
         },
         {
             name: 'prompt whose length exceeds its stack bound',
             document: fixtureDocument([poisoned('prompt', {
-                text: 'x'.repeat(6_005),
-                fingerprint: promptFingerprint('x'.repeat(6_005)),
-                length: 6_005,
+                text: longPrompt,
+                fingerprint: promptFingerprint(longPrompt),
+                length: longPrompt.length,
                 sources: ['global', 'account', 'binding'],
             })]),
         },

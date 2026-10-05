@@ -91,6 +91,20 @@ function stored(doc: DispatchRecordDocument): JsonValue {
 }
 
 /**
+ * The stored form of a document holding exactly these attempts.
+ *
+ * Three combinators of nesting — `stored(document([attempt(…)]))` — is one step
+ * of setup, so it is written once here rather than at each of the twelve places
+ * that need it.
+ *
+ * @param records - The attempts the document holds.
+ * @returns The stored JSON value.
+ */
+function storedAttempts(...records: readonly DispatchAttemptRecord[]): JsonValue {
+    return stored(document(records));
+}
+
+/**
  * Build a runtime whose storage the test pre-loads.
  *
  * @param initial - Values `host.storage.get` should answer with.
@@ -256,11 +270,11 @@ describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
     it('flips the named attempt and leaves every other record alone', async () => {
         {
             const { rt } = runtimeWith({
-                [DISPATCH_STORAGE_KEY]: stored(document([
+                [DISPATCH_STORAGE_KEY]: storedAttempts(
                     attempt({ attempt: 1, acknowledged: false }),
                     attempt({ correlationId: OTHER_CORRELATION, attempt: 1, acknowledged: false }),
                     attempt({ attempt: 2, acknowledged: false }),
-                ])),
+                ),
             });
 
             expect(await acknowledgeDispatch({ rt, correlationId: CORRELATION, attempt: 1 })).toBe(true);
@@ -276,7 +290,7 @@ describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
     it('changes nothing — and writes nothing — for an attempt it never recorded', async () => {
         {
             const { rt, storage } = runtimeWith({
-                [DISPATCH_STORAGE_KEY]: stored(document([attempt({ attempt: 3, acknowledged: false })])),
+                [DISPATCH_STORAGE_KEY]: storedAttempts(attempt({ attempt: 3, acknowledged: false })),
             });
 
             expect(await acknowledgeDispatch({ rt, correlationId: CORRELATION, attempt: 4 })).toBe(false);
@@ -354,8 +368,8 @@ describe('redaction posture (T-019, research §R3)', () => {
                 // Hand-edited storage carrying a credential: the record still parses
                 // (a reason is a reason), and the redaction guard is what stops it
                 // from being written back out.
-                [DISPATCH_STORAGE_KEY]: stored(document([attempt({
-                    outcome: 'failed', sessionId: null, reason: PAT })])),
+                [DISPATCH_STORAGE_KEY]: storedAttempts(attempt({
+                    outcome: 'failed', sessionId: null, reason: PAT })),
             });
 
             expect(await recordDispatchOutcome(rt, {

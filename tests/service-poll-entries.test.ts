@@ -116,6 +116,28 @@ function withoutUser(body: Record<string, unknown>): Record<string, unknown> {
 }
 
 /**
+ * An issue entry whose `user` member is absent.
+ *
+ * Absent rather than `null`, because the module's rule is that a missing actor
+ * and a null one are different spellings a caller has to choose between; the
+ * fixture says which one it means.
+ *
+ * @returns The entry.
+ */
+function anonymousIssueEntry(): Record<string, unknown> {
+    return withoutUser(issueEntry());
+}
+
+/**
+ * A comment entry whose `user` member is absent, for the same reason.
+ *
+ * @returns The entry.
+ */
+function anonymousCommentEntry(): Record<string, unknown> {
+    return withoutUser(commentEntry());
+}
+
+/**
  * Build one event-list row **as the wire carries it**, so `snake_case` keys are
  * a property of GitHub's JSON rather than of this project's vocabulary.
  *
@@ -190,10 +212,10 @@ describe('the three list feeds keep their authorship convention (002 FR-045)', (
     it("answers the same ''-when-absent convention on issue and comment readers", () => {
         // One authorship rule, three feeds: the convention is shared, not three
         // separate "missing" spellings a caller has to remember.
-        expect(readIssueEntry(withoutUser(issueEntry()))).toMatchObject({ authorLogin: '', authorType: '' });
+        expect(readIssueEntry(anonymousIssueEntry())).toMatchObject({ authorLogin: '', authorType: '' });
         // The comment reader is the exception the module documents: a comment
         // *is* the action, so an unreadable author drops the entry outright.
-        expect(readCommentEntry(withoutUser(commentEntry()))).toBeNull();
+        expect(readCommentEntry(anonymousCommentEntry())).toBeNull();
     });
 
     it('reads a `type: Bot` author and a `[bot]` login so one predicate can judge both', () => {

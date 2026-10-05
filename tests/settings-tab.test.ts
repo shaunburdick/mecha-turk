@@ -296,6 +296,9 @@ const THREE_ISSUES: readonly { readonly field: string; readonly remediation: str
     { field: '<withheld>', remediation: 'remove this key; only the documented ServiceConfig fields are accepted' },
 ];
 
+/** A 422 naming one field, which is the shape a per-field rejection takes. */
+const ONE_ISSUE_REFUSAL = refusalBody(THREE_ISSUES.slice(0, 1));
+
 describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC-125)', () => {
     it('sends every field and renders the configuration the service returned', async () => {
         {
@@ -381,7 +384,7 @@ describe('a refusal renders the service in the service\'s words (006 T-020, AC-1
         }
         {
             const view = await mountSettings({
-                answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
+                answer: scriptedAnswer({ put: { status: 422, body: ONE_ISSUE_REFUSAL } }),
             });
             typeInto('intervalMs', String(OUT_OF_RANGE));
 
@@ -395,7 +398,7 @@ describe('a refusal renders the service in the service\'s words (006 T-020, AC-1
         }
         {
             const view = await mountSettings({
-                answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
+                answer: scriptedAnswer({ put: { status: 422, body: ONE_ISSUE_REFUSAL } }),
             });
             typeInto('intervalMs', '120000');
 
@@ -409,7 +412,7 @@ describe('a refusal renders the service in the service\'s words (006 T-020, AC-1
         }
         {
             const view = await mountSettings({
-                answer: scriptedAnswer({ put: { status: 422, body: refusalBody(THREE_ISSUES.slice(0, 1)) } }),
+                answer: scriptedAnswer({ put: { status: 422, body: ONE_ISSUE_REFUSAL } }),
             });
             typeInto('intervalMs', String(OUT_OF_RANGE));
 

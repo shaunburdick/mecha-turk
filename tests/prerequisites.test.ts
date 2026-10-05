@@ -339,8 +339,9 @@ describe('the unmet notice outside the section (FR-073)', () => {
         {
             // The configured state still has two not-checkable prerequisites (the
             // pin and the surface) — neither may nag, and neither may show met.
-            expect(prerequisiteNotice(derivePrerequisites(configuredState()))).toBeNull();
-            expect(prerequisiteOf(configuredState(), IDS.desktopOrWeb).state).toBe(NOT_CHECKABLE);
+            const configured = configuredState();
+            expect(prerequisiteNotice(derivePrerequisites(configured))).toBeNull();
+            expect(prerequisiteOf(configured, IDS.desktopOrWeb).state).toBe(NOT_CHECKABLE);
         }
         {
             const runtime = createTestRuntime(fakeHost());

@@ -191,7 +191,8 @@ describe('serializeLedger', () => {
     it('produces plain JSON that reads back unchanged', () => {
         {
             const ledger = fixtureLedger();
-            expect(readLedger(parseJson(serializeLedger(ledger)))).toEqual(ledger);
+            const roundTripped = readLedger(parseJson(serializeLedger(ledger)));
+            expect(roundTripped).toEqual(ledger);
         }
         {
             expect(() => assertLedgerRedacted(fixtureLedger())).not.toThrow();

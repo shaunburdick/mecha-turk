@@ -108,6 +108,20 @@ function answerBody(rows: readonly unknown[], page: Record<string, unknown>): st
 }
 
 /**
+ * The serialized answer one page-metadata override produces.
+ *
+ * Every rejection test here asks the same question of the same three steps —
+ * wrap the override in a page member, wrap that in an empty answer, hand the body
+ * to the parser — so it is written once here rather than at each assertion.
+ *
+ * @param overrides - Page-member members to override.
+ * @returns The serialized body.
+ */
+function bodyFor(overrides: Record<string, unknown> = {}): string {
+    return answerBody([], pageMember(overrides));
+}
+
+/**
  * Build a section state with the paging position a test needs.
  *
  * @param page - The position to start from.
@@ -119,6 +133,20 @@ function section(
     filters: DispatchesState['filters'] = { bindingId: null, state: null },
 ): DispatchesState {
     return { ...initialDispatches(), page, filters };
+}
+
+/**
+ * The path a section state would request.
+ *
+ * @param page - The position to start from.
+ * @param filters - Filters to apply.
+ * @returns The path, built the way the service reads it back.
+ */
+function pathFor(
+    page: DispatchesState['page'] = initialDispatchListPage(),
+    filters?: DispatchesState['filters'],
+): string {
+    return dispatchListPath(section(page, filters));
 }
 
 /**
@@ -159,11 +187,11 @@ describe('dispatchListPath (005 contract §1)', () => {
             const advanced = advanceDispatchPage(page);
 
             expect(cursorFor(advanced)).toBe(CURSOR_ONE);
-            expect(dispatchListPath(section(advanced))).toBe(`${PAGE_ONE_PATH}&cursor=${CURSOR_ONE}`);
+            expect(pathFor(advanced)).toBe(`${PAGE_ONE_PATH}&cursor=${CURSOR_ONE}`);
         }
         {
             const on = { bindingId: 'bnd_one', state: 'blocked:project-missing' };
-            expect(dispatchListPath(section(initialDispatchListPage(), on)))
+            expect(pathFor(undefined, on))
                 .toBe(`${PAGE_ONE_PATH}&bindingId=bnd_one&state=blocked%3Aproject-missing`);
         }
         {
@@ -174,7 +202,7 @@ describe('dispatchListPath (005 contract §1)', () => {
                 snapshotAt: FIXTURE_TIMESTAMP,
             });
 
-            expect(dispatchListPath(section(advanceDispatchPage(page)))).toContain('cursor=a%20b%26c');
+            expect(pathFor(advanceDispatchPage(page))).toContain('cursor=a%20b%26c');
         }
     });
 });
@@ -210,7 +238,8 @@ describe('the paging position machine (data-model §3.2)', () => {
 
             const back = retreatDispatchPage(third);
             expect(cursorFor(back)).toBe(CURSOR_ONE);
-            expect(cursorFor(retreatDispatchPage(retreatDispatchPage(back)))).toBeNull();
+            const atFirstPage = retreatDispatchPage(retreatDispatchPage(back));
+            expect(cursorFor(atFirstPage)).toBeNull();
             expect(retreatDispatchPage(initialDispatchListPage()).pageIndex).toBe(0);
         }
         {
@@ -276,17 +305,17 @@ describe('parseDispatchListBody (005 contract §2)', () => {
             expect(parseDispatchListBody('{"events":[]}')).toBeNull();
         }
         {
-            expect(parseDispatchListBody(answerBody([], pageMember({ limit: 7 })))).toBeNull();
-            expect(parseDispatchListBody(answerBody([], pageMember({ limit: 25 })))).not.toBeNull();
+            expect(parseDispatchListBody(bodyFor({ limit: 7 }))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ limit: 25 }))).not.toBeNull();
         }
         {
-            expect(parseDispatchListBody(answerBody([], pageMember({ filter: { bindingId: null } })))).toBeNull();
-            expect(parseDispatchListBody(answerBody([], pageMember({ filter: 'all' })))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ filter: { bindingId: null } }))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ filter: 'all' }))).toBeNull();
         }
         {
-            expect(parseDispatchListBody(answerBody([], pageMember({ hasMore: 'yes' })))).toBeNull();
-            expect(parseDispatchListBody(answerBody([], pageMember({ snapshotAt: 42 })))).toBeNull();
-            expect(parseDispatchListBody(answerBody([], pageMember({ nextCursor: 7 })))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ hasMore: 'yes' }))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ snapshotAt: 42 }))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ nextCursor: 7 }))).toBeNull();
         }
     });
 });

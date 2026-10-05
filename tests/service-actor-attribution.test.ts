@@ -513,6 +513,16 @@ function wirePage(rows: readonly string[]): string {
     return `[${rows.join(',')}]`;
 }
 
+/**
+ * The events page holding exactly one row.
+ *
+ * @param input - The row's wire members.
+ * @returns The page body.
+ */
+function wireEventsPage(input: Parameters<typeof wireRow>[0]): string {
+    return wirePage([wireRow(input)]);
+}
+
 /** The naming `assigned` row as the endpoint would answer it. */
 function wireAssigned(assigner: string, createdAt?: string): string {
     return wireRow({
@@ -531,6 +541,32 @@ function wireRequested(requester: string, issueNumber?: number): string {
         requestedReviewer: wireActor(ACCOUNT_LOGIN),
         issueNumber,
     });
+}
+
+/**
+ * The events page holding exactly one assigned row.
+ *
+ * Page and row in one step, because a scan route spells it as
+ * `fakeGitHub(scanRoutes({ events: … }))` and anything the reader has to count
+ * layers to parse is a step they will get wrong.
+ *
+ * @param assigner - Login the row records as its assigner.
+ * @param createdAt - Row timestamp.
+ * @returns The page body.
+ */
+function assignedPage(assigner: string, createdAt?: string): string {
+    return wirePage([wireAssigned(assigner, createdAt)]);
+}
+
+/**
+ * The events page holding exactly one review-requested row.
+ *
+ * @param requester - Login the row records as its requester.
+ * @param issueNumber - Issue the request belongs to.
+ * @returns The page body.
+ */
+function requestedPage(requester: string, issueNumber?: number): string {
+    return wirePage([wireRequested(requester, issueNumber)]);
 }
 
 /**
@@ -1039,7 +1075,7 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
         // have reached for is available, and none is used.
         const github = fakeGitHub({
             [EVENTS_PATH]: {
-                body: wirePage([wireRow({
+                body: wireEventsPage({
                     event: 'assigned',
                     // Substitute 1: the row's own `actor` member — readable.
                     actor: wireActor(AUTOMATION_ACTOR, BOT_TYPE),
@@ -1047,7 +1083,7 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
                     // `assignee` beside it names the bound account.
                     assigner: 'null',
                     assignee: wireActor(ACCOUNT_LOGIN),
-                })]),
+                }),
             },
         });
         const lines: string[] = [];
@@ -1081,11 +1117,11 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
         // on the cycle where GitHub has propagated a readable actor (FR-052).
         const unreadable = fakeGitHub({
             [EVENTS_PATH]: {
-                body: wirePage([wireRow({
+                body: wireEventsPage({
                     event: 'assigned',
                     assigner: 'null',
                     assignee: wireActor(ACCOUNT_LOGIN),
-                })]),
+                }),
             },
         });
         const { store, log } = await seed({ triggers: { assignment: true, mention: false, reviewRequest: false } });
@@ -1096,7 +1132,7 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
         expect(await readEvents({ store, log })).toEqual([]);
 
         // GitHub has now propagated the assigner; the **same** item, re-asked.
-        const routes = scanRoutes({ events: wirePage([wireAssigned(ASSIGNER)]), issues: issueListBody() });
+        const routes = scanRoutes({ events: assignedPage(ASSIGNER), issues: issueListBody() });
         const second = await runScanCycle({ store, log, poller: pollerOver(fakeGitHub(routes), log) });
         const queued = await readEvents({ store, log });
 
@@ -1125,10 +1161,12 @@ const ROOT = resolve(import.meta.dirname, '..');
  */
 function sourceFiles(dir: string): ReadonlyMap<string, string> {
     const files = new Map<string, string>();
-    for (const entry of readdirSync(resolve(ROOT, dir), { recursive: true })) {
+    const root = resolve(ROOT, dir);
+    const entries = readdirSync(root, { recursive: true });
+    for (const entry of entries) {
         const path = String(entry);
         if (path.endsWith('.ts')) {
-            files.set(`${dir}/${path}`, readFileSync(resolve(ROOT, dir, path), 'utf8'));
+            files.set(`${dir}/${path}`, readFileSync(resolve(root, path), 'utf8'));
         }
     }
 
@@ -1182,21 +1220,22 @@ describe('AC-028 the read is per item and never repository-wide (FR-049)', () =>
 
     it('issues exactly one events request per matched candidate', async () => {
         const github = fakeGitHub(scanRoutes({
-            events: wirePage([wireAssigned(ASSIGNER)]),
+            events: assignedPage(ASSIGNER),
             issues: issueListBody(),
         }));
         const { store, log } = await seed({ triggers: { assignment: true, mention: false, reviewRequest: false } });
 
         const cycle = await runScanCycle({ store, log, poller: pollerOver(github, log) });
 
+        const [eventRequest] = github.eventRequests();
         expect(cycle.enqueued).toBe(1);
         expect(github.eventRequests()).toHaveLength(1);
-        expect(github.eventRequests()[0]?.path).toBe(`${EVENTS_PATH}${ISSUE_NUMBER}/events`);
+        expect(eventRequest?.path).toBe(`${EVENTS_PATH}${ISSUE_NUMBER}/events`);
     });
 
     it('serves a pull request\'s review request from the same per-item path', async () => {
         const github = fakeGitHub(scanRoutes({
-            events: wirePage([wireRequested(REQUESTER, PULL_NUMBER)]),
+            events: requestedPage(REQUESTER, PULL_NUMBER),
             pulls: pullListBody(),
         }));
         const { store, log } = await seed({ triggers: { assignment: false, mention: false, reviewRequest: true } });

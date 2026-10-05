@@ -648,6 +648,32 @@ async function putStatus(service: TestService, body: string): Promise<number> {
 }
 
 /**
+ * The status a profile write of exactly this document receives.
+ *
+ * Serializing inside the helper keeps an assertion at three levels —
+ * `expect(await statusOf(service, { … }))` — instead of four, and most call sites
+ * here are that assertion.
+ *
+ * @param service - The running service.
+ * @param doc - The profile document to write.
+ * @returns The HTTP status the service answered.
+ */
+async function statusOf(service: TestService, doc: Record<string, unknown>): Promise<number> {
+    return await putStatus(service, JSON.stringify(doc));
+}
+
+/**
+ * The response a profile write of exactly this document receives.
+ *
+ * @param service - The running service.
+ * @param doc - The profile document to write.
+ * @returns The response the service answered.
+ */
+async function profileFor(service: TestService, doc: Record<string, unknown>): Promise<Response> {
+    return await putProfile(service, JSON.stringify(doc));
+}
+
+/**
  * Read every issue a `422 validation` answer carries (invariant 6's list).
  *
  * @param response - The refusal.
@@ -835,7 +861,7 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             await verifyOk(service);
 
             expect(await putStatus(service, JSON.stringify({ displayName: 'kept' }))).toBe(200);
-            expect(await putStatus(service, JSON.stringify({ displayName: ' '.repeat(3) }))).toBe(200);
+            expect(await statusOf(service, { displayName: ' '.repeat(3) })).toBe(200);
             const afterBlank = await storedAccount(service);
             expect(afterBlank[LABEL_FIELD]).toBeNull();
 
@@ -856,9 +882,9 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             const service = await startService({ user: USER_OK });
             await verifyOk(service);
 
-            expect(await putStatus(service, JSON.stringify({ displayName: 'x'.repeat(80) }))).toBe(200);
+            expect(await statusOf(service, { displayName: 'x'.repeat(80) })).toBe(200);
 
-            const overCap = await putProfile(service, JSON.stringify({ displayName: 'x'.repeat(81) }));
+            const overCap = await profileFor(service, { displayName: 'x'.repeat(81) });
             const capIssue = await issueOf(overCap);
             expect(overCap.status).toBe(422);
             expect(capIssue.field).toBe(LABEL_FIELD);
@@ -1148,7 +1174,7 @@ describe('PUT /v1/accounts/:numericUserId — invariant 5: exactly the supplied 
 
             // … whitespace-only clears it too, and `""` clears only the label.
             expect(await putStatus(service, JSON.stringify({ startingPrompt: 'Second instruction.' }))).toBe(200);
-            expect(await putStatus(service, JSON.stringify({ startingPrompt: ' '.repeat(3) }))).toBe(200);
+            expect(await statusOf(service, { startingPrompt: ' '.repeat(3) })).toBe(200);
             const promptBlank = await storedAccount(service);
             expect(promptBlank[PROMPT_FIELD]).toBeNull();
             expect(promptBlank[LABEL_FIELD]).toBe(SECOND_LABEL);

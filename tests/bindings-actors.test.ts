@@ -1196,9 +1196,11 @@ describe('AC-146 no user-facing string implies a policy the service did not repo
             ];
             const dir = resolve(import.meta.dirname, '../src');
             const offenders: string[] = [];
-            for (const name of readdirSync(dir).filter((entry) => entry.endsWith('.ts')).toSorted(byText)) {
-                const hits = wordsFound(stringLiterals(readFileSync(resolve(dir, name), 'utf8')).join(' '));
-                if (hits.length > 0 && EXEMPT.some(([file]) => file === name) === false) {
+            const sourceNames = readdirSync(dir).filter((entry) => entry.endsWith('.ts')).toSorted(byText);
+            for (const name of sourceNames) {
+                const text = readFileSync(resolve(dir, name), 'utf8');
+                const hits = wordsFound(stringLiterals(text).join(' '));
+                if (hits.length > 0 && !EXEMPT.some(([file]) => file === name)) {
                     offenders.push(`${name}: ${hits.join(', ')}`);
                 }
             }

@@ -133,6 +133,9 @@ const MATCHED_TOKEN_LINE = 'Mention token in force: @octocat-mt';
 /** Label the bound-account select mounts with, so its props can be found. */
 const ACCOUNT_SELECT_LABEL = 'Poll as account';
 
+/** A scan two minutes back, as the ISO stamp a stale row carries. */
+const TWO_MINUTES_AGO = new Date(Date.now() - 120_000).toISOString();
+
 /**
  * Read the string values one mount was handed.
  *
@@ -330,7 +333,7 @@ describe('T-022 the selected binding presents its own state, stamps, and scan (F
         {
             const detail = selectedBindingDetail(bindingsState({
                 binding: bindingFixture(),
-                status: statusFixture({ lastScanAt: new Date(Date.now() - 120_000).toISOString() }),
+                status: statusFixture({ lastScanAt: TWO_MINUTES_AGO }),
                 selected: true,
             }));
 
@@ -348,11 +351,8 @@ describe('T-022 the selected binding presents its own state, stamps, and scan (F
             expect(detail).toContain('2 pending');
         }
         {
-            expect(selectedBindingDetail(bindingsState({
-                binding: bindingFixture(),
-                status: null,
-                selected: false,
-            }))).toBeNull();
+            const noStatus = bindingsState({ binding: bindingFixture(), status: null, selected: false });
+            expect(selectedBindingDetail(noStatus)).toBeNull();
         }
     });
 });
