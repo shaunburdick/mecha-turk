@@ -40,7 +40,7 @@ walkthrough is `specs/002-agent-event-extension/quickstart.md`.
 npm ci            # toolchain install (Node >= 24.15; bun for the bundler)
 npm run verify    # build -> lint -> typecheck -> test — THE gate, run before every commit
 npm run build     # bundles panel/main.js (IIFE) + service/main.js (ESM)
-npm test          # vitest, offline (1356 tests)
+npm test          # vitest, offline
 npm run format    # eslint --fix
 npm run shot      # screenshot all six panel tabs at 720px and 560px into screenshots/
 ```
