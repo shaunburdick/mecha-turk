@@ -11,10 +11,13 @@
  * whose copy names the consequence — the token handoff pre-flight fails, so an
  * account cannot be added.
  *
- * The read is explicit (FR-014): the panel reads it once at mount and the
- * tab offers a refresh; activating the already-active tab reads nothing. A
- * failed read keeps the last document and marks it stale (FR-019) rather than
- * blanking the tab with a reassuring summary built from nothing.
+ * The read is explicit and repeating (FR-014, FR-100): the panel reads it once
+ * at mount, on every activation of this tab, on a tick armed from the interval
+ * the document itself reports, and on a press of the tab's own refresh control.
+ * A failed read keeps the last document and marks it stale (FR-019) rather than
+ * blanking the tab with a reassuring summary built from nothing, and a failing
+ * tick is a failing read in every observable respect — including leaving the
+ * armed period exactly where it was.
  *
  * This module repaints itself instead of being reached from
  * `panel-ui.refresh`: its content depends on nothing but its own slice, so a
@@ -34,6 +37,7 @@ import {
     actorPolicyLines,
     agentPinLines,
     bindingLines,
+    cadenceLine,
     noticeStates,
     pollingLines,
     projectGuidanceLines,
@@ -43,6 +47,7 @@ import {
 import { createBlock, createRowList, EM_DASH_SEPARATOR, lineRow, mountCell, splitLine } from './style.ts';
 import type { Block, Cell, DefRow, LineInput } from './style.ts';
 import { configuredIntervalFrom, parseStatusView } from './status-document.ts';
+import { STATUS_TAB } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
 /** Heading above the projection's service block. */
@@ -114,10 +119,15 @@ export interface StatusTabUi {
     readonly unsupported: StatusNotice;
     /** Blocking storage notice, hidden while the data directory is writable. */
     readonly storageBlocked: StatusNotice;
-    /** Explicit refresh — the tab's one way to re-read (FR-014). */
+    /** Explicit refresh — the tab's one on-demand read (FR-014). */
     readonly refreshButton: ButtonHandle;
     /** One line of read state: loading, loaded with a stamp, failed with a cause. */
     readonly readLine: Cell;
+    /**
+     * One line stating the tab's own refresh cadence and period, or that it is
+     * not refreshing itself (FR-101).
+     */
+    readonly cadenceLine: Cell;
     /** Process health, uptime, location, schema, storage. */
     readonly service: StatusRowGroup;
     /** Effective interval, configured interval, cadence, and next poll. */
@@ -263,6 +273,10 @@ export function repaintStatusTab(rt: PanelRuntime): void {
 
     ui.refreshButton.update({ disabled: isLoading, loading: isLoading });
     ui.readLine.update(readStateLine(slice));
+    // The cadence is a statement about what this tab is doing, not about the
+    // service's scheduler, so it sits beside the refresh control rather than in
+    // the Polling block (FR-039, FR-101).
+    ui.cadenceLine.update(cadenceLine({ refreshMs: rt.statusRefreshMs }));
 
     // The two blocking notices are facts about the *last* document the panel
     // holds; with nothing read there is nothing to claim either way.
@@ -301,6 +315,71 @@ export function repaintStatusTab(rt: PanelRuntime): void {
 function repaintAfterRead(rt: PanelRuntime): void {
     refresh(rt);
     repaintStatusTab(rt);
+}
+
+/**
+ * Release the refresh tick, and with it the period the tab was running on.
+ *
+ * Called when another tab takes over and when the tab's body is disposed, so
+ * the tab claims no cadence it is not running (FR-100, FR-101) and no timer
+ * survives the panel (NFR-108).
+ */
+export function stopStatusRefresh(rt: PanelRuntime): void {
+    rt.statusRefreshMs = null;
+    if (rt.statusRefreshTimer === null) {
+        return;
+    }
+
+    clearInterval(rt.statusRefreshTimer);
+    rt.statusRefreshTimer = null;
+}
+
+/**
+ * Arm the tab's refresh tick on the interval the last landed document reported.
+ *
+ * Two properties are structural rather than tested for, because both are
+ * FR-100's "at most one tick per panel" rule: the arm is idempotent for an
+ * unchanged period (so re-entering the tab cannot leave a second timer behind),
+ * and the period is a function of the reported interval **and nothing else** —
+ * never of the last read's outcome, which is what keeps a cadence from
+ * becoming the retry loop `contracts/panel-service.md` §1 forbids (FR-100).
+ *
+ * The tick's body is a parameter rather than a call to {@link loadStatus},
+ * because the read arms this function and this function's timer calls the read:
+ * naming the read here would make the two mutually referential, and the honest
+ * shape is that arming is told what the timer runs. `loadStatus` is its only
+ * caller and passes itself.
+ *
+ * @param input - The runtime, the period just read, and what the timer runs.
+ */
+export function armStatusRefresh(input: {
+    /** Runtime whose tick slot is armed. */
+    readonly rt: PanelRuntime;
+    /** The effective `polling.intervalMs` just read. */
+    readonly intervalMs: number;
+    /** What the timer runs on each period. */
+    readonly tick: () => void;
+}): void {
+    const { rt, intervalMs, tick } = input;
+    // Nothing is armed for a torn-down panel or for a background tab: the tick
+    // belongs to Status only while Status is what the operator is looking at
+    // (FR-100), and a timer that outlived its tab would repaint a hidden body.
+    if (rt.disposed || rt.activeTab !== STATUS_TAB) {
+        return;
+    }
+
+    if (rt.statusRefreshMs === intervalMs && rt.statusRefreshTimer !== null) {
+        return;
+    }
+
+    stopStatusRefresh(rt);
+    rt.statusRefreshMs = intervalMs;
+    // Unref'd like the relay's loop, so an idle panel never holds a process
+    // open; teardown clears it through `disposeStatusTab` (NFR-108).
+    rt.statusRefreshTimer = setInterval(tick, intervalMs);
+    if (typeof rt.statusRefreshTimer.unref === 'function') {
+        rt.statusRefreshTimer.unref();
+    }
 }
 
 /**
@@ -349,6 +428,17 @@ export async function loadStatus(rt: PanelRuntime): Promise<void> {
     slice.stale = false;
     slice.at = nowIso();
     rt.shell?.noteRead('status', slice.at);
+    // The armed period follows this document: a service whose interval changed
+    // has said so, and the tick is not pinned to what it was armed with
+    // (FR-030, FR-100). Arming *after* the slice lands and *before* the repaint
+    // is what makes the cadence statement and the timer agree on one number.
+    armStatusRefresh({
+        rt,
+        intervalMs: view.polling.intervalMs,
+        tick: () => {
+            void loadStatus(rt);
+        },
+    });
     repaintAfterRead(rt);
 }
 
@@ -360,6 +450,7 @@ export async function loadStatus(rt: PanelRuntime): Promise<void> {
 function mountControls(rt: PanelRuntime, parent: HTMLElement): {
     readonly refreshButton: ButtonHandle;
     readonly readLine: Cell;
+    readonly cadenceLine: Cell;
 } {
     const row = parent.ownerDocument.createElement('div');
     row.className = 'mt-toolbar';
@@ -375,6 +466,10 @@ function mountControls(rt: PanelRuntime, parent: HTMLElement): {
     return {
         refreshButton,
         readLine: mountCell(row, { className: 'mt-lede', text: readStateLine(rt.state.statusTab) }),
+        // Mounted already stating the honest value: the first read has not run
+        // yet, so no period is known and the tab says it is not refreshing
+        // itself rather than showing a number nobody reported (FR-101, NFR-112).
+        cadenceLine: mountCell(row, { className: 'mt-lede', text: cadenceLine({ refreshMs: rt.statusRefreshMs }) }),
     };
 }
 
@@ -443,6 +538,7 @@ export function disposeStatusTab(rt: PanelRuntime): void {
     ui.storageBlocked.box.remove();
     ui.refreshButton.dispose();
     ui.readLine.dispose();
+    ui.cadenceLine.dispose();
     ui.overview.dispose();
     disposeRowGroup(ui.service);
     disposeRowGroup(ui.polling);
@@ -450,4 +546,5 @@ export function disposeStatusTab(rt: PanelRuntime): void {
     disposeRowGroup(ui.bindings);
     disposeRowGroup(ui.agentPin);
     rt.statusUi = null;
+    stopStatusRefresh(rt);
 }

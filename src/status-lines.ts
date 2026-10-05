@@ -10,6 +10,11 @@
  * *not checkable* / *not available* / an outcome — never "ok" (FR-033,
  * AC-106). FR-080 applies in full: these strings are rendered as text.
  *
+ * {@link cadenceLine} is the one rule here about the panel's own behaviour
+ * rather than the service's: a tab whose values change on their own says so,
+ * and a tab with no known period says *not refreshing itself* rather than
+ * showing a number nobody reported (005 FR-100, FR-101, NFR-112).
+ *
  * {@link actorPolicyLines} is the same rule applied to the one value where a
  * plausible-looking default would be a security control that does not exist:
  * an open allow-list is stated as a **count with its consequence**, a count of
@@ -457,4 +462,39 @@ export function readStateLine(slice: StatusTabState): string {
     }
 
     return `Status could not be re-read: ${cause}. Showing the read from ${slice.at}, which may be stale.`;
+}
+
+/** Inputs for {@link cadenceLine}; one value, which is the whole statement. */
+export interface CadenceLineInput {
+    /**
+     * The period the tab's refresh tick runs on, or `null` when no tick is
+     * armed.
+     *
+     * The armed period is passed rather than read from a timer handle so this
+     * function stays a pure function of one number: the honest value for an
+     * unknown cadence is *not refreshing*, and a function that could not tell
+     * armed from unarmed would have no honest value to return.
+     */
+    readonly refreshMs: number | null;
+}
+
+/**
+ * Render the tab's own refresh cadence in words (005 FR-101).
+ *
+ * One statement, and the same one whatever caused the read in front of the
+ * operator: a page whose values move with no stated reason is a page an
+ * operator cannot trust to be current (NFR-111). With no tick armed the
+ * statement is *not refreshing itself* and names `Refresh status` — never a
+ * plausible-looking period, because the panel holds no default for one
+ * (NFR-112), and the copy renders as text rather than colour (FR-083).
+ *
+ * @returns The cadence line.
+ */
+export function cadenceLine(input: CadenceLineInput): string {
+    if (input.refreshMs === null) {
+        return 'This tab is not refreshing itself — no interval has been read, so it '
+            + 'refreshes only when you ask. Use Refresh status.';
+    }
+
+    return `This tab re-reads itself every ${intervalText(input.refreshMs)} ms.`;
 }
