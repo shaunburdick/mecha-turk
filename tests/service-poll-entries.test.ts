@@ -144,7 +144,6 @@ function anonymousCommentEntry(): Record<string, unknown> {
  * Build one event-list row **as the wire carries it**, so `snake_case` keys are
  * a property of GitHub's JSON rather than of this project's vocabulary.
  *
- * @param input - Members to include, as JSON text, or `omit` for a missing one.
  * @returns The raw element, parsed.
  */
 function wireEventRow(input: {

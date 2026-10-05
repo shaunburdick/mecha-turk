@@ -133,7 +133,6 @@ const RESTORE_HEADLINE = 'Restore defaults writes the documented defaults for th
  * restated here rather than imported so that the confirmation module and the
  * state machine stay independent of each other.
  *
- * @param envelope - The last read.
  * @param descriptor - The field's projection entry.
  * @returns The value in force, as text.
  */
@@ -164,7 +163,6 @@ function lowers(current: string, proposed: string): boolean {
 /**
  * Every retention knob this draft lowers below the read document.
  *
- * @param input - The last read and the draft it is being compared against.
  * @returns The lowerings, in the service's field order; empty when none.
  */
 export function loweredRetention(input: {
@@ -279,7 +277,6 @@ function changesIn(input: {
  * raise, a non-retention change, and a value that changes nothing all arm
  * nothing and complete in one activation.
  *
- * @param input - The last read and the draft a save would send.
  * @returns The confirmation, or `null` when this save deletes nothing.
  */
 export function saveConfirmation(input: {
@@ -306,7 +303,6 @@ export function saveConfirmation(input: {
 /**
  * The confirmation a restore always raises before it writes.
  *
- * @param input - The last read and the staged defaults draft.
  * @returns The confirmation naming every field the write will change.
  */
 export function restoreConfirmation(input: {

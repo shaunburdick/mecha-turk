@@ -220,8 +220,6 @@ function armHook(input: {
  * the file however many turns pass — so a slow machine can only make this drain
  * more generous, never wrong, and a fast one cannot make it miss anything that
  * was going to happen at all.
- *
- * @param turns - How many macrotask boundaries to cross.
  */
 async function drainInMemoryWork(turns = 8): Promise<void> {
     for (let turn = 0; turn < turns; turn += 1) {

@@ -285,7 +285,6 @@ export function tokenOf(run: Run): string {
 /**
  * POST one run-scoped body over the loopback service.
  *
- * @param input - The running instance, the concrete path, and the body.
  * @returns The status and the parsed body.
  */
 export async function post(input: {
@@ -357,7 +356,6 @@ export async function sweep(store: ServiceStore): Promise<void> {
  * Cycle claim and sweep until the automatic requeue budget parks the run
  * (FR-033); three expiries burn the budget and the fourth parks it.
  *
- * @param input - The running instance, the store, and the run to exhaust.
  * @throws {Error} When the budget does not park the run within the bound.
  */
 export async function driveToDeadLetter(input: {

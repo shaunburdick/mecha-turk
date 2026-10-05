@@ -50,7 +50,6 @@ const MAX_SESSION_ID_CHARS = 128;
  * that is only half the job — the operation then owes a `422` naming the field
  * rather than a silently absent value, which is {@link readOptionalText}'s step.
  *
- * @param value - The member as received.
  * @returns The trimmed text, or `null`.
  */
 export function textMember(value: unknown, bound: number = MAX_BODY_TEXT_CHARS): string | null {
@@ -73,7 +72,6 @@ export function textMember(value: unknown, bound: number = MAX_BODY_TEXT_CHARS):
  * over-long members are still the contract §5 refusal — the member is required,
  * only its emptiness is permitted.
  *
- * @param value - The member as received.
  * @returns The trimmed text, possibly empty, or `null` when the member is
  *   absent, not a string, or over the bound.
  */
@@ -180,7 +178,6 @@ export function flagMember(value: unknown, isAbsent: boolean): boolean {
  * else is a `422` naming the field rather than text the durable trail then
  * carries.
  *
- * @param value - The member as {@link textMember} read it, or `null` when absent.
  * @returns The issue, or `null` when the value is absent or well-formed.
  */
 export function sessionIdIssue(value: string | null): FieldIssue | null {

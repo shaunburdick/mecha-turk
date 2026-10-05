@@ -161,7 +161,6 @@ function snapshot(issueNumber: number): EventSnapshot {
 /**
  * One queue row in the vocabulary the panel retired (005 FR-005).
  *
- * @param input - The row's issue and its shipped lifecycle state.
  * @returns The row as the pre-003 build wrote it.
  */
 // eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
@@ -577,7 +576,6 @@ async function acPutBindings(
 /**
  * One whole-document `PUT /v1/config`, patched over the stored document.
  *
- * @param patch - Members to replace in the document as `GET` reports it.
  * @returns The response.
  */
 async function acPutConfig(

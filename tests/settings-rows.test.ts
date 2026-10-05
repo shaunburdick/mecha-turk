@@ -254,7 +254,6 @@ function standInSnippet(): PanelSource {
 /**
  * Build a `GET /v1/config` body the way the service sends it.
  *
- * @param input - Members to replace; the defaults are the combined tree.
  * @returns The response body.
  */
 function envelopeBody(input: {

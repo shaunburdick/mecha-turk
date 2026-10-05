@@ -293,7 +293,6 @@ function statusFixture(overrides: Partial<BindingStatusRow> = {}): BindingStatus
 /**
  * Build a bindings state around one selected row.
  *
- * @param input - The row, its scan status, and whether one is selected.
  * @returns The state the detail line reads.
  */
 function bindingsState(input: {
@@ -637,8 +636,6 @@ function primaryControl(): Record<string, unknown> | undefined {
 
 /**
  * Arrange a ready list holding exactly the fixture row.
- *
- * @param rt - Runtime the Bindings body is about to mount against.
  */
 function withSelectedRow(rt: ReturnType<typeof createTestRuntime>): void {
     rt.state.bindings.status = 'ready';

@@ -72,7 +72,6 @@ export function unknownRunResponse(): HttpResponse {
  * "must not be swallowed" obligation is the same obligation for all eight
  * operations and one log line is what makes it observable in the service log.
  *
- * @param context - Route context, for the log a degraded trail leaves.
  * @param operation - The operation name, for that log line.
  * @param success - Builds the `200` body from the run; a duplicate gets the same
  *   body, because a repeat changed nothing and must look like it.
@@ -194,7 +193,6 @@ function refusalReason(response: HttpResponse): string {
  * the event type, so FR-063's surfacing holds here too even though a `422`
  * envelope has nowhere to carry `auditWritten`.
  *
- * @param context - Route context, carrying the open store and logger.
  * @param operation - The operation name the row records (`reserve`, `result`, …).
  * @param correlationId - The run the path named.
  * @param response - The `422` to answer with; its message is the row's reason.

@@ -80,7 +80,6 @@ const SESSION_CREATED = 'session-created';
  * `resolveDispatch` — the one operation whose `decision` decides whether a run
  * may be re-dispatched. The guard is where the union is enforced.
  *
- * @param value - The member as read from the body.
  * @returns `true` for `session-created` and `no-session`.
  */
 function isResolveDecision(value: string): value is ResolveDecision {

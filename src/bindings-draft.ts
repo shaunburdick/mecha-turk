@@ -92,7 +92,6 @@ type DraftOrigin =
 /**
  * Decide which row a draft is being read for.
  *
- * @param edit - The row being edited, or absent for the add form.
  * @returns The origin, or `null` when the named row no longer exists — the
  *   note then says so, because editing a row the service no longer holds is
  *   a stale selection, not a permission to mint one.
@@ -240,7 +239,6 @@ function draftIdentity(
  * same values (005 FR-050: one whole-file write, no second write path).
  *
  * @param bindings - Panel state to read the draft from.
- * @param edit - The row being edited, or absent for the add form.
  * @returns The binding, or `null` (the note then says why).
  */
 export function readDraft(bindings: BindingsTabState, edit?: DraftEditTarget): PreparedBinding | null {

@@ -82,9 +82,6 @@ function judgeVerification(input: {
  * `agent.mismatch`. Verdict, note, and state rules are otherwise
  * untouched.
  *
- * @param input - Store, logger, the run, the attempt the panel names, the
- *   session read back, the observed and expected agents, where that baseline
- *   came from, the verdict, a note, and an injectable service clock.
  * @returns The run with its recorded read-back, or the refusal.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */

@@ -288,8 +288,6 @@ function brokenConfigStore(inner: ServiceStore): ServiceStore {
 
 /**
  * Write one scan-state document straight into the store directory.
- *
- * @param value - The document to plant.
  */
 async function plantScanState(value: unknown): Promise<void> {
     await writeFile(join(dataDir, SCAN_STATE_FILE), JSON.stringify(value), 'utf8');
@@ -303,7 +301,6 @@ async function plantScanState(value: unknown): Promise<void> {
  * `tests/github.test.ts` assembles its own — string pieces with the numbers
  * and stamps substituted in (the shape `readIssueEntry` consumes).
  *
- * @param count - How many entries the page carries.
  * @param updatedAt - `updated_at` stamp every entry carries.
  * @returns The page body as JSON text.
  */

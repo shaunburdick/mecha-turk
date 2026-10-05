@@ -243,7 +243,6 @@ export async function runConfigPromptChain<T>(store: ServiceStore, task: () => P
  * {@link appendConfigApplied}'s `false` plus its own `warn`. So the cycle's
  * read, which shares this task, never inherits an audit problem.
  *
- * @param input - The document, the actor to attribute it to, the store, the logger.
  * @returns How many rows this observation appended (0 or 1).
  */
 export async function recordConfigPromptChanges(input: ConfigPromptObservation): Promise<number> {

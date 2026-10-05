@@ -120,7 +120,6 @@ export function dispatchListPageAt(limit: number): DispatchListPage {
  * `null` on page one; the stack entry the operator is standing on afterwards.
  * An explicit refresh resumes here rather than restarting the set.
  *
- * @param page - The position to read from.
  * @returns The cursor for the next read.
  */
 export function cursorFor(page: DispatchListPage): string | null {
@@ -135,7 +134,6 @@ export function cursorFor(page: DispatchListPage): string | null {
  * — a stale cursor there would silently skip rows. A position
  * with no boundary to step to is left alone.
  *
- * @param page - The position to advance.
  * @returns The advanced position, or `page` when there is nothing to advance to.
  */
 export function advanceDispatchPage(page: DispatchListPage): DispatchListPage {
@@ -151,7 +149,6 @@ export function advanceDispatchPage(page: DispatchListPage): DispatchListPage {
 /**
  * Step one page back; a no-op on the first page.
  *
- * @param page - The position to retreat.
  * @returns The previous position, or `page` when there is none.
  */
 export function retreatDispatchPage(page: DispatchListPage): DispatchListPage {
@@ -165,7 +162,6 @@ export function retreatDispatchPage(page: DispatchListPage): DispatchListPage {
 /**
  * Record what the last answer said about the set.
  *
- * @param page - The position to annotate.
  * @param meta - The boundary for the next page, whether one exists, the set's
  *   size (or `null` when the service withheld it), and the answer's stamp.
  * @returns The annotated position.

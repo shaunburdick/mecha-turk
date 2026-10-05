@@ -85,7 +85,6 @@ async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
  * and the post-write advance teaches the lane what the row above already
  * recorded, so the next cycle re-reports nothing.
  *
- * @param input - The open store, its logger, and the validated replacement.
  * @returns `true` when the row (if one was owed) reached disk; `false` when
  *   the append failed, which never rolls the write back.
  */

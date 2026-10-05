@@ -127,7 +127,6 @@ function requiredText(record: Record<string, unknown>, field: string): string | 
 /**
  * Read one source reference, actor members included.
  *
- * @param value - One element of the `sourceReferences` array.
  * @returns The reference, or `null` when its shape is unusable.
  */
 function parseReference(value: unknown): RunReference | null {
@@ -172,7 +171,6 @@ function parseReference(value: unknown): RunReference | null {
  * dropped a reference would render as falsely complete, which is the exact lie
  * FR-074's fail-closed reading exists to prevent.
  *
- * @param value - The member as received.
  * @returns The references, or `null`.
  */
 export function parseReferences(value: unknown): RunReference[] | null {

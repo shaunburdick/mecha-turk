@@ -598,7 +598,6 @@ function credentialPrompt(): string {
 /**
  * PUT one account profile body against a routed account path.
  *
- * @param options - Harness instance, the path id, and the request body.
  * @returns The response.
  */
 function putProfileAt(options: {
@@ -707,8 +706,6 @@ function accountFileOf(service: TestService): string {
 /**
  * The keys whose value differs between two stored documents.
  *
- * @param before - The document as it stood.
- * @param after - The document after the write under test.
  * @returns Every key whose serialized value changed.
  */
 function changedKeys(before: Record<string, unknown>, after: Record<string, unknown>): readonly string[] {

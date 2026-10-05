@@ -37,8 +37,6 @@ import type { ConfigIssue } from './config.ts';
  * Check the global prompt tier against the one validator all three tiers
  * share.
  *
- * @param value - Candidate value as the document carried it (`undefined`
- *   when the key is absent).
  * @returns Zero or one issue, for the additive list `collectIssues`
  *   assembles.
  */

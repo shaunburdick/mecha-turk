@@ -199,8 +199,6 @@ export async function guardRun(rt: PanelRuntime, run: ClaimedRun): Promise<Guard
  * project the host no longer lists — so the service holds the run in
  * `blocked:<reason>` where the operator can see the cause and retry
  * once it clears, rather than the panel pretending the run was dispatched.
- *
- * @param input - Runtime, the offered run, and why the guard refused.
  */
 export async function refuseWithBlocked(input: {
     /** Panel runtime. */
@@ -409,8 +407,6 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
  * start: every guard runs *before* the reserve, so there is no post-reserve
  * guard refusal to report. Reporting it keeps the run out of `unconfirmed`
  * (contract §3).
- *
- * @param input - Runtime, the run, and the token the reservation holds.
  */
 export async function abandonReservation(input: {
     /** Panel runtime. */

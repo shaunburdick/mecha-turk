@@ -19,7 +19,6 @@ export const SERVICE_VERSION = '0.0.1';
 /**
  * Build the ready-probe body.
  *
- * @param context - Route context supplying the declared schema version.
  * @returns The `{ status, version, schemaVersion }` response (contract §2.1).
  */
 function healthResponse(context: RouteContext): HttpResponse {

@@ -166,7 +166,6 @@ async function addProbe<T>(input: ProbeInput<T>, state: ProbeState): Promise<voi
 /**
  * Register the lifecycle listener, recording the probe when registration fails.
  *
- * @param host - Host client.
  * @returns The teardown for the registered listener, or `null` on refusal.
  */
 function registerLifecycleListener(
@@ -198,8 +197,6 @@ function registerLifecycleListener(
  * fresh host stays silent for the whole window. Registration is therefore the
  * only guarantee this surface makes (`replayExpected: false`); the probe still
  * records whether an event arrived while it listened.
- *
- * @param input - Host client, collector, and probe window.
  */
 async function probeLifecycle(input: {
     /** Host client. */
@@ -229,7 +226,6 @@ async function probeLifecycle(input: {
 /**
  * Register every documented subscription, capture replays, then release them.
  *
- * @param input - Host client, project id, and listen window.
  * @returns Probes, teardowns, problems, and observed lifecycle phases.
  */
 async function probeSubscriptions(input: { host: PanelHost; projectId: string; waitMs: number }): Promise<ProbeState> {
@@ -279,7 +275,6 @@ interface HostLists {
 /**
  * Read the three documented list APIs, recording partial failures.
  *
- * @param input - Host client and project id.
  * @returns List snapshots plus every problem encountered.
  */
 async function readLists(input: { host: PanelHost; projectId: string }): Promise<HostLists> {
@@ -338,7 +333,6 @@ async function readLists(input: { host: PanelHost; projectId: string }): Promise
  * a short window, and never mutates local state. Failures are recorded as
  * problems instead of being retried through an undocumented path.
  *
- * @param input - Host client, resolved project id, and optional probe window.
  * @returns The verification evidence for the ledger.
  */
 export async function verifyHostState(input: VerifyHostInput): Promise<HostVerification> {

@@ -104,7 +104,6 @@ export function readPromptReference(record: Record<string, unknown>): PromptRefe
  * Read the claim answer's five prompt members, including the transport-only
  * text (contracts `dispatch-prompt.md` §1).
  *
- * @param record - The parsed claim entry.
  * @returns The five members, or `null` when their combination is unusable.
  */
 export function readClaimPrompt(record: Record<string, unknown>): ClaimPrompt | null {

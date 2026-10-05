@@ -59,7 +59,6 @@ export const EXPECTED_AGENT_RULE = {
  * that leaves the key out is refused while a `PUT` that sends `""` is a
  * deliberate statement that no baseline is configured.
  *
- * @param value - Candidate value as the document carried it.
  * @returns Zero or one issue.
  */
 export function expectedAgentIssue(value: unknown): readonly ConfigIssue[] {

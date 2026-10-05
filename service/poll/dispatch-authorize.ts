@@ -302,8 +302,6 @@ async function refusedReserve(input: {
  * Authorize one dispatch: mint the single-use token and move the run to
  * `starting`.
  *
- * @param input - Store, logger, the run, the lease, the attempt, and an
- *   injectable service clock.
  * @returns The authorized run with its token, or why nothing was authorized.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */

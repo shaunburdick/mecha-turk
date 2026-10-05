@@ -339,8 +339,6 @@ async function drainLoop(input: {
  * The boot sweep reads the *real* clock (NFR-112), so "the lease outlived the
  * outage" cannot be modelled by waiting — the fixture moves the stored expiry
  * instead, which is the same state a long downtime leaves behind.
- *
- * @param input - The open store to age in place.
  */
 async function ageStoredLeases(input: { readonly store: ServiceStore }): Promise<void> {
     const document = await readRunsDocument({ store: input.store, log: LOOP_LOGGER });
@@ -444,7 +442,6 @@ async function startLoopService(dataDir: string): Promise<TestService> {
  * (003 FR-076).
  *
  * @param dataDir - Store directory to seed.
- * @param store - The open store of the instance serving it.
  * @returns A promise that settles once both documents are durable.
  */
 async function seedLoopStore(dataDir: string, store: ServiceStore): Promise<void> {

@@ -177,7 +177,6 @@ function claimLimitOf(raw: string | null): number | null {
  * count derived from runs, and that is what this reads — the same document the
  * claim answers from, so the two can never disagree.
  *
- * @param input - Store, logger, and the bindings every row is keyed by.
  * @returns One row per binding, with scan state and pending count.
  * @throws {StorageUnavailableError} When the run document cannot be read.
  */
@@ -277,7 +276,6 @@ async function handlePendingEvents(context: RouteContext, request: RouteRequest)
  * contract's only refusal — `503 storage-unavailable` — instead of inventing an
  * empty history a constitution-II reading would forbid.
  *
- * @param context - Route context carrying the structured logger.
  * @returns Every retained run's row, newest detected first with the tiebreak.
  */
 async function projectHistory(

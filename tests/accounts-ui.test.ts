@@ -637,7 +637,6 @@ async function displayRuntime(spec: DisplaySpec): Promise<{
  * it: both drafts, read off the two fields (owner ruling, PR #12 — "One Save
  * button, both fields").
  *
- * @param rt - Runtime whose open row carries the drafts.
  * @returns The write's completion — resolved only after the re-read.
  */
 async function saveBothDrafts(rt: PanelRuntime): Promise<void> {

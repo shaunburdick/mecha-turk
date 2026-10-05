@@ -153,7 +153,6 @@ export function boundaryOf(
 /**
  * Encode a page boundary for the next answer.
  *
- * @param row - The last row of the page just served.
  * @returns The opaque token the next request carries back.
  */
 export function encodeBoundary(row: RunHistoryRow): string {
@@ -306,7 +305,6 @@ export function newestFirst(left: RunHistoryRow, right: RunHistoryRow): number {
 /**
  * Whether a row sits after the page boundary in the retained order.
  *
- * @param boundary - The last row the previous page served.
  * @returns `true` when the row belongs to a later page.
  */
 export function afterBoundary(row: RunHistoryRow, boundary: PageBoundary): boolean {

@@ -188,7 +188,6 @@ export function expectNoSecret(subject: string, text: string): void {
 /**
  * Collect every secret-bearing surface of one harness instance.
  *
- * @param service - Harness instance to scan.
  * @returns Log lines and the audit trail, joined for one assertion.
  */
 export async function secretSurfaces(service: TestService): Promise<string> {

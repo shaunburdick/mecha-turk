@@ -318,7 +318,6 @@ function recoverLateResult(input: { readonly run: Run; readonly now: string }): 
 /**
  * Decide every recovery one pass makes, without writing anything.
  *
- * @param input - The document and the service-clock stamp.
  * @returns The document to persist plus the recoveries to log and audit.
  */
 export function planSweep(input: {
@@ -385,7 +384,6 @@ async function appendSweepAudit(input: {
  * rather than lost — the same durability the enqueue path gets
  * outbox, reused rather than reinvented.
  *
- * @param input - The document to persist and the recoveries it owes rows for.
  * @returns The document with its intents appended.
  */
 function withIntents(input: {
@@ -407,7 +405,6 @@ function withIntents(input: {
  * the audit rows follow, so a row that cannot be appended is retried by the
  * outbox on the next read rather than rolled back (FR-063, T-040b).
  *
- * @param input - Store, logger, and an injectable service-clock stamp.
  * @returns The recoveries this pass made and whether their rows reached the trail.
  * @throws {StorageUnavailableError} When the store cannot be read or written.
  */

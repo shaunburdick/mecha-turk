@@ -116,7 +116,6 @@ const ECHO_REMEDIATION = 'echo the run correlation id exactly as the path names 
  * Whether a received body is the plain JSON object every run-scoped contract
  * shape is written as.
  *
- * @param raw - The parsed body, or `undefined` when the request carried none.
  * @returns `true` for a non-array, non-null object (or no body at all).
  */
 function isBodyObject(raw: unknown): boolean {
@@ -140,7 +139,6 @@ function echoIssue(record: Readonly<Record<string, unknown>>, correlationId: str
 /**
  * Read one optional member, refusing anything that is not the shape minted.
  *
- * @param value - The member as received, or `undefined`.
  * @param pattern - The exact shape this build mints for it.
  * @returns The member, or `null` when absent or malformed.
  */
@@ -192,7 +190,6 @@ function requiredMember(input: {
  * trips to learn what is wrong, and the 422 is the one place that can say all of
  * it at once.
  *
- * @param input - The parsed body, the run the path named, and what is required.
  * @returns The members as received, plus every issue found.
  */
 function parseRunScopeRequest(input: {
@@ -311,7 +308,6 @@ export interface RunScopeBody {
  * that contradicts the path is a validation failure, never a silently-preferred
  * one of the two.
  *
- * @param input - The parsed body and the run the path named.
  * @returns The body's members, or the `422`.
  */
 export function readRunScopeBody(input: ReadRequest): RunScopeBody | HttpResponse {

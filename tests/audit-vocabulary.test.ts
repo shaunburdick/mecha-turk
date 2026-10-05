@@ -494,7 +494,6 @@ describe('FR-062 every lifecycle row carries the run correlation id', () => {
  * when a prompt was present, `null` when none was, and nothing else standing
  * in for either.
  *
- * @param value - The member as the trail carried it.
  * @returns The tier list, `null`, or `undefined` when the member is neither
  *   shape — which the caller reports as the violation it is.
  */
@@ -526,9 +525,6 @@ function tiersOf(value: unknown): readonly string[] | null | undefined {
  *
  * Takes the pair structurally rather than a row type, so the same invariant
  * reads a stored {@link AuditEntry} and a row the builders just made.
- *
- * @param input - The row's vocabulary name and its `details`, as stored or as
- *   built (`undefined` is accepted and fails the invariant below).
  */
 function expectSourcesMatchPrompt(input: {
     /** Vocabulary name of the row, for the failure message. */

@@ -89,7 +89,6 @@ const MEDIA_ENUMERATION_LIMIT = 4;
 /**
  * Pull every `<style>` element's text out of an HTML document.
  *
- * @param html - The document source.
  * @returns The style blocks joined, ready for {@link parseStylesheet}.
  */
 export function styleText(html: string): string {
@@ -332,7 +331,6 @@ export function parseStylesheet(css: string): readonly StyleRule[] {
  * Two blocks means four readings (neither, each on its own, both), which is
  * how a rule that only hides an element at one viewport width is caught.
  *
- * @param rules - The parsed stylesheet.
  * @returns One set of in-force media preludes per combination.
  */
 export function mediaVariants(rules: readonly StyleRule[]): readonly ReadonlySet<string>[] {

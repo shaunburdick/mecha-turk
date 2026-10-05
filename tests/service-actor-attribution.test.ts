@@ -377,7 +377,6 @@ function assignedBy(assigner: string, overrides: Partial<PollItemEvent> = {}): P
  * the pull request (002 FR-049).
  *
  * @param requester - The `review_requester.login` the row names.
- * @param overrides - Members to replace on the returned row.
  * @returns The naming row.
  */
 function requestedBy(requester: string, overrides: Partial<PollItemEvent> = {}): PollItemEvent {
@@ -514,7 +513,6 @@ function wirePage(rows: readonly string[]): string {
 /**
  * The events page holding exactly one row.
  *
- * @param input - The row's wire members.
  * @returns The page body.
  */
 function wireEventsPage(input: Parameters<typeof wireRow>[0]): string {

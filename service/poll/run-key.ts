@@ -150,7 +150,6 @@ export function buildSubjectKey(input: RunKeyInput): string {
  * Hex-encode the prefix of one SHA-256 digest.
  *
  * @param text - Bytes to hash.
- * @param hexChars - How many hex characters of the digest to keep.
  * @returns The lower-case hex prefix.
  */
 function digestHex(text: string, hexChars: number): string {

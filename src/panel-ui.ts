@@ -146,7 +146,6 @@ export function mountProjectPicker(input: {
  * already has a tab that owns it, and a second home for a fact is a second
  * place it can drift from.
  *
- * @param root - Panel root element from `panel/index.html`.
  * @returns The one handle the repaint path updates.
  */
 export function mountPanelFraming(root: HTMLElement): PanelUi {

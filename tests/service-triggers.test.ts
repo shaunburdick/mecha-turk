@@ -302,7 +302,6 @@ interface RecordedPoller {
  * An **absent** member is `''`/`''`, exactly as GitHub sends `null` and as every
  * other feed's author reads — so one authorship rule covers the events feed too.
  *
- * @param input - The row's kind word, its subjects and actors, and its stamp.
  * @returns The normalized event.
  */
 function itemEvent(input: {

@@ -450,8 +450,6 @@ async function applyVerdict(input: {
  * outcome is *no session*, distinguished from Result's `problem` shape
  * by when it is true rather than by the state it ends in.
  *
- * @param input - Store, logger, the run, the token, the attempt, the outcome,
- *   and an injectable service clock.
  * @returns The settled run, the duplicate verdict, or the refusal.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */

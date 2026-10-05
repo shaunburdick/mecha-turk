@@ -189,7 +189,6 @@ interface ClaimPlanInput {
  * budget is consulted, so a run the answer cannot carry is never leased and
  * never audited.
  *
- * @param input - The document, the holder, the durations, the bounds, and the queue.
  * @param run - The run being considered.
  * @returns The leased run, its lease, and its answer row; `null` when it is not claimable.
  */
@@ -224,7 +223,6 @@ function planOne(input: ClaimPlanInput, run: Run): ClaimRecord | null {
  * documented bounds trips — {@link MAX_CLAIMED_RUNS} or the byte budget — and
  * every eligible run past that point is counted as deferred rather than leased.
  *
- * @param input - The document, the holder, the durations, the bounds, and the queue.
  * @returns The document to persist, the claims to answer and audit, and the count deferred.
  */
 export function planClaim(input: ClaimPlanInput): ClaimOutcome {
@@ -273,7 +271,6 @@ export function planClaim(input: ClaimPlanInput): ClaimOutcome {
  * only decides whether a write is needed, and the planner re-checks everything
  * inside the chain before anything is leased.
  *
- * @param document - The document as previewed.
  * @returns `true` when at least one run is claimable.
  */
 /**
@@ -351,7 +348,6 @@ const DEFAULT_CLAIM_BOUNDS = {
  * only decides whether a write is needed, and the planner re-checks everything
  * inside the chain before anything is leased.
  *
- * @param document - The document as previewed.
  * @returns `true` when at least one run is claimable.
  */
 function hasEligibleRun(document: RunsDocument): boolean {
@@ -368,7 +364,6 @@ function hasEligibleRun(document: RunsDocument): boolean {
  * a row that cannot be appended is reported as `auditWritten: false` rather
  * than swallowed.
  *
- * @param input - Store, logger, the claim's holder, an injectable stamp, and optional bounds.
  * @returns The runs this claim leased, how many stayed claimable, and whether the rows landed.
  * @throws {StorageUnavailableError} When the store or the run document cannot be read or written.
  */

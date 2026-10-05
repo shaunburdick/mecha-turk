@@ -156,7 +156,6 @@ async function seedStrandedClaim(): Promise<string> {
  * answered `undefined` that later assertions reported far from its cause —
  * the misdirection T-045's precondition assertions exist to end.
  *
- * @param service - The running service to claim against.
  * @returns The run rows it answered with.
  */
 async function claim(service: TestService): Promise<readonly ClaimedRun[]> {

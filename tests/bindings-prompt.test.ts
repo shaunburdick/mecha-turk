@@ -194,7 +194,6 @@ const OVER_CAP_CREDENTIAL = `ghp_${'x'.repeat(2_100)}`;
 /**
  * Build one binding as `GET /v1/bindings` serializes it.
  *
- * @param input - The row's identity and its stored prompt, if any.
  * @returns One complete binding row.
  */
 function bindingRow(input: {

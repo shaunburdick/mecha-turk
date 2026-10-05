@@ -422,8 +422,6 @@ async function reserve(service: TestService, run: Run): Promise<WireAnswer> {
 /**
  * Report the outcome of the fixture run's authorization.
  *
- * @param input - The running instance, the run to report for, and exactly one
- *   of `sessionId` / `problem` (FR-040 refuses a body carrying both or neither).
  * @returns The result answer.
  */
 async function report(input: {

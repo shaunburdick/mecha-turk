@@ -212,7 +212,6 @@ async function storedBytes(service: TestService): Promise<string> {
 /**
  * Every binding the `GET` answer reports, in document order.
  *
- * @param service - Harness instance to ask.
  * @returns The answer's `bindings` array.
  */
 async function storedRows(service: TestService): Promise<readonly Record<string, unknown>[]> {

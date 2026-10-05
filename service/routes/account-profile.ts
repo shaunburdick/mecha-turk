@@ -142,8 +142,6 @@ function unexpectedProfileMemberIssue(key: string): FieldIssue {
  * Keeping this to one key is what holds the pass under the complexity gate;
  * the pass itself stays a single ordered walk over `Object.keys`, so a `422`
  * still lists every problem the body has (004 FR-027's additive atomicity).
- *
- * @param input - The member name, the parsed body, and the scratch to fill.
  */
 function readProfileKey(input: {
     /** The member name, exactly as it arrived. */
@@ -244,7 +242,6 @@ type ProfileOutcome =
  * claims only this submission's own change, so exactly one row exists per
  * change and a `displayName`-only write appends none at all.
  *
- * @param input - Open store, logger, path id, and the raw body.
  * @returns The outcome the handler answers with.
  */
 async function runProfileWrite(input: {

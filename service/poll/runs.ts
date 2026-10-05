@@ -92,7 +92,6 @@ function leaseCoordinatesOf(input: ClaimInput): LeaseCoordinates {
 /**
  * Apply one state change to one run, serialized onto the shared chain.
  *
- * @param input - Store, logger, correlation id, and stamp.
  * @param apply - The transition; returns `null` to refuse it (the run is not
  *   in a state this transition accepts) without writing anything.
  * @returns What the transition did.

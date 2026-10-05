@@ -196,8 +196,6 @@ export function repaintPrerequisites(rt: PanelRuntime): void {
  * notice that disappears when the operator switches tabs is one they can
  * switch away from. The wrapper starts hidden, so a panel that has derived
  * nothing unmet shows no banner until the first repaint paints one.
- *
- * @param input - Runtime, and the panel-root element to append the wrapper to.
  */
 export function mountPrerequisiteNotice(input: {
     /** Runtime whose state the banner repaints from. */
@@ -269,8 +267,6 @@ function mountPrereqCard(parent: HTMLElement, item: Prerequisite): PrereqCard {
  * Mount the five-card section inside the Status body: one block so the
  * heading and its cards read as one thing, one card per prerequisite because
  * each repaints from its own record.
- *
- * @param input - Runtime, and the Status body the block mounts into.
  */
 export function mountPrerequisitesSection(input: {
     /** Runtime whose state the cards repaint from. */
@@ -290,8 +286,6 @@ export function mountPrerequisitesSection(input: {
  *
  * Called from the app's teardown beside the other handle disposals: the
  * wrappers are not part of `PanelUi`, so nothing else would release them.
- *
- * @param rt - Panel runtime being torn down.
  */
 export function disposePrerequisites(rt: PanelRuntime): void {
     const surface = surfaces.get(rt);

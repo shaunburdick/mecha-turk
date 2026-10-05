@@ -251,7 +251,6 @@ function runsBody(rows: readonly RunRow[]): string {
  * Every reference assertion here spells out the same four-deep fixture chain,
  * so it is named once and each test reads as one line of arrangement.
  *
- * @param overrides - Members to override on the run.
  * @returns The rows the panel renders.
  */
 function rowsForRun(overrides: Partial<RunRow> = {}): ListItem[] {

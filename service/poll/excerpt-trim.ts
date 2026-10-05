@@ -142,7 +142,6 @@ function dispatchFinished(event: QueuedEvent, runStates: ReadonlyMap<string, str
 /**
  * Decide whether one row's payload text is this pass's to clear.
  *
- * @param input - The row, the run states, and the window's cutoff.
  * @returns `true` for an untouched, eligible row older than the window that
  *   still carries text to clear.
  */
@@ -167,7 +166,6 @@ function clearable(input: {
 /**
  * One pass: clear the eligible excerpts, then record what was cleared.
  *
- * @param input - Store, logger, the effective configuration, and the clock.
  * @returns How many rows this pass cleared; `0` means nothing was touched.
  * @throws {StorageUnavailableError} When the queue cannot be rewritten; the
  *   caller (store open, cycle boundary) logs the failure and moves on, and the

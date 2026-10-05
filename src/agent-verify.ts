@@ -355,8 +355,6 @@ function recordReadBack(input: {
  * The report is warn-only on both sides: the route changes no run state, and
  * a refusal here lands as the section's note rather than as a silent gap —
  * the rule for a lifecycle row that did not reach the trail.
- *
- * @param input - Runtime, the run, the attempt, the session, and its outcome.
  */
 async function postReadBack(input: {
     /** Panel runtime. */
@@ -419,9 +417,6 @@ async function postReadBack(input: {
  * never hold the claim slot while it waits. This function therefore
  * never rejects — a failure lands as the visible warning, never as an
  * unhandled rejection the relay would never see.
- *
- * @param inputs - Runtime, the run's correlation id, its attempt, and the
- *   created session id.
  */
 export async function verifyAgentAfterDispatch(inputs: {
     /** Panel runtime. */

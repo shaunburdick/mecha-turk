@@ -246,7 +246,6 @@ const inertHandlers: PanelHandlers = {
  * both (005 v1.14.0) and a fixture that could not vary them could not reach four
  * of its eight rows.
  *
- * @param input - The row's identity, its stored allow-list, and its state.
  * @returns One complete binding row.
  */
 function bindingRow(input: {

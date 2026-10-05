@@ -129,7 +129,6 @@ function envelopeOf(body: string): ConfigEnvelope {
 /**
  * The baseline draft: every descriptor's value as the tab would start it.
  *
- * @param envelope - The parsed document.
  * @returns The draft, keyed by field.
  */
 function draftFrom(envelope: ConfigEnvelope): Record<string, string> {
@@ -174,7 +173,6 @@ function recordedStrings(): readonly string[] {
 /**
  * Build an answer for a GET of the configuration and a scripted PUT.
  *
- * @param input - The document to read, and how the write answers.
  * @returns The answer for either method.
  */
 function scriptedAnswer(input: {
@@ -255,7 +253,6 @@ function buttonProps(label: string): { readonly onClick?: () => void } {
  * Activate one control `times` times, then let the answers land.
  *
  * @param label - The control's label.
- * @param times - How many activations to perform.
  */
 async function activate(label: string, times = 1): Promise<void> {
     const { onClick } = buttonProps(label);

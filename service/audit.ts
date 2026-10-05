@@ -56,7 +56,6 @@ const AUDIT_ENTITY_KINDS: ReadonlySet<string> = new Set<AuditEntityKind>([
 /**
  * Narrow an unknown value to an entity kind.
  *
- * @param value - Candidate value from a stored audit line.
  * @returns `true` only for one of the documented kinds.
  */
 function isAuditEntityKind(value: unknown): value is AuditEntityKind {
@@ -204,7 +203,6 @@ function isAuditHeader(raw: Record<string, unknown>): raw is AuditHeader & Recor
 /**
  * Check and narrow the entity of a stored line.
  *
- * @param raw - Candidate value for the `entity` field.
  * @returns `true` for a documented kind plus a string id.
  */
 function isAuditEntity(raw: unknown): raw is { readonly kind: AuditEntityKind; readonly id: string } {
@@ -214,7 +212,6 @@ function isAuditEntity(raw: unknown): raw is { readonly kind: AuditEntityKind; r
 /**
  * Read the redaction marker of a stored line, tolerating a missing one.
  *
- * @param raw - Candidate value for the `redaction` field.
  * @returns The marker; older lines without one report nothing was redacted.
  */
 function readRedaction(raw: unknown): { readonly redacted: boolean; readonly fields: readonly string[] } {

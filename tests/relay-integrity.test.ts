@@ -711,7 +711,6 @@ function boundsDetection(issueNumber: number): EventSnapshot {
  * Seed runs through the real join pass, so the caps are exercised on rows the
  * product itself produced rather than on hand-written literals.
  *
- * @param count - How many distinct subjects to open.
  * @returns The runs and the delivery rows they link to.
  */
 function seededRuns(count: number): {

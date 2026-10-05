@@ -138,7 +138,6 @@ interface CustodyVerdict {
  * validates before it observes). The observation the read implies belongs to
  * the caller, and runs only once the write is certain to happen.
  *
- * @param input - Open store, its logger, and the raw PUT body.
  * @returns The custody as it stood plus the verdict over the body.
  */
 async function readCustodyAndValidate(input: {
@@ -181,8 +180,6 @@ async function readCustodyAndValidate(input: {
  * actor `operator`. Reading, writing, and diffing inside one chain is what makes
  * SC-125's "exactly one row per change" hold under a race rather than by luck.
  *
- * @param input - The open store, its logger, the validated rows, and the ids
- *   whose submitted row left the prompt key out.
  * @returns The rows as stored, which is what the answer echoes.
  */
 async function writeGrant(input: {

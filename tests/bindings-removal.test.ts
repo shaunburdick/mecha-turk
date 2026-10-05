@@ -330,8 +330,6 @@ function disabledBinding(): PanelBinding {
 /**
  * Build a bindings state around one row, so the row copy can be asserted.
  *
- * @param input - The row, the accounts the service holds, and how the last
- *   read ended.
  * @returns A complete bindings state.
  */
 function bindingsState(input: {

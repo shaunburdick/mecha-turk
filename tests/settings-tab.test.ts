@@ -267,7 +267,6 @@ async function activateSave(view: SettingsMount, activations = 1): Promise<void>
 /**
  * Build an answer for a GET of the configuration and a scripted PUT.
  *
- * @param input - The document to read, and how the write answers.
  * @returns The answer for either method.
  */
 function scriptedAnswer(input: {

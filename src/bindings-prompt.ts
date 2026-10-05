@@ -179,7 +179,6 @@ export function disposeBindingPrompt(controls: BindingPromptControls): void {
 /**
  * Read the stored prompt a freshly selected binding carries.
  *
- * @param bindingId - The row the operator selected.
  * @returns The stored text, or `''` when the binding has none.
  */
 export function storedPromptFor(bindings: BindingsTabState, bindingId: string | null): string {

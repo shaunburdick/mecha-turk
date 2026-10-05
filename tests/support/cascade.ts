@@ -310,7 +310,6 @@ function matchesNth(argument: string, element: ProbeElement): boolean {
 /**
  * Whether one attribute selector holds for an element.
  *
- * @param token - The parsed attribute selector.
  * @returns True when the attribute is there and any modelled test passes.
  */
 function matchesAttribute(token: Token, element: ProbeElement): boolean {
@@ -337,7 +336,6 @@ function matchesAttribute(token: Token, element: ProbeElement): boolean {
  * The positional classes are the ones this reader can disprove; everything
  * else, `:not` included, is answered optimistically (see the module header).
  *
- * @param token - The parsed pseudo-class.
  * @returns False for a positional class it can rule out, true otherwise.
  */
 function matchesPseudo(token: Token, element: ProbeElement): boolean {
@@ -581,7 +579,6 @@ function inlineCandidate(element: ProbeElement): Candidate | null {
 /**
  * The `display` the cascade gives one element, under one set of media.
  *
- * @param input - The parsed rules, the element, and the media in force.
  * @returns The winning value, or null when nothing declares `display`.
  */
 export function cascadedDisplay(input: CascadeInput): string | null {

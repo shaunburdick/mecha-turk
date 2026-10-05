@@ -164,7 +164,6 @@ export function budgetFloorProblem(input: {
  * line and the ledger entry. The correlation id is the run's, which is what
  * makes the attachment id the run's too.
  *
- * @param input - Runtime and the offered run.
  * @returns The evidence record the attachment reads its identity from.
  */
 function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRun }): PanelEvidence {
@@ -193,7 +192,6 @@ function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRu
  * {@link budgetFloorProblem} measures what comes back of this against
  * {@link CONTEXT_MAX_CHARS} immediately before the host call.
  *
- * @param input - Runtime, the run, and the project the host confirmed.
  * @returns The request exactly as the host would receive it.
  */
 export function runRequestOf(input: {
@@ -262,7 +260,6 @@ export function runRequestOf(input: {
  * back with one — and an outcome, either way, is exactly what FR-024 requires
  * the panel to hold before it reports anything.
  *
- * @param input - Runtime, the run, and the confirmed project.
  * @returns What the host produced (or the floor refused), for the ledger, the
  *   record, and the report.
  */

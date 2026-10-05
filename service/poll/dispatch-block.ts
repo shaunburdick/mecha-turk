@@ -197,8 +197,6 @@ async function appendBlockRow(input: {
  * Hold a claimed run in `blocked:<reason>` after a fail-closed guard refused
  * before any host call.
  *
- * @param input - Store, logger, the run, the lease, the attempt, the cause, and
- *   an injectable service clock.
  * @returns The blocked run, or the refusal.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */

@@ -87,7 +87,6 @@ export function sweepIntervalMs(durations: SweepDurations): number {
  * that pins what the loop will arm is pinning the fix, not an implementation
  * detail of a timer.
  *
- * @param input - Open store and structured logger.
  * @returns The configured durations, or the documented defaults.
  */
 export async function readSweepDurations(input: SweepLoopInput): Promise<SweepDurations> {
@@ -131,8 +130,6 @@ function arm(
  * A tick still running when the next fires is skipped rather than overlapped:
  * the sweep is a chain task, and two passes would only contend for the same
  * lock. A shutdown that landed mid-pass must not re-arm.
- *
- * @param input - Store, logger, the loop's state, and its tick callback.
  */
 async function runPass(input: {
     /** Open store and structured logger. */

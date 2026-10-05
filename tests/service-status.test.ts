@@ -154,8 +154,6 @@ function accountVerifier(): GitHubVerifier {
 
 /**
  * Register the fixture account through the real credential route.
- *
- * @param service - The running instance, started with {@link accountVerifier}.
  */
 async function registerAccount(service: TestService): Promise<void> {
     const response = await service.call(VERIFY_PATH, {

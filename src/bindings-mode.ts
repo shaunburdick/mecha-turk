@@ -69,7 +69,6 @@ export function bindingContext(binding: PanelBinding): BindingContext | null {
 /**
  * Build the info banner for bindings-authoritative mode.
  *
- * @param count - How many bindings are enabled.
  * @returns The banner content.
  */
 export function bindingsActiveStatus(count: number): PanelStatus {

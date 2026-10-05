@@ -298,7 +298,6 @@ function parseRate(value: unknown): StatusRateView | null {
 /**
  * Parse one account row.
  *
- * @param value - One element of the `accounts` array.
  * @returns The row, or `null` when the shape is wrong.
  */
 function parseAccount(value: unknown): StatusAccountView | null {
@@ -354,7 +353,6 @@ function parseBindingIdentity(row: Record<string, unknown>): BindingIdentity | n
 /**
  * Parse one binding row out of the `repositories` member.
  *
- * @param value - One element of the `repositories` array.
  * @returns The row, or `null` when the shape is wrong.
  */
 function parseBinding(value: unknown): StatusBindingView | null {

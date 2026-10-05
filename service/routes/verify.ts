@@ -271,7 +271,6 @@ async function acceptVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
 /**
  * Run one handoff from body to response.
  *
- * @param context - Route context carrying store, throttle, and GitHub client.
  * @param request - The panel's `POST /v1/accounts/verify`.
  * @returns The documented response for this outcome.
  */

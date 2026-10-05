@@ -100,8 +100,6 @@ export function renderHandoff(state: HandoffState, view: HandoffView): void {
  *
  * A panel without a mounted group (the tests, and any surface that hides the
  * accounts UI) repaints nothing — the state is still authoritative.
- *
- * @param rt - Panel runtime carrying state and, possibly, the mounted view.
  */
 export function refreshHandoff(rt: PanelRuntime): void {
     if (rt.handoffView !== null) {
@@ -116,8 +114,6 @@ export function refreshHandoff(rt: PanelRuntime): void {
  * account the mirror lost (extension reinstall) is adopted from
  * `GET /v1/accounts` before the operator is shown a paste form that could
  * only end in the service's duplicate refusal (MVP blocker 2).
- *
- * @param rt - Panel runtime whose handoff group may be mounted.
  */
 export async function preflightAndRepaint(rt: PanelRuntime): Promise<void> {
     await adoptServiceAccounts(rt);
@@ -349,7 +345,6 @@ function mountSubmitButton(spec: {
 /**
  * Mount the handoff group: credential input, submit, and outcome lines.
  *
- * @param input - Panel root and the callbacks the button invokes.
  * @returns The view over the mounted nodes.
  */
 export function mountHandoffDom(input: DomInput): HandoffView {

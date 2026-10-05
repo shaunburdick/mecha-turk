@@ -34,7 +34,6 @@ export function describeKind(cause: unknown): string {
 /**
  * Read the effective interval for the next cycle.
  *
- * @param store - Open store, or `null` when unusable.
  * @param log - Logger used when the config file cannot be read.
  * @returns Milliseconds until the next cycle.
  */

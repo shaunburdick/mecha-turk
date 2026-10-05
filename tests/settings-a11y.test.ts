@@ -119,7 +119,6 @@ function collectStrings(value: unknown, found: string[]): void {
 /**
  * Mount every body and attribute its mounts to it, in order.
  *
- * @param rt - Panel runtime the specs build from.
  * @returns One entry per tab, in `TAB_IDS` order.
  */
 async function renderAllTabs(rt: PanelRuntime): Promise<readonly TabRender[]> {

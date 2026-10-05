@@ -115,7 +115,6 @@ function fitExcerpt(excerpt: string, bound: number): string {
 /**
  * Compose the explicit roll-up line that names the sources the budget excluded.
  *
- * @param skipped - How many sources were not listed.
  * @returns The line; plain text, never a delimiter.
  */
 function rollUpLine(skipped: number): string {

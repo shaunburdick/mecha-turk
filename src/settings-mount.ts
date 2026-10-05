@@ -143,7 +143,6 @@ export function mountRowRegion(pane: HTMLElement): RowRegion {
  * A box rather than a dialog: it mounts the same way the "no save" reason
  * does, so an unarmed tab never shows a control that cannot act.
  *
- * @param input - The pane, and what Cancel does.
  * @returns The wrapper, the copy inside it, and the control that disarms it.
  */
 function mountArmBox(input: {
@@ -174,7 +173,6 @@ function mountArmBox(input: {
  * cannot act — and it carries its own Cancel, because the panel has no dialog
  * primitive to lean on and never reintroduces one.
  *
- * @param input - The pane, and the four handlers the controls invoke.
  * @returns The handles and wrappers.
  */
 export function mountControlRegion(input: {
@@ -235,7 +233,6 @@ export function mountControlRegion(input: {
 /**
  * Mount the re-read row: the read controls and their state line.
  *
- * @param input - The pane, what a click does, and the line to show first.
  * @returns The handles.
  */
 export function mountReadControls(input: {

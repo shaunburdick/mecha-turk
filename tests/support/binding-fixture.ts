@@ -110,8 +110,6 @@ export async function writeFixtureBindings(
  * The common case, named separately so a suite's setup reads as what it means:
  * "this run has a binding, and that binding restricts nobody".
  *
- * @param input - The open store, the binding the fixture runs name, and any
- *   per-fixture overrides (usually the repository and project).
  * @returns A promise that settles once the document is durable.
  */
 export async function writeOpenBinding(input: {

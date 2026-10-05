@@ -326,8 +326,6 @@ async function plantQueue(rows: readonly unknown[]): Promise<void> {
 
 /**
  * Write one scan-state document straight into the store directory.
- *
- * @param value - The document to plant.
  */
 async function plantScanState(value: unknown): Promise<void> {
     await writeFile(join(dataDir, SCAN_STATE_FILE), JSON.stringify(value), 'utf8');

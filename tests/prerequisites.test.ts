@@ -355,8 +355,6 @@ describe('the unmet notice outside the section (FR-073)', () => {
  * Bring a runtime's state to the point where the *only* thing left to
  * satisfy is the token-scope line: host answered, one usable account with a
  * missing verdict, one bound repository with a project.
- *
- * @param rt - Runtime whose bindings state is configured.
  */
 function configureForNotice(rt: ReturnType<typeof createTestRuntime>): void {
     rt.state.settings = {};

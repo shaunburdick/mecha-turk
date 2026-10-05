@@ -347,7 +347,6 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
  * keep them for the whole cycle, so a single save changes all of them at the
  * same boundary and no consumer sees a half-updated configuration.
  *
- * @param input - Store, logger, and poller; the store is already known open.
  * @returns The context every binding in this cycle is scanned under.
  */
 async function cycleContext(input: {

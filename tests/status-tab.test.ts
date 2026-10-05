@@ -194,7 +194,6 @@ function withMember(member: string, value: unknown): Record<string, unknown> {
 /**
  * Serialize one fixture document.
  *
- * @param document - The document to serialize.
  * @returns Its JSON body.
  */
 function bodyOf(document: Record<string, unknown>): string {
@@ -204,7 +203,6 @@ function bodyOf(document: Record<string, unknown>): string {
 /**
  * Parse a fixture document, failing loudly when it will not parse.
  *
- * @param document - The document to parse.
  * @returns The view.
  */
 function viewOf(document: Record<string, unknown>): StatusView {
@@ -323,7 +321,6 @@ function guidanceFor(registeredProjectIds: readonly string[] | null): {
  * Install a shell stub that records every call, so a test can prove the read
  * path stamped the tab without navigating it.
  *
- * @param rt - Panel runtime to install the stub on.
  * @returns The record of calls the stub received.
  */
 function stubShell(rt: PanelRuntime): { readonly calls: string[] } {

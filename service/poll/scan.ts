@@ -147,8 +147,6 @@ export async function readScanState(deps: {
 
 /**
  * Store the scan state atomically.
- *
- * @param input - Open store and the state to keep.
  */
 export async function writeScanState(input: {
     /** Open store. */

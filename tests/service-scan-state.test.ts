@@ -89,8 +89,6 @@ function capturingLogger(): { readonly log: ServiceLogger; readonly lines: strin
  * Write one scan-state document straight into the store directory.
  *
  * The bytes are exactly what the loop writes: serialized JSON, no formatting.
- *
- * @param value - The document to plant.
  */
 async function plantScanState(value: unknown): Promise<void> {
     await writeFile(join(dataDir, SCAN_STATE_FILE), JSON.stringify(value), 'utf8');

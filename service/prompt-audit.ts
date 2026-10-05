@@ -285,7 +285,6 @@ async function recordOneChange(context: {
  * **Must run inside {@link runPromptChain}** — the baseline it reads and
  * writes is only safe while no other observation can interleave with it.
  *
- * @param input - The document, the actor to attribute it to, and the logger.
  * @returns How many rows this observation appended.
  */
 export async function recordPromptChanges(input: PromptObservation): Promise<number> {
@@ -320,7 +319,6 @@ export async function recordPromptChanges(input: PromptObservation): Promise<num
  * so a prompt edited outside the panel is recorded by whoever the service
  * could actually attribute the change to.
  *
- * @param input - The document, the actor, the store, and the logger.
  * @returns How many rows this observation appended.
  */
 export async function observePromptChanges(input: PromptObservation): Promise<number> {

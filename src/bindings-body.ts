@@ -382,7 +382,6 @@ function disposeBindingsBody(input: BodyParts): void {
  * The editor block lives in its own wrapper so hiding it is one attribute on
  * one element rather than a claim about which node `createBlock` handed back.
  *
- * @param pane - The pane root the blocks mount into.
  * @returns The list block, the wrapper, and the editor block inside it.
  */
 function createBlocks(pane: HTMLElement): {
@@ -446,7 +445,6 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
  * its own and no dispatches board — those live in their own bodies, which is
  * what makes each capability reachable through exactly one tab.
  *
- * @param input - Panel root, runtime, and the handlers the controls invoke.
  * @returns The mounted body's handles.
  */
 export function mountBindingsBody(input: {

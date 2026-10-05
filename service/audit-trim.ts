@@ -258,7 +258,6 @@ async function subjectSeqs(input: {
  * entity rows whose subject still exists, and (d) every `policy.decision` /
  * `config.changed` row.
  *
- * @param input - Open store, logger, and the trail rows.
  * @returns The `seq` numbers a trim must never remove.
  */
 async function protectedSeqsOf(input: {
@@ -392,7 +391,6 @@ async function composeTrimRow(input: {
  * Read the trail oldest-first, as the sequence a reader walks it in, keeping
  * the unreadable-line count beside it.
  *
- * @param store - Open store holding the trail.
  * @returns The usable rows ordered by `seq`, plus the lines that were refused.
  */
 async function readOrderedTrail(store: ServiceStore): Promise<AuditTrailRead> {
@@ -409,7 +407,6 @@ async function readOrderedTrail(store: ServiceStore): Promise<AuditTrailRead> {
  * it does. The count then travels onto the trim row itself, so the loss is
  * recorded rather than performed invisibly.
  *
- * @param input - Open store and the logger to report the count through.
  * @returns The ordered rows plus the unreadable-line count.
  */
 async function readForPass(input: {
@@ -432,7 +429,6 @@ async function readForPass(input: {
  * One pass: read the trail, decide, and write survivors **plus** their row in a
  * single atomic replace — or write nothing at all.
  *
- * @param input - Store, logger, the effective configuration, and the clock.
  * @returns What the pass removed; `removed: 0` means nothing was touched.
  * @throws {StorageUnavailableError} When the trail cannot be read or rewritten;
  *   the caller (store open, cycle boundary) logs the failure and moves on, and

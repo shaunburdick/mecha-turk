@@ -248,7 +248,6 @@ interface RetryRowInput {
  * `reset` is what makes the dead-letter return legible in the trail, because it
  * is the action that starts a fresh token-consumption chain.
  *
- * @param input - The row's contents plus the store and logger.
  * @returns `true` when the row reached the trail.
  */
 async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
@@ -273,9 +272,6 @@ async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
  * The run keeps its source references and every prior attempt's record, and the
  * automatic requeue budget is untouched: only an expired claim consumes it.
  *
- * @param input - Store, logger, the run, the attempt the request names (which
- *   is validated against the run's own), the operator's cause report, and an
- *   injectable service clock.
  * @returns The waiting run, or the distinct refusal naming why it did not move.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
@@ -337,7 +333,6 @@ export async function retryDispatch(input: {
  * earlier report could have consumed. The history rows survive untouched, which
  * is what makes the boundary legible to an operator reading the trail.
  *
- * @param input - Store, logger, the run, and an injectable service clock.
  * @returns The waiting run, or the refusal naming its state.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
@@ -469,8 +464,6 @@ function resolvedRun(input: {
 /**
  * Resolve an `unconfirmed` run on the operator's explicit word.
  *
- * @param input - Store, logger, the run, the decision, the session id, the
- *   note, the guidance shown, and an injectable service clock.
  * @returns The resolved run, or the refusal naming why it did not move.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */

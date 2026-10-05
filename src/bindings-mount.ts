@@ -141,7 +141,6 @@ function promptHandlers(rt: PanelRuntime): Pick<
  * an empty note is the honest one rather than claiming a cancelled *edit*
  * that never started.
  *
- * @param rt - Panel runtime the cancel reads.
  * @returns The note, which may be empty but is never `null`-meaningful.
  */
 function cancelNote(rt: PanelRuntime): string {
@@ -217,9 +216,6 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
  * first frame would show "No binding yet" under a status line that already
  * counts the bindings the runtime holds — true only until the next refresh
  * tick, which is exactly how long a first frame is allowed to lie.
- *
- * @param input - Runtime, the body container `mountTabShell` created for
- *   `bindings`, and the mount that opens the first block.
  */
 export function mountBindingsTabBody(input: {
     /** Panel runtime the body repaints for. */

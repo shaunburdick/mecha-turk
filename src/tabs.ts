@@ -53,7 +53,6 @@ export interface TabShell {
     /**
      * Record that a tab landed a read.
      *
-     * @param id - The tab that read.
      * @param at - RFC 3339 stamp of the read that landed.
      */
     noteRead(id: TabId, at: string): void;
@@ -76,7 +75,6 @@ export interface TabShell {
  * deliberately leaves to this element; its `flex-shrink: 0` rule covers
  * every other child of `#root`.
  *
- * @param root - Panel root element the strip already appended to.
  * @param specs - The six specs order.
  * @returns The region and the containers it holds, keyed by tab id.
  */
@@ -114,7 +112,6 @@ function createBodyRegion(
  * no `id`/`aria-controls` pair — so the shell owns the association and
  * re-stamps it whenever the strip repaints (FR-016, D4).
  *
- * @param root - Panel root the strip lives in.
  * @param specs - The six specs, in strip order.
  * @param bodies - The containers keyed by tab id.
  */
@@ -146,7 +143,6 @@ function associate(input: {
  * Mount one body the first time it is shown.
  *
  * @param input - Runtime, specs, containers, and the disposer registry.
- * @param id - The tab whose body is wanted on screen.
  */
 function mountOnce(input: {
     /** Runtime whose mount registry records the body. */

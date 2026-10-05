@@ -73,7 +73,6 @@ async function runGuarded(input: {
 /**
  * Run both retention passes for one boundary, oldest limit first.
  *
- * @param input - Store, logger, the effective configuration, and the clock.
  * @returns Resolves when both passes have settled; never rejects.
  */
 export async function runRetentionPasses(input: RetentionInput): Promise<void> {

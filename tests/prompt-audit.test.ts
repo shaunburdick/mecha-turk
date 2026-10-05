@@ -382,7 +382,6 @@ function accountDocument(prompt: string | null): readonly ObservedAccount[] {
 /**
  * Observe one account document for one prompt value.
  *
- * @param input - Store, logger, the value the document carries, and the actor.
  * @returns How many rows the observation appended.
  */
 function observeAccounts(input: {

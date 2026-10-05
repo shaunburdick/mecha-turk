@@ -118,7 +118,6 @@ export const SESSIONS: GuestSessionsSnapshot = {
  * Every default is a neutral, type-correct answer rather than a throw, so a
  * test only fails where it genuinely diverges from the documented behaviour.
  *
- * @param overrides - Members to replace with test behaviour.
  * @returns A complete {@link PanelHost}.
  */
 export function fakeHost(overrides: Partial<PanelHost> = {}): PanelHost {

@@ -84,7 +84,6 @@ function refusingStorage(): Parameters<typeof storeProjectSelection>[0]['storage
 /**
  * Build a picker in a specific state.
  *
- * @param overrides - Members to replace in the initial picker state.
  * @returns The picker state under test.
  */
 function picker(overrides: Partial<ProjectPickerState> = {}): ProjectPickerState {

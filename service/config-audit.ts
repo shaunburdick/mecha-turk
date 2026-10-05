@@ -155,7 +155,6 @@ function recordedValue(field: ServiceConfigField, value: number | string): Confi
  * deliberately **raw** — a fingerprint decides nothing here, it only labels the
  * row afterwards.
  *
- * @param previous - The document in force before the write.
  * @param next - The validated candidate about to be written.
  * @returns The changes, ordered by field name as FR-071 requires.
  */
@@ -219,8 +218,6 @@ function refusedFields(issues: readonly ConfigIssue[]): readonly string[] {
  * `operator`; the observation lane calls it with the single `startingPrompt`
  * move it noticed and actor `service`. One composer, one shape.
  *
- * @param input - The open store, its logger, the changes that were applied,
- *   and who caused them (`operator` unless stated).
  * @returns `true` when the row reached disk, `false` when the append failed —
  *   in which case the change still stands and a structured warn names the
  *   loss. It never throws, which is what lets the lane advance its baseline
@@ -270,8 +267,6 @@ export async function appendConfigApplied(input: {
 /**
  * Append the row for a refused write.
  *
- * @param input - The open store (or `null` when it is unusable), its logger,
- *   and the issue list the refusal answered with.
  * @returns `true` when the row reached disk, `false` otherwise; a failure is
  *   logged rather than echoed, because the `422` envelope is unchanged.
  */

@@ -164,8 +164,6 @@ function parseRunObjects(raw: Record<string, unknown>): RunObjects | null {
  * Parse a bounded list of sub-objects.
  *
  * @param raw - Candidate array as stored.
- * @param shape - The row parser to run over every element and its inclusive
- *   length bound.
  * @returns The parsed rows, or `null` when the value is not an array, holds
  *   an unusable row, or exceeds the cap.
  */
@@ -340,7 +338,6 @@ function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run 
  * The `prompt` member is validated with the rest of the row's parts, through
  * the prompt domain's own stored-shape reader (data-model §3).
  *
- * @param raw - One element from `runs.json`'s `runs` array.
  * @returns The run, or `null` when the row cannot be trusted.
  */
 export function parseRun(raw: unknown): Run | null {

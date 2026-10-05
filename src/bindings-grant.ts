@@ -92,7 +92,6 @@ interface GrantOverrides {
  * field holds logins, and `undefined` (which `JSON.stringify` drops) when the
  * operator cleared the field.
  *
- * @param input - The row, and the two overrides this write applies.
  * @returns The row as it goes on the wire.
  */
 function rowForGrant(input: {
@@ -158,7 +157,6 @@ export function armRelayForBindings(rt: PanelRuntime, bindings: readonly PanelBi
  * it names, which the caller splits out of the answer this
  * returns.
  *
- * @param rt - Panel runtime whose note and repaint this writes.
  * @param result - The refused answer.
  */
 function noteRefusal(rt: PanelRuntime, result: ServiceErrorResult): void {
@@ -206,8 +204,6 @@ function unreadableListRefusal(): ServiceErrorResult {
  * operator-facing sentence, while the envelope's own code and copy let a
  * caller put a field-level refusal next to the field it belongs to.
  *
- * @param input - Runtime, the replacement list, the success note, and the one
- *   prompt and one allow-list this write overrides (if either was edited).
  * @returns The service's answer, including its refusal when it sent one.
  */
 export async function grantBindings(input: {

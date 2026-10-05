@@ -182,7 +182,6 @@ function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boole
  * duplicate-free. The write runs on the scan-state chain, so it cannot
  * interleave with the loop's own read-modify-write of that file.
  *
- * @param input - Open store and logger the scan-state read takes.
  * @returns How many bindings had a window to clear.
  */
 async function resetScanWindows(input: {
@@ -211,8 +210,6 @@ async function resetScanWindows(input: {
 
 /**
  * Record one queue-quarantine recovery in the audit trail.
- *
- * @param input - Open store, logger, the quarantine path, and the reset count.
  */
 async function recordQueueRecovery(input: {
     /** Open store. */
@@ -251,8 +248,6 @@ async function recordQueueRecovery(input: {
  * repair can run: clear every binding's scan window — the lost assignments
  * are re-detected on the next pass, and the deterministic event ids keep that
  * replay duplicate-free — then leave one audit row saying so.
- *
- * @param input - Open store, logger, and the quarantine path.
  */
 async function recoverQuarantinedQueue(input: {
     /** Open store. */
@@ -418,7 +413,6 @@ async function enqueueWithinChain(input: {
 /**
  * Append events with delivery-id deduplication and one atomic run/queue chain.
  *
- * @param input - Open store and freshly detected events.
  * @returns The events that were actually appended, linked to their run.
  */
 export async function enqueueEvents(input: {
