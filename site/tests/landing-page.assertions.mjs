@@ -263,21 +263,27 @@ describe('the facts the page names are the facts the product ships', () => {
         assert.ok(page().includes(`~/${relative}/`), `the page does not name the store the service resolves (${relative})`);
     });
 
-    test('the storage namespace it names is the panel id the manifest registers', () => {
-        // AGENTS.md invariant 4: the namespace is the panel's own id, so the page
-        // renders it from the manifest rather than retyping it — and this asserts
-        // that it did, which is what stops a rename from leaving a literal behind.
-        assert.equal(manifest.openchamber.contributes.panel.id, PRODUCT_ID);
-        assert.ok(template().includes('<code>{PRODUCT_ID}:</code>'), 'the page retypes the storage namespace');
-        assert.doesNotMatch(template(), /\bmecha-turk:[a-z]/, 'the page spells a storage key where the manifest declares the prefix');
+    test('the second storage location is a place the panel really writes to', () => {
+        // FR-016's second location is `host.storage`, so this asserts it exists —
+        // a panel that stopped using it would leave the page describing a
+        // location that is not there. The *keys* are deliberately not listed: one
+        // of the five is not namespaced with the panel id, so any claim the page
+        // made about the namespace would be a claim the build does not support,
+        // and an inventory here would be a second copy of the panel's own
+        // constants to keep in step.
+        const written = ['ledger.ts', 'evidence.ts', 'dispatch-record.ts', 'account-mirror.ts'].flatMap((module) =>
+            [...productFile(`src/${module}`).matchAll(/STORAGE_KEY = '([^']+)'/g)].map((match) => match[1]),
+        );
 
-        // The namespace is real: the panel writes into it under its own constants.
-        for (const [module, key] of [
-            ['src/ledger.ts', 'LEDGER_STORAGE_KEY'],
-            ['src/evidence.ts', 'EVIDENCE_STORAGE_KEY'],
-        ]) {
-            const declared = new RegExp(`= '${PRODUCT_ID}:[a-z]+'`).test(productFile(module));
-            assert.ok(declared, `${module} no longer writes under the ${PRODUCT_ID}: namespace (${key})`);
+        assert.ok(written.length >= 4, `the panel ships ${written.length} host.storage keys; the page describes one location holding its state`);
+        assert.ok(
+            written.some((key) => key.startsWith(`${PRODUCT_ID}:`)),
+            `no panel storage key is namespaced with the manifest's panel id (${PRODUCT_ID})`,
+        );
+
+        // What the page must not do is name any of them.
+        for (const key of written) {
+            assert.ok(!template().includes(`<code>${key}</code>`), `the page spells the \`${key}\` storage key`);
         }
     });
 

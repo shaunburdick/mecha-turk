@@ -21,10 +21,11 @@
  * the drift FR-049 exists to prevent. No permission, configuration field,
  * dispatch state or endpoint is named here either: each is a documentation
  * page's subject, and three of the four derive theirs from the shipped
- * declaration rather than from a second copy (FR-048).
+ * declaration rather than from a second copy (FR-048). For the same reason no
+ * `host.storage` key is named: a reader needs to know which of two locations
+ * survives an uninstall, not what its keys are called.
  */
 import Layout from '../layout.astro';
-import { PRODUCT_ID } from '../data/product.ts';
 ---
 
 <Layout>
@@ -136,13 +137,14 @@ import { PRODUCT_ID } from '../data/product.ts';
                 document. <strong>It survives an uninstall.</strong> Nothing
                 deletes it for you, so remove it yourself when you are done.
             </dd>
-            <dt>OpenChamber's extension storage, under <code>{PRODUCT_ID}:</code> keys</dt>
+            <dt>OpenChamber's extension storage</dt>
             <dd>
-                The panel's own state: the project you picked, the evidence
-                record for the last match, its dispatch records, and a redacted
-                test ledger. <strong>It is wiped on uninstall</strong>, which is
-                why nothing that has to be kept lives there — the audit trail is
-                in the folder above, where you control it and can back it up.
+                <strong>Wiped on uninstall.</strong> What lives here is the
+                panel's own state: the accounts it has connected, the project
+                you picked, the evidence record for the last match, its dispatch
+                records, and a redacted test ledger. Nothing that has to be kept
+                lives in it — the audit trail is in the folder above, where you
+                control it and can back it up.
             </dd>
         </dl>
         <p>
