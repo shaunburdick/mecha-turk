@@ -75,7 +75,6 @@ afterEach(async (): Promise<void> => {
 /**
  * Read the permission bits of a path.
  *
- * @param target - Absolute path to inspect.
  * @returns The mode masked to the low nine `rwx` bits.
  */
 async function modeOf(target: string): Promise<number> {

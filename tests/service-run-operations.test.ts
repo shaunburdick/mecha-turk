@@ -277,8 +277,6 @@ function seededSession(run: Run, sessionId: string): NonNullable<Run['session']>
  * the run's state (T-037): a session implies `dispatched`, and a `failed` or
  * `unconfirmed` state implies its own outcome, with nothing in between.
  *
- * @param input - The attempt number, the state, the session, and whether the
- *   state holds a reservation.
  * @returns The record for that attempt.
  */
 function seededAttempt(input: {

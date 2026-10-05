@@ -215,8 +215,6 @@ interface RunCreationInput {
 /**
  * Mint the run one delivery creates, at the subject's next ordinal.
  *
- * @param input - The delivery, its subject, ordinal, reference, stamp, and the
- *   binding's prompt snapshot (004 FR-015).
  * @returns A fresh `pending` run with the FR-050 identity derived.
  */
 function runForDelivery(input: RunCreationInput): Run {
