@@ -26,7 +26,6 @@ import { describeError } from './session.ts';
 /**
  * Write the serialized ledger to host storage.
  *
- * @param rt - Panel runtime.
  * @throws {Error} When the ledger exceeds the host's value limit, or the
  *   host refuses the write for its own reasons.
  */
@@ -45,7 +44,6 @@ async function writeLedger(rt: PanelRuntime): Promise<void> {
  * reported through the banner so the panel never claims durable progress it
  * does not have.
  *
- * @param rt - Panel runtime.
  */
 export async function persistLedger(rt: PanelRuntime): Promise<void> {
     if (rt.disposed) {
@@ -74,7 +72,6 @@ export async function persistLedger(rt: PanelRuntime): Promise<void> {
 /**
  * Append a ledger entry, persist it, and let the caller repaint.
  *
- * @param rt - Panel runtime.
  * @param input - Entry to append.
  */
 export function appendEntryAndPersist(rt: PanelRuntime, input: LedgerEntryInput): void {

@@ -92,7 +92,6 @@ type DraftOrigin =
 /**
  * Decide which row a draft is being read for.
  *
- * @param bindings - Panel state to read.
  * @param edit - The row being edited, or absent for the add form.
  * @returns The origin, or `null` when the named row no longer exists — the
  *   note then says so, because editing a row the service no longer holds is
@@ -148,7 +147,6 @@ function draftAccount(
 /**
  * Read the repository label, refusing a bad shape or a second binding of it.
  *
- * @param bindings - Panel state to read.
  * @param origin - Where the draft is being read from; only the edited row is
  *   exempt from the isDuplicate check, because that row already owns the name.
  * @returns The canonical `owner/name`, or `null` (the note then says why).
@@ -180,7 +178,6 @@ function draftRepository(bindings: BindingsTabState, origin: DraftOrigin): strin
 /**
  * Read the project the draft dispatches into.
  *
- * @param bindings - Panel state to read.
  * @returns The project id, or `null` when the operator has not picked one —
  *   a binding with no project is recoverable, not savable.
  */
@@ -203,7 +200,7 @@ function draftProject(bindings: BindingsTabState): string | null {
  * (contract §2). The grant's patch then overrides this one row from the field
  * the operator actually edited.
  *
- * @param origin - Where the draft is being read for.
+ * @param origin - Where the draft is being read from.
  * @returns The list to carry, or `undefined` for the add form.
  */
 function draftActors(origin: DraftOrigin): readonly string[] | undefined {

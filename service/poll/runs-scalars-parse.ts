@@ -94,7 +94,6 @@ function isBlockedReason(reason: string): boolean {
  * Narrow a value to a run state, or `null` when it is from another
  * vocabulary.
  *
- * @param value - Candidate state.
  * @returns The state, or `null`.
  */
 function runStateOf(value: unknown): RunState | null {
@@ -118,7 +117,6 @@ function runStateOf(value: unknown): RunState | null {
  * Narrow a value to a run state, for callers that must *refuse* rather than
  * read (the block report validates its reason before it writes a state).
  *
- * @param value - Candidate state.
  * @returns `true` for one of the eight model states or a `blocked:<reason>`.
  */
 export function isRunState(value: unknown): value is RunState {

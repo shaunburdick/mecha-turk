@@ -154,7 +154,6 @@ function parseIntent(value: unknown): RunAuditIntent | null {
  * turn the recovery mechanism into a credential store, which is the one thing
  * the outbox must never be (FR-061, T-040c).
  *
- * @param raw - Candidate details record.
  * @returns The details, or `null` when any member is malformed or forbidden.
  */
 function parseSweepDetails(raw: unknown): Record<string, string | number | boolean | null> | null {

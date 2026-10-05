@@ -271,7 +271,6 @@ function runForDelivery(input: RunCreationInput): Run {
 /**
  * Read the ordinal-free subject key a run belongs to.
  *
- * @param run - The run.
  * @returns `github|<account>|<repository>|<subjectType>|<subjectNumber>`.
  */
 function subjectKeyOfRun(run: Run): string {

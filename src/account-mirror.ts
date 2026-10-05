@@ -138,7 +138,6 @@ function isAccountMirror(value: unknown): value is AccountMirror {
 /**
  * Read the account mirror list this panel wrote earlier.
  *
- * @param rt - Panel runtime.
  * @returns The mirrors; anything unreadable is treated as an empty list.
  */
 export async function readStoredAccounts(rt: PanelRuntime): Promise<readonly AccountMirror[]> {
@@ -158,7 +157,6 @@ export async function readStoredAccounts(rt: PanelRuntime): Promise<readonly Acc
  * The list is rewritten whole with this identity replacing any earlier entry
  * for the same account.
  *
- * @param rt - Panel runtime.
  * @param identity - Identity and FR-010 matrix the service answered with
  *   (`scopeCheck: null` for the F4 status re-read, which reports no scopes).
  */
@@ -189,7 +187,6 @@ export async function writeAccountMirror(
  * handoff) repairs the mirror. The removal path reports the service outcome
  * on its own note line; this only keeps the panel copy from outliving it.
  *
- * @param rt - Panel runtime.
  * @param numericUserId - Account whose mirror entry is removed.
  */
 export async function removeAccountMirror(rt: PanelRuntime, numericUserId: string): Promise<void> {

@@ -160,7 +160,6 @@ function digestHex(text: string, hexChars: number): string {
 /**
  * Derive a run's correlation id from its run key.
  *
- * @param runKey - The run's key.
  * @returns `mt-run-<24 hex characters>` — one path-safe URL segment.
  */
 export function buildCorrelationId(runKey: string): string {
@@ -192,7 +191,6 @@ export function buildAttachmentId(correlationId: string): string {
  * attempt reset re-derives a *fresh* token for the reset attempt.
  * Callers mint it **at reservation only** — never at claim.
  *
- * @param runKey - The run's key.
  * @param attempt - The attempt number the token is for (starts at 1).
  * @returns `dtk-<32 hex characters>` — one path-safe URL segment.
  * @throws {Error} When the attempt is not a positive integer.

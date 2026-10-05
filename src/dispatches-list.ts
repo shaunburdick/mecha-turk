@@ -130,7 +130,6 @@ function parsePageMeta(value: unknown): DispatchPageMeta | null {
 /**
  * Parse the paged `GET /v1/events` answer as a whole (005 contract §2).
  *
- * @param text - Response body text.
  * @returns The rows and their page label, or `null` when either is unusable.
  */
 export function parseDispatchListBody(text: string): DispatchListAnswer | null {

@@ -194,7 +194,6 @@ export function requestHeaders(token: string): Record<string, string> {
 /**
  * Read `GET /user` into an identity, failing closed on a malformed payload.
  *
- * @param text - Response body.
  * @returns The identity, or `null` when `id`/`login` are not usable — a
  *   response the normaliser cannot trust never keys an account.
  */

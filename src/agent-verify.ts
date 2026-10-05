@@ -156,7 +156,6 @@ export async function readVerificationBaseline(serviceRequest: ServiceRequester)
  * while the frame really can go away between two awaits — and carrying on
  * would subscribe to a host a disposed panel no longer owns.
  *
- * @param rt - Panel runtime.
  * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
@@ -484,7 +483,6 @@ export async function verifyAgentAfterDispatch(inputs: {
  * The relay never awaits these, so a test that asserts what a
  * verification wrote drains them instead of racing the host.
  *
- * @param rt - Panel runtime.
  */
 export async function drainVerifications(rt: PanelRuntime): Promise<void> {
     while (rt.pendingVerifications.length > 0) {

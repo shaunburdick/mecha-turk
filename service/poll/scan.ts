@@ -76,7 +76,6 @@ function parseBindingSlot(value: unknown): BindingScanState | null {
 /**
  * Parse a stored scan-state document.
  *
- * @param raw - Parsed document.
  * @returns The state, or `null` when the shape is unusable (quarantined).
  */
 export function parseStoredScanState(raw: unknown): ScanState | null {

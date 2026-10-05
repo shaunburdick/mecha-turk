@@ -116,7 +116,6 @@ export interface RunVerification {
  * Read one required non-empty string member.
  *
  * @param record - Parsed row or sub-object.
- * @param field - Member name.
  * @returns The value, or `null` when it is missing, not a string, or empty.
  */
 function requiredText(record: Record<string, unknown>, field: string): string | null {

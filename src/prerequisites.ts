@@ -146,7 +146,6 @@ const surfaces = new WeakMap<PanelRuntime, PrerequisitesSurface>();
 /**
  * Read (or create) one runtime's surface record.
  *
- * @param rt - Panel runtime.
  * @returns The mutable surface record for this runtime.
  */
 function surfaceFor(rt: PanelRuntime): PrerequisitesSurface {
@@ -168,7 +167,6 @@ function surfaceFor(rt: PanelRuntime): PrerequisitesSurface {
  * every state change route through `refresh` without knowing what is on
  * screen (headless tests, and the window before the first mount).
  *
- * @param rt - Panel runtime.
  */
 export function repaintPrerequisites(rt: PanelRuntime): void {
     const surface = surfaces.get(rt);

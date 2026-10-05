@@ -139,7 +139,6 @@ export function parseRepository(value: string): RepositoryRef | null {
  * `new:<branch-name>`. A new-branch name must be a plain branch name: no path
  * separators and no `..`, because the host derives a directory from it.
  *
- * @param value - Raw worktree option.
  * @returns The worktree selection, or `null` when the value is not understood.
  */
 export function parseWorktreeOption(value: string): WorktreeSelection | null {

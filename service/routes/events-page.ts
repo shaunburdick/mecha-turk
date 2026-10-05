@@ -288,7 +288,6 @@ export function matchesFilters(row: RunHistoryRow, query: ListQuery): boolean {
  * detection stamp — without it a page boundary could drop or duplicate a row,
  * which SC-106/AC-121 forbid.
  *
- * @param left - First row.
  * @param right - Second row.
  * @returns Negative when `left` sorts first.
  */

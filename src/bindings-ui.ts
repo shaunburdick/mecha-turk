@@ -157,7 +157,6 @@ export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingP
  * Exported because [`bindings-body.ts`](./bindings-body.ts) paints it at
  * mount and this module repaints it: one copy of the count, two moments.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The summary text the status line shows.
  */
 export function composeStatus(bindings: BindingsTabState): string {
@@ -169,7 +168,6 @@ export function composeStatus(bindings: BindingsTabState): string {
 /**
  * Repaint the pane from state.
  *
- * @param rt - Panel runtime.
  * @param view - The mounted pane.
  */
 export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void {

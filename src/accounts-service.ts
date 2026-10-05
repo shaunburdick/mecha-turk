@@ -229,7 +229,6 @@ function accountScope(raw: unknown): AccountScopeVerdict | null {
 /**
  * Parse the accounts response body into the records the picker offers.
  *
- * @param text - Response body text.
  * @returns The accounts, or `null` when the shape is unusable.
  */
 export function parseAccountsBody(text: string): PanelAccount[] | null {

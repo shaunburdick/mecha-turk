@@ -60,7 +60,6 @@ interface LoopState {
  * Read the stop flag through a function, so the compiler cannot narrow it away
  * across the `await` boundaries in the cycle.
  *
- * @param state - The loop's own state.
  * @returns `true` once shutdown has landed.
  */
 function isHalted(state: LoopState): boolean {

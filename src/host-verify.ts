@@ -367,7 +367,6 @@ export async function verifyHostState(input: VerifyHostInput): Promise<HostVerif
 /**
  * Flatten a verification result into ledger detail values.
  *
- * @param verification - Verification result.
  * @returns Scalar detail for one `host-verify` ledger entry.
  */
 export function summarizeHostVerification(verification: HostVerification): LedgerDetail {

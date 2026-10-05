@@ -97,7 +97,6 @@ export const STATE_NOT_CHECKABLE = 'not-checkable';
 /**
  * Label one state is rendered with own vocabulary.
  *
- * @param state - The prerequisite's state.
  * @returns The operator-facing label, never a bare enum value.
  */
 export function prerequisiteStateLabel(state: PrerequisiteState): string {
@@ -120,7 +119,6 @@ export function prerequisiteStateLabel(state: PrerequisiteState): string {
  * and *not checkable* stays neutral because a panel that could not look must
  * not paint a verdict it never reached.
  *
- * @param state - The prerequisite's state.
  * @returns The badge tone that state renders with.
  */
 export function prerequisiteTone(state: PrerequisiteState): Tone {
@@ -321,7 +319,6 @@ function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequ
  * which is what makes the section testable without a host and impossible to
  * leave stale.
  *
- * @param state - Panel state to read.
  * @returns The five prerequisites order.
  */
 export function derivePrerequisites(state: PanelState): readonly Prerequisite[] {

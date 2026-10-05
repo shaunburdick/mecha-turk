@@ -61,7 +61,6 @@ export const AUTHOR_LOGIN_MAX_CHARS = 60;
  * `type: 'Bot'` for the rest; either signal is enough. One predicate for all
  * three feeds, because `user` is where `type` lives on every one of them.
  *
- * @param authorLogin - Author's login.
  * @param authorType - Author type (`User`, `Bot`, …), `''` when absent.
  * @returns `true` when the author is a bot.
  */
@@ -134,7 +133,6 @@ const ACTOR_ATTRIBUTIONS: ReadonlySet<string> = new Set(['direct', 'subject-auth
  * detection that could not name an author never becomes a row (002 FR-045(b)) —
  * so the only way to reach one is a hand edit, and a hand edit is refused.
  *
- * @param record - Parsed candidate row.
  * @returns `undefined` when the row carries no actor, the login, or `null`
  *   when the value is not usable text.
  */
@@ -155,7 +153,6 @@ export function readActorLoginField(record: Record<string, unknown>): string | u
  * either member of the union. **Validated when present**: an unrecognized
  * basis refuses the row instead of defaulting.
  *
- * @param record - Parsed candidate row.
  * @returns `undefined` when the row carries no basis, the basis, or `null`
  *   when the value is from another vocabulary.
  */

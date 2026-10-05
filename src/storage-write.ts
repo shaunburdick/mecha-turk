@@ -15,7 +15,6 @@ import type { PanelRuntime } from './panel-state.ts';
 /**
  * Persist a value in `host.storage` behind the redaction guard.
  *
- * @param rt - Panel runtime.
  * @param entry - Storage key and JSON value to write; must be credential-free.
  * @returns `true` when the write succeeded, `false` when it was refused.
  */

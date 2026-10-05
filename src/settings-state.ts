@@ -255,7 +255,6 @@ export function initialSettingsTab(): SettingsTabState {
 /**
  * The tab's own read state, in FR-019's three shapes.
  *
- * @param slice - The Settings tab's read state.
  * @returns The read-state line the tab paints.
  */
 export function readStateLine(slice: SettingsTabState): string {

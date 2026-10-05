@@ -419,7 +419,6 @@ export function createPanelRuntime(
 /**
  * Replace the banner content.
  *
- * @param rt - Panel runtime.
  * @param next - Status to show.
  */
 export function setStatus(rt: PanelRuntime, next: PanelStatus): void {

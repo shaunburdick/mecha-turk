@@ -154,7 +154,6 @@ export function mountBindingPrompt(input: {
  * FR-089 applies the five facts to this field whether or not a row is
  * selected. Only the readiness of the form still follows the selection.
  *
- * @param rt - Panel runtime.
  * @param controls - The mounted field.
  */
 export function repaintBindingPrompt(rt: PanelRuntime, controls: BindingPromptControls): void {
@@ -180,7 +179,6 @@ export function disposeBindingPrompt(controls: BindingPromptControls): void {
 /**
  * Read the stored prompt a freshly selected binding carries.
  *
- * @param bindings - The Bindings tab's state.
  * @param bindingId - The row the operator selected.
  * @returns The stored text, or `''` when the binding has none.
  */

@@ -77,7 +77,6 @@ const BOT_SUFFIX = '[bot]';
  * so `dependabot[isBot]` is judged on the part GitHub chose from the published
  * alphabet and the length bound still covers the whole submitted value.
  *
- * @param value - Candidate element.
  * @returns `true` when the value is a login GitHub could have issued.
  */
 function isGitHubLogin(value: unknown): value is string {

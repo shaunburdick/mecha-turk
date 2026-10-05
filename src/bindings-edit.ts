@@ -36,7 +36,6 @@ import type { ServiceErrorResult } from './service-calls.ts';
  * its default, and the stale note from the last action is cleared so the form
  * opens saying nothing rather than repeating an old refusal.
  *
- * @param rt - Panel runtime.
  */
 export function startNewBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
@@ -71,7 +70,6 @@ export function startNewBinding(rt: PanelRuntime): void {
  * a form that stays open showing one row's values while another row is
  * selected is exactly how a save writes one binding's values into another.
  *
- * @param rt - Panel runtime.
  */
 export function startEditingBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
@@ -129,7 +127,6 @@ export function startEditingBinding(rt: PanelRuntime): void {
  * from cannot be mistaken for a saved one (004 FR-014's untouched-omits rule
  * depends on the dirty flag being reset with it).
  *
- * @param rt - Panel runtime.
  * @param note - Note to leave behind, or `null` to keep the current one (a
  *   row selection that merely closes the editor already has its own copy).
  */
@@ -165,7 +162,6 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
  * and keeps the draft on screen with the remediation — on the
  * prompt field when it belongs there, on the tab note otherwise.
  *
- * @param rt - Panel runtime.
  */
 /**
  * Apply one save's answer to the editor's state.
@@ -228,7 +224,6 @@ function applySaveOutcome(input: {
  * field or the allow-list field when it belongs there, on the
  * tab note otherwise.
  *
- * @param rt - Panel runtime.
  */
 export async function saveEditedBinding(rt: PanelRuntime): Promise<void> {
     const { bindings } = rt.state;

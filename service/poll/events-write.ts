@@ -172,7 +172,6 @@ export function buildEventId(input: {
 /**
  * Read the id discriminator one snapshot contributes.
  *
- * @param snapshot - Detection inputs.
  * @returns `undefined` for an assignment, the discriminator otherwise.
  */
 function discriminatorOf(snapshot: EventSnapshot): string | undefined {
@@ -186,7 +185,6 @@ function discriminatorOf(snapshot: EventSnapshot): string | undefined {
 /**
  * Read the head SHA one snapshot contributes; `null` for the other triggers.
  *
- * @param snapshot - Detection inputs.
  * @returns The SHA, or `null`.
  */
 function headShaOf(snapshot: EventSnapshot): string | null {
@@ -196,7 +194,6 @@ function headShaOf(snapshot: EventSnapshot): string | null {
 /**
  * Read the base ref one snapshot contributes; `null` for the other triggers.
  *
- * @param snapshot - Detection inputs.
  * @returns The ref, or `null`.
  */
 function baseRefOf(snapshot: EventSnapshot): string | null {
@@ -207,7 +204,6 @@ function baseRefOf(snapshot: EventSnapshot): string | null {
  * Read the subject shape one snapshot carries, defaulting the way a row
  * written before the run layer reads (data-model §2.1).
  *
- * @param snapshot - Detection inputs.
  * @returns The subject shape this row stores.
  */
 function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
@@ -236,7 +232,6 @@ function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
  * still **one** event, and tightening a binding's allow-list can never
  * manufacture duplicate work.
  *
- * @param snapshot - Detection inputs.
  * @returns A fresh delivery row.
  */
 export function createEvent(snapshot: EventSnapshot): QueuedEvent {

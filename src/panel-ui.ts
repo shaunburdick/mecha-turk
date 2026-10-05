@@ -158,7 +158,6 @@ export function mountPanelFraming(root: HTMLElement): PanelUi {
 /**
  * Repaint the project picker from the picker state.
  *
- * @param state - Panel state.
  * @param ui - Mounted picker handles inside the Bindings body.
  */
 function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
@@ -187,7 +186,6 @@ function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
  * mounted: a tab the operator has never opened owns no handles yet, and the
  * registry on `rt` is what says so.
  *
- * @param rt - Panel runtime.
  */
 export function refresh(rt: PanelRuntime): void {
     if (rt.disposed) {

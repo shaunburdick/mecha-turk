@@ -139,7 +139,6 @@ function grantBody(overrides: GrantOverrides): string {
  * mark queued events `binding-missing` before the binding they belong to
  * ever lands.
  *
- * @param rt - Panel runtime.
  * @param bindings - The bindings list the service just confirmed as stored.
  */
 export function armRelayForBindings(rt: PanelRuntime, bindings: readonly PanelBinding[]): void {

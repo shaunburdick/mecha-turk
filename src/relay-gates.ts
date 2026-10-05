@@ -108,7 +108,6 @@ export type GuardVerdict =
  *
  * A function call, so the type analyzer never narrows a check past it.
  *
- * @param rt - Panel runtime.
  * @returns `true` while the panel is alive.
  */
 export function stillRunning(rt: PanelRuntime): boolean {
@@ -137,7 +136,6 @@ export function splitRepository(label: string): { readonly owner: string; readon
  * input becomes the honest phrase rather than a refusal the operator cannot
  * act on.
  *
- * @param text - Candidate text.
  * @returns The text, trimmed to {@link MAX_BODY_TEXT_CHARS}, never empty.
  */
 export function boundedText(text: string): string {
@@ -149,7 +147,6 @@ export function boundedText(text: string): string {
 /**
  * Check a claimed run's guards before any authorization is requested.
  *
- * @param rt - Panel runtime.
  * @param run - The offered run.
  * @returns The verdict, carrying the confirmed project when it passes.
  */
@@ -346,7 +343,6 @@ export function actorGateFailure(refusal: {
  * that additionally owes a `blocked:` report is the actor-policy gate's,
  * and it arrives as `failure` for {@link refuseWithBlocked} to post.
  *
- * @param rt - Panel runtime.
  * @param run - The offered run.
  * @returns The reservation, or the refusal — carrying the gate's failure when
  *   this refusal is the gate's.

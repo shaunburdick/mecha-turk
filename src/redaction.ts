@@ -104,7 +104,6 @@ export function assertRedacted(subject: string, text: string): void {
  * replaced, not just the first: a single diagnostic can quote more than one
  * token, and a half-redacted string is still a leak.
  *
- * @param text - Candidate text.
  * @returns The text with every secret-shaped match replaced by `[redacted:<label>]`.
  */
 export function redact(text: string): string {

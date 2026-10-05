@@ -193,7 +193,6 @@ const RUN_CORRELATION_ID = /^mt-run-[0-9a-f]{24}$/;
 /**
  * Validate the event fields that must carry usable text.
  *
- * @param record - Parsed candidate row.
  * @param fields - Field names to check.
  * @returns `true` when every field is usable text.
  */

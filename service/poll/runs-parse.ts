@@ -123,7 +123,6 @@ interface RunPart<T> {
  * read is exactly the ambiguity that must never reach a dispatch decision
  * (constitution II).
  *
- * @param stored - The value as stored.
  * @param parse - Validator for the sub-object's shape.
  * @returns The parsed part, flagged when a present value was unusable.
  */
@@ -417,7 +416,6 @@ function parseRunRows(raw: readonly unknown[]): readonly Run[] | null {
 /**
  * Parse the whole `runs.json` document.
  *
- * @param raw - Parsed document.
  * @returns The document, or `null` when it is unusable (quarantined): the
  *   schema marker must be the one this build understands, the ordinal
  *   counters must be non-negative integers, every run must parse, and no two
