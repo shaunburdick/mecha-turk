@@ -237,6 +237,7 @@ function creationSeqs(entries: readonly AuditEntry[], openers: ReadonlyMap<strin
  * @param entries - Trail rows, in any order.
  * @returns The protected `seq` numbers this half of the rule contributes.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function chainAndDecisionSeqs(entries: readonly AuditEntry[]): readonly number[] {
     const openers = openersOf(entries);
     const protectedSeqs: number[] = [];

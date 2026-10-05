@@ -86,6 +86,7 @@ function refreshRelativeTimes(data) {
  *
  * @returns `{ routes, projects, error }` — `error` is null after a good read.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function loadFixtures() {
     try {
         const response = await globalThis.fetch('./fixtures.json');

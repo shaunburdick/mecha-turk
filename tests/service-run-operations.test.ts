@@ -1371,6 +1371,7 @@ describe('T-042 a token the attempt history closed never authorizes a report (FR
         }
     });
 
+    // eslint-disable-next-line unicorn/prefer-unicode-code-point-escapes -- the curly apostrophe this title names.
     it('refuses the audit\u2019s crash permutation, from the first reserve to the replayed report', async () => {
         {
             const permutation = await crashPermutation(81);

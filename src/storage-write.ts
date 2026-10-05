@@ -19,6 +19,7 @@ import type { PanelRuntime } from './panel-state.ts';
  * @param entry - Storage key and JSON value to write; must be credential-free.
  * @returns `true` when the write succeeded, `false` when it was refused.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function writeStorage(
     rt: PanelRuntime,
     entry: { readonly key: string; readonly value: unknown },

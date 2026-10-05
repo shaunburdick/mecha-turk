@@ -220,6 +220,7 @@ function parseEntry(value: unknown): RunAuditIntent | null {
 }
 
 /** Parse the run document's optional outbox as a wholly valid list. */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function parseRunAuditIntents(raw: unknown): readonly RunAuditIntent[] | null {
     if (raw === undefined) {
         return [];

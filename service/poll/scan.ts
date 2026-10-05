@@ -107,6 +107,7 @@ const scanChain: { write: Promise<unknown> } = { write: Promise.resolve() };
  * @returns Whatever `task` produced.
  */
 export function serializeScan<T>(task: () => Promise<T>): Promise<T> {
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs task on its own rejection; this runs once.
     const run = scanChain.write.then(task, task);
     scanChain.write = run;
 

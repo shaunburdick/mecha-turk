@@ -215,6 +215,7 @@ function configuredState(): PanelState {
  * @param contents - Verdict recorded for the `contents` capability.
  * @returns The matrix as the accounts DTO carries it.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
 function matrix(contents: string): unknown {
     const results = Object.fromEntries(
         CAPABILITIES.map((capability) => [capability, capability === 'contents' ? contents : VERDICT_OK]),

@@ -256,6 +256,7 @@ export async function verifySessionAgent(inputs: VerifyAgentInputs): Promise<Age
     const timeoutMs = inputs.timeoutMs ?? AGENT_VERIFY_TIMEOUT_MS;
 
     let settle: ((snapshot: SessionSnapshot | null) => void) | null = null;
+    // eslint-disable-next-line unicorn/prefer-promise-with-resolvers -- ES2024; the guest runtime is promised ES2022.
     const observed = new Promise<SessionSnapshot | null>((resolve) => {
         settle = resolve;
     });
@@ -268,10 +269,9 @@ export async function verifySessionAgent(inputs: VerifyAgentInputs): Promise<Age
     // The deadline starts before the context switch, so one timer bounds the
     // entire verification rather than only the snapshot wait.
     const timer = setTimeout(() => settle?.(null), timeoutMs);
-    const opened = host.openSession(sessionId).then(
-        () => ({ kind: 'opened' } as const),
-        (cause: unknown) => ({ kind: 'failed' as const, problem: describeError(cause) }),
-    );
+    const opened = host.openSession(sessionId)
+        .then(() => ({ kind: 'opened' } as const))
+        .catch((cause: unknown) => ({ kind: 'failed' as const, problem: describeError(cause) }));
     const gate: VerifyGate = await Promise.race([
         observed.then((snapshot) => ({ kind: 'snapshot' as const, snapshot })),
         opened,

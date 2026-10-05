@@ -207,10 +207,12 @@ describe('chain join and entry composer (006 T-011)', () => {
             const store = await openStore({ dataDir });
             const order: string[] = [];
             let release: (() => void) | undefined;
+            // eslint-disable-next-line unicorn/prefer-promise-with-resolvers -- ES2024, not on our target.
             const gate = new Promise<void>((resolve) => {
                 release = resolve;
             });
             let markStarted: (() => void) | undefined;
+            // eslint-disable-next-line unicorn/prefer-promise-with-resolvers -- ES2024, not on our target.
             const started = new Promise<void>((resolve) => {
                 markStarted = resolve;
             });

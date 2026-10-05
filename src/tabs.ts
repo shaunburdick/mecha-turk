@@ -128,6 +128,7 @@ function associate(input: {
 }): void {
     const { root, specs, bodies } = input;
     for (const spec of specs) {
+        // eslint-disable-next-line unicorn/require-css-escape -- `TabId` is six literals; escape is the identity.
         const tab = root.querySelector(`[role="tab"][data-id="${spec.id}"]`);
         tab?.setAttribute('id', `oc-tab-${spec.id}`);
 

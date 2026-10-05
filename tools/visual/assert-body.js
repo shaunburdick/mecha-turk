@@ -115,6 +115,7 @@ function assertNothingPainted(view) {
  * @param input - `{ tab, view, expected }`: the tab requested, the answer
  *   `__MT__.bodyView()` gave, and how many bodies the panel must hold.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function assertVisibleBody(input) {
     const { tab, view, expected } = input;
 

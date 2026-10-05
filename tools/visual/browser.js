@@ -92,6 +92,7 @@ function createRunner(bin, session) {
  * @param options - `{ session }`; defaults to `DEFAULT_SESSION`.
  * @returns The command surface `shot.js` drives.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function createBrowser(options = {}) {
     const session = options.session ?? DEFAULT_SESSION;
     const run = createRunner(BROWSER_BIN, session);

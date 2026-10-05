@@ -93,6 +93,7 @@ const queueChain: { write: Promise<unknown> } = { write: Promise.resolve() };
  * @returns Whatever `task` produced, once every earlier task settled.
  */
 export function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs task on its own rejection; this runs once.
     const run = queueChain.write.then(task, task);
     queueChain.write = run;
 
@@ -127,6 +128,7 @@ function settled(): void {
 }
 
 export function whenQueueIdle(): Promise<void> {
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs settled twice; this runs it once.
     return queueChain.write.then(settled, settled);
 }
 

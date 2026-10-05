@@ -185,4 +185,5 @@ if (isInvokedDirectly) {
     }
 }
 
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export { selfTest };

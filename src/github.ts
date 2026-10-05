@@ -15,6 +15,7 @@
  */
 
 /** Normalised, minimal view of a GitHub issue as the panel reads it. */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export interface GitHubIssue {
     /** Issue number within the repository. */
     readonly issueNumber: number;

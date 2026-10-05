@@ -416,6 +416,7 @@ async function driveVerificationPhase(context: DriveContext & { readonly run: Ru
  * @throws {Error} When any step answers anything but its own verdict, so a
  *   broken fixture fails here rather than as a confusing assertion downstream.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function driveDispatchCorpus(): Promise<DispatchCorpus> {
     const { service, store } = await startWithLegacyQueue();
 

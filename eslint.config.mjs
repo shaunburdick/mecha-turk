@@ -17,25 +17,18 @@ export default [
     ...shaunburdick.config.js,
     ...shaunburdick.config.ts,
     {
-        // Five overrides, down from twelve at 11.2.0. Eight of the nine that
-        // went away are now the shipped defaults: `consistent-boolean-name`
-        // with `checkFunctions: 'never'`, `numeric-separators-style` at
+        // Four overrides, down from twelve at 11.2.0, and each is a rule the whole
+        // codebase answers differently everywhere it applies. The nine that
+        // went away — eight of them because 11.3.0 made them the shipped
+        // defaults, and nine because a rule with fewer than twenty sites
+        // belongs on the line it excuses — are not lost: AGENTS.md invariant 7
+        // says where they went. `consistent-boolean-name` now ships with
+        // `checkFunctions: 'never'`, `numeric-separators-style` at
         // `minimumDigits: 4`, `no-top-level-assignment-in-function` skipped in
         // test files, and `no-unknown-parameters` / `no-unsafe-dictionary-type`
         // / `no-redundant-logic` disabled outright. See the changelog in
         // eslint/CHANGELOG.md at 11.3.0 for each.
         rules: {
-            // All 8 findings repo-wide are the same line in the same file, and
-            // the rule is misreading the type. `Repaint` is declared
-            // `(rt: PanelRuntime) => void`, so `repaint(rt)` discards nothing.
-            // The rule fires on that call *inside an `async` function* and not
-            // on the identical call in a sync one — there are 15 call sites,
-            // all of the same expression, and precisely the 8 that sit in an
-            // async body are reported. `void repaint(rt)` would satisfy it and
-            // is what the rule's own message suggests, but it reads as a claim
-            // that the callback is asynchronous, which is the opposite of the
-            // truth; the honest fix is in the rule.
-            'llm-core/no-floating-promise': 'off',
             // It asks for an explicit length check before reading a first or
             // last element. This repo has `noUncheckedIndexedAccess` on, so an
             // unguarded read is already `T | undefined`, and the codebase
@@ -59,29 +52,6 @@ export default [
             // rather than accidental.
             'llm-core/consistent-catch-param-name': 'off',
             'unicorn/catch-error-name': 'off',
-            // 44 findings, every one a module that re-exports a name its own
-            // body reads — `utcStamp` in dispatches-rows, `inQueueChain` and
-            // `parseStoredEvents` in poll/events, `readStateLine` in
-            // settings-tab, `PollLoop` in poll/timer. `export … from` binds no
-            // local, so applying it deletes the binding the body needs, and the
-            // only shape left writes the module specifier twice. The 13
-            // genuine passthroughs — a binding imported only to be re-exported —
-            // were merged into `export … from` and the rule is silent on them
-            // now that it ships `checkUsedVariables: false`.
-            'unicorn/prefer-export-from': 'off',
-            // Eight findings, one of them in product code: redactDeep in audit.ts, the
-            // redaction pass that maps a JSON-ish value to the same value with
-            // every secret-shaped string replaced. Its input is `unknown` on
-            // purpose — it is the boundary-crossing mapper — and its four
-            // branches are string, array, record, and pass-through, so
-            // `unknown` is the honest union. The named type the rule asks for is
-            // real (`string | number | boolean | null | Json[] | {…}`) but
-            // `AuditInput.details` is `Record<string, unknown>` at 126 call
-            // sites across the service, so adopting it is a DTO change across
-            // every route rather than a lint fix — and it would also force a
-            // decision this module does not currently make about what happens
-            // to a value that is not JSON at all.
-            'llm-core/no-unknown-returns': 'off',
             // 46 findings, and 13 of them sit in a function that must *not* become
             // async. These are the chain-join and memoisation helpers —
             // inWriteChain in audit.ts and scan.ts, inQueueChain and
@@ -96,58 +66,6 @@ export default [
             // `.then(task, task)` is deliberate, because the chain must carry a
             // previous rejection into the next slot without wedging.
             'unicorn/prefer-await': 'off',
-            'unicorn/prefer-then-catch': 'off',
-            // Wants a module renamed to match its single export: `auth.ts` ->
-            // `is-authorized.ts`, `audit-protect.ts` ->
-            // `chain-and-decision-seqs.ts`. That is a module-identity change
-            // across 11 product files and every import of them, which is
-            // outside what a lint pass may do — and one of those two names is
-            // worse than the file it would replace.
-            'llm-core/filename-match-export': 'off',
-            // Wants `Promise.withResolvers()` for every hand-extracted
-            // resolver pair. That method is ES2024 and this project compiles to
-            // ES2022 (`target: ES2022`, `lib: [ES2023, DOM, DOM.Iterable]`), so
-            // adopting it here would type-check only because a newer `@types`
-            // leaks the declaration in — the shipped bundles would then call a
-            // method the guest runtime is not required to have. The same
-            // decision is already made, and already written down, in
-            // tests/bindings-gate-serialization.test.ts, which spells its latch
-            // helper for exactly this reason.
-            'unicorn/prefer-promise-with-resolvers': 'off',
-            // One finding, in `scheduleForceExit` in the service entrypoint:
-            // an unref'd watchdog that calls `process.exit(exitCode)` once a
-            // graceful shutdown has run long enough. The rule's premise is that
-            // this belongs in a CLI app and not a library, and `service/main.ts`
-            // is the app OpenChamber spawns, not a library anything imports.
-            // There is no local alternative that keeps the guarantee: the
-            // watchdog exists precisely because some handle is holding the
-            // event loop open, and the module does not know which one, so it
-            // cannot close it by name. Setting `exitCode` and returning is
-            // exactly what the graceful path already did, and the watchdog is
-            // scheduled because that path is not what happened.
-            'unicorn/no-process-exit': 'off',
-            // One finding, and the two rules that want the same line disagree.
-            // `PROJECT_ID_PATTERN` in the panel is `/^[\x20-\x7E]+$/` — printable
-            // ASCII with the space and the tilde as the ends. This rule wants
-            // the ES6 code-point form, `\u{20}`, which is only a valid escape
-            // under the `u` flag; adding that flag makes
-            // `security/detect-unsafe-regex` call the range a potential
-            // backtracking hazard, which a single character class under two
-            // anchors cannot be. So the fix this rule asks for trades a
-            // demonstrable false positive for a real finding, and the
-            // `\xNN` form trips nothing. Kept as written.
-            'unicorn/prefer-unicode-code-point-escapes': 'off',
-            // One finding, in `associate`, which looks a mounted tab back up with
-            // `[role="tab"][data-id="${spec.id}"]`. The rule's premise is that an
-            // interpolated value can carry a character that ends the attribute
-            // selector, and `TabId` is a closed union of six literals — status,
-            // dispatches, bindings, accounts, settings, about — all lowercase
-            // letters, and `CSS.escape` is the identity function on every one of
-            // them. The type has already excluded the value the rule is guarding
-            // against, so escaping it would be decoration. (`CSS` is also not a
-            // global the offline harness provides, so the call would have needed
-            // a shim there too.)
-            'unicorn/require-css-escape': 'off',
         },
     },
 ];

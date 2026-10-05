@@ -98,6 +98,7 @@ const PARENT_PATH_REFERENCE = '..';
  * fail-closed behaviour instead of forwarding a malformed id to
  * `host.startSession()`.
  */
+// eslint-disable-next-line unicorn/prefer-unicode-code-point-escapes -- the `u` flag trips another rule instead.
 const PROJECT_ID_PATTERN = /^[\x20-\x7E]+$/;
 
 /** Longest project id the panel accepts; the host's own ids are far shorter. */

@@ -1013,6 +1013,7 @@ const STRING_REFUSALS: Readonly<Record<string, unknown>> = {
  *   field must declare what fails it rather than inheriting another field's
  *   rule by default.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
 function refusedValueFor(descriptor: FieldDescriptor): unknown {
     if (descriptor.kind === 'integer') {
         return descriptor.min - 1;

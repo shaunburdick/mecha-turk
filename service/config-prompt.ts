@@ -42,6 +42,7 @@ import type { ConfigIssue } from './config.ts';
  * @returns Zero or one issue, for the additive list `collectIssues`
  *   assembles.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function startingPromptIssue(value: unknown): readonly ConfigIssue[] {
     if (typeof value !== 'string') {
         return [

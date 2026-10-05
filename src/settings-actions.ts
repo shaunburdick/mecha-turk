@@ -1,3 +1,11 @@
+/* eslint-disable llm-core/no-floating-promise --
+ * `Repaint` is declared `(rt: PanelRuntime) => void`, so `repaint(rt)` discards
+ * nothing. The rule fires on that call *inside an `async` function* and not on
+ * the identical call in a sync one: there are 15 call sites, all the same
+ * expression, and precisely the 8 that sit in an async body are reported.
+ * `void repaint(rt)` would satisfy it and is what the rule's own message
+ * suggests, but that reads as a claim the callback is asynchronous, which is
+ * the opposite of the truth. The honest fix is in the rule, not here. */
 /**
  * The Settings tab's actions: the read, the write, and the two draft
  * mutations.
@@ -402,3 +410,6 @@ export function applyConfirmCancel(rt: PanelRuntime, repaint: Repaint): void {
     slice.edit = discard(slice.edit, slice.doc);
     repaint(rt);
 }
+
+/* eslint-enable llm-core/no-floating-promise --
+ * Last of the `void`-typed `repaint(rt)` calls; see the disable at the top. */

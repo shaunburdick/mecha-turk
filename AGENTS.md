@@ -99,8 +99,20 @@ picture behind.
 6. **SDK pinned exactly** (`@openchamber/sdk`, no `~`/`^`, no preview). Re-pin
    only together with a check of the host build in the operator's OpenChamber
    (engine floor: `>=1.24.0`).
-7. **Zero suppressions, zero `any`.** No `eslint-disable`, `@ts-ignore`,
-   `@ts-expect-error`, `# type: ignore`. Fix the code, not the tool.
+7. **Scoped suppressions, zero `any`.** No `@ts-ignore`, `@ts-expect-error`,
+   `# type: ignore` — those are how code lies to the compiler, and a cast that
+   satisfies a rule is the same lie as disabling it. A *described*
+   `eslint-disable` is allowed, scoped to the line it excuses:
+   `// eslint-disable-next-line <rule> -- <why the rule's premise does not
+   hold here>`. Never a bare `eslint-disable`. Never file-wide, unless one rule
+   needs it on more than five lines of that single file — then one
+   `/* eslint-disable <rule> -- <why> */` at the top. The reason must name the
+   premise that fails, not a preference; "we prefer it this way" is not a
+   reason. Whole-repo `'off'` in `eslint.config.mjs` is for a rule the
+   codebase deliberately answers differently *everywhere* it applies; below
+   roughly twenty sites the suppression belongs on the line, where a reader can
+   see what it excuses and a change to the file cannot silently widen it. The
+   default is still to fix the code, not the tool.
 8. **Fail closed.** Settings, bindings, event rows, and service DTOs parse
    through validators that refuse malformed input instead of partially
    applying it. Missing/ambiguous authorization is a stop condition

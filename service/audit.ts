@@ -122,6 +122,7 @@ interface RedactedFields {
  *   path, and the accumulator collecting rewritten paths.
  * @returns The value with secret-shaped strings replaced.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- input is `unknown` by design; four branches, no union.
 function redactDeep(input: { readonly value: unknown; readonly path: string; readonly fields: string[] }): unknown {
     const { value, path, fields } = input;
     if (typeof value === 'string') {
@@ -371,6 +372,7 @@ function auditCacheFor(store: ServiceStore): Promise<AuditCache> {
  * @returns This write's result or rejection, exactly as the task produced it.
  */
 function inWriteChain<T>(cache: AuditCache, task: () => Promise<T>): Promise<T> {
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs task on its own rejection; this runs once.
     const run = cache.writeChain.then(task, task);
     cache.writeChain = run;
 

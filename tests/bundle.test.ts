@@ -311,6 +311,19 @@ const DISPATCH_MODULES: readonly string[] = [
  * The walk is dynamic — every `.ts` under {@link SOURCE_DIRS} is read — so
  * this list is the assertion that the newest additions are inside it.
  */
+/**
+ * The one suppression shape invariant 7 permits: scoped to the line below, and
+ * carrying the reason.
+ *
+ * A bare `eslint-disable`, a file-wide `/* eslint-disable … *\/` block, and a
+ * missing reason are all still failures here. The ESLint layer enforces the
+ * same three properties repo-wide (`no-unlimited-disable`,
+ * `disable-enable-pair`, `require-description`); keeping the check here as well
+ * is what attaches the guarantee to the prompt pipeline specifically, which is
+ * where a quietly suppressed check would cost the most.
+ */
+const LINE_SCOPED_DISABLE = /eslint-disable-next-line\s+[\w@/-]+\s+--\s+\S/u;
+
 const PROMPT_MODULES: ReadonlySet<string> = new Set([
     'src/prompt.ts',
     'src/prompt-wire.ts',
@@ -815,8 +828,12 @@ describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
             const sources = scanSources().filter((file) => PROMPT_MODULES.has(file.path));
             expect(sources).toHaveLength(PROMPT_MODULES.size);
             for (const file of sources) {
-                expect(file.text, `${file.path} suppresses a rule`)
-                    .not.toMatch(/eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck/);
+                const directives = file.text.match(/eslint-disable[^\n]*/gu) ?? [];
+                for (const directive of directives) {
+                    expect(directive, `${file.path}: \`${directive}\``).toMatch(LINE_SCOPED_DISABLE);
+                }
+                expect(file.text, `${file.path} escapes the type system`)
+                    .not.toMatch(/@ts-ignore|@ts-expect-error|@ts-nocheck|# type: ignore/);
                 expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
             }
         }
@@ -1358,8 +1375,12 @@ describe('003 v1.8.0 no permitted login reaches any surface (NFR-113, AC-132)', 
         const sources = scanSources().filter((file) => modules.includes(file.path));
         expect(sources).toHaveLength(modules.length);
         for (const file of sources) {
-            expect(file.text, `${file.path} suppresses a rule`)
-                .not.toMatch(/eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck/);
+            const directives = file.text.match(/eslint-disable[^\n]*/gu) ?? [];
+            for (const directive of directives) {
+                expect(directive, `${file.path}: \`${directive}\``).toMatch(LINE_SCOPED_DISABLE);
+            }
+            expect(file.text, `${file.path} escapes the type system`)
+                .not.toMatch(/@ts-ignore|@ts-expect-error|@ts-nocheck|# type: ignore/);
             expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
         }
     });

@@ -57,6 +57,9 @@ function isEntryPoint(): boolean {
 function scheduleForceExit(log: ServiceLogger): void {
     const watchdog = setTimeout(() => {
         log.warn('forcing exit after graceful shutdown');
+        // The app OpenChamber spawns, not a library, and some unnamed handle
+        // still holds the loop open — returning would wedge the shutdown.
+        // eslint-disable-next-line unicorn/no-process-exit -- a CLI app, not a library, and no handle closes by name.
         process.exit(process.exitCode ?? 0);
     }, FORCE_EXIT_MS);
     watchdog.unref();
@@ -118,6 +121,7 @@ function installSignalHandlers(handle: ServiceHandle, log: ServiceLogger): void 
  *
  * @param env - Environment to read; defaults to `process.env`.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function runService(env: NodeJS.ProcessEnv = process.env): Promise<void> {
     const log = createLogger({ level: 'info' });
     try {

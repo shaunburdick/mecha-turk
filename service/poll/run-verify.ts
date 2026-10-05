@@ -88,6 +88,7 @@ function judgeVerification(input: {
  * @returns The run with its recorded read-back, or the refusal.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function recordVerification(input: {
     /** Open store. */
     readonly store: ServiceStore;

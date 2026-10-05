@@ -339,6 +339,7 @@ async function handleAccountProfile(context: RouteContext, request: RouteRequest
  * is exactly why the retired narrow label route leaves no alias behind — there
  * is one path and two documented methods (005 v1.10.0, invariant 8).
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export const putAccountProfileRoute: Route = {
     method: 'PUT',
     path: ACCOUNT_PATH,

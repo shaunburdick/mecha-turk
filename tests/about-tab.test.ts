@@ -509,6 +509,7 @@ describe('Diagnostics sits behind a disclosure (2026-10-01 scrub)', () => {
     it('starts closed, opens on its control, and its label says which it is', async () => {
         {
             const view = await mountAbout({ answer: healthyService });
+            // eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; the type is the assertion.
             const controlLabel = (): unknown => lastProps(
                 'mountButton',
                 (props) => props.label === SHOW_LABEL || props.label === HIDE_LABEL,

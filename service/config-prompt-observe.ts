@@ -223,6 +223,7 @@ export async function runConfigPromptChain<T>(store: ServiceStore, task: () => P
     const state = stateFor(store);
     // Both handlers are the same continuation: a rejected predecessor must not
     // stop the next task.
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs task on its own rejection; this runs once.
     const run = state.chain.then(task, task);
     state.chain = run;
 

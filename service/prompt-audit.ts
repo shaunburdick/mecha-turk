@@ -151,6 +151,7 @@ export async function runPromptChain<T>(store: ServiceStore, task: () => Promise
     };
     // Both handlers are the same continuation, exactly as the audit writer's
     // write chain does it: a rejected predecessor must not stop the next task.
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs start on its own rejection; this runs once.
     const run = state.chain.then(start, start);
     state.chain = run;
 

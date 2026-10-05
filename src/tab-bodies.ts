@@ -154,6 +154,7 @@ function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
  *
  * @returns The specs the shell mounts from.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function tabSpecs(rt: PanelRuntime, handlers: PanelHandlers): readonly TabSpec[] {
     return [
         { id: 'status', label: 'Status', mount: (body) => statusSpec(rt, body) },

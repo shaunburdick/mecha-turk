@@ -864,6 +864,7 @@ describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-
             expect(capIssue.field).toBe(LABEL_FIELD);
             expect(capIssue.remediation).toContain('80');
 
+            // eslint-disable-next-line unicorn/prefer-unicode-code-point-escapes -- the BEL is the planted value under test.
             const controlled = await putProfile(service, JSON.stringify({ displayName: 'badname\u0007x' }));
 
             const controlIssue = await issueOf(controlled);

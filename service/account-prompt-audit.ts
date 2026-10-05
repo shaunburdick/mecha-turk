@@ -177,6 +177,7 @@ export async function runAccountPromptChain<T>(store: ServiceStore, task: () => 
     };
     // Both handlers are the same continuation: a rejected predecessor must not
     // stop the next task.
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs start on its own rejection; this runs once.
     const run = state.chain.then(start, start);
     state.chain = run;
 

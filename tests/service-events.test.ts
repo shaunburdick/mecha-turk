@@ -371,6 +371,7 @@ async function auditRowsOf(eventType: string): Promise<readonly AuditEntry[]> {
  *
  * @returns The unusable row.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
 function unusableRow(): unknown {
     return { ...createEvent(fixtureSnapshot(2, 'the row the writer never writes')), issueNumber: '2' };
 }

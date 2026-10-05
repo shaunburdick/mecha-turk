@@ -320,6 +320,7 @@ describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
             rt.shell?.activate('accounts');
 
             for (const id of TAB_IDS) {
+                // eslint-disable-next-line unicorn/require-css-escape -- `id` comes from `TAB_IDS`, six literals.
                 const tab = root.querySelector(`[role="tab"][data-id="${id}"]`);
                 const body = bodyOf(root, id);
                 expect(tab?.attribute('id')).toBe(`oc-tab-${id}`);

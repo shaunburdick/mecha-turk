@@ -265,6 +265,7 @@ function withAttempts(count: number): Record<string, unknown> {
  * @param value - Counter value the validator must refuse.
  * @returns A document fragment carrying that counter.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
 function badSubjects(value: unknown): unknown {
     return {
         schemaVersion: RUNS_SCHEMA_VERSION,

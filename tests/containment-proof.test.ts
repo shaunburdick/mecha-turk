@@ -164,6 +164,7 @@ function snapshot(issueNumber: number): EventSnapshot {
  * @param input - The row's issue and its shipped lifecycle state.
  * @returns The row as the pre-003 build wrote it.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
 function legacyRow(input: { readonly issueNumber: number; readonly state: RetiredState }): unknown {
     return {
         ...createEvent(snapshot(input.issueNumber)),

@@ -310,6 +310,7 @@ function measure(name) {
         return null;
     }
 
+    // eslint-disable-next-line unicorn/require-css-escape -- `name` is a tab id; `CSS` is absent in this harness.
     const body = panel.querySelector(`[data-body="${name}"]`);
     const region = panel.querySelector('[data-body-region]');
     const root = panel.querySelector('#root');
@@ -366,6 +367,7 @@ function align(name) {
         return null;
     }
 
+    // eslint-disable-next-line unicorn/require-css-escape -- `name` is a tab id; `CSS` is absent here.
     const body = panel.querySelector(`[data-body="${name}"]`);
     const region = panel.querySelector('[data-body-region]');
 

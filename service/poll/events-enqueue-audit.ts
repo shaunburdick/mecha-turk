@@ -84,6 +84,7 @@ async function recordDetectedDeliveries(input: EnqueueAuditInput): Promise<void>
 }
 
 /** Append coalescing and detection audit records after durable enqueue writes. */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function recordEnqueueAudits(input: EnqueueAuditInput): Promise<void> {
     await recordJoinedDeliveries(input);
     await recordDetectedDeliveries(input);

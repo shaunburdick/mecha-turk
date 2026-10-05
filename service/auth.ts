@@ -54,6 +54,7 @@ function digestsMatch(presented: string, expected: string): boolean {
  * @param token - The expected `OPENCHAMBER_SERVICE_TOKEN`.
  * @returns `true` only when the bearer credential matches in constant time.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function isAuthorized(header: string | undefined, token: string): boolean {
     return digestsMatch(bearerCredential(header), token);
 }

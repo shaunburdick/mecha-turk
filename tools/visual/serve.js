@@ -144,6 +144,7 @@ function createHandler(root) {
  * @param options - `{ root, port }`; port 0 asks the OS for a free one.
  * @returns `{ url, port, close }` — `close` drops live connections first.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function startServer(options = {}) {
     const root = options.root ?? REPO_ROOT;
     const port = options.port ?? DEFAULT_PORT;
