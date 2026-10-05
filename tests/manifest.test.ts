@@ -415,6 +415,18 @@ interface ToolRun {
 }
 
 /**
+ * The ceiling one tool run gets before its process is killed, in milliseconds.
+ *
+ * The heaviest run here boots ESLint's whole type-aware config over the root
+ * tsconfig, which costs 4.4s on an idle machine and past 5s once a full suite has
+ * every core — so this is far above any honest run and exists to name a hang, not
+ * to police a slow one. Vitest's watchdog kills a blocked test with a line saying
+ * only that it timed out, which is no diagnosis at all: without a bound of its own
+ * the child, and the command it was running, are never named.
+ */
+const TOOL_TIMEOUT_MS = 20_000;
+
+/**
  * Hash one repository file.
  *
  * @param path - Repository-relative path.
@@ -430,14 +442,29 @@ function sha256(path: string): string {
  * `execFileSync` is no use here: a crash of ESLint's is the behaviour two of these
  * assertions are about, and throwing it away would throw the finding away with it.
  *
+ * A run that was killed is reported through `output` rather than swallowed. Callers
+ * assert on `output`, so the marker is what such an assertion prints — carrying the
+ * command, the budget and how it died, so the failure reads as a hung subprocess and
+ * not as a tool that had nothing to say.
+ *
  * @param binary - An absolute path, or a name the PATH resolves.
  * @param args - The arguments to pass.
  * @returns The exit status and the combined standard output and error.
  */
 function runTool(binary: string, args: readonly string[]): ToolRun {
-    const finished = spawnSync(binary, [...args], { cwd: ROOT, encoding: 'utf8' });
+    const finished = spawnSync(binary, [...args], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: TOOL_TIMEOUT_MS,
+    });
+    // `error` covers both a budget overrun and a process that never started, such as
+    // a missing binary. A killed run leaves a null status and whatever was said before
+    // the signal, which on its own is indistinguishable from a clean silent one.
+    const killed = finished.error === undefined
+        ? ''
+        : `\n${binary} ${args.join(' ')} died after ${String(TOOL_TIMEOUT_MS)}ms: ${finished.error.message}`;
 
-    return { status: finished.status, output: `${finished.stdout}${finished.stderr}` };
+    return { status: finished.status, output: `${finished.stdout}${finished.stderr}${killed}` };
 }
 
 /**
@@ -597,6 +624,12 @@ describe('007 FR-070 / AC-019 — the root tools report no file under site/', ()
         }
     });
 
+    // The budget is vitest's default 5s multiplied by the cost of the one run here
+    // that a full suite can starve: it boots ESLint's type-aware config over the root
+    // tsconfig, measured at 4.4s idle and 5.4s with every core busy, so the default
+    // turned a passing assertion red on load alone. Set above `TOOL_TIMEOUT_MS` on
+    // purpose — a genuine hang is reported by the subprocess bound, which names the
+    // command, while this figure only has to leave an honest run alone.
     it('crashes the whole run without that ignore, in the way the config says it does', () => {
         {
             // The reason `site/**` is in `ignores` and not merely tidy. With the
@@ -611,7 +644,7 @@ describe('007 FR-070 / AC-019 — the root tools report no file under site/', ()
             expect(crashed.output).toContain('EslintPluginImportResolveError');
             expect(crashed.output).toContain('import-x/no-cycle');
         }
-    });
+    }, 30_000);
 
     it('keeps the site out of the root TypeScript project', () => {
         {
