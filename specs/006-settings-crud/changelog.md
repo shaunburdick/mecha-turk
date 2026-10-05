@@ -182,3 +182,17 @@ Amendments follow the same procedure and shape as the project's constitution (`.
 
 
 **Version**: 1.6.0 | **Status**: Approved (v1.1.0), amended to v1.3.0 by the owner's ruling — 2026-09-28, to v1.4.0 by the acceptance-evidence consolidation — 2026-10-01, to v1.5.0 by the owner's blank-default order — 2026-10-01, and to v1.6.0 by 004's layered-prompt amendment — 2026-10-02 | **Last Updated**: 2026-10-02
+
+---
+
+### Amended by 002 v1.13.0 — 2026-10-05 (GitHub issue #22): two requirements now resolve differently, and one count deliberately does not move
+
+This document is **not** amended. Its requirements keep their numbers and their text; what changed is what two of them resolve to now that 002 owns a per-binding field that selects a scan window's lower bound.
+
+| 006 requirement | What changed | Status |
+| --- | --- | --- |
+| **FR-059(a)** — *"a binding with no recorded stamp still replays with no window at all, exactly as today"* | **Superseded on that sentence by 002 v1.13.0 FR-065.** The `windowFor` behaviour 006 closed a conformance gap for is unchanged — the recorded `lastScanAt` minus `overlapMs` is still the stamp it returns, and the overlap default is still 002's 600,000 ms. What is retired is the clause treating *no recorded stamp* as *no window*: a binding with no completed scan now opens at a baseline its history scope fixes (002 FR-066, FR-067), so **the reachable window set is larger than the one FR-059(a) described while the recorded-stamp case is byte-identical**. Anyone reading 006 FR-059(a) for the replay case must read 002 FR-065 instead | **Superseded on one clause** |
+| **FR-058** — bounded exponential backoff over the poll request path | **Untouched, and now correctly distinguished from FR-059.** A draft amendment for 002 v1.13.0 mis-cited FR-058 as the checkpoint-retention requirement; it is not. The checkpoint-retention rule is **FR-059(a)**'s neighbourhood plus the incomplete-scan rule, and the requirement 002 v1.13.0 extends is the one this document states as **the incomplete scan preserving the checkpoint** | **Unchanged** |
+| **FR-010**, **FR-084** — the surface is exactly **twelve** documented fields | **Unchanged, and the omission is deliberate.** The look-back length (7 days) is declared once with a bound but is **not** a configuration member, is not in the schema projection, and does not render on Settings (002 FR-059), because the operator does not choose it. The count stays twelve. Recorded here so the absence reads as a decision rather than an oversight | **Unchanged by decision** |
+
+**What this document still owns, unchanged**: the twelve fields and their bounds, the schema projection, the take-effect classes, the `config.changed` row shape, and every keyboard, confirm, and redaction rule. **No new `FieldDescriptor` kind** is admitted — `historyScope` is a binding field, not a `config.json` field, the same three-way split `allowedUsers` follows, and the enforcement gate stays 003's and the rendering stays 005's. **Version**: unchanged at v1.6.0 (no requirement text of this document changed).
