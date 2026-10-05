@@ -106,7 +106,7 @@ describe('built panel bundle', () => {
             expect(bundle).not.toContain('Repositories: ');
         }
         {
-            // 005 FR-103, over the **shipped bytes** rather than the source: the
+            // 005 FR-123, over the **shipped bytes** rather than the source: the
             // picker names the state the product actually has, and the withdrawn
             // *verified* placeholder — a state `AccountState` does not carry —
             // ships nowhere. Asserted on the artifact because the host never
@@ -118,7 +118,7 @@ describe('built panel bundle', () => {
             expect(bundle).not.toContain('Select a verified account');
         }
         {
-            // FR-101 and FR-102's second row, over the shipped bytes as well: the
+            // FR-121 and FR-122's second row, over the shipped bytes as well: the
             // reason line and the zero-account empty text are copy the operator
             // reads, so their absence from the bundle would be a source-only fix.
             const bundle = readFileSync(BUNDLE, UTF8);
@@ -127,7 +127,7 @@ describe('built panel bundle', () => {
             expect(bundle).toContain('No binding yet — add an account on the Accounts tab first.');
         }
         {
-            // FR-102's third row ships too — the pre-read sentence, which is the
+            // FR-122's third row ships too — the pre-read sentence, which is the
             // frame the `no-accounts` visual scene exists to photograph.
             const bundle = readFileSync(BUNDLE, UTF8);
 

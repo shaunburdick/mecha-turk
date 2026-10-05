@@ -151,7 +151,7 @@ export function repaintBindingActions(input: {
         disabled: bindings.status !== 'ready',
     });
     actions.cancel.update({ disabled: !bindings.editorOpen });
-    // FR-100: the gate is zero accounts **at all**, and it is conjunctive with the
+    // FR-120: the gate is zero accounts **at all**, and it is conjunctive with the
     // read-state condition already here — so it cannot fire on a read that never
     // succeeded. The predicate is the shared one, not a second `status` test.
     actions.newBinding.update({ disabled: !accountsRead(bindings) || accountGate(bindings).blocked });

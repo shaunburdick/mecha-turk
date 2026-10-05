@@ -1,6 +1,6 @@
 /**
  * The zero-account binding gate, and the reason copy that must be true either
- * way (005 FR-100 – FR-104, `005 SC-114`, `005 AC-150` – `005 AC-152`; GitHub
+ * way (005 FR-120 – FR-124, `005 SC-115`, `005 AC-154` – `005 AC-156`; GitHub
  * issue #18).
  *
  * The defect this file exists for was one **control** claiming a capability it
@@ -12,24 +12,24 @@
  * fix disables.
  *
  * Six promises are asserted here, and two of them are about **shape** rather
- * than behaviour, because FR-102's consistency rule is a claim a review has to
+ * than behaviour, because FR-122's consistency rule is a claim a review has to
  * keep re-making and a test can pin once:
  *
- * 1. **One predicate, three rows** (FR-102). The gate and the empty-text
+ * 1. **One predicate, three rows** (FR-122). The gate and the empty-text
  *    selector read the **same** named `accountsRead` conjunct, and the third
  *    row is keyed on it **alone** — never `accounts.length`, which is what a
  *    length-keyed selector gets wrong after a failed read has left an empty
  *    list on the panel's own state.
- * 2. **The gate is not pre-read and not `usable`-keyed** (FR-100). It stays
+ * 2. **The gate is not pre-read and not `usable`-keyed** (FR-120). It stays
  *    silent on an unanswered read, and it is zero accounts **at all**, because
- *    the service's own validation is existence, not state (FR-104).
- * 3. **The reason line** (FR-101) — under the list's toolbar, **text** rather
+ *    the service's own validation is existence, not state (FR-124).
+ * 3. **The reason line** (FR-121) — under the list's toolbar, **text** rather
  *    than the disabled attribute or colour alone, **absent entirely** (hidden
  *    *and* empty) whenever the gate does not hold, adding no control anywhere.
- * 4. **The refusal** (FR-103) — three total cases, with FR-101's **own
+ * 4. **The refusal** (FR-123) — three total cases, with FR-121's **own
  *    constant** serving the first, and the picker placeholder naming `active`,
  *    a state the product has, rather than `verified`, which it does not.
- * 5. **The two copy scans, each proved non-vacuous** (FR-102, FR-103) — a
+ * 5. **The two copy scans, each proved non-vacuous** (FR-122, FR-123) — a
  *    **state-keyed** scan over the empty text with **two** positive fixtures,
  *    and a **phrase-keyed** scan over the Bindings surfaces with an
  *    **Accounts-tab** `verifiedAt` row as its own. They are deliberately not
@@ -166,7 +166,7 @@ const TOOLBAR_CLASS = 'mt-toolbar';
  * Every `status === 'ready'` comparison the accounts module is allowed to make,
  * each with the reason it is that one.
  *
- * FR-102's consistency rule holds only while the gate and the empty-text
+ * FR-122's consistency rule holds only while the gate and the empty-text
  * selector consume **one** predicate. Two separately-written tests can drift,
  * and the second copy is invisible in review because both are correct on the
  * day they are written — so the copy is a *list*, and the scan below asserts
@@ -190,20 +190,20 @@ const READ_COMPARISONS: readonly (readonly [string, string])[] = [
  * length it should not.
  */
 const LENGTH_READERS: readonly (readonly [string, string])[] = [
-    ['accountGate', "FR-100's conjunct, reached only once the read has succeeded"],
-    ['accountSelectionRefusal', "FR-103's table is over what the picker offers, not over the read"],
-    ['emptyBindingsText', 'FR-102 branch 2, reached only once the read has succeeded'],
+    ['accountGate', "FR-120's conjunct, reached only once the read has succeeded"],
+    ['accountSelectionRefusal', "FR-123's table is over what the picker offers, not over the read"],
+    ['emptyBindingsText', 'FR-122 branch 2, reached only once the read has succeeded'],
 ];
 
 /**
- * The workspace-relative path of the module whose *shape* FR-102 pins.
+ * The workspace-relative path of the module whose *shape* FR-122 pins.
  */
 const ACCOUNTS_MODULE = 'src/bindings-accounts.ts';
 
 /** The account picker's withdrawn placeholder — `verified` is not a state. */
 const WITHDRAWN_PLACEHOLDER = 'Select a verified account';
 
-/** The instruction FR-102's table may not name for a disabled control. */
+/** The instruction FR-122's table may not name for a disabled control. */
 const WITHDRAWN_EMPTY_TEXT = 'select New binding';
 
 /** Fixture numeric account id. */
@@ -224,7 +224,7 @@ const LAST_VERIFIED_AT = FIXTURE_TIMESTAMP;
 /**
  * The tab's own failed-read line, verbatim as `loadBindings` writes it on a
  * failed read (`src/bindings.ts`): the cause and the retry, in the one channel
- * FR-019 and FR-101's channel rule give them to. It is **not** exported by the
+ * FR-019 and FR-121's channel rule give them to. It is **not** exported by the
  * panel, so it is pinned here as the literal the panel paints — which is what
  * makes the assertions about it assertions about rendered copy.
  */
@@ -263,7 +263,7 @@ function inactiveAccount(): PanelAccount {
 }
 
 /**
- * A second account that is not `active`, for the two-account fixture AC-150
+ * A second account that is not `active`, for the two-account fixture AC-154
  * names — same predicate, different login, so the refusal's *non*-echo can be
  * asserted against both.
  *
@@ -296,7 +296,7 @@ function bindingsState(input: {
     readonly accounts?: readonly PanelAccount[];
     /**
      * The tab's own failed-read line, rendered verbatim by `repaintBindingsPane`
-     * — the channel FR-019 and FR-101's channel rule hand the cause and the
+     * — the channel FR-019 and FR-121's channel rule hand the cause and the
      * retry to, so a case about that channel has to put text in it.
      */
     readonly note?: string;
@@ -310,7 +310,7 @@ function bindingsState(input: {
 }
 
 /**
- * Read the accounts module's source, which is what FR-102's shape claim is
+ * Read the accounts module's source, which is what FR-122's shape claim is
  * about.
  *
  * @returns The module text.
@@ -322,7 +322,7 @@ function accountsSource(): string {
 /**
  * The accounts module's **code**, with comments stripped.
  *
- * FR-102's claim is about the shape of the code, and this module's docblocks
+ * FR-122's claim is about the shape of the code, and this module's docblocks
  * *discuss* that shape by name — so a scan over raw text would read its own
  * documentation as a second implementation. Only `/* … *\/` blocks and whole-line
  * `//` comments are removed, which is enough here because the module carries no
@@ -558,7 +558,7 @@ function mountedBindings(input: {
 
 /**
  * Mount the **Accounts** body over the same shared state, for the fixture that
- * proves AC-151's scan forbids a *string* rather than a word.
+ * proves AC-155's scan forbids a *string* rather than a word.
  *
  * @returns The runtime, with the Accounts body mounted.
  */
@@ -674,10 +674,10 @@ function indexOfChild(children: readonly FakeElement[], node: FakeElement): numb
 }
 
 /* -------------------------------------------------------------------- *
- * K-2 / FR-100, FR-102, FR-103 — the pure derivations
+ * K-2 / FR-120, FR-122, FR-123 — the pure derivations
  * -------------------------------------------------------------------- */
 
-describe('FR-100 and FR-102 the gate and the empty text read one predicate over three rows', () => {
+describe('FR-120 and FR-122 the gate and the empty text read one predicate over three rows', () => {
     it('answers plan §K.3 row by row, in both gate directions', () => {
         const one = accountFixture();
         const inactive = accountFixture({
@@ -741,11 +741,11 @@ describe('FR-100 and FR-102 the gate and the empty text read one predicate over 
         expect(EMPTY_TEXT_NOT_KNOWN).not.toContain(WITHDRAWN_EMPTY_TEXT);
         expect(EMPTY_TEXT_NOT_KNOWN).toContain('Refresh');
         // It does not restate the failed read's cause or its retry: the tab's own
-        // failed-read channel owns those (FR-019, FR-101's channel rule).
+        // failed-read channel owns those (FR-019, FR-121's channel rule).
         expect(EMPTY_TEXT_NOT_KNOWN).not.toMatch(/failed|refresh to retry/iu);
     });
 
-    it('FR-103 refuses in three total cases, and FR-101\'s constant serves both positions', () => {
+    it('FR-123 refuses in three total cases, and FR-121\'s constant serves both positions', () => {
         const one = accountFixture();
         const inactive = accountFixture({
             numericUserId: '77332',
@@ -754,7 +754,7 @@ describe('FR-100 and FR-102 the gate and the empty text read one predicate over 
             state: 'pending_handoff',
         });
 
-        // None exist ⇒ FR-101's **own** string, the same constant in a second
+        // None exist ⇒ FR-121's **own** string, the same constant in a second
         // position — asserted by identity, not just by text.
         const none = bindingsState({ status: 'ready', accounts: [] });
         expect(accountSelectionRefusal(none)).toBe(ACCOUNT_REQUIRED_REASON);
@@ -782,7 +782,7 @@ describe('FR-100 and FR-102 the gate and the empty text read one predicate over 
 });
 
 /* -------------------------------------------------------------------- *
- * K-3 — FR-102's consistency rule, asserted as a claim about shape
+ * K-3 — FR-122's consistency rule, asserted as a claim about shape
  * -------------------------------------------------------------------- */
 
 describe('K-3 the gate and the selector consume one predicate, not two', () => {
@@ -830,13 +830,13 @@ describe('K-3 the gate and the selector consume one predicate, not two', () => {
         expect(guard?.[1]?.replaceAll(/\s/gu, '')).toBe('!accountsRead(bindings)');
 
         // No length test is reachable before that guard, and the length branch
-        // it does reach is FR-102's second row.
+        // it does reach is FR-122's second row.
         const readAt = body.indexOf('accountsRead(bindings)');
         const firstLength = body.indexOf('accounts.length');
         expect(readAt).toBeGreaterThan(-1);
         expect(firstLength === -1 || firstLength > readAt).toBe(true);
         expect(body.slice(0, readAt)).not.toContain('accounts.length');
-        // All three of FR-102's rows are reachable from this one function, by
+        // All three of FR-122's rows are reachable from this one function, by
         // identifier — so a row cannot quietly stop being selected while the
         // other two keep the test green.
         for (const row of ['EMPTY_TEXT_NOT_KNOWN', 'EMPTY_TEXT_NO_ACCOUNTS', 'EMPTY_TEXT_WITH_ACCOUNT']) {
@@ -847,10 +847,10 @@ describe('K-3 the gate and the selector consume one predicate, not two', () => {
     it('never widens the gate to usable accounts or fires it pre-read', () => {
         const gate = functionBody(accountsCode(), 'accountGate');
 
-        // `usable` is FR-100's prohibition by name: the service accepts a
+        // `usable` is FR-120's prohibition by name: the service accepts a
         // binding against an account that merely *exists*, so a `usable` gate
         // would refuse bindings the service and the poll loop both handle
-        // (FR-104 — a recorded divergence, not a bug).
+        // (FR-124 — a recorded divergence, not a bug).
         expect(gate).not.toContain('usable');
 
         const inactive = accountFixture({
@@ -885,7 +885,7 @@ describe('K-3 the gate and the selector consume one predicate, not two', () => {
 });
 
 /* -------------------------------------------------------------------- *
- * K-4 / FR-101 — the reason line's mount, position, and disposal
+ * K-4 / FR-121 — the reason line's mount, position, and disposal
  * -------------------------------------------------------------------- */
 
 /** Class the reason line's own wrapper carries, read from the module's constant. */
@@ -895,7 +895,7 @@ const REASON_CLASS = ACCOUNT_REASON_CLASS;
  * The Bindings pane's own primitive census — every SDK mount the body performs,
  * with the reason each one is there.
  *
- * FR-101 says the reason is **text** and adds no button, link, or any other
+ * FR-121 says the reason is **text** and adds no button, link, or any other
  * control anywhere on the tab, so a census is what settles it: a navigation
  * affordance would appear here as a second entry for a primitive the list has
  * no use for. Written as data, with a reason per row, so a widening fails
@@ -1032,7 +1032,7 @@ async function submitAndReadNote(mounted: Mounted): Promise<string> {
     return mounted.rt.state.bindings.note;
 }
 
-describe('K-7 FR-103 the refusal names the remediation, and only the third case says pick', () => {
+describe('K-7 FR-123 the refusal names the remediation, and only the third case says pick', () => {
     it('two accounts, neither active, none selected: fix-or-replace, never pick', async () => {
         const service = refusingService();
         const mounted = mountedBindings({
@@ -1069,10 +1069,10 @@ describe('K-7 FR-103 the refusal names the remediation, and only the third case 
         release(mounted);
     });
 
-    it('zero accounts with the editor already open: FR-101\'s own constant, as text', async () => {
+    it('zero accounts with the editor already open: FR-121\'s own constant, as text', async () => {
         const service = refusingService();
         // The gate holds and the editor is already up — the only state in which
-        // FR-103's first row is reachable at all.
+        // FR-123's first row is reachable at all.
         const mounted = mountedBindings({
             state: bindingsState({ status: 'ready', accounts: [accountFixture()] }),
             host: service.host,
@@ -1087,7 +1087,7 @@ describe('K-7 FR-103 the refusal names the remediation, and only the third case 
 
         expect(note).toBe(ACCOUNT_REQUIRED_REASON);
         // **Two** positions, one string value: the toolbar line under the list
-        // and the add form's note. FR-103 requires the *same constant* in both,
+        // and the add form's note. FR-123 requires the *same constant* in both,
         // and two elements carrying one string is the proof — a second spelling
         // would read as 1 and a reword would fail the equality above.
         expect(elementsCarryingCount(ACCOUNT_REQUIRED_REASON)).toBe(2);
@@ -1101,7 +1101,7 @@ describe('K-7 FR-103 the refusal names the remediation, and only the third case 
             const mounted = mountedBindings({ state: bindingsState({ status, accounts: [] }) });
             mounted.handlers.newBinding();
 
-            // FR-100's bar and FR-101's silence hold together: the editor's own
+            // FR-120's bar and FR-121's silence hold together: the editor's own
             // primary control is disabled by the read state alone, so no
             // submission reaches `draftAccount` in any of the three states.
             expect(buttonProps(ADD_BINDING_LABEL).disabled, status).toBe(true);
@@ -1111,7 +1111,7 @@ describe('K-7 FR-103 the refusal names the remediation, and only the third case 
     });
 });
 
-describe('K-8 FR-103 the placeholder names a state the product has', () => {
+describe('K-8 FR-123 the placeholder names a state the product has', () => {
     it('reads Select an active account by string equality in every case, disabled included', () => {
         // Two accounts, neither `active`: the option list is empty and the field
         // is disabled, and the placeholder still names `active` — the state it
@@ -1137,7 +1137,7 @@ describe('K-8 FR-103 the placeholder names a state the product has', () => {
         release(one);
 
         // Zero accounts with the editor open: the same placeholder, and the field
-        // **still disabled** — FR-103 governs the wording, never the presence.
+        // **still disabled** — FR-123 governs the wording, never the presence.
         const none = mountedBindings({
             state: bindingsState({ status: 'ready', accounts: [accountFixture()] }),
         });
@@ -1174,7 +1174,7 @@ describe('K-8 FR-103 the placeholder names a state the product has', () => {
     });
 });
 
-describe('K-4 FR-101 the reason mounts under the list toolbar as text alone', () => {
+describe('K-4 FR-121 the reason mounts under the list toolbar as text alone', () => {
     it('sits immediately after the toolbar and before the selected row, carrying text', () => {
         const none = bindingsState({ status: 'ready', accounts: [] });
         const mounted = mountedBindings({ state: none });
@@ -1183,7 +1183,7 @@ describe('K-4 FR-101 the reason mounts under the list toolbar as text alone', ()
         const reason = children.find((node) => node.className === REASON_CLASS);
         const detail = children.at(-1);
 
-        // FR-101's own phrase: "positioned under the list's control row — beside
+        // FR-121's own phrase: "positioned under the list's control row — beside
         // the control it explains, rather than inside the editor". The detail
         // block is the last thing the list block appends, so it is the boundary
         // the line has to stay inside of.
@@ -1254,7 +1254,7 @@ describe('K-4 FR-101 the reason mounts under the list toolbar as text alone', ()
 });
 
 /* -------------------------------------------------------------------- *
- * K-5 / K-6 — the mount and the repaint, and the gate (AC-150, AC-152)
+ * K-5 / K-6 — the mount and the repaint, and the gate (AC-154, AC-156)
  * -------------------------------------------------------------------- */
 
 /**
@@ -1263,7 +1263,7 @@ describe('K-4 FR-101 the reason mounts under the list toolbar as text alone', ()
  *
  * Asserted per state rather than as a formula, because the whole point of the
  * out-of-scope guard is that only `newBinding`'s line moved: a change to
- * `add` would make FR-103's first refusal case unreachable and strand an
+ * `add` would make FR-123's first refusal case unreachable and strand an
  * already-open editor, and a change to `toggle` / `removeSelected` would gate
  * row-level work on an account the panel never asked about.
  */
@@ -1289,15 +1289,15 @@ function untouchedExpectation(control: string, status: BindingsStatus): boolean 
     return control !== ADD_BINDING_LABEL || status !== 'ready';
 }
 
-describe('K-5 and K-6 the mount, the repaint, and the gate (AC-150, AC-152)', () => {
-    it('zero accounts: disabled, with FR-101\'s sentence as text and the second row\'s empty text', () => {
+describe('K-5 and K-6 the mount, the repaint, and the gate (AC-154, AC-156)', () => {
+    it('zero accounts: disabled, with FR-121\'s sentence as text and the second row\'s empty text', () => {
         const mounted = mountedBindings({ state: bindingsState({ status: 'ready', accounts: [] }) });
 
         expect(newBindingProps().disabled).toBe(true);
         expect(elementsCarryingCount(ACCOUNT_REQUIRED_REASON)).toBe(1);
         expect(elementsCarryingCount(EMPTY_TEXT_NO_ACCOUNTS)).toBe(1);
         // The gate moved one control and one control only: *Add binding* is
-        // **enabled** here, which is what keeps FR-103's first refusal reachable
+        // **enabled** here, which is what keeps FR-123's first refusal reachable
         // for an editor that was already open when the list emptied.
         expect(untouchedStates(UNTOUCHED_CONTROLS)).toEqual({
             [ADD_BINDING_LABEL]: false,
@@ -1326,7 +1326,7 @@ describe('K-5 and K-6 the mount, the repaint, and the gate (AC-150, AC-152)', ()
 
         expect(newBindingProps().disabled).toBe(false);
         expect(elementsCarryingCount(ACCOUNT_REQUIRED_REASON)).toBe(0);
-        // FR-101's line is a **blocked-control** notice and the tab is not blocked,
+        // FR-121's line is a **blocked-control** notice and the tab is not blocked,
         // so a standing notice here would be the nag clarification row 41 settled.
         expect(elementsCarryingCount(EMPTY_TEXT_WITH_ACCOUNT)).toBe(1);
         release(mounted);
@@ -1383,7 +1383,7 @@ describe('K-5 and K-6 the mount, the repaint, and the gate (AC-150, AC-152)', ()
                 status,
             ).toEqual(status === 'error' ? ['mountText'] : []);
             // …and the empty text restates none of it: not the sentence, and not
-            // the claim or the retry it is built out of (FR-101's channel rule).
+            // the claim or the retry it is built out of (FR-121's channel rule).
             expect(listProps().emptyText, status).not.toContain(FAILED_READ_NOTE);
             expect(listProps().emptyText, status).not.toMatch(/failed|refresh to retry/iu);
             release(mounted);
@@ -1419,7 +1419,7 @@ describe('K-5 and K-6 the mount, the repaint, and the gate (AC-150, AC-152)', ()
 /**
  * The words no empty-text row may use to tell an operator to **press** something.
  *
- * FR-102 forbids *select*, *click*, *press*, and *choose* for a control the
+ * FR-122 forbids *select*, *click*, *press*, and *choose* for a control the
  * operator cannot currently use — not the words themselves, which the retained
  * third row is built out of. The scan is therefore **state-keyed**: it asks
  * each row whether the control it names is live in the state that row renders,
@@ -1435,7 +1435,7 @@ const PRESS_WORDS: readonly (readonly [string, RegExp])[] = [
  * The one verb the **retained** row is built out of, and therefore the exemption
  * the state-keyed scan must carry.
  *
- * FR-102 bans *select* "for a control the operator cannot currently use" — not
+ * FR-122 bans *select* "for a control the operator cannot currently use" — not
  * the word. The retained third row's whole text is *select New binding to add
  * one*, and that row renders precisely because the control **is** live. So the
  * scan's real question is never "does the row use a press-word" but "does it
@@ -1444,7 +1444,7 @@ const PRESS_WORDS: readonly (readonly [string, RegExp])[] = [
  * buried in the matcher: a widened scan would then have to widen this list too.
  */
 const PRESS_EXEMPT: readonly (readonly [string, string])[] = [
-    ['select New binding', 'FR-102 row 3 renders it precisely because the control is live'],
+    ['select New binding', 'FR-122 row 3 renders it precisely because the control is live'],
 ];
 
 /** Every control an empty-text row may name, and where it lives. */
@@ -1544,8 +1544,8 @@ describe('K-9 the state-keyed copy scan forbids pressing a disabled control, and
 
         // ── Non-vacuity, and this is the half that matters: the matcher **does**
         //    find the withdrawn instruction, in the state its own row renders.
-        //    AC-150's one-account fixture is the positive one for the retained
-        //    row; AC-152's mounted-at-`idle` fixture is the positive one for the
+        //    AC-154's one-account fixture is the positive one for the retained
+        //    row; AC-156's mounted-at-`idle` fixture is the positive one for the
         //    third row — and before this fix *that* was the state in which the
         //    empty text carried `select New binding`.
         const one = frames.find((frame) => frame.label === 'ready · one');
@@ -1571,7 +1571,7 @@ describe('K-9 the state-keyed copy scan forbids pressing a disabled control, and
     });
 
     it('states the third row by equality, with no account count and only Refresh', () => {
-        // The three pre-read states AC-152 names, plus the *stale* case that
+        // The three pre-read states AC-156 names, plus the *stale* case that
         // followed a successful read of an empty list — the one frame in which a
         // length-keyed selector would have asserted an absence.
         const preRead: readonly (readonly [string, BindingsStatus])[] = [
@@ -1612,10 +1612,10 @@ describe('K-9 the state-keyed copy scan forbids pressing a disabled control, and
             release(mounted);
         }
 
-        // …and FR-100's gate must not reach this control either. `ready` is the
+        // …and FR-120's gate must not reach this control either. `ready` is the
         // **only** read state where the gate holds, so it is the only state a
         // gate spread onto *Refresh* could show in — the four pre-read states
-        // above all have `blocked === false` by FR-100's own bar, so on their own
+        // above all have `blocked === false` by FR-120's own bar, so on their own
         // they cannot tell the shipped line from a spread one, and a failure
         // names the state it was looked for in.
         for (const [label, accounts] of [
@@ -1645,7 +1645,7 @@ function rowsOfAccountsList(): readonly { readonly id: string; readonly subtitle
         : [];
 }
 
-describe('K-9 AC-151 keeps its own phrase-keyed scan, which forbids a string and not a word', () => {
+describe('K-9 AC-155 keeps its own phrase-keyed scan, which forbids a string and not a word', () => {
     it('finds the withdrawn placeholder nowhere on the Bindings surfaces', () => {
         for (const input of [
             { label: 'ready · none', status: 'ready' as const, accounts: [] },

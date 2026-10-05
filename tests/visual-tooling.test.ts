@@ -44,7 +44,7 @@ interface SceneTable {
     readonly scenes?: Readonly<Record<string, SceneRecord>>;
 }
 
-/** The scene 005 AC-150 needs a frame of: the Bindings tab with no accounts. */
+/** The scene 005 AC-154 needs a frame of: the Bindings tab with no accounts. */
 const NO_ACCOUNTS = 'no-accounts';
 
 /**
@@ -52,7 +52,7 @@ const NO_ACCOUNTS = 'no-accounts';
  *
  * The base fixture carries **bindings** as well as accounts, so `no-accounts`
  * alone shows the reason line with a full list under it and leaves every one of
- * 005 FR-102's three rows invisible. Emptying the bindings list too is what puts
+ * 005 FR-122's three rows invisible. Emptying the bindings list too is what puts
  * the gate and the *add an account* row on screen together.
  */
 const NO_ACCOUNTS_NO_BINDINGS = 'no-accounts-no-bindings';
@@ -160,11 +160,11 @@ describe('the visual capture tooling stays wired up', () => {
  * D26 — `--scene`: a fixture delta merged over the base document
  *
  * The shipped fixture holds two accounts **and** a binding, so none of 005
- * FR-102's three empty-text rows renders and FR-101's reason line is correctly
- * absent: under it, the copy 005 AC-150 governs is invisible. `no-accounts` is
+ * FR-122's three empty-text rows renders and FR-121's reason line is correctly
+ * absent: under it, the copy 005 AC-154 governs is invisible. `no-accounts` is
  * the frame in which the **reason line** appears over a full list; an
  * **empty-text row** needs `no-accounts-no-bindings`, and the not-known row is
- * asserted by `005 AC-152`'s read-state fixtures rather than by a capture. These
+ * asserted by `005 AC-156`'s read-state fixtures rather than by a capture. These
  * four checks are what keep each scene a *frame* rather than a filename.
  * ------------------------------------------------------------------------- */
 
@@ -249,7 +249,7 @@ describe('a capture can run under a fixture scene', () => {
         // empty-text row renders and the scene photographs the gate only.
         expect((accountsOnly.bindings as { readonly bindings: readonly unknown[] }).bindings)
             .toHaveLength(base.bindings.length);
-        // Gate **and** row together: this is the frame 005 FR-102's second row
+        // Gate **and** row together: this is the frame 005 FR-122's second row
         // exists to be read in.
         const emptied = both.bindings as { readonly bindings: readonly unknown[]; readonly status: readonly unknown[] };
 

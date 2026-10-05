@@ -104,7 +104,7 @@ interface Board {
     /** Refresh button (mounted into {@link Board.toolbar}). */
     readonly refreshBindings: ButtonHandle;
     /**
-     * FR-101's reason line, mounted **directly after** the toolbar.
+     * FR-121's reason line, mounted **directly after** the toolbar.
      *
      * Beside the control it explains rather than inside the editor the operator
      * has not been able to open, and hidden outright whenever the gate does not
@@ -201,7 +201,7 @@ function mountBindingsBoard(input: MountInputs): Board {
         toolbar,
         { label: 'Refresh bindings', variant: 'outline', onClick: handlers.refresh },
     );
-    // FR-101: the reason belongs directly under the control row it explains.
+    // FR-121: the reason belongs directly under the control row it explains.
     const newBindingReason = mountAccountReason({ rt, pane });
     return { status, note, bindingsList: list, toolbar, refreshBindings: refresh, newBindingReason };
 }

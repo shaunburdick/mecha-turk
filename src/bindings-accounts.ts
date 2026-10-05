@@ -1,7 +1,7 @@
 /**
  * The Bindings tab's **accounts side**: the gate on *New binding*, the reason
  * it is blocked, the list's empty text, and the add form's account refusal
- * (005 FR-100 – FR-103, GitHub issue #18).
+ * (005 FR-120 – FR-123, GitHub issue #18).
  *
  * Four requirements, one predicate, and the property they exist to make
  * structural rather than promised:
@@ -12,27 +12,27 @@
  *   because a binding is meant to outlive its account's health. Widening the
  *   gate to `usable` would convert that considered permissiveness into a panel
  *   prohibition: bindings the service accepts and the poll loop still tracks
- *   could no longer be created, nor deleted (FR-100, FR-104).
+ *   could no longer be created, nor deleted (FR-120, FR-124).
  * - **The gate is a conjunction over the accounts read having succeeded.** It
  *   is *not* a length test. `loadBindings` deliberately **retains** the previous
  *   account list when a read fails, so a failed read that followed a successful
  *   read of an *empty* list leaves `accounts.length === 0` — and a length test
  *   would tell an operator with a **broken service** that they have no
  *   accounts. Missing evidence is a stop condition, not permission to guess
- *   (constitution II; 005 AC-152).
+ *   (constitution II; 005 AC-156).
  * - **The empty text and the gate read the *same* fact**, {@link accountsRead},
- *   which is what makes FR-102's consistency rule true instead of hoped for:
+ *   which is what makes FR-122's consistency rule true instead of hoped for:
  *   three rows over one predicate, and a control's state that cannot disagree
  *   with the sentence describing it.
  * - **Every string names a state the product has.** The picker once asked for a
  *   *verified* account, which is not one of `AccountState`'s six values, beside
  *   a refusal that said there was *no active* one — two different facts about
- *   one list (FR-103).
+ *   one list (FR-123).
  *
  * Text only, in every position: no button, link, or other control carries the
  * reason, the picker's own hint is never treated as discharging the visible
  * refusal, and every string reaches the DOM through the SDK's non-HTML path
- * (FR-101, FR-080, FR-101's channel rule).
+ * (FR-121, FR-080, FR-121's channel rule).
  *
  * Imports neither `panel-ui` nor `bindings.ts`, for the reason
  * `bindings-actors.ts` states: a control `bindings-ui` composes *and* `refresh`
@@ -44,10 +44,10 @@ import type { TextHandle } from '@openchamber/sdk/ui';
 import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 
 /**
- * Why *New binding* is disabled, as text, under the list's toolbar (FR-101).
+ * Why *New binding* is disabled, as text, under the list's toolbar (FR-121).
  *
  * **One constant, two positions** — the line painted here and the add form's
- * refusal when the account list emptied behind an open editor (FR-103's first
+ * refusal when the account list emptied behind an open editor (FR-123's first
  * row). They are the same reason, so two spellings of it would be two things
  * that can drift (FR-091's one-rendering intent).
  *
@@ -57,11 +57,11 @@ import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
  */
 export const ACCOUNT_REQUIRED_REASON = 'Add an account on the Accounts tab before binding a repository.';
 
-/** The list's empty text where the gate holds (FR-102's second row). */
+/** The list's empty text where the gate holds (FR-122's second row). */
 export const EMPTY_TEXT_NO_ACCOUNTS = 'No binding yet — add an account on the Accounts tab first.';
 
 /**
- * The list's empty text where at least one account exists (FR-102's third row).
+ * The list's empty text where at least one account exists (FR-122's third row).
  *
  * The retained `LIST_EMPTY`, verbatim: the control it names is live in this
  * state, which is the only reason a row may name *New binding* at all.
@@ -70,15 +70,15 @@ export const EMPTY_TEXT_WITH_ACCOUNT = 'No binding yet — select New binding to
 
 /**
  * The list's empty text while the accounts read has **not** succeeded — not yet
- * started, in flight, or failed (FR-102's first row).
+ * started, in flight, or failed (FR-122's first row).
  *
  * It states an absence of **knowledge**, never of accounts, and names only
- * *Refresh* — FR-100's accounts gate never disables it, though the in-flight
- * window does at `loading` (`005 AC-153`), which leaves the advice actionable
+ * *Refresh* — FR-120's accounts gate never disables it, though the in-flight
+ * window does at `loading` (`005 AC-157`), which leaves the advice actionable
  * at `idle` and after a failed read.
  *
  * It does **not** restate the failed read's cause or its retry: those belong to
- * the tab's own failed-read channel, which renders them once (FR-019, FR-101's
+ * the tab's own failed-read channel, which renders them once (FR-019, FR-121's
  * channel rule).
  */
 export const EMPTY_TEXT_NOT_KNOWN = 'No binding yet — the account list is not known. Refresh to read it.';
@@ -89,7 +89,7 @@ export const EMPTY_TEXT_NOT_KNOWN = 'No binding yet — the account list is not 
  * The picker offers exactly the accounts the panel marks `usable` — the
  * `active` state alone — so *active* is the product's own word for what the
  * list contains. The withdrawn *Select a verified account* named a state
- * `AccountState` does not have (FR-103).
+ * `AccountState` does not have (FR-123).
  *
  * A **constant, not a conditional**: one string in every case, and it governs
  * the placeholder's *wording* only — the field stays disabled whenever its
@@ -108,15 +108,15 @@ export const ACCOUNT_PICKER_PLACEHOLDER = 'Select an active account';
  */
 export const ACCOUNT_REASON_CLASS = 'mt-reason';
 
-/** The refusal when accounts exist but none of them is `active` (FR-103). */
+/** The refusal when accounts exist but none of them is `active` (FR-123). */
 export const NO_ACTIVE_ACCOUNT_REFUSAL = 'No active account — fix or replace an account on the Accounts tab.';
 
-/** The refusal when there is an `active` account to pick from (FR-103). */
+/** The refusal when there is an `active` account to pick from (FR-123). */
 export const PICK_ACCOUNT_REFUSAL = 'Pick the account this repository polls under.';
 
 /**
  * Whether the panel's accounts read has **succeeded** — the one named predicate
- * the gate and the empty text both consume (FR-102's consistency rule).
+ * the gate and the empty text both consume (FR-122's consistency rule).
  *
  * `status` already *is* that flag: `loadBindings` sets it to `'ready'` only
  * when `GET /v1/bindings` **and** `GET /v1/accounts` both returned a list, and
@@ -142,10 +142,10 @@ export interface AccountGate {
 }
 
 /**
- * Whether the panel has established that **no account exists** (FR-100).
+ * Whether the panel has established that **no account exists** (FR-120).
  *
  * A conjunction, never a length test: a list the panel could not read is
- * missing evidence, so the gate stays silent there and FR-102's *not known*
+ * missing evidence, so the gate stays silent there and FR-122's *not known*
  * row answers instead. Where the read **has** succeeded, the condition is
  * exactly *"no accounts exist"* — no lifecycle state is exempt, and `usable` is
  * deliberately not consulted.
@@ -160,7 +160,7 @@ export function accountGate(bindings: BindingsTabState): AccountGate {
 }
 
 /**
- * The bindings list's empty text (FR-102's closed three-row table).
+ * The bindings list's empty text (FR-122's closed three-row table).
  *
  * One predicate — {@link accountsRead} — three outcomes, three rows, selected
  * **in this order**:
@@ -195,7 +195,7 @@ export function emptyBindingsText(bindings: BindingsTabState): string {
 }
 
 /**
- * The add form's refusal when no account is selected (FR-103's closed table).
+ * The add form's refusal when no account is selected (FR-123's closed table).
  *
  * Total over the reachable cases, in the order **none exist → some `usable` →
  * otherwise**, so a case the requirement does not have would have to be added
@@ -240,7 +240,7 @@ export interface AccountReasonControls {
  * **Both** the wrapper's `hidden` and the text follow the gate: a
  * present-and-blank element satisfies neither a visual nor a DOM reading of
  * "absent", and an always-present line that is routinely blank is the
- * reassuring absence NFR-112 exists to prevent. FR-101's line also stays absent
+ * reassuring absence NFR-112 exists to prevent. FR-121's line also stays absent
  * in every state where the tab is **not** blocked — including all three pre-read
  * states, where a list the panel could not read says nothing about whether an
  * account exists.
@@ -254,7 +254,7 @@ export function repaintAccountReason(bindings: BindingsTabState, controls: Accou
 
 /**
  * Mount the reason line into the list block, **directly after the toolbar**
- * (FR-101).
+ * (FR-121).
  *
  * Beside the control it explains rather than inside the editor the operator has
  * not been able to open. The wrapper is this codebase's own idiom for a block

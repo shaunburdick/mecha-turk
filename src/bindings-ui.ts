@@ -57,7 +57,7 @@ export interface BindingsPane {
     readonly bindingsList: ListHandle;
     readonly refreshBindings: ButtonHandle;
     /**
-     * FR-101's reason line, under the list's toolbar.
+     * FR-121's reason line, under the list's toolbar.
      *
      * Hidden outright whenever the gate does not hold — and its text empty then
      * too, so "absent" survives a DOM reading as well as a visual one.

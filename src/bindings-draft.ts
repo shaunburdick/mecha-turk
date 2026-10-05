@@ -133,7 +133,7 @@ function draftAccount(
     const account =
         bindings.accounts.find((candidate) => candidate.numericUserId === bindings.accountSelection) ?? null;
     if (account === null) {
-        // FR-103's total dispatch: *no accounts*, *no `active` one*, or something
+        // FR-123's total dispatch: *no accounts*, *no `active` one*, or something
         // to pick. The strings live with the gate, so the toolbar reason and this
         // refusal cannot become two spellings of one reason.
         bindings.note = accountSelectionRefusal(bindings);
