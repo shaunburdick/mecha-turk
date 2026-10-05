@@ -638,3 +638,300 @@ key, and no change to the other five tabs' behaviour.
 
 The execution list is this feature's own: `T-037 … T-041` in
 [`tasks.md`](./tasks.md) §"Issue #20 block — the Status tab's refresh cadence (added 2026-10-05)".
+
+# Amendment record — 005 v1.17.0 (2026-10-05, replayed after main's v1.16.0): the zero-account binding gate (GitHub issue #18)
+
+> **This section is a dated Phase-4 record added on 2026-10-05.** Everything above it is the plan of
+> 2026-09-28 plus the v1.11.0 record, and is retained as written. The v1.16.0 amendment is
+> **additive** (block L, `FR-120` – `FR-124`, `SC-114`, `005 AC-154` – `005 AC-156`) and is
+> **panel-side only**: no wire member, route, status or error code, stored document, `host.storage`
+> key, or contract under `specs/002-agent-event-extension/contracts/` moves, and `FR-124` says so
+> rather than leaving it to be re-opened.
+>
+> **The change is one control's `disabled` predicate and seven strings**, two of which are carried
+> over verbatim. No new state member, no new wire, no service file, no new tab, no new route, no new
+> capability, no version bump. What Phase 4 has to settle is therefore narrow and entirely about
+> **placement**: where the reason line lives, how the gate learns that the account read
+> *completed*, how a module `const` becomes a function of state, and how FR-123's three refusal
+> strings are made to agree by construction rather than by review.
+>
+> **Reconciled 2026-10-05, after the owner's ruling on this section's own §K.5 item 1.**
+> `FR-122`'s closed empty-text table went from **two rows to three**, so the pre-read and unread
+> frame is answered **in copy**: where the accounts read has not succeeded, the empty text says the
+> account list is **not known** and names *Refresh*. **Only `D21`, `D25`, the truth tables, the
+> counts, and `K.5`–`K.8` move.** `D19`, `D20`, `D22`, `D23`, `D24`, `D26` stand as written —
+> FR-120's bar on a pre-read gate is **untouched**, and the third row *consumes* D20's read-success
+> conjunct rather than replacing it.
+>
+> **The counts this record is written against** — checked against `spec.md` v1.16.0 and
+> `changelog.md`'s approval status, and the numbers every cross-reference below uses:
+>
+> | | Count | Where it comes from |
+> | --- | --- | --- |
+> | Requirements added | **five** — `FR-120` – `FR-124` | spec block L |
+> | Empty-text rows | **three** (one predicate, three outcomes) | FR-122's table |
+> | Success criteria added | **one** — `005 SC-115` | spec `## Success Criteria` |
+> | Acceptance criteria added | **three** — `005 AC-154`, `005 AC-155`, `005 AC-156` | spec `## Acceptance Criteria` |
+> | Clarification rows | **five** — **49 – 53**; the owner's **decisions** are at **49, 50, 51 and 53**, while **row 59** is the scope-boundary and known-divergence record, not a decision | spec `## Clarifications` |
+> | Ratified product-owner decisions | **five** | `changelog.md` approval status, v1.16.0 |
+> | `### Edge Cases` bullets for this block | **four** | spec `### Edge Cases` |
+> | `## Out of Scope` entries added | **four**, all tagged `(v1.16.0)` | spec `## Out of Scope` |
+> | Residuals | **one** — FR-124's `usable`-versus-`exists` divergence, recorded as a decision rather than deferred | FR-124, clarification row 59 |
+>
+> **A note on the two figures that are easy to conflate.** *Three* is the count of FR-122's
+> **empty-text strings** and of FR-123's **refusal strings**; *seven* is the count of string
+> constants the new module carries in total, of which **two are carried over verbatim**
+> (`EMPTY_TEXT_WITH_ACCOUNT` **is** the retained `LIST_EMPTY`; `PICK_ACCOUNT_REFUSAL` **is** the
+> retained `ACCOUNT_NOTE`), so the genuinely new copy is **five**. Both figures are correct and they
+> count different things — the seven is a module inventory, the three is a per-requirement table.
+
+## K.1 Scope of 005's half
+
+| Requirement | What 005 builds | Where |
+| --- | --- | --- |
+| FR-120 | *New binding* gains **one** extra disable condition — the panel's **successfully read** account list is **empty in any lifecycle state** — conjunctive with the read-state condition already there, and barred from firing on a failed or not-yet-started read | `src/bindings-editor.ts` (`repaintBindingActions`, the `newBinding` line only), predicate owned by `src/bindings-accounts.ts` |
+| FR-121 | one worded line **under the list's toolbar**, on its **own handle**, **text** and never the disabled attribute or colour alone, naming Accounts, adding **no control**, **not** the tab's action-note channel, **absent** when the gate does not hold | `src/bindings-accounts.ts` (the string and the mount/repaint/dispose trio), `src/bindings-body.ts`, `src/bindings-ui.ts` |
+| FR-122 | the list's empty text becomes a **three-row closed table** — one predicate, *whether the accounts read has succeeded*, three outcomes, three rows — selected at mount and on every repaint; the third row is selected by the **read-success conjunct alone, never `accounts.length`** | `src/bindings-accounts.ts` (`emptyBindingsText`, three constants), `src/bindings-body.ts` (mount), `src/bindings-ui.ts` (repaint) |
+| FR-123 | the add form's refusal becomes a **total three-case dispatch**, with FR-121's own constant serving row 1; the picker's placeholder is reworded to a constant that **does not vary by case**, and the field's `disabled` is untouched | `src/bindings-accounts.ts` (`accountSelectionRefusal`, `ACCOUNT_PICKER_PLACEHOLDER`), `src/bindings-draft.ts` (consumes the dispatch), `src/bindings-body.ts` (the placeholder) |
+| FR-124 | nothing to build — **recorded** as the scope boundary, including the `usable`-versus-`exists` divergence the block deliberately does not close | this section; the out-of-scope guard in K.7 |
+| `005 SC-115` / `005 AC-154` / `005 AC-155` / `005 AC-156` | the fixture matrix (both gate directions, FR-123's refusal cases, the unreadable read), the placeholder's string equality, the **three read-state fixtures** for AC-156 — mounted-at-`idle`, in flight, and failed-after-a-successful-empty-read — and the **two copy scans** with their **three** positive fixtures between them | `tests/bindings-accounts.test.ts` (new), `tests/bundle.test.ts` (one case), `tests/visual-tooling.test.ts` (one case, D26) |
+
+**Not 005's**: the service's `exists`-not-`state` permissiveness (`service/routes/bindings.ts`,
+`service/bindings.ts`), which FR-124 records as correct and closed; the account picker's `usable`
+filter, which stays as it is; 003's authorization gate; and 006's Settings surface.
+
+## K.2 Module map delta (005's files only)
+
+| Module | Change | Requirements |
+| --- | --- | --- |
+| `src/bindings-accounts.ts` (**new**, leaf) | the seven strings; the gate predicate and its **named read-success conjunct**; the empty-text selector's three branches; the three-case refusal dispatch; the reason line's mount, repaint and disposer | FR-120 – FR-123 |
+| `src/bindings-editor.ts` | `repaintBindingActions`: the `newBinding` line's `disabled` gains the gate and **only** the gate. The `add`, `cancel`, `toggle` and `removeSelected` lines are **untouched** | FR-120 |
+| `src/bindings-body.ts` | the reason line mounts inside the list block directly after `createToolbar`; `LIST_EMPTY` (line 79) is **deleted** in favour of `emptyBindingsText(rt.state.bindings)` at the `mountList` call (line 184); the picker placeholder (line 212) becomes the imported constant; the reason handle joins the pane and the disposer | FR-121, FR-122, FR-123 |
+| `src/bindings-ui.ts` | `BindingsPane` gains **exactly one** member; `repaintBindingsPane` gains **exactly two** lines — the reason repaint, and `emptyText` on the existing `bindingsList.update({ … })` | FR-121, FR-122 |
+| `src/bindings-draft.ts` | `ACCOUNT_NOTE` (line 74) is **deleted**; `draftAccount` assigns `accountSelectionRefusal(bindings)` to `bindings.note` | FR-123 |
+
+**Net shape**: one new leaf module and four small edits — the largest, `bindings-ui.ts`, gains one
+documented interface member and two call lines (`emptyBindingsText`'s third branch costs no extra
+line at either call site: both already call the selector, which is the point of having one). Two
+module constants are deleted (`LIST_EMPTY`, `ACCOUNT_NOTE`) and **seven** live in the new module, of
+which **two are those same strings carried over verbatim** (`EMPTY_TEXT_WITH_ACCOUNT` is
+`LIST_EMPTY`; `PICK_ACCOUNT_REFUSAL` is `ACCOUNT_NOTE`), so the block's genuinely new copy is
+**five** strings. Nothing else moves — and specifically **no new read and no new state member**,
+because the third row is answered from the read state the panel already holds.
+
+## K.3 Key decisions — the zero-account gate (added 2026-10-05)
+
+> Numbered `D19…D26` to continue this plan's own `D1…D18` series.
+
+| # | Decision | Rationale | Rejected alternative |
+| --- | --- | --- | --- |
+| **D19** | **The reason line mounts in the list block immediately after `createToolbar(pane)`** — DOM order `status → note → list grid → toolbar → reason → selected-row detail` — as a **wrapper `div` carrying `hidden`** with a `mountText` line inside it, and is reached through **one new `BindingsPane` member** (`newBindingReason`) repainted by one call in `repaintBindingsPane`. The wrapper's `hidden` follows the gate **and** the text is `''` when it does not hold. | "Under the list's control row" is the requirement's own phrase, and `createToolbar` is the row it names; mounting there puts the line beside the control it explains instead of inside an editor the operator cannot open. The wrapper is the codebase's own idiom for a block that comes and goes (`detailBox`, `editorBox`, `agentNoticeBox` — all `div` + `hidden` + a handle), and it needs no SDK capability beyond `mountText`. Setting **both** `hidden` and the text means neither a visual nor a DOM reading of the line can be satisfied by a present-and-blank element, which is what `005 AC-154`'s "absent entirely" asks for. | Mounting it in the editor block (the operator has not been able to open it — the requirement forbids precisely this); writing it to `rt.state.bindings.note` (FR-121's channel rule: that line reports what an action *did*); a node created and removed per repaint (two places to forget — the painter and `bindings-body.ts`'s disposer — against FR-017's one dispose path). |
+| **D20** | **The gate reads accounts-read completion from `BindingsTabState.status === 'ready'`.** It is a conjunction, not a length test: `blocked ⇔ status === 'ready' ∧ accounts.length === 0`. **No new state member is added**, and the read-success conjunct is **named as its own intermediate** — one predicate, `accountsRead(bindings)`, that `accountGate` composes and that `emptyBindingsText` (D21) selects on directly. | **`status` already *is* the accounts-read completion flag**: `src/bindings.ts:192` sets it to `'ready'` only when `fetchBindings` **and** `fetchAccounts` both returned a list, and `:171` sets it to `'loading'` before either await. So `'idle'` is not-yet-started, `'loading'` is in flight, `'error'` is a failed read, and none of the three can satisfy the conjunction — which is exactly FR-120's prohibition, satisfied by construction rather than by a guard clause. It also survives the one case a naive `length === 0` gets wrong: `loadBindings` deliberately **keeps** the previous account list when a read fails (`:186–190`), so a failed read after a successful empty one would otherwise fire the gate on stale state. **Naming the conjunct rather than inlining the comparison is what lets FR-122's third row be a *selector* instead of a second guess** — D21 reads one named fact, not a re-derived one. | `accounts.length === 0` alone (fires on `idle`, `loading` and `error` — i.e. presents the absence of an answer as the absence of accounts, and is a fail-open default on a missing fact); a new `accountsRead: boolean` member (a second source for a fact `status` already carries, free to disagree with it); a generation counter or a `lastAccountsReadAt` stamp (a mechanism for a distinction `status` already makes). |
+| **D21** | **`bindings-body.ts`'s `LIST_EMPTY` is deleted; `emptyBindingsText(bindings)` in `src/bindings-accounts.ts` is the live value**, handed to `mountList` at mount and to `bindingsList.update({ items, emptyText })` on every repaint. It has **three branches, in this order**, and reuses D20's named intermediate rather than re-deriving the read state:<br>**1.** `accountsRead(bindings) === false` → `EMPTY_TEXT_NOT_KNOWN` — *"No binding yet — the account list is not known. Refresh to read it."* — **regardless of `accounts.length`**<br>**2.** `accountsRead(bindings)` and `accounts.length === 0` → `EMPTY_TEXT_NO_ACCOUNTS`<br>**3.** `accountsRead(bindings)` and `accounts.length ≥ 1` → `EMPTY_TEXT_WITH_ACCOUNT`, the existing `LIST_EMPTY` verbatim | FR-122's table is now **three rows over one predicate** — *whether the accounts read has succeeded* — with three outcomes, and the requirement states the property that makes it worth writing as a table at all: **the gate is a conjunction over that same predicate**, so the row and the control's state are derived from one fact and **cannot disagree**. That guarantee is only real if the selector reads the **same** conjunct D20's gate reads, which is why branch 1 tests `accountsRead` and *not* the length. It is load-bearing in one specific case: a failed read after a successful read of an **empty** list leaves `accounts.length === 0` on the panel's own state (`bindings.ts:186–190`), so a length-keyed selector — the obvious two-line implementation — renders *add an account* over an unanswered read and asserts an absence it never established. FR-122's third row also names only **Refresh**, which FR-120's accounts gate never disables, so the row cannot contradict **that** gate in any of the three branches. **Corrected 2026-10-05**: this line once read *"nothing gates on the accounts read"*, which Phase 6 disproved — Refresh is gated by the **in-flight read window** (`status === 'loading'`), so the row's advice is momentarily unavailable while a read is loading. That overlap is **accepted and bounded** (005 clarification row 61, `005 AC-157` asserts `Refresh.disabled === (status === 'loading')`); the string is unchanged and Refresh is deliberately **not** ungated, which would be a read-behaviour change belonging to its own requirement. `ListHandle.update` already accepts `emptyText` in this codebase (`dispatches-ui.ts:419`), so this needs no SDK capability and no new handle. | A **length-keyed** selector — `accounts.length === 0 ? NO_ACCOUNTS : WITH_ACCOUNT`, with no read-state branch (renders *add an account* over a stale-empty failed read; it is the trap this ruling closed, and §K.5 item 1's reasoning is why); gating on `!accounts.some(usable)` (the widening FR-120 forbids by name, and it would also make branch 2 and the service's `exists` rule disagree); keeping the `const` and branching at the two call sites (two derivations of one fact — the drift FR-122 exists to prevent); rendering the third row as a separate element above the list (the empty text is the list's own `emptyText` prop, and a second copy would render twice); swapping the string by re-mounting the list (loses the list's handle identity for a copy decision). |
+| **D22** | **All three refusals dispatch from `accountSelectionRefusal(bindings): string`** in `src/bindings-accounts.ts` — a total three-case `if`, ordered *none exist → some `usable` → otherwise* — and **`ACCOUNT_REQUIRED_REASON` is one exported constant used both by the toolbar line (FR-121) and by case 1**. `bindings-draft.ts` assigns the result to `bindings.note`; the tab's note channel stays exactly where the operator is when they press *Add binding*. | FR-123 makes the table **total**, so a dispatch is the only shape that cannot grow a fourth, unwritten case: a case the requirement does not have would have to be added to the `if` before it could render, and `005 AC-154`'s fixtures assert all three. Sharing case 1's **constant** — rather than re-spelling it — is FR-123's own instruction and FR-091's one-rendering intent made structural. The refusal stays on `note` because FR-121 reserves the toolbar line for the gate and FR-123 says the refusal stays put. | One constant per case written into `draftAccount` (three spellings in a reader that is about reading a draft, and a copy block that drifts); deriving the refusal from the picker view's `disabled` (a second implementation of the `usable` predicate, in the one place FR-062's `usable` already answers it); a new `note` sub-channel (the requirement names the existing one, and a second note line is a second thing to keep in step). |
+| **D23** | **The new surface is a new leaf module, `src/bindings-accounts.ts`**, composed by `bindings-body.ts` (mount), `bindings-ui.ts` (repaint), `bindings-editor.ts` (the button's `disabled`) and `bindings-draft.ts` (the refusal) — the shape `bindings-actors.ts` and `bindings-prompt.ts` already have, and D13's reasoning applied again. | `bindings-body.ts` is 478 lines and its own header records that it was split out **because the mount had outgrown the file-length cap**; adding a mount, a handle, a disposer and a second derived string to it is the thing the split exists to prevent. `bindings-editor.ts` is the editor's **derived field views** — and its header is explicit that it absorbed the worktree view only *because* `bindings-ui.ts` is at its cap, i.e. by file-length necessity rather than by responsibility; a **list-level** control predicate and its copy are not an editor field view. `bindings-draft.ts` must **consume** the refusal, not own the strings, or D22's single dispatch is two dispatches. The name follows the two precedents: the module is named for the thing it owns (the tab's **accounts** side), which also puts it inside `tests/bindings-ui.test.ts`'s existing `src/bindings*` vocabulary sweep with no change to that sweep. | `src/bindings-gate.ts` — **rejected on a real collision**: "gate" in this repository means the **dispatch authorization** gate (`src/relay-gates.ts`, 003's actor gate, `tests/bindings-gate-serialization.test.ts`), and a second gate with a different meaning under a `bindings-` prefix would be read as the other one; adding to `bindings-body.ts` (D23's first clause); a `bindings-editor.ts` helper (blurs a derived-views module with a control gate). |
+| **D24** | **The placeholder becomes the imported constant `ACCOUNT_PICKER_PLACEHOLDER` in place**, inside `mountAccountSelect` — **not** a repaint-path value and **not** a conditional. The field's `disabled` next to it is untouched. | `005 AC-155` requires the same string in all three states and calls the fix "a reword and **not** a conditional"; the repaint path for the picker (`bindings-ui.ts:181`) never carried a placeholder even before this amendment, so a conditional would mean *adding* a repaint channel to express a case the requirement says does not exist. Keeping `disabled` as it is implements FR-123's "wording, never its presence" with no edit at all. | A conditional placeholder (a fourth string the requirement forbids, and one that would make the field's hint and the refusal name different states again); also adding the placeholder to `accountFieldView` (that view is a pure projection of state consumed by two call sites, and the placeholder is a mount-time constant). |
+| **D25** | **Two copy scans — and now three positive fixtures between them** — plus a **bundle** case. The **state-keyed** scan runs over the empty text in every read state and forbids the withdrawn instruction; its positive fixtures are **two**: AC-154's **one-account** fixture, whose second-row text *does* contain `select New binding`, and **AC-156's mounted-at-`idle`** fixture — the state the third row governs, and the one in which, before this ruling, the empty text *did* carry it. The **phrase-keyed** scan is AC-155's alone: it forbids the **string** `Select a verified account`, scoped to the Bindings surfaces, and its positive fixture is an **Accounts-tab** account whose `verifiedAt` row still renders. The bundle case asserts the shipped `panel/main.js` carries `Select an active account` and **not** `Select a verified account`. | AC-154 asks for a scan **over the strings this block governs** in the state being rendered and names the one-account fixture; AC-156 asks for the same claim about the third row and names **its own** positive fixture — and the two are different states, because the withdrawn instruction appeared in two different states before the fix. One matcher over the empty text with **two** positive fixtures discharges both without either criterion's fixture being made to do the other's work. Running it against **mounted props** (the mount-journal shape `tests/bindings-actors.test.ts` uses, which the new suite copies as that suite copied its own helpers) rather than the source is what makes the claim true — a string can sit in the source and never reach the DOM. AC-155's scan stays **separate and stays a phrase match**: merging it with the state-keyed one would make the Accounts-tab `verifiedAt` fixture prove a claim about the empty text, and widening *it* to the word *verified* would forbid FR-062's correct, required row — which is why AC-156's *"This criterion's scan is … separate from `005 AC-155`'s"* is a requirement and not a style note. | One merged scan (the two scopes differ — state-keyed over the empty text, phrase-keyed over the placeholder — and merging makes each fixture prove the other's claim); three scans where the state-keyed one would do (a scan per row would fragment one property into three, and the point is that **one** predicate governs all three); a source-only scan (cannot see what rendered, and would pass on a string the mount never paints); asserting absence by `expect(strings).not.toContain(…)` with no positive fixture (passes vacuously the moment the branch disappears, which is how this defect survived). |
+| **D26** | **One bounded tooling change: `tools/visual/shot.js` gains `--scene <name>`**, backed by a `scenes` delta in `fixtures.json` merged over the base document by `fixtures.js`. A scene run captures **one** tab at the two widths and writes `panel-<tab>-<scene>.png` / `-narrow.png`, **reusing that tab's existing wide/narrow sentinel colours** so no probe colour, index, or diff rule changes. `no-accounts` sets `accounts: { accounts: [] }`. | The changelog records that a **screenshot** found the v1.14.0 defect this branch exists to end, and the default fixture has two accounts **and a binding** — so under the shipped fixture **none** of FR-122's three rows renders at all: the empty text is invisible (there is a binding) and the reason line is correctly absent. Without a scene, the visual check can only prove the correction did **not** leak into the live-control case; with it, `no-accounts` is the frame in which the **reason line** appears over a full list — `idle` at mount, before the fixture's answers land, is **not** capturable, and an empty-text row needs `no-accounts-no-bindings` — so the scenes cover what the default capture never reaches: the **reason line over a full list** (`no-accounts`) and an **empty-text row** (`no-accounts-no-bindings`). The **third** row is covered by `005 AC-156`'s read-state fixtures instead, because `idle` resolves before any capture is taken. Reusing the tab's own colours and distinct filenames keeps `AGENTS.md`'s "every image is decoded and proven current" machinery untouched: a scene run is its own process, so the per-width freshness chain starts empty and `verifyDelivered` refuses any frame carrying a probe colour. | Adding a whole second fixture document and a per-scene capture step with new sentinel colours (changes the 14-colour budget and its index arithmetic — the machinery AGENTS.md documents as proof); asserting the new copy only from tests and skipping the visual gate entirely (leaves an 80-character sentence's wrapping at 560px unverified, on the tab the rail shows first); editing `fixtures.json`'s accounts to empty by default (breaks the Accounts and Status captures that the six-tab sweep depends on). |
+### The one predicate, three rows: the gate and the empty text together
+
+FR-122's **consistency rule** is that all three rows are selected by *one* predicate — **whether the
+accounts read has succeeded** — and that the gate is a **conjunction over that same predicate**, so
+the row and the control's state derive from one fact and cannot disagree. This table is that claim,
+and it is what `005 AC-154` (both gate directions), `005 AC-156` (all three read states) and the
+state-keyed scan in D25 assert, row by row. **The first row is the state in which the withdrawn
+instruction used to render** — the mounted-at-`idle` frame AC-156 names as its **positive** fixture —
+while AC-154's one-account fixture is the positive one for the retained third row; that is why D25
+carries two positive fixtures for one matcher.
+
+| Predicate: the accounts read… | `accounts.length` | Gate (FR-120) | *New binding* | FR-121's line | FR-122's row | Read states |
+| --- | --- | --- | --- | --- | --- | --- |
+| has **not** succeeded | **any** — `0`, stale `0`, or `≥ 1` | cannot hold — barred by name | disabled, by the read-state condition | **absent** | `No binding yet — the account list is not known. Refresh to read it.` | `idle`, `loading`, `error` (incl. failed-after-successful-empty) |
+| has succeeded | `0` | **holds** | disabled | **present** | `No binding yet — add an account on the Accounts tab first.` | `ready` + empty |
+| has succeeded | `≥ 1` | does not hold | **enabled** | absent | `No binding yet — select New binding to add one, or refresh.` | `ready` + accounts |
+
+Read the *New binding* column top to bottom and the property is visible without prose: **whenever
+*New binding* is disabled, the text names *Refresh* or the Accounts tab and never *New binding*;
+whenever the text names *New binding*, the read succeeded with at least one account and the control
+is live.** That is FR-122's requirement stated as a consequence of the selector's *shape*, which is
+why D21 reads D20's named conjunct rather than re-deriving `status` or branching on length — the
+guarantee is structural, not a promise a review has to keep re-making.
+
+The non-empty list renders its rows and **none** of these three strings appears (FR-122's own scope
+rule).
+
+### The three refusals, as a truth table
+
+| `accounts` | `usable` accounts | `accountSelectionRefusal` | Picker |
+| --- | --- | --- | --- |
+| `0` | — | `Add an account on the Accounts tab before binding a repository.` — **`ACCOUNT_REQUIRED_REASON`, the same constant FR-121 paints** | empty, disabled, placeholder `Select an active account` |
+| `≥ 1` | `0` | `No active account — fix or replace an account on the Accounts tab.` | empty, disabled, same placeholder |
+| `≥ 1` | `≥ 1` | `Pick the account this repository polls under.` — unchanged, and actionable | populated, enabled |
+
+**Two consequences recorded rather than smoothed over.** `draftAccount` first looks the selection
+up by id, so a **stale** selection (an account removed while the form was open) reaches the refusal
+with `accounts.length ≥ 1`. It lands in the second row when nothing is `usable` — honest, since
+there is nothing to pick — and in the third row when something is — also honest, because there
+*is* something to pick and the operator re-picks. FR-123's table is closed and total over
+"no account is selected", which is the state the refusal is about; the stale-selection path is a
+different question the same sentence answers truthfully, so no fourth case is invented.
+
+**The third row does not make FR-123's first row reachable pre-read**, which is worth stating
+because it is the one place the new branch could have looked like a second refusal path. In all
+three pre-read states the editor's own *Add binding* is disabled by the same read-state condition,
+so no submission reaches `draftAccount` at all. FR-123 row 1 therefore stays reachable **only** where
+it always was — the gate holds (`ready` + empty) and the editor was already open — and D22's three
+cases and `ACCOUNT_REQUIRED_REASON`'s two positions are unaffected by the third row.
+
+## K.4 Constitution alignment (v1.3.0) — carried forward, re-read for this amendment
+
+> The v1.11.0 and v1.14.0 entries record the same review. **Three principles bear directly on this
+> amendment and one of them is the reason FR-120 has the shape it has.**
+
+| Principle / gate | How this amendment satisfies it |
+| --- | --- |
+| **II. Safe autonomy by default** | **The principle this amendment serves most sharply, and the one the owner's ruling on the third row turns on.** Its text — *"a missing, stale, or ambiguous authorization is a stop condition, not permission to guess"* — is why the gate keys on **accounts at all** rather than on `usable`: the service deliberately accepts a binding against an account that merely **exists**, because a binding is meant to outlive its account's health, and a panel that forbade it would convert that considered permissiveness into a prohibition on the account state the service treats as most reusable. The same principle is why the gate is a **conjunction over a read-state fact and a list-length fact** (D20) **and why FR-122's third row exists rather than a pre-read gate**: an account list the panel could not read is *missing evidence*, and rendering *there are no accounts* over it would be the guess II names — so where the gate cannot be evaluated, the **copy** states the absence of knowledge instead and the gate stays silent. The refusal copy obeys the same law — with accounts present and none `active`, the panel says what must be **fixed**, and never asks for a choice it cannot offer. |
+| **IV. Human-visible auditability** | The reason is **text**, never the disabled attribute or colour alone, because *"operators must be able to explain why"* an action is unavailable — FR-083's rule, now applied to the control rather than to a row. The third row extends the same obligation to the frame where **no** explanation can be given: it says *the account list is not known* and names *Refresh*, which is the truthful answer, and it keeps each string in its own channel so the failed read's cause and retry are reported once, by the channel that owns them (FR-019, FR-121). The refusal names the remediation instead of echoing a submitted value (FR-085), and the note channel it uses is the one that already reports what an action did. |
+| **VI. Specification and verification before implementation** | Why this is **five** requirements (`FR-120` – `FR-124`), **one** success criterion (`005 SC-115`), **three** acceptance criteria (`005 AC-154` – `005 AC-156`), **five** clarification rows (**49 – 53**), **two** copy scans with **three** positive fixtures, and the truth table above — rather than a copy ticket. AC-154 asserts **both** gate directions and the unreadable read, because a suite holding only the zero-account fixture cannot distinguish a gate from a constant; **AC-156 asserts the pre-read frame's three states, and asserts FR-120's bar and the copy's truthfulness in the same breath** so neither can be satisfied by a change that breaks the other; D25's fixtures are what stop a scan from passing vacuously. **The strongest evidence that the property is real and not promised is structural**: the third row exists *because* the gate and the row share one predicate, so the property is a consequence of the selector's shape and a test asserts it rather than a review promising it. |
+| **I. Contract-first** | Served by touching no contract: no wire member, route, status or error code, or stored document moves (FR-124), and `specs/005-panel-ia/contracts/` has nothing to record — this is rendered copy and one control's `disabled` state, neither of which crosses a boundary. |
+| **III. Durable and idempotent work** | Untouched: a disabled control and rendered strings are display state and create no work, no checkpoint, and no retry. |
+| **V. Minimal, self-hosted deployment** | No new process, dependency, container, capability, permission, or SDK re-pin; no new route. |
+| **VII. Thin orchestration boundary** | Satisfied and, if anything, tightened: the copy **names** the Accounts tab and deliberately **adds no control** to reach it (FR-010: one route to a capability), so no host call, no host API, and no second path is introduced. |
+| **Quality gates** | Strict TS + lint, zero `any`, zero suppressions (invariant 7); the new module is a **leaf** importing only the SDK and types, so no cycle is introduced; `npm run verify` before every commit; committed bundles rebuilt with every source change (invariant 1). |
+
+**`AGENTS.md` invariants — how this amendment touches the ten.** (1) **committed bundles ship**:
+every wave that touches `src/` ends with `npm run build`, which regenerates **both** committed
+bundles — `panel/main.js` (IIFE) and `service/main.js` (ESM) — and **both ship in the same commit as
+their sources**. No `service/*.ts` changes here, so the service bundle's rebuild is expected to be
+**byte-identical**, which is itself the check that no service code moved (invariant 1 names both,
+and `npm run verify` runs the build first). (2) **no `version` bump** — a bump is a product-owner
+release decision. (3) `capabilities[]` untouched, `contributes.service` gains no `permissions`.
+(4) kebab-case identity and every `mecha-turk:` key untouched — the reason is derived, never stored
+(FR-025). (5) `SERVICE_VERSION` untouched. (6) SDK pin `1.24.2` untouched, **no re-pin**; the only
+SDK calls added are `mountText` and an `emptyText` member on an `update`, both already in use in
+this codebase. (7) **zero suppressions, zero `any`** — the gate is a predicate over two typed
+members and needs no cast. (8) **fail closed** — **this is the invariant FR-120's prohibition
+exists to serve**: settings, bindings, event rows and service DTOs in this product parse through
+validators that refuse malformed input rather than partially applying it, and a **failed or
+not-yet-started account read is exactly that case**. Treating "I could not read the accounts" as
+"there are no accounts" would apply a **fail-open default to a missing fact** and would do it on
+the control that creates work; D20 makes the read state a conjunct of the gate, so the tab's
+existing failed-read channel (its own cause and a retry, FR-019) is the only thing that can render
+in that state. **FR-122's third row is this same invariant applied to copy instead of to a control**:
+where the read has not succeeded, the honest statement is an absence of *knowledge*, and the
+sentence says exactly that rather than borrowing the gate's wording — which is also why it **does
+not restate** the failed read's cause or retry (FR-121's channel rule keeps every string in its own
+channel). (9) secrets never leave the service store — no credential member exists on anything
+this renders, and the new strings name no account. (10) **`extension-spike-1` untouched** — the
+Diagnostics record keeps reading the evidence schema version and nothing here touches it.
+
+## K.5 Flagged items (Phase-4 findings — decided at the gate, recorded here)
+
+1. **The pre-read and post-failure frames showed the unchanged empty text while the control was
+   disabled in them — RESOLVED BY RULING 2026-10-05** (`## Clarifications` row 60, `005 AC-156`, and
+   the replacement `### Edge Cases` bullets): answered **in copy, never by starting the gate early**.
+   Struck as *open*, kept as *reasoning* — the reasoning is **load-bearing** and is why D21's branch 1
+   is keyed the way it is.
+   - **The finding as raised.** At mount (`status === 'idle'`), while a read is in flight, and after
+     a **failed** read — including one that followed a successful read of an empty list — FR-120 bars
+     the gate, so the empty text fell through to the *unchanged* row, which names *New binding*
+     while the read-state condition has that button disabled. Under the two-row table that was
+     implementable exactly as specified, and it was raised rather than left for Phase 6 to choose
+     quietly.
+   - **What the owner chose.** **Fix (a): a third row in FR-122's closed table, selected by whether
+     the accounts read has succeeded.** `No binding yet — the account list is not known. Refresh to
+     read it.` It states an absence of **knowledge** rather than of accounts, names only *Refresh* —
+     which FR-120's accounts gate never disables; its momentary unavailability during an in-flight
+     read is the separate overlap **accepted and bounded** at 005 clarification row 61 — and **FR-120's bar is explicitly not weakened** — the     gate does not start firing; the copy starts telling the truth. Implemented as D21 branch 1 and
+     asserted by `005 AC-156` in all three read states.
+   - **Why the finding's reasoning had to survive the ruling.** Fix (b) — letting the gate fire
+     before the read succeeded — was **rejected**, and this is the evidence that made it
+     rejectable: `loadBindings` **deliberately retains the previous accounts list** when a read fails
+     (`src/bindings.ts:186–190`), so a failed read after a successful read of an **empty** list
+     leaves `accounts.length === 0` on the panel's own state. A pre-read gate, and equally a
+     length-keyed selector, would tell an operator with a **broken service** that they have no
+     accounts — asserting an absence from evidence that has not arrived, which is the guess
+     constitution **II** names and FR-120 bars by name. That single fact is now stated in FR-122's
+     own text as load-bearing, and it is why D21 branch 1 tests the **read-success conjunct alone**
+     and never `accounts.length`. **A reader who later "simplifies" the selector to a length test
+     reintroduces the defect the ruling closed**, which is why this paragraph stays.
+2. **The stale-selection path reaches the refusal with accounts present** (K.3's second table). Both
+   landing rows read truthfully; recorded so that a future reader does not mistake it for an
+   unhandled fourth case. **Unmoved by the third row** — it concerns `draftAccount`'s lookup and
+   FR-123's table, neither of which the empty text touches — and K.3 now also records that in all
+   three pre-read states *Add binding* is disabled, so the third row creates **no** new path to a
+   refusal.
+3. **`005 AC-155`'s scan scope is a phrase, and the plan fixes its scope to the Bindings surfaces.**
+   The spec requires the scope to be "stated explicitly" and the scan to be non-vacuous against an
+   Accounts-tab `verifiedAt` row; D25 implements both. If a later feature puts the withdrawn
+   phrase on a *third* tab, this suite will not catch it — accepted deliberately, because widening
+   it to the word *verified* would forbid FR-062's correct row. A future panel-wide sweep is a
+   vocabulary-suite concern (`tests/vocabulary.test.ts`), not this block's. **Unmoved, and
+   deliberately kept unmoved by AC-156**, which states in its own text that its state-keyed scan is
+   *separate* from AC-155's and that the string-not-word distinction is "undisturbed".
+
+## K.6 Risks and mitigations (this amendment only)
+
+| Risk | Mitigation |
+| --- | --- |
+| The gate fires on an unread account list and tells an operator with a broken service that they have no accounts | D20's conjunction over `status === 'ready'`; AC-154's unreadable-read fixture; **AC-156 asserts the gate does not fire in all three pre-read states**, and the *stale list after a failed read* case is asserted too (it is the one a naive `length === 0` gets wrong, in the gate and in the selector alike) |
+| **A length-keyed selector** renders the *add an account* row over a stale-empty failed read — the trap the owner's ruling closed, reintroduced by simplification | D21 branch 1 tests `accountsRead(bindings)` and **never** `accounts.length`; the selector reuses D20's **named intermediate** rather than re-deriving `status`; the stale case is an explicit AC-156 fixture; K.5 item 1 keeps the reasoning on the page |
+| The third row's sentence implies an absence of accounts, or restates the failed read's own cause | asserted by **string equality** on the exact spec wording, and the state-keyed scan forbids **both** the withdrawn instruction and any *account-count claim* in it (`No accounts`, `0 accounts`, `none`); the failed read's cause and retry stay in the action-note channel (FR-019, FR-121's channel rule) and are asserted **separately**, so neither string is ever judged against the other's obligation |
+| The corrected empty text leaks into the case where *New binding* is live — the failure FR-122's retained row exists to prevent | one selector, all three rows asserted; AC-154's one-account fixture asserts the **unchanged** string **and** the reason line's absence |
+| The three refusal strings drift, and the toolbar line and the first refusal case become two spellings of one reason | D22: one dispatch, one exported constant for case 1; all three asserted from the same function; K.3 records that the third row adds no fourth path |
+| The reason line becomes a standing nag in a state it has nothing to say about | `hidden` **and** empty text when the gate does not hold; asserted in the one-account and two-non-`active` fixtures **and in all three of AC-156's pre-read states**, and asserted **absent** — not blank |
+| The scan passes vacuously once the offending branch leaves the suite | D25's three positive fixtures: the one-account empty text **does** contain `select New binding`, the **mounted-at-`idle`** fixture is the same state in which the pre-fix code rendered it, and an Accounts-tab row **does** render a last-verified stamp |
+| The two scans get merged, and AC-155's phrase scope widens into a ban on the word *verified* | D25 keeps them separate by construction and says why; AC-156's own text repeats the requirement; a merge or a widened scope fails AC-155's Accounts-tab `verifiedAt` fixture |
+| The change to the shipped artifact goes unverified because the default fixture never renders a governed string | `tests/bundle.test.ts` gains a case over the committed `panel/main.js`, now covering **all three** empty-text rows' worth of behaviour through the placeholder and the reason line; D26's scenes make the reason line capturable at 720px and 560px. **Corrected 2026-10-05 after Phase 6 disproved this row's own premise**: it previously claimed the `no-accounts` scene was *"the only screenshot in which any empty-text row renders at all, since the default fixture carries a binding"*. That holds only of a window **no capture can photograph** — `no-accounts` empties `accounts` alone, so the fixture's three bindings still render, and a capture is taken after boot, by which point `status` is `ready` and the *not-known* row is gone. What the scenes actually photograph is: `no-accounts` → the **reason line over a full list**, which is the frame the gate belongs in; `no-accounts-no-bindings` → an **empty list beside the same reason line**, rendering `No binding yet — add an account on the Accounts tab first.`, which is the **only** way an empty-text row reaches a camera. **Keep the reasoning, or the second scene gets deleted**: a reader who trusts the old premise sees `no-accounts` as already covering the empty-text row and removes the scene that uniquely provides it. A premise no capture can test is not evidence, and the empty-text rows are copy this amendment governs || The new module is read as the dispatch authorization gate | D23's name (`bindings-accounts`) and the recorded collision with `src/relay-gates.ts` / `tests/bindings-gate-serialization.test.ts` |
+
+## K.7 Out-of-scope guard for the issue-#18 block (checked at every task)
+
+No service, route, wire member, status or error code, stored document, `host.storage` key, or
+contract change (FR-124). No change to `PUT /v1/bindings`' validation, to `hasAccount`, or to the
+`usable`-versus-`exists` divergence — that divergence is **recorded as a decision, not a backlog
+item** (FR-124, clarification row 59). No gate on the editor's *Add binding*, *Cancel*, *Toggle* or
+*Remove* controls: `newBinding` alone changes, and gating `add` as well would make FR-123's first
+refusal case unreachable and strand an already-open editor. **No gate that fires before the accounts
+read has succeeded, and no gate keyed on `usable`** — FR-120's bar is untouched, and FR-122's third
+row was chosen *because* the frame is answered in copy rather than by starting the gate early
+(clarification row 60); a pre-read gate is out of scope by name, not merely by omission. **No fourth
+empty-text row**: FR-122's three rows partition one predicate with three outcomes, so a state that
+fits none is a **new predicate**, which is a spec amendment rather than a task. No navigation
+control, link, or button to the Accounts tab from anywhere (FR-010, FR-039) — *Refresh* is named in
+the third row and is already on the toolbar. No use of `rt.state.bindings.note` for the reason, and
+no restating of the failed read's cause or retry inside the empty text (FR-019, FR-121's channel
+rule). No new tab, no change to the six-tab shell, no `activeTab` persistence. No new state member
+on `BindingsTabState`, and **no second read** — the third row is answered from the read state the
+panel already holds. No version bump, no capability, no permission, no SDK re-pin, no storage key, no
+prompt or allow-list behaviour (004's and 002's fields are untouched). No account-state vocabulary
+change — *active* is already one of FR-062's six values, and no seventh word is introduced for it.
+
+## K.8 Phase-6 task block for this amendment
+
+Phase 5 has written the execution list: [`tasks.md` §"Issue #18 block
+(2026-10-05)"](./tasks.md), task ids **`K-1 … K-12`**, in four waves.
+
+| Task | Covers | Acceptance criteria |
+| --- | --- | --- |
+| `K-1` | `npm ci` — the toolchain install; **`node_modules` is absent in this worktree**, so every gate below needs it first | — (prerequisite for all) |
+| `K-2` | the new leaf `src/bindings-accounts.ts`: the seven strings, `accountsRead`, `accountGate`, `emptyBindingsText`'s **three** branches, `accountSelectionRefusal` — pure, no DOM | `005 AC-154`, `005 AC-156` |
+| `K-3` | **the single-named-predicate assertion** — FR-122's consistency rule as a source scan with named exemptions | `005 AC-156`, FR-120, clarification row 60 |
+| `K-4` | the mounted half of the same module: the reason line's wrapper, mount, repaint and disposer (D19) | `005 AC-154` (the line present **and** absent) |
+| `K-5` | the mount in `bindings-body.ts`, the pane member and repaint in `bindings-ui.ts`, and `emptyText` on **both** paths (D19, D21) | `005 AC-154`, `005 AC-156`, `005 SC-115` |
+| `K-6` | `repaintBindingActions`' `newBinding` line (FR-120's gate, conjunctive, no pre-read fire, the read-state conjunct read through **D20's named `accountsRead`** rather than a second literal `status` test — **corrected 2026-10-05**, the line first shipped as a literal and K-3's scan is scoped to the accounts module, so it could not see it) | `005 AC-154`, `005 AC-156` |
+| `K-7` | `bindings-draft.ts`'s refusal dispatch (D22) | `005 AC-154` (both refusal cases) |
+| `K-8` | the picker placeholder, reworded in place and **not** made conditional (D24) | `005 AC-155` |
+| `K-9` | the fixture matrix — zero / one / two-non-`active` / one-`active`-unselected / unreadable, **plus AC-156's three read states** (mounted-at-`idle`, in flight, failed-after-a-successful-empty-read) — the **two** copy scans with their **three** positive fixtures, and the `tests/bundle.test.ts` case | `005 AC-154`, `005 AC-155`, `005 AC-156` |
+| `K-10` | D26's `--scene` plus `tests/visual-tooling.test.ts` | D26 |
+| `K-11` | `npm run shot` at 720px and 560px — the default fixture (the correction did **not** leak into the live-control case), the `no-accounts` scene (**the reason line over a full list**), and the `no-accounts-no-bindings` scene (**the frame in which an empty-text row renders at all**, and therefore the visual evidence for the row this amendment governs). **Corrected 2026-10-05**: this row previously called `no-accounts` *"the frame in which the **third row** becomes visible at all (`idle` at mount, before the fixture's answers land)"*, which holds only of a window no capture can photograph — a capture is taken after boot, so `status` is `ready` and the *not-known* row is gone. The third row's truth is asserted by `005 AC-156`'s read-state fixtures instead, and the **second** scene, not `no-accounts`, is what puts an empty-text row on screen | `005 SC-115`, `005 AC-156`, AC-139 |
+| `K-12` | `npm run verify` + `npm run build`, **both** bundles committed with their sources, and the **byte-identical `service/main.js`** as the proof no service code moved | AC-139 (invariant 1), FR-124 |
+Ordering constraints Phase 5 must honour: **`K-1` precedes every other task** — four modules import
+the new leaf and none of them compiles without it; **`K-2` precedes `K-3` – `K-12`**, because every
+later task consumes the module; **`K-3` precedes `K-5` and `K-6`**, since it is what pins the one
+predicate both of them call; and **`K-9` – `K-11` follow `K-5` – `K-8`**, because their fixtures and
+captures assert the gate, the line, the selector, the refusal, and the placeholder those tasks make
+live. **No task in this block is `[P]`**: the three waves share `src/bindings-accounts.ts` and one
+test file, so every pair has a file or a fixture in common, and marking parallelism here would
+produce merge-shaped work rather than parallelism. The **only** genuinely independent work is the
+visual tooling (`K-10`), and it is worth nothing until the panel renders the strings (`K-5` – `K-8`),
+so it is sequenced rather than parallelised.

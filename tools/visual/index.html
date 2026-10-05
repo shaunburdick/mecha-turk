@@ -60,6 +60,11 @@
             title="Mecha Turk panel"
             data-src="../../panel/index.html"
         ></iframe>
+        <!--
+            The scene table travels in `fixtures.json` rather than being handed in
+            by `shot.js`: the harness fetches that document itself, and a delta
+            read from the same file cannot drift from the base it merges over.
+        -->
         <script type="module" src="./host.js"></script>
     </body>
 </html>

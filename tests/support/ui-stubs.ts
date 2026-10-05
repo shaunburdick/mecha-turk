@@ -94,6 +94,10 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
         note: stubHandle(),
         bindingsList: stubHandle(),
         refreshBindings: stubHandle(),
+        newBindingReason: {
+            box: paneBody,
+            line: stubHandle(),
+        },
         newBinding: stubHandle(),
         toggleSelected: stubHandle(),
         removeSelected: stubHandle(),
