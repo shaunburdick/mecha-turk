@@ -136,8 +136,6 @@ afterEach(async (): Promise<void> => {
 /**
  * Start the service and register the fixture account, so a real credential
  * sits in the same store the projection reads.
- *
- * @returns The running harness instance.
  */
 async function startWithAccount(): Promise<TestService> {
     const github = fakeGitHub({
@@ -162,8 +160,6 @@ async function startWithAccount(): Promise<TestService> {
 
 /**
  * Start the service with no account registered (the projection needs none).
- *
- * @returns The running harness instance.
  */
 async function startEmpty(): Promise<TestService> {
     const service = await startTestService();
@@ -175,8 +171,6 @@ async function startEmpty(): Promise<TestService> {
 
 /**
  * Build the snapshot one fixture event is assembled from.
- *
- * @returns A complete event snapshot.
  */
 function snapshotOf(input: {
     readonly issueNumber: number;

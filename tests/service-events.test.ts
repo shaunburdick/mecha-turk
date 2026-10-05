@@ -161,7 +161,6 @@ const LEGACY_BASIS = 'subject-author';
  * Build the writer's inputs for one assignment detection.
  *
  * @param excerpt - Issue body excerpt (`''` is a legal stored value).
- * @returns A complete event snapshot.
  */
 function fixtureSnapshot(issueNumber: number, excerpt: string): EventSnapshot {
     return {

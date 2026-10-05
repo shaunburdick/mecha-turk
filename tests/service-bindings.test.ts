@@ -76,8 +76,6 @@ afterEach(async (): Promise<void> => {
 
 /**
  * Start the service against a fake GitHub and register the fixture account.
- *
- * @returns The running harness instance.
  */
 async function startWithAccount(): Promise<TestService> {
     const github = fakeGitHub({

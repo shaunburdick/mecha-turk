@@ -114,8 +114,6 @@ function panelHost(service: TestService): PanelHost {
  *
  * The bindings route refuses an unregistered account fail-closed (002
  * FR-015's custody rule), so every grant here runs over a real one.
- *
- * @returns The running harness instance.
  */
 async function startWithAccount(): Promise<TestService> {
     const github = fakeGitHub({

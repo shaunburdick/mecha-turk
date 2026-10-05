@@ -203,8 +203,6 @@ export function issueNumberFrom(record: Record<string, unknown>): number {
 
 /**
  * Read one status row, filling what the panel cannot trust with `''`/null.
- *
- * @returns The row.
  */
 function statusRowOf(
     record: Record<string, unknown>,

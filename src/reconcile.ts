@@ -74,8 +74,6 @@ export interface ReconcileOutcome {
  * only after the host call returned, which is exactly what distinguishes a
  * Result from an Abandon. `problem` is the recorded cause, bounded to what the
  * route accepts — the panel never invents one.
- *
- * @returns The body text.
  */
 function reportBody(attempt: DispatchAttemptRecord): string {
     const shared = {

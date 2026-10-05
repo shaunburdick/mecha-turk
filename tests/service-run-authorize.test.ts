@@ -184,8 +184,6 @@ afterEach(closeFixture);
  * so no snapshot this build's own code writes can lack one. A run with no
  * readable actor is only reachable by hand-editing the store, and the FR-080
  * cases model it that way rather than forging an impossible detection.
- *
- * @returns A complete event snapshot.
  */
 function assignment(issueNumber: number, attribution: AttributionOverrides = {}): EventSnapshot {
     const { actorLogin = FIXTURE_ACTOR, actorAttribution = FIXTURE_BASIS } = attribution;

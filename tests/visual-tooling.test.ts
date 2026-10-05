@@ -57,7 +57,6 @@ function fixtures(): Record<string, unknown> {
  * Read one fixture member back as the body text a reader parses.
  *
  * @param name - The fixture member, which is also the route's answer body.
- * @returns The body text.
  */
 function body(name: string): string {
     return JSON.stringify(fixtures()[name] ?? {});

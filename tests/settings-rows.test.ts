@@ -252,8 +252,6 @@ function standInSnippet(): PanelSource {
 
 /**
  * Build a `GET /v1/config` body the way the service sends it.
- *
- * @returns The response body.
  */
 function envelopeBody(input: {
     /** Members to merge into the document; `null` replaces it outright. */

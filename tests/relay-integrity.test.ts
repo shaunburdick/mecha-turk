@@ -364,7 +364,6 @@ function dispatchTimeline(timeline: readonly string[]): string[] {
  * The body the panel sent to one path, failing loudly when it sent none.
  *
  * @param key - `METHOD path` the assertion is about.
- * @returns The body text.
  */
 function bodyOf(relay: Harness, key: string): string {
     const body = relay.sent[key];

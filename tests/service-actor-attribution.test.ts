@@ -507,8 +507,6 @@ function wirePage(rows: readonly string[]): string {
 
 /**
  * The events page holding exactly one row.
- *
- * @returns The page body.
  */
 function wireEventsPage(input: Parameters<typeof wireRow>[0]): string {
     return wirePage([wireRow(input)]);
@@ -542,7 +540,6 @@ function wireRequested(requester: string, issueNumber?: number): string {
  * layers to parse is a step they will get wrong.
  *
  * @param assigner - Login the row records as its assigner.
- * @returns The page body.
  */
 function assignedPage(assigner: string, createdAt?: string): string {
     return wirePage([wireAssigned(assigner, createdAt)]);
@@ -552,7 +549,6 @@ function assignedPage(assigner: string, createdAt?: string): string {
  * The events page holding exactly one review-requested row.
  *
  * @param requester - Login the row records as its requester.
- * @returns The page body.
  */
 function requestedPage(requester: string, issueNumber?: number): string {
     return wirePage([wireRequested(requester, issueNumber)]);

@@ -148,7 +148,6 @@ function pickDataDir(dataDir: string | undefined): Record<string, never> | { dat
  *
  * @param verifier - Verifier under test (a fake or a scripted double).
  * @param dataDir - Optional shared data directory (restart tests).
- * @returns The running harness instance.
  */
 async function startWithVerifier(verifier: GitHubVerifier, dataDir?: string): Promise<TestService> {
     const service = await startTestService({ github: verifier, ...pickDataDir(dataDir) });
@@ -163,7 +162,6 @@ async function startWithVerifier(verifier: GitHubVerifier, dataDir?: string): Pr
  *
  * @param script - Answers for `/user` and `/rate_limit`.
  * @param dataDir - Optional shared data directory (restart tests).
- * @returns The running harness instance.
  */
 async function startService(script: GitHubScript, dataDir?: string): Promise<TestService> {
     return await startWithVerifier(fakeGitHub(script).verifier, dataDir);
@@ -207,7 +205,6 @@ async function verifyOk(service: TestService): Promise<Record<string, unknown>> 
  * Rotate the fixture account's credential.
  *
  * @param userId - Path id; defaults to the fixture account.
- * @returns The response.
  */
 function rotateToken(options: {
     /** Harness instance to call. */
@@ -595,8 +592,6 @@ function credentialPrompt(): string {
 
 /**
  * PUT one account profile body against a routed account path.
- *
- * @returns The response.
  */
 function putProfileAt(options: {
     /** Harness instance to call. */
@@ -619,7 +614,6 @@ function putProfileAt(options: {
  * PUT one profile body against the fixture account's path.
  *
  * @param body - The request body exactly as the client would send it.
- * @returns The response.
  */
 function putProfile(service: TestService, body: string): Promise<Response> {
     return putProfileAt({ service, userId: String(ACCOUNT_ID), body });

@@ -157,8 +157,6 @@ export function errorBody(details: ErrorDetails): ErrorBody {
 
 /**
  * Build an error response.
- *
- * @returns The response to write.
  */
 export function errorResponse(status: number, details: ErrorDetails): HttpResponse {
     return { status, body: errorBody(details) };

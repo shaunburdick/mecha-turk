@@ -215,7 +215,6 @@ function without(...fields: readonly string[]): Record<string, unknown> {
  *
  * @param count - How many references the row claims to have joined.
  * @param overshoot - Extra entries to force onto the stored list itself.
- * @returns The row.
  */
 function withReferences(count: number, overshoot = 0): Record<string, unknown> {
     const kept = Array.from({ length: Math.min(count, MAX_SOURCE_REFERENCES) }, (_unused, index) => ({
@@ -239,7 +238,6 @@ function withReferences(count: number, overshoot = 0): Record<string, unknown> {
  * Build a fixture row claiming an attempt history of one size.
  *
  * @param count - How many attempt records the row claims to hold.
- * @returns The row.
  */
 function withAttempts(count: number): Record<string, unknown> {
     return poisoned('attempts', Array.from(

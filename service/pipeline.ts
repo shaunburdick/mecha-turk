@@ -192,8 +192,6 @@ function writeResponse(call: ServiceCall, response: HttpResponse): void {
  * Storage failures are the documented `503 storage-unavailable` setup
  * prerequisite; anything else becomes a `500 internal` with a correlation id
  * that is logged here and returned to the caller (contract §4).
- *
- * @returns The response to write.
  */
 function describeFailure(error: unknown, call: ServiceCall): HttpResponse {
     if (error instanceof StorageUnavailableError) {

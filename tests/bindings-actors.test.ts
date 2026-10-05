@@ -245,8 +245,6 @@ const inertHandlers: PanelHandlers = {
  * `state` and `triggers` are overridable because FR-092's table is a function of
  * both (005 v1.14.0) and a fixture that could not vary them could not reach four
  * of its eight rows.
- *
- * @returns One complete binding row.
  */
 function bindingRow(input: {
     /** Panel-generated id. */

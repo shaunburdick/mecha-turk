@@ -312,8 +312,6 @@ export function splitLine(line: string): SplitLine | null {
 
 /**
  * Assemble a row from its cells, with one disposal path for both shapes.
- *
- * @returns The row.
  */
 function makeRow(input: { readonly element: HTMLElement; readonly key: Cell | null; readonly value: Cell }): DefRow {
     const { element, key, value } = input;

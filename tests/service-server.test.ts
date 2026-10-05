@@ -100,8 +100,6 @@ afterEach(async (): Promise<void> => {
 
 /**
  * Start a service instance and register it for cleanup.
- *
- * @returns The running harness instance.
  */
 async function startServiceForTest(): Promise<TestService> {
     const service = await startTestService();

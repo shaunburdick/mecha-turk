@@ -183,8 +183,6 @@ function reasonCopy(reason: RejectReason): string {
  * render the reason-specific copy of §4 without parsing prose; HTTP `401` is
  * reserved for bearer failure against *our* service and is never used here
  * (SEC-03).
- *
- * @returns The response.
  */
 export function credentialRejectedResponse(reason: RejectReason, correlationId: string): HttpResponse {
     return errorResponse(STATUS.validation, {
@@ -199,8 +197,6 @@ export function credentialRejectedResponse(reason: RejectReason, correlationId: 
  * Build the `502 upstream-unavailable` response (panel-service F9's
  * `network` reason): GitHub could not answer, so nothing was verified and
  * nothing was persisted.
- *
- * @returns The response.
  */
 export function upstreamUnavailableResponse(
     detail: 'offline' | 'timeout' | 'upstream',
@@ -252,8 +248,6 @@ export function throttleRefusal(code: 'verify-busy' | 'rate-limited', retryAfter
 
 /**
  * Build the `422 account-rejected` response (F7 / SEC-06).
- *
- * @returns The response.
  */
 export function accountRejectedResponse(message: string, correlationId: string): HttpResponse {
     return errorResponse(STATUS.validation, {
@@ -265,8 +259,6 @@ export function accountRejectedResponse(message: string, correlationId: string):
 
 /**
  * Build the `409 duplicate-account` response (F8 → the panel offers rotation).
- *
- * @returns The response.
  */
 export function duplicateAccountResponse(correlationId: string): HttpResponse {
     return errorResponse(STATUS.conflict, {

@@ -367,7 +367,6 @@ function verificationRun(agent: string): VerificationRun {
  *
  * @param expectedAgent - The stored baseline; omit it to model a document
  *   written before the field existed (AC-155's missing-baseline case).
- * @returns The response body.
  */
 function configBody(expectedAgent?: string): string {
     const base = Object.fromEntries(Object.entries(DEFAULT_CONFIG).filter(([key]) => key !== 'expectedAgent'));

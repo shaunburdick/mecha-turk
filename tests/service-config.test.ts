@@ -197,7 +197,6 @@ afterEach(async (): Promise<void> => {
  * Start a service instance and register it for cleanup.
  *
  * @param options - Harness options; forwarded verbatim.
- * @returns The running harness instance.
  */
 async function startServiceForTest(
     options?: Parameters<typeof startTestService>[0],

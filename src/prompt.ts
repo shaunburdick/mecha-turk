@@ -330,8 +330,6 @@ export function promptBlockChars(prompt: string | null): number {
  * unset the frame comes back untouched: no fence, no blank line, no note about
  * the absence. This is the one function that produces the
  * message; nothing else renders it.
- *
- * @returns The complete first message.
  */
 export function composeFirstMessage(input: {
     /** The normalised prompt text, or `null` for a run with none. */

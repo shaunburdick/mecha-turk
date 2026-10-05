@@ -575,8 +575,6 @@ async function acPutBindings(
 
 /**
  * One whole-document `PUT /v1/config`, patched over the stored document.
- *
- * @returns The response.
  */
 async function acPutConfig(
     loop: Awaited<ReturnType<typeof startDispatchLoop>>,

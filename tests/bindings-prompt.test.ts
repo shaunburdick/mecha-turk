@@ -193,8 +193,6 @@ const OVER_CAP_CREDENTIAL = `ghp_${'x'.repeat(2_100)}`;
 
 /**
  * Build one binding as `GET /v1/bindings` serializes it.
- *
- * @returns One complete binding row.
  */
 function bindingRow(input: {
     /** Panel-generated id. */
@@ -377,8 +375,6 @@ function putBody(requests: readonly GuestRequest[]): string {
  * Assembled from the service's own projection, so the Settings row this
  * counts is the row the service would really declare — same descriptors,
  * same order, same cap — with only the value swapped for the sentinel.
- *
- * @returns The response body.
  */
 function globalTierBody(): string {
     return JSON.stringify({

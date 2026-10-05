@@ -38,8 +38,6 @@ afterEach(async (): Promise<void> => {
 
 /**
  * Start a service instance and register it for cleanup.
- *
- * @returns The running harness instance.
  */
 async function startServiceForTest(): Promise<TestService> {
     const service = await startTestService();
@@ -50,8 +48,6 @@ async function startServiceForTest(): Promise<TestService> {
 
 /**
  * Request the ready probe with an explicit bearer credential.
- *
- * @returns The response.
  */
 function withBearer(service: TestService, authorization: string): Promise<Response> {
     return fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization } });
