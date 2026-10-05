@@ -106,8 +106,6 @@ export function backoffDelayMs(input: {
 /**
  * Choose the wait that precedes the next attempt.
  *
- * @param input - Policy, the attempt to wait for, and optional rate-limit
- *   guidance in seconds (or `null` when the failure carried none).
  * @returns The wait the driver should perform.
  */
 export function nextWait(input: {

@@ -113,7 +113,6 @@ function answerBody(rows: readonly unknown[], page: Record<string, unknown>): st
  * wrap the override in a page member, wrap that in an empty answer, hand the body
  * to the parser — so it is written once here rather than at each assertion.
  *
- * @param overrides - Page-member members to override.
  * @returns The serialized body.
  */
 function bodyFor(overrides: Record<string, unknown> = {}): string {

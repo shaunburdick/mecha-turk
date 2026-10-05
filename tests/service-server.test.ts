@@ -157,7 +157,6 @@ async function waitFor(isDone: () => boolean): Promise<void> {
 /**
  * Build a raw `GET` carrying an explicit body (which `fetch` refuses to send).
  *
- * @param options - Port, target, bearer token, and body text.
  * @returns The complete HTTP/1.1 request, framed to close after the reply.
  */
 function rawBodyRequest(options: {

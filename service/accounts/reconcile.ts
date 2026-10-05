@@ -58,7 +58,6 @@ export interface ReconcileDeps {
 /**
  * Mark one stranded account as an interrupted handoff, audited (F13).
  *
- * @param input - Store, the stranded account, and the correlation id.
  * @returns The rewritten account.
  */
 async function markInterrupted(input: {
@@ -93,7 +92,6 @@ async function markInterrupted(input: {
 /**
  * Apply a successful re-verification to a marked account.
  *
- * @param input - Store, the marked account, the outcome, and correlation id.
  * @returns The restored account.
  */
 async function restoreAccount(input: {

@@ -54,7 +54,6 @@ export interface PromptPatch {
 /**
  * Strip the prompt from one row, then write it back on the edited one.
  *
- * @param binding - One row of the list being granted.
  * @param patch - The edited binding's prompt, or `null` when none was edited.
  * @returns The row as it goes on the wire.
  */

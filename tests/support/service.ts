@@ -90,7 +90,6 @@ export interface RawExchangeOptions {
 /**
  * Start the real service against a fake host environment.
  *
- * @param options - Optional data directory and environment overrides.
  * @returns The running instance and its captured log lines.
  */
 export async function startTestService(options: StartTestServiceOptions = {}): Promise<TestService> {
@@ -149,7 +148,6 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
  * Tests use this for anything `fetch` refuses to build: absolute-form or
  * protocol-relative targets, overlong paths, and bodies attached to `GET`.
  *
- * @param options - Port plus the complete request text.
  * @returns The raw response, terminated when the server closes the socket.
  */
 export async function rawExchange(options: RawExchangeOptions): Promise<string> {

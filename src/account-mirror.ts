@@ -41,7 +41,6 @@ export interface ScopeMirror {
  * Every FR-010 capability must carry a legal verdict; anything else is not a
  * matrix this panel can record.
  *
- * @param raw - The `results` field, or anything else.
  * @returns The matrix, or `null` when any capability is missing or illegal.
  */
 function readScopeResults(raw: unknown): Readonly<Record<ScopeCapability, ScopeResult>> | null {

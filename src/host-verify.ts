@@ -145,8 +145,6 @@ interface ProbeState {
 
 /**
  * Attach one probe to the shared collector.
- *
- * @param input - Surface name, subscribe function, and listen window.
  */
 async function addProbe<T>(input: ProbeInput<T>, state: ProbeState): Promise<void> {
     const probe = await probeSubscription(input.subscribe, input.waitMs);

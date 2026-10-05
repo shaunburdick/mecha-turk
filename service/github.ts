@@ -161,7 +161,6 @@ const OAUTH_SCOPES_HEADER = 'x-oauth-scopes';
  * call, and the result (`classic`/`fine-grained`) is stored with the
  * credential where it belongs.
  *
- * @param token - Presented credential.
  * @returns The credential family, or `'unknown'` for an unrecognised shape.
  */
 export function credentialKindOf(token: string): CredentialKind {

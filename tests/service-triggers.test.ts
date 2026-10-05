@@ -267,7 +267,6 @@ function fixtureComment(input: {
  * v1.12.0, because the review trigger's actor now comes from the naming
  * `review_requested` event's `review_requester` (002 FR-049, FR-050).
  *
- * @param input - PR number and the reviewers GitHub reports.
  * @returns The normalized pull request.
  */
 function fixturePull(input: {

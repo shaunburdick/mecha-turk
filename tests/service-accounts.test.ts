@@ -137,7 +137,6 @@ const USER_OTHER_ID: EndpointResponse = { ...USER_OK, body: userBody({ id: OTHER
 /**
  * Narrow an optional data directory into an options fragment.
  *
- * @param dataDir - Shared directory, when the test supplies one.
  * @returns The fragment to spread over harness options.
  */
 function pickDataDir(dataDir: string | undefined): Record<string, never> | { dataDir: string } {

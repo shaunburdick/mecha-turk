@@ -127,7 +127,6 @@ const RUNS_GET = `GET ${EVENTS_PATH}?limit=25`;
 /**
  * The `page` member a paged answer carries (005 contract §2).
  *
- * @param total - Size of the set the fixture models.
  * @returns The member, ready to be spread into an answer body.
  */
 function pageMember(total: number): Record<string, unknown> {

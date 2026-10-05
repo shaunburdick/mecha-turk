@@ -184,7 +184,6 @@ function runtime(): PanelRuntime {
 /**
  * The labels that name a configuration field.
  *
- * @param render - One tab's mounts.
  * @returns The labels that mention a documented field.
  */
 function configurationLabels(render: TabRender): readonly string[] {

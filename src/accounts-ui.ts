@@ -82,8 +82,6 @@ export function handoffInputEnabled(state: HandoffState): boolean {
  * A connected account — adopted from the service or handed off one-shot —
  * hides the paste row: the paste field must not offer a credential the
  * service already holds (MVP blocker 2).
- *
- * @param view - Surface to write to.
  */
 export function renderHandoff(state: HandoffState, view: HandoffView): void {
     const isConnected = state.connected !== null;

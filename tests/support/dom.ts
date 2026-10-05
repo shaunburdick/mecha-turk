@@ -28,7 +28,6 @@ export interface FakeDocument {
     /**
      * Create an element and record it in the document's journal.
      *
-     * @param tagName - Tag to create.
      * @returns The new element, bound to this document.
      */
     createElement(tagName: string): FakeElement;
@@ -41,7 +40,6 @@ export interface FakeDocument {
  * `data-my-flag`, and the leading `data-` is added if the key does not carry it
  * (`dataId` and `data-id` are the same attribute).
  *
- * @param key - Property read off `dataset`.
  * @returns The attribute name to record in {@link FakeElement.attributes}.
  */
 function dataAttribute(key: string): string {

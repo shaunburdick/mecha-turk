@@ -109,7 +109,6 @@ function capturingLogger(): { readonly log: ServiceLogger; readonly lines: strin
 /**
  * Build a complete audit row for a seeded trail.
  *
- * @param seed - Sequence number, RFC 3339 stamp, and event vocabulary name.
  * @returns The stored shape `parseAuditEntry` accepts.
  */
 function trailRow(seed: {

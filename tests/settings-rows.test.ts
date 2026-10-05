@@ -179,7 +179,6 @@ const STRING_DEFAULT_PATTERN = /(?:\bdefaultValue\s*:|\bdefault\s*:|DEFAULT_EXPE
 /**
  * Report every configuration literal the scan looks for in one file.
  *
- * @param source - One panel source file.
  * @returns The literals found, by class (006 AC-106's five).
  */
 function configurationLiteralsIn(source: PanelSource): {

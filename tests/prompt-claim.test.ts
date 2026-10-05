@@ -174,7 +174,6 @@ interface Attempt {
 /**
  * Claim through the route and return the first offered run's coordinates.
  *
- * @param query - Optional query string for the claim.
  * @returns The coordinates, or a failure when nothing was offered.
  */
 async function claimFirst(service: TestService, query = ''): Promise<Attempt> {

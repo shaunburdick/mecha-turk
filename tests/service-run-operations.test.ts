@@ -214,7 +214,6 @@ const UNRELATED_LOGIN_LIST: readonly string[] = ['someone-else'];
 /**
  * The outcome an attempt record must carry for the state it is seeded in.
  *
- * @param state - State the run is seeded in.
  * @param sessionId - Session the fixture says the run produced, else `null`.
  * @returns The stored outcome, or `null` for a still-open attempt.
  */

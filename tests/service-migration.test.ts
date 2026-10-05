@@ -531,7 +531,6 @@ function textOf(row: Record<string, unknown>, key: string): string {
  * The row whose subject is one issue number.
  *
  * @param rows - Run-history or claim rows.
- * @param issueNumber - Subject number to find.
  * @returns The row for that subject.
  * @throws {Error} When no row names that subject.
  */

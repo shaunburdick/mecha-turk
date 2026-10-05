@@ -77,7 +77,6 @@ function retiredSpikeCallers(): readonly string[] {
  * prerequisites reads. These helpers keep that fact visible in the tests that
  * feed one.
  *
- * @param entries - Setting id and value pairs, if any.
  * @returns A settings record ready for {@link applySettings}.
  */
 function settingsOf(entries: readonly (readonly [string, string])[] = []): Readonly<Record<string, string>> {

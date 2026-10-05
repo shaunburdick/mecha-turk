@@ -62,7 +62,6 @@ function sampleRow(eventType: string): AuditInput {
 /**
  * Count reads of the store's NDJSON files through one open handle.
  *
- * @param store - Store whose `readLines` calls should be counted.
  * @returns A counter the test asserts against after its writes.
  */
 function countReads(store: ServiceStore): { readonly count: () => number } {

@@ -264,7 +264,6 @@ export function parseVerification(value: unknown): RunVerification | null | unde
  * The actor clause comes from `run-actor.ts` so this reveal, the row's own
  * reason list, and the Basis itself are worded in exactly one place.
  *
- * @param reference - One retained source reference.
  * @returns The reference's line, unredacted — the caller renders it as text.
  */
 function referenceLine(reference: RunReference): string {

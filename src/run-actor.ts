@@ -153,7 +153,6 @@ export const SUBJECT_AUTHOR_BASIS =
  * several and a person outside the binding's policy can ride in on a run an
  * allowed actor authorized — which is exactly what has to stay visible.
  *
- * @param actor - One reference's two actor members, as the panel holds them.
  * @returns The clause naming the actor, and the basis for a legacy row.
  */
 export function actorPhrase(actor: ActorFields): string {

@@ -93,7 +93,6 @@ export interface ControlRegion {
 /**
  * Mount the failure notice, hidden until a read fails.
  *
- * @param pane - Pane the notice mounts into.
  * @returns The wrapper, which the repaint shows, and the banner inside it.
  */
 export function mountFailureNotice(pane: HTMLElement): {
@@ -119,7 +118,6 @@ export function mountFailureNotice(pane: HTMLElement): {
 /**
  * Mount the source note, the empty message, and the row region.
  *
- * @param pane - Pane the three mount into.
  * @returns The handles and the region element rows are painted into.
  */
 export function mountRowRegion(pane: HTMLElement): RowRegion {

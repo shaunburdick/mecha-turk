@@ -51,7 +51,6 @@ function padTwoDigits(part: number): string {
  * which reason fired first, an audit row's timestamp is the same kind of
  * fact, and a binding's created/updated stamps are read the same way.
  *
- * @param iso - RFC 3339 stamp from a reference, an audit row, or a binding.
  * @returns The compact stamp, or the stored text when it is not a time.
  */
 export function utcStamp(iso: string): string {

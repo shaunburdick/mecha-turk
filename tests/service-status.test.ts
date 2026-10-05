@@ -115,7 +115,6 @@ afterEach(async (): Promise<void> => {
 /**
  * Start a service and keep it for teardown.
  *
- * @param options - Options forwarded to the harness.
  * @returns The running instance.
  */
 async function start(options: Parameters<typeof startTestService>[0] = {}): Promise<TestService> {

@@ -238,7 +238,6 @@ function draftIdentity(
  * both modes, which is what makes a loaded draft and the row it saves the
  * same values (005 FR-050: one whole-file write, no second write path).
  *
- * @param bindings - Panel state to read the draft from.
  * @returns The binding, or `null` (the note then says why).
  */
 export function readDraft(bindings: BindingsTabState, edit?: DraftEditTarget): PreparedBinding | null {

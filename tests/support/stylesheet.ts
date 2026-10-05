@@ -189,7 +189,6 @@ function scanTo(cursor: Cursor, stops: string): Scan {
 /**
  * Split one selector list on the commas that sit outside brackets and parens.
  *
- * @param prelude - Text holding the rule's selector list.
  * @returns The selectors, trimmed, in source order.
  */
 function splitSelectors(prelude: string): readonly string[] {

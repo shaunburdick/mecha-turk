@@ -115,7 +115,6 @@ function statusView(): NonNullable<ReturnType<typeof parseStatusView>> {
  * and rejoined with the separator the split took out, or whole when it is a
  * note.
  *
- * @param line - One line of tab copy.
  * @returns The text an operator reads across the row, in reading order.
  */
 function asRead(line: string): string {

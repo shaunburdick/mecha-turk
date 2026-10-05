@@ -192,7 +192,6 @@ export function parseProjectId(raw: string | null): string | null {
 /**
  * Render a worktree selection in the option's own syntax.
  *
- * @param selection - Selection to render.
  * @returns The `none` / `generated` / `new:<name>` string.
  */
 export function formatWorktreeOption(selection: WorktreeSelection): string {

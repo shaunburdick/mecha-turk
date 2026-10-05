@@ -144,7 +144,6 @@ export function verifyBody(token: string, extra: Readonly<Record<string, unknown
 /**
  * POST a verify body to the running service.
  *
- * @param body - Serialized request body.
  * @returns The response.
  */
 export function postVerify(service: TestService, body: string): Promise<Response> {

@@ -297,7 +297,6 @@ export interface SplitLine {
  * line, byte for byte: the layout replaces the punctuation with a column
  * gap, and it never rewords one.
  *
- * @param line - One line of the tab's existing copy.
  * @returns The two cells and the separator between them, or `null` for prose.
  */
 export function splitLine(line: string): SplitLine | null {

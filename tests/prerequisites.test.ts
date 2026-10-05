@@ -173,7 +173,6 @@ function freshState(): PanelState {
  * One binding, under the project it resolves to (or an empty id for a binding
  * the service would hold in its recoverable `project_missing` state).
  *
- * @param projectId - Project the binding dispatches into.
  * @returns The binding record the section reads.
  */
 function bindingWith(projectId: string): PanelBinding {
@@ -227,7 +226,6 @@ function matrix(contents: string): unknown {
 /**
  * Find one prerequisite by id, failing loudly when the id is unknown.
  *
- * @param state - State to derive from.
  * @returns The derived prerequisite with that id.
  */
 function prerequisiteOf(state: PanelState, id: PrerequisiteId): Prerequisite {

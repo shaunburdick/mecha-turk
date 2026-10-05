@@ -411,7 +411,6 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
  * Plant the bindings, the account, and a stored ladder, then run one cycle
  * over a transport that never succeeds.
  *
- * @param answers - One response factory per request.
  * @returns The cycle outcome, the recorded waits, and the checkpoint after.
  */
 async function cycleOver(answers: readonly (() => Response)[]): Promise<{

@@ -205,7 +205,6 @@ export interface ThrottleOptions {
  * copy from a code rather than from prose (contract §4 `rate-limited` /
  * `verify-busy`), and the wait travels in the documented `retry-after` header.
  *
- * @param options - Status, code, message, and wait time.
  * @returns The response carrying the `retry-after` header.
  */
 export function throttleResponse(options: ThrottleOptions): HttpResponse {

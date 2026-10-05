@@ -352,7 +352,6 @@ async function mentionEventsOf(input: TriggerScanInput & {
  * list call — see `poller-events.ts`'s `resolveCandidateActor` for why, and for
  * the difference between that and a candidate that simply produced no event.
  *
- * @param input - Poller, credential, logger, binding, window, and pace.
  * @returns The events, or the first failure's class for the cycle's skip.
  */
 export async function collectTriggerEvents(input: TriggerScanInput): Promise<TriggerEvents> {

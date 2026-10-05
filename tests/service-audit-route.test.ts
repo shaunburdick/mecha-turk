@@ -124,7 +124,6 @@ afterEach(async (): Promise<void> => {
 /**
  * Start a service against this fixture's data directory.
  *
- * @param options - Pass `unreadableTrail` to plant a trail the store cannot read.
  * @returns The running instance, with its store handle open for seeding.
  */
 async function startServiceForTest(options: { readonly unreadableTrail?: boolean } = {}): Promise<TestService> {

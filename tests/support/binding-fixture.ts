@@ -61,7 +61,6 @@ export interface FixtureBindingOptions {
  * Build one binding row exactly as the panel's whole-file grant writes it.
  *
  * @param bindingId - The binding's id, matching the fixture runs'.
- * @param options - Per-fixture overrides.
  * @returns The stored row.
  */
 export function fixtureBindingRow(

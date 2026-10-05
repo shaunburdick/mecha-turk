@@ -153,8 +153,6 @@ function isPatternPath(routePath: string): boolean {
  * unserialisable body is replaced by an explicit error rather than shipped
  * truncated. The connection is closed when the pipeline answered without
  * reading the body.
- *
- * @param response - Status, body, and optional extra headers.
  */
 function writeResponse(call: ServiceCall, response: HttpResponse): void {
     const outgoing = call.response;

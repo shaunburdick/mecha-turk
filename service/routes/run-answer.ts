@@ -162,7 +162,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `message`, and the free-prose `errorResponse` — and both put their cause in
  * `error.message`, which is all this reads.
  *
- * @param response - The `422` about to be answered with.
  * @returns The cause, or a fixed one when the envelope carries none.
  */
 function refusalReason(response: HttpResponse): string {

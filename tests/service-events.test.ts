@@ -1002,7 +1002,6 @@ interface RefusalBody {
  * Both awaits are separate statements on purpose: awaiting a member call on an
  * awaited response reads as one expression nobody can step through.
  *
- * @param query - Path plus query string.
  * @returns The parsed answer.
  */
 async function historyAnswer(service: TestService, query: string): Promise<HistoryBody> {
@@ -1014,7 +1013,6 @@ async function historyAnswer(service: TestService, query: string): Promise<Histo
 /**
  * Read one refusal envelope through the loopback route.
  *
- * @param response - The `4xx` answer.
  * @returns The parsed envelope.
  */
 async function refusalOf(response: Response): Promise<RefusalBody> {

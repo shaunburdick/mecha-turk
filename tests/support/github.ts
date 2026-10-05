@@ -111,7 +111,6 @@ function headerValue(headers: RequestInit['headers'], name: string): string {
 /**
  * Build a GitHub `GET /user` body.
  *
- * @param identity - Numeric id and login the token should belong to.
  * @returns The serialized response body.
  */
 export function userBody(identity: { readonly id: number; readonly login: string }): string {

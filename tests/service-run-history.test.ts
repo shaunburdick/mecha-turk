@@ -179,7 +179,6 @@ afterEach(async (): Promise<void> => {
 /**
  * Start a service against a fresh temp store and register it for cleanup.
  *
- * @param options - Pass `registered` to also register the fixture credential.
  * @returns The running instance, with its store handle open for seeding.
  */
 async function startSeededService(options: { readonly registered?: boolean } = {}): Promise<TestService> {

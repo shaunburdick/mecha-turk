@@ -401,7 +401,6 @@ function scanSources(): readonly ScannedFile[] {
 /**
  * Read one service answer as the text an operator's client would see.
  *
- * @param path - Path to fetch.
  * @returns The response text.
  * @throws {Error} When the route answers anything but `200`.
  */

@@ -288,7 +288,6 @@ async function storedQueue(service: TestService): Promise<readonly Record<string
  * starts. That is also the real upgrade shape: the operator's existing queue is
  * there when the new build first runs (FR-005, AC-126).
  *
- * @param rows - Queue rows to plant as `events.json`.
  * @returns The running harness instance, registered for cleanup with its root.
  */
 async function startWithQueue(rows: readonly QueuedEvent[]): Promise<TestService> {

@@ -119,7 +119,6 @@ interface PromptChangeTriple {
  * here, which is why a later row that changed only `intervalMs` cannot
  * displace the baseline a prompt row established.
  *
- * @param details - One row's `details`.
  * @returns The `{ field, from, to }` entry for the global tier, or `null`.
  */
 function startingPromptChangeOf(details: Readonly<Record<string, unknown>>): PromptChangeTriple | null {

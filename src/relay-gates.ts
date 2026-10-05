@@ -117,7 +117,6 @@ export function stillRunning(rt: PanelRuntime): boolean {
 /**
  * Split one `owner/name` repository label into its reference.
  *
- * @param label - The `owner/name` string.
  * @returns The reference.
  */
 export function splitRepository(label: string): { readonly owner: string; readonly name: string } {

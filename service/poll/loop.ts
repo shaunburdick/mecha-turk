@@ -204,7 +204,6 @@ type ScanListing =
  * nothing at all, so the rate budget only ever pays for triggers the operator
  * turned on.
  *
- * @param input - Poller, credential, logger, binding, window, and the cycle stamp.
  * @returns Every event this scan matched, or the skip reason.
  */
 async function collectScanEvents(input: {

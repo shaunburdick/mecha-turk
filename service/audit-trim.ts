@@ -139,7 +139,6 @@ interface RemovalPlan {
  * An unparseable document still quarantines, exactly as the real reader
  * quarantines it moments later in the same cycle.
  *
- * @param probe - Outcome of reading the bindings document.
  * @returns The binding ids, `[]` when there is no document, or `null` when the
  *   document exists but cannot be understood.
  */

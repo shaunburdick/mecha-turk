@@ -40,7 +40,6 @@ import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
  * the per-item events read behind this is for, and an empty bound login matches
  * nothing because a listing never reports an empty reviewer login.
  *
- * @param pull - Normalized pull request.
  * @returns `true` when that account is one of the requested reviewers.
  */
 export function isReviewRequestPull(pull: PollPull, bindingLogin: string): boolean {

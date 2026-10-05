@@ -76,7 +76,6 @@ export type JsonReadResult<T> =
  * calling this function against a path inside the target directory.
  *
  * @param tempPath - Absolute path of the temporary file to create.
- * @param text - Serialized content to write.
  */
 export async function writeSyncedTempFile(tempPath: string, text: string): Promise<void> {
     const handle = await fs.open(tempPath, 'w', DATA_FILE_MODE);

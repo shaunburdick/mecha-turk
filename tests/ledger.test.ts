@@ -54,7 +54,6 @@ function at(seconds: number): string {
 /**
  * Parse a serialized ledger into a JSON value for the reader under test.
  *
- * @param json - Serialized ledger.
  * @returns The parsed value.
  */
 function parseJson(json: string): JsonValue {

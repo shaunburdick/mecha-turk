@@ -113,7 +113,6 @@ export function buildMountContext(existing: PanelLedger | null): MountContext {
 /**
  * Find the timestamp the gap analysis should start from.
  *
- * @param ledger - Prior ledger.
  * @returns The last `closed` phase time, else the last entry time, else `null`.
  */
 function findBaseline(ledger: PanelLedger): string | null {
@@ -137,7 +136,6 @@ function findBaseline(ledger: PanelLedger): string | null {
  * Either way the analysis is driven by stored evidence: a running panel is the
  * only thing that writes `poll` entries.
  *
- * @param input - Prior ledger and the current mount time.
  * @returns The gap verdict, or `null` when the ledger has no baseline yet.
  */
 export function analyzeLastCloseGap(input: { prior: PanelLedger | null; mountedAt: string }): GapAnalysis | null {

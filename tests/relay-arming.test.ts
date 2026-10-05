@@ -63,7 +63,6 @@ function activeBinding(): PanelBinding {
 /**
  * Body `GET /v1/bindings` answers with for the given rows.
  *
- * @param bindings - Stored bindings to report.
  * @returns The snapshot body the parser accepts.
  */
 function bindingsBody(bindings: readonly PanelBinding[]): string {
