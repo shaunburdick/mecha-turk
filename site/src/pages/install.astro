@@ -1,0 +1,111 @@
+---
+/**
+ * The install page (T-017, FR-020 – FR-024).
+ *
+ * Every step below is a step OpenChamber offers, traced rather than remembered:
+ * the add flow and the approval wording come from the shipped walkthrough
+ * (`specs/002-agent-event-extension/quickstart.md` §3), the git URL and the
+ * engine floor from the manifest through `data/product.ts`, and the permission
+ * table from the manifest itself through `Permissions`.
+ *
+ * The table is the load-bearing part. The README said the dialog *"asks for
+ * exactly these four things"* and named `network`; `AGENTS.md` invariant 3
+ * records that `network` was removed by product-owner order on 2026-09-30 and
+ * is not requested at all. The rows are generated, so the page cannot repeat
+ * that claim (FR-022, FR-077).
+ *
+ * The capability meanings are keyed by capability id rather than written as a
+ * positional list, so a capability the manifest gains arrives as a missing key —
+ * which `Permissions` refuses at build time rather than rendering an empty cell.
+ *
+ * **Why `.astro` and not `.md`.** Astro 7 renders a markdown page as markdown:
+ * a component element or a `{expression}` in the body is emitted as literal
+ * text, so the permission table this page must carry cannot be rendered from a
+ * markdown file at all. Measured: `<Permissions …>` reached the output escaped,
+ * and `{expr}` reached it unevaluated. The plan's own data-flow line reads
+ * `site/src/pages/*.md|.astro`, and the landing page is already `.astro`.
+ */
+import Layout from '../layout.astro';
+import Permissions from '../components/permissions.astro';
+import { OPENCHAMBER_ENGINE_FLOOR, REPOSITORY_URL } from '../data/product.ts';
+import { withBase } from '../data/site.ts';
+
+/** One line per capability the shipped manifest requests, keyed by the token. */
+const capabilityMeaning: Readonly<Record<string, string>> = {
+    sessions:
+        'Start an agent session on your behalf when a trigger fires on a repository you have bound.',
+    prompt:
+        "Use the host prompt surface when starting those sessions, which is how your own starting prompt reaches the agent.",
+    service:
+        'Launch the local poller — a separate program with your own user access, and the only thing that talks to GitHub.',
+};
+---
+
+<Layout title="Install">
+    <h1>Install</h1>
+
+    <p>
+        Mecha Turk is an OpenChamber extension: a rail panel and a local service your own installation
+        runs. Nothing is hosted. This page covers adding it; the
+        <a href={withBase('/configure/')}>configure page</a> covers accounts, bindings, and the starting
+        prompt.
+    </p>
+
+    <h2>Add the extension</h2>
+
+    <ol>
+        <li>Run OpenChamber on web or desktop, at version {OPENCHAMBER_ENGINE_FLOOR} or newer.</li>
+        <li>Open <strong>Settings → Extensions → Add</strong>.</li>
+        <li>
+            Paste the repository's git URL — <code>{REPOSITORY_URL}</code>. Append <code>#</code> and a
+            tag or branch name to pin one version instead of tracking the default branch.
+        </li>
+        <li>
+            Read the approval dialog, check the capabilities below against what your own OpenChamber
+            shows you, and choose <strong>Allow and enable</strong>.
+        </li>
+        <li>
+            Click the <strong>Mecha Turk</strong> icon on the rail. The panel opens on
+            <strong>Status</strong>.
+        </li>
+    </ol>
+
+    <h2>What the approval asks for</h2>
+
+    <Permissions describe={capabilityMeaning} />
+
+    <p>
+        No network capability is requested: the panel makes no GitHub request of its own, and the poller
+        reaches GitHub as a local program under the service contribution above.
+    </p>
+
+    <h2>Pinning a version, and updating</h2>
+
+    <p>
+        A pinned URL keeps the extension on that tag or branch until you change it. Unpinned, OpenChamber
+        checks a git install for a newer <code>version</code> at most once an hour, and you can ask it to
+        look immediately. When a newer version is available you get an <strong>Update</strong> control:
+        your permissions, your accounts, and your configuration carry over, and you are asked to approve
+        again only if the new version asks for more than the old one did.
+    </p>
+
+    <h2>Surfaces that do not run the service</h2>
+
+    <p>
+        The VS Code and mobile builds of OpenChamber do not spawn extension services, so Mecha Turk is
+        unsupported there. On those surfaces the panel says so rather than pretending:
+        <strong>Status</strong> raises an <em>Unsupported surface</em> notice, reporting that polling,
+        credential custody, and the relay are not operating — and its <em>Desktop or web surface</em>
+        prerequisite line names the same consequence as its remediation.
+    </p>
+
+    <h2>Register a project before you bind</h2>
+
+    <p>
+        Every repository you bind needs an OpenChamber project registered for it, one per repository. The
+        extension never creates a project; OpenChamber registers them, by the command palette's
+        <em>Add project</em>, the sidebar's add button, or the folder browser. Registering one is the
+        first of the three steps on the <a href={withBase('/configure/')}>configure page</a>, and until
+        it is done a dispatch for that repository is refused rather than guessed at.
+    </p>
+</Layout>
