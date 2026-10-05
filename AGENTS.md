@@ -154,7 +154,13 @@ changing it. The shape:
 - `specs/` — dated records of the phase that produced them.
   `specs/002-agent-event-extension/` is the production spec and the anchor
   for invariants 4 and 10; later directories amend it. Each spec's
-  `changelog.md` says why a requirement changed.
+  `changelog.md` says why a requirement changed. A spec's `pm-handoff.md` is
+  **kept for provenance, not for coordination**: 003's is the recorded scope
+  source for 004–006, and 002's `## Flagged` is cited by four later documents.
+  No repo rule requires writing one (that lives in the global `agent-routing`
+  and `orchestration` skills), so a new feature creates a file rather than
+  editing these — and **nothing validates relative links in `specs/`**, so a
+  deletion that breaks a citation is silent.
 
 ## Spec workflow
 

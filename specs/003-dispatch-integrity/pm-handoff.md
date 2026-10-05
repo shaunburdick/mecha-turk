@@ -1,5 +1,25 @@
 # PM Handoff: Dispatch Integrity & Recovery (003)
 
+> ## Retained as provenance (2026-10-05, issue #15 Phase D)
+>
+> Issue #15 Phase D proposed deleting this file with the other superseded PM
+> artefacts. The mandate argument still holds — writing one is the global
+> `agent-routing` and `orchestration` skills' business, and nothing in this repo
+> requires it — but this file is cited **as a source** in a way nothing else
+> serves.
+>
+> `## The Feature Roadmap` and `## Product-owner decisions` (both agreed
+> 2026-09-28) are the recorded **scope source for specs 004, 005 and 006** — six
+> citations across `004/spec.md`, `005/spec.md`, `005/plan.md`, `006/spec.md`,
+> `006/plan.md` and `006/checklists/requirements.md`, each pointing at a named
+> section. Grepping `003/spec.md`, `003/plan.md` and `003/changelog.md` for either
+> heading returns nothing: **the content exists only here.** Deleting the file
+> would leave three successor specs citing an input no reader can consult, which
+> is the opposite of what a spec's `**Input**:` line is for.
+>
+> So the file stays. The coordination role is over; the scope-provenance role is
+> not. Its `orchestration.md` companion was already removed with no citations.
+
 ## Context
 - **Feature**: `003-dispatch-integrity` — first spec in the post-MVP cycle
 - **Predecessor**: `specs/002-agent-event-extension` (v1.1.0, Implemented 2026-09-28) — the landed MVP

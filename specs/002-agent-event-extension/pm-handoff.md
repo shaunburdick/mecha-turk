@@ -1,5 +1,23 @@
 # PM Handoff: `002-agent-event-extension` — the actor allow-list (GitHub issue #9)
 
+> ## Retained as provenance (2026-10-05, issue #15 Phase D)
+>
+> Issue #15 Phase D proposed deleting this file with the other superseded PM
+> artefacts, on the reasoning that the *mandate* to write one lives in the global
+> `agent-routing` and `orchestration` skills and that nothing in this repo
+> requires the file. That reasoning is sound and still holds: a future PM session
+> creates one file rather than inheriting this tax.
+>
+> What the phase did not account for is that this file is cited **as a source**.
+> `## Flagged` is the target of four live relative links — `005/research.md:95`,
+> `005/tasks.md:397`, `005/plan.md:426` and `003/tasks.md:206` — and its content
+> appears nowhere in `002/spec.md` or `002/changelog.md`. `005/plan.md:426` cites
+> it for a decision D14 turns on, so deleting this file would remove the record a
+> later spec's own plan leans on, with nothing to repoint to — and nothing in the
+> suite would notice, because no test validates relative markdown links.
+>
+> So the file stays. The coordination role is over; the provenance role is not.
+
 > ## ⚠️ Supersession notice — read this first
 >
 > This file previously held the **002 MVP delivery record** (the M1–M9 cut, dispatched
