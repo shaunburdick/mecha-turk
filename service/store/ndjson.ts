@@ -11,7 +11,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
+import { dirname } from 'node:path';
 import { parseJsonText } from '../json.ts';
 import { DATA_DIR_MODE, DATA_FILE_MODE, ensureDir } from './dir.ts';
 import { StorageUnavailableError } from './errors.ts';
@@ -42,7 +42,7 @@ export interface NdjsonReadResult<T> {
 export async function appendJsonLine(filePath: string, entry: unknown): Promise<void> {
     const line = `${JSON.stringify(entry)}\n`;
     try {
-        await fs.mkdir(path.dirname(filePath), { recursive: true, mode: DATA_DIR_MODE });
+        await fs.mkdir(dirname(filePath), { recursive: true, mode: DATA_DIR_MODE });
         const handle = await fs.open(filePath, 'a', DATA_FILE_MODE);
         try {
             await handle.writeFile(line, 'utf8');
@@ -81,7 +81,7 @@ export async function writeJsonLinesAtomic(filePath: string, entries: readonly u
     const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID()}`;
     // `ensureDir` chmods after mkdir so `0700` survives a permissive umask,
     // the same guarantee `writeJsonAtomic` gives the store directory.
-    await ensureDir(path.dirname(filePath));
+    await ensureDir(dirname(filePath));
     try {
         await writeSyncedTempFile(tempPath, text);
         await fs.rename(tempPath, filePath);

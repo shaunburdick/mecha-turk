@@ -12,7 +12,7 @@
  */
 
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import { nowIso } from '../../src/ids.ts';
 import { isRecord } from '../json.ts';
 import { ensureDir } from './dir.ts';
@@ -126,7 +126,7 @@ function parseServiceState(raw: unknown): ServiceState | null {
  * @returns The store's schema version.
  */
 async function readOrCreateSchemaVersion(dataDir: string): Promise<number> {
-    const statePath = path.resolve(dataDir, STATE_FILE);
+    const statePath = resolve(dataDir, STATE_FILE);
     const result = await readJsonFile(statePath, parseServiceState);
     if (result.status === 'ok') {
         return result.value.schemaVersion;
@@ -146,11 +146,11 @@ async function readOrCreateSchemaVersion(dataDir: string): Promise<number> {
  *   programming error, not a storage failure, so it is not disguised as one.
  */
 function resolveStorePath(dataDir: string, relativePath: string): string {
-    if (relativePath === '' || path.isAbsolute(relativePath) || relativePath.includes('..')) {
+    if (relativePath === '' || isAbsolute(relativePath) || relativePath.includes('..')) {
         throw new Error(`store path must be a relative path inside the data directory: ${relativePath}`);
     }
 
-    return path.resolve(dataDir, relativePath);
+    return resolve(dataDir, relativePath);
 }
 
 /**

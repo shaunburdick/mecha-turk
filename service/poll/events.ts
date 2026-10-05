@@ -42,7 +42,7 @@
  * T-016 replaces that projection.
  */
 
-import path from 'node:path';
+import { basename, join } from 'node:path';
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
 import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
@@ -160,11 +160,11 @@ const recoveredQuarantines = new WeakMap<ServiceStore, Set<string>>();
 function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boolean {
     const handled = recoveredQuarantines.get(store) ?? new Set<string>();
     recoveredQuarantines.set(store, handled);
-    if (handled.has(path.basename(quarantinePath))) {
+    if (handled.has(basename(quarantinePath))) {
         return false;
     }
 
-    handled.add(path.basename(quarantinePath));
+    handled.add(basename(quarantinePath));
 
     return true;
 }
@@ -299,7 +299,7 @@ async function recoverFromEvidence(input: {
     const entries = await input.store.listDir('.');
     for (const entry of entries) {
         if (entry.startsWith(QUARANTINE_EVIDENCE_PREFIX)) {
-            await recoverQuarantinedQueue({ ...input, quarantinePath: path.join(input.store.dataDir, entry) });
+            await recoverQuarantinedQueue({ ...input, quarantinePath: join(input.store.dataDir, entry) });
         }
     }
 }

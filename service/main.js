@@ -1,5 +1,5 @@
 // service/main.ts
-import path6 from "node:path";
+import { resolve as resolve3 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // service/env.ts
@@ -1745,7 +1745,7 @@ async function trimAudit(input) {
 }
 
 // service/poll/events.ts
-import path from "node:path";
+import { basename, join } from "node:path";
 
 // service/poll/attribution.ts
 var AUTHOR_LOGIN_MAX_CHARS = 60;
@@ -3550,10 +3550,10 @@ var recoveredQuarantines = new WeakMap;
 function claimQuarantinePass(store, quarantinePath) {
   const handled = recoveredQuarantines.get(store) ?? new Set;
   recoveredQuarantines.set(store, handled);
-  if (handled.has(path.basename(quarantinePath))) {
+  if (handled.has(basename(quarantinePath))) {
     return false;
   }
-  handled.add(path.basename(quarantinePath));
+  handled.add(basename(quarantinePath));
   return true;
 }
 async function resetScanWindows(input) {
@@ -3602,7 +3602,7 @@ async function recoverFromEvidence(input) {
   const entries = await input.store.listDir(".");
   for (const entry of entries) {
     if (entry.startsWith(QUARANTINE_EVIDENCE_PREFIX)) {
-      await recoverQuarantinedQueue({ ...input, quarantinePath: path.join(input.store.dataDir, entry) });
+      await recoverQuarantinedQueue({ ...input, quarantinePath: join(input.store.dataDir, entry) });
     }
   }
 }
@@ -3846,11 +3846,11 @@ async function readJsonBody(request) {
 
 // service/store/index.ts
 import { promises as fs5 } from "node:fs";
-import path5 from "node:path";
+import { isAbsolute, resolve as resolve2 } from "node:path";
 
 // service/store/dir.ts
 import { promises as fs } from "node:fs";
-import path2 from "node:path";
+import { resolve } from "node:path";
 var DATA_DIR_MODE = 448;
 var DATA_FILE_MODE = 384;
 var STORE_RELATIVE_PATH = ".config/openchamber/mecha-turk";
@@ -3859,7 +3859,7 @@ function resolveDataDir(env) {
   if (home === undefined || home === "") {
     throw new StorageUnavailableError("HOME is not set; the Mecha Turk data directory cannot be located");
   }
-  return path2.resolve(home, STORE_RELATIVE_PATH);
+  return resolve(home, STORE_RELATIVE_PATH);
 }
 async function ensureDir(dirPath) {
   try {
@@ -3873,7 +3873,7 @@ async function ensureDir(dirPath) {
 // service/store/json.ts
 import { randomUUID } from "node:crypto";
 import { promises as fs3 } from "node:fs";
-import path3 from "node:path";
+import { dirname, join as join2 } from "node:path";
 
 // service/store/files.ts
 import { promises as fs2 } from "node:fs";
@@ -3927,7 +3927,7 @@ async function writeJsonAtomic(filePath, value) {
   const text = `${JSON.stringify(value, null, JSON_INDENT)}
 `;
   const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID()}`;
-  await ensureDir(path3.dirname(filePath));
+  await ensureDir(dirname(filePath));
   try {
     await writeSyncedTempFile(tempPath, text);
     await fs3.rename(tempPath, filePath);
@@ -3953,7 +3953,7 @@ async function sweepTempDebris(dirPath, depth = SWEEP_MAX_DEPTH) {
   }
   let removed = 0;
   for (const entry of entries) {
-    const target = path3.join(dirPath, entry.name);
+    const target = join2(dirPath, entry.name);
     if (entry.isDirectory()) {
       removed += await sweepTempDebris(target, depth - 1);
     } else if (entry.isFile() && isTempDebris(entry.name)) {
@@ -3982,12 +3982,12 @@ async function readJsonFile(filePath, validate) {
 // service/store/ndjson.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
 import { promises as fs4 } from "node:fs";
-import path4 from "node:path";
+import { dirname as dirname2 } from "node:path";
 async function appendJsonLine(filePath, entry) {
   const line = `${JSON.stringify(entry)}
 `;
   try {
-    await fs4.mkdir(path4.dirname(filePath), { recursive: true, mode: DATA_DIR_MODE });
+    await fs4.mkdir(dirname2(filePath), { recursive: true, mode: DATA_DIR_MODE });
     const handle = await fs4.open(filePath, "a", DATA_FILE_MODE);
     try {
       await handle.writeFile(line, "utf8");
@@ -4006,7 +4006,7 @@ async function writeJsonLinesAtomic(filePath, entries) {
   const text = entries.map((entry) => `${JSON.stringify(entry)}
 `).join("");
   const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID2()}`;
-  await ensureDir(path4.dirname(filePath));
+  await ensureDir(dirname2(filePath));
   try {
     await writeSyncedTempFile(tempPath, text);
     await fs4.rename(tempPath, filePath);
@@ -4054,7 +4054,7 @@ function parseServiceState(raw) {
   return { schemaVersion: version, initializedAt };
 }
 async function readOrCreateSchemaVersion(dataDir) {
-  const statePath = path5.resolve(dataDir, STATE_FILE);
+  const statePath = resolve2(dataDir, STATE_FILE);
   const result = await readJsonFile(statePath, parseServiceState);
   if (result.status === "ok") {
     return result.value.schemaVersion;
@@ -4064,10 +4064,10 @@ async function readOrCreateSchemaVersion(dataDir) {
   return SERVICE_SCHEMA_VERSION;
 }
 function resolveStorePath(dataDir, relativePath) {
-  if (relativePath === "" || path5.isAbsolute(relativePath) || relativePath.includes("..")) {
+  if (relativePath === "" || isAbsolute(relativePath) || relativePath.includes("..")) {
     throw new Error(`store path must be a relative path inside the data directory: ${relativePath}`);
   }
-  return path5.resolve(dataDir, relativePath);
+  return resolve2(dataDir, relativePath);
 }
 async function listStoreDir(dataDir, relativePath) {
   const target = resolveStorePath(dataDir, relativePath);
@@ -9456,8 +9456,8 @@ var STATUS_FORBIDDEN2 = 403;
 var STATUS_TOO_MANY_REQUESTS2 = 429;
 var MAX_LIST_PAGES = 2;
 var systemSleep = async (milliseconds) => {
-  await new Promise((resolve) => {
-    setTimeout(resolve, milliseconds);
+  await new Promise((resolve3) => {
+    setTimeout(resolve3, milliseconds);
   });
 };
 function pollerRuntime(deps, fetchImpl) {
@@ -9923,14 +9923,14 @@ async function adoptStoredLogLevel(store, log) {
   }
 }
 function listen(server, port) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve3, reject) => {
     const onError = (error) => {
       reject(error);
     };
     server.once("error", onError);
     server.listen(port, LOOPBACK_HOST, () => {
       server.removeListener("error", onError);
-      resolve();
+      resolve3();
     });
   });
 }
@@ -9942,8 +9942,8 @@ function boundPort(server) {
   return address.port;
 }
 function sleep(milliseconds) {
-  return new Promise((resolve) => {
-    setTimeout(resolve, milliseconds);
+  return new Promise((resolve3) => {
+    setTimeout(resolve3, milliseconds);
   });
 }
 async function waitForDrain(state, timeoutMs) {
@@ -9954,9 +9954,9 @@ async function waitForDrain(state, timeoutMs) {
 }
 async function withTimeout(promise, timeoutMs) {
   let timer;
-  const deadline = new Promise((resolve) => {
+  const deadline = new Promise((resolve3) => {
     timer = setTimeout(() => {
-      resolve();
+      resolve3();
     }, timeoutMs);
   });
   await Promise.race([promise, deadline]);
@@ -9969,9 +9969,9 @@ async function performShutdown(input) {
   polling.beginShutdown();
   poll?.stop();
   sweep?.stop();
-  const closed = new Promise((resolve) => {
+  const closed = new Promise((resolve3) => {
     server.close(() => {
-      resolve();
+      resolve3();
     });
   });
   await waitForDrain(state, DRAIN_TIMEOUT_MS);
@@ -10075,7 +10075,7 @@ async function startService(options) {
 var FORCE_EXIT_MS = 5000;
 function isEntryPoint() {
   const entry = process.argv[1];
-  return entry !== undefined && path6.resolve(entry) === fileURLToPath(import.meta.url);
+  return entry !== undefined && resolve3(entry) === fileURLToPath(import.meta.url);
 }
 function scheduleForceExit(log) {
   const watchdog = setTimeout(() => {

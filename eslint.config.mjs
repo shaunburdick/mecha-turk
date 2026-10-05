@@ -66,6 +66,27 @@ export default [
             // `.then(task, task)` is deliberate, because the chain must carry a
             // previous rejection into the next slot without wedging.
             'unicorn/prefer-await': 'off',
+            // The plugin ships a per-module opinion and for `node:path` it is
+            // `default`: `import path from 'node:path'`. This repo is the other
+            // way — 69 files import the members they use, `resolve('a', 'b')`
+            // rather than `path.resolve('a', 'b')`, and only the store and the
+            // service entrypoint used the default form. So this *narrows* the
+            // plugin's default rather than widening it: `named` only, which also
+            // bans the namespace and default spellings the plugin would have
+            // let through. Conforming the 69 files instead would mean ~536 call
+            // sites rewritten to say less, in tests whose subject is not paths.
+            'unicorn/import-style': ['error', { styles: { path: { default: false, named: true } } }],
+            // These two are mutually unsatisfiable and both are on as errors.
+            // `prefer-iterator-to-array` reports `[...map.keys()]` and asks for
+            // `Array.from(map.keys())`; `prefer-spread` reports
+            // `Array.from(map.keys())` and asks for the spread. I converted all
+            // twelve sites to `Array.from` to check, and the count went from 12
+            // findings on one rule to 13 on the other with nothing else changed
+            // — so there is no line that satisfies both, and the choice has to
+            // be made in config. The repo answers it the same way in all twelve
+            // places and in every other spread of an iterator: `[...]`. This one
+            // goes, and `prefer-spread` stays as the rule that owns the shape.
+            'unicorn/prefer-iterator-to-array': 'off',
         },
     },
 ];

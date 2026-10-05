@@ -14,7 +14,7 @@
 import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import type { Dirent } from 'node:fs';
-import path from 'node:path';
+import { dirname, join } from 'node:path';
 import { parseJsonText } from '../json.ts';
 import { DATA_FILE_MODE, ensureDir } from './dir.ts';
 import { StorageUnavailableError } from './errors.ts';
@@ -142,7 +142,7 @@ export async function writeJsonAtomic(filePath: string, value: unknown): Promise
     const tempPath = `${filePath}${TEMP_SUFFIX}${randomUUID()}`;
     // `ensureDir` chmods after mkdir so `0700` survives a permissive umask,
     // the same guarantee the store directory itself gets at startup (SEC-13).
-    await ensureDir(path.dirname(filePath));
+    await ensureDir(dirname(filePath));
     try {
         await writeSyncedTempFile(tempPath, text);
         await fs.rename(tempPath, filePath);
@@ -195,7 +195,7 @@ export async function sweepTempDebris(dirPath: string, depth: number = SWEEP_MAX
 
     let removed = 0;
     for (const entry of entries) {
-        const target = path.join(dirPath, entry.name);
+        const target = join(dirPath, entry.name);
         if (entry.isDirectory()) {
             removed += await sweepTempDebris(target, depth - 1);
         } else if (entry.isFile() && isTempDebris(entry.name)) {
