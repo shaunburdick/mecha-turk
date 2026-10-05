@@ -36,7 +36,7 @@ import {
     parseSession,
     parseVerification,
 } from './runs-parts-parse.ts';
-import { isRunState, parseRunScalars, runTextFieldsHold } from './runs-scalars-parse.ts';
+import { parseRunScalars, runTextFieldsHold } from './runs-scalars-parse.ts';
 import type { RunScalars } from './runs-scalars-parse.ts';
 import type {
     DispatchAttempt,
@@ -52,18 +52,18 @@ import type {
 
 /**
  * The document and row types are re-exported here so this module stays the
- * one import path for the run schema (T-002); their declarations live in
+ * one import path for the run schema; their declarations live in
  * `runs-types.ts`, which the file-length gate keeps them in.
  */
 export type { Run, RunsDocument };
-export { isRunState };
+export { isRunState } from './runs-scalars-parse.ts';
 
 /** Document schema marker this build writes into (and accepts from) `runs.json`. */
 export const RUNS_SCHEMA_VERSION = 1;
 
 /**
  * Cap on `run.sourceReferences` (FR-013 + NFR-107; product-owner ruling
- * 2026-09-28, T-038 — raised from plan D11's 20).
+ * 2026-09-28, T-038 — raised 20).
  *
  * Overflow is visible rather than silent: a delivery that joins a full list
  * still joins the run, still earns its `run.coalesced` row, and increments
@@ -72,7 +72,7 @@ export const RUNS_SCHEMA_VERSION = 1;
  */
 export const MAX_SOURCE_REFERENCES = 200;
 
-/** Cap on `run.attempts` (NFR-107); the writer keeps the newest records. */
+/** Cap on `run.attempts`; the writer keeps the newest records. */
 export const MAX_ATTEMPT_RECORDS = 50;
 
 /** Confirm the stored identity tuple matches its deterministic hash values. */
@@ -123,7 +123,6 @@ interface RunPart<T> {
  * read is exactly the ambiguity that must never reach a dispatch decision
  * (constitution II).
  *
- * @param stored - The value as stored.
  * @param parse - Validator for the sub-object's shape.
  * @returns The parsed part, flagged when a present value was unusable.
  */
@@ -164,9 +163,6 @@ function parseRunObjects(raw: Record<string, unknown>): RunObjects | null {
 /**
  * Parse a bounded list of sub-objects.
  *
- * @param raw - Candidate array as stored.
- * @param shape - The row parser to run over every element and its inclusive
- *   length bound.
  * @returns The parsed rows, or `null` when the value is not an array, holds
  *   an unusable row, or exceeds the cap.
  */
@@ -201,7 +197,7 @@ interface ParsedRunParts {
     readonly references: readonly SourceReference[];
     /** Bounded attempt history. */
     readonly attempts: readonly DispatchAttempt[];
-    /** The prompt snapshot, or `null` when the run queued with none (004 FR-015). */
+    /** The prompt snapshot, or `null` when the run queued with none. */
     readonly prompt: PromptSnapshot | null;
 }
 
@@ -217,16 +213,16 @@ function sessionHistoryHolds(input: {
     );
     const knownSessionIds = new Set(sessionAttempts.flatMap((attempt) =>
         attempt.sessionId === null ? [] : [attempt.sessionId]));
-    const invalidAttemptSession = attempts.some(
+    const isInvalidAttemptSession = attempts.some(
         (attempt) => attempt.sessionId !== null && attempt.outcome !== 'dispatched',
     );
-    const contradictorySessionHistory = sessionAttempts.length > 0 && state !== 'dispatched';
-    const mismatchedSession = session !== null
+    const isContradictorySessionHistory = sessionAttempts.length > 0 && state !== 'dispatched';
+    const isMismatchedSession = session !== null
         && (state !== 'dispatched' || !knownSessionIds.has(session.sessionId));
 
-    return !invalidAttemptSession
-        && !contradictorySessionHistory
-        && !mismatchedSession
+    return !isInvalidAttemptSession
+        && !isContradictorySessionHistory
+        && !isMismatchedSession
         && knownSessionIds.size <= 1;
 }
 
@@ -244,15 +240,15 @@ function runRelationsHold(input: {
     // every delivery that joined — a count that cannot be reconciled with the
     // list would render a row that is silently lossy, or falsely complete, so
     // the run refuses rather than projects a lie (constitution II).
-    const referencesAccounted = scalars.referenceCount === references.length + scalars.referencesNotRetained
+    const isReferencesAccounted = scalars.referenceCount === references.length + scalars.referencesNotRetained
         && scalars.referencesTruncated === (scalars.referencesNotRetained > 0);
-    const basicRelationsHold = referencesAccounted
+    const isBasicRelationsHold = isReferencesAccounted
         && (objects.session === null || objects.session.attachmentId === attachmentId)
         && (objects.lease === null || objects.lease.attempt === scalars.attempt)
         && (objects.reservation === null || objects.reservation.attempt === scalars.attempt)
         && referenceIds.size === references.length;
 
-    return basicRelationsHold && sessionHistoryHolds({
+    return isBasicRelationsHold && sessionHistoryHolds({
         state: scalars.state,
         session: objects.session,
         attempts,
@@ -275,16 +271,13 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
     const prompt = parseStoredPromptSnapshot(raw.prompt);
     if (
         scalars === null
-        || !runIdentityMatches(raw, scalars)
         || objects === null
         || references === null
         || attempts === null
         || prompt === null
+        || !runIdentityMatches(raw, scalars)
+        || !runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })
     ) {
-        return null;
-    }
-
-    if (!runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
         return null;
     }
 
@@ -301,7 +294,6 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
  * Project validated storage fields into the run model.
  *
  * @param raw - The stored row, already known to carry its identity members.
- * @param parts - The independently validated parts, prompt included.
  * @returns The run.
  */
 function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run {
@@ -344,7 +336,6 @@ function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run 
  * The `prompt` member is validated with the rest of the row's parts, through
  * the prompt domain's own stored-shape reader (data-model §3).
  *
- * @param raw - One element from `runs.json`'s `runs` array.
  * @returns The run, or `null` when the row cannot be trusted.
  */
 export function parseRun(raw: unknown): Run | null {
@@ -360,7 +351,6 @@ export function parseRun(raw: unknown): Run | null {
 /**
  * Validate the ordinal counters map.
  *
- * @param raw - Candidate `subjects` value.
  * @returns The counters, or `null` when any value is not a non-negative
  *   integer (an empty key is unusable too — it is what the run key is
  *   re-derived from).
@@ -420,7 +410,6 @@ function parseRunRows(raw: readonly unknown[]): readonly Run[] | null {
 /**
  * Parse the whole `runs.json` document.
  *
- * @param raw - Parsed document.
  * @returns The document, or `null` when it is unusable (quarantined): the
  *   schema marker must be the one this build understands, the ordinal
  *   counters must be non-negative integers, every run must parse, and no two

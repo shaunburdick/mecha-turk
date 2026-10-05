@@ -75,7 +75,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -159,9 +159,7 @@ describe('silent account adoption (MVP blocker 2)', () => {
         // account mirror. Only the service still holds the account.
         const host = await scriptedRuntime(
             (request) => {
-                return request.path === ACCOUNTS_PATH
-                    ? { status: 200, body: accountsBody }
-                    : { status: 200, body: STATUS_BODY };
+                return ({ status: 200, body: request.path === ACCOUNTS_PATH ? accountsBody : STATUS_BODY });
             },
             {},
         );
@@ -239,7 +237,6 @@ const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] a
  * from the capability tuple exactly as the service does (same shape, same
  * cast, no invented verdict).
  *
- * @param verdict - The verdict every capability carries.
  * @returns The four-capability matrix.
  */
 function scopeMatrixAll(verdict: ScopeResult): AccountScopeMatrix {
@@ -249,7 +246,6 @@ function scopeMatrixAll(verdict: ScopeResult): AccountScopeMatrix {
 /**
  * Build one credential-free account for the row fixtures.
  *
- * @param overrides - Fields the test changes.
  * @returns One complete account.
  */
 function accountFixture(overrides: Partial<PanelAccount> = {}): PanelAccount {
@@ -268,7 +264,6 @@ function accountFixture(overrides: Partial<PanelAccount> = {}): PanelAccount {
 /**
  * Build the tab state the row functions read.
  *
- * @param input - The accounts to render and any bindings they back.
  * @returns A ready Bindings-tab state carrying them.
  */
 function accountsState(input: {
@@ -288,7 +283,6 @@ function accountsState(input: {
 /**
  * Read every string one mount was handed.
  *
- * @param props - Whatever the SDK primitive received.
  * @returns The strings among them, in property order.
  */
 function stringsIn(props: unknown): readonly string[] {
@@ -342,7 +336,6 @@ function mountAccountsTab(setup?: (rt: PanelRuntime) => void): {
  * Whether the Accounts disclaimer is **mounted** on the Accounts body, and
  * what its text says (002 FR-008 as re-cut at v1.9.0).
  *
- * @param created - Every element the mount created.
  * @returns The disclaimer container, or `undefined` when nothing mounted one.
  */
 function mountedDisclaimer(created: readonly FakeElement[]): FakeElement | undefined {
@@ -361,7 +354,7 @@ function mountedListItems(): readonly { readonly title?: string; readonly subtit
     const calls = mounts.log.filter(
         (candidate) => candidate.key === 'mountList' || candidate.key === 'mountList:update',
     );
-    const props = calls[calls.length - 1]?.props as
+    const props = calls.at(-1)?.props as
         | { readonly items?: { readonly title?: string }[] }
         | undefined;
 
@@ -369,8 +362,7 @@ function mountedListItems(): readonly { readonly title?: string; readonly subtit
 }
 
 describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
-    it('renders each of the six lifecycle states against eac… (+5 cases)', () => {
-        // case: renders each of the six lifecycle states against each of the four connection states
+    it('renders each of the six lifecycle states against each of the four connection states', () => {
         {
             for (const state of LIFECYCLE_STATES) {
                 for (const connection of CONNECTION_STATES) {
@@ -387,7 +379,6 @@ describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
                 }
             }
         }
-        // case: tells pending_handoff apart from an interrupted handoff while sharing the way out (FR-068)
         {
             const pending = lifecycleCopy(accountFixture({ state: 'pending_handoff' }));
             const interrupted = lifecycleCopy(
@@ -399,7 +390,6 @@ describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
             expect(pending.remediation).toBe(HANDOFF_REMEDIATION);
             expect(interrupted.remediation).toBe(HANDOFF_REMEDIATION);
         }
-        // case: gives every bad state a remediation and a good one none (FR-063)
         {
             for (const state of ['rejected', 'revoked', 'error']) {
                 expect(lifecycleCopy(accountFixture({ state })).remediation).not.toBeNull();
@@ -410,7 +400,6 @@ describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
             expect(lifecycleCopy(accountFixture({ state: 'something-new' })).label)
                 .toBe('unknown state: something-new');
         }
-        // case: marks an unreported member as unreported, never as a pass (NFR-112)
         {
             const bare: PanelAccount = {
                 numericUserId: CONNECTED_ID,
@@ -422,7 +411,6 @@ describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
 
             expect(detail).not.toContain('scope: ok');
         }
-        // case: reads the connection word Status prints instead of calling it unknown (FR-003)
         {
             // `needs reconnection` reaches the panel from the accounts mirror and
             // the status projection alike, and `status-lines.ts` prints it
@@ -435,7 +423,6 @@ describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
             expect(connectionPhrase(accountFixture({ connectionState: 'mystery' })))
                 .toBe('unknown connection state: mystery');
         }
-        // case: counts an account's bindings with a noun that matches the count (FR-062)
         {
             expect(bindingsPhrase(0)).toBe('0 bindings');
             expect(bindingsPhrase(1)).toBe('1 binding');
@@ -477,8 +464,7 @@ describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
 });
 
 describe('T-024 the Accounts tab copy and secret posture (FR-020, FR-067, AC-129)', () => {
-    it('renders Accounts copy on the tab itself and none of … (+2 cases)', () => {
-        // case: renders Accounts copy on the tab itself and none of the retired noun
+    it('renders Accounts copy on the tab itself and none of the retired noun', () => {
         {
             const { dispose, strings } = mountAccountsTab((rt): void => {
                 rt.state.bindings = accountsState({ accounts: [accountFixture()] });
@@ -488,7 +474,6 @@ describe('T-024 the Accounts tab copy and secret posture (FR-020, FR-067, AC-129
             expect(strings.some((line) => line.startsWith('Accounts: '))).toBe(true);
             expect(strings.some((line) => line.includes('Repositories'))).toBe(false);
         }
-        // case: renders a hostile display name as bytes, never as markup (FR-080)
         {
             const hostile = accountFixture({ displayName: HOSTILE_TITLE });
             const state = accountsState({ accounts: [hostile] });
@@ -508,7 +493,6 @@ describe('T-024 the Accounts tab copy and secret posture (FR-020, FR-067, AC-129
             // document has no HTML sink at all, so a sink would have thrown.
             expect(strings.some((line) => line.includes('onerror'))).toBe(true);
         }
-        // case: renders no credential member and no credential bytes (AC-129)
         {
             const account = accountFixture({ state: 'rejected', errorReason: AUTH_FAILED });
             const state = accountsState({ accounts: [account] });
@@ -531,8 +515,7 @@ describe('T-024 the Accounts tab copy and secret posture (FR-020, FR-067, AC-129
 });
 
 describe('the Accounts tab carries a static disclaimer instead of a consent dialog (002 v1.9.0)', () => {
-    it('mounts the disclaimer beneath the Accounts section, … (+2 cases)', () => {
-        // case: mounts the disclaimer beneath the Accounts section, always visible
+    it('mounts the disclaimer beneath the Accounts section, always visible', () => {
         {
             const { rt, dispose, created } = mountAccountsTab();
             dispose();
@@ -550,7 +533,6 @@ describe('the Accounts tab carries a static disclaimer instead of a consent dial
 
             expect(rt.handoffView).not.toBeNull();
         }
-        // case: offers no Accept, Decline, or any other button with it
         {
             const { dispose, created } = mountAccountsTab();
             dispose();
@@ -563,7 +545,6 @@ describe('the Accounts tab carries a static disclaimer instead of a consent dial
             expect(labels).not.toContain('Decline');
             // The one credential-path button that remains is the submit control.
         }
-        // case: keeps no consent state on the runtime the tab mounts (002 v1.9.0)
         {
             const { rt, dispose } = mountAccountsTab();
             dispose();
@@ -586,7 +567,6 @@ interface DisplaySpec {
 /**
  * Mount the runtime the profile write runs against, over a recording host.
  *
- * @param spec - The write's answer and the label a re-read reports.
  * @returns The runtime and every request it made.
  */
 async function displayRuntime(spec: DisplaySpec): Promise<{
@@ -653,7 +633,6 @@ async function displayRuntime(spec: DisplaySpec): Promise<{
  * it: both drafts, read off the two fields (owner ruling, PR #12 — "One Save
  * button, both fields").
  *
- * @param rt - Runtime whose open row carries the drafts.
  * @returns The write's completion — resolved only after the re-read.
  */
 async function saveBothDrafts(rt: PanelRuntime): Promise<void> {
@@ -670,8 +649,7 @@ async function saveBothDrafts(rt: PanelRuntime): Promise<void> {
 }
 
 describe('T-026 the display name is written by the service, never by the panel (FR-066)', () => {
-    it('round-trips a label through the profile write and sho… (+3 cases)', async () => {
-        // case: round-trips a label through the profile write and shows what came back
+    it('round-trips a label through the profile write and shows what came back', async () => {
         {
             const { rt, requests } = await displayRuntime({
                 answer: { status: 200, body: JSON.stringify({ account: {} }) },
@@ -697,7 +675,9 @@ describe('T-026 the display name is written by the service, never by the panel (
             expect(rt.state.accounts.displayNameError).toBeNull();
             expect(rt.state.accounts.startingPromptError).toBeNull();
         }
-        // case: renders the refusal at the field and keeps the stored label (AC-130)
+    });
+
+    it('renders the refusal at the field and keeps the stored label', async () => {
         {
             const refusal = JSON.stringify({
                 error: {
@@ -729,7 +709,9 @@ describe('T-026 the display name is written by the service, never by the panel (
             // the draft keeps what was typed so the operator can correct it.
             expect(rt.state.accounts.displayNameDraft).toBe(submitted);
         }
-        // case: keeps the display name when the login is renamed upstream (AC-128)
+    });
+
+    it('keeps the display name when the login is renamed upstream', async () => {
         {
             const renamed = accountFixture({ login: RENAMED_LOGIN, displayName: 'Ops label' });
             const [row] = accountRows(accountsState({ accounts: [renamed] }));
@@ -739,7 +721,9 @@ describe('T-026 the display name is written by the service, never by the panel (
             expect(row?.subtitle).toContain('@octocat-renamed');
             expect(accountTitle(accountFixture({ login: RENAMED_LOGIN }))).toBe(RENAMED_LOGIN);
         }
-        // case: states what a rotation keeps, before anything is pasted (FR-064)
+    });
+
+    it('states what a rotation keeps, before anything is pasted', async () => {
         {
             const statement = rotationStatement(CONNECTED_LOGIN);
 
@@ -747,12 +731,12 @@ describe('T-026 the display name is written by the service, never by the panel (
             expect(statement).toContain('above');
         }
     });
+
 });
 
 /**
  * Read an accounts body carrying exactly the members a test names (004 FR-082).
  *
- * @param members - The record members to seed the one account with.
  * @returns The parsed accounts, or the reader's refusal.
  */
 function readAccounts(members: Record<string, unknown>): PanelAccount[] | null {
@@ -764,8 +748,7 @@ function readAccounts(members: Record<string, unknown>): PanelAccount[] | null {
 }
 
 describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', () => {
-    it('writes both members in one save and shows an honest not set (+2 cases)', async () => {
-        // case: writes both members in one body and brings the value back on a reload
+    it('writes both members in one body and brings the value back on a reload', async () => {
         {
             const { rt, requests } = await displayRuntime({
                 answer: { status: 200, body: JSON.stringify({ account: {} }) },
@@ -792,7 +775,9 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
             expect(rt.state.accounts.startingPromptDraft).toBe(ACCOUNT_PROMPT);
             expect(rt.state.accounts.startingPromptError).toBeNull();
         }
-        // case: an unset tier reads "not set" where the text would be (FR-064)
+    });
+
+    it('an unset tier reads "not set" where the text would be', async () => {
         {
             const { rt, dispose, strings } = mountAccountsTab((runtime): void => {
                 runtime.state.bindings = accountsState({ accounts: [accountFixture()] });
@@ -821,8 +806,8 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
         }
     });
 
-    it('keeps a refusal at its field and the value out of every summary (+3 cases)', async () => {
-        // case: a refusal renders its remediation and changes nothing (AC-150)
+
+    it('a refusal renders its remediation and changes nothing', async () => {
         {
             const refusal = JSON.stringify({
                 error: {
@@ -857,22 +842,26 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
             expect(rt.state.accounts.startingPromptDraft).toBe(submitted);
             expect(rt.state.bindings.accounts[0]?.startingPrompt).toBe(ACCOUNT_PROMPT);
         }
-        // case: the row summary carries presence and length only (005 FR-051)
+    });
+
+    it('the row summary carries presence and length only (005 FR-051)', async () => {
         {
             const set = accountFixture({ startingPrompt: ACCOUNT_PROMPT });
             const unset = accountFixture({});
-            const setRow = accountRows(accountsState({ accounts: [set] }))[0];
-            const unsetRow = accountRows(accountsState({ accounts: [unset] }))[0];
+            const withPromptRow = accountRows(accountsState({ accounts: [set] }))[0];
+            const withoutPromptRow = accountRows(accountsState({ accounts: [unset] }))[0];
 
-            expect(setRow?.subtitle).toContain(`prompt set · ${ACCOUNT_PROMPT.length} chars`);
-            expect(setRow?.subtitle).not.toContain(ACCOUNT_PROMPT);
-            expect(setRow?.subtitle).not.toContain('mtp-');
-            expect(unsetRow?.subtitle).toContain('prompt not set');
+            expect(withPromptRow?.subtitle).toContain(`prompt set · ${ACCOUNT_PROMPT.length} chars`);
+            expect(withPromptRow?.subtitle).not.toContain(ACCOUNT_PROMPT);
+            expect(withPromptRow?.subtitle).not.toContain('mtp-');
+            expect(withoutPromptRow?.subtitle).toContain('prompt not set');
             // The detail line is a summary too — presence, never the text.
             expect(accountDetail(accountsState({ accounts: [set] }), set)).toContain('prompt set');
             expect(accountDetail(accountsState({ accounts: [set] }), set)).not.toContain(ACCOUNT_PROMPT);
         }
-        // case: host.storage receives no copy of the tier (AC-144, NFR-102)
+    });
+
+    it('host.storage receives no copy of the tier', async () => {
         {
             const host = await scriptedRuntime((request) => {
                 if (request.method === 'PUT') {
@@ -931,6 +920,7 @@ describe('T-031 the account tier rides the profile write (004 FR-082, FR-089)', 
             expect(stored).not.toContain('startingPrompt');
         }
     });
+
 
     it('refuses a non-text tier instead of reading it as unset (FR-082)', () => {
         // Fail closed: a value that is neither text nor `null` refuses the

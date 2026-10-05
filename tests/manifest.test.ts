@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { hostMeetsOpenChamberEngine, requestedGuestCapabilities } from '@openchamber/sdk';
 import { parseManifestJson } from '@openchamber/sdk/schemas';
+import { byText } from './support/sort.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
@@ -81,21 +82,17 @@ function openchamberBlock(manifest: PackageJson): OpenChamberBlock {
 }
 
 describe('manifest identity', () => {
-    it('declares the documented API version (+5 cases)', () => {
-        // case: declares the documented API version
+    it('declares the documented API version', () => {
         {
             expect(openchamberBlock(EXTENSION_MANIFEST).apiVersion).toBe(1);
         }
-        // case: declares the documented engine floor
         {
             expect(openchamberBlock(EXTENSION_MANIFEST).engines?.openchamber).toBe(ENGINE_FLOOR);
         }
-        // case: accepts the floor build and refuses older hosts
         {
             expect(hostMeetsOpenChamberEngine(SUPPORTED_BUILD, ENGINE_FLOOR)).toBe(true);
             expect(hostMeetsOpenChamberEngine(UNSUPPORTED_BUILD, ENGINE_FLOOR)).toBe(false);
         }
-        // case: parses with the official SDK manifest parser
         {
             const text = readFileSync(resolve(ROOT, EXTENSION_MANIFEST_PATH), 'utf8');
             const parsed = parseManifestJson(text);
@@ -105,11 +102,9 @@ describe('manifest identity', () => {
                 expect(parsed.manifest.apiVersion).toBe(1);
             }
         }
-        // case: ships a semver version on the extension package
         {
             expect(EXTENSION_MANIFEST.version).toMatch(/^\d+\.\d+\.\d+/);
         }
-        // case: keeps the kebab-case identity and its storage-key prefix (006 T-028, AGENTS 4)
         {
             const panelId = openchamberBlock(EXTENSION_MANIFEST).contributes?.panel?.id ?? '';
             expect(panelId).toMatch(/^[a-z][a-z0-9-]*$/);
@@ -118,7 +113,7 @@ describe('manifest identity', () => {
             // key is prefixed with it, so renaming either one is a user-visible
             // storage reset. Asserted here, where the identity is declared.
             const prefixed = readdirSync(resolve(ROOT, 'src'), { recursive: true })
-                .map((entry) => String(entry))
+                .map(String)
                 .filter((entry) => entry.endsWith('.ts'))
                 .filter((entry) => readFileSync(resolve(ROOT, 'src', entry), 'utf8').includes(`${panelId}:`));
 
@@ -128,20 +123,17 @@ describe('manifest identity', () => {
 });
 
 describe('SDK pinning', () => {
-    it('pins the SDK exactly in the extension package (+2 cases)', () => {
-        // case: pins the SDK exactly in the extension package
+    it('pins the SDK exactly in the extension package', () => {
         {
             const pin = EXTENSION_MANIFEST.dependencies?.[SDK_PACKAGE];
             expect(pin).toBeDefined();
             expect(pin).not.toMatch(/^[~^]/);
         }
-        // case: pins the SDK in dependencies only, never duplicated in devDependencies
         {
             const pin = EXTENSION_MANIFEST.dependencies?.[SDK_PACKAGE];
             expect(pin).toBeDefined();
             expect(EXTENSION_MANIFEST.devDependencies?.[SDK_PACKAGE]).toBeUndefined();
         }
-        // case: never pins a preview release
         {
             const pin = EXTENSION_MANIFEST.dependencies?.[SDK_PACKAGE] ?? '';
             expect(pin).not.toContain('preview');
@@ -150,18 +142,15 @@ describe('SDK pinning', () => {
 });
 
 describe('declared capabilities', () => {
-    it('requests exactly the capabilities the spike uses (+2 cases)', () => {
-        // case: requests exactly the capabilities the spike uses
+    it('requests exactly the capabilities the spike uses', () => {
         {
             expect(openchamberBlock(EXTENSION_MANIFEST).contributes?.capabilities).toEqual(ALLOWED_CAPABILITIES);
         }
-        // case: declares no filesystem, background, or model surface
         {
             const { contributes } = openchamberBlock(EXTENSION_MANIFEST);
             expect(contributes?.filesystem).toBeUndefined();
             expect(contributes?.background).toBeUndefined();
         }
-        // case: requests no capability outside the documented set
         {
             const capabilities = openchamberBlock(EXTENSION_MANIFEST).contributes?.capabilities ?? [];
             const documented = ['sessions', 'prompt', 'files', 'model'];
@@ -175,8 +164,7 @@ describe('declared capabilities', () => {
 describe('service contribution', () => {
     const manifestText = readFileSync(resolve(ROOT, EXTENSION_MANIFEST_PATH), 'utf8');
 
-    it('declares a host runtime entry and no permissions key (+4 cases)', () => {
-        // case: declares a host runtime entry and no permissions key
+    it('declares a host runtime entry and no permissions key', () => {
         {
             const manifest = JSON.parse(manifestText) as PackageJson;
             const service = manifest.openchamber?.contributes?.service;
@@ -184,7 +172,6 @@ describe('service contribution', () => {
             expect(service).toEqual({ entry: SERVICE_ENTRY, runtime: 'host' });
             expect(service).not.toHaveProperty('permissions');
         }
-        // case: ships a compiled entry beside its TypeScript source
         {
             const parsed = parseManifestJson(manifestText);
 
@@ -198,7 +185,6 @@ describe('service contribution', () => {
             expect(existsSync(resolve(ROOT, entry ?? ''))).toBe(true);
             expect(existsSync(resolve(ROOT, 'service/main.ts'))).toBe(true);
         }
-        // case: parses with the SDK service rules
         {
             const parsed = parseManifestJson(manifestText);
 
@@ -207,7 +193,6 @@ describe('service contribution', () => {
                 expect(parsed.manifest.contributes.service?.runtime).toBe('host');
             }
         }
-        // case: derives the implied capability set through the SDK
         {
             const parsed = parseManifestJson(manifestText);
 
@@ -220,10 +205,9 @@ describe('service contribution', () => {
                 // diagnostic went with the install-time credential), so the only
                 // implied capability left is the one `contributes.service`
                 // carries (AGENTS invariant 3).
-                expect([...requested].sort()).toEqual(['prompt', 'service', 'sessions']);
+                expect([...requested].toSorted(byText)).toEqual(['prompt', 'service', 'sessions']);
             }
         }
-        // case: never lists an implied capability inside capabilities[]
         {
             const declared = openchamberBlock(EXTENSION_MANIFEST).contributes?.capabilities ?? [];
 
@@ -236,8 +220,7 @@ describe('service contribution', () => {
 describe('GitHub integration card (retired 2026-09-30)', () => {
     const integration = openchamberBlock(EXTENSION_MANIFEST).contributes?.integration;
 
-    it('declares no integration card at all (+1 cases)', () => {
-        // case: declares no integration card at all
+    it('declares no integration card at all', () => {
         {
             // 002 FR-011's card was the install-time credential: its `token`
             // block asked the host to hold a GitHub token for the panel, and its
@@ -247,7 +230,6 @@ describe('GitHub integration card (retired 2026-09-30)', () => {
             // accounts own.
             expect(integration).toBeUndefined();
         }
-        // case: keeps the panel GitHub-free: no api origin, no bearer scheme, no /user
         {
             const serialized = JSON.stringify(openchamberBlock(EXTENSION_MANIFEST));
 
@@ -259,14 +241,12 @@ describe('GitHub integration card (retired 2026-09-30)', () => {
 });
 
 describe('panel entry', () => {
-    it('points at a shipped HTML file (+1 cases)', () => {
-        // case: points at a shipped HTML file
+    it('points at a shipped HTML file', () => {
         {
             const entry = openchamberBlock(EXTENSION_MANIFEST).contributes?.panel?.entry;
             expect(entry).toBe('panel/index.html');
             expect(existsSync(resolve(ROOT, entry ?? ''))).toBe(true);
         }
-        // case: matches the providerId the dispatch code sends
         {
             const panelId = openchamberBlock(EXTENSION_MANIFEST).contributes?.panel?.id;
             const sessionSource = readFileSync(resolve(ROOT, 'src/session.ts'), 'utf8');
@@ -306,7 +286,8 @@ function panelSources(): ReadonlyMap<string, string> {
     const found = new Map<string, string>();
     for (const dir of ['src', 'panel']) {
         const root = resolve(ROOT, dir);
-        for (const name of readdirSync(root, { recursive: true })) {
+        const names = readdirSync(root, { recursive: true });
+        for (const name of names) {
             if (typeof name !== 'string' || !name.endsWith('.ts')) {
                 continue;
             }
@@ -322,8 +303,7 @@ function panelSources(): ReadonlyMap<string, string> {
 describe('002 FR-041 / FR-011 re-cut — the integration card is gone entirely', () => {
     const { contributes } = openchamberBlock(EXTENSION_MANIFEST);
 
-    it('declares no integration card, so none of the six for… (+1 cases)', () => {
-        // case: declares no integration card, so none of the six former ids has a home
+    it('declares no integration card, so none of the six former ids has a home', () => {
         {
             expect(contributes?.integration).toBeUndefined();
 
@@ -333,7 +313,6 @@ describe('002 FR-041 / FR-011 re-cut — the integration card is gone entirely',
             }
             expect(serialized).not.toContain('repository');
         }
-        // case: leaves capabilities, the service, and the panel id untouched
         {
             expect(contributes?.capabilities).toEqual(['sessions', 'prompt']);
             expect(contributes?.service).toEqual({
@@ -346,8 +325,7 @@ describe('002 FR-041 / FR-011 re-cut — the integration card is gone entirely',
 });
 
 describe('002 AC-021 — no reader takes a card id from ctx.settings', () => {
-    it('keeps every retired settings identifier out of the p… (+2 cases)', () => {
-        // case: keeps every retired settings identifier out of the panel source
+    it('keeps every retired settings identifier out of the panel source', () => {
         {
             for (const [path, source] of panelSources()) {
                 for (const identifier of RETIRED_IDENTIFIERS) {
@@ -355,7 +333,6 @@ describe('002 AC-021 — no reader takes a card id from ctx.settings', () => {
                 }
             }
         }
-        // case: never quotes one of the card’s kebab-case ids as a value
         {
             // `repository` is excluded deliberately: it is also an ordinary DTO
             // field name on the wire, so its card reading is covered by the
@@ -364,12 +341,11 @@ describe('002 AC-021 — no reader takes a card id from ctx.settings', () => {
                 for (const id of CARD_SETTING_IDS) {
                     const single = `'${id}'`;
                     const double = `"${id}"`;
-                    const quoted = source.includes(single) || source.includes(double);
-                    expect(quoted, `${path} reads the card id ${id}`).toBe(false);
+                    const isQuoted = source.includes(single) || source.includes(double);
+                    expect(isQuoted, `${path} reads the card id ${id}`).toBe(false);
                 }
             }
         }
-        // case: indexes no settings record anywhere in the panel source
         {
             const indexed = /\bsettings\s*\[/;
             for (const [path, source] of panelSources()) {

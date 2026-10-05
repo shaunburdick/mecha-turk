@@ -4,7 +4,7 @@ import type { GuestProjectsSnapshot, GuestWorktreesSnapshot, StartSessionResult 
 import type { GitHubIssue } from '../src/github.ts';
 import { summarizeHostVerification, verifyHostState } from '../src/host-verify.ts';
 import { appendEntry, createLedger } from '../src/ledger.ts';
-import type { SpikeLedger } from '../src/ledger.ts';
+import type { PanelLedger } from '../src/ledger.ts';
 import {
     CONTEXT_MAX_CHARS,
     SOURCE_EXCERPT_MAX_CHARS,
@@ -14,11 +14,11 @@ import {
     resolveProject,
     summarizeStartSessionResult,
 } from '../src/session.ts';
-import type { ContextSource, SpikeHost } from '../src/session.ts';
+import type { ContextSource, PanelHost } from '../src/session.ts';
 import {
     FIXTURE_CORRELATION,
     FIXTURE_TIMESTAMP,
-    IDLE_UNSUBSCRIBE,
+    hasNothingToRelease,
     ISSUE_URL,
     LOGIN,
     PROJECT_DIR,
@@ -110,9 +110,6 @@ function issue(overrides: Partial<GitHubIssue> = {}): GitHubIssue {
 
 /**
  * Build one source reference the bounded context quotes.
- *
- * @param overrides - Fields the test changes.
- * @returns A complete source reference.
  */
 function source(overrides: Partial<ContextSource> = {}): ContextSource {
     return {
@@ -131,11 +128,11 @@ function source(overrides: Partial<ContextSource> = {}): ContextSource {
  * @param teardowns - Collector the returned unsubscribe handles append to.
  * @returns A host that behaves like a live, subscribed panel.
  */
-function recordingHost(teardowns: string[]): SpikeHost {
-    const stopProjects = (): number => teardowns.push('projects');
-    const stopWorktrees = (): number => teardowns.push('worktrees');
-    const stopSessions = (): number => teardowns.push('sessions');
-    const stopLifecycle = (): number => teardowns.push('lifecycle');
+function recordingHost(teardowns: string[]): PanelHost {
+    const stopProjects = (): void => void teardowns.push('projects');
+    const stopWorktrees = (): void => void teardowns.push('worktrees');
+    const stopSessions = (): void => void teardowns.push('sessions');
+    const stopLifecycle = (): void => void teardowns.push('lifecycle');
 
     return fakeHost({
         onProjects: async (listener) => {
@@ -166,26 +163,25 @@ function recordingHost(teardowns: string[]): SpikeHost {
  *
  * @returns A host double whose session-lifecycle listener never fires.
  */
-function freshHost(): SpikeHost {
+function freshHost(): PanelHost {
     return fakeHost({
         onProjects: async (listener) => {
             listener(PROJECTS);
-            return IDLE_UNSUBSCRIBE;
+            return hasNothingToRelease;
         },
         onWorktrees: async (projectId, listener) => {
             listener({ ...WORKTREES, projectId });
-            return IDLE_UNSUBSCRIBE;
+            return hasNothingToRelease;
         },
         onSessions: async (projectId, listener) => {
             listener({ ...SESSIONS, projectId });
-            return IDLE_UNSUBSCRIBE;
+            return hasNothingToRelease;
         },
     });
 }
 
 describe('resolveProject', () => {
-    it('resolves the configured project id (+2 cases)', async () => {
-        // case: resolves the configured project id
+    it('resolves the configured project id', async () => {
         {
             const result = await resolveProject(fakeHost(), PROJECT_ID);
 
@@ -194,7 +190,9 @@ describe('resolveProject', () => {
                 expect(result.project.directory).toBe(PROJECT_DIR);
             }
         }
-        // case: blocks when the project is not registered
+    });
+
+    it('blocks when the project is not registered', async () => {
         {
             const result = await resolveProject(fakeHost(), 'missing-project');
 
@@ -204,7 +202,9 @@ describe('resolveProject', () => {
                 expect(result.available).toEqual([PROJECT_ID]);
             }
         }
-        // case: blocks when listProjects fails
+    });
+
+    it('blocks when listProjects fails', async () => {
         {
             const host = fakeHost({ listProjects: offlineProjects });
             const result = await resolveProject(host, PROJECT_ID);
@@ -215,11 +215,11 @@ describe('resolveProject', () => {
             }
         }
     });
+
 });
 
 describe('buildBoundedContext', () => {
-    it('includes the correlation id, repository, issue, and … (+5 cases)', () => {
-        // case: includes the correlation id, repository, issue, and rule
+    it('includes the correlation id, repository, issue, and rule', () => {
         {
             const context = buildBoundedContext({
                 repository: REPOSITORY,
@@ -234,7 +234,6 @@ describe('buildBoundedContext', () => {
             expect(context).toContain(`Machine account: ${LOGIN}`);
             expect(context).toContain('configured-match');
         }
-        // case: delimits untrusted issue text
         {
             const context = buildBoundedContext({
                 repository: REPOSITORY,
@@ -245,7 +244,6 @@ describe('buildBoundedContext', () => {
 
             expect(context).toContain(ISSUE_BODY_TEXT);
         }
-        // case: stays inside the documented character budget
         {
             const huge = issue({ body: 'z'.repeat(CONTEXT_MAX_CHARS * 2) });
             const context = buildBoundedContext({
@@ -257,7 +255,6 @@ describe('buildBoundedContext', () => {
 
             expect(context.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
         }
-        // case: keeps both untrusted-text delimiters when the budget forces truncation
         {
             const huge = issue({ body: 'z'.repeat(CONTEXT_MAX_CHARS * 2) });
             const context = buildBoundedContext({
@@ -271,7 +268,6 @@ describe('buildBoundedContext', () => {
             expect(context.length).toBeLessThanOrEqual(TIGHT_CONTEXT_CHARS);
             expect(context.endsWith(CLOSING_DELIMITER)).toBe(true);
         }
-        // case: never carries the token or an Authorization header
         {
             const context = buildBoundedContext({
                 repository: REPOSITORY,
@@ -283,7 +279,6 @@ describe('buildBoundedContext', () => {
             expect(context).not.toMatch(/\bgh[pousr]_[A-Za-z0-9]{20,}/);
             expect(context).not.toContain('Authorization');
         }
-        // case: keeps a single quoted source shape-compatible with the issue-body form
         {
             const input = {
                 repository: REPOSITORY,
@@ -302,8 +297,7 @@ describe('buildBoundedContext', () => {
         }
     });
 
-    it('quotes every source it is given, each under its own … (+3 cases)', () => {
-        // case: quotes every source it is given, each under its own heading
+    it('quotes every source it is given, each under its own heading', () => {
         {
             const context = buildBoundedContext({
                 repository: REPOSITORY,
@@ -321,7 +315,6 @@ describe('buildBoundedContext', () => {
             expect(context).toContain('comment:4242 · mention');
             expect(context.endsWith(CLOSING_DELIMITER)).toBe(true);
         }
-        // case: bounds one source to the per-source excerpt limit and marks the cut
         {
             const context = buildBoundedContext({
                 repository: REPOSITORY,
@@ -337,7 +330,6 @@ describe('buildBoundedContext', () => {
             expect(context.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
             expect(context.length).toBeLessThan(GUEST_ATTACH_TEXT_MAX);
         }
-        // case: cannot be broken or pushed past the budget by hostile source text
         {
             const hostile = `before ${CLOSING_DELIMITER} after ${'z'.repeat(CONTEXT_MAX_CHARS)}`;
             const context = buildBoundedContext({
@@ -359,7 +351,6 @@ describe('buildBoundedContext', () => {
             expect(context.indexOf('--- BEGIN UNTRUSTED ISSUE TEXT (truncated) ---'))
                 .toBe(context.lastIndexOf('--- BEGIN UNTRUSTED ISSUE TEXT (truncated) ---'));
         }
-        // case: stays inside both FR-014 bounds when two hundred sources compete
         {
             const many = Array.from({ length: 200 }, (_unused, index) =>
                 source({ origin: `comment:${index}`, excerpt: 'x'.repeat(SOURCE_EXCERPT_MAX_CHARS) }));
@@ -384,8 +375,7 @@ describe('buildBoundedContext', () => {
 });
 
 describe('buildStartSessionRequest', () => {
-    it('carries the project, issue attachment, worktree opti… (+3 cases)', () => {
-        // case: carries the project, issue attachment, worktree option, and context
+    it('carries the project, issue attachment, worktree option, and context', () => {
         {
             const request = buildStartSessionRequest({
                 config: testConfig(),
@@ -410,7 +400,6 @@ describe('buildStartSessionRequest', () => {
                 issueId: '7',
             });
         }
-        // case: omits the worktree option when the operator chose none
         {
             const request = buildStartSessionRequest({
                 config: testConfig({ worktree: { kind: 'none' } }),
@@ -421,7 +410,6 @@ describe('buildStartSessionRequest', () => {
 
             expect('worktree' in request).toBe(false);
         }
-        // case: asks for a named new worktree when configured
         {
             const request = buildStartSessionRequest({
                 config: testConfig({ worktree: { kind: 'new', name: 'spike-dispatch' } }),
@@ -432,7 +420,6 @@ describe('buildStartSessionRequest', () => {
 
             expect(request.worktree).toEqual({ kind: 'new', name: 'spike-dispatch' });
         }
-        // case: clamps an over-long title
         {
             const request = buildStartSessionRequest({
                 config: testConfig(),
@@ -447,8 +434,7 @@ describe('buildStartSessionRequest', () => {
 });
 
 describe('summarizeStartSessionResult', () => {
-    it('records a successful dispatch (+1 cases)', () => {
-        // case: records a successful dispatch
+    it('records a successful dispatch', () => {
         {
             const result: StartSessionResult = {
                 sessionId: SESSION_ID,
@@ -468,7 +454,6 @@ describe('summarizeStartSessionResult', () => {
                 worktreeStatus: null,
             });
         }
-        // case: records a partial bootstrap failure with the worktree left behind
         {
             const result: StartSessionResult = {
                 sessionId: null,
@@ -494,10 +479,9 @@ describe('summarizeStartSessionResult', () => {
 });
 
 describe('findDispatchForIssue', () => {
-    it('detects an issue that was already dispatched (+2 cases)', () => {
-        // case: detects an issue that was already dispatched
+    it('detects an issue that was already dispatched', () => {
         {
-            let ledger: SpikeLedger = createLedger({
+            let ledger: PanelLedger = createLedger({
                 correlationId: 'corr',
                 panelGeneration: 1,
                 storagePresentBeforeMount: false,
@@ -512,7 +496,6 @@ describe('findDispatchForIssue', () => {
             expect(findDispatchForIssue(ledger, '7')).toBe(true);
             expect(findDispatchForIssue(ledger, '8')).toBe(false);
         }
-        // case: ignores non-session entries
         {
             const ledger = createLedger({
                 correlationId: 'corr',
@@ -523,9 +506,8 @@ describe('findDispatchForIssue', () => {
 
             expect(findDispatchForIssue(ledger, '7')).toBe(false);
         }
-        // case: ignores blocked and failed attempts recorded before a session existed
         {
-            let ledger: SpikeLedger = createLedger({
+            let ledger: PanelLedger = createLedger({
                 correlationId: 'corr',
                 panelGeneration: 1,
                 storagePresentBeforeMount: false,
@@ -562,8 +544,7 @@ describe('findDispatchForIssue', () => {
 });
 
 describe('verifyHostState', () => {
-    it('records lists, subscriptions, and lifecycle phases f… (+4 cases)', async () => {
-        // case: records lists, subscriptions, and lifecycle phases from the host
+    it('records lists, subscriptions, and lifecycle phases from the host', async () => {
         {
             const teardowns: string[] = [];
             const host = recordingHost(teardowns);
@@ -584,7 +565,9 @@ describe('verifyHostState', () => {
             expect(teardowns).toHaveLength(4);
             expect(teardowns).toContain('projects');
         }
-        // case: records a problem when a list call fails
+    });
+
+    it('records a problem when a list call fails', async () => {
         {
             const host = fakeHost({ listWorktrees: timedOutWorktrees });
 
@@ -593,7 +576,9 @@ describe('verifyHostState', () => {
             expect(verification.problems.join(' ')).toContain('listWorktrees');
             expect(verification.projectFound).toBe(true);
         }
-        // case: records a problem when a subscription cannot register
+    });
+
+    it('records a problem when a subscription cannot register', async () => {
         {
             const host = fakeHost({ onSessions: deniedSessions });
 
@@ -604,7 +589,9 @@ describe('verifyHostState', () => {
             expect(probe?.error).toContain('NOT_GRANTED');
             expect(verification.problems.join(' ')).toContain('sessions');
         }
-        // case: flattens to scalar ledger detail
+    });
+
+    it('flattens to scalar ledger detail', async () => {
         {
             const host = recordingHost([]);
             const verification = await verifyHostState({ host, projectId: PROJECT_ID, waitMs: PROBE_WAIT_MS });
@@ -617,7 +604,9 @@ describe('verifyHostState', () => {
             expect(typeof detail.worktreeBranches).toBe('string');
             expect(detail.problems).toBe('');
         }
-        // case: treats a silent session-lifecycle stream on a fresh host as registration
+    });
+
+    it('treats a silent session-lifecycle stream on a fresh host as registration', async () => {
         {
             const host = freshHost();
 
@@ -634,4 +623,5 @@ describe('verifyHostState', () => {
             expect(summarizeHostVerification(verification).failedProbeSurfaces).toBe('');
         }
     });
+
 });

@@ -1,6 +1,5 @@
 /**
- * The Dispatches tab's paging, filter, and row-detail controls (005 FR-042,
- * FR-043, FR-048, FR-049, FR-081).
+ * The Dispatches tab's paging, filter, and row-detail controls.
  *
  * `dispatches-ui.ts` owns the list, the action groups, the audit trail, and
  * the verification banner; this sibling owns everything an operator uses to
@@ -12,14 +11,13 @@
  *
  * Everything operator-facing here is a **pure function of panel state** —
  * which range is showing, which filters are active, what the empty slot says
- * when a filter matched nothing, and the row-naming accessible names FR-081
- * asks for — so the copy is testable without a DOM (FR-086), and the mount
+ * when a filter matched nothing, and the row-naming accessible names — so the
+ * copy is testable without a DOM, and the mount
  * and repaint are thin applications of those strings.
  *
  * No control here talks to the service: the paging actions live in
  * `dispatches-paging.ts` and the row actions in `dispatches.ts`, so the one
- * list read and the one action dispatch path FR-049 requires stay exactly
- * where they were.
+ * list read and the one action dispatch path stay exactly where they were.
  */
 
 import { mountButton, mountList, mountSelect } from '@openchamber/sdk/ui';
@@ -42,7 +40,7 @@ const ALL_FILTERS = 'all';
  */
 const CONTROLS_TOOLBAR_CLASS = 'mt-toolbar mt-toolbar--controls';
 
-/** Label of the correlation-id copy control (FR-049). */
+/** Label of the correlation-id copy control. */
 const COPY_CORRELATION_LABEL = 'Copy correlation id';
 
 /** Label the source-reference reveal carries before a row is selected. */
@@ -79,21 +77,21 @@ function stateFilterLabel(token: string): string {
 
 /** Callbacks the paging, filter, and row-detail controls invoke. */
 export interface DispatchControlsHandlers {
-    /** Step to the previous page of the current set (FR-042). */
+    /** Step to the previous page of the current set. */
     readonly previousPage: () => void;
-    /** Step to the next page of the current set (FR-042). */
+    /** Step to the next page of the current set. */
     readonly nextPage: () => void;
-    /** Change the page size and restart at page one of the same set (FR-042). */
+    /** Change the page size and restart at page one of the same set. */
     readonly setPageLimit: (limit: number) => void;
-    /** Filter by binding, server-side (FR-043). */
+    /** Filter by binding, server-side. */
     readonly setBindingFilter: (bindingId: string | null) => void;
-    /** Filter by state, server-side (FR-043). */
+    /** Filter by state, server-side. */
     readonly setStateFilter: (state: string | null) => void;
-    /** Clear both filters and return to page one of the whole set (AC-122). */
+    /** Clear both filters and return to page one of the whole set. */
     readonly clearFilters: () => void;
-    /** Reveal or hide the selected row's source references (FR-048). */
+    /** Reveal or hide the selected row's source references. */
     readonly toggleReferences: () => void;
-    /** Copy the selected row's correlation id to the clipboard (FR-049). */
+    /** Copy the selected row's correlation id to the clipboard. */
     readonly copyCorrelationId: () => void;
 }
 
@@ -111,13 +109,13 @@ export interface DispatchControlsInput {
 export interface PagingControls {
     /** Which slice of the filtered set is on screen, and when it was read. */
     readonly rangeLine: TextHandle;
-    /** The active filters, named whether or not any is on (FR-043). */
+    /** The active filters, named whether or not any is on. */
     readonly filterLine: TextHandle;
     /** Step one page back; disabled on the first page. */
     readonly previousPage: ButtonHandle;
     /** Step one page forward; disabled when the answer reported no more. */
     readonly nextPage: ButtonHandle;
-    /** Page-size select: 10, 25, 50, or 100 (FR-042). */
+    /** Page-size select: 10, 25, 50, or 100. */
     readonly pageSize: SelectHandle;
     /** Server-side binding filter. */
     readonly bindingFilter: SelectHandle;
@@ -133,19 +131,19 @@ export interface RowDetail {
     readonly detailBox: HTMLElement;
     /** Wrapper around the reveal control, hidden below two references. */
     readonly revealBox: HTMLElement;
-    /** The control that names how many further reasons fired (FR-048). */
+    /** The control that names how many further reasons fired. */
     readonly sourceReveal: ButtonHandle;
     /** Wrapper around the reference list, hidden until the reveal opens it. */
     readonly listBox: HTMLElement;
     /** Every source reference of the selected row, earliest first. */
     readonly detailList: ListHandle;
-    /** Copies the selected row's correlation id (FR-049). */
+    /** Copies the selected row's correlation id. */
     readonly copyCorrelation: ButtonHandle;
 }
 
 /** Every control the Dispatches body mounts around its list. */
 export interface DispatchesControls extends PagingControls, RowDetail {
-    /** Release every handle this module mounted (FR-017). */
+    /** Release every handle this module mounted. */
     readonly dispose: () => void;
 }
 
@@ -154,12 +152,11 @@ export interface DispatchesControls extends PagingControls, RowDetail {
  *
  * `dispatches-ui.ts` takes it for the groups that **show and hide**: the SDK
  * buttons have no "absent" state, so each group needs an element whose own
- * `hidden` flag is the "no control here" (FR-041, FR-074), and a row that
- * wraps survives the narrowest frame the host allows (FR-082). The
+ * `hidden` flag is the "no control here", and a row that
+ * wraps survives the narrowest frame the host allows. The
  * always-visible paging and filter row does not come from here — it is one
- * `.mt-toolbar mt-toolbar--controls` instead (2026-10-01 review).
+ * `.mt-toolbar mt-toolbar--controls` instead.
  *
- * @param pane - The pane root.
  * @returns The row element the controls mount into.
  */
 export function createControlGroup(pane: HTMLElement): HTMLElement {
@@ -176,11 +173,10 @@ export function createControlGroup(pane: HTMLElement): HTMLElement {
  * Compose the range line: which slice is showing, the set's size, and when.
  *
  * A withheld total reads *total unavailable* rather than being replaced by
- * the page size wearing a total's hat (FR-042, NFR-112), and the stamp is
+ * the page size wearing a total's hat, and the stamp is
  * the service's own label for this read, so an explicit refresh can be seen
- * as one (FR-014).
+ * as one.
  *
- * @param runs - The Dispatches section's state.
  * @returns The range line.
  */
 export function dispatchRangeLine(runs: DispatchesState): string {
@@ -199,24 +195,17 @@ export function dispatchRangeLine(runs: DispatchesState): string {
     return `Showing ${first}–${first + rows.length - 1} · ${total} · read ${utcStamp(page.snapshotAt)}`;
 }
 
-/**
- * Whether either server-side filter is on (FR-043).
- *
- * @param runs - The Dispatches section's state.
- * @returns `true` when the tab is showing a filtered set.
- */
+/** Whether either server-side filter is on. */
 export function hasActiveFilters(runs: DispatchesState): boolean {
     return runs.filters.bindingId !== null || runs.filters.state !== null;
 }
 
 /**
- * Compose the always-visible filter line (FR-043: "visible at all times").
+ * Compose the always-visible filter line.
  *
  * With nothing on it says so, so an unfiltered list never reads as though a
  * filter the operator cannot see is quietly narrowing it.
  *
- * @param runs - The Dispatches section's state.
- * @param bindings - The bindings the binding filter offers, for the label.
  * @returns The filter line.
  */
 export function activeFilterLine(runs: DispatchesState, bindings: readonly PanelBinding[]): string {
@@ -234,13 +223,12 @@ export function activeFilterLine(runs: DispatchesState, bindings: readonly Panel
 }
 
 /**
- * What the list's empty slot says (AC-122).
+ * What the list's empty slot says.
  *
  * A filtered empty is a statement about the *filter*, never about the
  * history: "there are no dispatches" would be a claim the panel has no way
  * to make while a filter is on.
  *
- * @param runs - The Dispatches section's state.
  * @returns The empty-slot copy.
  */
 export function dispatchEmptyText(runs: DispatchesState): string {
@@ -252,10 +240,8 @@ export function dispatchEmptyText(runs: DispatchesState): string {
 }
 
 /**
- * Name a row-level action with the row it acts on (FR-081).
+ * Name a row-level action with the row it acts on.
  *
- * @param base - The action's own label, from the affordance table.
- * @param row - The row the control is acting on.
  * @returns `Retry dispatch for #412 in owner/name` and its siblings.
  */
 export function rowActionLabel(base: string, row: RunRow): string {
@@ -263,22 +249,19 @@ export function rowActionLabel(base: string, row: RunRow): string {
 }
 
 /**
- * The reveal control's label: the count of reasons, and the row (FR-048).
+ * The reveal control's label: the count of reasons, and the row.
  *
- * @param open - Whether the reference list is already revealed.
- * @param row - The selected row.
  * @returns The control's accessible name.
  */
-export function sourceRevealLabel(open: boolean, row: RunRow): string {
+export function sourceRevealLabel(isOpen: boolean, row: RunRow): string {
     const where = `#${row.issueNumber} in ${row.repository}`;
 
-    return open ? `Hide the source references for ${where}` : `Show ${row.referenceCount} reasons for ${where}`;
+    return isOpen ? `Hide the source references for ${where}` : `Show ${row.referenceCount} reasons for ${where}`;
 }
 
 /**
- * The binding filter's options: an explicit "all", then every binding (FR-043).
+ * The binding filter's options: an explicit "all", then every binding.
  *
- * @param bindings - The bindings the tab already holds.
  * @returns The select options.
  */
 export function bindingFilterOptions(bindings: readonly PanelBinding[]): SelectOption[] {
@@ -289,7 +272,7 @@ export function bindingFilterOptions(bindings: readonly PanelBinding[]): SelectO
 }
 
 /**
- * The state filter's options: an explicit "all", then 003's vocabulary (FR-043).
+ * The state filter's options: an explicit "all", then 003's vocabulary.
  *
  * @returns The select options.
  */
@@ -302,7 +285,7 @@ export function stateFilterOptions(): SelectOption[] {
 }
 
 /**
- * The page-size select's options — the four the contract accepts (FR-042).
+ * The page-size select's options — the four the contract accepts.
  *
  * @returns The select options.
  */
@@ -313,7 +296,6 @@ export function pageSizeOptions(): SelectOption[] {
 /**
  * Read a filter select's choice back as a filter, or `null` for "all".
  *
- * @param id - The id the select reported.
  * @returns The filter value, with the "all" entry read as no filter.
  */
 function filterValue(id: string): string | null {
@@ -321,9 +303,8 @@ function filterValue(id: string): string | null {
 }
 
 /**
- * Mount the range line, the filters, and the paging controls (FR-042, FR-043).
+ * Mount the range line, the filters, and the paging controls.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The paging and filtering handles.
  */
 export function mountDispatchesControls(input: DispatchControlsInput): PagingControls {
@@ -383,7 +364,6 @@ export function mountDispatchesControls(input: DispatchControlsInput): PagingCon
  * The list is display-only — rows are evidence, not a selection — so its
  * `onSelect` is a no-op exactly like the audit trail's.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The row-detail handles and its wrapper.
  */
 export function mountRowDetail(input: DispatchControlsInput): RowDetail {
@@ -394,7 +374,7 @@ export function mountRowDetail(input: DispatchControlsInput): RowDetail {
     detailBox.hidden = true;
     pane.append(detailBox);
 
-    // The reveal is its own wrapper because FR-048 makes it *absent* — not
+    // The reveal is its own wrapper because it must be *absent* — not
     // greyed out — on a row with one reason or none: there is nothing more to
     // show, and a disabled control would still promise that there is.
     const revealBox = pane.ownerDocument.createElement('div');
@@ -428,12 +408,10 @@ export function mountRowDetail(input: DispatchControlsInput): RowDetail {
 }
 
 /**
- * Release every handle the two mounts above created (FR-017).
+ * Release every handle the two mounts above created.
  *
  * The wrapper elements go with their body's node; the handles themselves
  * carry listeners the host would otherwise outlive the teardown with.
- *
- * @param controls - The controls the Dispatches body mounted.
  */
 function disposeControls(controls: PagingControls & RowDetail): void {
     const handles = [
@@ -456,10 +434,8 @@ function disposeControls(controls: PagingControls & RowDetail): void {
 }
 
 /**
- * Compose the two halves into the object the board carries (FR-017).
+ * Compose the two halves into the object the board carries.
  *
- * @param paging - The paging and filtering handles.
- * @param detail - The row-detail handles.
  * @returns The complete control set, with its disposer attached.
  */
 export function combineControls(paging: PagingControls, detail: RowDetail): DispatchesControls {
@@ -467,13 +443,12 @@ export function combineControls(paging: PagingControls, detail: RowDetail): Disp
 }
 
 /**
- * Whether the reveal control exists for a row at all (FR-048).
+ * Whether the reveal control exists for a row at all.
  *
  * Below two references there is no "+N more" to offer, so the control is
  * **absent** rather than greyed out — a disabled control still promises that
  * something is behind it.
  *
- * @param row - The selected row, or `null`.
  * @returns `true` only for a row with two or more source references.
  */
 export function revealVisible(row: RunRow | null): boolean {
@@ -481,21 +456,19 @@ export function revealVisible(row: RunRow | null): boolean {
 }
 
 /**
- * Whether the reference list itself is on screen (FR-048, AC-120).
+ * Whether the reference list itself is on screen.
  *
  * One reference is listed as soon as its row is selected — there is nothing
  * to reveal — while several wait behind the operator's own reveal.
  *
- * @param row - The selected row, or `null`.
- * @param open - Whether the operator has opened the reveal.
  * @returns `true` when the list should be visible.
  */
-export function referencesVisible(row: RunRow | null, open: boolean): boolean {
+export function referencesVisible(row: RunRow | null, isOpen: boolean): boolean {
     if (row === null || row.referenceCount === 0) {
         return false;
     }
 
-    return row.referenceCount === 1 || open;
+    return row.referenceCount === 1 || isOpen;
 }
 
 /**
@@ -504,9 +477,6 @@ export function referencesVisible(row: RunRow | null, open: boolean): boolean {
  * Nothing here decides anything: the range, the filters, and the two step
  * buttons are all read back from the position the last answer recorded, so a
  * repaint can never advance a page or invent a total.
- *
- * @param rt - Panel runtime.
- * @param controls - The mounted controls.
  */
 export function repaintDispatchesControls(rt: PanelRuntime, controls: DispatchesControls): void {
     const { dispatches: runs, bindings } = rt.state;

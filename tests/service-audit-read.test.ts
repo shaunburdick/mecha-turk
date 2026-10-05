@@ -46,6 +46,7 @@ import { ABANDON_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
 import { RETRY_PATH } from '../service/routes/run-ops.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { Run } from '../service/poll/runs-types.ts';
+import { byText } from './support/sort.ts';
 import { bound, expectStatus, post, readRun, readRuns } from './support/dispatch-corpus.ts';
 import { BINDING_ID } from './support/fixture-enqueue.ts';
 import { offerFor, startDispatchLoop } from './support/dispatch-loop.ts';
@@ -118,29 +119,24 @@ const LIFECYCLE_ORDER: readonly string[] = LIFECYCLE_CHAIN.map(([eventType]) => 
 const STATE_AFTER: Readonly<Record<string, string>> = Object.fromEntries(LIFECYCLE_CHAIN);
 
 /** Event types this suite treats as rows that are not about a work unit. */
-const NON_RUN_EVENTS: readonly string[] = ['consent', 'account.verified'];
+const NON_RUN_EVENTS: ReadonlySet<string> = new Set(['consent', 'account.verified']);
 
 /** The running loop every case drives. */
 let loop: DispatchLoop;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
     loop = await startDispatchLoop();
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     await loop.shutdown();
-};
-
-afterEach(afterEachWork2);
+});
 
 /**
  * Read one correlation identifier's rows through the product's own route.
  *
- * @param correlationId - Run identifier to filter on.
  * @returns Every row the answer carried, in the order it arrived.
  * @throws {Error} When the route answers anything but `200`.
  */
@@ -153,7 +149,7 @@ async function auditFor(correlationId: string): Promise<readonly AuditEntry[]> {
 
     const body = await response.json() as { entries?: unknown };
     if (!Array.isArray(body.entries)) {
-        throw new Error('the audit read carried no entries member');
+        throw new TypeError('the audit read carried no entries member');
     }
 
     return body.entries as AuditEntry[];
@@ -173,7 +169,7 @@ async function unfilteredAudit(): Promise<readonly AuditEntry[]> {
 
     const body = await response.json() as { entries?: unknown };
     if (!Array.isArray(body.entries)) {
-        throw new Error('the audit read carried no entries member');
+        throw new TypeError('the audit read carried no entries member');
     }
 
     return body.entries as AuditEntry[];
@@ -195,7 +191,7 @@ async function claimReserveAbandon(): Promise<string> {
     expectStatus({ step: 'reserve', answer: reserved, status: 200 });
     const token = reserved.json.dispatchToken;
     if (typeof token !== 'string') {
-        throw new Error('the reservation carried no token');
+        throw new TypeError('the reservation carried no token');
     }
 
     const abandoned = await post({
@@ -238,8 +234,7 @@ async function driveLifecycle(): Promise<Run> {
 }
 
 describe('T-032 one run reconstructs from its correlation identifier alone', () => {
-    it('returns every lifecycle row in order, on the run’s o… (+1 cases)', async () => {
-        // case: returns every lifecycle row in order, on the run’s own id, ending where the run stands
+    it('returns every lifecycle row in order, on the run’s own id, ending where the run stands', async () => {
         {
             const run = await driveLifecycle();
             expect(run.state).toBe(DISPATCHED_STATE);
@@ -250,7 +245,7 @@ describe('T-032 one run reconstructs from its correlation identifier alone', () 
             // (SC-104's "reconstructable ... with prior state, new state, reason").
             const seqs = rows.map((row) => row.seq);
             expect(seqs.length).toBeGreaterThan(LIFECYCLE_ORDER.length);
-            expect(seqs).toEqual([...seqs].sort((left, right) => left - right));
+            expect(seqs).toEqual([...seqs].toSorted((left, right) => left - right));
             expect(new Set(seqs).size).toBe(seqs.length);
 
             // The correlation identifier is the run's, byte-identically, on every
@@ -288,11 +283,9 @@ describe('T-032 one run reconstructs from its correlation identifier alone', () 
             expect(result?.decision).toBe('dispatched');
             expect(result?.details).toMatchObject({ sessionId: SESSION_ID });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: excludes rows that are not about a run while keeping their own identifiers
+    });
+
+    it('excludes rows that are not about a run while keeping their own identifiers', async () => {
         {
             await appendAudit(loop.store, {
                 eventType: 'consent',
@@ -310,21 +303,22 @@ describe('T-032 one run reconstructs from its correlation identifier alone', () 
 
             const filtered = await auditFor(run.correlationId);
             const types = filtered.map((row) => row.eventType);
-            expect(types.filter((type) => NON_RUN_EVENTS.includes(type))).toEqual([]);
+            expect(types.filter((type) => NON_RUN_EVENTS.has(type))).toEqual([]);
             // Forward traceability still holds: the run's own detections match it
             // (FR-050's correlation table), so a scan observation is traceable
             // forwards into the run that absorbed it (AC-118).
             expect(types).toContain('delivery.detected');
 
             const all = await unfilteredAudit();
-            const foreign = all.filter((row) => NON_RUN_EVENTS.includes(row.eventType));
-            expect(foreign).toHaveLength(NON_RUN_EVENTS.length);
+            const foreign = all.filter((row) => NON_RUN_EVENTS.has(row.eventType));
+            expect(foreign).toHaveLength(NON_RUN_EVENTS.size);
             for (const row of foreign) {
                 expect(row.correlationId).not.toBe(run.correlationId);
                 expect(row.entity.kind).not.toBe('run');
             }
         }
     });
+
 });
 
 describe('T-032 an unwritable trail never rolls back a state change (AC-119, FR-063)', () => {
@@ -408,8 +402,8 @@ describe('004 the dispatch rows name the prompt sources without its text (FR-050
         const rows = await auditFor(run.correlationId);
         const sent = rows.filter((row) =>
             row.eventType === RESERVED_EVENT || row.eventType === RESULT_EVENT);
-        expect(sent.map((row) => row.eventType).sort())
-            .toEqual([RESERVED_EVENT, RESULT_EVENT].sort());
+        expect(sent.map((row) => row.eventType).toSorted(byText))
+            .toEqual([RESERVED_EVENT, RESULT_EVENT].toSorted(byText));
 
         for (const row of sent) {
             expect(row.correlationId, `${row.eventType} correlation id`).toBe(run.correlationId);

@@ -57,6 +57,9 @@ function isEntryPoint(): boolean {
 function scheduleForceExit(log: ServiceLogger): void {
     const watchdog = setTimeout(() => {
         log.warn('forcing exit after graceful shutdown');
+        // The app OpenChamber spawns, not a library, and some unnamed handle
+        // still holds the loop open — returning would wedge the shutdown.
+        // eslint-disable-next-line unicorn/no-process-exit -- a CLI app, not a library, and no handle closes by name.
         process.exit(process.exitCode ?? 0);
     }, FORCE_EXIT_MS);
     watchdog.unref();
@@ -65,8 +68,6 @@ function scheduleForceExit(log: ServiceLogger): void {
 /**
  * Drain the service and record how the process should exit.
  *
- * @param handle - Running service to stop.
- * @param log - Logger for the outcome.
  */
 async function stopService(handle: ServiceHandle, log: ServiceLogger): Promise<void> {
     try {
@@ -82,8 +83,6 @@ async function stopService(handle: ServiceHandle, log: ServiceLogger): Promise<v
 /**
  * Build the listener for one shutdown signal.
  *
- * @param handle - Running service to stop.
- * @param log - Logger for the outcome.
  * @returns A listener taking the signal's label for the log entry.
  */
 function createShutdownHandler(handle: ServiceHandle, log: ServiceLogger): (label: string) => void {
@@ -95,9 +94,6 @@ function createShutdownHandler(handle: ServiceHandle, log: ServiceLogger): (labe
 
 /**
  * Wire `SIGTERM` and `SIGINT` to the graceful shutdown path.
- *
- * @param handle - Running service to stop on signal.
- * @param log - Logger for the shutdown outcome.
  */
 function installSignalHandlers(handle: ServiceHandle, log: ServiceLogger): void {
     const onShutdown = createShutdownHandler(handle, log);
@@ -118,6 +114,7 @@ function installSignalHandlers(handle: ServiceHandle, log: ServiceLogger): void 
  *
  * @param env - Environment to read; defaults to `process.env`.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function runService(env: NodeJS.ProcessEnv = process.env): Promise<void> {
     const log = createLogger({ level: 'info' });
     try {

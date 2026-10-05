@@ -1,29 +1,25 @@
 /**
- * Append-only audit trail for the service (data-model.md `audit.ndjson`).
+ * Append-only audit trail for the service.
  *
  * One JSON object per line, `seq` monotonic, appended with the store's
  * fsync'd NDJSON writer so an entry reaches disk whole or not at all
- * (FR-033/FR-035, constitution Principle IV). Everything written here goes
+ * (constitution Principle IV). Everything written here goes
  * through {@link redactValue} first: the writer's *input* is already a
  * token-free structure by construction — routes never hand a credential to
  * this module — and the redaction pass is the second, independent guard that
- * makes "no token material in audit" executable rather than promised
- * (contract §4 rule 2).
+ * makes "no token material in audit" executable rather than promised.
  *
  * Sequence numbers are seeded from the file
  * **once per store handle** and then counted in memory, and appends run
  * through a per-store chain — a write never re-reads the trail it is
- * extending (review M6, mandatory before the Wave 4 poller appends rows on
- * every tick).
+ * extending, which is what lets the poller append a row on every tick.
  *
- * The **correlation-indexed read API** still belongs to task T-027 and is not
- * here; this module ships the write path — `account.verified`/
- * `rejected`/`error`/`rotated`, and every row the run and
- * dispatch layers append. Retention trimming, added by 006, lives in
- * `audit-trim.ts` and does **not** rewrite this module: it joins this module's
- * chain through {@link serializeAudit} and composes its row through
- * {@link composeAudit}, so `redactDeep` and `seq` assignment keep exactly one
- * implementation.
+ * This module ships the write path — `account.verified`/`rejected`/`error`/
+ * `rotated`, and every row the run and dispatch layers append. Retention
+ * trimming lives in `audit-trim.ts` and does **not** rewrite this module: it
+ * joins this module's chain through {@link serializeAudit} and composes its row
+ * through {@link composeAudit}, so `redactDeep` and `seq` assignment keep
+ * exactly one implementation.
  */
 
 import { newCorrelationId, nowIso } from '../src/ids.ts';
@@ -35,12 +31,12 @@ import type { ServiceStore } from './store/index.ts';
 export const AUDIT_FILE = 'audit.ndjson';
 
 /**
- * Entity id every configuration-wide audit row names (006 FR-070, FR-073).
+ * Entity id every configuration-wide audit row names.
  *
- * The two rows 006 fills — `config.changed` and `audit.trimmed` — both carry
+ * The configuration and trim rows both carry
  * `entity: { kind: 'service', id: <this> }`, so a reader can group them under
- * one identity without either being forced onto a run's correlation id (003
- * FR-052, 006 FR-074). Exported beside the trail's own path constant so the
+ * one identity without either being forced onto a run's correlation id.
+ * Exported beside the trail's own path constant so the
  * trim pass and the configuration route cannot spell it differently.
  */
 export const CONFIGURATION_ENTITY_ID = 'configuration';
@@ -60,20 +56,19 @@ const AUDIT_ENTITY_KINDS: ReadonlySet<string> = new Set<AuditEntityKind>([
 /**
  * Narrow an unknown value to an entity kind.
  *
- * @param value - Candidate value from a stored audit line.
  * @returns `true` only for one of the documented kinds.
  */
 function isAuditEntityKind(value: unknown): value is AuditEntityKind {
     return typeof value === 'string' && AUDIT_ENTITY_KINDS.has(value);
 }
 
-/** One durable audit record (data-model.md AuditEntry). */
+/** One durable audit record. */
 export interface AuditEntry {
     /** Monotonic sequence number assigned by the writer. */
     readonly seq: number;
     /** RFC 3339 timestamp of the write. */
     readonly timestamp: string;
-    /** Correlation id tying this entry to the rest of the chain (NFR-007). */
+    /** Correlation id tying this entry to the rest of the chain. */
     readonly correlationId: string;
     /** Event vocabulary name, e.g. `account.verified` or `binding.disabled`. */
     readonly eventType: string;
@@ -126,6 +121,7 @@ interface RedactedFields {
  *   path, and the accumulator collecting rewritten paths.
  * @returns The value with secret-shaped strings replaced.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- input is `unknown` by design; four branches, no union.
 function redactDeep(input: { readonly value: unknown; readonly path: string; readonly fields: string[] }): unknown {
     const { value, path, fields } = input;
     if (typeof value === 'string') {
@@ -142,12 +138,12 @@ function redactDeep(input: { readonly value: unknown; readonly path: string; rea
     }
 
     if (isRecord(value)) {
-        const result: Record<string, unknown> = {};
-        for (const [key, child] of Object.entries(value)) {
-            result[key] = redactDeep({ value: child, path: path === '' ? key : `${path}.${key}`, fields });
-        }
-
-        return result;
+        return Object.fromEntries(
+            Object.entries(value).map(([key, child]) => [
+                key,
+                redactDeep({ value: child, path: path === '' ? key : `${path}.${key}`, fields }),
+            ]),
+        );
     }
 
     return value;
@@ -156,7 +152,6 @@ function redactDeep(input: { readonly value: unknown; readonly path: string; rea
 /**
  * Apply the redaction pass to an audit input.
  *
- * @param input - Caller-supplied entry.
  * @returns The entry with redacted details/reason and the changed field list.
  */
 function redactInput(input: AuditInput): RedactedFields {
@@ -207,7 +202,6 @@ function isAuditHeader(raw: Record<string, unknown>): raw is AuditHeader & Recor
 /**
  * Check and narrow the entity of a stored line.
  *
- * @param raw - Candidate value for the `entity` field.
  * @returns `true` for a documented kind plus a string id.
  */
 function isAuditEntity(raw: unknown): raw is { readonly kind: AuditEntityKind; readonly id: string } {
@@ -217,7 +211,6 @@ function isAuditEntity(raw: unknown): raw is { readonly kind: AuditEntityKind; r
 /**
  * Read the redaction marker of a stored line, tolerating a missing one.
  *
- * @param raw - Candidate value for the `redaction` field.
  * @returns The marker; older lines without one report nothing was redacted.
  */
 function readRedaction(raw: unknown): { readonly redacted: boolean; readonly fields: readonly string[] } {
@@ -268,8 +261,7 @@ export interface AuditTrailRead {
      * Propagated rather than discarded: a reader that only *inspects* the
      * trail can ignore them, but a reader that **rewrites** it is about to
      * erase them, and erasing a line nobody counted is the invisible loss the
-     * trim pass records instead (`audit-trim.ts`, 006 FR-053's "any removal
-     * retention causes MUST be audited").
+     * trim pass records instead (`audit-trim.ts`).
      */
     readonly malformed: number;
 }
@@ -278,7 +270,6 @@ export interface AuditTrailRead {
  * Read every usable audit entry **and** the count of lines that could not be
  * used, in file order.
  *
- * @param store - Open store.
  * @returns The entries plus the unreadable-line count.
  */
 export async function readAuditTrail(store: ServiceStore): Promise<AuditTrailRead> {
@@ -290,7 +281,6 @@ export async function readAuditTrail(store: ServiceStore): Promise<AuditTrailRea
 /**
  * Read every usable audit entry, in file order.
  *
- * @param store - Open store.
  * @returns The entries; unreadable lines are skipped. A reader that goes on to
  *   **rewrite** the trail must use {@link readAuditTrail} instead, so the skip
  *   can be counted before the rewrite erases it.
@@ -301,7 +291,7 @@ export async function readAuditEntries(store: ServiceStore): Promise<readonly Au
     return trail.entries;
 }
 
-/** Process-local audit state for one open store (review M6/W2-2). */
+/** Process-local audit state for one open store. */
 interface AuditCache {
     /** Next sequence number to assign; seeded once from the file, then counted in memory. */
     nextSeq: number;
@@ -314,10 +304,10 @@ interface AuditCache {
  *
  * A `WeakMap` keyed by the handle is the ownership unit: a restarted service
  * opens a fresh handle and re-seeds from disk, while every write through the
- * same handle shares one counter. Wave 4 appends an audit
+ * same handle shares one counter. The poller appends an audit
  * row on every poll — without this cache each append would re-read the whole
  * trail to rediscover the last `seq`, so the write cost would grow with the
- * file's own history (review M6: seed once, increment in memory).
+ * file's own history.
  */
 const auditCaches = new WeakMap<ServiceStore, Promise<AuditCache>>();
 
@@ -328,7 +318,6 @@ const auditCaches = new WeakMap<ServiceStore, Promise<AuditCache>>();
  * `consent` rows builds before 2026-10-01 wrote, which no writer emits any
  * more but which remain ordinary, readable history.
  *
- * @param store - Open store.
  * @returns The seeded cache: the first free `seq`.
  * @throws {StorageUnavailableError} When the trail cannot be read — a write
  *   that cannot establish its own sequence number must fail, not guess.
@@ -350,7 +339,6 @@ async function seedAuditCache(store: ServiceStore): Promise<AuditCache> {
  * share a single file read; a failed seed is dropped from the map so the next
  * attempt reads the file again instead of serving a half-built cache.
  *
- * @param store - Open store.
  * @returns The cache, seeded from the audit file.
  * @throws {StorageUnavailableError} When the trail cannot be read.
  */
@@ -377,11 +365,10 @@ function auditCacheFor(store: ServiceStore): Promise<AuditCache> {
  * handlers, so a rejection is consumed here (it can never wedge the chain)
  * while still reaching this write's own caller.
  *
- * @param cache - The store's cache, whose chain this task joins.
- * @param task - The write to run once the chain reaches it.
  * @returns This write's result or rejection, exactly as the task produced it.
  */
 function inWriteChain<T>(cache: AuditCache, task: () => Promise<T>): Promise<T> {
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs task on its own rejection; this runs once.
     const run = cache.writeChain.then(task, task);
     cache.writeChain = run;
 
@@ -389,17 +376,16 @@ function inWriteChain<T>(cache: AuditCache, task: () => Promise<T>): Promise<T> 
 }
 
 /**
- * Run one audit-side task after every append queued before it (006 FR-055).
+ * Run one audit-side task after every append queued before it.
  *
  * The retention passes join the **same** chain `appendAudit` writes on, which
  * is what makes "a pass can never remove a row appended while it was computing"
  * true by construction rather than by timing: the trail read, the removal
  * decision, and the one atomic rewrite all happen inside a slot no append can
- * interleave with (plan D5). The join carries the previous write's outcome the
+ * interleave with. The join carries the previous write's outcome the
  * same way {@link inWriteChain} does, so a failed append is consumed here
  * (it can never wedge the chain) while still reaching this task's caller.
  *
- * @param store - Open store whose audit chain this task joins.
  * @param task - Work to run once the chain reaches it; it should hold its
  *   whole read-decide-write sequence, because anything it awaits outside the
  *   task would run after later appends have already landed.
@@ -413,14 +399,14 @@ export function serializeAudit<T>(store: ServiceStore, task: () => Promise<T>): 
 
 /**
  * Compose an entry exactly the way {@link appendAudit} builds one, **without
- * writing it** (006 T-011).
+ * writing it**.
  *
  * Redaction, `seq`, `timestamp`, and the generated correlation id all come from
  * the one implementation the writer uses, so a row a pass embeds in its own
  * atomic rewrite is indistinguishable from an appended one — the trim row is
  * composed here and written by the pass in the same rename as the removals it
- * describes (plan D4: no crash can leave a removal without its record, and a
- * restart cannot re-seed `nextSeq` below a number already used).
+ * describes: no crash can leave a removal without its record, and a
+ * restart cannot re-seed `nextSeq` below a number already used.
  *
  * **Precondition**: call it while holding the chain via {@link serializeAudit}.
  * The reservation reads and advances the shared `seq` counter, and every other
@@ -428,9 +414,8 @@ export function serializeAudit<T>(store: ServiceStore, task: () => Promise<T>): 
  * outside the chain could therefore reserve the same number an in-flight
  * append is writing. A number reserved by a pass whose rewrite then fails is
  * simply never used — the gap a trim leaves is already an expected, readable
- * fact (FR-055).
+ * fact.
  *
- * @param store - Open store holding the trail this entry will join.
  * @param input - Caller-supplied entry (token-free by construction).
  * @returns The composed entry, with `seq` and `timestamp` assigned.
  * @throws {StorageUnavailableError} When the trail cannot be read to seed the
@@ -463,9 +448,8 @@ export async function composeAudit(store: ServiceStore, input: AuditInput): Prom
  * The number is reserved inside the write chain and advanced **only** after
  * the line is durable, so concurrent writers never share a `seq`, a failed
  * append reuses its number (no gaps), and appends never re-read the file to
- * discover where the trail ended (review M6).
+ * discover where the trail ended.
  *
- * @param store - Open store.
  * @param input - Caller-supplied entry (token-free by construction).
  * @returns The stored entry, including its assigned `seq` and `timestamp`.
  * @throws {StorageUnavailableError} When the append or the seed read fails.

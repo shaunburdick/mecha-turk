@@ -42,7 +42,6 @@ const REPOSITORY = 'acme/widget';
  * Import-adapter so the test bodies read naturally while the typing stays on
  * the support module: a single narrow parameter type instead of per-cast.
  *
- * @param handle - Handle mounted by one of the stub builders.
  * @returns Recorded `update` count.
  */
 function paintsOf(handle: Parameters<typeof stubPaints>[0]): number {
@@ -55,7 +54,6 @@ function paintsOf(handle: Parameters<typeof stubPaints>[0]): number {
  * The shell owns visibility now, so what a test needs from the mount is the
  * pair of views `refresh()` repaints: the pane and the picker.
  *
- * @param rt - Runtime to attach the stub views to.
  * @returns The pane stub and its body element.
  */
 function attachStubBody(rt: PanelRuntime): {
@@ -71,8 +69,7 @@ function attachStubBody(rt: PanelRuntime): {
 }
 
 describe('createBindingsHandlers (handler table wired to real actions)', () => {
-    it('patches every draft field through editBindings (+4 cases)', async () => {
-        // case: patches every draft field through editBindings
+    it('patches every draft field through editBindings', async () => {
         {
             const rt = createTestRuntime(fakeHost());
             // The project step is guarded (FR-070): only an id the loaded list
@@ -100,7 +97,9 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
             expect(bindings.triggerReviewRequest).toBe(false);
             expect(bindings.worktreeSelection).toBe('generated');
         }
-        // case: loads a clicked row into the editor, which the click opens (2026-10-01 review)
+    });
+
+    it('loads a clicked row into the editor, which the click opens (2026-10-01 review)', async () => {
         {
             const rt = createTestRuntime(fakeHost());
             rt.state.bindings.status = 'ready';
@@ -129,7 +128,9 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
             expect(bindings.repoInput).toBe(REPOSITORY);
             expect(bindings.repoProjectSelection).toBe('prj_42');
         }
-        // case: wires submit to bindRepository, which refuses an incomplete draft on the note
+    });
+
+    it('wires submit to bindRepository, which refuses an incomplete draft on the note', async () => {
         {
             const rt = createTestRuntime(fakeHost());
             const handlers = createBindingsHandlers(rt);
@@ -140,7 +141,9 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
 
             expect(rt.state.bindings.note).toBe('repository must be `owner/name`');
         }
-        // case: wires refresh to loadBindings, which answers a failed read on the note
+    });
+
+    it('wires refresh to loadBindings, which answers a failed read on the note', async () => {
         {
             const rt = createTestRuntime(fakeHost());
             const handlers = createBindingsHandlers(rt);
@@ -152,7 +155,9 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
             // 404, so the reads fail closed and the note says so.
             expect(rt.state.bindings.status).toBe('error');
         }
-        // case: wires refresh to loadBindings, which loads the accounts the picker offers
+    });
+
+    it('wires refresh to loadBindings, which loads the accounts the picker offers', async () => {
         {
             // MVP blocker fix regression guard: the GET /v1/accounts read must
             // land in state, or the "Poll as account" select renders zero options
@@ -202,11 +207,11 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
             ]);
         }
     });
+
 });
 
 describe('refresh (the repaint path a mounted Bindings body takes)', () => {
-    it('repaints the pane and the picker the shell mounted (+2 cases)', () => {
-        // case: repaints the pane and the picker the shell mounted
+    it('repaints the pane and the picker the shell mounted', () => {
         {
             const rt = createTestRuntime(fakeHost());
             const { bindings } = attachStubBody(rt);
@@ -220,7 +225,6 @@ describe('refresh (the repaint path a mounted Bindings body takes)', () => {
             const picker = rt.pickerUi;
             expect(picker === null ? 0 : paintsOf(picker.projectStatus)).toBe(1);
         }
-        // case: leaves a headless runtime alone: no body, no repaint, no throw
         {
             const rt = createTestRuntime(fakeHost());
 
@@ -232,7 +236,6 @@ describe('refresh (the repaint path a mounted Bindings body takes)', () => {
             expect(rt.pickerUi).toBeNull();
             expect(rt.aboutUi).toBeNull();
         }
-        // case: repaints nothing after teardown
         {
             const rt = createTestRuntime(fakeHost());
             const { bindings } = attachStubBody(rt);

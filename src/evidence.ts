@@ -22,7 +22,7 @@ export const EVIDENCE_SCHEMA_VERSION = 'extension-spike-1';
 /** Storage key for the most recent evidence record. */
 export const EVIDENCE_STORAGE_KEY = 'mecha-turk:evidence';
 
-/** How the spike selects issues; the only trigger this contract defines. */
+/** How an issue is selected; the only trigger this contract defines. */
 const TRIGGER = 'configured-match';
 
 /** Canonical GitHub issue URL shape; the same rule writes and reads records. */
@@ -32,7 +32,7 @@ const ISSUE_URL_PATTERN = /^https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/\d+$/;
 const ISSUE_ID_PATTERN = /^\d+$/;
 
 /** Normalized evidence record produced by a configured match. */
-export interface SpikeEvidence {
+export interface PanelEvidence {
     /** Contract schema version. */
     readonly schemaVersion: typeof EVIDENCE_SCHEMA_VERSION;
     /** `owner/name` of the polled repository. */
@@ -41,7 +41,7 @@ export interface SpikeEvidence {
     readonly issueId: string;
     /** Canonical issue URL. */
     readonly issueUrl: string;
-    /** How the issue was selected; always the configured rule for this spike. */
+    /** How the issue was selected; always the configured match rule. */
     readonly trigger: typeof TRIGGER;
     /** Login discovered from `GET /user` — the machine identity, never the token. */
     readonly authenticatedLogin: string;
@@ -81,9 +81,7 @@ export class EvidenceError extends Error {
     /** Stable machine-readable marker so callers can discriminate. */
     public override readonly name = 'EvidenceError';
 
-    /**
-     * @param message - Description of the invalid input; never includes secrets.
-     */
+    /** `message` never includes secrets. */
     public constructor(message: string) {
         super(message);
     }
@@ -92,10 +90,9 @@ export class EvidenceError extends Error {
 /**
  * Serialize an evidence record for storage.
  *
- * @param evidence - Record to serialize.
  * @returns Compact JSON, asserted to be free of secret-shaped material.
  */
-export function serializeEvidence(evidence: SpikeEvidence): string {
+export function serializeEvidence(evidence: PanelEvidence): string {
     const json = JSON.stringify(evidence);
     assertRedacted('evidence record', json);
     return json;
@@ -104,22 +101,20 @@ export function serializeEvidence(evidence: SpikeEvidence): string {
 /**
  * Assert that a record can be persisted without carrying secret material.
  *
- * @param evidence - Record about to be written to `host.storage`.
  * @throws {RedactionError} When the serialized record matches a secret shape.
  */
-export function assertEvidenceRedacted(evidence: SpikeEvidence): void {
+export function assertEvidenceRedacted(evidence: PanelEvidence): void {
     assertRedacted('evidence record', serializeEvidence(evidence));
 }
 
 /**
  * Build the normalized evidence record for one configured match.
  *
- * @param input - Matched issue, identity, and correlation inputs.
  * @returns The redacted evidence record.
  * @throws {EvidenceError} When an input is missing or malformed.
  */
-export function buildEvidence(input: EvidenceInput): SpikeEvidence {
-    if (!Number.isInteger(input.issueNumber) || input.issueNumber <= 0) {
+export function buildEvidence(input: EvidenceInput): PanelEvidence {
+    if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber <= 0) {
         throw new EvidenceError('issue number must be a positive integer');
     }
 
@@ -139,11 +134,11 @@ export function buildEvidence(input: EvidenceInput): SpikeEvidence {
         throw new EvidenceError('detectedAt must be an RFC 3339 timestamp');
     }
 
-    if (!Number.isInteger(input.panelGeneration) || input.panelGeneration < 1) {
+    if (!Number.isSafeInteger(input.panelGeneration) || input.panelGeneration < 1) {
         throw new EvidenceError('panelGeneration must be a positive integer');
     }
 
-    const evidence: SpikeEvidence = {
+    const evidence: PanelEvidence = {
         schemaVersion: EVIDENCE_SCHEMA_VERSION,
         repository: input.repository,
         issueId: String(input.issueNumber),
@@ -163,7 +158,6 @@ export function buildEvidence(input: EvidenceInput): SpikeEvidence {
 /**
  * Narrow a stored JSON value to a record.
  *
- * @param value - Value read from `host.storage`.
  * @returns The value as a record, or `null` for anything else.
  */
 function asRecord(value: JsonValue | undefined): Record<string, JsonValue> | null {
@@ -177,8 +171,6 @@ function asRecord(value: JsonValue | undefined): Record<string, JsonValue> | nul
 /**
  * Read a non-empty string field from a stored record.
  *
- * @param record - Stored record.
- * @param field - Field name.
  * @returns The value, or `null` when it is missing or not usable text.
  */
 function readTextField(record: Record<string, JsonValue>, field: string): string | null {
@@ -189,12 +181,11 @@ function readTextField(record: Record<string, JsonValue>, field: string): string
 /**
  * Read the panel generation from a stored record.
  *
- * @param record - Stored record.
  * @returns The generation, or `null` when it is not a positive integer.
  */
 function readGenerationField(record: Record<string, JsonValue>): number | null {
     const { panelGeneration } = record;
-    if (typeof panelGeneration !== 'number' || !Number.isInteger(panelGeneration) || panelGeneration < 1) {
+    if (typeof panelGeneration !== 'number' || !Number.isSafeInteger(panelGeneration) || panelGeneration < 1) {
         return null;
     }
 
@@ -205,7 +196,6 @@ function readGenerationField(record: Record<string, JsonValue>): number | null {
 interface EvidenceFields {
     /** `owner/name` of the polled repository. */
     readonly repository: string;
-    /** Issue number as a string. */
     readonly issueId: string;
     /** Canonical issue URL. */
     readonly issueUrl: string;
@@ -222,7 +212,6 @@ interface EvidenceFields {
 /**
  * Read every typed field of a stored evidence record.
  *
- * @param record - Stored record.
  * @returns The fields when every one is present and well-typed, else `null`.
  */
 function readEvidenceFields(record: Record<string, JsonValue>): EvidenceFields | null {
@@ -257,21 +246,22 @@ function readEvidenceFields(record: Record<string, JsonValue>): EvidenceFields |
  * rather than cast into the interface, so a hand-edited or partially written
  * value cannot reach the dispatch path as a half-valid record.
  *
- * @param value - Value read from `host.storage`.
  * @returns The record, or `null` when the shape does not match the contract.
  */
-export function readEvidence(value?: JsonValue): SpikeEvidence | null {
+export function readEvidence(value?: JsonValue): PanelEvidence | null {
     const record = asRecord(value);
     if (record?.schemaVersion !== EVIDENCE_SCHEMA_VERSION) {
         return null;
     }
 
     const fields = readEvidenceFields(record);
-    if (fields === null || record.trigger !== TRIGGER || Number.isNaN(Date.parse(fields.detectedAt))) {
-        return null;
-    }
-
-    if (!ISSUE_ID_PATTERN.test(fields.issueId) || !ISSUE_URL_PATTERN.test(fields.issueUrl)) {
+    if (
+        fields === null ||
+        record.trigger !== TRIGGER ||
+        Number.isNaN(Date.parse(fields.detectedAt)) ||
+        !ISSUE_ID_PATTERN.test(fields.issueId) ||
+        !ISSUE_URL_PATTERN.test(fields.issueUrl)
+    ) {
         return null;
     }
 
@@ -283,9 +273,6 @@ export function readEvidence(value?: JsonValue): SpikeEvidence | null {
  *
  * The record's home is the operator's own `host.storage`; when the frame
  * cannot read it, the panel says so instead of silently showing no record.
- *
- * @param rt - Panel runtime whose banner shows the problem.
- * @param cause - The caught storage failure.
  */
 function describeStorageFailure(rt: PanelRuntime, cause: unknown): void {
     setStatus(rt, { tone: 'error', title: 'Storage unavailable', body: describeError(cause) });
@@ -297,8 +284,6 @@ function describeStorageFailure(rt: PanelRuntime, cause: unknown): void {
  * The evidence record is written before a dispatch is attempted, so a panel
  * that is closed and reopened must find it again: without this the reopened
  * panel would show a match it can no longer dispatch (S6 lifecycle).
- *
- * @param rt - Panel runtime to restore the record onto.
  */
 export async function restoreStoredEvidence(rt: PanelRuntime): Promise<void> {
     let stored: JsonValue | undefined;

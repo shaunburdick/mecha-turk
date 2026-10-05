@@ -28,8 +28,8 @@
  * but never re-verified.
  */
 
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, readdir } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, appendAudit, readAuditEntries } from '../service/audit.ts';
@@ -58,6 +58,7 @@ import { scopeResults } from './support/handoff.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const NOW = '2026-09-28T12:30:00.000Z';
@@ -67,7 +68,7 @@ const SCAN_STATE_FILE = 'scan-state.json';
 const MIGRATION_TEST_LEASE_ID = `lse-${'c'.repeat(24)}`;
 const MIGRATED_EVENT = 'run.migrated';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /** Account numeric id the shipped binding and its credential file share. */
 const ACCOUNT_ID = '77331';
@@ -114,27 +115,22 @@ let store: ServiceStore;
 /** The upgraded service T-030 boots, drained before the temp root goes. */
 let running: TestService | null = null;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-migration-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('migration'));
     store = await openStore({ dataDir });
     running = null;
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+    await removeTempTree(tempRoot);
+});
 
 /** Build a complete assignment detection for a migration case. */
 function snapshot(issueNumber: number): EventSnapshot {
@@ -191,8 +187,7 @@ async function seedLegacyQueue(): Promise<readonly { readonly id: string }[]> {
 }
 
 describe('runs.json first-read adoption', () => {
-    it('maps every legacy branch without changing queue byte… (+3 cases)', async () => {
-        // case: maps every legacy branch without changing queue bytes, windows, or quarantine state
+    it('maps every legacy branch without changing queue bytes, windows, or quarantine state', async () => {
         {
             const rows = await seedLegacyQueue();
             // The gate denies a run whose binding it cannot read (003 FR-076,
@@ -241,11 +236,9 @@ describe('runs.json first-read adoption', () => {
             const entries = await readdir(dataDir);
             expect(entries.filter((name) => name.includes('.corrupt-'))).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: is idempotent across a second store handle and never repeats migration audit rows
+    });
+
+    it('is idempotent across a second store handle and never repeats migration audit rows', async () => {
         {
             await seedLegacyQueue();
             await ensureRunsAdopted({ store, log: LOGGER });
@@ -258,11 +251,9 @@ describe('runs.json first-read adoption', () => {
             const document = await secondStore.readJson(RUNS_FILE, (value) => value);
             expect(document.status).toBe('ok');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: recovers a migration audit missed after the adopted run document was written
+    });
+
+    it('recovers a migration audit missed after the adopted run document was written', async () => {
         {
             await seedLegacyQueue();
             const interruptedStore: ServiceStore = {
@@ -293,11 +284,9 @@ describe('runs.json first-read adoption', () => {
                 recovered.runs.map((run) => run.correlationId),
             );
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses to re-adopt state-free run-linked rows when runs.json was lost
+    });
+
+    it('refuses to re-adopt state-free run-linked rows when runs.json was lost', async () => {
         {
             const event = createEvent(snapshot(77));
             const [linked] = await enqueueEvents({ store, log: LOGGER, incoming: [event] });
@@ -366,6 +355,7 @@ describe('runs.json first-read adoption', () => {
             expect(await restartedStore.readJson(EVENTS_FILE, (value) => value)).toMatchObject({ status: 'ok' });
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *
@@ -473,8 +463,6 @@ async function seedShippedStore(): Promise<ShippedBytes> {
 /**
  * One wire answer, read as an untrusted record.
  *
- * @param input - The running instance, the path, and an optional JSON body
- *   (sent as a POST when present).
  * @returns The parsed body.
  * @throws {Error} When the route answers anything but `200`.
  */
@@ -504,15 +492,13 @@ async function answer(input: {
 /**
  * The `events` (or `bindings`) member of an answer, as records.
  *
- * @param body - The parsed answer.
- * @param member - Member name to read.
  * @returns Every entry, each read without trusting its shape.
  * @throws {Error} When the member is missing or holds a non-record entry.
  */
 function rowsOf(body: Record<string, unknown>, member: string): readonly Record<string, unknown>[] {
     const rows = body[member];
     if (!Array.isArray(rows)) {
-        throw new Error(`the answer carried no ${member} member`);
+        throw new TypeError(`the answer carried no ${member} member`);
     }
 
     return rows.map((row) => {
@@ -527,15 +513,13 @@ function rowsOf(body: Record<string, unknown>, member: string): readonly Record<
 /**
  * One string member of a wire row, demanded rather than defaulted.
  *
- * @param row - The row to read.
- * @param key - Member to read.
  * @returns The value as a string.
  * @throws {Error} When the member is absent or not a string.
  */
 function textOf(row: Record<string, unknown>, key: string): string {
     const value = row[key];
     if (typeof value !== 'string') {
-        throw new Error(`the row carried no string member ${key}`);
+        throw new TypeError(`the row carried no string member ${key}`);
     }
 
     return value;
@@ -544,8 +528,6 @@ function textOf(row: Record<string, unknown>, key: string): string {
 /**
  * The row whose subject is one issue number.
  *
- * @param rows - Run-history or claim rows.
- * @param issueNumber - Subject number to find.
  * @returns The row for that subject.
  * @throws {Error} When no row names that subject.
  */
@@ -594,7 +576,7 @@ describe('T-030 the shipped store boots through the upgraded service (NFR-103, A
             await answer({ service, path: `${EVENTS_PENDING_PATH}?holder=panel-upgrade` }),
             'events',
         );
-        expect(claimed.map((row) => row.issueNumber).sort((left, right) => Number(left) - Number(right)))
+        expect(claimed.map((row) => row.issueNumber).toSorted((left, right) => Number(left) - Number(right)))
             .toEqual([1, 2]);
         const leased = rowFor(claimed, 1);
         expect(typeof leased.attachmentId).toBe('string');
@@ -605,7 +587,7 @@ describe('T-030 the shipped store boots through the upgraded service (NFR-103, A
         const failed = rowFor(history, 5);
         const retry = await answer({
             service,
-            path: RETRY_PATH.replace(':correlationId', textOf(failed, 'correlationId')),
+            path: RETRY_PATH.replace(':correlationId', () => textOf(failed, 'correlationId')),
             body: {
                 correlationId: failed.correlationId,
                 attempt: failed.attempt,
@@ -621,7 +603,7 @@ describe('T-030 the shipped store boots through the upgraded service (NFR-103, A
         // answers its own distinct refusal (FR-041).
         const dispatched = rowFor(history, 4);
         const refused = await service.call(
-            RETRY_PATH.replace(':correlationId', textOf(dispatched, 'correlationId')),
+            RETRY_PATH.replace(':correlationId', () => textOf(dispatched, 'correlationId')),
             {
                 method: 'POST',
                 headers: { [CONTENT_TYPE_HEADER]: 'application/json' },
@@ -710,9 +692,6 @@ async function fileBytes(name: string): Promise<Buffer> {
  * The message a dispatch of one adopted run would compose, built exactly the
  * way the relay builds it: the run's own snapshot, the delivery's own text.
  *
- * @param target - The service whose store holds the run.
- * @param run - The adopted run to compose for.
- * @returns The complete first message.
  * @throws {Error} When the store is missing or the run lost its delivery.
  */
 async function composedMessageFor(target: TestService, run: Run): Promise<string> {

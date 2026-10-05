@@ -116,7 +116,6 @@ const ECHO_REMEDIATION = 'echo the run correlation id exactly as the path names 
  * Whether a received body is the plain JSON object every run-scoped contract
  * shape is written as.
  *
- * @param raw - The parsed body, or `undefined` when the request carried none.
  * @returns `true` for a non-array, non-null object (or no body at all).
  */
 function isBodyObject(raw: unknown): boolean {
@@ -126,7 +125,6 @@ function isBodyObject(raw: unknown): boolean {
 /**
  * The one rejected body member, and what would fix it.
  *
- * @param record - The body's members.
  * @param correlationId - The run the path named.
  * @returns The `correlationId` issue when the echo disagrees, else `null`.
  */
@@ -141,8 +139,6 @@ function echoIssue(record: Readonly<Record<string, unknown>>, correlationId: str
 /**
  * Read one optional member, refusing anything that is not the shape minted.
  *
- * @param value - The member as received, or `undefined`.
- * @param pattern - The exact shape this build mints for it.
  * @returns The member, or `null` when absent or malformed.
  */
 function readMember(value: unknown, pattern: RegExp): string | null {
@@ -160,7 +156,6 @@ type MemberIssue = FieldIssue;
 /**
  * Read one shared member and collect its issue, when the operation requires it.
  *
- * @param input - The record, the member's name, its shape, and whether it is required.
  * @returns The member as received.
  */
 function requiredMember(input: {
@@ -178,7 +173,7 @@ function requiredMember(input: {
     readonly issues: MemberIssue[];
 }): string | null {
     const value = readMember(input.record[input.name], input.pattern);
-    if (input.required && value === null) {
+    if (value === null && input.required) {
         input.issues.push({ field: input.name, remediation: input.remediation });
     }
 
@@ -193,7 +188,6 @@ function requiredMember(input: {
  * trips to learn what is wrong, and the 422 is the one place that can say all of
  * it at once.
  *
- * @param input - The parsed body, the run the path named, and what is required.
  * @returns The members as received, plus every issue found.
  */
 function parseRunScopeRequest(input: {
@@ -205,11 +199,11 @@ function parseRunScopeRequest(input: {
     readonly needs: RunScopeNeeds;
 }): RunScopeParse {
     const { raw, correlationId, needs } = input;
-    const structured = isBodyObject(raw) && raw !== undefined;
-    const record = structured ? raw as Record<string, unknown> : {};
+    const isStructured = isBodyObject(raw) && raw !== undefined;
+    const record = isStructured ? raw as Record<string, unknown> : {};
     const issues: MemberIssue[] = [];
 
-    if (raw !== undefined && !structured) {
+    if (raw !== undefined && !isStructured) {
         issues.push({ field: 'body', remediation: BODY_REMEDIATION });
     }
 
@@ -219,7 +213,7 @@ function parseRunScopeRequest(input: {
     }
 
     const { attempt } = record;
-    if (typeof attempt !== 'number' || !Number.isInteger(attempt) || attempt < 1) {
+    if (typeof attempt !== 'number' || !Number.isSafeInteger(attempt) || attempt < 1) {
         issues.push({ field: 'attempt', remediation: 'send the attempt number this run is on, as a whole number' });
     }
 
@@ -254,7 +248,6 @@ interface ReadRequest {
 /**
  * Read an operation's body when it required a lease id.
  *
- * @param input - The parsed body, the run, and the operation's requirements.
  * @returns The request with a non-null lease id, or the `422`.
  */
 export function readRunScopeRequest(input: ReadRequest & {
@@ -265,7 +258,6 @@ export function readRunScopeRequest(input: ReadRequest & {
 /**
  * Read an operation's body when it required a dispatch token.
  *
- * @param input - The parsed body, the run, and the operation's requirements.
  * @returns The request with a non-null token, or the `422`.
  */
 export function readRunScopeRequest(input: ReadRequest & {
@@ -276,7 +268,6 @@ export function readRunScopeRequest(input: ReadRequest & {
 /**
  * Read an operation's body when it required neither optional member.
  *
- * @param input - The parsed body, the run, and the operation's requirements.
  * @returns The request, or the `422`.
  */
 export function readRunScopeRequest(input: ReadRequest & {
@@ -315,16 +306,15 @@ export interface RunScopeBody {
  * that contradicts the path is a validation failure, never a silently-preferred
  * one of the two.
  *
- * @param input - The parsed body and the run the path named.
  * @returns The body's members, or the `422`.
  */
 export function readRunScopeBody(input: ReadRequest): RunScopeBody | HttpResponse {
     const { raw, correlationId } = input;
-    const structured = isBodyObject(raw) && raw !== undefined;
-    const record = structured ? raw as Record<string, unknown> : {};
+    const isStructured = isBodyObject(raw) && raw !== undefined;
+    const record = isStructured ? raw as Record<string, unknown> : {};
     const issues: MemberIssue[] = [];
 
-    if (raw !== undefined && !structured) {
+    if (raw !== undefined && !isStructured) {
         issues.push({ field: 'body', remediation: BODY_REMEDIATION });
     }
 

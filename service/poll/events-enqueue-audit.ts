@@ -37,7 +37,7 @@ async function appendEnqueueAudit(
  * Record one coalescence for each additional source delivery.
  *
  * The row carries whether the reference was retained and how many triggers the
- * cap has kept off the run's list (T-038): a delivery that joined a full run is
+ * cap has kept off the run's list: a delivery that joined a full run is
  * still fully accounted for here, so the audit trail never shows a trigger that
  * vanished without explanation.
  */
@@ -71,19 +71,20 @@ async function recordDetectedDeliveries(input: EnqueueAuditInput): Promise<void>
             eventType: 'delivery.detected',
             actorSource: 'service',
             entity: { kind: 'delivery', id: event.id },
-            ...(event.runCorrelationId === undefined ? {} : { correlationId: event.runCorrelationId }),
+            ...(event.runCorrelationId !== undefined && { correlationId: event.runCorrelationId }),
             reason: `${event.kind} trigger matched a binding`,
             details: {
                 bindingId: event.bindingId,
                 repository: event.repository,
                 kind: event.kind,
-                ...(event.runCorrelationId === undefined ? {} : { runCorrelationId: event.runCorrelationId }),
+                ...(event.runCorrelationId !== undefined && { runCorrelationId: event.runCorrelationId }),
             },
         });
     }
 }
 
 /** Append coalescing and detection audit records after durable enqueue writes. */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function recordEnqueueAudits(input: EnqueueAuditInput): Promise<void> {
     await recordJoinedDeliveries(input);
     await recordDetectedDeliveries(input);

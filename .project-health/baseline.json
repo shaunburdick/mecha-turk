@@ -1,0 +1,23 @@
+{
+  "_note": "Baseline for this repository. Raising a value is allowed and shows up as a visible diff; that visibility is the mechanism. Do not lower productCommentLines or testCases to make a ratio look better - the ratchet bands exist to catch exactly that.",
+  "agentContextFiles": 1,
+  "agentContextLines": 187,
+  "allDocProseLines": 10833,
+  "assertsPerTestCase": 4.9,
+  "commentRatio": 0.4601,
+  "docProseToCode": 0.38,
+  "files": 208,
+  "generatedFiles": 2,
+  "generatedLines": 10318,
+  "globalAgentContextLines": 8985,
+  "ignoredFiles": 2,
+  "ignoredLines": 940,
+  "linesPerTestCase": 44.8,
+  "productCodeLines": 28716,
+  "productCommentLines": 24469,
+  "scatteredDocShare": 0.041,
+  "specProseLines": 10389,
+  "testAsserts": 6473,
+  "testCases": 1320,
+  "testLines": 59173
+}

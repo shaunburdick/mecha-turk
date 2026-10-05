@@ -37,11 +37,10 @@ import type { ConfigIssue } from './config.ts';
  * Check the global prompt tier against the one validator all three tiers
  * share.
  *
- * @param value - Candidate value as the document carried it (`undefined`
- *   when the key is absent).
  * @returns Zero or one issue, for the additive list `collectIssues`
  *   assembles.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function startingPromptIssue(value: unknown): readonly ConfigIssue[] {
     if (typeof value !== 'string') {
         return [

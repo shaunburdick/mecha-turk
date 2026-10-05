@@ -37,7 +37,7 @@ The `consentVersion` requirement this section carried — SEC-01's resolution �
 | Panel step | Accept/Decline before the first handoff, rendering `CONSENT_COPY_V1` | the static §1.1 disclaimer under the Accounts section; the flow is paste → connect |
 | Request member | `consentVersion` **required** in both credential-route bodies | bodies are `{ token, expectedLogin? }` and `{ token }`; an older panel build's `consentVersion` member is **ignored**, never refused (rolling upgrade) |
 | Service refusal | `422 consent-required` before any GitHub call | never produced; body shape is still refused before any network call (invariant 8's shape half stands) |
-| Audit event | `consent` rows `{ version, givenAt }`, exactly one per version | **the `consent` event type leaves the vocabulary** — no writer emits it any more (recorded in 002 spec.md's `## Amendment History` → v1.9.0); rows already on disk stay readable history and keep seeding `seq` |
+| Audit event | `consent` rows `{ version, givenAt }`, exactly one per version | **the `consent` event type leaves the vocabulary** — no writer emits it any more (recorded in 002 spec.md's changelog.md → v1.9.0); rows already on disk stay readable history and keep seeding `seq` |
 | Panel storage | `mecha-turk:consent` holding `{ givenAt, version }` | no consent state exists anywhere in the panel; an orphaned key from an older install is read by nothing and harmless — removed, not renamed, so no storage-namespace reset (AGENTS.md invariant 4) |
 
 - **Invariant (contract test)**: the panel sends no `consentVersion` member and the service answers no `consent-required` — `tests/handoff.test.ts` and `tests/service-verify.test.ts` pin the two halves, and an unknown code on the panel lands on the unknown-code copy rather than on copy this repository removed.
@@ -65,7 +65,7 @@ panel: clear token (finally)  →  render "Connected as <login>"  →  audit (se
 | ⑦ | Service → panel | `201 { numericUserId, login, state:'active', verifiedAt, scopeCheck }`. **Response construction runs through the same redaction guard as audit writes**; a test asserts the serialized body contains no token-shaped substring. |
 | ⑧ | Panel | `finally { token = undefined; }` — the variable is cleared on **every** exit (success, 4xx, 5xx, timeout, thrown). Input field is cleared. No retry re-uses the token; a retry means the operator pastes again. |
 | ⑨ | Panel | Renders `Connected as <login>` (+ numeric id in diagnostics). Records account metadata (id/login/scope/state only) into the accounts view and the service-backed store. |
-| ⑩ | Service | Appends `account.verified` audit entry: correlation id, numeric id, login, scope results, `redaction: { redacted: false }` — **no token bytes by construction** (the writer never receives the token). The `consent` occurrence this step used to write alongside it left with the gate (§1.2) — a vocabulary removal, recorded in 002's `## Amendment History`. |
+| ⑩ | Service | Appends `account.verified` audit entry: correlation id, numeric id, login, scope results, `redaction: { redacted: false }` — **no token bytes by construction** (the writer never receives the token). The `consent` occurrence this step used to write alongside it left with the gate (§1.2) — a vocabulary removal, recorded in 002's changelog.md. |
 
 ## 3. What enters / clears panel state
 

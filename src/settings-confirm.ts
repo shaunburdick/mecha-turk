@@ -29,7 +29,7 @@
 
 import type { ConfigEnvelope, FieldDescriptor } from './settings-schema.ts';
 
-/** Which control armed a confirmation (006 FR-016, FR-051). */
+/** Which control armed a confirmation. */
 export type ConfirmAction = 'save' | 'restore';
 
 /** One armed confirmation: what it authorises, and what the bar says. */
@@ -54,7 +54,7 @@ export interface RetentionLowering {
     readonly unit: string;
 }
 
-/** How one retention knob is described when it is lowered (006 FR-036). */
+/** How one retention knob is described when it is lowered. */
 interface RetentionRule {
     /** What the limit governs — the audit trail, the entry cap, the excerpts. */
     readonly governs: string;
@@ -65,7 +65,7 @@ interface RetentionRule {
 }
 
 /**
- * The three retention knobs and the words each one owes (FR-050 – FR-052).
+ * The three retention knobs and the words each one owes.
  *
  * Keyed by the documented field name, so a knob the service ever adds reaches
  * this table as a missing key and **arms nothing** rather than being described
@@ -102,7 +102,6 @@ const SURVIVORS =
     'records its outcome, account and binding rows, and decision rows — are never removed, and the trim ' +
     'appends an audit.trimmed row recording exactly what it took.';
 
-/** Raising a limit deletes nothing (FR-052). */
 const RAISE = 'Raising a limit deletes nothing.';
 
 /** Trimming has no undo in this feature (006 `## Out of Scope`). */
@@ -133,14 +132,12 @@ const RESTORE_HEADLINE = 'Restore defaults writes the documented defaults for th
  * restated here rather than imported so that the confirmation module and the
  * state machine stay independent of each other.
  *
- * @param envelope - The last read.
- * @param descriptor - The field's projection entry.
  * @returns The value in force, as text.
  */
 function currentValueOf(envelope: ConfigEnvelope, descriptor: FieldDescriptor): string {
     const value = envelope.config[descriptor.name];
 
-    return value === undefined ? String(descriptor.default) : String(value);
+    return String(value ?? descriptor.default);
 }
 
 /**
@@ -150,8 +147,6 @@ function currentValueOf(envelope: ConfigEnvelope, descriptor: FieldDescriptor): 
  * the service refuses it on its merits — and a confirmation for a write that
  * deletes nothing would be the noise FR-051 exists to prevent.
  *
- * @param current - The limit in force.
- * @param proposed - The limit being proposed.
  * @returns `true` only for a numeric lowering.
  */
 function lowers(current: string, proposed: string): boolean {
@@ -162,9 +157,8 @@ function lowers(current: string, proposed: string): boolean {
 }
 
 /**
- * Every retention knob this draft lowers below the read document (FR-051).
+ * Every retention knob this draft lowers below the read document.
  *
- * @param input - The last read and the draft it is being compared against.
  * @returns The lowerings, in the service's field order; empty when none.
  */
 export function loweredRetention(input: {
@@ -193,7 +187,6 @@ export function loweredRetention(input: {
 /**
  * The eight content items the contract owes for one lowered knob (§2).
  *
- * @param input - The lowering, and the rule that describes its knob.
  * @returns The lines, already in the order the contract lists them.
  */
 function loweringBlock(input: {
@@ -220,7 +213,6 @@ function loweringBlock(input: {
 /**
  * Compose the block for every retention knob this draft lowers.
  *
- * @param input - The last read and the draft.
  * @returns The lines, empty when the draft lowers no retention knob.
  */
 function loweringLines(input: {
@@ -253,7 +245,6 @@ interface DraftChange {
  * default` baseline the draft itself is built from — so the list a restore
  * names and the list it writes can never disagree.
  *
- * @param input - The last read and the draft.
  * @returns The changes, in the service's field order.
  */
 function changesIn(input: {
@@ -281,7 +272,6 @@ function changesIn(input: {
  * raise, a non-retention change, and a value that changes nothing all arm
  * nothing and complete in one activation.
  *
- * @param input - The last read and the draft a save would send.
  * @returns The confirmation, or `null` when this save deletes nothing.
  */
 export function saveConfirmation(input: {
@@ -306,9 +296,8 @@ export function saveConfirmation(input: {
 }
 
 /**
- * The confirmation a restore always raises before it writes (FR-016).
+ * The confirmation a restore always raises before it writes.
  *
- * @param input - The last read and the staged defaults draft.
  * @returns The confirmation naming every field the write will change.
  */
 export function restoreConfirmation(input: {

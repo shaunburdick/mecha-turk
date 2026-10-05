@@ -103,7 +103,7 @@ export const EXCERPT_TRUNCATION_MARKER = '… [truncated]';
  */
 export const EXCERPT_OMITTED_MARKER = '[excerpt omitted: the claim answer carried this reference without its text]';
 
-/** One reference as the claim answer carries it (FR-013, FR-014). */
+/** One reference as the claim answer carries it. */
 export interface BoundedReference {
     /** The joining delivery's unchanged id (FR-012). */
     readonly deliveryId: string;
@@ -128,7 +128,6 @@ export interface BoundedReference {
  * excerpt from genuinely empty source text without re-deriving the constants,
  * and so the round-trip test can assert a marker survives serialization.
  *
- * @param excerpt - An answer's `excerpt` member.
  * @returns `true` for either marker this module writes.
  */
 export function isExcerptMarker(excerpt: string): boolean {
@@ -158,7 +157,6 @@ function boundedExcerpt(excerpt: string): string {
  * references on the answer — is {@link MAX_SOURCE_REFERENCES} and the parser,
  * not this budget.
  *
- * @param excerpt - The excerpt this reference will carry.
  * @returns Characters added to the run's excerpt total.
  */
 function excerptCost(excerpt: string): number {
@@ -174,7 +172,6 @@ function excerptCost(excerpt: string): number {
  * fields are never dropped — and a reference whose excerpt did not fit carries
  * {@link EXCERPT_OMITTED_MARKER}.
  *
- * @param input - The stored references, the delivery rows keyed by id, and the budget.
  * @returns One claim-transport row per reference, in join order.
  */
 export function projectReferences(input: {
@@ -212,7 +209,6 @@ export function projectReferences(input: {
  * writes, so a page that fits here fits there; the difference between this and
  * the transport's own check is exactly the envelope members the reserve covers.
  *
- * @param runs - The projected claim rows the answer would carry.
  * @returns The serialized length in characters.
  */
 export function measureEvents(runs: readonly unknown[]): number {

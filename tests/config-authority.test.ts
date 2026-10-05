@@ -35,6 +35,7 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
 import { readServiceEnv } from '../service/env.ts';
+import { byText } from './support/sort.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
@@ -95,7 +96,6 @@ interface SourceModule {
  * Read one tracked file's text, skipping what cannot be text.
  *
  * @param path - Repository-relative path.
- * @returns Its contents.
  */
 function trackedText(path: string): string {
     return readFileSync(resolve(ROOT, path), 'utf8');
@@ -120,9 +120,9 @@ function trackedFiles(): readonly string[] {
  */
 function sourceModules(dir: string): readonly SourceModule[] {
     const entries = readdirSync(resolve(ROOT, dir), { recursive: true })
-        .map((entry) => String(entry))
+        .map(String)
         .filter((entry) => entry.endsWith('.ts'))
-        .sort();
+        .toSorted(byText);
 
     return entries.map((entry) => ({ path: `${dir}/${entry}`, text: trackedText(`${dir}/${entry}`) }));
 }
@@ -134,7 +134,6 @@ function sourceModules(dir: string): readonly SourceModule[] {
  * identifier or a retired setting is the record of the retirement, exactly
  * like the specification corpus.
  *
- * @param text - File text.
  * @returns The code lines, in order.
  */
 function codeLines(text: string): readonly string[] {
@@ -147,7 +146,6 @@ function codeLines(text: string): readonly string[] {
 /**
  * The environment reads one module performs, in source order.
  *
- * @param text - File text.
  * @returns The read expressions, as written.
  */
 function envReadsIn(text: string): readonly string[] {
@@ -253,8 +251,7 @@ describe('FR-091: the operator environment file is gone, not rewritten (T-025, A
 });
 
 describe('FR-090 / AC-152: the bootstrap pair is the only configuration environment', () => {
-    it('starts from exactly the host-provided pair, ignoring… (+4 cases)', () => {
-        // case: starts from exactly the host-provided pair, ignoring anything else
+    it('starts from exactly the host-provided pair, ignoring anything else', () => {
         {
             const decoy = 'SOME_UNRELATED_VARIABLE';
             const env = readServiceEnv({
@@ -265,7 +262,6 @@ describe('FR-090 / AC-152: the bootstrap pair is the only configuration environm
 
             expect(env).toEqual({ port: 0, token: TOKEN_VALUE });
         }
-        // case: exits naming a missing variable, and never its value
         {
             const missingPort = messageOf(() => readServiceEnv({ [TOKEN_KEY]: TOKEN_VALUE }));
             const missingToken = messageOf(() => readServiceEnv({ [PORT_KEY]: '0' }));
@@ -275,7 +271,6 @@ describe('FR-090 / AC-152: the bootstrap pair is the only configuration environm
             expect(missingToken).toContain(TOKEN_KEY);
             expect(missingToken).not.toContain(TOKEN_VALUE);
         }
-        // case: exits naming a malformed variable, and never the malformed value
         {
             const badPort = 'not-a-port';
             const shortToken = 'too-short';
@@ -291,7 +286,6 @@ describe('FR-090 / AC-152: the bootstrap pair is the only configuration environm
             expect(tokenMessage).not.toContain(TOKEN_VALUE);
             expect(tokenMessage).not.toContain(shortToken);
         }
-        // case: reads the environment nowhere in the configuration module
         {
             const configModule = sourceModules(SERVICE_DIR).find((
                 module
@@ -300,12 +294,11 @@ describe('FR-090 / AC-152: the bootstrap pair is the only configuration environm
             expect(configModule).toBeDefined();
             expect(envReadsIn(configModule?.text ?? '')).toEqual([]);
         }
-        // case: reads nothing but the pair and HOME anywhere in the service
         {
             const reads = sourceModules(SERVICE_DIR)
                 .map((module) => ({ path: module.path, tokens: envReadsIn(module.text) }))
                 .filter((entry) => entry.tokens.length > 0)
-                .sort((left, right) => left.path.localeCompare(right.path));
+                .toSorted((left, right) => left.path.localeCompare(right.path));
 
             // HOME locates the store directory and configures nothing (GUEST_SERVICES.md).
             expect(reads.map((entry) => entry.path)).toEqual([
@@ -331,8 +324,7 @@ describe('FR-090 / AC-152: the bootstrap pair is the only configuration environm
 });
 
 describe('FR-092 / AC-153: exactly one operator input per field, the interval being the example', () => {
-    it('the manifest declares no integration card and no int… (+4 cases)', () => {
-        // case: the manifest declares no integration card and no integration setting (002 FR-041)
+    it('the manifest declares no integration card and no integration setting (002 FR-041)', () => {
         {
             // The card that used to carry `poll-interval-ms` is gone entirely
             // (owner order 2026-09-30), so the setting has no home in the
@@ -340,7 +332,6 @@ describe('FR-092 / AC-153: exactly one operator input per field, the interval be
             expect(manifest().openchamber.contributes.integration).toBeUndefined();
             expect(trackedText(MANIFEST)).not.toContain(INTERVAL_SETTING);
         }
-        // case: the panel reads no interval from ctx.settings
         {
             const reads = sourceModules('src')
                 .filter((module) => codeLines(module.text).some((line) => line.includes(INTERVAL_SETTING)))
@@ -348,7 +339,6 @@ describe('FR-092 / AC-153: exactly one operator input per field, the interval be
 
             expect(reads).toEqual([]);
         }
-        // case: the service derives no interval from the environment
         {
             const derived = sourceModules(SERVICE_DIR).filter(
                 (module) => codeLines(module.text).some((line) => line.includes(INTERVAL_SETTING)),
@@ -359,7 +349,6 @@ describe('FR-092 / AC-153: exactly one operator input per field, the interval be
             // the other half of AC-152's "no environment variable influences it".
             expect(envReadsIn(trackedText(`${SERVICE_DIR}/config.ts`))).toEqual([]);
         }
-        // case: the one input is the Settings row, bounded by the service declaration
         {
             const descriptor = configSchema().find((entry) => entry.name === 'intervalMs');
             if (descriptor?.kind !== 'integer') {
@@ -374,7 +363,6 @@ describe('FR-092 / AC-153: exactly one operator input per field, the interval be
             expect(Object.keys(DEFAULT_CONFIG)).toContain('intervalMs');
             expect(Object.keys(DEFAULT_CONFIG)).not.toContain('pollIntervalMs');
         }
-        // case: treats the panel poll cadence as a constant, not as a second input
         {
             // AC-153's "exactly one" is an argument about *inputs*, and the panel
             // does carry a cadence of its own for its refresh timer. Here is why
@@ -388,7 +376,7 @@ describe('FR-092 / AC-153: exactly one operator input per field, the interval be
             const users = sourceModules('src')
                 .filter((module) => module.text.includes('DEFAULT_POLL_INTERVAL_MS'))
                 .map((module) => module.path)
-                .sort();
+                .toSorted(byText);
 
             expect(users).toEqual(['src/bindings-mode.ts', 'src/config.ts']);
             expect(trackedText('src/bindings-mode.ts')).toContain('pollIntervalMs: DEFAULT_POLL_INTERVAL_MS');

@@ -55,7 +55,7 @@ type ProfileMember<T> =
  */
 const SAFE_FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-/** The closed profile body once every issue has cleared (005 §2, 004 FR-082). */
+/** The closed profile body once every issue has cleared (005 §2). */
 interface ProfileBody {
     /** Validated label (`null` clears), or absent = unchanged. */
     readonly displayName: ProfileMember<string | null>;
@@ -104,7 +104,7 @@ function profileBodyRefusal(): FieldIssue {
  * whitelist: they are refused *explicitly* rather than merely unreachable.
  * Two kinds of key are reported under `body` instead, each for its own reason:
  * a key that is itself credential-shaped, because the secret rule outranks
- * naming (a member name is submitted input too — 004 FR-024, AC-130), and a
+ * naming (a member name is submitted input too — 004 FR-024), and a
  * key that is not an ordinary identifier at all, because a name the service
  * cannot vouch for must not be reflected back into the envelope that restates
  * every `field: remediation` pair. An identifier-shaped name is echoed through
@@ -142,8 +142,6 @@ function unexpectedProfileMemberIssue(key: string): FieldIssue {
  * Keeping this to one key is what holds the pass under the complexity gate;
  * the pass itself stays a single ordered walk over `Object.keys`, so a `422`
  * still lists every problem the body has (004 FR-027's additive atomicity).
- *
- * @param input - The member name, the parsed body, and the scratch to fill.
  */
 function readProfileKey(input: {
     /** The member name, exactly as it arrived. */
@@ -195,7 +193,7 @@ function readProfileKey(input: {
  * they name. `displayName` runs through the shipped six-step
  * {@link validateDisplayName}, `startingPrompt` through the single
  * {@link validateStartingPrompt} under its own field name — identical shape
- * labels to the bindings and configuration paths (AC-150).
+ * labels to the bindings and configuration paths.
  *
  * @param raw - The parsed request body, exactly as it arrived.
  * @returns The two members, or every issue the body carries.
@@ -242,9 +240,8 @@ type ProfileOutcome =
  * itself (plan C20, mirroring `PUT /v1/bindings`). The pre-write observation
  * claims any hand edit the stored record carries; the post-write observation
  * claims only this submission's own change, so exactly one row exists per
- * change and a `displayName`-only write appends none at all (FR-088).
+ * change and a `displayName`-only write appends none at all.
  *
- * @param input - Open store, logger, path id, and the raw body.
  * @returns The outcome the handler answers with.
  */
 async function runProfileWrite(input: {
@@ -279,10 +276,8 @@ async function runProfileWrite(input: {
         // cannot be overwritten from it — it is never read out of it.
         const updated: Account = {
             ...stored,
-            ...(parsed.body.displayName.present ? { displayName: parsed.body.displayName.value } : {}),
-            ...(parsed.body.startingPrompt.present
-                ? { startingPrompt: parsed.body.startingPrompt.value }
-                : {}),
+            ...(parsed.body.displayName.present && { displayName: parsed.body.displayName.value }),
+            ...(parsed.body.startingPrompt.present && { startingPrompt: parsed.body.startingPrompt.value }),
             updatedAt: nowIso(),
         };
         await writeAccount(store, updated);
@@ -296,12 +291,10 @@ async function runProfileWrite(input: {
  * Run `PUT /v1/accounts/:numericUserId` from request to response.
  *
  * One handler, one contract, two operator-editable members: `displayName`
- * (005 FR-066) and the account's `startingPrompt` tier (004 FR-082) ride the
+ * and the account's `startingPrompt` tier (004 FR-082) ride the
  * same route instead of a dedicated endpoint per field. `401` and `503` are
  * the route guard's and the store check's, unchanged.
  *
- * @param context - Route context carrying the open store.
- * @param request - The routed profile request.
  * @returns `200 { account }`, or the documented 404/422/503.
  */
 async function handleAccountProfile(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -341,6 +334,7 @@ async function handleAccountProfile(context: RouteContext, request: RouteRequest
  * is exactly why the retired narrow label route leaves no alias behind — there
  * is one path and two documented methods (005 v1.10.0, invariant 8).
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export const putAccountProfileRoute: Route = {
     method: 'PUT',
     path: ACCOUNT_PATH,

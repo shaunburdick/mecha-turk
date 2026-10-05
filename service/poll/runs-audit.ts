@@ -141,10 +141,12 @@ function isSweepIntent(intent: RunAuditIntent): intent is Extract<RunAuditIntent
 /** Find a durable row that proves an intent's append completed before a crash. */
 function intentIsWritten(intent: RunAuditIntent, entries: readonly AuditEntry[]): boolean {
     return entries.some((entry) => {
-        if (entry.eventType !== intent.eventType || entry.correlationId !== intent.correlationId) {
-            return false;
-        }
-        if (entry.entity.kind !== RUN_ENTITY_KIND || entry.entity.id !== intent.correlationId) {
+        if (
+            entry.eventType !== intent.eventType ||
+            entry.correlationId !== intent.correlationId ||
+            entry.entity.kind !== RUN_ENTITY_KIND ||
+            entry.entity.id !== intent.correlationId
+        ) {
             return false;
         }
 
@@ -216,8 +218,8 @@ export async function flushRunAuditIntents(input: {
 
     const remaining: RunAuditIntent[] = [];
     for (const intent of intents) {
-        const persisted = await persistIntent({ ...input, intent, entries });
-        if (!persisted) {
+        const isPersisted = await persistIntent({ ...input, intent, entries });
+        if (!isPersisted) {
             remaining.push(intent);
         }
     }

@@ -54,7 +54,7 @@ import type { RunRow } from './dispatches-service.ts';
 /** Trigger kinds the runs row can carry; anything else reads as `assignment`. */
 export type RunKind = 'assignment' | 'mention' | 'review';
 
-/** One source reference as the run history carries it (FR-013, FR-015). */
+/** One source reference as the run history carries it. */
 export interface RunReference {
     /** The joining delivery's unchanged id (FR-012). */
     readonly deliveryId: string;
@@ -69,23 +69,23 @@ export interface RunReference {
     /** `false` iff the run already held a reservation when this arrived. */
     readonly presentAtAuthorization: boolean;
     /**
-     * The actor this delivery is attributed to (002 FR-043).
+     * The actor this delivery is attributed to.
      *
      * **Absentable on read**: a run stored before attribution existed carries
      * neither actor member, and a run row must never refuse over it. The panel
      * renders its absence as *no attribution recorded*, which is a third thing —
-     * neither an empty actor nor a guessed one (002 NFR-011).
+     * neither an empty actor nor a guessed one.
      */
     readonly actorLogin?: string;
     /**
-     * How that attribution was made (002 FR-044).
+     * How that attribution was made.
      *
      * `'subject-author'` is a **legacy basis** no row written now carries: an
      * earlier build attributed assignment and review triggers to the issue or
      * pull-request author because the two *list* feeds named no actor, and
      * GitHub does record both. Rows already on disk carry it, so it still reads
      * and still renders — with its provenance stated rather than with a claim
-     * about what the provider can or cannot see (005 FR-094).
+     * about what the provider can or cannot see.
      */
     readonly actorAttribution?: ActorAttribution;
 }
@@ -94,13 +94,13 @@ export interface RunReference {
 export interface RunSession {
     /** Host-owned session id. */
     readonly sessionId: string;
-    /** `= correlationId`; the id the session was started with (FR-029). */
+    /** `= correlationId`; the id the session was started with. */
     readonly attachmentId: string;
     /** RFC 3339 dispatch stamp. */
     readonly dispatchedAt: string;
 }
 
-/** The recorded agent read-back as the run history carries it (FR-043). */
+/** The recorded agent read-back as the run history carries it. */
 export interface RunVerification {
     /** Agent the read-back observed, or `null` when it was unreadable. */
     readonly observedAgent: string | null;
@@ -116,7 +116,6 @@ export interface RunVerification {
  * Read one required non-empty string member.
  *
  * @param record - Parsed row or sub-object.
- * @param field - Member name.
  * @returns The value, or `null` when it is missing, not a string, or empty.
  */
 function requiredText(record: Record<string, unknown>, field: string): string | null {
@@ -126,9 +125,8 @@ function requiredText(record: Record<string, unknown>, field: string): string | 
 }
 
 /**
- * Read one source reference, actor members included (002 FR-043, FR-044).
+ * Read one source reference, actor members included.
  *
- * @param value - One element of the `sourceReferences` array.
  * @returns The reference, or `null` when its shape is unusable.
  */
 function parseReference(value: unknown): RunReference | null {
@@ -141,11 +139,13 @@ function parseReference(value: unknown): RunReference | null {
     const origin = requiredText(record, 'origin');
     const sourceUrl = requiredText(record, 'sourceUrl');
     const detectedAt = requiredText(record, 'detectedAt');
-    if (deliveryId === null || origin === null || sourceUrl === null || detectedAt === null) {
-        return null;
-    }
-
-    if (typeof record.presentAtAuthorization !== 'boolean') {
+    if (
+        deliveryId === null ||
+        origin === null ||
+        sourceUrl === null ||
+        detectedAt === null ||
+        typeof record.presentAtAuthorization !== 'boolean'
+    ) {
         return null;
     }
 
@@ -171,7 +171,6 @@ function parseReference(value: unknown): RunReference | null {
  * dropped a reference would render as falsely complete, which is the exact lie
  * FR-074's fail-closed reading exists to prevent.
  *
- * @param value - The member as received.
  * @returns The references, or `null`.
  */
 export function parseReferences(value: unknown): RunReference[] | null {
@@ -260,13 +259,11 @@ export function parseVerification(value: unknown): RunVerification | null | unde
 
 /**
  * One line per retained source reference: kind, origin, time, link, the actor
- * with its basis, and the late mark (AC-120, 005 FR-094).
+ * with its basis, and the late mark.
  *
  * The actor clause comes from `run-actor.ts` so this reveal, the row's own
- * reason list, and the Basis itself are worded in exactly one place
- * (002 NFR-011, 005 FR-094).
+ * reason list, and the Basis itself are worded in exactly one place.
  *
- * @param reference - One retained source reference.
  * @returns The reference's line, unredacted — the caller renders it as text.
  */
 function referenceLine(reference: RunReference): string {
@@ -279,9 +276,8 @@ function referenceLine(reference: RunReference): string {
 }
 
 /**
- * Every source reference of one row, as the reveal lists them (FR-048, AC-120).
+ * Every source reference of one row, as the reveal lists them.
  *
- * @param row - The selected row.
  * @returns One line per retained reference, earliest first.
  */
 export function referenceDetailLines(row: RunRow): readonly string[] {
@@ -289,9 +285,8 @@ export function referenceDetailLines(row: RunRow): readonly string[] {
 }
 
 /**
- * The same lines as list items, each keyed so the list cannot collide (FR-080).
+ * The same lines as list items, each keyed so the list cannot collide.
  *
- * @param row - The selected row.
  * @returns The reveal's items.
  */
 export function referenceDetailItems(row: RunRow): ListItem[] {

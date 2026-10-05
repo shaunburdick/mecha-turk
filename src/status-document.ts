@@ -3,17 +3,17 @@
  *
  * Parsing lives apart from rendering so the fail-closed rule is one function
  * deep and testable on its own: a body that does not carry the documented
- * shape answers **`null`**, never a partly-populated view (AGENTS invariant 8,
- * 005 FR-003). The tab then reports the read as failed and keeps whatever it
+ * shape answers **`null`**, never a partly-populated view (AGENTS invariant 8).
+ * The tab then reports the read as failed and keeps whatever it
  * last rendered marked stale — it never renders a default as though the
  * service had said it.
  *
  * Every member here mirrors [contracts/status-projection.md](../../specs/005-panel-ia/contracts/status-projection.md):
- * `repositories` keeps its historical name (FR-026), `pausedReason` is opaque
- * text the panel renders verbatim (FR-031), `readable: false` marks a binding
- * row whose scan projection could not be read (FR-032, AC-105), and
+ * `repositories` keeps its historical name, `pausedReason` is opaque
+ * text the panel renders verbatim, `readable: false` marks a binding
+ * row whose scan projection could not be read, and
  * `agentPin.lastVerification` is an outcome, an explicit *not available*, or
- * `null` — never a reassuring pass (FR-033, AC-106).
+ * `null` — never a reassuring pass.
  *
  * The read state belongs here rather than beside the other `PanelState`
  * slices: it is a statement about *this document* (which read is on screen,
@@ -25,7 +25,7 @@ import { parseJsonObject } from './json.ts';
 import { readRequiredActorPolicy } from './run-actor.ts';
 import type { ActorPolicy } from './run-actor.ts';
 
-/** One account row as the Status tab renders it (005 FR-030, FR-034). */
+/** One account row as the Status tab renders it. */
 export interface StatusAccountView {
     /** GitHub numeric user id. */
     readonly numericUserId: string;
@@ -33,11 +33,11 @@ export interface StatusAccountView {
     readonly login: string;
     /** Connection state, rendered verbatim — including values this build does not know. */
     readonly connectionState: string;
-    /** Rate budget; `null` members are *not measured yet*, never zero (FR-034). */
+    /** Rate budget; `null` members are *not measured yet*, never zero. */
     readonly rate: StatusRateView;
 }
 
-/** The honest pre-poll rate baseline (005 FR-034, AC-107). */
+/** The honest pre-poll rate baseline. */
 export interface StatusRateView {
     /** Requests left in the window; `null` before the first measurement. */
     readonly remaining: number | null;
@@ -49,7 +49,7 @@ export interface StatusRateView {
     readonly usedLastHour: number;
 }
 
-/** One binding row, keyed by the member the wire keeps (005 FR-032). */
+/** One binding row, keyed by the member the wire keeps. */
 export interface StatusBindingView {
     /** Binding this row describes. */
     readonly bindingId: string;
@@ -67,23 +67,23 @@ export interface StatusBindingView {
     readonly lastError: string | null;
     /** Events pending or in flight for this binding. */
     readonly pendingCount: number;
-    /** `false` marks every scan-derived member unreadable (AC-105). */
+    /** `false` marks every scan-derived member unreadable. */
     readonly readable: boolean;
     /**
-     * The **shape** of this binding's actor allow-list, never its contents
-     * (005 FR-093; 003 NFR-113).
+     * The **shape** of this binding's actor allow-list, never its contents.
+     *
      *
      * **Required, and fail-closed on both counts.** A row whose value is
      * outside the closed union, and a row that carries no value at all, each
      * refuse the document: the panel has no honest way to render *unknown* for
-     * this one value, and NFR-113 forbids exactly the two defaults that would
+     * this one value, and the two defaults that would
      * let it slip through — an absent policy rendered as neutral, or as
      * `'open'`.
      */
     readonly actorPolicy: ActorPolicy;
 }
 
-/** Process health, location, and store state (005 FR-030). */
+/** Process health, location, and store state. */
 export interface StatusServiceView {
     /** `degraded` when the data directory is unusable. */
     readonly status: 'ok' | 'degraded';
@@ -93,11 +93,11 @@ export interface StatusServiceView {
     readonly dataDir: string;
     /** Store schema version, or `null` while the store is unavailable. */
     readonly schemaVersion: number | null;
-    /** Whether the data directory can serve writes right now (FR-035). */
+    /** Whether the data directory can serve writes right now. */
     readonly writable: boolean;
 }
 
-/** The polling block, computed by the service from its live scheduler (FR-031). */
+/** The polling block, computed by the service from its live scheduler. */
 export interface StatusPollingView {
     /** Effective interval the scheduler is running with. */
     readonly intervalMs: number;
@@ -109,7 +109,7 @@ export interface StatusPollingView {
     readonly pausedReason: string;
 }
 
-/** The agent pin's verification member, in FR-033's three shapes. */
+/** The agent pin's verification member, in its three shapes. */
 export type StatusVerificationView =
     /** The most recent read-back the service holds. */
     | {
@@ -128,7 +128,7 @@ export type StatusVerificationView =
     /** Nothing has ever been verified. */
     | { readonly kind: 'none' };
 
-/** What Status knows about the Default Agent pin (005 FR-033, AC-106). */
+/** What Status knows about the Default Agent pin. */
 export interface StatusAgentPinView {
     /** The service's own expected-agent member; `null` when it holds none. */
     readonly expectedAgent: string | null;
@@ -142,21 +142,20 @@ export interface StatusView {
     readonly service: StatusServiceView;
     /** One row per registered account; `[]` is an honest empty. */
     readonly accounts: readonly StatusAccountView[];
-    /** One row per stored binding; never omissions (FR-032). */
+    /** One row per stored binding; never omissions. */
     readonly bindings: readonly StatusBindingView[];
     /** The computed polling block. */
     readonly polling: StatusPollingView;
-    /** The agent pin. */
     readonly agentPin: StatusAgentPinView;
-    /** Whether this host surface can run a service at all (FR-036). */
+    /** Whether this host surface can run a service at all. */
     readonly supported: boolean;
 }
 
 /**
- * Where the Status tab's read stands, and what it last rendered (FR-019).
+ * Where the Status tab's read stands, and what it last rendered.
  *
  * The tab keeps the last document it could read even when a later read fails,
- * because FR-019 asks for the retained content to be **marked stale** rather
+ * because the retained content must be **marked stale** rather
  * than swapped for a reassuring blank; `stale` is exactly that mark, and it
  * is cleared by the next read that lands.
  */
@@ -172,7 +171,7 @@ export interface StatusTabState {
     /** The parsed status document, or `null` until one lands. */
     doc: StatusView | null;
     /**
-     * The configured interval read beside the effective one (FR-039), or
+     * The configured interval read beside the effective one, or
      * `null` when `GET /v1/config` did not supply one — rendered as *not
      * read*, never as a default the service did not confirm.
      */
@@ -198,7 +197,6 @@ export function initialStatusTab(): StatusTabState {
 /**
  * Narrow one unknown to a plain object record.
  *
- * @param value - Value read from the document.
  * @returns The record, or `null` for `null`, arrays, and primitives.
  */
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -210,7 +208,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 /**
  * Narrow one unknown to a finite number.
  *
- * @param value - Value read from the document.
  * @returns The number, or `null` when it is not one.
  */
 function asNumber(value: unknown): number | null {
@@ -220,7 +217,6 @@ function asNumber(value: unknown): number | null {
 /**
  * Narrow one unknown to a string.
  *
- * @param value - Value read from the document.
  * @returns The string, or `null` when it is not one.
  */
 function asString(value: unknown): string | null {
@@ -230,7 +226,6 @@ function asString(value: unknown): string | null {
 /**
  * Narrow one unknown to a boolean.
  *
- * @param value - Value read from the document.
  * @returns The boolean, or `null` when it is not one.
  */
 function asBoolean(value: unknown): boolean | null {
@@ -240,7 +235,6 @@ function asBoolean(value: unknown): boolean | null {
 /**
  * Read a member that is a string or explicit `null`.
  *
- * @param value - Value read from the document.
  * @returns The string, `null` for the documented null, or `undefined` when
  *   the member is absent or of the wrong type (which fails the parse).
  */
@@ -255,7 +249,6 @@ function asStringOrNull(value: unknown): string | null | undefined {
 /**
  * Read a member that is a number or explicit `null`.
  *
- * @param value - Value read from the document.
  * @returns The number, `null` for the documented null, or `undefined` when
  *   the member is absent or of the wrong type.
  */
@@ -279,7 +272,7 @@ function asHealth(value: unknown): 'ok' | 'degraded' | null {
 
 /**
  * Parse the rate block; every member is required so a partial block is a
- * refusal rather than a half-measured budget (FR-034).
+ * refusal rather than a half-measured budget.
  *
  * @param value - The `rate` member.
  * @returns The rate view, or `null` when the shape is wrong.
@@ -304,7 +297,6 @@ function parseRate(value: unknown): StatusRateView | null {
 /**
  * Parse one account row.
  *
- * @param value - One element of the `accounts` array.
  * @returns The row, or `null` when the shape is wrong.
  */
 function parseAccount(value: unknown): StatusAccountView | null {
@@ -343,7 +335,6 @@ interface BindingIdentity {
 /**
  * Read the four identity members of one binding row.
  *
- * @param row - The row record.
  * @returns The identity, or `null` when any member is not a string.
  */
 function parseBindingIdentity(row: Record<string, unknown>): BindingIdentity | null {
@@ -361,7 +352,6 @@ function parseBindingIdentity(row: Record<string, unknown>): BindingIdentity | n
 /**
  * Parse one binding row out of the `repositories` member.
  *
- * @param value - One element of the `repositories` array.
  * @returns The row, or `null` when the shape is wrong.
  */
 function parseBinding(value: unknown): StatusBindingView | null {
@@ -376,10 +366,10 @@ function parseBinding(value: unknown): StatusBindingView | null {
     const lastError = asStringOrNull(row.lastError);
     const pendingCount = asNumber(row.pendingCount);
     const actorPolicy = readRequiredActorPolicy(row.actorPolicy);
-    const flags = typeof active === 'boolean' && typeof readable === 'boolean';
+    const isFlags = typeof active === 'boolean' && typeof readable === 'boolean';
     if (
         identity === null || lastScanAt === undefined || lastError === undefined
-        || pendingCount === null || actorPolicy === null || !flags
+        || pendingCount === null || actorPolicy === null || !isFlags
     ) {
         return null;
     }
@@ -444,7 +434,7 @@ function parsePolling(value: unknown): StatusPollingView | null {
 }
 
 /**
- * Parse the agent pin's three-shape verification member (FR-033).
+ * Parse the agent pin's three-shape verification member.
  *
  * @param value - The `lastVerification` member.
  * @returns The shape, or `null` when the document carries something else.
@@ -501,8 +491,6 @@ function parseAgentPin(value: unknown): StatusAgentPinView | null {
  * Parse one homogeneous row array; one unparseable row refuses the whole
  * document rather than silently dropping the row an operator would look for.
  *
- * @param value - The array member to parse.
- * @param parseOne - Parser for a single element.
  * @returns Every row, or `null` when the member is not an array or a row fails.
  */
 function parseRows<T>(value: unknown, parseOne: (entry: unknown) => T | null): T[] | null {
@@ -526,7 +514,6 @@ function parseRows<T>(value: unknown, parseOne: (entry: unknown) => T | null): T
 /**
  * Parse a whole `GET /v1/status` body, fail closed.
  *
- * @param body - Response body text.
  * @returns The view, or `null` when any required member is missing or of the
  *   wrong shape — never a partially populated document.
  */
@@ -554,12 +541,11 @@ export function parseStatusView(body: string): StatusView | null {
 }
 
 /**
- * Read the configured poll interval out of a `GET /v1/config` answer (FR-039).
+ * Read the configured poll interval out of a `GET /v1/config` answer.
  *
  * The effective value comes from the status document; this is the *configured*
  * one Status shows beside it so a difference can be named rather than hidden.
  *
- * @param body - Response body text.
  * @returns The configured interval, or `null` when the document does not carry
  *   a usable one — which the tab reports as *not read*, never as a default.
  */

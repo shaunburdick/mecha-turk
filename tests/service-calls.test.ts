@@ -24,6 +24,9 @@ import {
     EVENTS_PATH,
     EVENTS_PENDING_PATH,
     abandonPath,
+    accountDeletePath,
+    accountProfilePath,
+    accountTokenPath,
     auditPath,
     blockedPath,
     dispatchedPath,
@@ -53,14 +56,12 @@ const RUN_OPERATIONS: readonly (readonly [(id: string) => string, string])[] = [
 ];
 
 describe('run-scoped path helpers (the correlation-id namespace)', () => {
-    it('addresses every operation by the run, under the one … (+3 cases)', () => {
-        // case: addresses every operation by the run, under the one shared prefix
+    it('addresses every operation by the run, under the one shared prefix', () => {
         {
             for (const [helper, verb] of RUN_OPERATIONS) {
                 expect(helper(CORRELATION)).toBe(`/v1/events/${CORRELATION}/${verb}`);
             }
         }
-        // case: substitutes the correlation id exactly once and leaves no pattern behind
         {
             for (const [helper] of RUN_OPERATIONS) {
                 const path = helper(CORRELATION);
@@ -69,15 +70,30 @@ describe('run-scoped path helpers (the correlation-id namespace)', () => {
                 expect(path.split(CORRELATION)).toHaveLength(2);
             }
         }
-        // case: keeps the two read paths the panel polls unchanged
         {
             expect(EVENTS_PENDING_PATH).toBe('/v1/events/pending');
             expect(EVENTS_PATH).toBe('/v1/events');
         }
-        // case: reads one run\'s audit rows through the correlation filter (FR-053)
         {
             expect(AUDIT_PATH).toBe('/v1/audit');
             expect(auditPath(CORRELATION)).toBe(`/v1/audit?correlationId=${CORRELATION}`);
+        }
+    });
+
+    it('substitutes the id literally, so `$&` cannot rewrite the pattern', () => {
+        // `String#replace` reads `$&`, `$1`, and `$'` in a *string* replacement
+        // as substitution directives, so an id carrying one would splice the
+        // placeholder back in and send the request at the wrong path. A numeric
+        // GitHub id cannot contain one; the replacer-function form is what makes
+        // that irrelevant rather than merely unlikely.
+        const hostile = '$&$1$\'`x';
+
+        for (const [helper, verb] of RUN_OPERATIONS) {
+            expect(helper(hostile)).toBe(`/v1/events/${hostile}/${verb}`);
+        }
+
+        for (const helper of [accountDeletePath, accountProfilePath, accountTokenPath]) {
+            expect(helper(hostile)).toContain(`/${hostile}`);
         }
     });
 });
@@ -147,8 +163,7 @@ function scriptedRequester(answer: {
 }
 
 describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-112)', () => {
-    it('names the configuration and carries every issue in t… (+5 cases)', async () => {
-        // case: names the configuration and carries every issue in the service\'s order
+    it('names the configuration and carries every issue in the service\'s order', async () => {
         {
             const { serviceRequest, seen } = scriptedRequester({ status: 422, body: VALIDATION_BODY });
 
@@ -169,7 +184,9 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             );
             expect(refusal.problem).not.toContain('bindings');
         }
-        // case: drops an issue the envelope did not pair, rather than half-reading one
+    });
+
+    it('drops an issue the envelope did not pair, rather than half-reading one', async () => {
         {
             const { serviceRequest } = scriptedRequester({
                 status: 422,
@@ -186,7 +203,9 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
 
             expect(refusalOf(result).issues).toEqual([{ field: 'perPage', remediation: 'set perPage' }]);
         }
-        // case: keeps a store failure and an authorisation failure distinct from a refusal
+    });
+
+    it('keeps a store failure and an authorisation failure distinct from a refusal', async () => {
         {
             const unavailable = scriptedRequester({
                 status: 503,
@@ -211,7 +230,9 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             expect(refused.problem).not.toContain('refused');
             expect(denied.problem).not.toContain('refused');
         }
-        // case: describes a transport failure without quoting anything
+    });
+
+    it('describes a transport failure without quoting anything', async () => {
         {
             const { serviceRequest } = scriptedRequester({ status: 200, body: '{}' });
 
@@ -227,7 +248,9 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             });
             expect(landed).toEqual({ ok: true, body: '{}' });
         }
-        // case: keeps the envelope correlation id an unexpected failure carried (006 FR-064)
+    });
+
+    it('keeps the envelope correlation id an unexpected failure carried (006 FR-064)', async () => {
         {
             const body = JSON.stringify({
                 error: { code: 'internal', message: 'route failed', correlationId: 'mt-cfg-1' },
@@ -245,7 +268,9 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             expect(failed.correlationId).toBe('mt-cfg-1');
             expect(failed.problem).not.toContain('mt-cfg-1');
         }
-        // case: still says *bindings list* on the bindings path (nothing regresses)
+    });
+
+    it('still says *bindings list* on the bindings path (nothing regresses)', async () => {
         {
             const { serviceRequest } = scriptedRequester({ status: 422, body: VALIDATION_BODY });
 
@@ -259,4 +284,5 @@ describe('the configuration write keeps the refusal body (006 T-016, FR-043, AC-
             expect(result.message).toContain('retryMaxMs');
         }
     });
+
 });

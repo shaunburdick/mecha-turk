@@ -131,7 +131,7 @@ export interface PollLoop {
      * Read the scheduler's own state; never mutates it.
      *
      * The status projection reads the loop through this reader rather than
-     * keeping a second copy of the schedule it could drift from (005 FR-031).
+     * keeping a second copy of the schedule it could drift from.
      */
     state(): PollLoopState;
 }
@@ -142,7 +142,6 @@ export interface PollLoop {
  * A binding whose switches are all off is walked but never scanned, so the
  * scan state stays honest (and no rate budget is spent on a silent binding).
  *
- * @param binding - Binding the cycle is about to walk.
  * @returns `true` when at least one trigger is on.
  */
 function watchesAnything(binding: BindingRecord): boolean {
@@ -177,7 +176,6 @@ function skipOf(outcome: PollFailure): ScanSkip {
 /**
  * The outcome a binding's scan starts from, before anything is observed.
  *
- * @param binding - The binding the blank belongs to.
  * @returns The all-clear baseline.
  */
 function blankScan(binding: BindingRecord): BindingScan {
@@ -205,7 +203,6 @@ type ScanListing =
  * nothing at all, so the rate budget only ever pays for triggers the operator
  * turned on.
  *
- * @param input - Poller, credential, logger, binding, window, and the cycle stamp.
  * @returns Every event this scan matched, or the skip reason.
  */
 async function collectScanEvents(input: {
@@ -243,9 +240,6 @@ async function collectScanEvents(input: {
  *
  * The first list failure ends the scan with that failure's skip reason —
  * one cycle reports one honest reason per binding.
- *
- * @param input - Binding, scan state, and the stamp pinned at cycle start.
- * @returns The binding's outcome.
  */
 async function scanBinding(input: {
     /** Narrowed store/logger/poller. */
@@ -293,7 +287,7 @@ async function scanBinding(input: {
         // binding being scanned (binding tier) — so resolution and project
         // resolution cannot disagree (004 FR-015: "at the same moment";
         // FR-080: resolved once, at detection). A tier the records do not
-        // carry is unset and contributes nothing (FR-071).
+        // carry is unset and contributes nothing.
         prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
     });
     return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
@@ -302,9 +296,6 @@ async function scanBinding(input: {
 /**
  * Persist per-binding scan state: the stamp on completion, the skip reason
  * otherwise.
- *
- * @param deps - Narrowed store/logger for this cycle.
- * @param scan - The binding's outcome.
  */
 async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promise<void> {
     await serializeScan(async () => {
@@ -337,18 +328,16 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
  * logged once at the end with counts only. The cycle keeps walking the
  * remaining bindings so one broken account cannot block another.
  *
- * @param deps - Store, logger, and poller.
  * @returns The cycle outcome.
  */
 /**
  * Read this cycle's configuration and narrow the dependencies around it.
  *
- * One read, once per cycle (006 FR-055, FR-057–FR-059): the window, the page
+ * One read, once per cycle: the window, the page
  * size, and the retry ladder all take their values from this one document and
  * keep them for the whole cycle, so a single save changes all of them at the
  * same boundary and no consumer sees a half-updated configuration.
  *
- * @param input - Store, logger, and poller; the store is already known open.
  * @returns The context every binding in this cycle is scanned under.
  */
 async function cycleContext(input: {
@@ -380,8 +369,8 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     const context = await cycleContext({ store: deps.store, log: deps.log, poller: deps.poller });
     // 006 FR-055(b)/FR-057: both retention passes run at the cycle boundary,
     // on the configuration this cycle already read — the boundary adds no
-    // second read, and a save takes effect here rather than at the write
-    // (FR-047). Nothing below may throw because a pass failed: each one is
+    // second read, and a save takes effect here rather than at the write.
+    //  Nothing below may throw because a pass failed: each one is
     // guarded inside `runRetentionPasses`.
     await runRetentionPasses({ store: context.store, log: context.log, config: context.config });
     // Health pass before this cycle reads its windows: a queue file that has

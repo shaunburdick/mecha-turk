@@ -91,7 +91,7 @@ const CONTENT_TYPE_HEADER = 'content-type';
 const LOG_LINES: string[] = [];
 
 /** Logger every direct store call in the corpus reports through. */
-const CORPUS_LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const CORPUS_LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /** One refusal the corpus took, with the verdict it observed on the wire. */
 export interface RefusalObservation {
@@ -161,7 +161,7 @@ function detection(input: {
     // its own author directly, an assignment is attributed to the issue author
     // as a documented proxy (002 FR-044).
     return input.kind === 'mention'
-        ? { ...base, kind: 'mention', actorAttribution: 'direct', origin: 'comment', commentId: 4242 }
+        ? { ...base, kind: 'mention', actorAttribution: 'direct', origin: 'comment', commentId: 4_242 }
         : { ...base, kind: 'assignment', actorAttribution: 'subject-author' };
 }
 
@@ -285,7 +285,6 @@ export function tokenOf(run: Run): string {
 /**
  * POST one run-scoped body over the loopback service.
  *
- * @param input - The running instance, the concrete path, and the body.
  * @returns The status and the parsed body.
  */
 export async function post(input: {
@@ -307,7 +306,7 @@ export async function post(input: {
 
 /** The concrete path one run-scoped route answers on. */
 export function bound(pattern: string, correlationId: string): string {
-    return pattern.replace(':correlationId', correlationId);
+    return pattern.replace(':correlationId', () => correlationId);
 }
 
 /** The error code a failure envelope carries, read without trusting its shape. */
@@ -357,7 +356,6 @@ export async function sweep(store: ServiceStore): Promise<void> {
  * Cycle claim and sweep until the automatic requeue budget parks the run
  * (FR-033); three expiries burn the budget and the fourth parks it.
  *
- * @param input - The running instance, the store, and the run to exhaust.
  * @throws {Error} When the budget does not park the run within the bound.
  */
 export async function driveToDeadLetter(input: {
@@ -396,8 +394,6 @@ export async function readTrail(store: ServiceStore): Promise<readonly AuditEntr
 
 /**
  * Drain the corpus's service and remove every temp root it planted.
- *
- * @param corpus - The corpus the drive produced.
  */
 export async function shutdownDispatchCorpus(corpus: DispatchCorpus): Promise<void> {
     await corpus.service.shutdown();

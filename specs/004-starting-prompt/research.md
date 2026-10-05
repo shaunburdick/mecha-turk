@@ -9,7 +9,7 @@ pass had recorded as open are **closed**, see §Open items. **v1.4.2 = the pre-P
 correction** (documentation-only): FR-085's fail-closed floor is reachable by a *legal*
 supplementary-plane-heavy prompt as well as by a hand-edited store — the cap and stack bound count
 code points, the floor counts UTF-16 units — so the floor stays put and the prose moves; see
-spec `## Amendment History` → `### v1.4.2`. No open technology question results from it.
+spec changelog.md → `### v1.4.2`. No open technology question results from it.
 
 ## Status: no open technology questions; four defaults recorded (none changed at the gate), one open item for the PM (two more closed at v1.4.1)
 
@@ -60,7 +60,7 @@ source.
 the dispatch row's line reads `prompt set · <sources joined by '+'> · mtp-… · N chars` /
 `prompt not set`; the Settings row shows `not set` in the value slot when the field is `""`; the
 Accounts field shows `not set` in place of an empty editor. All three sit behind the v1.2.0
-relaxation (004 `## Amendment History`): one representative proof per behaviour carries the
+relaxation (004 changelog.md): one representative proof per behaviour carries the
 guarantee, so wording may pivot at zero test cost.
 
 ## Open items this research leaves — for the PM, not blockers

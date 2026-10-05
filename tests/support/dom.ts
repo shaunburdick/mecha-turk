@@ -28,10 +28,23 @@ export interface FakeDocument {
     /**
      * Create an element and record it in the document's journal.
      *
-     * @param tagName - Tag to create.
      * @returns The new element, bound to this document.
      */
     createElement(tagName: string): FakeElement;
+}
+
+/**
+ * The `data-*` attribute name a `dataset` key stands for.
+ *
+ * The DOM's own rule: the camelCase key `myFlag` is the attribute
+ * `data-my-flag`, and the leading `data-` is added if the key does not carry it
+ * (`dataId` and `data-id` are the same attribute).
+ *
+ * @returns The attribute name to record in {@link FakeElement.attributes}.
+ */
+function dataAttribute(key: string): string {
+    const kebab = key.replaceAll(/[A-Z]/gu, (character) => `-${character.toLowerCase()}`);
+    return kebab.startsWith('data-') ? kebab : `data-${kebab}`;
 }
 
 /** One element in the double: tags, attributes, children, and listeners. */
@@ -70,13 +83,13 @@ export class FakeElement {
     /** Attributes written through `setAttribute`. */
     public readonly attributes = new Map<string, string>();
     /** Parent node, maintained by {@link append} and {@link remove}. */
+    // eslint-disable-next-line unicorn/consistent-class-member-order -- the other ordering rule wants the reverse
     private parent: FakeElement | null = null;
     /** Listeners per event type; the adapter registers `click`. */
     private readonly listeners = new Map<string, ElementListener>();
 
     /**
      * @param tagName - Lower-case tag name the element was created with.
-     * @param ownerDocument - Document performing the creation.
      */
     public constructor(tagName: string, ownerDocument: FakeDocument) {
         this.tagName = tagName;
@@ -84,10 +97,46 @@ export class FakeElement {
     }
 
     /**
-     * Record an attribute, as `Element.setAttribute` does.
+     * The `data-*` attributes under their `dataset` keys.
      *
-     * @param name - Attribute name.
-     * @param value - Attribute value.
+     * A live view over {@link attributes}, because that is what it is in a
+     * browser: `el.dataset.variant = 'x'` *is* `el.setAttribute('data-variant',
+     * 'x')`, and a double that kept its own separate map would let the adapter
+     * and the test disagree about what the page actually carries. The
+     * camelCase↔kebab-case mapping is the DOM's own rule — `data-my-flag` is
+     * `dataset.myFlag` — and it is the reason this is a proxy rather than a
+     * fixed shape: `data-id` and `data-mount` are both written by the shell.
+     */
+    public get dataset(): Record<string, string | undefined> {
+        return new Proxy(
+            {},
+            {
+                get: (_target, key: PropertyKey): string | undefined =>
+                    typeof key === 'string' ? this.attributes.get(dataAttribute(key)) : undefined,
+                set: (_target, key: PropertyKey, value: unknown): boolean => {
+                    this.attributes.set(dataAttribute(String(key)), String(value));
+                    return true;
+                },
+                has: (_target, key: PropertyKey): boolean => this.attributes.has(dataAttribute(String(key))),
+            },
+        );
+    }
+
+    /**
+     * First element child, as `Element.firstElementChild` reports it.
+     *
+     * The double stores children in an array and has no such accessor, so every
+     * test that wanted "the thing that was mounted here" reached for
+     * `children[0]` instead — a spelling that reads as an index into something
+     * that might not be there.
+     */
+    public get firstElementChild(): FakeElement | null {
+        // eslint-disable-next-line unicorn/better-dom-traversing -- this *is* the accessor being defined
+        return this.children[0] ?? null;
+    }
+
+    /**
+     * Record an attribute, as `Element.setAttribute` does.
      */
     public setAttribute(name: string, value: string): void {
         this.attributes.set(name, value);
@@ -96,7 +145,6 @@ export class FakeElement {
     /**
      * Read an attribute recorded by {@link setAttribute}.
      *
-     * @param name - Attribute name.
      * @returns The value, or `null` when it was never set.
      */
     public attribute(name: string): string | null {
@@ -143,7 +191,6 @@ export class FakeElement {
      * Register a listener for one event type.
      *
      * @param type - Event type, e.g. `click`.
-     * @param listener - Callback invoked when the event fires.
      */
     public addEventListener(type: string, listener: ElementListener): void {
         this.listeners.set(type, listener);
@@ -171,7 +218,7 @@ export class FakeElement {
         }
 
         const at = parent.children.indexOf(this);
-        if (at >= 0) {
+        if (at !== -1) {
             parent.children.splice(at, 1);
         }
 
@@ -198,6 +245,16 @@ export class FakeElement {
 export interface FakeDom {
     /** Root element to mount into, typed as `mountHandoffDom` expects. */
     readonly root: HTMLElement;
+    /**
+     * The same node as the double it is.
+     *
+     * `root` is the `HTMLElement` face the adapter takes; this is what the
+     * double actually is. Returning both means a test that needs to walk the
+     * tree does not have to cast its way back through `unknown`, which is how
+     * `dom.root.children[0]` and `dom.root as unknown as FakeElement` came to be
+     * written in the first place.
+     */
+    readonly rootElement: FakeElement;
     /** Every element the adapter created, in creation order. */
     readonly created: readonly FakeElement[];
     /** First element created with `tagName`, or `undefined`. */
@@ -230,8 +287,13 @@ export function fakeDom(): FakeDom {
     };
     const root = doc.createElement('div');
 
+    // `root` is the `HTMLElement` face production code is handed; `rootElement`
+    // is the same node as this double, so a test that walks the tree does not
+    // have to cast its way back through `unknown`.
     return {
+        // eslint-disable-next-line llm-core/no-chained-type-assertions, llm-core/no-type-system-bypass -- a stand-in
         root: root as unknown as HTMLElement,
+        rootElement: root,
         created,
         findByTag: (tagName: string): FakeElement | undefined =>
             created.find((node) => node.tagName === tagName),

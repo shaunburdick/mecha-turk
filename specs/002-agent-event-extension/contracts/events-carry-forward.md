@@ -64,7 +64,7 @@ and conflating them is how the contract came to describe a mechanism that does n
   the `review` kinds use this basis."* **That was false.** The two **list** feeds the poller calls
   do name no actor; **GitHub does**, one endpoint away, in `assigner` and `review_requester` on the
   item's own event record. The claim was a two-endpoint sample generalized to a provider — see
-  `../research.md` §R8, rewritten at v1.12.0, and `../spec.md` `## Amendment History` →
+  `../research.md` §R8, rewritten at v1.12.0, and `../spec.md` changelog.md →
   `### v1.12.0`.
 
 **Four rules that travel with the addition:**

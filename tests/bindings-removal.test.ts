@@ -45,9 +45,6 @@ const STAMP = '2026-09-27T00:00:00.000Z';
 
 /**
  * Build a fixture binding row with every field the parser requires.
- *
- * @param input - Distinguishing fields.
- * @returns One complete binding row.
  */
 function bindingFixture(input: {
     /** Panel-generated id. */
@@ -90,7 +87,6 @@ const UNROUTED_BODY = '{"error":{"code":"not-found","message":"unrouted"}}';
 /**
  * Build a host whose `serviceRequest` answers per path and records leg order.
  *
- * @param answer - What each request should return.
  * @returns The host double plus its recorded requests.
  */
 function recordingService(answer: (request: GuestRequest) => GuestRequestResult): RecordingHost {
@@ -189,8 +185,7 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
         return { rt, requests };
     }
 
-    it('arms on the first click, names the cascade, and send… (+4 cases)', async () => {
-        // case: arms on the first click, names the cascade, and sends nothing (AC-126)
+    it('arms on the first click, names the cascade, and sends nothing', async () => {
         {
             const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
             const { rt, requests } = await removalRuntime(storage);
@@ -222,7 +217,9 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
             armAccountRemoval(rt, ACCOUNT_ID);
             expect(rt.state.accounts.removeArmed).toBe(ACCOUNT_ID);
         }
-        // case: deletes on the confirmation and renders its bindings disabled (AC-127)
+    });
+
+    it('deletes on the confirmation and renders its bindings disabled', async () => {
         {
             const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
             const { rt, requests } = await removalRuntime(storage);
@@ -248,7 +245,9 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
             // The binding is present, disabled, and says why — never deleted.
             expect(rt.state.bindings.bindings).toHaveLength(1);
         }
-        // case: clears the account mirror from host.storage after the delete
+    });
+
+    it('clears the account mirror from host.storage after the delete', async () => {
         {
             const storage = createStorageDouble({ [ACCOUNTS_STORAGE_KEY]: [MIRROR_ENTRY] });
             const { rt } = await removalRuntime(storage);
@@ -258,7 +257,9 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
             const mirrored = storage.values.get(ACCOUNTS_STORAGE_KEY);
             expect(mirrored).toEqual([]);
         }
-        // case: shows the bindings refusal and keeps the account when the service refuses
+    });
+
+    it('shows the bindings refusal and keeps the account when the service refuses', async () => {
         {
             /** The service's delete refusal exactly as the route answers it. */
             const refusalBody = JSON.stringify({
@@ -285,11 +286,14 @@ describe('removeAccount on the Accounts tab (two-step delete, FR-055, FR-065)', 
                 { numericUserId: ACCOUNT_ID, login: LOGIN, displayName: null, usable: true },
             ]);
         }
-        // case: builds the forced delete path from the numeric id
+    });
+
+    it('builds the forced delete path from the numeric id', async () => {
         {
             expect(accountRemovePath(ACCOUNT_ID)).toBe(`/v1/accounts/${ACCOUNT_ID}?force=1`);
         }
     });
+
 });
 
 /** The service's refusal body for an invalid whole-file submission. */
@@ -321,10 +325,6 @@ function disabledBinding(): PanelBinding {
 
 /**
  * Build a bindings state around one row, so the row copy can be asserted.
- *
- * @param input - The row, the accounts the service holds, and how the last
- *   read ended.
- * @returns A complete bindings state.
  */
 function bindingsState(input: {
     /** The one binding to render. */
@@ -343,8 +343,7 @@ function bindingsState(input: {
 }
 
 describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
-    it('sends every binding in one PUT and takes the answer … (+3 cases)', async () => {
-        // case: sends every binding in one PUT and takes the answer back (FR-050)
+    it('sends every binding in one PUT and takes the answer back', async () => {
         {
             const kept = bindingFixture({ bindingId: 'bnd-keep', repository: WIDGET_REPO });
             const { host, requests } = recordingService((request) => {
@@ -374,7 +373,9 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             expect(rt.state.bindings.bindings.map((binding) => binding.repository)).toEqual([WIDGET_REPO, 'acme/new']);
             expect(rt.state.bindings.note).toContain('Bound acme/new');
         }
-        // case: keeps the stored state when the service refuses a toggle (FR-054)
+    });
+
+    it('keeps the stored state when the service refuses a toggle', async () => {
         {
             const { host, requests } = recordingService((request) => {
                 if (request.method === 'PUT' && request.path === BINDINGS_PATH) {
@@ -394,7 +395,9 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             expect(requests.some((request) => request.method === 'PUT')).toBe(true);
             expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
         }
-        // case: leaves every other binding byte-identical when the submission is refused (AC-125)
+    });
+
+    it('leaves every other binding byte-identical when the submission is refused', async () => {
         {
             const kept = bindingFixture({ bindingId: 'bnd-keep', repository: WIDGET_REPO });
             const other = bindingFixture({ bindingId: 'bnd-other', repository: OTHER_REPO });
@@ -421,14 +424,17 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             // The refusal names the field, never the value the operator typed.
             expect(rt.state.bindings.note).not.toContain('acme/new');
         }
-        // case: never issues a per-binding PATCH anywhere in the panel source (FR-050)
+    });
+
+    it('never issues a per-binding PATCH anywhere in the panel source', async () => {
         {
             const root = resolve(import.meta.dirname, '..', 'src');
             const method = /\bPATCH\b/;
             const modules = readdirSync(root, { recursive: true }).map(String);
+            const sources = modules.filter((entry) => entry.endsWith('.ts'));
             const offenders: string[] = [];
 
-            for (const name of modules.filter((entry) => entry.endsWith('.ts'))) {
+            for (const name of sources) {
                 const lines = readFileSync(resolve(root, name), 'utf8').split('\n');
                 for (const line of lines) {
                     if (method.test(line)) {
@@ -440,24 +446,22 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             expect(offenders).toEqual([]);
         }
     });
+
 });
 
 describe('a binding disabled because its account was removed (FR-054)', () => {
-    it('names the removal on the row instead of showing an i… (+2 cases)', () => {
-        // case: names the removal on the row instead of showing an inert one
+    it('names the removal on the row instead of showing an inert one', () => {
         {
             const row = bindingRows(bindingsState({ binding: disabledBinding(), accounts: [] }))[0];
 
             expect(row?.leading).toBe('off');
         }
-        // case: says only "disabled" when the operator turned the binding off
         {
             const row = bindingRows(bindingsState({ binding: disabledBinding(), accounts: [REGISTERED] }))[0];
 
             expect(row?.subtitle).toContain('disabled');
             expect(row?.subtitle).not.toContain('account removed');
         }
-        // case: claims no removal while the accounts list was never read (FR-003)
         {
             const state = bindingsState({ binding: disabledBinding(), accounts: [], status: 'error' });
             const row = bindingRows(state)[0];

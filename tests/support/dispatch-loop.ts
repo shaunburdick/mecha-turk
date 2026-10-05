@@ -40,7 +40,7 @@ import { sweepOnce } from '../../service/poll/sweep.ts';
 import type { ClaimedRun } from '../../src/claim-service.ts';
 import type { PanelRuntime } from '../../src/panel-state.ts';
 import type { PanelBinding } from '../../src/bindings-service.ts';
-import type { SpikeHost } from '../../src/session.ts';
+import type { PanelHost } from '../../src/session.ts';
 import type { GitHubIssuePoller } from '../../service/poll/poller-github.ts';
 import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
@@ -56,7 +56,7 @@ import {
 import type { EnqueueInput } from './fixture-enqueue.ts';
 import { offlinePoller } from './github.ts';
 import {
-    IDLE_UNSUBSCRIBE,
+    hasNothingToRelease,
     PROJECT_ID,
     PROJECTS,
     SESSION_CREATED,
@@ -113,7 +113,7 @@ const LOST_REPORT_STATUS = 503;
 const LOG_LINES: string[] = [];
 
 /** Logger every direct store call in the loop reports through. */
-const LOOP_LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOOP_LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /** The read-back snapshot the fixture host replays to the verifier. */
 const SESSION_SNAPSHOT: SessionSnapshot = {
@@ -161,8 +161,6 @@ export interface DispatchLoop {
      * Enqueue many subjects' fixture deliveries through **one** real
      * `enqueueEvents` call — a scan-sized batch, exactly how the production
      * loop hands one binding's scan to the queue (`service/poll/loop.ts`).
-     *
-     * @param inputs - Every subject detected in this simulated scan.
      */
     enqueueScan(inputs: readonly EnqueueInput[]): Promise<void>;
     /** Mount a panel on this loop; the caller unmounts or lets it die. */
@@ -211,7 +209,7 @@ async function forward(input: {
     const { service, request, options, lost, timeline } = input;
     timeline.push(`${request.method} ${request.path}`);
     const isResult = request.method === 'POST' && request.path.endsWith('/dispatched');
-    if (options.loseFirstReport === true && isResult && !lost.value) {
+    if (isResult && !lost.value && options.loseFirstReport === true) {
         lost.value = true;
 
         return { status: LOST_REPORT_STATUS, body: LOST_REPORT_BODY };
@@ -259,10 +257,10 @@ function buildHost(input: {
     /** Timeline every call and storage flip is recorded on. */
     readonly timeline: string[];
     /** Shared storage every mount reads and writes. */
-    readonly storage: SpikeHost['storage'];
+    readonly storage: PanelHost['storage'];
     /** Whether this mount has already lost its report. */
     readonly lost: { value: boolean };
-}): SpikeHost {
+}): PanelHost {
     const { service, options, sessions, timeline, storage, lost } = input;
 
     return fakeHost({
@@ -281,7 +279,7 @@ function buildHost(input: {
         onSession: (listener) => {
             listener(SESSION_SNAPSHOT);
 
-            return IDLE_UNSUBSCRIBE;
+            return hasNothingToRelease;
         },
         storage,
     });
@@ -291,10 +289,12 @@ function buildHost(input: {
 function stopMount(rt: PanelRuntime): void {
     rt.disposed = true;
     rt.relayArmed = false;
-    if (rt.state.relay.timer !== null) {
-        clearInterval(rt.state.relay.timer);
-        rt.state.relay.timer = null;
+    if (rt.state.relay.timer === null) {
+        return;
     }
+
+    clearInterval(rt.state.relay.timer);
+    rt.state.relay.timer = null;
 }
 
 /** Drain every mount (pending read-backs first) and the instance itself. */
@@ -308,11 +308,13 @@ async function drainLoop(input: {
 }): Promise<void> {
     while (input.mounts.length > 0) {
         const rt = input.mounts.pop();
-        if (rt !== undefined) {
-            stopMount(rt);
-            if (rt.pendingVerifications.length > 0) {
-                await drainVerifications(rt);
-            }
+        if (rt === undefined) {
+            continue;
+        }
+
+        stopMount(rt);
+        if (rt.pendingVerifications.length > 0) {
+            await drainVerifications(rt);
         }
     }
 
@@ -337,8 +339,6 @@ async function drainLoop(input: {
  * The boot sweep reads the *real* clock (NFR-112), so "the lease outlived the
  * outage" cannot be modelled by waiting — the fixture moves the stored expiry
  * instead, which is the same state a long downtime leaves behind.
- *
- * @param input - The open store to age in place.
  */
 async function ageStoredLeases(input: { readonly store: ServiceStore }): Promise<void> {
     const document = await readRunsDocument({ store: input.store, log: LOOP_LOGGER });
@@ -356,7 +356,6 @@ async function ageStoredLeases(input: { readonly store: ServiceStore }): Promise
  * Build the shared `host.storage` the mounts read and write, recording each
  * dispatch-record flip on the loop's timeline.
  *
- * @param input - The storage double to wrap and the timeline to record on.
  * @returns The storage surface every mount runs on.
  */
 function sharedStorageFor(input: {
@@ -364,7 +363,7 @@ function sharedStorageFor(input: {
     readonly storage: StorageDouble;
     /** Timeline every record/ack flip is appended to. */
     readonly timeline: string[];
-}): SpikeHost['storage'] {
+}): PanelHost['storage'] {
     return {
         ...input.storage.storage,
         set: async (key, value) => {
@@ -381,8 +380,6 @@ function sharedStorageFor(input: {
  * The open store of whichever instance is running, demanded rather than
  * defaulted: a loop that cannot read its runs cannot answer for a dispatch.
  *
- * @param service - The running instance.
- * @returns Its open store.
  * @throws {Error} When the instance opened no store.
  */
 function currentStoreOf(service: TestService): ServiceStore {
@@ -397,8 +394,6 @@ function currentStoreOf(service: TestService): ServiceStore {
 /**
  * Mount one panel on a loop and collect it for teardown.
  *
- * @param input - Instance, mount options, counters, storage, and the list to
- *   collect the mount on.
  * @returns The mounted runtime, configured with the loop's active binding.
  */
 function mountPanel(input: {
@@ -411,7 +406,7 @@ function mountPanel(input: {
     /** Timeline every call and storage flip is recorded on. */
     readonly timeline: string[];
     /** Shared storage the panel reads and writes. */
-    readonly storage: SpikeHost['storage'];
+    readonly storage: PanelHost['storage'];
     /** Mounts collected for teardown. */
     readonly mounts: PanelRuntime[];
 }): PanelRuntime {
@@ -443,7 +438,6 @@ async function startLoopService(dataDir: string): Promise<TestService> {
  * (003 FR-076).
  *
  * @param dataDir - Store directory to seed.
- * @param store - The open store of the instance serving it.
  * @returns A promise that settles once both documents are durable.
  */
 async function seedLoopStore(dataDir: string, store: ServiceStore): Promise<void> {
@@ -510,7 +504,6 @@ export async function startDispatchLoop(): Promise<DispatchLoop> {
 /**
  * Claim every waiting run through one mount's own service bridge.
  *
- * @param rt - The mount whose bridge claims.
  * @returns The offer the service answered with.
  * @throws {Error} When the claim was refused or unreadable.
  */
@@ -537,7 +530,7 @@ export async function offerFor(rt: PanelRuntime): Promise<readonly ClaimedRun[]>
 export function justPast(stamp: string): string {
     const parsed = Date.parse(stamp);
     if (Number.isNaN(parsed)) {
-        throw new Error(`not an RFC 3339 stamp: ${stamp}`);
+        throw new TypeError(`not an RFC 3339 stamp: ${stamp}`);
     }
 
     return new Date(parsed + 1).toISOString();

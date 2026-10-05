@@ -121,7 +121,7 @@ The pre-amendment plan (2026-09-28, v1.1.0) designed the **binding tier** and it
 | --- | --- | --- | --- |
 | N7 | The **config-tier observation lane**: per-store chain + baseline seeded from the highest-seq `config.changed` `changes[].to` for `startingPrompt` (`null` when the trail has none), appending one `config.changed` row with actor `service` when the stored document differs from the baseline — hooked at the **cycle config read**, the same cadence the bindings observer gets | `service/config-prompt-observe.ts` (new module) | FR-088; 006 FR-070 |
 | N8 | The **account-tier observation lane**: the same chain+baseline pattern seeded from `account.prompt-updated` rows, row shape per layered-prompt §2 | `service/account-prompt-audit.ts` (new module) | FR-088, SC-125's one-row rule |
-| N9 | **No new store file, no new host.storage key, no new test file, no new dependency.** The prompt test files that already exist (`prompt-validation`, `prompt-snapshot`, `prompt-composition`, `prompt-claim`, `prompt-audit`, `prompt-upgrade`) are extended instead — the v1.2.0 change-efficiency posture (004 `## Amendment History`) | — | NFR-129, NFR-128 |
+| N9 | **No new store file, no new host.storage key, no new test file, no new dependency.** The prompt test files that already exist (`prompt-validation`, `prompt-snapshot`, `prompt-composition`, `prompt-claim`, `prompt-audit`, `prompt-upgrade`) are extended instead — the v1.2.0 change-efficiency posture (004 changelog.md) | — | NFR-129, NFR-128 |
 
 **Per-requirement headline split**: already built = transport, custody, polling, stores, audit writer, config surface, panel substrate, 003's run layer, **and 004's shipped binding tier**; changed = C13–C32; new = N7–N9.
 

@@ -147,10 +147,10 @@ const DEFAULT_WIDTH = 720;
 const NARROW_WIDTH = 560;
 
 /** Short viewport used before the full-height capture stretches the page. */
-const SANITY_HEIGHT = 1000;
+const SANITY_HEIGHT = 1_000;
 
 /** Tallest viewport the run will ask for before it gives up on a tab. */
-const DEFAULT_MAX_HEIGHT = 6000;
+const DEFAULT_MAX_HEIGHT = 6_000;
 
 /**
  * Where captures land, unless `--out` says otherwise: the repo-root
@@ -206,30 +206,57 @@ function parseArgs(argv) {
         help: false,
     };
 
+    // `index` is stepped by hand for the options that take a value, so each one
+    // that consumes the next argument ends in `continue` rather than a `break`
+    // out of a `switch` nested in the loop.
     for (let index = 0; index < argv.length; index++) {
         const argument = argv[index];
 
         if (argument === '--out') {
             options.outDir = optionValue(argv, index);
             index++;
-        } else if (argument === '--width') {
+
+            continue;
+        }
+
+        if (argument === '--width') {
             options.width = Number(optionValue(argv, index));
             index++;
-        } else if (argument === '--max-height') {
+
+            continue;
+        }
+
+        if (argument === '--max-height') {
             options.maxHeight = Number(optionValue(argv, index));
             index++;
-        } else if (argument === '--session') {
+
+            continue;
+        }
+
+        if (argument === '--session') {
             options.session = optionValue(argv, index);
             index++;
-        } else if (argument === '--no-full') {
-            options.full = false;
-        } else if (argument === '--help') {
-            options.help = true;
-        } else if (argument.startsWith('-')) {
-            throw new Error(`unknown option ${argument}\n${USAGE}`);
-        } else {
-            options.tabs.push(argument);
+
+            continue;
         }
+
+        if (argument === '--no-full') {
+            options.full = false;
+
+            continue;
+        }
+
+        if (argument === '--help') {
+            options.help = true;
+
+            continue;
+        }
+
+        if (argument.startsWith('-')) {
+            throw new Error(`unknown option ${argument}\n${USAGE}`);
+        }
+
+        options.tabs.push(argument);
     }
 
     return options;
@@ -289,8 +316,6 @@ async function probe(input) {
  * survive, and a frame delivered at the wrong width fails on its own read-back
  * instead.
  *
- * @param input - Browser, run context, the tab, the width to fit to, the
- *   sentinel colour, and the output file's name without its `.png`.
  * @returns The report's figures for this frame.
  */
 async function captureFrame(input) {
@@ -339,7 +364,6 @@ async function captureFrame(input) {
  * narrow frame beside it, so the tight end of the panel's real width band is
  * always on disk next to the comfortable one.
  *
- * @param input - Browser, run context, the tab, and both sentinel colours.
  * @returns One result per frame captured, in capture order.
  */
 async function captureTab(input) {
@@ -540,12 +564,14 @@ async function main() {
     }
 }
 
-const invokedDirectly =
+const isInvokedDirectly =
     process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-if (invokedDirectly) {
-    main().catch((error) => {
+if (isInvokedDirectly) {
+    try {
+        await main();
+    } catch (error) {
         writeError(error instanceof Error ? error.message : String(error));
         process.exitCode = 1;
-    });
+    }
 }

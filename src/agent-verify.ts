@@ -1,10 +1,10 @@
 /**
- * Post-dispatch agent verification (M9) — warn, never block.
+ * Post-dispatch agent verification — warn, never block.
  *
  * The platform owns which agent runs a session: `startSession` carries no
  * agent field at SDK 1.24.2 and the panel cannot write Settings → Sessions →
  * Session Defaults, so the only documented read-back is
- * `onSession().agent` on the *attached* surface (research §R3, verified
+ * `onSession().agent` on the *attached* surface (verified
  * against the pinned `dist/*.d.ts`). Reaching it costs one documented UI
  * context switch — `openSession(sessionId)` — which this module performs
  * once per successful dispatch, right after the dispatch result reaches the
@@ -19,18 +19,19 @@
  *
  * Outcomes are recorded, not enforced: a match lands as evidence, anything
  * else lands as a warning banner in the dispatches area plus a ledger entry.
- * Nothing here stops the session or blocks the event. Since 003 (T-027) the
- * read-back is also **posted to the service** — `POST …/verification`, contract
+ * Nothing here stops the session or blocks the event. The read-back is also
+ * **posted to the service** — `POST …/verification`, contract
  * §5 — which writes `agent.verified` / `agent.mismatch` / `agent.uncompared`
  * on the run and stores `run.verification` for the run-history projection,
  * **changing no state**: the panel-side record and the service-side trail say
  * the same thing, and a report the service refuses surfaces as a visible
- * warning rather than as a silent gap (FR-043, FR-063).
+ * warning rather than as a silent gap.
  *
- * The comparison baseline is **the service's**, not the manifest's: 002
- * FR-041 emptied the integration card, so `readVerificationBaseline` takes it
- * from `GET /v1/config`'s `expectedAgent` per verification, with 002 FR-029's
- * split kept intact — an observed agent that differs from a **configured**
+ * The comparison baseline is **the service's**, not the manifest's: the
+ * integration card no longer carries one, so `readVerificationBaseline` takes
+ * it from `GET /v1/config`'s `expectedAgent` per verification, with the
+ * provenance split kept intact — an observed agent that differs from a
+ * **configured**
  * baseline (or cannot be read) still warns as before, while a baseline that is
  * blank or unreadable means **there is nothing to compare against**: the
  * read-back still records the observed agent, its provenance reads
@@ -53,14 +54,14 @@ import { redact } from './redaction.ts';
 import { CONFIG_PATH, serviceGet, servicePost, verificationPath } from './service-calls.ts';
 import type { ServiceRequester } from './service-calls.ts';
 import { describeError } from './session.ts';
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
 /** How long one verification waits for the session snapshot, in milliseconds. */
 export const AGENT_VERIFY_TIMEOUT_MS = 15_000;
 
 /**
- * Which baseline a verification judged against (002 FR-029's split).
+ * Which baseline a verification judged against.
  *
  * The distinction is recorded so a result months later is explainable: one
  * decided against the operator's own configuration says so, one that had
@@ -87,7 +88,7 @@ export interface VerificationBaseline {
 /**
  * The documented default — the empty string — as a *defaulted* baseline.
  *
- * 002 FR-029 case (ii): a service that cannot be reached, a document written
+ * A service that cannot be reached, a document written
  * before the field existed, and a value that fails to parse all land here —
  * the run **proceeds to verification** with `agent: ''`, which the caller
  * reads as *no comparison is possible* rather than as a name to compare with.
@@ -129,7 +130,7 @@ function baselineFromConfig(body: string): VerificationBaseline {
 }
 
 /**
- * Read the agent-verification baseline from the service (002 FR-029).
+ * Read the agent-verification baseline from the service.
  *
  * One `GET /v1/config` per verification — the baseline is read fresh each
  * time so a value saved after a dispatch is in force for the next one, with
@@ -137,7 +138,6 @@ function baselineFromConfig(body: string): VerificationBaseline {
  * answer, and an unparseable document all answer the documented (blank)
  * default with `provenance: 'defaulted'`; this function never rejects.
  *
- * @param serviceRequest - The host's service bridge.
  * @returns The baseline to judge this dispatch against, and its provenance.
  */
 export async function readVerificationBaseline(serviceRequest: ServiceRequester): Promise<VerificationBaseline> {
@@ -155,7 +155,6 @@ export async function readVerificationBaseline(serviceRequest: ServiceRequester)
  * while the frame really can go away between two awaits — and carrying on
  * would subscribe to a host a disposed panel no longer owns.
  *
- * @param rt - Panel runtime.
  * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
@@ -178,10 +177,10 @@ export type AgentVerification =
 /** Inputs for {@link verifySessionAgent}. */
 export interface VerifyAgentInputs {
     /** Host surface the read-back goes through. */
-    readonly host: Pick<SpikeHost, 'onSession' | 'openSession'>;
+    readonly host: Pick<PanelHost, 'onSession' | 'openSession'>;
     /** Session the dispatch just created. */
     readonly sessionId: string;
-    /** Agent the run is expected to report (002 FR-029's comparison baseline). */
+    /** Agent the run is expected to report. */
     readonly expected: string;
     /** Optional wait budget; defaults to {@link AGENT_VERIFY_TIMEOUT_MS}. */
     readonly timeoutMs?: number;
@@ -208,8 +207,6 @@ type VerifyGate =
  * about. The agent is still reported — an observation is evidence whether or
  * not anyone configured a comparison — but the outcome is `uncompared`.
  *
- * @param input - The snapshot (or `null` on timeout), the expected agent,
- *   and the budget the caller waited with, for the timeout copy.
  * @returns The verification outcome.
  */
 function judgeSnapshot(input: {
@@ -231,9 +228,11 @@ function judgeSnapshot(input: {
         return { status: 'uncompared', agent, expected };
     }
 
-    return agent === null || agent !== expected
-        ? { status: 'mismatch', agent, expected }
-        : { status: 'match', agent, expected };
+    if (agent === null || agent !== expected) {
+        return { status: 'mismatch', agent, expected };
+    }
+
+    return { status: 'match', agent, expected };
 }
 
 /**
@@ -245,7 +244,6 @@ function judgeSnapshot(input: {
  * including the `openSession` leg — is bounded by the same budget, so a host
  * that never answers cannot hold the relay's dispatch slot indefinitely.
  *
- * @param inputs - Host surface, session id, expected agent, and timeout.
  * @returns The verification outcome; never throws.
  */
 export async function verifySessionAgent(inputs: VerifyAgentInputs): Promise<AgentVerification> {
@@ -253,11 +251,12 @@ export async function verifySessionAgent(inputs: VerifyAgentInputs): Promise<Age
     const timeoutMs = inputs.timeoutMs ?? AGENT_VERIFY_TIMEOUT_MS;
 
     let settle: ((snapshot: SessionSnapshot | null) => void) | null = null;
+    // eslint-disable-next-line unicorn/prefer-promise-with-resolvers -- ES2024; the guest runtime is promised ES2022.
     const observed = new Promise<SessionSnapshot | null>((resolve) => {
         settle = resolve;
     });
     const unsubscribe = host.onSession((snapshot) => {
-        if (snapshot !== null && snapshot.id === sessionId && settle !== null) {
+        if (settle !== null && snapshot?.id === sessionId) {
             settle(snapshot);
         }
     });
@@ -265,10 +264,9 @@ export async function verifySessionAgent(inputs: VerifyAgentInputs): Promise<Age
     // The deadline starts before the context switch, so one timer bounds the
     // entire verification rather than only the snapshot wait.
     const timer = setTimeout(() => settle?.(null), timeoutMs);
-    const opened = host.openSession(sessionId).then(
-        () => ({ kind: 'opened' } as const),
-        (cause: unknown) => ({ kind: 'failed' as const, problem: describeError(cause) }),
-    );
+    const opened = host.openSession(sessionId)
+        .then(() => ({ kind: 'opened' } as const))
+        .catch((cause: unknown) => ({ kind: 'failed' as const, problem: describeError(cause) }));
     const gate: VerifyGate = await Promise.race([
         observed.then((snapshot) => ({ kind: 'snapshot' as const, snapshot })),
         opened,
@@ -302,25 +300,18 @@ export async function verifySessionAgent(inputs: VerifyAgentInputs): Promise<Age
  *
  * `uncompared` counts as an observation: with no baseline the read-back still
  * reports what the session said, because an observation is evidence whether or
- * not anyone configured a comparison (002 FR-029 as amended). The two failure
- * outcomes answer `null` — nothing was observed, only a reason it was not.
+ * not anyone configured a comparison. The two failure
+ * outcomes carry no `agent` member at all and answer `null` — nothing was
+ * observed, only a reason it was not.
  *
- * @param result - Outcome the verification reached.
  * @returns The observed agent, or `null`.
  */
 function observedAgentOf(result: AgentVerification): string | null {
-    return result.status === 'match' || result.status === 'mismatch' || result.status === 'uncompared'
-        ? result.agent
-        : null;
+    return 'agent' in result ? result.agent : null;
 }
 
-/**
- * Record the read-back where the operator looks: ledger entry and banner.
- *
- * @param input - Runtime, the run, the session, the outcome, and its baseline.
- */
+/** Record the read-back where the operator looks: ledger entry and banner. */
 function recordReadBack(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The run the read-back belongs to. */
     readonly correlationId: string;
@@ -328,7 +319,7 @@ function recordReadBack(input: {
     readonly sessionId: string;
     /** Outcome the verification reached. */
     readonly result: AgentVerification;
-    /** Baseline the judgment used (002 FR-029's comparison agent; `""` when none). */
+    /** Baseline the judgment used; `""` when there is none. */
     readonly expected: string;
     /** Where that baseline came from: `configured`, `defaulted`, or `unset`. */
     readonly provenance: BaselineProvenance;
@@ -358,13 +349,9 @@ function recordReadBack(input: {
  *
  * The report is warn-only on both sides: the route changes no run state, and
  * a refusal here lands as the section's note rather than as a silent gap —
- * FR-063's rule for a lifecycle row that did not reach the trail (FR-043,
- * contract §5).
- *
- * @param input - Runtime, the run, the attempt, the session, and its outcome.
+ * the rule for a lifecycle row that did not reach the trail.
  */
 async function postReadBack(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The run the read-back belongs to. */
     readonly correlationId: string;
@@ -374,7 +361,7 @@ async function postReadBack(input: {
     readonly sessionId: string;
     /** Outcome the verification reached. */
     readonly result: AgentVerification;
-    /** The baseline the judgment used, and where it came from (002 FR-029). */
+    /** The baseline the judgment used, and where it came from. */
     readonly baseline: VerificationBaseline;
 }): Promise<void> {
     const { rt, correlationId, attempt, sessionId, result, baseline } = input;
@@ -388,7 +375,7 @@ async function postReadBack(input: {
             sessionId,
             observedAgent,
             expectedAgent: baseline.agent,
-            // 002 FR-029 case (ii): the service cannot know which of the three
+            // The service cannot know which of the three
             // absences this is, and the `agent.uncompared` row records it — so
             // the word travels with the report instead of being guessed there.
             baselineProvenance: baseline.provenance,
@@ -413,7 +400,7 @@ async function postReadBack(input: {
  * Runs after the dispatch result has reached the service, so a slow or
  * failing verification can never delay (or lose) the run's own record. The
  * outcome lands three places: as a `session` ledger entry correlated to the
- * run, as the runs-area banner, and — since 003 T-027 — as the service's own
+ * run, as the runs-area banner, and — as the service's own
  * read-back row (`agent.verified`, `agent.mismatch`, or `agent.uncompared`)
  * behind `POST …/verification`, which is warn-only by construction (the route
  * never changes run state).
@@ -421,15 +408,11 @@ async function postReadBack(input: {
  * The relay starts this **detached from its tick** and tracks it on
  * {@link PanelRuntime.pendingVerifications}: the read-back keeps its own
  * {@link AGENT_VERIFY_TIMEOUT_MS} budget, and a host that answers slowly must
- * never hold the claim slot while it waits (AC-125). This function therefore
+ * never hold the claim slot while it waits. This function therefore
  * never rejects — a failure lands as the visible warning, never as an
  * unhandled rejection the relay would never see.
- *
- * @param inputs - Runtime, the run's correlation id, its attempt, and the
- *   created session id.
  */
 export async function verifyAgentAfterDispatch(inputs: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The run whose dispatch produced the session (003: the correlation id). */
     readonly correlationId: string;
@@ -440,7 +423,7 @@ export async function verifyAgentAfterDispatch(inputs: {
 }): Promise<void> {
     const { rt, correlationId, attempt, sessionId } = inputs;
     try {
-        // 002 FR-029: the comparison baseline comes from `GET /v1/config`'s
+        // The comparison baseline comes from `GET /v1/config`'s
         // `expectedAgent`, read fresh for this verification. A missing,
         // unreadable, or explicitly blank field means **no baseline** — the
         // read-back still runs and still records what the session reported,
@@ -485,10 +468,8 @@ export async function verifyAgentAfterDispatch(inputs: {
 /**
  * Wait for every read-back this mount started but has not seen settle.
  *
- * The relay never awaits these (AC-125), so a test that asserts what a
+ * The relay never awaits these, so a test that asserts what a
  * verification wrote drains them instead of racing the host.
- *
- * @param rt - Panel runtime.
  */
 export async function drainVerifications(rt: PanelRuntime): Promise<void> {
     while (rt.pendingVerifications.length > 0) {

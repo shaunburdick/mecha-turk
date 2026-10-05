@@ -60,11 +60,12 @@ import {
     writeRunsDocument,
 } from './runs-document.ts';
 import { leaseRun } from './runs-transitions.ts';
-import type { ClaimedLease, ClaimedReference, ClaimedRun, ClaimRecord } from './claim-project.ts';
+import type { ClaimedLease, ClaimedRun, ClaimRecord } from './claim-project.ts';
 import type { QueuedEvent } from './events-parse.ts';
 import type { Run, RunsDocument } from './runs-types.ts';
 
-export type { ClaimedLease, ClaimedReference, ClaimedRun, ClaimRecord };
+export type { ClaimedReference } from './claim-project.ts';
+export type { ClaimedLease, ClaimedRun, ClaimRecord };
 
 /** Holder recorded on a lease when the panel sent no `holder` parameter. */
 export const UNKNOWN_HOLDER = 'unknown';
@@ -133,7 +134,6 @@ export function holderOf(raw: string | null): string {
  * is a deterministic function of answer-visible inputs, so an operator reading
  * the audit trail can recompute it.
  *
- * @param input - The run, the attempt, and the RFC 3339 issue stamp.
  * @returns `lse-<24 hex characters>` — one path-safe segment.
  */
 export function buildLeaseId(input: {
@@ -188,8 +188,6 @@ interface ClaimPlanInput {
  * budget is consulted, so a run the answer cannot carry is never leased and
  * never audited.
  *
- * @param input - The document, the holder, the durations, the bounds, and the queue.
- * @param run - The run being considered.
  * @returns The leased run, its lease, and its answer row; `null` when it is not claimable.
  */
 function planOne(input: ClaimPlanInput, run: Run): ClaimRecord | null {
@@ -223,7 +221,6 @@ function planOne(input: ClaimPlanInput, run: Run): ClaimRecord | null {
  * documented bounds trips — {@link MAX_CLAIMED_RUNS} or the byte budget — and
  * every eligible run past that point is counted as deferred rather than leased.
  *
- * @param input - The document, the holder, the durations, the bounds, and the queue.
  * @returns The document to persist, the claims to answer and audit, and the count deferred.
  */
 export function planClaim(input: ClaimPlanInput): ClaimOutcome {
@@ -272,7 +269,6 @@ export function planClaim(input: ClaimPlanInput): ClaimOutcome {
  * only decides whether a write is needed, and the planner re-checks everything
  * inside the chain before anything is leased.
  *
- * @param document - The document as previewed.
  * @returns `true` when at least one run is claimable.
  */
 /**
@@ -282,7 +278,6 @@ export function planClaim(input: ClaimPlanInput): ClaimOutcome {
  * cannot read cannot fail a claim: the default lease is a safe answer, and the
  * sweep reads the same field.
  *
- * @param store - Open store.
  * @param log - Logger used when the config file cannot be read.
  * @returns Milliseconds a claim's lease is valid for.
  */
@@ -304,7 +299,6 @@ async function appendClaimAudit(input: {
     readonly store: ServiceStore;
     /** Structured logger. */
     readonly log: ServiceLogger;
-    /** The claim to record. */
     readonly claim: ClaimRecord;
 }): Promise<boolean> {
     try {
@@ -351,7 +345,6 @@ const DEFAULT_CLAIM_BOUNDS = {
  * only decides whether a write is needed, and the planner re-checks everything
  * inside the chain before anything is leased.
  *
- * @param document - The document as previewed.
  * @returns `true` when at least one run is claimable.
  */
 function hasEligibleRun(document: RunsDocument): boolean {
@@ -364,11 +357,10 @@ function hasEligibleRun(document: RunsDocument): boolean {
  * The durable order is: peek the document **outside** the chain (T-040d) and
  * return immediately when nothing is claimable; otherwise take the chain,
  * re-read, re-plan, and write. The leases are then durable before the audit
- * rows, which never roll back a lease the panel is already acting on (FR-063);
+ * rows, which never roll back a lease the panel is already acting on;
  * a row that cannot be appended is reported as `auditWritten: false` rather
  * than swallowed.
  *
- * @param input - Store, logger, the claim's holder, an injectable stamp, and optional bounds.
  * @returns The runs this claim leased, how many stayed claimable, and whether the rows landed.
  * @throws {StorageUnavailableError} When the store or the run document cannot be read or written.
  */

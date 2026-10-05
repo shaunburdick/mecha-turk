@@ -1,5 +1,5 @@
 /**
- * Host-facing actions behind the spike panel's project picker.
+ * Host-facing actions behind the panel's project picker.
  *
  * Two documented calls do the work: `host.listProjects()` (covered by the
  * declared `sessions` capability) renders the choices, and `host.storage`
@@ -30,7 +30,7 @@ import type { PanelRuntime } from './panel-state.ts';
 import { redact } from './redaction.ts';
 import { repaintStatusTab } from './status-tab.ts';
 import { describeError } from './session.ts';
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 
 /**
  * Storage key holding the panel's project selection.
@@ -64,10 +64,9 @@ export type StoredSelectionWrite =
  * genuinely "no project chosen" and the panel says so rather than falling
  * back to a setting that no longer exists.
  *
- * @param host - Host client, restricted to the storage surface.
  * @returns The stored id, `null` when none is stored, or the read problem.
  */
-export async function readStoredSelection(host: Pick<SpikeHost, 'storage'>): Promise<StoredSelectionRead> {
+export async function readStoredSelection(host: Pick<PanelHost, 'storage'>): Promise<StoredSelectionRead> {
     try {
         const stored: JsonValue | undefined = await host.storage.get(PROJECT_STORAGE_KEY);
         if (typeof stored !== 'string') {
@@ -83,12 +82,10 @@ export async function readStoredSelection(host: Pick<SpikeHost, 'storage'>): Pro
 /**
  * Write the panel's project selection to extension storage.
  *
- * @param host - Host client, restricted to the storage surface.
- * @param projectId - Project id to store; validated before anything is written.
  * @returns `{ ok: true }` when the value is durable, otherwise the problem.
  */
 export async function storeProjectSelection(
-    host: Pick<SpikeHost, 'storage'>,
+    host: Pick<PanelHost, 'storage'>,
     projectId: string,
 ): Promise<StoredSelectionWrite> {
     const valid = parseProjectId(projectId);
@@ -109,8 +106,6 @@ export async function storeProjectSelection(
  *
  * Called once per mount, ahead of the first `applySettings`, so a panel that
  * was closed and reopened still dispatches to the project the operator picked.
- *
- * @param rt - Panel runtime.
  */
 export async function restoreProjectSelection(rt: PanelRuntime): Promise<void> {
     const read = await readStoredSelection(rt.host);
@@ -135,8 +130,6 @@ export async function restoreProjectSelection(rt: PanelRuntime): Promise<void> {
  * Never rejects: an unreachable host, a refused request, or an error snapshot
  * all land in the picker's own status line with the panel otherwise untouched,
  * and dispatch stays blocked exactly as it was — fail closed, never fail open.
- *
- * @param rt - Panel runtime.
  */
 export async function loadProjects(rt: PanelRuntime): Promise<void> {
     const { projects } = rt.state;
@@ -168,8 +161,6 @@ export async function loadProjects(rt: PanelRuntime): Promise<void> {
  *
  * The panel has no settings write API, so this is how an operator takes the
  * id over to a binding's project field when they would rather paste it.
- *
- * @param rt - Panel runtime.
  */
 export async function copyProjectId(rt: PanelRuntime): Promise<void> {
     const selected = selectedProjectId(rt.state);
@@ -201,7 +192,6 @@ export async function copyProjectId(rt: PanelRuntime): Promise<void> {
  * click) or no list is loaded at all. Nothing changes: without a confirmed id
  * the dispatch stays blocked.
  *
- * @param rt - Panel runtime.
  * @param id - Project id the caller asked to select.
  */
 export function rejectProjectSelection(rt: PanelRuntime, id: string): void {
@@ -220,7 +210,6 @@ export function rejectProjectSelection(rt: PanelRuntime, id: string): void {
  * therefore keeps refusing to submit, and the binding never leaves the
  * recoverable `project_missing` path for a project the host did not confirm.
  *
- * @param rt - Panel runtime.
  * @param id - Project id the select reported.
  */
 export function selectBindingProject(rt: PanelRuntime, id: string): void {

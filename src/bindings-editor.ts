@@ -42,7 +42,7 @@ import { STATE_OFF, STATE_ON } from './bindings-chips.ts';
 /** Label of the primary control while the form is adding a binding. */
 export const ADD_BINDING_LABEL = 'Add binding';
 
-/** Label of that same control once the editor holds a loaded row (FR-050). */
+/** Label of that same control once the editor holds a loaded row. */
 export const SAVE_CHANGES_LABEL = 'Save changes';
 
 /** Label of the list control that opens the editor on an empty draft. */
@@ -53,13 +53,13 @@ export const CANCEL_EDIT_LABEL = 'Cancel edit';
 
 /** Callbacks the editor's action row invokes. */
 export interface BindingActionHandlers {
-    /** The primary control: add in add mode, save in edit mode (FR-050). */
+    /** The primary control: add in add mode, save in edit mode. */
     readonly submit: () => void;
     /** Open the editor on an empty draft — the list's *New binding* control. */
     readonly newBinding: () => void;
     /** Leave the open editor without writing it. */
     readonly cancelEdit: () => void;
-    /** Enable or disable the selected row (FR-054). */
+    /** Enable or disable the selected row. */
     readonly toggle: () => void;
     /** Remove the selected row from the granted list. */
     readonly removeBinding: () => void;
@@ -89,7 +89,6 @@ export interface BindingActions {
  * and stay reachable while the editor is closed (2026-10-01 review: the
  * editor is no longer open by default).
  *
- * @param input - The editor body, the list's toolbar row, and the callbacks.
  * @returns The five handles the pane carries.
  */
 export function mountBindingActions(input: {
@@ -138,8 +137,6 @@ export function mountBindingActions(input: {
  * activating it writes is always what its own words say; the list controls
  * follow the selection and the read state, and **Cancel** exists only while
  * the editor is open.
- *
- * @param input - The tab's state and the mounted action rows.
  */
 export function repaintBindingActions(input: {
     /** State the rows repaint from. */
@@ -196,9 +193,9 @@ export interface AccountFieldView {
     readonly disabled: boolean;
 }
 
-/** The mention-token line as the editor renders it (FR-057). */
+/** The mention-token line as the editor renders it. */
 export interface MentionTokenView {
-    /** The rendered line; text only, never markup (FR-080). */
+    /** The rendered line; text only, never markup. */
     readonly line: string;
     /** Whether the line marks the token as differing from the account's own. */
     readonly override: boolean;
@@ -207,7 +204,6 @@ export interface MentionTokenView {
 /**
  * Read the binding the editor is open on.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The selected binding, or `null` while the tab is in add mode.
  */
 function selectedBinding(bindings: BindingsTabState): PanelBinding | null {
@@ -230,7 +226,6 @@ function selectedBinding(bindings: BindingsTabState): PanelBinding | null {
  * yet, and the line says what a save will write instead of hiding the
  * question.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The line the editor paints under its heading.
  */
 export function editorStateLine(bindings: BindingsTabState): string {
@@ -251,7 +246,6 @@ export function editorStateLine(bindings: BindingsTabState): string {
  * panel cannot establish one (no account selected, or the account is gone),
  * and a `null` current is what stops the override mark from firing.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The token's login and the account's current one.
  */
 function mentionParties(bindings: BindingsTabState): {
@@ -279,7 +273,7 @@ function mentionParties(bindings: BindingsTabState): {
 }
 
 /**
- * Derive the mention token the service matches on for this editor (FR-057).
+ * Derive the mention token the service matches on for this editor.
  *
  * Edit mode reads the selected binding's own `accountLogin` — the value
  * `mentionsLogin` is called with. Add mode reads the account the draft is
@@ -289,7 +283,6 @@ function mentionParties(bindings: BindingsTabState): {
  * and claiming an override without a comparison would be exactly the invented
  * value FR-003 forbids.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The line to render and whether it marks an override.
  */
 export function mentionTokenView(bindings: BindingsTabState): MentionTokenView {
@@ -310,16 +303,13 @@ export function mentionTokenView(bindings: BindingsTabState): MentionTokenView {
 }
 
 /**
- * Scope the bound-account field to the editor's mode (ruling 5, FR-053).
+ * Scope the bound-account field to the editor's mode (ruling 5).
  *
  * Edit mode fixes the field to the selected binding's own account — one
  * option, that binding's own id and login, no free select — which is what
  * makes a displayed value and a saved value unable to disagree. Add mode
  * lists the accounts available to bind (`usable` only: an account that cannot
  * poll is not an account a binding should be created under).
- *
- * @param bindings - The Bindings tab's state.
- * @returns How the select must render.
  */
 export function accountFieldView(bindings: BindingsTabState): AccountFieldView {
     const binding = selectedBinding(bindings);
@@ -360,8 +350,6 @@ const WORKTREE_OPTIONS = [
  * feature); the handler is narrowed to them so a future third option has to
  * widen this signature rather than slip through a string.
  *
- * @param bindings - The Bindings tab's state, which holds the draft choice.
- * @param setWorktree - Handler that records one of the two options.
  * @returns The props the SDK select takes.
  */
 export function worktreeFieldView(
@@ -384,7 +372,6 @@ export function worktreeFieldView(
 /**
  * Mount the mention-token line into the pane, right under the account field.
  *
- * @param input - Runtime whose state the line derives from, and the pane root.
  * @returns The handle the pane carries for repaint and disposal.
  */
 export function mountBindingMention(input: {
@@ -398,9 +385,6 @@ export function mountBindingMention(input: {
 
 /**
  * Repaint the mention-token line from state.
- *
- * @param rt - Panel runtime.
- * @param line - The mounted line.
  */
 export function repaintBindingMention(rt: PanelRuntime, line: TextHandle): void {
     line.update({ text: mentionTokenView(rt.state.bindings).line });

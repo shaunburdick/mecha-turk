@@ -71,8 +71,6 @@ type AcceptedAttempt = Omit<VerifyAttempt, 'outcome'> & {
 
 /**
  * Append an `account.rejected` audit row carrying only a reason class.
- *
- * @param input - Deps, reason, optional identity, and correlation id.
  */
 async function recordRejection(input: {
     /** Store and logger. */
@@ -129,8 +127,6 @@ async function refusalFor(attempt: VerifyAttempt): Promise<HttpResponse> {
 
 /**
  * Log the free rate-limit baseline; numbers only, never credential material.
- *
- * @param input - Deps, identity, and the baseline read from `/rate_limit`.
  */
 function reportRateBaseline(input: {
     /** Store and logger. */
@@ -162,8 +158,6 @@ function reportRateBaseline(input: {
  * credential never reaches it (§2 step ⑩). A failed append is logged rather
  * than turned into a response failure: the account is already persisted, and
  * answering "failed" now would only send the panel into a `409` on retry.
- *
- * @param input - Deps, the persisted account, and the correlation id.
  */
 async function recordVerified(input: {
     /** Store and logger. */
@@ -199,7 +193,6 @@ async function recordVerified(input: {
 /**
  * Persist a freshly verified account and answer `201` (SEC-05 ordering).
  *
- * @param attempt - The accepted handoff attempt.
  * @returns The `201` identity body (contract §2.2).
  */
 async function persistVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
@@ -243,7 +236,6 @@ async function persistVerified(attempt: AcceptedAttempt): Promise<HttpResponse> 
 /**
  * Accept a successful verification: identity rules, then persist.
  *
- * @param attempt - The accepted handoff attempt.
  * @returns The `201` body, or the fail-closed refusal that beat it.
  */
 async function acceptVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
@@ -273,8 +265,6 @@ async function acceptVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
 /**
  * Run one handoff from body to response.
  *
- * @param context - Route context carrying store, throttle, and GitHub client.
- * @param request - The panel's `POST /v1/accounts/verify`.
  * @returns The documented response for this outcome.
  */
 async function handleVerify(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {

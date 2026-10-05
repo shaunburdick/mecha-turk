@@ -57,7 +57,6 @@ interface ServiceAccount {
  * an account it already holds — a state fact, not a credential verdict — so
  * it routes to adoption rather than to the failure copy.
  *
- * @param result - A non-2xx `POST /v1/accounts/verify` answer.
  * @returns `true` when the envelope carries the duplicate code.
  */
 export function isDuplicateRefusal(result: GuestRequestResult): boolean {
@@ -70,7 +69,6 @@ export function isDuplicateRefusal(result: GuestRequestResult): boolean {
 /**
  * Narrow one entry of the service's `accounts` array.
  *
- * @param value - One array element.
  * @returns The row, or `null` when its identity fields do not hold text.
  */
 function parseAccountRow(value: unknown): ServiceAccount | null {
@@ -93,7 +91,6 @@ function parseAccountRow(value: unknown): ServiceAccount | null {
  * One unreadable entry fails the whole body: adopting a half-understood list
  * would mirror accounts this panel cannot vouch for.
  *
- * @param text - Response body text.
  * @returns The accounts, or `null` when the shape is unusable.
  */
 function parseAccountsBody(text: string): readonly ServiceAccount[] | null {
@@ -120,17 +117,15 @@ function parseAccountsBody(text: string): readonly ServiceAccount[] | null {
  *
  * A function call, so the type analyzer never narrows a check past it.
  *
- * @param rt - Panel runtime.
  * @returns `true` while the panel is alive.
  */
 function stillMounted(rt: PanelRuntime): boolean {
-    return rt.disposed === false;
+    return !rt.disposed;
 }
 
 /**
  * Read the service's usable accounts, or `null` when none are adoptable.
  *
- * @param rt - Panel runtime.
  * @returns The `active` accounts, or `null` when the read failed, the body
  *   was unreadable, or nothing usable is registered.
  */
@@ -149,7 +144,6 @@ async function fetchUsableAccounts(rt: PanelRuntime): Promise<readonly ServiceAc
 /**
  * Write a mirror for every usable account the mirror does not cover.
  *
- * @param rt - Panel runtime.
  * @param usable - The service's `active` accounts.
  */
 async function writeMissingMirrors(rt: PanelRuntime, usable: readonly ServiceAccount[]): Promise<void> {
@@ -180,9 +174,8 @@ async function writeMissingMirrors(rt: PanelRuntime, usable: readonly ServiceAcc
  * never touches the one-shot paste path: a failed read or an unreadable body
  * simply leaves the flow exactly as it was. There is nothing to ask the
  * operator here: the service already holds the credential, and the consent
- * step this flow used to skip is gone (002 v1.9.0).
+ * step this flow used to skip is gone.
  *
- * @param rt - Panel runtime.
  * @returns The adopted identity, or `null` when the service answered nothing
  *   adoptable (unreachable, unreadable body, no `active` account) or the
  *   panel already shows one.
@@ -231,7 +224,6 @@ export interface AdoptedIdentity {
  * refusal, so the catalogue copy for that code lands on the note line, and
  * the next mount adoption gets its own chance once the service is reachable.
  *
- * @param rt - Panel runtime.
  * @returns The adopted identity, or `null` when adoption found nothing.
  */
 export async function adoptOnDuplicate(rt: PanelRuntime): Promise<AdoptedIdentity | null> {

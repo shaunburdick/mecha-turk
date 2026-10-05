@@ -22,13 +22,13 @@ import { accountFieldView } from './accounts-rows.ts';
 import type { AccountMember, AccountsHandlers } from './accounts-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** Idle label of the two-step Rotate-token control (FR-064). */
+/** Idle label of the two-step Rotate-token control. */
 export const ROTATE_IDLE_LABEL = 'Rotate token';
 
 /** Label after the first click, while the retention statement shows. */
 export const ROTATE_ARMED_LABEL = 'Cancel rotate';
 
-/** Idle label of the two-step Remove-account control (FR-055). */
+/** Idle label of the two-step Remove-account control. */
 export const REMOVE_IDLE_LABEL = 'Remove account';
 
 /** Confirm-step label after the first click (no `confirm()` in the frame). */
@@ -62,11 +62,11 @@ export interface DetailControls {
      * (FR-066, 004 FR-082; owner ruling, PR #12).
      */
     readonly saveProfile: ButtonHandle;
-    /** Two-step Rotate-token control (FR-064). */
+    /** Two-step Rotate-token control. */
     readonly rotateToken: ButtonHandle;
-    /** Two-step Remove-account control (FR-055, FR-065). */
+    /** Two-step Remove-account control. */
     readonly removeAccount: ButtonHandle;
-    /** Release every handle this region mounted (FR-017). */
+    /** Release every handle this region mounted. */
     readonly dispose: () => void;
 }
 
@@ -74,7 +74,7 @@ export interface DetailControls {
  * Mount one profile member's field (FR-066, 004 FR-089).
  *
  * Both members mount the same way — the draft/label flow the display name
- * shipped with — because they are one flow behind one route (004 FR-082),
+ * shipped with — because they are one flow behind one route,
  * and a second shape would be a second place it could be got wrong. The
  * field renders the words `accountFieldView` derives, so mount and repaint
  * can never disagree (FR-063's guidance, FR-064's not-set state).
@@ -82,7 +82,6 @@ export interface DetailControls {
  * Neither field mounts a save of its own: the one control belongs to the
  * **pair**, and {@link mountDetailControls} mounts it beside them.
  *
- * @param input - The runtime, the pane, the member, and its callbacks.
  * @returns The field and its disposer.
  */
 function mountMemberControls(input: {
@@ -102,8 +101,8 @@ function mountMemberControls(input: {
         label: view.label,
         value: view.value,
         placeholder: view.placeholder,
-        ...(view.multiline ? { multiline: true, rows: 4 } : {}),
-        disabled: view.disabled,
+        ...(view.multiline && { multiline: true, rows: 4 }),
+        disabled: view.isDisabled,
         helper: view.helper,
         onChange,
     });
@@ -118,9 +117,8 @@ function mountMemberControls(input: {
 
 /**
  * Mount the two row-level controls: rotate and remove, both two-step and
- * both idle until the row they act on is open (FR-064, FR-055).
+ * both idle until the row they act on is open.
  *
- * @param input - The pane and the callbacks the controls invoke.
  * @returns The two handles and their disposer.
  */
 function mountRowControls(input: {
@@ -129,11 +127,11 @@ function mountRowControls(input: {
     /** Callbacks the controls invoke. */
     readonly handlers: AccountsHandlers;
 }): {
-    /** Two-step rotation control (FR-064). */
+    /** Two-step rotation control. */
     readonly rotateToken: ButtonHandle;
-    /** Two-step removal control (FR-055, FR-065). */
+    /** Two-step removal control. */
     readonly removeAccount: ButtonHandle;
-    /** Release both handles (FR-017). */
+    /** Release both handles. */
     readonly dispose: () => void;
 } {
     const rotateToken = mountButton(input.pane, {
@@ -142,7 +140,7 @@ function mountRowControls(input: {
         disabled: true,
         onClick: input.handlers.rotateToken,
     });
-    const removeAccount = mountButton(input.pane, {
+    const accountRemoval = mountButton(input.pane, {
         label: REMOVE_IDLE_LABEL,
         variant: 'outline',
         disabled: true,
@@ -151,10 +149,10 @@ function mountRowControls(input: {
 
     return {
         rotateToken,
-        removeAccount,
+        removeAccount: accountRemoval,
         dispose: (): void => {
             rotateToken.dispose();
-            removeAccount.dispose();
+            accountRemoval.dispose();
         },
     };
 }
@@ -166,7 +164,6 @@ function mountRowControls(input: {
  * They live **inside** the detail box, so a row with nothing selected hides
  * them with it — a control that acts on a selection cannot exist without one.
  *
- * @param input - The runtime, the detail box, and the callbacks to wire.
  * @returns The handles plus their disposer.
  */
 export function mountDetailControls(input: {

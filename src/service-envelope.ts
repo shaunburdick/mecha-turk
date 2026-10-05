@@ -53,7 +53,7 @@ const STATUS_OK_MAX_EXCLUSIVE = 300;
 export type ServiceResource =
     /** The whole-file bindings grant (005 FR-088's original wording). */
     | 'bindings list'
-    /** The whole-file configuration document (006 FR-043). */
+    /** The whole-file configuration document. */
     | 'configuration';
 
 /**
@@ -70,7 +70,7 @@ export type ServiceResource =
  * this pair — the drift test, without a new exported constant.
  *
  * Value-free, like the thing it describes: two words about a list, never a
- * login (002 NFR-113).
+ * login.
  */
 export type ReferenceWindow =
     /** The gate judged every trigger the run accumulated. */
@@ -101,8 +101,8 @@ export type ServiceErrorResult =
         /** The envelope's own refusal copy, verbatim; `null` when it sent none. */
         readonly message: string | null;
         /**
-         * The window a deciding gate judged, on the one code that judges one
-         * (003 T-038); `null` on every other refusal **and** on any answer from a
+         * The window a deciding gate judged, on the one code that judges one;
+         * `null` on every other refusal **and** on any answer from a
          * build that states no window.
          *
          * Read as a member rather than derived from `message`, because the
@@ -119,11 +119,11 @@ export type ServiceConfigPutResult =
     | { readonly ok: true; readonly body: string }
     | {
         readonly ok: false;
-        /** Names the configuration, never the bindings list (006 AC-112). */
+        /** Names the configuration, never the bindings list. */
         readonly problem: string;
         /** The envelope's machine code; `null` when none was sent. */
         readonly code: string | null;
-        /** The issues in the order the service returned them (006 AC-107). */
+        /** The issues in the order the service returned them. */
         readonly issues: readonly ConfigIssueView[];
         /**
          * The envelope's own correlation identifier, when it sent one — the
@@ -136,7 +136,6 @@ export type ServiceConfigPutResult =
 /**
  * Decide whether one HTTP status lands in the 2xx band.
  *
- * @param status - Status to check.
  * @returns `true` inside the band.
  */
 export function isOkStatus(status: number): boolean {
@@ -149,7 +148,6 @@ export function isOkStatus(status: number): boolean {
  * Every status from 400 up answers with `{ error: { code, ... } }`
  * (contract §1), so the extraction only needs the band boundary.
  *
- * @param status - Status to check.
  * @returns `true` inside the error band.
  */
 export function isErrorStatus(status: number): boolean {
@@ -159,8 +157,6 @@ export function isErrorStatus(status: number): boolean {
 /**
  * Describe one non-2xx service answer from the status and the resource.
  *
- * @param status - HTTP status the service answered with.
- * @param resource - What the request was about, named in the refusal copy.
  * @returns A short, secret-free problem string.
  */
 export function httpProblem(status: number, resource: ServiceResource): string {
@@ -174,7 +170,6 @@ export function httpProblem(status: number, resource: ServiceResource): string {
 /**
  * Read the `error` member of a response body as a record.
  *
- * @param body - Response body text (unchecked).
  * @returns The member when it is an object, `null` otherwise.
  */
 function errorMemberOf(body: string): Record<string, unknown> | null {
@@ -190,8 +185,6 @@ function errorMemberOf(body: string): Record<string, unknown> | null {
 /**
  * Read one string member out of an error envelope, without trusting it.
  *
- * @param body - Response body text (unchecked).
- * @param field - Envelope member to read.
  * @returns The member, or `null` when absent or not a string.
  */
 export function envelopeFieldOf(body: string, field: string): string | null {
@@ -207,7 +200,7 @@ export function envelopeFieldOf(body: string, field: string): string | null {
 
 /**
  * Read the window a refusal's gate judged, refusing every word but the two
- * this build knows (003 T-038).
+ * this build knows.
  *
  * **Closed, so a word from a future build is a refusal rather than a guess**:
  * an unrecognised word reads as `null`, which is the same as *the service said
@@ -217,7 +210,6 @@ export function envelopeFieldOf(body: string, field: string): string | null {
  * advise an operator to dead-letter a run a single allow-list edit would have
  * dispatched.
  *
- * @param body - Response body text (unchecked).
  * @returns The window, or `null` when the envelope named none this build knows.
  */
 export function envelopeReferenceWindowOf(body: string): ReferenceWindow | null {
@@ -230,7 +222,6 @@ export function envelopeReferenceWindowOf(body: string): ReferenceWindow | null 
  * Read one issue entry, refusing anything that is not the pair the contract
  * names.
  *
- * @param entry - One element of the envelope's `issues` array.
  * @returns The pair, or `null` when the entry cannot be trusted as one.
  */
 function issueViewOf(entry: unknown): ConfigIssueView | null {
@@ -249,7 +240,6 @@ function issueViewOf(entry: unknown): ConfigIssueView | null {
 /**
  * Read a refusal's issue list out of an error envelope, in its own order.
  *
- * @param body - Response body text (unchecked).
  * @returns The issues, or `[]` when the envelope sent none.
  */
 export function envelopeIssuesOf(body: string): readonly ConfigIssueView[] {
@@ -272,7 +262,6 @@ export function envelopeIssuesOf(body: string): readonly ConfigIssueView[] {
 /**
  * Describe one transport failure without quoting host payloads.
  *
- * @param cause - Caught value.
  * @returns A short, secret-free problem string.
  */
 export function describeTransport(cause: unknown): string {
@@ -284,8 +273,6 @@ export function describeTransport(cause: unknown): string {
 /**
  * Turn one service answer into the plain wrapper's result.
  *
- * @param answer - The result the host bridged back.
- * @param resource - What the request was about, for the refusal copy.
  * @returns The body, or a status-named problem.
  */
 export function resultOf(answer: GuestRequestResult, resource: ServiceResource): ServiceResult {
@@ -308,8 +295,6 @@ export function resultOf(answer: GuestRequestResult, resource: ServiceResource):
  * caller that must branch on the window the decision was made on never parses
  * the message to find it.
  *
- * @param answer - The result the host bridged back.
- * @param resource - What the request was about, for the refusal copy.
  * @returns The body, or a problem plus the error code, copy, and window.
  */
 export function resultWithErrorOf(answer: GuestRequestResult, resource: ServiceResource): ServiceErrorResult {
@@ -317,21 +302,20 @@ export function resultWithErrorOf(answer: GuestRequestResult, resource: ServiceR
         return { ok: true, body: answer.body };
     }
 
-    const inEnvelope = isErrorStatus(answer.status);
+    const isInEnvelope = isErrorStatus(answer.status);
 
     return {
         ok: false,
         problem: httpProblem(answer.status, resource),
-        code: inEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
-        message: inEnvelope ? envelopeFieldOf(answer.body, 'message') : null,
-        referenceWindow: inEnvelope ? envelopeReferenceWindowOf(answer.body) : null,
+        code: isInEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
+        message: isInEnvelope ? envelopeFieldOf(answer.body, 'message') : null,
+        referenceWindow: isInEnvelope ? envelopeReferenceWindowOf(answer.body) : null,
     };
 }
 
 /**
  * Turn a configuration answer into its wrapper's result, issues and all.
  *
- * @param answer - The result the host bridged back.
  * @returns The body, or the problem, code, and issue list of a refusal.
  */
 export function configResultOf(answer: GuestRequestResult): ServiceConfigPutResult {
@@ -339,13 +323,13 @@ export function configResultOf(answer: GuestRequestResult): ServiceConfigPutResu
         return { ok: true, body: answer.body };
     }
 
-    const inEnvelope = isErrorStatus(answer.status);
+    const isInEnvelope = isErrorStatus(answer.status);
 
     return {
         ok: false,
         problem: httpProblem(answer.status, 'configuration'),
-        code: inEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
-        issues: inEnvelope ? envelopeIssuesOf(answer.body) : [],
-        correlationId: inEnvelope ? envelopeFieldOf(answer.body, 'correlationId') : null,
+        code: isInEnvelope ? envelopeFieldOf(answer.body, 'code') : null,
+        issues: isInEnvelope ? envelopeIssuesOf(answer.body) : [],
+        correlationId: isInEnvelope ? envelopeFieldOf(answer.body, 'correlationId') : null,
     };
 }

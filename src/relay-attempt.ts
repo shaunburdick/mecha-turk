@@ -29,7 +29,7 @@ import { parseWorktreeOption, repositoryLabel } from './config.ts';
 import type { WorktreeSelection } from './config.ts';
 import { acknowledgeDispatch, recordDispatchOutcome } from './dispatch-record.ts';
 import type { RecordedOutcome } from './dispatch-record.ts';
-import type { SpikeEvidence } from './evidence.ts';
+import type { PanelEvidence } from './evidence.ts';
 import type { GitHubIssue } from './github.ts';
 import { nowIso } from './ids.ts';
 import type { LedgerDetail } from './ledger.ts';
@@ -71,7 +71,6 @@ export interface HostCall {
 /**
  * Build the matched-issue record one offered run maps into.
  *
- * @param run - The offered run.
  * @returns The issue the context builder and the attachment both read.
  */
 function issueOf(run: ClaimedRun): GitHubIssue {
@@ -87,9 +86,8 @@ function issueOf(run: ClaimedRun): GitHubIssue {
 }
 
 /**
- * Project the run's source references into the context's sources (FR-014).
+ * Project the run's source references into the context's sources.
  *
- * @param run - The offered run.
  * @returns One context source per retained reference, in join order.
  */
 function contextSourcesOf(run: ClaimedRun): ContextSource[] {
@@ -105,7 +103,6 @@ function contextSourcesOf(run: ClaimedRun): ContextSource[] {
 /**
  * The failure reason a start with no session carries, bounded for the wire.
  *
- * @param summary - What `startSession` reported.
  * @returns A non-empty reason no longer than the routes accept.
  */
 function failureReason(summary: LedgerDetail): string {
@@ -131,7 +128,6 @@ function failureReason(summary: LedgerDetail): string {
  * path (research R-2's default): no new `blocked:` reason — 003 owns that
  * closed set — no new state, and no vocabulary beyond the words below.
  *
- * @param input - The composed message, and the tiers that contributed it.
  * @returns `null` when the message fits; otherwise the bounded remediation
  *   naming every contributing tier, ready for the failed attempt's `problem`.
  */
@@ -148,7 +144,7 @@ export function budgetFloorProblem(input: {
 
     // Named from the run's own source list, so the operator is told *which*
     // starting prompts to shorten — the list is what identifies them, never a
-    // fragment of their text (FR-085, FR-053).
+    // fragment of their text.
     const tiers = sources === null || sources.length === 0 ? 'none named' : sources.join(', ');
 
     return boundedText(
@@ -164,12 +160,11 @@ export function budgetFloorProblem(input: {
  * MVP-DEBT: the relay borrows the spike's evidence schema, so the trigger
  * literal stays the spike's; the relay's own framing lives in the PM context
  * line and the ledger entry. The correlation id is the run's, which is what
- * makes the attachment id the run's too (FR-029).
+ * makes the attachment id the run's too.
  *
- * @param input - Runtime and the offered run.
  * @returns The evidence record the attachment reads its identity from.
  */
-function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRun }): SpikeEvidence {
+function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRun }): PanelEvidence {
     const { rt, run } = input;
 
     return {
@@ -193,13 +188,11 @@ function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRu
  * frame is exactly what this build produced before the feature existed (004
  * FR-032, SC-121). Composition does not decide whether the message may be sent:
  * {@link budgetFloorProblem} measures what comes back of this against
- * {@link CONTEXT_MAX_CHARS} immediately before the host call (004 FR-085).
+ * {@link CONTEXT_MAX_CHARS} immediately before the host call.
  *
- * @param input - Runtime, the run, and the project the host confirmed.
  * @returns The request exactly as the host would receive it.
  */
 export function runRequestOf(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The offered run. */
     readonly run: ClaimedRun;
@@ -211,7 +204,7 @@ export function runRequestOf(input: {
     const issue = issueOf(run);
     // The snapshot arrives on the claim answer and nowhere else; an unset run
     // composes exactly what it composed before this feature existed — no
-    // fence, no blank line, no placeholder (004 FR-032, SC-121).
+    // fence, no blank line, no placeholder.
     const prompt = run.promptPresent ? run.promptText : null;
     const frame = buildBoundedContext({
         repository: run.repository,
@@ -220,7 +213,7 @@ export function runRequestOf(input: {
         correlationId: run.correlationId,
         sources: contextSourcesOf(run),
         // Reserved before the excerpt is sized, so the excerpt is what
-        // shortens when the two together would exceed the bound (FR-035).
+        // shortens when the two together would exceed the bound.
         reservedChars: promptBlockChars(prompt),
     });
     const context = composeFirstMessage({ prompt, frame });
@@ -250,7 +243,7 @@ export function runRequestOf(input: {
 /**
  * Make the one authorized host call; never throws.
  *
- * **The floor sits here** (004 FR-085): the message is composed first, then
+ * **The floor sits here**: the message is composed first, then
  * measured against {@link CONTEXT_MAX_CHARS} — and an over-budget composition
  * is refused **before** `host.startSession()` is called, so no session is
  * started and nothing is truncated. The refusal takes the same shape a rejected
@@ -258,18 +251,16 @@ export function runRequestOf(input: {
  * `failure`), which is what carries it through the existing failed-attempt
  * `problem` path into the operator's run row without a new state or reason.
  *
- * A rejected `host.startSession()` is recorded as a failure with the transport
+ * A rejected `host.startSession()` is isRecorded as a failure with the transport
  * problem as its reason: the guest bridge documents a created session as a
  * resolved result carrying its id, so a rejection means the request never came
  * back with one — and an outcome, either way, is exactly what FR-024 requires
  * the panel to hold before it reports anything.
  *
- * @param input - Runtime, the run, and the confirmed project.
  * @returns What the host produced (or the floor refused), for the ledger, the
  *   record, and the report.
  */
 export async function startRunSession(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The offered run. */
     readonly run: ClaimedRun;
@@ -284,9 +275,9 @@ export async function startRunSession(input: {
             composed: request.text ?? '',
             sources: run.promptSources,
         });
-        summary = overBudget !== null
-            ? { sessionId: null, sent: 'skipped', failure: overBudget }
-            : summarizeStartSessionResult(await rt.host.startSession(request));
+        summary = overBudget === null
+            ? summarizeStartSessionResult(await rt.host.startSession(request))
+            : { sessionId: null, sent: 'skipped', failure: overBudget };
     } catch (cause) {
         summary = { sessionId: null, sent: 'skipped', failure: describeError(cause) };
     }
@@ -313,12 +304,9 @@ export async function startRunSession(input: {
 }
 
 /**
- * Report one attempt's outcome, then acknowledge it on its own 2xx (FR-025).
- *
- * @param input - Runtime, the run, its token, and what the host produced.
+ * Report one attempt's outcome, then acknowledge it on its own 2xx.
  */
 export async function reportAndAcknowledge(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The offered run. */
     readonly run: ClaimedRun;
@@ -366,17 +354,14 @@ export async function reportAndAcknowledge(input: {
 
 /**
  * Close one attempt: durable record, ledger evidence, report, acknowledgement,
- * and the warn-only agent read-back (FR-024, FR-025, FR-043).
+ * and the warn-only agent read-back.
  *
  * Nothing here re-decides whether the attempt was authorized — it already was —
  * so nothing below can refuse a call the reservation permits. The order is the
  * contract's: the record is durable **before** the report leaves, because a
  * report that never lands has to leave the truth recoverable on this side.
- *
- * @param input - Runtime, the run, its token, and what the host produced.
  */
 export async function closeAttempt(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The offered run. */
     readonly run: ClaimedRun;
@@ -393,14 +378,14 @@ export async function closeAttempt(input: {
         detail: started.detail,
     });
 
-    const recorded = await recordDispatchOutcome(rt, {
+    const isRecorded = await recordDispatchOutcome(rt, {
         correlationId: run.correlationId,
         runKey: run.runKey,
         attempt: run.attempt,
         dispatchToken: token,
         outcome: started.outcome,
     });
-    if (!recorded && stillRunning(rt)) {
+    if (!isRecorded && stillRunning(rt)) {
         rt.state.bindings.note = redact(`Run ${run.correlationId}: the dispatch record could not be written, so a lost`
             + ' report would not be recoverable from this panel.');
     }
@@ -410,7 +395,7 @@ export async function closeAttempt(input: {
     // M9: the run's record reaches the service first, then the agent that
     // actually answered is read back. A dispatch that created no session has
     // nothing to verify, so verification skips gracefully there — and a
-    // dispatch that did create one starts the read-back **detached** (AC-125):
+    // dispatch that did create one starts the read-back **detached**:
     // its own 15 s budget must never hold the claim slot, because the next
     // tick's claim is what keeps unattended work moving (FR-043 warn-only).
     if (started.outcome.kind === 'dispatched' && stillRunning(rt)) {

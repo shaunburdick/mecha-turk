@@ -88,7 +88,6 @@ const BEARER_PREFIX = 'Bearer ';
  * Read one header from a `fetch` init, case-insensitively.
  *
  * @param headers - Headers as the client passed them.
- * @param name - Header name to find.
  * @returns The value, or `''` when the header is absent.
  */
 function headerValue(headers: RequestInit['headers'], name: string): string {
@@ -112,11 +111,24 @@ function headerValue(headers: RequestInit['headers'], name: string): string {
 /**
  * Build a GitHub `GET /user` body.
  *
- * @param identity - Numeric id and login the token should belong to.
  * @returns The serialized response body.
  */
 export function userBody(identity: { readonly id: number; readonly login: string }): string {
     return JSON.stringify({ id: identity.id, login: identity.login, name: 'Fixture User' });
+}
+
+/**
+ * An error the scripted endpoint throws under a chosen `name`.
+ *
+ * A subclass rather than a `name` written onto an `Error`, because the name is
+ * the whole point of the fixture: production branches on `error.name`, so the
+ * test has to be able to pick it.
+ */
+class ScriptedFailureError extends Error {
+    public constructor(message: string, name: string) {
+        super(message);
+        this.name = name;
+    }
 }
 
 /**
@@ -141,9 +153,7 @@ export function fakeGitHub(script: GitHubScript): FakeGitHub {
         }
 
         if (endpoint.failWithName !== undefined) {
-            const failure = new Error('upstream call did not complete');
-            failure.name = endpoint.failWithName;
-            throw failure;
+            throw new ScriptedFailureError('upstream call did not complete', endpoint.failWithName);
         }
 
         return new Response(endpoint.body ?? '', {
@@ -170,7 +180,6 @@ export function fakeGitHub(script: GitHubScript): FakeGitHub {
  * never settles proves the `429 verify-busy` slot, and one that throws proves
  * the sanitized `500` path (SEC-11).
  *
- * @param handler - Receives the credential and answers with an outcome.
  * @returns The verifier plus the credentials it saw.
  */
 export function scriptedVerifier(

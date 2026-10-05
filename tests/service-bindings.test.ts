@@ -55,7 +55,6 @@ const BAD_REPOSITORY = 'not-a-repository';
 /**
  * Build a header map without writing HTTP header names as object keys.
  *
- * @param pairs - Header name/value pairs.
  * @returns The headers as `fetch` accepts them.
  */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -67,20 +66,16 @@ function jsonHeaders(): Record<string, string> {
     return headerMap([['content-type', 'application/json']]);
 }
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Start the service against a fake GitHub and register the fixture account.
- *
- * @returns The running harness instance.
  */
 async function startWithAccount(): Promise<TestService> {
     const github = fakeGitHub({
@@ -126,8 +121,6 @@ function bindingFixture(): Record<string, unknown> {
 /**
  * Grant the fixture binding through the panel's own whole-file PUT.
  *
- * @param service - Harness instance.
- * @param bindings - The list to store.
  * @returns The parsed answer, so a caller can assert on it too.
  */
 async function grantBindings(
@@ -148,7 +141,6 @@ async function grantBindings(
  * Plant the operator's scan-state bytes in the store directory.
  *
  * @param service - Harness instance owning the data directory.
- * @param slot - The per-binding slot to record.
  */
 async function plantScanState(
     service: TestService,
@@ -162,8 +154,7 @@ async function plantScanState(
 }
 
 describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
-    it('answers rows the panel parser reads, with the never-… (+3 cases)', async () => {
-        // case: answers rows the panel parser reads, with the never-scanned slot intact
+    it('answers rows the panel parser reads, with the never-scanned slot intact', async () => {
         {
             const service = await startWithAccount();
             await grantBindings(service, [bindingFixture()]);
@@ -191,9 +182,9 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
                 },
             ]);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: parses the planted file in place, leaving no quarantine file behind (FIX 1)
+    });
+
+    it('parses the planted file in place, leaving no quarantine file behind (FIX 1)', async () => {
         {
             const service = await startWithAccount();
             await grantBindings(service, [bindingFixture()]);
@@ -204,9 +195,9 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
             const entries = await readdir(service.dataDir);
             expect(entries.filter((entry) => entry.includes('.corrupt-'))).toEqual([]);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: carries status rows in the PUT answer so a grant cannot blank the rows
+    });
+
+    it('carries status rows in the PUT answer so a grant cannot blank the rows', async () => {
         {
             const service = await startWithAccount();
             await plantScanState(service, { lastScanAt: null, lastError: SKIP_REASON });
@@ -216,9 +207,9 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
             const parsed = parseBindingsBody(JSON.stringify(answer));
             expect(parsed?.status.map((row) => row.lastError)).toEqual([SKIP_REASON]);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: keeps the registered credential out of the bindings answer
+    });
+
+    it('keeps the registered credential out of the bindings answer', async () => {
         {
             const service = await startWithAccount();
             await grantBindings(service, [bindingFixture()]);
@@ -228,11 +219,11 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
             expect(await response.text()).not.toContain(REGISTERED_TOKEN);
         }
     });
+
 });
 
 describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
-    it('stores a submitted reviewRequest flag and answers it… (+2 cases)', async () => {
-        // case: stores a submitted reviewRequest flag and answers it back
+    it('stores a submitted reviewRequest flag and answers it back', async () => {
         {
             const service = await startWithAccount();
             const binding = bindingFixture();
@@ -247,9 +238,9 @@ describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
             const parsed = parseBindingsBody(await response.text());
             expect(parsed?.bindings[0]?.triggers.reviewRequest).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: reads a binding stored before M7 as `false`, without quarantining the file
+    });
+
+    it('reads a binding stored before M7 as `false`, without quarantining the file', async () => {
         {
             const service = await startWithAccount();
             // The fixture's triggers are the pre-M7 shape: no `reviewRequest` key.
@@ -264,9 +255,9 @@ describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
             const parsed = parseBindingsBody(await reread.text());
             expect(parsed?.bindings).toHaveLength(1);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: refuses a reviewRequest that is not a boolean, naming the field
+    });
+
+    it('refuses a reviewRequest that is not a boolean, naming the field', async () => {
         {
             const service = await startWithAccount();
             const binding = bindingFixture();
@@ -286,6 +277,7 @@ describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
             expect(body.error.issues?.map((issue) => issue.field)).toContain('triggers');
         }
     });
+
 });
 
 /** A distinctive prompt this suite stores, changes, and scans for. */
@@ -305,8 +297,7 @@ async function plantBindings(service: TestService, bindings: readonly unknown[])
 }
 
 describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–FR-019)', () => {
-    it('parses a file written before the field existed, with… (+4 cases)', async () => {
-        // case: parses a file written before the field existed, with no quarantine (AC-142)
+    it('parses a file written before the field existed, with no quarantine', async () => {
         {
             const service = await startWithAccount();
             // Exactly what a pre-004 installation holds: no `startingPrompt` key.
@@ -324,9 +315,9 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
             const stored = await readFile(join(service.dataDir, BINDINGS_FILE), 'utf8');
             expect(stored).not.toContain('startingPrompt');
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: reads a stored null as unset and a stored string as the prompt (FR-012, FR-017)
+    });
+
+    it('reads a stored null as unset and a stored string as the prompt', async () => {
         {
             const service = await startWithAccount();
             const cleared = { ...bindingFixture(), bindingId: 'bnd-cleared', startingPrompt: null };
@@ -338,19 +329,19 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
             const answer = (await response.json()) as { readonly bindings: readonly Record<string, unknown>[] };
             expect(answer.bindings).toHaveLength(2);
 
-            const clearedRow = answer.bindings.find((row) => row.bindingId === 'bnd-cleared');
-            const setRow = answer.bindings.find((row) => row.bindingId === 'bnd-set');
+            const clearedRow = answer.bindings.find((entry) => entry.bindingId === 'bnd-cleared');
+            const promptedRow = answer.bindings.find((entry) => entry.bindingId === 'bnd-set');
             // A stored `null` reads exactly like absence: the key is not invented.
             expect(clearedRow !== undefined && 'startingPrompt' in clearedRow).toBe(false);
             // The configuration read is the only read that returns the text (FR-012).
-            expect(setRow?.startingPrompt).toBe(STORED_PROMPT);
+            expect(promptedRow?.startingPrompt).toBe(STORED_PROMPT);
 
             const entries = await readdir(service.dataDir);
             expect(entries.filter((entry) => entry.includes('.corrupt-'))).toEqual([]);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: quarantines a stored non-text prompt, logging the reason and yielding no bindings (AC-141)
+    });
+
+    it('quarantines a stored non-text prompt, logging the reason and yielding no bindings', async () => {
         {
             for (const value of NON_TEXT_PROMPTS) {
                 const service = await startWithAccount();
@@ -376,9 +367,9 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
                 expect(entries.filter((entry) => entry.includes('.corrupt-'))).toHaveLength(1);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: reports a bad prompt and a bad repository in one 422 (FR-027)
+    });
+
+    it('reports a bad prompt and a bad repository in one 422', async () => {
         {
             const service = await startWithAccount();
             const binding = { ...bindingFixture(), repository: BAD_REPOSITORY, startingPrompt: 42 };
@@ -404,9 +395,9 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
             expect(body.error.message).not.toContain('42');
             expect(body.error.message).not.toContain(BAD_REPOSITORY);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: refuses a credential-shaped prompt at the write boundary, storing nothing (AC-133)
+    });
+
+    it('refuses a credential-shaped prompt at the write boundary, storing nothing', async () => {
         {
             const service = await startWithAccount();
             const secret = `ghp_${'e'.repeat(30)}`;
@@ -427,12 +418,12 @@ describe('T-003 the starting prompt on the stored binding (004 FR-010, FR-017–
             expect(entries).not.toContain(BINDINGS_FILE);
         }
     });
+
 });
 
 /**
  * Every row in the service's audit trail, oldest first.
  *
- * @param service - Harness instance whose store holds the trail.
  * @returns The trail as the service wrote it, one parsed object per line.
  */
 async function auditTrail(service: TestService): Promise<readonly Record<string, unknown>[]> {
@@ -478,7 +469,6 @@ const SECOND_REPOSITORY = 'acme/other';
  * A panel-shaped row: every field the shipped panel writes, and never the
  * prompt member it does not know exists.
  *
- * @param overrides - Members to replace on the base row.
  * @returns The submitted record.
  */
 function panelRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -518,8 +508,7 @@ describe('PUT /v1/bindings: a refused write appends zero audit rows (AC-133)', (
 });
 
 describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC-137)', () => {
-    it('preserves every stored prompt on a panel-shaped whol… (+3 cases)', async () => {
-        // case: preserves every stored prompt on a panel-shaped whole-file save (AC-137)
+    it('preserves every stored prompt on a panel-shaped whole-file save', async () => {
         {
             const service = await startWithAccount();
             await putBindings(service, [
@@ -545,9 +534,9 @@ describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC
             // And no *new* prompt-change row: nothing changed, so nothing is recorded.
             expect(await promptRows(service)).toHaveLength(rowsAfterSet.length);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: clears exactly the binding an explicit empty value names (AC-137)
+    });
+
+    it('clears exactly the binding an explicit empty value names', async () => {
         {
             const service = await startWithAccount();
             await putBindings(service, [
@@ -569,9 +558,9 @@ describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC
             expect(first !== undefined && 'startingPrompt' in first).toBe(false);
             expect(second?.startingPrompt).toBe(SECOND_PROMPT);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: refuses an invalid prompt with no write, no row, and the previous prompt in force
+    });
+
+    it('refuses an invalid prompt with no write, no row, and the previous prompt in force', async () => {
         {
             const service = await startWithAccount();
             await putBindings(service, [panelRow({ startingPrompt: STORED_PROMPT })]);
@@ -590,9 +579,9 @@ describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC
             const body = (await response.json()) as { readonly bindings: readonly Record<string, unknown>[] };
             expect(body.bindings[0]?.startingPrompt).toBe(STORED_PROMPT);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: writes exactly three rows across set, change, and clear, chained (SC-125)
+    });
+
+    it('writes exactly three rows across set, change, and clear, chained', async () => {
         {
             const service = await startWithAccount();
 
@@ -616,11 +605,11 @@ describe('T-005 PUT /v1/bindings: omission preserves, an explicit value sets (AC
             expect(JSON.stringify(rows)).not.toContain(STORED_PROMPT);
         }
     });
+
 });
 
 describe('T-005 a hand edit is observed once, by whoever actually made it (AC-137, SC-125)', () => {
-    it('records an out-of-panel edit once with actor service… (+1 cases)', async () => {
-        // case: records an out-of-panel edit once with actor service, and a racing PUT adds nothing
+    it('records an out-of-panel edit once with actor service, and a racing PUT adds nothing', async () => {
         {
             const service = await startWithAccount();
             await putBindings(service, [panelRow({ startingPrompt: STORED_PROMPT })]);
@@ -658,9 +647,9 @@ describe('T-005 a hand edit is observed once, by whoever actually made it (AC-13
             const after = await readFile(join(service.dataDir, BINDINGS_FILE), 'utf8');
             expect(after).toContain(edited);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: writes zero rows when a restarted service sees an unchanged file
+    });
+
+    it('writes zero rows when a restarted service sees an unchanged file', async () => {
         {
             const first = await startWithAccount();
             await putBindings(first, [panelRow({ startingPrompt: STORED_PROMPT })]);
@@ -685,6 +674,7 @@ describe('T-005 a hand edit is observed once, by whoever actually made it (AC-13
             expect(await promptRows(first)).toHaveLength(beforeRestart.length);
         }
     });
+
 });
 
 /** A login list the operator typed, with deliberate mixed case (002 FR-047). */
@@ -782,8 +772,7 @@ async function quarantines(service: TestService): Promise<readonly string[]> {
 }
 
 describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', () => {
-    it('reads a pre-field document with zero bytes rewritten… (+4 cases)', async () => {
-        // case: absent reads valid, the key stays omitted, and the file is byte-identical afterwards
+    it('absent reads valid, the key stays omitted, and the file is byte-identical afterwards', async () => {
         {
             const service = await startWithAccount();
             // Exactly what an installation from before this field holds.
@@ -799,9 +788,9 @@ describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', ()
             expect(await storedBytes(service)).toBe(before);
             expect(await quarantines(service)).toEqual([]);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: ['Alice','bob'] round-trips byte-identically and matches case-insensitively
+    });
+
+    it('[\'Alice\',\'bob\'] round-trips byte-identically and matches case-insensitively', async () => {
         {
             const service = await startWithAccount();
             await putBindings(service, [panelRow({ allowedUsers: TYPED_USERS })]);
@@ -820,9 +809,9 @@ describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', ()
             const row = await storedRow(service);
             expect(row?.allowedUsers).toEqual(TYPED_USERS);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: an absent list is the open state, and an unreadable actor is nobody either way
+    });
+
+    it('an absent list is the open state, and an unreadable actor is nobody either way', async () => {
         {
             const service = await startWithAccount();
             // A binding stored before the field existed *is* the open state, so
@@ -842,9 +831,9 @@ describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', ()
             // filtered at detection, so no bot event exists for it to admit.
             expect(isActorAllowed(BOT_LOGIN, [BOT_LOGIN])).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: [] is refused, naming both honest alternatives, with nothing of it echoed
+    });
+
+    it('[] is refused, naming both honest alternatives, with nothing of it echoed', async () => {
         {
             const service = await startWithAccount();
             await putBindings(service, [panelRow({ allowedUsers: TYPED_USERS })]);
@@ -869,9 +858,9 @@ describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', ()
             const row = await storedRow(service);
             expect(row?.allowedUsers).toEqual(TYPED_USERS);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: accepts a [bot] login, the longest legal login, and a 42-entry list
+    });
+
+    it('accepts a [bot] login, the longest legal login, and a 42-entry list', async () => {
         {
             const service = await startWithAccount();
             const answer = await putBindings(service, [
@@ -889,13 +878,12 @@ describe('002 FR-047 the binding allow-list: its three states (AC-026, A-1)', ()
             expect(stored[0]).toBe(BOT_LOGIN);
             expect(stored[1]).toBe(LONGEST_LOGIN);
         }
-        await afterEachWork1();
     });
+
 });
 
 describe('002 FR-024 the allow-list refusals: one rule set, every issue at once', () => {
-    it('refuses a non-array and each bad element naming the field… (+2 cases)', async () => {
-        // case: a non-array and every bad element are refused, naming `allowedUsers`
+    it('a non-array and every bad element are refused, naming `allowedUsers`', async () => {
         {
             for (const [label, value] of NON_ARRAY_USERS) {
                 const service = await startWithAccount();
@@ -908,7 +896,7 @@ describe('002 FR-024 the allow-list refusals: one rule set, every issue at once'
                 const issues = await refusalIssues(refused.text);
                 expect(issues.map((issue) => issue.field), label).toEqual(['allowedUsers']);
                 // The remediation names the shape to send, never the text typed.
-                expect(issues[0]?.remediation, label).not.toContain(String(JSON.stringify(value)));
+                expect(issues[0]?.remediation, label).not.toContain(JSON.stringify(value));
                 expect(await storedBytes(service), label).toBe(bytesBefore);
             }
 
@@ -923,13 +911,13 @@ describe('002 FR-024 the allow-list refusals: one rule set, every issue at once'
                 const issues = await refusalIssues(refused.text);
                 expect(issues.map((issue) => issue.field), label).toEqual(['allowedUsers']);
                 // One refusal for the whole field, and no echo of the bad element.
-                expect(issues[0]?.remediation, label).not.toContain(String(JSON.stringify(element)));
+                expect(issues[0]?.remediation, label).not.toContain(JSON.stringify(element));
                 expect(await storedBytes(service), label).toBe(bytesBefore);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: a bad list and a bad repository arrive in one 422, and nothing is written
+    });
+
+    it('a bad list and a bad repository arrive in one 422, and nothing is written', async () => {
         {
             const service = await startWithAccount();
             await putBindings(service, [
@@ -952,9 +940,9 @@ describe('002 FR-024 the allow-list refusals: one rule set, every issue at once'
             // All-or-nothing after validation: both other bindings byte-identical.
             expect(await storedBytes(service)).toBe(bytesBefore);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: a hand-edited stored [] is refused on read, by the same rule set
+    });
+
+    it('a hand-edited stored [] is refused on read, by the same rule set', async () => {
         {
             const service = await startWithAccount();
             // The hand edit the contract forbids an operator from making: an empty
@@ -972,6 +960,6 @@ describe('002 FR-024 the allow-list refusals: one rule set, every issue at once'
             expect(String(logged.reason)).toContain('allowedUsers');
             expect(String(logged.reason)).toContain('disable the binding');
         }
-        await afterEachWork1();
     });
+
 });

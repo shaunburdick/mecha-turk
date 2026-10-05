@@ -54,7 +54,6 @@ function parseOutput(input) {
 /**
  * Build the one function that spawns a command in a session.
  *
- * @param bin - Executable to run.
  * @param session - `--session` name every command is bound to.
  * @returns `run(args)` resolving with the command's parsed `data`.
  */
@@ -92,6 +91,7 @@ function createRunner(bin, session) {
  * @param options - `{ session }`; defaults to `DEFAULT_SESSION`.
  * @returns The command surface `shot.js` drives.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function createBrowser(options = {}) {
     const session = options.session ?? DEFAULT_SESSION;
     const run = createRunner(BROWSER_BIN, session);

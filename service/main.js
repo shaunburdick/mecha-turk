@@ -49,7 +49,7 @@ function findSecretLeak(text) {
 function redact(text) {
   let result = text;
   for (const { label, pattern } of SECRET_PATTERNS) {
-    result = result.replaceAll(pattern, `[redacted:${label}]`);
+    result = result.replaceAll(pattern, () => `[redacted:${label}]`);
   }
   return result;
 }
@@ -127,7 +127,7 @@ function readStamp(value) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : null;
 }
 function readCount(value) {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 function readPositiveInt(value) {
   const parsed = readCount(value);
@@ -163,11 +163,10 @@ function redactDeep(input) {
     return value.map((item, index) => redactDeep({ value: item, path: `${path}[${index}]`, fields }));
   }
   if (isRecord(value)) {
-    const result = {};
-    for (const [key, child] of Object.entries(value)) {
-      result[key] = redactDeep({ value: child, path: path === "" ? key : `${path}.${key}`, fields });
-    }
-    return result;
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [
+      key,
+      redactDeep({ value: child, path: path === "" ? key : `${path}.${key}`, fields })
+    ]));
   }
   return value;
 }
@@ -484,7 +483,7 @@ function storedFingerprint(candidate) {
 }
 function storedLength(candidate) {
   const { length } = candidate;
-  return typeof length === "number" && Number.isInteger(length) && length > 0 ? length : null;
+  return typeof length === "number" && Number.isSafeInteger(length) && length > 0 ? length : null;
 }
 function storedSources(candidate) {
   const { sources } = candidate;
@@ -498,10 +497,7 @@ function readStoredSnapshot(candidate) {
   const fingerprint = storedFingerprint(candidate);
   const length = storedLength(candidate);
   const sources = storedSources(candidate);
-  if (text === null || fingerprint === null || length === null || sources === null) {
-    return null;
-  }
-  if (countCodePoints(text) !== length) {
+  if (text === null || fingerprint === null || length === null || sources === null || countCodePoints(text) !== length) {
     return null;
   }
   if (length > promptStackMaxCodePoints(sources.length)) {
@@ -543,7 +539,7 @@ async function seedBaseline(store, baseline) {
     }
     const { id: numericUserId } = entry.entity;
     const recorded = entry.details.promptFingerprint;
-    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" && PROMPT_FINGERPRINT_PATTERN.test(recorded) ? recorded : null;
+    const fingerprint = typeof recorded === "string" && entry.details.promptPresent === true && PROMPT_FINGERPRINT_PATTERN.test(recorded) ? recorded : null;
     const prior = highest.get(numericUserId);
     if (prior === undefined || entry.seq > prior.seq) {
       highest.set(numericUserId, { seq: entry.seq, fingerprint });
@@ -567,7 +563,7 @@ async function runAccountPromptChain(store, task) {
   return await run;
 }
 async function appendAccountPromptChange(input) {
-  const present = input.current !== null;
+  const isPresent = input.current !== null;
   let decision;
   if (input.current === null) {
     decision = "cleared";
@@ -582,7 +578,7 @@ async function appendAccountPromptChange(input) {
     decision,
     reason: null,
     details: {
-      promptPresent: present,
+      promptPresent: isPresent,
       promptFingerprint: input.current?.fingerprint ?? null,
       promptLength: input.current?.length ?? 0,
       previousFingerprint: input.previousFingerprint
@@ -624,7 +620,8 @@ async function recordAccountPromptChanges(input) {
     }
     rows += await recordOneChange({ input, account, snapshot, current, previous });
   }
-  for (const numericUserId of input.absent ?? []) {
+  const absent = input.absent ?? [];
+  for (const numericUserId of absent) {
     state.baseline.delete(numericUserId);
   }
   if (input.complete === true) {
@@ -676,7 +673,7 @@ function isScopeCheck(raw) {
   const { results } = raw;
   return ["metadata", "issues", "pull-requests", "contents"].every((capability) => {
     const value = results[capability];
-    return value === "ok" || value === "missing" || value === "unknown";
+    return typeof value === "string" && ["ok", "missing", "unknown"].includes(value);
   });
 }
 function isCredentialRecord(raw) {
@@ -690,16 +687,7 @@ function isOptionalNullableString(value) {
 }
 function readAccountStrings(raw) {
   const { login, expectedLogin, displayName, verifiedAt, errorReason, createdAt, updatedAt } = raw;
-  if (typeof login !== "string" || login === "") {
-    return null;
-  }
-  if (!isNullableString(expectedLogin) || !isNullableString(errorReason)) {
-    return null;
-  }
-  if (!isOptionalNullableString(displayName)) {
-    return null;
-  }
-  if (typeof verifiedAt !== "string" || typeof createdAt !== "string" || typeof updatedAt !== "string") {
+  if (typeof login !== "string" || login === "" || typeof verifiedAt !== "string" || typeof createdAt !== "string" || typeof updatedAt !== "string" || !isNullableString(expectedLogin) || !isNullableString(errorReason) || !isOptionalNullableString(displayName)) {
     return null;
   }
   return {
@@ -722,13 +710,7 @@ function parseStoredAccount(raw, note) {
     return null;
   }
   const strings = readAccountStrings(raw);
-  if (strings === null) {
-    return null;
-  }
-  if (!isCredentialRecord(raw.credential) || !isScopeCheck(raw.scopeCheck)) {
-    return null;
-  }
-  if (!isAccountState(raw.state) || !isConnectionState(raw.connectionState)) {
+  if (strings === null || !isCredentialRecord(raw.credential) || !isScopeCheck(raw.scopeCheck) || !isAccountState(raw.state) || !isConnectionState(raw.connectionState)) {
     return null;
   }
   return {
@@ -819,7 +801,7 @@ function reportQuarantine(input) {
     log.warn("stored record was unusable and has been set aside", {
       subject,
       quarantinePath: result.quarantinePath,
-      ...note.reason === null ? {} : { reason: note.reason }
+      ...note.reason !== null && { reason: note.reason }
     });
   }
 }
@@ -836,7 +818,7 @@ async function readAccount(input) {
     store: input.store,
     log: input.log,
     accounts: account === null ? [] : [account],
-    ...account === null ? { absent: [input.numericUserId] } : {},
+    ...account === null && { absent: [input.numericUserId] },
     actor: "service"
   });
   return account;
@@ -857,7 +839,7 @@ async function listAccountsUnobserved(store, log) {
       accounts.push(account);
     }
   }
-  return accounts.sort((left, right) => left.numericUserId.localeCompare(right.numericUserId));
+  return accounts.toSorted((left, right) => left.numericUserId.localeCompare(right.numericUserId));
 }
 async function listAccounts(store, log) {
   const accounts = await listAccountsUnobserved(store, log);
@@ -902,7 +884,7 @@ async function disableBindings(store, bindings) {
 
 // service/accounts/reconcile.ts
 var INTERRUPTED_HANDOFF_REASON = "interrupted-handoff";
-var TRANSIENT_STATES = ["pending_handoff", "verifying"];
+var TRANSIENT_STATES = new Set(["pending_handoff", "verifying"]);
 async function markInterrupted(input) {
   const { store, account, correlationId } = input;
   const marked = {
@@ -988,7 +970,7 @@ async function reconcileInterruptedAccounts(deps) {
     return { examined: 0, marked: 0, restored: 0 };
   }
   const accounts = await listAccounts(deps.store, deps.log);
-  const stranded = accounts.filter((account) => TRANSIENT_STATES.includes(account.state));
+  const stranded = accounts.filter((account) => TRANSIENT_STATES.has(account.state));
   let marked = 0;
   let restored = 0;
   for (const account of stranded) {
@@ -1084,9 +1066,9 @@ function errorBody(details) {
     error: {
       code: details.code,
       message: details.message,
-      ...details.correlationId === undefined ? {} : { correlationId: details.correlationId },
-      ...details.issues === undefined ? {} : { issues: details.issues },
-      ...details.reasonClass === undefined ? {} : { reasonClass: details.reasonClass }
+      ...details.correlationId !== undefined && { correlationId: details.correlationId },
+      ...details.issues !== undefined && { issues: details.issues },
+      ...details.reasonClass !== undefined && { reasonClass: details.reasonClass }
     }
   };
 }
@@ -1102,8 +1084,7 @@ function validationResponse(issues) {
 }
 var RETRY_AFTER_HEADER = "retry-after";
 function throttleResponse(options) {
-  const headers = {};
-  headers[RETRY_AFTER_HEADER] = String(options.retryAfterSeconds);
+  const headers = { [RETRY_AFTER_HEADER]: String(options.retryAfterSeconds) };
   return {
     status: options.status,
     body: errorBody({ code: options.code, message: options.message }),
@@ -1197,7 +1178,7 @@ function isLogLevel(value) {
 function numericIssue(raw, field) {
   const bounds = NUMERIC_BOUNDS[field];
   const value = raw[field];
-  if (typeof value === "number" && Number.isInteger(value) && value >= bounds.min && value <= bounds.max) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= bounds.min && value <= bounds.max) {
     return [];
   }
   return [
@@ -1236,8 +1217,7 @@ function isKnownField(key) {
   return Object.hasOwn(DEFAULT_CONFIG, key);
 }
 function collectIssues(raw) {
-  const issues = [];
-  issues.push(...startingPromptIssue(raw.startingPrompt));
+  const issues = [...startingPromptIssue(raw.startingPrompt)];
   for (const field of NUMERIC_FIELDS) {
     issues.push(...numericIssue(raw, field));
   }
@@ -1247,8 +1227,7 @@ function collectIssues(raw) {
       remediation: "set logLevel to one of debug, info, warn, error"
     });
   }
-  issues.push(...expectedAgentIssue(raw.expectedAgent));
-  issues.push(...retryOrderIssue(raw));
+  issues.push(...expectedAgentIssue(raw.expectedAgent), ...retryOrderIssue(raw));
   for (const key of Object.keys(raw)) {
     if (!isKnownField(key)) {
       issues.push(unknownFieldIssue(key));
@@ -1259,7 +1238,7 @@ function collectIssues(raw) {
 function readNumber(raw, field) {
   const value = raw[field];
   if (typeof value !== "number") {
-    throw new Error(`validated configuration is missing ${field}`);
+    throw new TypeError(`validated configuration is missing ${field}`);
   }
   return value;
 }
@@ -1273,7 +1252,7 @@ function readLogLevel(raw) {
 function readExpectedAgent(raw) {
   const value = raw.expectedAgent;
   if (typeof value !== "string") {
-    throw new Error("validated configuration is missing expectedAgent");
+    throw new TypeError("validated configuration is missing expectedAgent");
   }
   return value.trim();
 }
@@ -1322,10 +1301,11 @@ function parseStoredConfig(raw) {
   const filled = { ...raw };
   const defaultsApplied = [];
   for (const field of Object.keys(DEFAULT_CONFIG)) {
-    if (!Object.hasOwn(filled, field)) {
-      filled[field] = DEFAULT_CONFIG[field];
-      defaultsApplied.push(field);
+    if (Object.hasOwn(filled, field)) {
+      continue;
     }
+    filled[field] = DEFAULT_CONFIG[field];
+    defaultsApplied.push(field);
   }
   const validation = validateConfig(filled);
   return validation.ok ? { config: validation.config, defaultsApplied } : null;
@@ -1388,7 +1368,7 @@ function readIdentity(text) {
     return null;
   }
   const { id, login } = parsed.value;
-  if (typeof id !== "number" || !Number.isInteger(id) || typeof login !== "string" || login === "") {
+  if (login === "" || typeof login !== "string" || typeof id !== "number" || !Number.isSafeInteger(id)) {
     return null;
   }
   return { numericUserId: String(id), login };
@@ -1544,10 +1524,10 @@ function openersOf(entries) {
   }
   return openers;
 }
-function latestOf(entries, accept) {
+function latestOf(entries, isAccepted) {
   const latest = new Map;
   for (const entry of entries) {
-    if (!accept(entry)) {
+    if (!isAccepted(entry)) {
       continue;
     }
     const seen = latest.get(entry.correlationId);
@@ -1657,15 +1637,16 @@ async function subjectSeqs(input) {
 }
 async function protectedSeqsOf(input) {
   const protectedSeqs = new Set(chainAndDecisionSeqs(input.entries));
-  for (const seq of await subjectSeqs(input)) {
+  const subjects = await subjectSeqs(input);
+  for (const seq of subjects) {
     protectedSeqs.add(seq);
   }
   return protectedSeqs;
 }
 function planRemoval(input) {
   const { ordered, protectedSeqs, cutoff, maxEntries } = input;
-  const overCap = ordered.length > maxEntries;
-  const neededForCap = overCap ? ordered.length + 1 - maxEntries : 0;
+  const isOverCap = ordered.length > maxEntries;
+  const neededForCap = isOverCap ? ordered.length + 1 - maxEntries : 0;
   const survivors = [];
   const removed = [];
   let limitReached = null;
@@ -1675,13 +1656,13 @@ function planRemoval(input) {
       continue;
     }
     const stamped = Date.parse(entry.timestamp);
-    const tooOld = Number.isFinite(stamped) && stamped < cutoff;
-    const forCap = removed.length < neededForCap && entry.eventType !== TRIM_EVENT;
-    if (!tooOld && !forCap) {
+    const isTooOld = Number.isFinite(stamped) && stamped < cutoff;
+    const isForCap = removed.length < neededForCap && entry.eventType !== TRIM_EVENT;
+    if (!isTooOld && !isForCap) {
       survivors.push(entry);
       continue;
     }
-    limitReached ??= tooOld ? "day-window" : "entry-cap";
+    limitReached ??= isTooOld ? "day-window" : "entry-cap";
     removed.push(entry);
   }
   return { survivors, removed, limitReached };
@@ -1708,7 +1689,7 @@ async function composeTrimRow(input) {
 }
 async function readOrderedTrail(store) {
   const trail = await readAuditTrail(store);
-  return { entries: [...trail.entries].sort((left, right) => left.seq - right.seq), malformed: trail.malformed };
+  return { entries: [...trail.entries].toSorted((left, right) => left.seq - right.seq), malformed: trail.malformed };
 }
 async function readForPass(input) {
   const trail = await readOrderedTrail(input.store);
@@ -1796,8 +1777,8 @@ function actorFieldsOf(record) {
   const actorLogin = readActorLoginField(record);
   const actorAttribution = readActorAttributionField(record);
   return {
-    ...actorLogin === undefined || actorLogin === null ? {} : { actorLogin },
-    ...actorAttribution === undefined || actorAttribution === null ? {} : { actorAttribution }
+    ...!(actorLogin === undefined || actorLogin === null) && { actorLogin },
+    ...!(actorAttribution === undefined || actorAttribution === null) && { actorAttribution }
   };
 }
 
@@ -1825,7 +1806,7 @@ var RUN_CORRELATION_ID = /^mt-run-[0-9a-f]{24}$/;
 function isUsableTextFieldSet(record, fields) {
   return fields.every((field) => {
     const value = record[field];
-    return field in record && typeof value === "string" && value !== "";
+    return typeof value === "string" && value !== "";
   });
 }
 function isAbsentableTextFieldSet(record, fields) {
@@ -1835,7 +1816,7 @@ function isAbsentableTextFieldSet(record, fields) {
   });
 }
 function positiveIntOf(value) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 function knownStateOf(value) {
   if (typeof value !== "string" || !KNOWN_STATES.has(value)) {
@@ -1895,8 +1876,8 @@ function lifecycleOf(record, state) {
 function runLinkOf(record, subjectType) {
   const runCorrelationId = readRunLinkField(record);
   return {
-    ...runCorrelationId === undefined || runCorrelationId === null ? {} : { runCorrelationId },
-    ...subjectType === undefined ? {} : { subjectType }
+    ...!(runCorrelationId === undefined || runCorrelationId === null) && { runCorrelationId },
+    ...subjectType !== undefined && { subjectType }
   };
 }
 function trimMarkerOf(record) {
@@ -2001,13 +1982,13 @@ async function recordDetectedDeliveries(input) {
       eventType: "delivery.detected",
       actorSource: "service",
       entity: { kind: "delivery", id: event.id },
-      ...event.runCorrelationId === undefined ? {} : { correlationId: event.runCorrelationId },
+      ...event.runCorrelationId !== undefined && { correlationId: event.runCorrelationId },
       reason: `${event.kind} trigger matched a binding`,
       details: {
         bindingId: event.bindingId,
         repository: event.repository,
         kind: event.kind,
-        ...event.runCorrelationId === undefined ? {} : { runCorrelationId: event.runCorrelationId }
+        ...event.runCorrelationId !== undefined && { runCorrelationId: event.runCorrelationId }
       }
     });
   }
@@ -2038,10 +2019,10 @@ var FINGERPRINT_HEX_CHARS2 = 16;
 var FINGERPRINT_PREFIX = "tokfp-";
 var KEY_SEPARATOR = "|";
 function keySegments(input) {
-  if (!Number.isInteger(input.subjectNumber) || input.subjectNumber < 1) {
+  if (!Number.isSafeInteger(input.subjectNumber) || input.subjectNumber < 1) {
     throw new Error("refusing to derive a run key without a positive subject number");
   }
-  if (!Number.isInteger(input.ordinal) || input.ordinal < 0) {
+  if (!Number.isSafeInteger(input.ordinal) || input.ordinal < 0) {
     throw new Error("refusing to derive a run key without a non-negative ordinal");
   }
   const segments = [
@@ -2076,7 +2057,7 @@ function buildAttachmentId(correlationId) {
   return correlationId;
 }
 function buildDispatchToken(runKey, attempt) {
-  if (!Number.isInteger(attempt) || attempt < 1) {
+  if (!Number.isSafeInteger(attempt) || attempt < 1) {
     throw new Error("refusing to mint a dispatch token for an attempt that is not a positive integer");
   }
   return `dtk-${digestHex(`${runKey}${KEY_SEPARATOR}${attempt}`, TOKEN_HEX_CHARS)}`;
@@ -2130,7 +2111,7 @@ function isRunState(value) {
 function parseIntentBase(value) {
   const correlationId = readText(value.correlationId);
   const deliveryIds = parseTextList(value.deliveryIds);
-  if (correlationId === null || !/^mt-run-[0-9a-f]{24}$/.test(correlationId) || deliveryIds === null || deliveryIds.length === 0) {
+  if (correlationId === null || deliveryIds === null || deliveryIds.length === 0 || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)) {
     return null;
   }
   return { correlationId, deliveryIds };
@@ -2173,9 +2154,7 @@ function parseSweepDetails(raw) {
         return null;
       }
       details[key] = value;
-    } else if (typeof value === "number" && Number.isFinite(value)) {
-      details[key] = value;
-    } else if (typeof value === "boolean" || value === null) {
+    } else if (typeof value === "boolean" || value === null || typeof value === "number" && Number.isFinite(value)) {
       details[key] = value;
     } else {
       return null;
@@ -2195,7 +2174,7 @@ function parseSweepIntent(value) {
   const sequence = readText(rawSequence);
   const details = parseSweepDetails(value.details);
   const decision = readText(rawDecision);
-  if (correlationId === null || !/^mt-run-[0-9a-f]{24}$/.test(correlationId) || reason === null || sequence === null || details === null || decision !== SWEEP_DECISIONS.get(eventType)) {
+  if (correlationId === null || reason === null || sequence === null || details === null || decision !== SWEEP_DECISIONS.get(eventType) || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)) {
     return null;
   }
   return { eventType, correlationId, decision, reason, details, sequence };
@@ -2250,7 +2229,7 @@ function parseReference(raw) {
   const detectedAt = readStamp(raw.detectedAt);
   const { kind, origin } = raw;
   const present = readFlag(raw.presentAtAuthorization);
-  const unusable = [
+  const isUnusable = [
     deliveryId,
     sourceUrl,
     detectedAt,
@@ -2258,7 +2237,7 @@ function parseReference(raw) {
     readActorLoginField(raw),
     readActorAttributionField(raw)
   ].includes(null) || !isEventKind(kind) || typeof origin !== "string" || !isValidOrigin(origin);
-  if (unusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
+  if (isUnusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
     return null;
   }
   return {
@@ -2313,7 +2292,7 @@ function parseLease(raw) {
     readStamp(expiresAt)
   ];
   const source = provenance === "panel" || provenance === "migration" ? provenance : null;
-  if (values.includes(null) || source === null) {
+  if (source === null || values.includes(null)) {
     return null;
   }
   return {
@@ -2333,7 +2312,7 @@ function parseReservation(raw) {
   const deadline = raw.resultDeadlineAt;
   const values = [readText(dispatchToken), readPositiveInt(attempt), readStamp(reservedAt), readStamp(deadline)];
   const flag = readFlag(consumed);
-  if (values.includes(null) || flag === null) {
+  if (flag === null || values.includes(null)) {
     return null;
   }
   return {
@@ -2466,7 +2445,7 @@ function parseRunScalars(raw) {
   const createdAt = readStamp(raw.createdAt);
   const updatedAt = readStamp(raw.updatedAt);
   const values = [ordinal, subjectNumber, attempt, requeuesUsed, referenceCount, notRetained, createdAt, updatedAt];
-  if (values.includes(null) || truncated === null) {
+  if (truncated === null || values.includes(null)) {
     return null;
   }
   return {
@@ -2549,17 +2528,17 @@ function sessionHistoryHolds(input) {
   const { state, session, attempts } = input;
   const sessionAttempts = attempts.filter((attempt) => attempt.outcome === "dispatched" || attempt.sessionId !== null);
   const knownSessionIds = new Set(sessionAttempts.flatMap((attempt) => attempt.sessionId === null ? [] : [attempt.sessionId]));
-  const invalidAttemptSession = attempts.some((attempt) => attempt.sessionId !== null && attempt.outcome !== "dispatched");
-  const contradictorySessionHistory = sessionAttempts.length > 0 && state !== "dispatched";
-  const mismatchedSession = session !== null && (state !== "dispatched" || !knownSessionIds.has(session.sessionId));
-  return !invalidAttemptSession && !contradictorySessionHistory && !mismatchedSession && knownSessionIds.size <= 1;
+  const isInvalidAttemptSession = attempts.some((attempt) => attempt.sessionId !== null && attempt.outcome !== "dispatched");
+  const isContradictorySessionHistory = sessionAttempts.length > 0 && state !== "dispatched";
+  const isMismatchedSession = session !== null && (state !== "dispatched" || !knownSessionIds.has(session.sessionId));
+  return !isInvalidAttemptSession && !isContradictorySessionHistory && !isMismatchedSession && knownSessionIds.size <= 1;
 }
 function runRelationsHold(input) {
   const { scalars, objects, references, attempts, attachmentId } = input;
   const referenceIds = new Set(references.map((reference) => reference.deliveryId));
-  const referencesAccounted = scalars.referenceCount === references.length + scalars.referencesNotRetained && scalars.referencesTruncated === scalars.referencesNotRetained > 0;
-  const basicRelationsHold = referencesAccounted && (objects.session === null || objects.session.attachmentId === attachmentId) && (objects.lease === null || objects.lease.attempt === scalars.attempt) && (objects.reservation === null || objects.reservation.attempt === scalars.attempt) && referenceIds.size === references.length;
-  return basicRelationsHold && sessionHistoryHolds({
+  const isReferencesAccounted = scalars.referenceCount === references.length + scalars.referencesNotRetained && scalars.referencesTruncated === scalars.referencesNotRetained > 0;
+  const isBasicRelationsHold = isReferencesAccounted && (objects.session === null || objects.session.attachmentId === attachmentId) && (objects.lease === null || objects.lease.attempt === scalars.attempt) && (objects.reservation === null || objects.reservation.attempt === scalars.attempt) && referenceIds.size === references.length;
+  return isBasicRelationsHold && sessionHistoryHolds({
     state: scalars.state,
     session: objects.session,
     attempts
@@ -2571,10 +2550,7 @@ function parseRunParts(raw) {
   const references = parseList(raw.sourceReferences, { parse: parseReference, cap: MAX_SOURCE_REFERENCES });
   const attempts = parseList(raw.attempts, { parse: parseAttempt, cap: MAX_ATTEMPT_RECORDS });
   const prompt = parseStoredPromptSnapshot(raw.prompt);
-  if (scalars === null || !runIdentityMatches(raw, scalars) || objects === null || references === null || attempts === null || prompt === null) {
-    return null;
-  }
-  if (!runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
+  if (scalars === null || objects === null || references === null || attempts === null || prompt === null || !runIdentityMatches(raw, scalars) || !runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
     return null;
   }
   return {
@@ -2751,10 +2727,7 @@ function isSweepIntent(intent) {
 }
 function intentIsWritten(intent, entries) {
   return entries.some((entry) => {
-    if (entry.eventType !== intent.eventType || entry.correlationId !== intent.correlationId) {
-      return false;
-    }
-    if (entry.entity.kind !== RUN_ENTITY_KIND || entry.entity.id !== intent.correlationId) {
+    if (entry.eventType !== intent.eventType || entry.correlationId !== intent.correlationId || entry.entity.kind !== RUN_ENTITY_KIND || entry.entity.id !== intent.correlationId) {
       return false;
     }
     return !isSweepIntent(intent) || entry.details.sequence === intent.sequence;
@@ -2799,8 +2772,8 @@ async function flushRunAuditIntents(input) {
   }
   const remaining = [];
   for (const intent of intents) {
-    const persisted = await persistIntent({ ...input, intent, entries });
-    if (!persisted) {
+    const isPersisted = await persistIntent({ ...input, intent, entries });
+    if (!isPersisted) {
       remaining.push(intent);
     }
   }
@@ -2905,7 +2878,7 @@ function classifyReserved(input) {
 function expiredAtMint(input) {
   const mint = Date.parse(input.now) - 1;
   if (!Number.isFinite(mint)) {
-    throw new Error("migration lease cannot be minted without a service-clock stamp");
+    throw new TypeError("migration lease cannot be minted without a service-clock stamp");
   }
   const issued = Date.parse(input.issuedAt);
   return new Date(Number.isFinite(issued) ? Math.min(issued, mint) : mint).toISOString();
@@ -3102,7 +3075,7 @@ async function planAdoption(input) {
   for (const record of records) {
     const key = subjectKeyOf(record.event);
     const openIndex = runs.findIndex((run) => run.state !== "dispatched" && run.state !== "dead-lettered" && subjectKeyOfRun(run) === key);
-    if (openIndex >= 0 && !isTerminalLegacyOutcome(record.event)) {
+    if (openIndex !== -1 && !isTerminalLegacyOutcome(record.event)) {
       mergeLegacyRow({ runs, openIndex, record, now, branches });
     } else {
       addMigratedRun({ runs, record, now, subjects, branches, key });
@@ -3137,9 +3110,7 @@ function inQueueChain(task) {
   queueChain.write = run;
   return run;
 }
-function settled() {
-  return;
-}
+function settled() {}
 function whenQueueIdle() {
   return queueChain.write.then(settled, settled);
 }
@@ -3167,7 +3138,7 @@ async function runAdoption(input) {
   }
   const plan = await planAdoption({
     store: input.store,
-    ...input.now === undefined ? {} : { now: input.now }
+    ...input.now !== undefined && { now: input.now }
   });
   await input.store.writeJson(RUNS_FILE, plan.document);
   return "adopted";
@@ -3263,7 +3234,7 @@ function currentAttempt(run) {
 }
 function attemptHistory(run, record) {
   const index = run.attempts.map((entry) => entry.attempt).lastIndexOf(record.attempt);
-  const updated = index < 0 ? [...run.attempts, record] : run.attempts.map((entry, position) => position === index ? record : entry);
+  const updated = index === -1 ? [...run.attempts, record] : run.attempts.map((entry, position) => position === index ? record : entry);
   return updated.slice(-MAX_ATTEMPT_RECORDS);
 }
 function openedHistory(run) {
@@ -3295,7 +3266,7 @@ function originOf(delivery) {
   }
   const marker = "~mention~";
   const at = delivery.id.lastIndexOf(marker);
-  if (at < 0) {
+  if (at === -1) {
     return null;
   }
   const suffix = delivery.id.slice(at + marker.length);
@@ -3305,7 +3276,7 @@ function originOf(delivery) {
   const commentId = Number(suffix);
   return commentId > 0 && String(commentId) === suffix ? `comment:${commentId}` : null;
 }
-function referenceOf(delivery, presentAtAuthorization) {
+function referenceOf(delivery, isPresentAtAuthorization) {
   const origin = originOf(delivery);
   if (origin === null) {
     return null;
@@ -3316,7 +3287,7 @@ function referenceOf(delivery, presentAtAuthorization) {
     origin,
     sourceUrl: delivery.issueUrl,
     detectedAt: delivery.detectedAt,
-    presentAtAuthorization,
+    presentAtAuthorization: isPresentAtAuthorization,
     ...actorFieldsOf({
       actorLogin: delivery.actorLogin,
       actorAttribution: delivery.actorAttribution
@@ -3415,7 +3386,7 @@ function applyEnqueue(input) {
       continue;
     }
     const index = runs.findIndex((run2) => !isTerminalRun(run2) && subjectKeyOfRun2(run2) === shape.subjectKey);
-    const open = index < 0 ? undefined : runs[index];
+    const open = index === -1 ? undefined : runs[index];
     if (open !== undefined) {
       const authorizedReference = { ...reference, presentAtAuthorization: open.reservation === null };
       const folded = joinReference({ run: open, reference: authorizedReference, now: input.now });
@@ -3452,9 +3423,9 @@ function parseBindingSlot(value) {
     return null;
   }
   const { lastScanAt, lastError } = value;
-  const stampHolds = lastScanAt === null || typeof lastScanAt === "string";
-  const reasonHolds = lastError === null || typeof lastError === "string";
-  if (!stampHolds || !reasonHolds) {
+  const isStampHolds = lastScanAt === null || typeof lastScanAt === "string";
+  const isReasonHolds = lastError === null || typeof lastError === "string";
+  if (!isStampHolds || !isReasonHolds) {
     return null;
   }
   return {
@@ -3532,8 +3503,8 @@ function subjectTypeOfSnapshot(snapshot) {
 }
 function createEvent(snapshot) {
   const separatorIndex = snapshot.repository.indexOf("/");
-  const owner = separatorIndex < 0 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
-  const name = separatorIndex < 0 ? "" : snapshot.repository.slice(separatorIndex + 1);
+  const owner = separatorIndex === -1 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
+  const name = separatorIndex === -1 ? "" : snapshot.repository.slice(separatorIndex + 1);
   const base = {
     bindingId: snapshot.bindingId,
     kind: snapshot.kind,
@@ -3678,14 +3649,15 @@ async function enqueueWithinChain(input) {
     document,
     deliveries: fresh,
     now: nowIso(),
-    ...input.prompt === undefined ? {} : { prompt: input.prompt }
+    ...input.prompt !== undefined && { prompt: input.prompt }
   });
   const appended = fresh.map((event) => {
     const runCorrelationId = outcome.links.get(event.id);
     return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
   });
   const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
-  await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended], new Set(persistedRuns.runs.map((run) => run.correlationId))));
+  const persistedIds = new Set(persistedRuns.runs.map((run) => run.correlationId));
+  await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended], persistedIds));
   await readRunsDocument(input);
   await recordEnqueueAudits({ ...input, outcome, appended });
   return appended;
@@ -3822,12 +3794,12 @@ function readBytes(request) {
   return new Promise((resolve) => {
     const chunks = [];
     let total = 0;
-    let settled2 = false;
+    let isSettled = false;
     const finish = (outcome) => {
-      if (settled2) {
+      if (isSettled) {
         return;
       }
-      settled2 = true;
+      isSettled = true;
       resolve(outcome);
     };
     request.on("data", (chunk) => {
@@ -4075,7 +4047,7 @@ function parseServiceState(raw) {
     return null;
   }
   const version = raw.schemaVersion;
-  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) {
+  if (typeof version !== "number" || !Number.isSafeInteger(version) || version < 1) {
     return null;
   }
   const initializedAt = typeof raw.initializedAt === "string" ? raw.initializedAt : nowIso();
@@ -4150,10 +4122,9 @@ function matchPathPattern(routePath, pathname) {
     return null;
   }
   const params = {};
-  for (let index = 0;index < pattern.length; index += 1) {
-    const expected = pattern[index];
+  for (const [index, expected] of pattern.entries()) {
     const actual = segments[index];
-    if (expected === undefined || actual === undefined) {
+    if (actual === undefined) {
       return null;
     }
     if (expected.startsWith(PARAM_PREFIX)) {
@@ -4185,7 +4156,8 @@ function writeResponse(call, response) {
     [CONTENT_TYPE_HEADER]: JSON_CONTENT_TYPE,
     [CONTENT_LENGTH_HEADER]: String(Buffer.byteLength(text))
   };
-  for (const [name, value] of Object.entries(response.headers ?? {})) {
+  const extra = response.headers ?? {};
+  for (const [name, value] of Object.entries(extra)) {
     headers[name] = value;
   }
   if (!call.bodyRead) {
@@ -4301,12 +4273,12 @@ async function runPipeline(call) {
 function attachCompletion(call) {
   const startedAt = Date.now();
   const url = parseRequestTarget(call.request.url);
-  let settled2 = false;
+  let isSettled = false;
   const complete = () => {
-    if (settled2) {
+    if (isSettled) {
       return;
     }
-    settled2 = true;
+    isSettled = true;
     call.deps.state.inFlight -= 1;
     call.deps.log.info("request", {
       method: call.request.method ?? "unknown",
@@ -4368,7 +4340,7 @@ function expectedLoginIssues(raw) {
     }
   ];
 }
-function parseCredentialBody(raw, allowExpectedLogin) {
+function parseCredentialBody(raw, canAcceptExpectedLogin) {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return {
       ok: false,
@@ -4377,7 +4349,7 @@ function parseCredentialBody(raw, allowExpectedLogin) {
   }
   const body = raw;
   const read = readToken2(body.token);
-  const issues = [...read.issues, ...allowExpectedLogin ? expectedLoginIssues(body.expectedLogin) : []];
+  const issues = [...read.issues, ...canAcceptExpectedLogin ? expectedLoginIssues(body.expectedLogin) : []];
   if (issues.length > 0 || read.token === undefined) {
     return { ok: false, response: validationResponse(issues) };
   }
@@ -4385,21 +4357,25 @@ function parseCredentialBody(raw, allowExpectedLogin) {
     ok: true,
     credential: {
       token: read.token,
-      expectedLogin: allowExpectedLogin && typeof body.expectedLogin === "string" ? body.expectedLogin : null
+      expectedLogin: canAcceptExpectedLogin && typeof body.expectedLogin === "string" ? body.expectedLogin : null
     }
   };
 }
 function capabilityLabel(reason) {
   const capability = reason.slice(SCOPE_MISSING_PREFIX.length);
   switch (capability) {
-    case "metadata":
+    case "metadata": {
       return "Metadata";
-    case "issues":
+    }
+    case "issues": {
       return "Issues";
-    case "pull-requests":
+    }
+    case "pull-requests": {
       return "Pull requests";
-    default:
+    }
+    default: {
       return "Contents";
+    }
   }
 }
 function reasonCopy(reason) {
@@ -4513,11 +4489,11 @@ async function handleListAccounts(context) {
     return storageUnavailableResponse();
   }
   const accounts = await listAccounts(store, context.log);
-  return { status: STATUS.ok, body: { accounts: accounts.map(toAccountDto) } };
+  return { status: STATUS.ok, body: { accounts: accounts.map((account) => toAccountDto(account)) } };
 }
 function rotatedAccount(input) {
   const { account, outcome, token } = input;
-  const recovering = account.state !== "active";
+  const isRecovering = account.state !== "active";
   const verifiedAt = nowIso();
   return {
     ...account,
@@ -4525,7 +4501,7 @@ function rotatedAccount(input) {
     credential: { token, kind: outcome.credentialKind, verifiedAt },
     scopeCheck: outcome.scopeCheck,
     verifiedAt,
-    ...recovering ? { state: "active", connectionState: "connected", errorReason: null } : {}
+    ...isRecovering && { state: "active", connectionState: "connected", errorReason: null }
   };
 }
 async function recordRotationRejection(subject, reason) {
@@ -4594,7 +4570,7 @@ async function prepareRotation(input) {
     return { ok: false, response: parsed.response };
   }
   const account = input.pathId === null ? null : await readAccount({ store: input.store, numericUserId: input.pathId, log: input.log });
-  if (input.pathId === null || account === null) {
+  if (account === null) {
     return { ok: false, response: unknownAccountResponse() };
   }
   return { ok: true, account, credential: parsed.credential };
@@ -4668,12 +4644,12 @@ async function handleDeleteAccount(context, request) {
   }
   const pathId = pathAccountId(request);
   const account = pathId === null ? null : await readAccount({ store, numericUserId: pathId, log: context.log });
-  if (pathId === null || account === null) {
+  if (account === null || pathId === null) {
     return unknownAccountResponse();
   }
   const bindings = await bindingsReferencing(store, pathId);
-  const forced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
-  if (bindings.length > 0 && !forced) {
+  const isForced = request.url.searchParams.get(FORCE_QUERY_FLAG) === FORCE_QUERY_VALUE;
+  if (!isForced && bindings.length > 0) {
     return bindingsRefusalResponse(bindings.length);
   }
   if (bindings.length > 0) {
@@ -4693,7 +4669,7 @@ var rotateTokenRoute = {
   path: ACCOUNT_TOKEN_PATH,
   handler: guardCredentialRoute(handleRotateToken)
 };
-var deleteAccountRoute = {
+var accountRemovalRoute = {
   method: "DELETE",
   path: ACCOUNT_PATH,
   handler: guardCredentialRoute(handleDeleteAccount)
@@ -4777,8 +4753,8 @@ async function runProfileWrite(input) {
     await recordAccountPromptChanges({ store, log, accounts: [stored], actor: "service" });
     const updated = {
       ...stored,
-      ...parsed.body.displayName.present ? { displayName: parsed.body.displayName.value } : {},
-      ...parsed.body.startingPrompt.present ? { startingPrompt: parsed.body.startingPrompt.value } : {},
+      ...parsed.body.displayName.present && { displayName: parsed.body.displayName.value },
+      ...parsed.body.startingPrompt.present && { startingPrompt: parsed.body.startingPrompt.value },
       updatedAt: nowIso()
     };
     await writeAccount(store, updated);
@@ -4865,7 +4841,7 @@ async function handleAuditRead(context, request) {
     status: STATUS.ok,
     body: {
       entries: page,
-      nextCursor: ahead.length > page.length && last !== undefined ? last.seq : null,
+      nextCursor: last !== undefined && ahead.length > page.length ? last.seq : null,
       count: page.length
     }
   };
@@ -4897,17 +4873,18 @@ var TAKE_EFFECT = {
 var STARTING_PROMPT_FORMAT = "text sent to the agent verbatim, with no placeholders; " + `at most ${STARTING_PROMPT_MAX_CODE_POINTS} code points after trimming; ` + "credential-shaped, reserved-marker, and control characters refused rather than stored; " + "empty means the global prompt tier is unset; the session still runs the pinned Default Agent, " + "which this text cannot change";
 function configSchema() {
   const numericFields = Object.keys(NUMERIC_BOUNDS);
-  const descriptors = [];
-  descriptors.push({
-    name: "startingPrompt",
-    kind: "string",
-    unit: null,
-    format: STARTING_PROMPT_FORMAT,
-    maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
-    default: DEFAULT_CONFIG.startingPrompt,
-    takesEffect: TAKE_EFFECT.startingPrompt,
-    multiline: true
-  });
+  const descriptors = [
+    {
+      name: "startingPrompt",
+      kind: "string",
+      unit: null,
+      format: STARTING_PROMPT_FORMAT,
+      maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
+      default: DEFAULT_CONFIG.startingPrompt,
+      takesEffect: TAKE_EFFECT.startingPrompt,
+      multiline: true
+    }
+  ];
   for (const field of numericFields) {
     descriptors.push({
       name: field,
@@ -4926,8 +4903,7 @@ function configSchema() {
     values: LOG_LEVEL_VALUES,
     default: DEFAULT_CONFIG.logLevel,
     takesEffect: TAKE_EFFECT.logLevel
-  });
-  descriptors.push({
+  }, {
     name: "expectedAgent",
     kind: "string",
     unit: null,
@@ -4959,7 +4935,7 @@ function recordedValue(field, value) {
   return configPromptFingerprint(typeof value === "string" ? value : null);
 }
 function configChanges(previous, next) {
-  const fields = Object.keys(DEFAULT_CONFIG).filter((field) => previous[field] !== next[field]).sort((left, right) => left.localeCompare(right));
+  const fields = Object.keys(DEFAULT_CONFIG).filter((field) => previous[field] !== next[field]).toSorted((left, right) => left.localeCompare(right));
   return fields.map((field) => ({
     field,
     from: recordedValue(field, previous[field]),
@@ -5111,13 +5087,13 @@ async function recordConfigPromptChanges(input) {
   if (previous === current) {
     return 0;
   }
-  const written = await appendConfigApplied({
+  const isWritten = await appendConfigApplied({
     store: input.store,
     log: input.log,
     actor: input.actor,
     changes: [{ field: "startingPrompt", from: previous, to: current }]
   });
-  return written ? 1 : 0;
+  return isWritten ? 1 : 0;
 }
 async function advanceConfigPromptBaseline(input) {
   const state = stateFor2(input.store);
@@ -5153,9 +5129,9 @@ async function runConfigWrite(input) {
     const changes = configChanges(previous.config, candidate);
     await store.writeJson(CONFIG_FILE, candidate);
     log.setLevel(candidate.logLevel);
-    const auditWritten = changes.length === 0 ? true : await appendConfigApplied({ store, log, changes });
+    const wasAppended = changes.length === 0 || await appendConfigApplied({ store, log, changes });
     await advanceConfigPromptBaseline({ store, log, config: candidate });
-    return auditWritten;
+    return wasAppended;
   });
 }
 async function handlePutConfig(context, request) {
@@ -5167,14 +5143,14 @@ async function handlePutConfig(context, request) {
   if (context.store === null) {
     return storageUnavailableResponse();
   }
-  const auditWritten = await runConfigWrite({
+  const wasAppended = await runConfigWrite({
     store: context.store,
     log: context.log,
     candidate: validation.config
   });
-  return { status: STATUS.ok, body: { config: validation.config, auditWritten } };
+  return { status: STATUS.ok, body: { config: validation.config, auditWritten: wasAppended } };
 }
-var getConfigRoute = {
+var configRoute = {
   method: "GET",
   path: CONFIG_PATH,
   handler: (context) => handleGetConfig(context)
@@ -5198,10 +5174,7 @@ function parseRepository(value) {
   }
   const owner = parts[0];
   const name = parts[1];
-  if (owner === undefined || name === undefined || owner === "" || name === "") {
-    return null;
-  }
-  if (!REPOSITORY_PART_PATTERN.test(owner) || !REPOSITORY_PART_PATTERN.test(name)) {
+  if (owner === undefined || name === undefined || owner === "" || name === "" || !REPOSITORY_PART_PATTERN.test(owner) || !REPOSITORY_PART_PATTERN.test(name)) {
     return null;
   }
   return { owner, name };
@@ -5238,7 +5211,7 @@ function repositoryLabel(repository) {
 }
 function repositoryRefOf(repository) {
   const index = repository.indexOf("/");
-  if (index < 0) {
+  if (index === -1) {
     return { owner: repository, name: "" };
   }
   return { owner: repository.slice(0, index), name: repository.slice(index + 1) };
@@ -5253,8 +5226,8 @@ function isGitHubLogin(value) {
   if (typeof value !== "string") {
     return false;
   }
-  const bot = value.toLowerCase().endsWith(BOT_SUFFIX);
-  const spelled = bot ? value.slice(0, -BOT_SUFFIX.length) : value;
+  const isBot = value.toLowerCase().endsWith(BOT_SUFFIX);
+  const spelled = isBot ? value.slice(0, -BOT_SUFFIX.length) : value;
   if (spelled.length === 0 || spelled.length > GITHUB_LOGIN_MAX_CHARS) {
     return false;
   }
@@ -5352,7 +5325,7 @@ function worktreeFieldOf(value) {
   }
   return parsed.kind;
 }
-function bindingIdentityOf(raw, accountExists) {
+function bindingIdentityOf(raw, hasAccount) {
   const bindingId = stringFieldOf(raw.bindingId);
   if (bindingId === null || bindingId.length > MAX_BINDING_ID_CHARS) {
     return issue({
@@ -5361,11 +5334,13 @@ function bindingIdentityOf(raw, accountExists) {
     });
   }
   const accountId = raw.accountNumericUserId;
-  const accountCopy = "accountNumericUserId must be the GitHub numeric user id of a registered account";
   if (typeof accountId !== "string" || !NUMERIC_ID_PATTERN.test(accountId)) {
-    return issue({ field: "accountNumericUserId", remediation: accountCopy });
+    return issue({
+      field: "accountNumericUserId",
+      remediation: "accountNumericUserId must be the GitHub numeric user id of a registered account"
+    });
   }
-  if (!accountExists) {
+  if (!hasAccount) {
     return issue({
       field: "accountNumericUserId",
       remediation: "register the account before binding it"
@@ -5425,8 +5400,8 @@ function bindingPromptOf(raw) {
   const verdict = validateStartingPrompt(raw.startingPrompt);
   return verdict.ok ? { prompt: verdict.prompt } : { issue: verdict.issue };
 }
-function assembleBinding(raw, accountExists) {
-  const identity = bindingIdentityOf(raw, accountExists);
+function assembleBinding(raw, hasAccount) {
+  const identity = bindingIdentityOf(raw, hasAccount);
   if ("issue" in identity) {
     return null;
   }
@@ -5453,8 +5428,8 @@ function assembleBinding(raw, accountExists) {
     accountLogin: login,
     ...target.binding,
     ...mode.binding,
-    ...prompt.prompt === null ? {} : { startingPrompt: prompt.prompt },
-    ...allowedUsers.users === null ? {} : { allowedUsers: allowedUsers.users },
+    ...prompt.prompt !== null && { startingPrompt: prompt.prompt },
+    ...allowedUsers.users !== null && { allowedUsers: allowedUsers.users },
     createdAt,
     updatedAt: stampOrKeep(raw.updatedAt, createdAt)
   };
@@ -5463,14 +5438,14 @@ function refusalsIn(verdicts) {
   return verdicts.flatMap((verdict) => ("issue" in verdict) ? [verdict.issue] : []);
 }
 function parseBinding(input) {
-  const { raw, accountExists } = input;
-  const record = assembleBinding(raw, accountExists);
+  const { raw, hasAccount } = input;
+  const record = assembleBinding(raw, hasAccount);
   if (record !== null) {
     return { binding: record };
   }
   return {
     issues: refusalsIn([
-      bindingIdentityOf(raw, accountExists),
+      bindingIdentityOf(raw, hasAccount),
       bindingTargetOf(raw),
       bindingModeOf(raw),
       bindingPromptOf(raw),
@@ -5478,7 +5453,7 @@ function parseBinding(input) {
     ])
   };
 }
-function collectBindingIssues(candidates, accountExists) {
+function collectBindingIssues(candidates, hasAccount) {
   const issues = [];
   const seen = new Set;
   const bindings = [];
@@ -5488,8 +5463,8 @@ function collectBindingIssues(candidates, accountExists) {
       issues.push({ field: "bindings[]", remediation: "each binding must be a JSON object" });
       continue;
     }
-    const exists = typeof record.accountNumericUserId === "string" && accountExists(record.accountNumericUserId);
-    const verdict = parseBinding({ raw: record, accountExists: exists });
+    const isKnown = typeof record.accountNumericUserId === "string" && hasAccount(record.accountNumericUserId);
+    const verdict = parseBinding({ raw: record, hasAccount: isKnown });
     if ("issues" in verdict) {
       issues.push(...verdict.issues);
       continue;
@@ -5522,7 +5497,7 @@ function validateBindings(input) {
       issues: [{ field: "bindings", remediation: capCopy }]
     };
   }
-  return collectBindingIssues(body.bindings, input.accountExists);
+  return collectBindingIssues(body.bindings, input.hasAccount);
 }
 async function writeBindings(input) {
   await input.store.writeJson(BINDINGS_FILE, input.bindings);
@@ -5551,7 +5526,7 @@ async function seedBaseline2(store, baseline) {
       continue;
     }
     const recorded = entry.details.promptFingerprint;
-    const fingerprint = entry.details.promptPresent === true && typeof recorded === "string" && PROMPT_FINGERPRINT_PATTERN.test(recorded) ? recorded : null;
+    const fingerprint = typeof recorded === "string" && entry.details.promptPresent === true && PROMPT_FINGERPRINT_PATTERN.test(recorded) ? recorded : null;
     const prior = highest.get(bindingId);
     if (prior === undefined || entry.seq > prior.seq) {
       highest.set(bindingId, { seq: entry.seq, fingerprint });
@@ -5575,7 +5550,7 @@ async function runPromptChain(store, task) {
   return await run;
 }
 async function appendPromptChange(input) {
-  const present = input.current !== null;
+  const isPresent = input.current !== null;
   let decision;
   if (input.current === null) {
     decision = "cleared";
@@ -5591,7 +5566,7 @@ async function appendPromptChange(input) {
     reason: null,
     details: {
       bindingId: input.bindingId,
-      promptPresent: present,
+      promptPresent: isPresent,
       promptFingerprint: input.current?.fingerprint ?? null,
       promptLength: input.current?.length ?? 0,
       previousFingerprint: input.previousFingerprint
@@ -5650,7 +5625,7 @@ async function observePromptChanges(input) {
 // service/bindings-read.ts
 function noteFirstRefusal(note, issues) {
   const first = issues[0];
-  if (note.reason === null && first !== undefined) {
+  if (first !== undefined && note.reason === null) {
     note.reason = `${first.field}: ${first.remediation}`;
   }
 }
@@ -5660,7 +5635,7 @@ function parseBindingsFile(raw, note) {
   }
   const bindings = [];
   for (const entry of raw) {
-    const verdict = parseBinding({ raw: entry, accountExists: true });
+    const verdict = parseBinding({ raw: entry, hasAccount: true });
     if ("issues" in verdict) {
       noteFirstRefusal(note, verdict.issues);
       return null;
@@ -5680,7 +5655,7 @@ async function readBindingsUnobserved(input) {
     if (result.status === "quarantined") {
       log.warn("stored bindings were unusable and have been set aside", {
         quarantinePath: result.quarantinePath,
-        ...note.reason === null ? {} : { reason: note.reason }
+        ...note.reason !== null && { reason: note.reason }
       });
     }
     return [];
@@ -5710,7 +5685,7 @@ async function readBindingsForAuthorization(input) {
     if (result.status === "quarantined") {
       log.warn("stored bindings were unusable and have been set aside", {
         quarantinePath: result.quarantinePath,
-        ...note.reason === null ? {} : { reason: note.reason }
+        ...note.reason !== null && { reason: note.reason }
       });
     }
     return { readable: false };
@@ -5766,7 +5741,7 @@ import { createHash as createHash4 } from "node:crypto";
 function reviewCoordinates(delivery) {
   const head = delivery?.headSha ?? null;
   const base = delivery?.baseRef ?? null;
-  return { ...head === null ? {} : { headSha: head }, ...base === null ? {} : { baseRef: base } };
+  return { ...head !== null && { headSha: head }, ...base !== null && { baseRef: base } };
 }
 function deliveryView(input) {
   const { delivery, primary } = input;
@@ -5847,10 +5822,7 @@ function leaseRun(input) {
 }
 function expireLease(input) {
   const { run, now, chargeBudget } = input;
-  if (run.state !== "claimed" || run.lease === null || run.reservation !== null) {
-    return null;
-  }
-  if (runHistoryIndicatesSession(run) || Date.parse(run.lease.expiresAt) > Date.parse(now)) {
+  if (run.state !== "claimed" || run.lease === null || run.reservation !== null || runHistoryIndicatesSession(run) || Date.parse(run.lease.expiresAt) > Date.parse(now)) {
     return null;
   }
   return {
@@ -6043,10 +6015,10 @@ var WAITING_REASON = "waiting for a panel";
 function reviewCoordinates2(delivery) {
   const head = delivery?.headSha ?? null;
   const base = delivery?.baseRef ?? null;
-  return { ...head === null ? {} : { headSha: head }, ...base === null ? {} : { baseRef: base } };
+  return { ...head !== null && { headSha: head }, ...base !== null && { baseRef: base } };
 }
 function recordedCause(run) {
-  for (let index = run.attempts.length - 1;index >= 0; index -= 1) {
+  for (let index = run.attempts.length - 1;index !== -1; index -= 1) {
     const reason = run.attempts[index]?.reason ?? null;
     if (reason !== null) {
       return reason;
@@ -6166,7 +6138,7 @@ function historyRowOf(input) {
 }
 function projectRunHistory(input) {
   const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries }));
-  return rows.sort((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, input.cap);
+  return rows.toSorted((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, input.cap);
 }
 
 // service/routes/events-page.ts
@@ -6229,7 +6201,7 @@ function stateFilterOf(raw) {
   if (raw === null || raw === "") {
     return { ok: true, state: null };
   }
-  if (LISTABLE_STATES.includes(raw) || raw === "blocked") {
+  if (raw === "blocked" || LISTABLE_STATES.includes(raw)) {
     return { ok: true, state: raw };
   }
   const prefix = "blocked:";
@@ -6377,7 +6349,7 @@ async function projectHistory(context, store) {
     runs: document.runs,
     deliveries: new Map(queue.map((event) => [event.id, event])),
     cap: document.runs.length
-  }).sort(newestFirst);
+  }).toSorted(newestFirst);
 }
 async function handleEventHistory(context, request) {
   const { store } = context;
@@ -6396,7 +6368,7 @@ async function handleEventHistory(context, request) {
   const window = remaining.slice(0, query.limit + 1);
   const hasMore = window.length > query.limit;
   const events = window.slice(0, query.limit);
-  const last = events[events.length - 1];
+  const last = events.at(-1);
   return {
     status: STATUS.ok,
     body: {
@@ -6552,15 +6524,18 @@ function resolvedRow(input) {
   };
 }
 function readBackVerdict(input) {
-  if (!input.compared) {
+  if (!input.wasCompared) {
     return { eventType: "agent.uncompared", decision: "observed" };
   }
-  return input.matched ? { eventType: "agent.verified", decision: "verified" } : { eventType: "agent.mismatch", decision: "warn" };
+  return input.wasMatched ? { eventType: "agent.verified", decision: "verified" } : { eventType: "agent.mismatch", decision: "warn" };
 }
 function verificationRow(input) {
   const { verification } = input;
-  const compared = verification.expectedAgent !== "";
-  const verdict = readBackVerdict({ compared, matched: compared && verification.ok });
+  const wasCompared = verification.expectedAgent !== "";
+  const verdict = readBackVerdict({
+    wasCompared,
+    wasMatched: wasCompared && verification.ok
+  });
   return {
     eventType: verdict.eventType,
     actorSource: PANEL_ACTOR,
@@ -6570,7 +6545,7 @@ function verificationRow(input) {
       sessionId: input.run.session?.sessionId ?? "",
       observedAgent: verification.observedAgent,
       expectedAgent: verification.expectedAgent,
-      ...compared ? {} : { baselineProvenance: input.baselineProvenance },
+      ...!wasCompared && { baselineProvenance: input.baselineProvenance },
       note: rowText(verification.note)
     }
   };
@@ -6579,8 +6554,8 @@ function actorDetails(actor) {
   return {
     bindingId: actor.bindingId,
     actorPolicy: actor.actorPolicy,
-    ...actor.deniedLogins === undefined ? {} : { deniedLogins: actor.deniedLogins.map(boundText) },
-    ...actor.deniedAttributions === undefined ? {} : { deniedAttributions: [...actor.deniedAttributions] },
+    ...actor.deniedLogins !== undefined && { deniedLogins: actor.deniedLogins.map((login) => boundText(login)) },
+    ...actor.deniedAttributions !== undefined && { deniedAttributions: [...actor.deniedAttributions] },
     unreadableReferences: actor.unreadableReferences,
     retainedReferences: actor.retainedReferences,
     referencesNotRetained: actor.referencesNotRetained,
@@ -6599,9 +6574,9 @@ function refusedRow(input) {
       code: input.code,
       priorState: input.run.state,
       attempt: input.attempt,
-      ...input.leaseId === undefined ? {} : { leaseId: input.leaseId },
-      ...input.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: input.dispatchTokenFingerprint },
-      ...input.actor === undefined ? {} : actorDetails(input.actor)
+      ...input.leaseId !== undefined && { leaseId: input.leaseId },
+      ...input.dispatchTokenFingerprint !== undefined && { dispatchTokenFingerprint: input.dispatchTokenFingerprint },
+      ...input.actor !== undefined && actorDetails(input.actor)
     }
   };
 }
@@ -6643,7 +6618,7 @@ function classifyActor(reference) {
   return { readable: true, login, attribution: reference.actorAttribution ?? null };
 }
 function classifyRun(run) {
-  const classified = run.sourceReferences.map(classifyActor);
+  const classified = run.sourceReferences.map((reference) => classifyActor(reference));
   return {
     readable: classified.filter((actor) => actor.readable),
     unreadableReferences: classified.filter((actor) => !actor.readable).length
@@ -6661,8 +6636,8 @@ function refusalDetails(input) {
   return {
     bindingId: input.run.bindingId,
     actorPolicy: input.policy,
-    ...input.deniedLogins === undefined ? {} : { deniedLogins: input.deniedLogins },
-    ...input.deniedAttributions === undefined ? {} : { deniedAttributions: input.deniedAttributions },
+    ...input.deniedLogins !== undefined && { deniedLogins: input.deniedLogins },
+    ...input.deniedAttributions !== undefined && { deniedAttributions: input.deniedAttributions },
     unreadableReferences: input.unreadableReferences,
     retainedReferences: window.retained,
     referencesNotRetained: window.notRetained,
@@ -6775,9 +6750,9 @@ async function appendRefusalRow(input) {
     code: refusal.refusal.code,
     reason: refusal.refusal.message,
     attempt: refusal.attempt,
-    ...refusal.leaseId === undefined ? {} : { leaseId: refusal.leaseId },
-    ...refusal.dispatchTokenFingerprint === undefined ? {} : { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint },
-    ...refusal.actor === undefined ? {} : { actor: refusal.actor }
+    ...refusal.leaseId !== undefined && { leaseId: refusal.leaseId },
+    ...refusal.dispatchTokenFingerprint !== undefined && { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint },
+    ...refusal.actor !== undefined && { actor: refusal.actor }
   });
   return await appendRunRow({
     store: input.store,
@@ -6829,7 +6804,8 @@ function judgeReserve(input) {
   }
   const { reservation } = run;
   if (reservation !== null) {
-    return refuse3("already-reserved", `this run is already authorized: attempt ${reservation.attempt} must report by ` + `${reservation.resultDeadlineAt}`);
+    const { attempt, resultDeadlineAt } = reservation;
+    return refuse3("already-reserved", `this run is already authorized: attempt ${attempt} must report by ${resultDeadlineAt}`);
   }
   return run.state === "claimed" ? null : refuse3(INVALID_TRANSITION, `this run is ${run.state}; only a claimed run can be authorized`);
 }
@@ -6869,7 +6845,7 @@ async function refusedReserve(input) {
         refusal,
         attempt: call.attempt,
         leaseId: call.leaseId,
-        ...actor === undefined ? {} : { actor }
+        ...actor !== undefined && { actor }
       }
     })
   };
@@ -7054,7 +7030,7 @@ function reportedRun(input) {
     lease: null,
     reservation: { ...reservation, consumed: true },
     attempts: attemptHistory(run, closedAttempt({ attempt: currentAttempt(run), outcome, now })),
-    ...sessionId === null ? {} : { session: sessionRefOf({ run, sessionId, now }) },
+    ...sessionId !== null && { session: sessionRefOf({ run, sessionId, now }) },
     updatedAt: now
   };
 }
@@ -7121,7 +7097,7 @@ async function applyVerdict(input) {
   }
   const settled2 = reportedRun({ run, outcome: report.outcome, now: report.now ?? run.updatedAt });
   await persist(settled2);
-  const auditWritten = await appendRunRow({
+  const wasAppended = await appendRunRow({
     store: report.store,
     log: report.log,
     correlationId: settled2.correlationId,
@@ -7132,7 +7108,7 @@ async function applyVerdict(input) {
       operation: report.operation
     })
   });
-  return { status: "applied", run: settled2, auditWritten };
+  return { status: "applied", run: settled2, auditWritten: wasAppended };
 }
 async function reportDispatch(input) {
   return await operateRun(input, async ({ run, now, persist }) => {
@@ -7172,17 +7148,17 @@ function readMember(value, pattern) {
 }
 function requiredMember(input) {
   const value = readMember(input.record[input.name], input.pattern);
-  if (input.required && value === null) {
+  if (value === null && input.required) {
     input.issues.push({ field: input.name, remediation: input.remediation });
   }
   return value;
 }
 function parseRunScopeRequest(input) {
   const { raw, correlationId, needs } = input;
-  const structured = isBodyObject(raw) && raw !== undefined;
-  const record = structured ? raw : {};
+  const isStructured = isBodyObject(raw) && raw !== undefined;
+  const record = isStructured ? raw : {};
   const issues = [];
-  if (raw !== undefined && !structured) {
+  if (raw !== undefined && !isStructured) {
     issues.push({ field: "body", remediation: BODY_REMEDIATION });
   }
   const echo = echoIssue(record, correlationId);
@@ -7190,7 +7166,7 @@ function parseRunScopeRequest(input) {
     issues.push(echo);
   }
   const { attempt } = record;
-  if (typeof attempt !== "number" || !Number.isInteger(attempt) || attempt < 1) {
+  if (typeof attempt !== "number" || !Number.isSafeInteger(attempt) || attempt < 1) {
     issues.push({ field: "attempt", remediation: "send the attempt number this run is on, as a whole number" });
   }
   const leaseId = requiredMember({
@@ -7222,10 +7198,10 @@ function readRunScopeRequest(input) {
 }
 function readRunScopeBody(input) {
   const { raw, correlationId } = input;
-  const structured = isBodyObject(raw) && raw !== undefined;
-  const record = structured ? raw : {};
+  const isStructured = isBodyObject(raw) && raw !== undefined;
+  const record = isStructured ? raw : {};
   const issues = [];
-  if (raw !== undefined && !structured) {
+  if (raw !== undefined && !isStructured) {
     issues.push({ field: "body", remediation: BODY_REMEDIATION });
   }
   const echo = echoIssue(record, correlationId);
@@ -7272,7 +7248,7 @@ function runOutcomeResponse(input) {
     return errorResponse(REFUSAL_STATUS.get(code) ?? STATUS.conflict, {
       code,
       message,
-      ...referenceWindow === undefined ? {} : { referenceWindow }
+      ...referenceWindow !== undefined && { referenceWindow }
     });
   }
   return { status: STATUS.ok, body: success(outcome.run, outcome.auditWritten) };
@@ -7330,16 +7306,14 @@ function baselineMember(value, bound = MAX_BODY_TEXT_CHARS) {
   return trimmed.length > bound ? null : trimmed;
 }
 var PROVENANCE_SHAPE_FIX = "send one of configured, defaulted, unset — where the comparison baseline came from";
+var BASELINE_PROVENANCES = ["configured", "defaulted", "unset"];
 function provenanceMember(value) {
-  if (value === "configured" || value === "defaulted" || value === "unset") {
-    return value;
-  }
-  return null;
+  return BASELINE_PROVENANCES.find((candidate) => candidate === value) ?? null;
 }
 function provenanceIssue(provenance, expectedAgent) {
-  const configured = provenance === "configured";
+  const isConfigured = provenance === "configured";
   const hasBaseline = expectedAgent !== "";
-  if (configured !== hasBaseline) {
+  if (isConfigured !== hasBaseline) {
     return {
       field: "baselineProvenance",
       remediation: "send 'configured' with a non-blank expectedAgent, " + "or 'defaulted' or 'unset' with an empty one"
@@ -7354,8 +7328,8 @@ function readProvenance(fields, expectedAgent) {
   }
   return provenanceIssue(provenance, expectedAgent) ?? provenance;
 }
-function flagMember(value, fallback) {
-  return typeof value === "boolean" ? value : fallback;
+function flagMember(value, isAbsent) {
+  return typeof value === "boolean" ? value : isAbsent;
 }
 function sessionIdIssue(value) {
   if (value === null) {
@@ -7415,7 +7389,9 @@ async function handleReserve(context, request) {
 function readResultOutcome(fields) {
   const sessionId = textMember(fields.sessionId);
   const problem = textMember(fields.problem);
-  if (sessionId === null === (problem === null)) {
+  const hasSession = sessionId !== null;
+  const hasProblem = problem !== null;
+  if (hasSession === hasProblem) {
     return {
       ok: false,
       response: errorResponse(STATUS.validation, {
@@ -7500,7 +7476,7 @@ function readBlockReport(fields) {
   const overlong = overLongTextResponse(fields, ["guidance"]);
   const blockedReason = textMember(fields.blockedReason);
   const detail = textMember(fields.detail);
-  if (blockedReason === null || !BLOCKED_REASONS.has(blockedReason) || detail === null) {
+  if (blockedReason === null || detail === null || !BLOCKED_REASONS.has(blockedReason)) {
     return {
       ok: false,
       response: errorResponse(STATUS.validation, {
@@ -7605,7 +7581,7 @@ async function readCustodyAndValidate(input) {
     accounts,
     validation: validateBindings({
       raw: input.body,
-      accountExists: (numericUserId) => known.has(numericUserId)
+      hasAccount: (numericUserId) => known.has(numericUserId)
     })
   };
 }
@@ -7651,7 +7627,7 @@ async function handlePutBindings(context, request) {
   const status = await readStatusRows({ store, log: context.log, bindings });
   return { status: STATUS.ok, body: { bindings, status } };
 }
-var getBindingsRoute = {
+var bindingsRoute = {
   method: "GET",
   path: BINDINGS_PATH,
   handler: (context) => handleGetBindings(context)
@@ -7940,7 +7916,6 @@ function isResolveDecision(value) {
 }
 function readResolution(fields) {
   const decision = textMember(fields.decision);
-  const sessionId = textMember(fields.sessionId);
   if (decision === null || !isResolveDecision(decision)) {
     return {
       ok: false,
@@ -7950,6 +7925,7 @@ function readResolution(fields) {
       })
     };
   }
+  const sessionId = textMember(fields.sessionId);
   if (decision === SESSION_CREATED && sessionId === null) {
     return {
       ok: false,
@@ -8024,7 +8000,7 @@ async function handleRequeue(context, request) {
   if (isRefusal(body)) {
     return await refuseRunRequest({ context, operation: "requeue", correlationId, response: body });
   }
-  if (flagMember(body.fields.confirm, false) !== true) {
+  if (!flagMember(body.fields.confirm, false)) {
     return await refuseRunRequest({
       context,
       operation: "requeue",
@@ -8184,12 +8160,12 @@ var verificationRoute = {
 // service/poll/view.ts
 function createPollingView() {
   let loop = null;
-  let stopping = false;
-  const running = () => !stopping && loop !== null && !loop.state().stopped;
+  let isStopping = false;
+  const isRunning = () => !isStopping && loop !== null && !loop.state().stopped;
   const view = {
-    isRunning: () => running(),
-    nextPollAtMs: () => running() ? loop?.state().nextPollAtMs ?? null : null,
-    isStopping: () => stopping
+    isRunning: () => isRunning(),
+    nextPollAtMs: () => isRunning() ? loop?.state().nextPollAtMs ?? null : null,
+    isStopping: () => isStopping
   };
   return {
     view,
@@ -8197,7 +8173,7 @@ function createPollingView() {
       loop = next;
     },
     beginShutdown: () => {
-      stopping = true;
+      isStopping = true;
     }
   };
 }
@@ -8246,7 +8222,7 @@ async function statusAccounts(context) {
   }
   try {
     const accounts = await listAccounts(context.store, context.log);
-    return accounts.map(statusAccountRow);
+    return accounts.map((account) => statusAccountRow(account));
   } catch (error) {
     context.log.warn("accounts could not be listed for status", {
       errorKind: error instanceof Error ? error.name : typeof error
@@ -8322,7 +8298,7 @@ async function runDerivedProjection(context, bindings) {
       errorKind: error instanceof Error ? error.name : typeof error
     });
     return {
-      repositories: bindings.map(unreadableRepositoryRow),
+      repositories: bindings.map((binding) => unreadableRepositoryRow(binding)),
       verification: notAvailableVerification()
     };
   }
@@ -8337,25 +8313,25 @@ async function readConfig(context) {
 async function buildStatusBody(context) {
   const config = await readConfig(context);
   const { store, polling } = context;
-  const storeUsable = store !== null;
+  const hasStore = store !== null;
   const accounts = await statusAccounts(context);
   const bindings = await storedBindings(context);
   const { repositories, verification } = await runDerivedProjection(context, bindings);
-  const running = storeUsable && polling.isRunning();
+  const isRunning = hasStore && polling.isRunning();
   const activeBindings = bindings.filter((binding) => binding.state === "active").length;
   const pausedReason = pausedReasonOf({
-    storeUsable,
-    running,
+    storeUsable: hasStore,
+    running: isRunning,
     stopping: polling.isStopping(),
     activeBindings
   });
   return {
     service: {
-      status: storeUsable ? "ok" : "degraded",
+      status: hasStore ? "ok" : "degraded",
       uptimeMs: Date.now() - context.startedAt,
       dataDir: context.dataDir,
       schemaVersion: store?.schemaVersion ?? null,
-      storage: { writable: storeUsable }
+      storage: { writable: hasStore }
     },
     accounts,
     repositories,
@@ -8363,7 +8339,7 @@ async function buildStatusBody(context) {
     polling: {
       intervalMs: config.intervalMs,
       nextPollAt: nextPollAtOf(polling, config.intervalMs),
-      paused: !running,
+      paused: !isRunning,
       pausedReason
     },
     surface: { supported: true }
@@ -8535,11 +8511,11 @@ var verifyRoute = {
 // service/routes/index.ts
 var ROUTES = [
   healthRoute,
-  getConfigRoute,
+  configRoute,
   putConfigRoute,
   statusRoute,
   listAccountsRoute,
-  getBindingsRoute,
+  bindingsRoute,
   putBindingsRoute,
   eventHistoryRoute,
   pendingEventsRoute,
@@ -8547,7 +8523,7 @@ var ROUTES = [
   verifyRoute,
   rotateTokenRoute,
   putAccountProfileRoute,
-  deleteAccountRoute,
+  accountRemovalRoute,
   reserveRoute,
   dispatchedRoute,
   abandonRoute,
@@ -8617,10 +8593,11 @@ function startSweep(input) {
   return {
     stop: () => {
       state.stopped = true;
-      if (state.timer !== null) {
-        clearTimeout(state.timer);
-        state.timer = null;
+      if (state.timer === null) {
+        return;
       }
+      clearTimeout(state.timer);
+      state.timer = null;
     }
   };
 }
@@ -8675,18 +8652,18 @@ function recoverExpiredLease(input) {
   if (lease === null) {
     return null;
   }
-  const migration = lease.provenance === "migration";
-  const requeued = expireLease({ run, now, chargeBudget: !migration });
+  const isMigration = lease.provenance === "migration";
+  const requeued = expireLease({ run, now, chargeBudget: !isMigration });
   if (requeued === null) {
     return null;
   }
-  if (!migration) {
+  if (!isMigration) {
     const parked = parkExhaustedRun({ run, lease, now });
     if (parked !== null) {
       return parked;
     }
   }
-  const reason = migration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON;
+  const reason = isMigration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON;
   const details = {
     priorState: run.state,
     leaseId: lease.leaseId,
@@ -8696,7 +8673,7 @@ function recoverExpiredLease(input) {
     requeuesBefore: run.requeuesUsed,
     requeuesAfter: requeued.requeuesUsed,
     budget: MAX_AUTO_REQUEUES,
-    migrationRecovery: migration
+    migrationRecovery: isMigration
   };
   return {
     run: requeued,
@@ -8902,7 +8879,7 @@ function issueNumberOf(value) {
     return null;
   }
   const issueNumber = record.number;
-  return typeof issueNumber === "number" && Number.isInteger(issueNumber) && issueNumber > 0 ? issueNumber : null;
+  return typeof issueNumber === "number" && Number.isSafeInteger(issueNumber) && issueNumber > 0 ? issueNumber : null;
 }
 function createdAtOf(value) {
   if (typeof value !== "string") {
@@ -8915,7 +8892,7 @@ function readItemEventEntry(value) {
     return null;
   }
   const createdAt = createdAtOf(value.created_at);
-  if (typeof value.event !== "string" || value.event === "" || createdAt === null) {
+  if (createdAt === null || typeof value.event !== "string" || value.event === "") {
     return null;
   }
   return {
@@ -9199,7 +9176,7 @@ function mentionEvent(input) {
     actorAttribution: "direct",
     triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
     detectedAt,
-    ...issue2 === null ? {} : { subjectType: subjectShapeOf2(issue2.isPullRequest) }
+    ...issue2 !== null && { subjectType: subjectShapeOf2(issue2.isPullRequest) }
   });
 }
 function mentionEvents(input) {
@@ -9207,8 +9184,8 @@ function mentionEvents(input) {
   const known = new Map(issues.map((issue2) => [issue2.issueNumber, issue2]));
   const events = [];
   for (const comment of comments) {
-    const eligible = stampInWindow(comment.updatedAt, windowStart) && isMentionComment(comment, login);
-    if (!eligible) {
+    const isEligible = stampInWindow(comment.updatedAt, windowStart) && isMentionComment(comment, login);
+    if (!isEligible) {
       continue;
     }
     const issue2 = known.get(comment.issueNumber) ?? null;
@@ -9221,8 +9198,8 @@ function bodyMentionEvents(input) {
   const label = repositoryLabel(repositoryRefOf(binding.repository));
   const events = [];
   for (const issue2 of issues) {
-    const eligible = stampInWindow(issue2.updatedAt, windowStart) && isIssueBodyMention(issue2, login);
-    if (!eligible) {
+    const isEligible = stampInWindow(issue2.updatedAt, windowStart) && isIssueBodyMention(issue2, login);
+    if (!isEligible) {
       continue;
     }
     events.push(createEvent({
@@ -9546,7 +9523,7 @@ async function requestPage(input) {
   for (let attempt = 1;attempt <= attempts; attempt += 1) {
     let response;
     try {
-      response = await input.runtime.fetchImpl(input.url.toString(), {
+      response = await input.runtime.fetchImpl(input.url.href, {
         method: "GET",
         headers: requestHeaders(input.token),
         signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
@@ -9616,7 +9593,7 @@ function asRecord(value) {
   return isRecord(value) ? value : null;
 }
 function positiveIntOf2(value) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 function textOf(record, field) {
   const value = record[field];
@@ -9647,7 +9624,8 @@ function issueNumberOf2(value) {
   if (typeof value !== "string") {
     return null;
   }
-  return positiveIntOf2(Number(value.slice(value.lastIndexOf("/") + 1)));
+  const lastSegment = value.slice(value.lastIndexOf("/") + 1);
+  return positiveIntOf2(Number(lastSegment));
 }
 function readIssueEntry(value) {
   const record = asRecord(value);
@@ -9821,23 +9799,23 @@ function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fet
 // service/poll/timer.ts
 function startPollLoop(deps) {
   let timer = null;
-  let stopped = false;
-  let inFlight = false;
+  let isStopped = false;
+  let isInFlight = false;
   let nextAtMs = null;
   const cycle = async () => {
-    if (stopped || inFlight) {
+    if (isStopped || isInFlight) {
       return;
     }
-    inFlight = true;
+    isInFlight = true;
     try {
       await runScanCycle(deps);
     } catch (cause) {
       deps.log.warn("poll cycle failed", { errorKind: describeKind(cause) });
     } finally {
-      inFlight = false;
+      isInFlight = false;
     }
     await currentIntervalMs(deps.store, deps.log).then((interval) => {
-      if (stopped) {
+      if (isStopped) {
         return null;
       }
       nextAtMs = Date.now() + interval;
@@ -9853,14 +9831,15 @@ function startPollLoop(deps) {
   cycle();
   return {
     stop: () => {
-      stopped = true;
+      isStopped = true;
       nextAtMs = null;
-      if (timer !== null) {
-        clearTimeout(timer);
-        timer = null;
+      if (timer === null) {
+        return;
       }
+      clearTimeout(timer);
+      timer = null;
     },
-    state: () => ({ stopped, nextPollAtMs: nextAtMs })
+    state: () => ({ stopped: isStopped, nextPollAtMs: nextAtMs })
   };
 }
 function createDefaultPoller(log) {
@@ -9887,7 +9866,7 @@ function createVerifyThrottle(now = Date.now) {
         return { allowed: false, code: "verify-busy", retryAfterSeconds: 1 };
       }
       const oldest = stamps[0];
-      if (stamps.length >= VERIFY_MAX_ATTEMPTS && oldest !== undefined) {
+      if (oldest !== undefined && stamps.length >= VERIFY_MAX_ATTEMPTS) {
         const waitMs = VERIFY_WINDOW_MS - (at - oldest);
         return {
           allowed: false,
@@ -9897,15 +9876,15 @@ function createVerifyThrottle(now = Date.now) {
       }
       stamps.push(at);
       active += 1;
-      let released = false;
+      let isReleased = false;
       return {
         allowed: true,
         lease: {
           release: () => {
-            if (released) {
+            if (isReleased) {
               return;
             }
-            released = true;
+            isReleased = true;
             active -= 1;
           }
         }

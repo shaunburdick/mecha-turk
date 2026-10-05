@@ -43,7 +43,7 @@ import type { ServiceStore } from './store/index.ts';
  */
 export const ACCOUNT_PROMPT_UPDATED_EVENT = 'account.prompt-updated';
 
-/** Who caused the change: `operator` through the write, `service` observed (FR-088). */
+/** Who caused the change: `operator` through the write, `service` observed. */
 export type AccountPromptActor = 'operator' | 'service';
 
 /** The account members an observation reads. */
@@ -60,17 +60,17 @@ export interface AccountPromptObservation {
     readonly store: ServiceStore;
     /** Logger for a failed append (account id and fingerprint only). */
     readonly log: ServiceLogger;
-    /** The accounts this observation saw present. */
+    /** The accounts this observation saw isPresent. */
     readonly accounts: readonly ObservedAccount[];
     /**
      * Ids whose record this observation proved **absent**. Their baselines are
      * forgotten, so a re-added account reads as a fresh `set` rather than as a
-     * diff against a tier that died with the old record (004 AC-149).
+     * diff against a tier that died with the old record.
      */
     readonly absent?: readonly string[];
     /**
      * `true` when {@link accounts} is the whole custody directory (a list
-     * read), so every baseline id not present here is forgotten on the same
+     * read), so every baseline id not isPresent here is forgotten on the same
      * rule as `absent`. Single-account reads and the profile write leave other
      * accounts' baselines alone.
      */
@@ -95,7 +95,6 @@ const observationStates = new WeakMap<ServiceStore, AccountPromptObservationStat
 /**
  * Get (or create) the observation state for one store handle.
  *
- * @param store - Open store.
  * @returns The handle's baseline and chain.
  */
 function stateFor(store: ServiceStore): AccountPromptObservationState {
@@ -111,7 +110,6 @@ function stateFor(store: ServiceStore): AccountPromptObservationState {
 /**
  * Seed the baseline from the audit trail: highest-`seq` row per account.
  *
- * @param store - Open store holding `audit.ndjson`.
  * @param baseline - The map to fill (empty on first use for this handle).
  * @throws {StorageUnavailableError} When the trail cannot be read — a chain
  *   that cannot establish its baseline must not start guessing at diffs.
@@ -137,8 +135,8 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
         // **read** side too.
         const recorded = entry.details.promptFingerprint;
         const fingerprint =
-            entry.details.promptPresent === true &&
             typeof recorded === 'string' &&
+            entry.details.promptPresent === true &&
             PROMPT_FINGERPRINT_PATTERN.test(recorded)
                 ? recorded
                 : null;
@@ -160,7 +158,6 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
  * rejects for its own caller without wedging the next one — the same shape the
  * bindings lane's chain uses, deliberately: two chains, one discipline.
  *
- * @param store - Open store.
  * @param task - The read/write/diff work to serialise.
  * @returns The task's result or rejection, exactly as the task produced it.
  * @throws {StorageUnavailableError} When the baseline cannot be seeded.
@@ -177,6 +174,7 @@ export async function runAccountPromptChain<T>(store: ServiceStore, task: () => 
     };
     // Both handlers are the same continuation: a rejected predecessor must not
     // stop the next task.
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs start on its own rejection; this runs once.
     const run = state.chain.then(start, start);
     state.chain = run;
 
@@ -204,12 +202,11 @@ export interface AccountPromptChange {
  * the vocabulary (`set` | `changed` | `cleared`) cannot drift from what the
  * baseline says happened.
  *
- * @param input - The account, both fingerprints, and the actor.
  * @throws {StorageUnavailableError} When the append fails; the caller decides
  *   whether that rolls anything back (it never does — see the module header).
  */
 export async function appendAccountPromptChange(input: AccountPromptChange): Promise<void> {
-    const present = input.current !== null;
+    const isPresent = input.current !== null;
     let decision: string;
     if (input.current === null) {
         decision = 'cleared';
@@ -225,7 +222,7 @@ export async function appendAccountPromptChange(input: AccountPromptChange): Pro
         decision,
         reason: null,
         details: {
-            promptPresent: present,
+            promptPresent: isPresent,
             promptFingerprint: input.current?.fingerprint ?? null,
             // Data-model §4.1 types this `number`: an absent prompt is zero
             // characters of instruction, which is a length rather than a hole.
@@ -238,7 +235,6 @@ export async function appendAccountPromptChange(input: AccountPromptChange): Pro
 /**
  * Append one difference's row, or log its failure and count nothing.
  *
- * @param context - The observation, the account, its snapshot, and both fingerprints.
  * @returns `1` when the row reached the trail, `0` when the append failed.
  */
 async function recordOneChange(context: {
@@ -281,7 +277,6 @@ async function recordOneChange(context: {
  * **Must run inside {@link runAccountPromptChain}** — the baseline it reads and
  * writes is only safe while no other observation can interleave with it.
  *
- * @param input - The accounts seen, the ids proved absent, the actor, the logger.
  * @returns How many rows this observation appended.
  */
 export async function recordAccountPromptChanges(input: AccountPromptObservation): Promise<number> {
@@ -304,7 +299,8 @@ export async function recordAccountPromptChanges(input: AccountPromptObservation
         rows += await recordOneChange({ input, account, snapshot, current, previous });
     }
 
-    for (const numericUserId of input.absent ?? []) {
+    const absent = input.absent ?? [];
+    for (const numericUserId of absent) {
         state.baseline.delete(numericUserId);
     }
 
@@ -327,9 +323,8 @@ export async function recordAccountPromptChanges(input: AccountPromptObservation
  * This is the entry point the observed read funnels (`readAccount`,
  * `listAccounts`) call with actor `service`, so a prompt edited outside the
  * panel is recorded by whoever the service could actually attribute the change
- * to (004 FR-088).
+ * to.
  *
- * @param input - The accounts seen, the ids proved absent, the actor, the logger.
  * @returns How many rows this observation appended.
  */
 export async function observeAccountPromptChanges(input: AccountPromptObservation): Promise<number> {

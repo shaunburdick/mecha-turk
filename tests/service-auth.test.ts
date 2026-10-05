@@ -26,22 +26,18 @@ const UNKNOWN_PATH = '/v1/does-not-exist';
 /** Service running for the current test, drained after it. */
 let running: TestService | null = null;
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running === null) {
         return;
     }
 
     await running.shutdown();
     running = null;
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Start a service instance and register it for cleanup.
- *
- * @returns The running harness instance.
  */
 async function startServiceForTest(): Promise<TestService> {
     const service = await startTestService();
@@ -52,18 +48,13 @@ async function startServiceForTest(): Promise<TestService> {
 
 /**
  * Request the ready probe with an explicit bearer credential.
- *
- * @param service - Harness instance.
- * @param authorization - Complete `Authorization` header value.
- * @returns The response.
  */
 function withBearer(service: TestService, authorization: string): Promise<Response> {
     return fetch(`${service.baseUrl}${HEALTH_PATH}`, { headers: { authorization } });
 }
 
 describe('invariant 1 — byte-identical refusals (SEC-09)', () => {
-    it('refuses a same-length wrong-value credential with th… (+1 cases)', async () => {
-        // case: refuses a same-length wrong-value credential with the reference 401
+    it('refuses a same-length wrong-value credential with the reference 401', async () => {
         {
             const service = await startServiceForTest();
             const reference = await fetch(`${service.baseUrl}${HEALTH_PATH}`);
@@ -81,9 +72,9 @@ describe('invariant 1 — byte-identical refusals (SEC-09)', () => {
             expect(body).not.toContain(sameLength);
             expect(body).not.toContain(service.token);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: refuses wrong values of every other length the same way
+    });
+
+    it('refuses wrong values of every other length the same way', async () => {
         {
             const service = await startServiceForTest();
             const reference = await fetch(`${service.baseUrl}${HEALTH_PATH}`);
@@ -98,6 +89,7 @@ describe('invariant 1 — byte-identical refusals (SEC-09)', () => {
             }
         }
     });
+
 });
 
 describe('invariant 1 — authentication before routing (SEC-02c)', () => {

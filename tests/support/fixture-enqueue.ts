@@ -62,8 +62,6 @@ export interface EnqueueFamily {
      * Enqueue many subjects' fixture deliveries through **one** real
      * `enqueueEvents` call — a scan-sized batch, exactly how the production
      * loop hands one binding's scan to the queue.
-     *
-     * @param inputs - Every subject detected in this simulated scan.
      */
     enqueueScan(inputs: readonly EnqueueInput[]): Promise<void>;
 }
@@ -120,7 +118,6 @@ function detection(input: {
  * Build the fixture events one {@link EnqueueInput} maps onto, as one scan's
  * detections.
  *
- * @param input - The subject, its triggers, and its detection stamp.
  * @returns The events a queue write would receive for that subject.
  */
 function eventsFor(input: EnqueueInput): ReturnType<typeof createEvent>[] {
@@ -135,9 +132,6 @@ function eventsFor(input: EnqueueInput): ReturnType<typeof createEvent>[] {
 
 /**
  * Write one scan's detections through the real queue path.
- *
- * @param input - The store to write through, the logger to report to, the
- *   subjects detected, and the binding prompt snapshotted onto their runs.
  */
 async function enqueueThroughQueue(input: {
     /** Open store to write through. */
@@ -160,8 +154,6 @@ async function enqueueThroughQueue(input: {
 /**
  * Bind the fixture queue writers to whichever service instance is running.
  *
- * @param input - Reads the open store of the running instance, and the logger
- *   the loop keeps out of the test output.
  * @returns The single-subject and scan-sized writers, ready to spread onto a
  *   {@link import('./dispatch-loop.ts').DispatchLoop}.
  */

@@ -56,8 +56,6 @@ export const BLOCKED_PATH = `${RUN_SCOPE_PREFIX}/blocked`;
  * `claimed` and therefore never invisible to the sweep. Every refusal writes one
  * `dispatch.refused` row and mints nothing.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, dispatchToken, tokenExpiresAt,
  *   resultDeadlineAt, state, auditWritten }`, or the documented
  *   `404`/`409`/`422`/`503`.
@@ -115,13 +113,16 @@ type ResultOutcome =
  * enters because it is echoed into the run's state reason, its attempt record,
  * and audit details (T-043f).
  *
- * @param fields - The body's members, after FR-051's echo already matched.
  * @returns The outcome, or the `422` naming what was wrong.
  */
 function readResultOutcome(fields: Readonly<Record<string, unknown>>): ResultOutcome {
     const sessionId = textMember(fields.sessionId);
     const problem = textMember(fields.problem);
-    if ((sessionId === null) === (problem === null)) {
+    const hasSession = sessionId !== null;
+    const hasProblem = problem !== null;
+    // Exactly one of the two is the contract, so "both" and "neither" are the
+    // same refusal — which is what one equality between the two flags states.
+    if (hasSession === hasProblem) {
         return {
             ok: false,
             response: errorResponse(STATUS.validation, {
@@ -144,12 +145,10 @@ function readResultOutcome(fields: Readonly<Record<string, unknown>>): ResultOut
  *
  * Reports the outcome of an authorized attempt. A report naming a session makes
  * the run `dispatched`; a report naming a problem makes it `failed` — never
- * `dispatched` (FR-040). The reservation is consumed in the same write, and a
+ * `dispatched`. The reservation is consumed in the same write, and a
  * repeat of an outcome already recorded answers `200` unchanged with one
- * `dispatch.duplicate-report` row (FR-025).
+ * `dispatch.duplicate-report` row.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state, auditWritten }`, or a refusal.
  */
 async function handleDispatched(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -195,13 +194,11 @@ async function handleDispatched(context: RouteContext, request: RouteRequest): P
  * Answer `POST /v1/events/:correlationId/abandon`.
  *
  * A reserved attempt that created no session because the panel aborted **before**
- * any host call (FR-026). The run becomes retryable `failed` with the reason —
+ * any host call. The run becomes retryable `failed` with the reason —
  * never `unconfirmed`, which would wedge a dispatch that provably happened. It is
  * distinguished from Result's `problem` shape by *when* it is true, not by the
  * state it ends in: both are honest, and both are `failed`.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state, auditWritten }`, or a refusal.
  */
 async function handleAbandon(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -271,7 +268,7 @@ function readBlockReport(fields: Readonly<Record<string, unknown>>): BlockReport
     const overlong = overLongTextResponse(fields, ['guidance']);
     const blockedReason = textMember(fields.blockedReason);
     const detail = textMember(fields.detail);
-    if (blockedReason === null || !BLOCKED_REASONS.has(blockedReason) || detail === null) {
+    if (blockedReason === null || detail === null || !BLOCKED_REASONS.has(blockedReason)) {
         return {
             ok: false,
             response: errorResponse(STATUS.validation, {
@@ -291,15 +288,13 @@ function readBlockReport(fields: Readonly<Record<string, unknown>>): BlockReport
 /**
  * Answer `POST /v1/events/:correlationId/blocked`.
  *
- * A fail-closed guard refused the dispatch before any host call (FR-042). Valid
+ * A fail-closed guard refused the dispatch before any host call. Valid
  * only from `claimed` under the live lease, and the blocked reason is checked
  * against the four declared causes so the resulting `blocked:<reason>` state stays
  * parseable (data-model §2.2). The attempt number and the automatic requeue
  * budget are untouched — a guard refusal consumes nothing, and the sweep never
  * touches a blocked run.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state, auditWritten }`, or a refusal.
  */
 async function handleBlocked(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {

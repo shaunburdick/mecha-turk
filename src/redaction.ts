@@ -15,7 +15,7 @@
 /** Scalar value kinds a redacted record may hold. */
 type Scalar = string | number | boolean | null;
 
-/** One secret-shaped value the spike must never persist. */
+/** One secret-shaped value the panel must never persist. */
 interface SecretPattern {
     /** Stable identifier reported in the error, never the matched text. */
     readonly label: string;
@@ -86,7 +86,6 @@ export function findSecretLeak(text: string): string | null {
  * Assert that a value contains no secret-shaped material.
  *
  * @param subject - Name used in the error message, e.g. `ledger`.
- * @param text - The exact text that will be persisted or reported.
  * @throws {RedactionError} When secret-shaped material is present.
  */
 export function assertRedacted(subject: string, text: string): void {
@@ -104,7 +103,6 @@ export function assertRedacted(subject: string, text: string): void {
  * replaced, not just the first: a single diagnostic can quote more than one
  * token, and a half-redacted string is still a leak.
  *
- * @param text - Candidate text.
  * @returns The text with every secret-shaped match replaced by `[redacted:<label>]`.
  */
 export function redact(text: string): string {
@@ -112,7 +110,9 @@ export function redact(text: string): string {
     for (const { label, pattern } of SECRET_PATTERNS) {
         // `replaceAll` requires a global pattern, so an accidental non-global
         // pattern fails loudly here instead of silently replacing one match.
-        result = result.replaceAll(pattern, `[redacted:${label}]`);
+        // The replacer is a function so a label holding `$&` would insert
+        // itself literally instead of re-reading the match it replaced.
+        result = result.replaceAll(pattern, () => `[redacted:${label}]`);
     }
 
     return result;

@@ -34,8 +34,7 @@ function validInput(): EvidenceInput {
 }
 
 describe('buildEvidence', () => {
-    it('produces the contract record with camelCase field na… (+1 cases)', () => {
-        // case: produces the contract record with camelCase field names
+    it('produces the contract record with camelCase field names', () => {
         {
             const evidence = buildEvidence(validInput());
 
@@ -52,7 +51,6 @@ describe('buildEvidence', () => {
             });
             expect(Object.keys(evidence)).toHaveLength(EVIDENCE_FIELD_COUNT);
         }
-        // case: rejects every malformed input shape the contract refuses
         {
             const malformed: readonly (readonly [string, EvidenceInput])[] = [
                 ['a non-GitHub issue URL', { ...validInput(), issueUrl: 'https://example.com/issue/12' }],
@@ -71,26 +69,22 @@ describe('buildEvidence', () => {
 });
 
 describe('evidence serialization', () => {
-    it('round-trips through JSON and reads back (+3 cases)', () => {
-        // case: round-trips through JSON and reads back
+    it('round-trips through JSON and reads back', () => {
         {
             const evidence = buildEvidence(validInput());
             const stored = parseJsonValue(serializeEvidence(evidence));
 
             expect(readEvidence(stored)).toEqual(evidence);
         }
-        // case: contains no secret-shaped material
         {
             const json = serializeEvidence(buildEvidence(validInput()));
             expect(json).not.toMatch(/\bgh[pousr]_[A-Za-z0-9]{20,}/);
             expect(json).not.toMatch(/\bAuthorization\s*:/);
         }
-        // case: asserts redaction before it is stored
         {
             const evidence = buildEvidence(validInput());
             expect(() => assertEvidenceRedacted(evidence)).not.toThrow();
         }
-        // case: rejects a stored record this build must not read
         {
             const wrongVersion: JsonValue = { ...buildEvidence(validInput()), schemaVersion: 'other' };
             expect(readEvidence(wrongVersion), 'a foreign schema version').toBeNull();
@@ -113,7 +107,7 @@ describe('readEvidence validation', () => {
                 stored.repository = 42;
             }],
             ['an empty string field', (stored) => {
-                stored.correlationId = '   ';
+                stored.correlationId = ' '.repeat(3);
             }],
             ['a trigger that is not the configured rule', (stored) => {
                 stored.trigger = 'manual';

@@ -42,7 +42,7 @@ const HOUR_MS = 60 * MINUTE_MS;
 /** Milliseconds in a day. */
 const DAY_MS = 24 * HOUR_MS;
 
-/** What a binding no scan has ever reached reads as (005 FR-053). */
+/** What a binding no scan has ever reached reads as. */
 const NOT_SCANNED = 'not scanned yet';
 
 /** The slice of one status row the binding rows read. */
@@ -68,8 +68,7 @@ export interface BindingView {
      *
      * Held as **one clause rather than the list** so a login can never reach a
      * row even by accident: the count and the absent-policy warning are computed
-     * once, in `bindings-actors.ts`, and the row only decides where they go
-     * (005 FR-091, FR-092, NFR-113).
+     * once, in `bindings-actors.ts`, and the row only decides where they go.
      */
     readonly actorsClause: string | null;
 }
@@ -77,7 +76,6 @@ export interface BindingView {
 /**
  * Narrow one stored binding to what a row may show.
  *
- * @param binding - The binding as the service projected it.
  * @returns The view, with the prompt reduced to its length and the allow-list
  *   reduced to one clause.
  */
@@ -102,7 +100,6 @@ function toView(binding: PanelBinding): BindingView {
  * to disagree — so the summary says only *whether* one exists and *how long*
  * it is, counted the way 004 caps it (code points, not UTF-16 units).
  *
- * @param binding - The binding being rendered.
  * @returns `prompt set · N chars`, or `prompt not set`.
  */
 export function promptSummary(binding: BindingView): string {
@@ -116,8 +113,6 @@ export function promptSummary(binding: BindingView): string {
 /**
  * Find the status row for one binding.
  *
- * @param bindings - Bindings state.
- * @param bindingId - Row key.
  * @returns The row, or `null` before the first poll.
  */
 function statusRowOf(bindings: BindingsTabState, bindingId: string): StatusRowView | null {
@@ -160,9 +155,8 @@ export function elapsedSince(iso: string): string {
  * The phrase is the operator's only view of *why* nothing is happening on a
  * binding, so it carries the skip reason next to when the last scan ran — and
  * a binding no scan has ever reached reads *not scanned yet* rather than a
- * bare `never`, which reads like a verdict instead of an absence (FR-053).
+ * bare `never`, which reads like a verdict instead of an absence.
  *
- * @param row - The status row.
  * @returns `scan: <when> · <reason|ok>`, or `not scanned yet` before the
  *   first completed scan with no recorded reason.
  */
@@ -175,7 +169,7 @@ function scanPhrase(row: StatusRowView): string {
 }
 
 /**
- * Why a disabled binding is not polling, when the panel can prove it (FR-054).
+ * Why a disabled binding is not polling, when the panel can prove it.
  *
  * The service stores `state: 'disabled'` for both the operator's own toggle
  * and the cascade that follows an account removal, and it writes no reason
@@ -188,8 +182,6 @@ function scanPhrase(row: StatusRowView): string {
  * never loaded is not evidence of a removal, and saying "account removed"
  * because a read failed would be exactly the invented value FR-003 forbids.
  *
- * @param bindings - Bindings state.
- * @param binding - The binding being judged.
  * @returns The reason, or `null` when the binding is enabled or the panel
  *   cannot tell.
  */
@@ -212,8 +204,6 @@ export function disabledReason(bindings: BindingsTabState, binding: BindingView)
  * *is it on*, and *if not, why* — read as one sentence instead of as
  * punctuation (FR-083: state carried by text).
  *
- * @param state - The binding's own state.
- * @param reason - The reason {@link disabledReason} proved, if any.
  * @returns `null` while the binding is enabled, else the words to render.
  */
 function statePhrase(state: BindingView['state'], reason: string | null): string | null {
@@ -225,7 +215,7 @@ function statePhrase(state: BindingView['state'], reason: string | null): string
 }
 
 /**
- * Why a binding cannot poll because its account cannot (005 FR-063).
+ * Why a binding cannot poll because its account cannot.
  *
  * A binding whose account is unusable is the thing the operator is actually
  * looking at when nothing arrives, so the consequence is stated on *this*
@@ -233,8 +223,6 @@ function statePhrase(state: BindingView['state'], reason: string | null): string
  * a completed accounts read for the same reason {@link disabledReason} is:
  * a list the panel never loaded is not evidence that an account is unusable.
  *
- * @param bindings - Bindings state.
- * @param binding - The binding being judged.
  * @returns The consequence phrase, or `null` when the account can poll or the
  *   panel cannot tell.
  */
@@ -264,8 +252,6 @@ export function accountConsequencePhrase(
 /**
  * Compose one binding row.
  *
- * @param bindings - Bindings state.
- * @param binding - The binding to render.
  * @returns The list row.
  */
 export function bindingRow(bindings: BindingsTabState, binding: BindingView): ListItem {
@@ -297,7 +283,6 @@ export function bindingRow(bindings: BindingsTabState, binding: BindingView): Li
 /**
  * Build the bindings list rows from state.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The list rows, in stored order.
  */
 export function bindingRows(bindings: BindingsTabState): ListItem[] {
@@ -311,9 +296,8 @@ export function bindingRows(bindings: BindingsTabState): ListItem[] {
  * around it: whether it polls, when it was created and last changed, and what
  * the service's scan has done with it. A binding no scan has reached yet
  * reads `not scanned yet` with a pending count of zero — never a blank, and
- * never an invented "it is fine" (FR-003).
+ * never an invented "it is fine".
  *
- * @param bindings - The Bindings tab's state.
  * @returns The detail line, or `null` when no binding is selected.
  */
 export function selectedBindingDetail(bindings: BindingsTabState): string | null {

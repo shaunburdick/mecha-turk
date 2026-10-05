@@ -73,7 +73,6 @@ function isLoginCharacter(character: string): boolean {
  * ever reaches a regular-expression engine.
  *
  * @param body - Comment or issue body; untrusted source text.
- * @param login - The bound account's login.
  * @returns `true` when the body mentions that account.
  */
 export function mentionsLogin(body: string, login: string): boolean {
@@ -100,8 +99,6 @@ export function mentionsLogin(body: string, login: string): boolean {
 /**
  * Decide whether one comment is a mention the binding should react to.
  *
- * @param comment - Normalized comment.
- * @param bindingLogin - The bound account's login.
  * @returns `true` when a human commented `@<login>` on this issue.
  */
 export function isMentionComment(comment: PollComment, bindingLogin: string): boolean {
@@ -120,8 +117,6 @@ export function isMentionComment(comment: PollComment, bindingLogin: string): bo
  * bot-authored and unreadable-author text never triggers, and the token
  * match is the same bounded, case-insensitive one.
  *
- * @param issue - Normalized issue.
- * @param bindingLogin - The bound account's login.
  * @returns `true` when a human opened this issue with `@<login>` in its body.
  */
 export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): boolean {
@@ -136,7 +131,6 @@ export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): bool
  * Translate one listing entry's `pull_request` marker into the subject shape
  * the run key stores.
  *
- * @param isPullRequest - Whether GitHub listed the entry as a pull request.
  * @returns The subject shape for the row this detection produces.
  */
 function subjectShapeOf(isPullRequest: boolean): SubjectType {
@@ -151,8 +145,6 @@ function subjectShapeOf(isPullRequest: boolean): SubjectType {
  * past the page cap) still gets an honest fallback: the issue number the
  * comment reports and a URL assembled from the bound repository.
  *
- * @param input - The binding, the matched comment, the issue its number
- *   resolved to (or `null`), and the detection stamp.
  * @returns The event, in `pending` state.
  */
 function mentionEvent(input: {
@@ -187,7 +179,7 @@ function mentionEvent(input: {
             issueBodyExcerpt: bodyExcerptOf(comment.body),
         },
         // GitHub named the author of the very comment that carried the mention,
-        // so this attribution is a fact rather than an inference (002 FR-044).
+        // so this attribution is a fact rather than an inference.
         actorLogin: commenter,
         actorAttribution: 'direct',
         triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
@@ -197,14 +189,13 @@ function mentionEvent(input: {
         // decides the run key's subject type. When it did not (a closed item,
         // a paged-out one) the row keeps no subject type and reads as an
         // issue, exactly as an adopted row does (data-model §2.1).
-        ...(issue === null ? {} : { subjectType: subjectShapeOf(issue.isPullRequest) }),
+        ...(issue !== null && { subjectType: subjectShapeOf(issue.isPullRequest) }),
     });
 }
 
 /**
  * Build one `mention` event per matching comment.
  *
- * @param input - Binding, matches, the issue list, and the detection stamp.
  * @returns The mention events, in comment order.
  */
 function mentionEvents(input: {
@@ -226,9 +217,9 @@ function mentionEvents(input: {
     const events: QueuedEvent[] = [];
 
     for (const comment of comments) {
-        const eligible = stampInWindow(comment.updatedAt, windowStart)
+        const isEligible = stampInWindow(comment.updatedAt, windowStart)
             && isMentionComment(comment, login);
-        if (!eligible) {
+        if (!isEligible) {
             continue;
         }
 
@@ -250,7 +241,6 @@ function mentionEvents(input: {
  * account, ever — while staying distinct from the assignment id and from every
  * `~mention~<commentId>` row.
  *
- * @param input - Binding, the bound login, the issues, and the stamps.
  * @returns The mention events, in issue order.
  */
 function bodyMentionEvents(input: {
@@ -270,9 +260,9 @@ function bodyMentionEvents(input: {
     const events: QueuedEvent[] = [];
 
     for (const issue of issues) {
-        const eligible = stampInWindow(issue.updatedAt, windowStart)
+        const isEligible = stampInWindow(issue.updatedAt, windowStart)
             && isIssueBodyMention(issue, login);
-        if (!eligible) {
+        if (!isEligible) {
             continue;
         }
 
@@ -293,7 +283,7 @@ function bodyMentionEvents(input: {
                     issueBodyExcerpt: bodyExcerptOf(issue.body),
                 },
                 // GitHub named the author of the very issue body that carried the
-                // mention, so this attribution is a fact too (002 FR-044).
+                // mention, so this attribution is a fact too.
                 actorLogin: actorLoginOf(issue.authorLogin),
                 actorAttribution: 'direct',
                 triggerNote: 'mentioned in issue body',
@@ -310,7 +300,6 @@ function bodyMentionEvents(input: {
  * List the comment feed the mention switch asks for and collect its events,
  * including the issue-body mentions the issue list already covers (M6).
  *
- * @param input - The shared scan input plus the issues the cycle listed.
  * @returns The events, or the list failure that ends the scan.
  */
 async function mentionEventsOf(input: TriggerScanInput & {
@@ -359,7 +348,6 @@ async function mentionEventsOf(input: TriggerScanInput & {
  * list call — see `poller-events.ts`'s `resolveCandidateActor` for why, and for
  * the difference between that and a candidate that simply produced no event.
  *
- * @param input - Poller, credential, logger, binding, window, and pace.
  * @returns The events, or the first failure's class for the cycle's skip.
  */
 export async function collectTriggerEvents(input: TriggerScanInput): Promise<TriggerEvents> {

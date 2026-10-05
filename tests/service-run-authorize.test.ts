@@ -26,8 +26,8 @@
  * no host.
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, rm } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -57,6 +57,7 @@ import type { Run } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every fixture uses; no test ever waits on a clock. */
 const STAMP = '2026-09-28T08:00:00.000Z';
@@ -141,14 +142,19 @@ const FIXTURE_BASIS: ActorAttribution = PROXY_BASIS;
 const PROJECT_ID = 'prj_42';
 
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-authorize-'));
+/**
+ * Open a fresh temp store with the suite's configuration and an empty log.
+ *
+ * Named rather than inlined because a test that drives more than one chain in
+ * sequence calls this again between them.
+ */
+const openFixture = async (): Promise<void> => {
+    tempRoot = await makeTempTree('authorize');
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs: LEASE_MS, resultDeadlineMs: LEASE_MS });
     // The gate reads `bindings.json` at authorization and denies when it cannot
@@ -163,14 +169,14 @@ const beforeEachWork1 = async (): Promise<void> => {
     LOG_LINES.length = 0;
 };
 
-beforeEach(beforeEachWork1);
+beforeEach(openFixture);
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
+/** Remove the temp root the fixture opened. */
+const closeFixture = async (): Promise<void> => {
+    await removeTempTree(tempRoot);
 };
 
-afterEach(afterEachWork2);
+afterEach(closeFixture);
 
 /**
  * Build an assignment detection for one issue.
@@ -179,10 +185,6 @@ afterEach(afterEachWork2);
  * so no snapshot this build's own code writes can lack one. A run with no
  * readable actor is only reachable by hand-editing the store, and the FR-080
  * cases model it that way rather than forging an impossible detection.
- *
- * @param issueNumber - Issue the detection is about.
- * @param attribution - The actor and basis to record.
- * @returns A complete event snapshot.
  */
 function assignment(issueNumber: number, attribution: AttributionOverrides = {}): EventSnapshot {
     const { actorLogin = FIXTURE_ACTOR, actorAttribution = FIXTURE_BASIS } = attribution;
@@ -215,7 +217,6 @@ function assignment(issueNumber: number, attribution: AttributionOverrides = {})
  * would hold is minted by the real claim (T-040e's parser refuses an id or
  * provenance this build could never have written).
  *
- * @param state - The state being seeded.
  * @returns The lease, or `null` for a state that holds none.
  */
 function leaseFor(state: Run['state']): Run['lease'] {
@@ -251,16 +252,15 @@ function liveLease(): Run['lease'] {
     };
 }
 
-
 /** Enqueue detections, one per issue. */
 async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
-    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map(createEvent) });
+    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map((snapshot) => createEvent(snapshot)) });
 }
 
 /** Claim the run waiting for one issue, as the panel would. */
 async function claimRun(issueNumber: number): Promise<{ readonly correlationId: string; readonly leaseId: string }> {
     const claimed = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
-    const [run] = claimed.runs.filter((candidate) => candidate.issueNumber === issueNumber);
+    const run = claimed.runs.find((candidate) => candidate.issueNumber === issueNumber);
     if (run === undefined) {
         throw new Error(`the run for issue ${issueNumber} was not claimed`);
     }
@@ -290,7 +290,8 @@ async function trail(): Promise<ReturnType<typeof readAuditEntries>> {
 async function rowsOf(eventType: string): Promise<readonly Record<string, unknown>[]> {
     const rows: Record<string, unknown>[] = [];
 
-    for (const entry of await trail()) {
+    const audited = await trail();
+    for (const entry of audited) {
         if (entry.eventType === eventType) {
             rows.push(entry.details);
         }
@@ -307,7 +308,6 @@ async function rowsOf(eventType: string): Promise<readonly Record<string, unknow
  * would make every lease look expired the moment the suite's date differs from
  * the fixture's, which is a flaky test rather than a real failure.
  *
- * @param input - The claim coordinates and the stamp to judge them at.
  * @returns Whatever the reserve answered.
  */
 async function reserve(input: {
@@ -329,7 +329,6 @@ async function reserve(input: {
 /**
  * Report one outcome through the real route module.
  *
- * @param input - The run, token, and outcome being reported.
  * @returns Whatever the report answered.
  */
 async function report(input: {
@@ -342,7 +341,7 @@ async function report(input: {
     readonly reason?: string | null;
     readonly now?: string;
 }) {
-    const abandoned = input.operation === 'abandon';
+    const isAbandoned = input.operation === 'abandon';
 
     return await reportDispatch({
         store,
@@ -350,8 +349,8 @@ async function report(input: {
         correlationId: input.correlationId,
         dispatchToken: input.dispatchToken,
         attempt: input.attempt ?? 1,
-        operation: abandoned ? 'abandon' : 'result',
-        outcome: abandoned
+        operation: isAbandoned ? 'abandon' : 'result',
+        outcome: isAbandoned
             ? { attemptOutcome: 'abandoned', sessionId: null, reason: input.reason ?? '' }
             : {
                 attemptOutcome: input.sessionId === undefined || input.sessionId === null ? FAILED : 'dispatched',
@@ -377,11 +376,10 @@ function jsonHeaders(): Record<string, string> {
 /**
  * The concrete path one run-scoped route answers on.
  *
- * @param pattern - The route's declared pattern.
  * @returns The same path with its parameter bound to {@link RUN_ID}.
  */
 function routePath(pattern: string): string {
-    return pattern.replace(CORRELATION_PARAM, RUN_ID);
+    return pattern.replace(CORRELATION_PARAM, () => RUN_ID);
 }
 
 /** The claim coordinates a reserve or a block report needs. */
@@ -395,7 +393,6 @@ interface Claim {
 /**
  * Seed one issue, claim it, and hand back the coordinates a reserve needs.
  *
- * @param issueNumber - Issue to detect and claim.
  * @param overrides - Detection members the case under test changes — the
  *   attribution, in the gate's cases.
  * @returns The claimed run's correlation id and the lease it was claimed under.
@@ -420,7 +417,6 @@ interface AttributionOverrides {
 /**
  * One stored reference with its two actor members removed.
  *
- * @param reference - The reference to strip.
  * @returns The record as a hand edit would leave it.
  */
 function strippedReference(reference: Run['sourceReferences'][number]): Record<string, unknown> {
@@ -442,17 +438,28 @@ function strippedReference(reference: Run['sourceReferences'][number]): Record<s
  * from a hand-edited store — which is precisely the case FR-080 names, and the
  * reason the gate must refuse such a run rather than default it.
  *
- * @param correlationId - The run to rewrite.
  * @returns A promise that settles once the document is durable.
  */
+/**
+ * One run as a hand edit of the store would leave it: no readable actor.
+ *
+ * The cast through `unknown` is the point of this helper rather than a slip.
+ * 002 FR-045 makes attribution mandatory at detection, so no value this build
+ * produces can carry this shape — which is exactly the row FR-080 names and the
+ * reason the gate must refuse it rather than default it.
+ *
+ * @returns The same run, with its references' actor members removed.
+ */
+function runWithoutAttribution(run: Run): Run {
+    const references = run.sourceReferences.map((reference) => strippedReference(reference));
+
+    // eslint-disable-next-line llm-core/no-type-system-bypass, llm-core/no-chained-type-assertions -- 002 FR-045
+    return { ...run, sourceReferences: references } as unknown as Run;
+}
+
 async function stripAttribution(correlationId: string): Promise<void> {
     const document = await readRunsDocument({ store, log: LOGGER });
-    // Cast through `unknown` deliberately: the whole point is to write a row the
-    // *store's* validator accepts as "no attribution recorded", while no value
-    // this build's own code produces could carry that shape (002 FR-045).
-    const runs = document.runs.map((run) => run.correlationId === correlationId
-        ? ({ ...run, sourceReferences: run.sourceReferences.map(strippedReference) } as unknown as Run)
-        : run);
+    const runs = document.runs.map((run) => run.correlationId === correlationId ? runWithoutAttribution(run) : run);
     await writeRunsDocument({ store, log: LOGGER, document: { ...document, runs } });
 }
 
@@ -512,7 +519,6 @@ async function firstRowOf(eventType: string): Promise<Record<string, unknown>> {
 /**
  * Block one run through the real route module.
  *
- * @param input - The claim coordinates, cause, and detail.
  * @returns Whatever the block answered.
  */
 async function block(input: {
@@ -542,8 +548,6 @@ async function block(input: {
 /**
  * Seed one run directly in a state, with the record that state implies.
  *
- * @param issueNumber - Issue to build the run from.
- * @param state - The state to seed.
  * @returns The seeded run.
  */
 async function seedRunInState(input: {
@@ -566,12 +570,12 @@ async function seedRunInState(input: {
         );
     }
 
-    const holdsLease = input.liveLease === true || leaseFor(state) !== null;
+    const hasLease = input.liveLease === true || leaseFor(state) !== null;
     const run: Run = {
         ...created,
         state,
         stateReason: `seeded as ${state}`,
-        lease: holdsLease ? leaseFor(state) ?? liveLease() : null,
+        lease: hasLease ? leaseFor(state) ?? liveLease() : null,
         reservation: state === STARTING
             ? {
                 dispatchToken: 'dtk-0123456789abcdef0123456789abcdef',
@@ -602,8 +606,6 @@ async function seedRunInState(input: {
  * shape a dispatched run actually has, and the reserve refusal the fixture
  * reaches has to survive having no lease to ride on (T-042e, AC-112).
  *
- * @param issueNumber - Issue to build the run from.
- * @param sessionId - The session the run recorded.
  * @returns The seeded run.
  */
 async function seedRunWithSession(input: {
@@ -662,8 +664,7 @@ function leaseOf(run: Run): string {
 }
 
 describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', () => {
-    it('moves the run to starting, records the reservation, … (+4 cases)', async () => {
-        // case: moves the run to starting, records the reservation, and answers the token
+    it('moves the run to starting, records the reservation, and answers the token', async () => {
         {
             const claimed = await seedAndClaim(1);
 
@@ -683,11 +684,9 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
             // The token rides on the lease it was authorized under (contract §1).
             expect(outcome.tokenExpiresAt).toBe(stored.lease?.expiresAt);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: derives the token from the run key and attempt, byte-for-byte
+    });
+
+    it('derives the token from the run key and attempt, byte-for-byte', async () => {
         {
             const claimed = await seedAndClaim(2);
             const outcome = await reserve(claimed);
@@ -699,11 +698,9 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
             expect(outcome.dispatchToken).toBe(buildDispatchToken(stored.runKey, stored.attempt));
             expect(outcome.dispatchToken).toMatch(/^dtk-[0-9a-f]{32}$/);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: writes a dispatch.reserved row naming the lease, attempt, and attachment
+    });
+
+    it('writes a dispatch.reserved row naming the lease, attempt, and attachment', async () => {
         {
             const claimed = await seedAndClaim(3);
 
@@ -712,11 +709,9 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
             const [row] = await rowsOf(RESERVED_ROW);
             expect(row).toMatchObject({ leaseId: claimed.leaseId, attempt: 1, attachmentId: claimed.correlationId });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: arms the result deadline from the configured window
+    });
+
+    it('arms the result deadline from the configured window', async () => {
         {
             const claimed = await seedAndClaim(4);
 
@@ -725,11 +720,9 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
             const stored = await readRun(claimed.correlationId);
             expect(Date.parse(stored.reservation?.resultDeadlineAt ?? '') - Date.parse(STAMP)).toBe(LEASE_MS);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers 404 for a run this service does not have
+    });
+
+    it('answers 404 for a run this service does not have', async () => {
         {
             const outcome = await reserve({
                 correlationId: 'mt-run-000000000000000000000000',
@@ -739,11 +732,11 @@ describe('T-011 reserve mints exactly one live authorization (FR-020, FR-021)', 
             expect(outcome.status).toBe('not-found');
         }
     });
+
 });
 
 describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
-    it('refuses an expired lease as stale, without minting a… (+5 cases)', async () => {
-        // case: refuses an expired lease as stale, without minting anything
+    it('refuses an expired lease as stale, without minting anything', async () => {
         {
             const claimed = await seedAndClaim(5);
 
@@ -757,11 +750,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             expect(stored.reservation).toBeNull();
             expect(await rowsOf(RESERVED_ROW)).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a lease belonging to another attempt
+    });
+
+    it('refuses a lease belonging to another attempt', async () => {
         {
             const claimed = await seedAndClaim(6);
 
@@ -771,11 +762,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             const refusal = outcome.status === REFUSED ? outcome.refusal : null;
             expect(refusal?.code).toBe(STALE_LEASE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a lease this run never held
+    });
+
+    it('refuses a lease this run never held', async () => {
         {
             const claimed = await seedAndClaim(7);
 
@@ -785,11 +774,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             const refusal = outcome.status === REFUSED ? outcome.refusal : null;
             expect(refusal?.code).toBe(STALE_LEASE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a second reserve as already-reserved, naming attempt and deadline
+    });
+
+    it('refuses a second reserve as already-reserved, naming attempt and deadline', async () => {
         {
             const claimed = await seedAndClaim(8);
             await reserve(claimed);
@@ -808,11 +795,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             const afterDuplicate = await readRun(claimed.correlationId);
             expect(afterDuplicate.reservation?.dispatchToken).toBe(authorized.reservation?.dispatchToken);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a leaseless dispatched run by naming the session, not the absent lease
+    });
+
+    it('refuses a leaseless dispatched run by naming the session, not the absent lease', async () => {
         {
             // AC-112 on the natural path: a dispatched run holds **no lease** — an
             // applied result clears it — so the session check has to be asked before
@@ -833,11 +818,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             const refusals = await rowsOf(REFUSED_ROW);
             expect(refusals.some((row) => row.code === ALREADY_DISPATCHED)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a live-lease run that is not claimed as invalid-transition, naming the state
+    });
+
+    it('refuses a live-lease run that is not claimed as invalid-transition, naming the state', async () => {
         {
             // Contract §1's verdict order is session → lease → reservation → state
             // (T-042e), so `invalid-transition` is reachable only for a run whose
@@ -858,8 +841,7 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
         }
     });
 
-    it('refuses a leaseless run as stale, because the sessio… (+1 cases)', async () => {
-        // case: refuses a leaseless run as stale, because the session check finds no session first
+    it('refuses a leaseless run as stale, because the session check finds no session first', async () => {
         {
             // The other half of the ordering, and the honest answer: a run in
             // `failed`, `unconfirmed`, or `dead-lettered` holds no lease, so there is
@@ -878,11 +860,9 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
                 expect(stored.state).toBe(state);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: writes exactly one dispatch.refused row per refusal, naming the operation
+    });
+
+    it('writes exactly one dispatch.refused row per refusal, naming the operation', async () => {
         {
             const claimed = await seedAndClaim(10);
             await reserve({ ...claimed, now: AFTER_LEASE });
@@ -904,11 +884,11 @@ describe('T-011 the reserve refusal matrix (FR-022, AC-109, AC-112)', () => {
             expect(refusedRows.map((entry) => entry.details.priorState)).toEqual(['claimed', STARTING]);
         }
     });
+
 });
 
 describe('T-012 result settles the reservation in one write (FR-040, constraint)', () => {
-    it('records a session as dispatched, consumed, with a se… (+3 cases)', async () => {
-        // case: records a session as dispatched, consumed, with a session ref
+    it('records a session as dispatched, consumed, with a session ref', async () => {
         {
             const claimed = await seedAndClaim(11);
             const authorized = await reserve(claimed);
@@ -932,11 +912,9 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
             expect(stored.lease).toBeNull();
             expect(stored.attempts.at(-1)).toMatchObject({ outcome: 'dispatched', sessionId: 'ses_created' });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: records a problem as failed and never as dispatched (FR-040, AC-113)
+    });
+
+    it('records a problem as failed and never as dispatched', async () => {
         {
             const claimed = await seedAndClaim(12);
             const authorized = await reserve(claimed);
@@ -958,11 +936,9 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
             expect(stored.stateReason).toBe(BOOTSTRAP_FAILED);
             expect(stored.reservation?.consumed).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: writes a dispatch.result row whose decision is failed for a problem
+    });
+
+    it('writes a dispatch.result row whose decision is failed for a problem', async () => {
         {
             const claimed = await seedAndClaim(13);
             const authorized = await reserve(claimed);
@@ -982,11 +958,9 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
             const resultRow = entries.find((entry) => entry.eventType === RESULT_ROW);
             expect(resultRow?.decision).toBe(FAILED);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: leaves the run retryable after a problem, not wedged
+    });
+
+    it('leaves the run retryable after a problem, not wedged', async () => {
         {
             const claimed = await seedAndClaim(14);
             const authorized = await reserve(claimed);
@@ -1006,11 +980,11 @@ describe('T-012 result settles the reservation in one write (FR-040, constraint)
             expect(stored.state).not.toBe(UNCONFIRMED);
         }
     });
+
 });
 
 describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', () => {
-    it('is idempotent ten times over: one result row, nine d… (+5 cases)', async () => {
-        // case: is idempotent ten times over: one result row, nine duplicate rows, stable state
+    it('is idempotent ten times over: one result row, nine duplicate rows, stable state', async () => {
         {
             const claimed = await seedAndClaim(15);
             const authorized = await reserve(claimed);
@@ -1037,11 +1011,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(rows.filter((entry) => entry.eventType === RESULT_ROW)).toHaveLength(1);
             expect(rows.filter((entry) => entry.eventType === DUPLICATE_ROW)).toHaveLength(9);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a token this run never recorded, as stale
+    });
+
+    it('refuses a token this run never recorded, as stale', async () => {
         {
             const claimed = await seedAndClaim(16);
             const authorized = await reserve(claimed);
@@ -1060,11 +1032,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(refusal?.code).toBe(STALE_LEASE);
             expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe(STARTING);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a report carrying a superseded attempt
+    });
+
+    it('refuses a report carrying a superseded attempt', async () => {
         {
             const claimed = await seedAndClaim(17);
             const authorized = await reserve(claimed);
@@ -1083,11 +1053,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             const refusal = outcome.status === REFUSED ? outcome.refusal : null;
             expect(refusal?.code).toBe(STALE_LEASE);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a conflicting repeat rather than overwriting a recorded session
+    });
+
+    it('refuses a conflicting repeat rather than overwriting a recorded session', async () => {
         {
             const claimed = await seedAndClaim(18);
             const authorized = await reserve(claimed);
@@ -1107,11 +1075,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             const stored = await readRun(claimed.correlationId);
             expect(stored.session?.sessionId).toBe('ses_first');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a repeated problem carrying a different cause
+    });
+
+    it('refuses a repeated problem carrying a different cause', async () => {
         {
             const claimed = await seedAndClaim(19);
             const authorized = await reserve(claimed);
@@ -1126,11 +1092,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(outcome.status).toBe(REFUSED);
             expect(await readRun(claimed.correlationId).then((found) => found.stateReason)).toBe(BOOTSTRAP_FAILED);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: applies an unconsumed report from starting even after the lease expired
+    });
+
+    it('applies an unconsumed report from starting even after the lease expired', async () => {
         {
             const claimed = await seedAndClaim(25);
             const authorized = await reserve(claimed);
@@ -1152,8 +1116,7 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
         }
     });
 
-    it('applies an unconsumed report from unconfirmed, recon… (+1 cases)', async () => {
-        // case: applies an unconsumed report from unconfirmed, reconciling the run
+    it('applies an unconsumed report from unconfirmed, reconciling the run', async () => {
         {
             const claimed = await seedAndClaim(26);
             const authorized = await reserve(claimed);
@@ -1176,11 +1139,9 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(stored.state).toBe('dispatched');
             expect(stored.session?.sessionId).toBe('ses_reconciled');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a second reservation token over a newer one
+    });
+
+    it('refuses a second reservation token over a newer one', async () => {
         {
             const claimed = await seedAndClaim(27);
             const authorized = await reserve(claimed);
@@ -1203,11 +1164,11 @@ describe('T-012 the staleness / idempotency matrix (plan D7, FR-025, AC-109)', (
             expect(await readRun(claimed.correlationId).then((found) => found.session)).toBeNull();
         }
     });
+
 });
 
 describe('T-012 abandon is honest and retryable (FR-026)', () => {
-    it('records a reserved attempt that created no session a… (+2 cases)', async () => {
-        // case: records a reserved attempt that created no session as failed
+    it('records a reserved attempt that created no session as failed', async () => {
         {
             const claimed = await seedAndClaim(30);
             const authorized = await reserve(claimed);
@@ -1230,11 +1191,9 @@ describe('T-012 abandon is honest and retryable (FR-026)', () => {
             expect(stored.reservation?.consumed).toBe(true);
             expect(stored.attempts.at(-1)).toMatchObject({ outcome: 'abandoned', reason: ABANDON_REASON });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: writes a dispatch.abandoned row with the no-session decision
+    });
+
+    it('writes a dispatch.abandoned row with the no-session decision', async () => {
         {
             const claimed = await seedAndClaim(31);
             const authorized = await reserve(claimed);
@@ -1255,11 +1214,9 @@ describe('T-012 abandon is honest and retryable (FR-026)', () => {
             const abandonedEntry = entries.find((entry) => entry.eventType === ABANDONED_ROW);
             expect(abandonedEntry?.decision).toBe('no-session');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: is idempotent: a repeated abandon is a duplicate, not a second failure
+    });
+
+    it('is idempotent: a repeated abandon is a duplicate, not a second failure', async () => {
         {
             const claimed = await seedAndClaim(32);
             const authorized = await reserve(claimed);
@@ -1281,11 +1238,11 @@ describe('T-012 abandon is honest and retryable (FR-026)', () => {
             expect(await rowsOf(DUPLICATE_ROW)).toHaveLength(1);
         }
     });
+
 });
 
 describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)', () => {
-    it('blocks from claimed under the live lease, consuming … (+5 cases)', async () => {
-        // case: blocks from claimed under the live lease, consuming nothing
+    it('blocks from claimed under the live lease, consuming nothing', async () => {
         {
             const claimed = await seedAndClaim(40);
 
@@ -1304,11 +1261,9 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             expect(stored.requeuesUsed).toBe(0);
             expect(stored.reservation).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: writes a run.blocked row naming the cause, prior state, and guidance
+    });
+
+    it('writes a run.blocked row naming the cause, prior state, and guidance', async () => {
         {
             const claimed = await seedAndClaim(41);
 
@@ -1329,11 +1284,9 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             const blockedEntry = entries.find((entry) => entry.eventType === BLOCKED_ROW);
             expect(blockedEntry?.actorSource).toBe('panel');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: leaves a blocked run untouched by ten sweep ticks
+    });
+
+    it('leaves a blocked run untouched by ten sweep ticks', async () => {
         {
             const claimed = await seedAndClaim(42);
             await block({ claim: claimed, blockedReason: 'policy', detail: 'no policy profile matched' });
@@ -1348,11 +1301,9 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             expect(stored.attempt).toBe(1);
             expect(stored.requeuesUsed).toBe(0);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: never records a blocked run as dispatched, even with a session-shaped id present
+    });
+
+    it('never records a blocked run as dispatched, even with a session-shaped id present', async () => {
         {
             const claimed = await seedAndClaim(43);
 
@@ -1362,11 +1313,9 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             expect(stored.state).not.toBe('dispatched');
             expect(stored.session).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a block under an expired lease, as stale
+    });
+
+    it('refuses a block under an expired lease, as stale', async () => {
         {
             const claimed = await seedAndClaim(44);
 
@@ -1387,11 +1336,9 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
             expect(refusal?.code).toBe(STALE_LEASE);
             expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('claimed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a live-lease run that is not claimed as invalid-transition, naming the state
+    });
+
+    it('refuses a live-lease run that is not claimed as invalid-transition, naming the state', async () => {
         {
             // Same shape as the reserve's: the lease is valid and current, so the
             // refusal is about the state rather than the authorization. A guard that
@@ -1433,8 +1380,7 @@ describe('T-013 block report holds the run in blocked:<reason> (FR-042, AC-114)'
 });
 
 describe('T-011..T-013 no audit row ever carries a dispatch token value (FR-061)', () => {
-    it('scans every row this wave writes for a token-shaped … (+1 cases)', async () => {
-        // case: scans every row this wave writes for a token-shaped string
+    it('scans every row this wave writes for a token-shaped string', async () => {
         {
             const reserved = await seedAndClaim(50);
             const authorized = await reserve(reserved);
@@ -1472,11 +1418,9 @@ describe('T-011..T-013 no audit row ever carries a dispatch token value (FR-061)
                     .not.toMatch(/dtk-[0-9a-f]{8,}/);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: names each authorization by a distinct fingerprint
+    });
+
+    it('names each authorization by a distinct fingerprint', async () => {
         {
             const first = await seedAndClaim(54);
             const firstToken = await reserve(first);
@@ -1499,12 +1443,11 @@ describe('T-011..T-013 no audit row ever carries a dispatch token value (FR-061)
             expect(new Set(fingerprints).size).toBe(2);
         }
     });
+
 });
 
-
 describe('T-011..T-013 every route answers the documented validation failures (contract §4)', () => {
-    it('refuses a reserve whose body contradicts the path, n… (+5 cases)', async () => {
-        // case: refuses a reserve whose body contradicts the path, naming the field
+    it('refuses a reserve whose body contradicts the path, naming the field', async () => {
         {
             // FR-051: the service mints the id; a panel that substitutes one is not
             // talking about the run it addressed, so the request is refused rather
@@ -1526,11 +1469,9 @@ describe('T-011..T-013 every route answers the documented validation failures (c
             // SEC-11: the received value is never echoed back.
             expect(JSON.stringify(failure)).not.toContain('mt-run-111111111111111111111111');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a result carrying both a session and a problem
+    });
+
+    it('refuses a result carrying both a session and a problem', async () => {
         {
             const service = await startTestService();
 
@@ -1552,11 +1493,9 @@ describe('T-011..T-013 every route answers the documented validation failures (c
             expect(response.status).toBe(422);
             expect(((await response.json()) as { error: { code: string } }).error.code).toBe('validation');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a result carrying neither a session nor a problem
+    });
+
+    it('refuses a result carrying neither a session nor a problem', async () => {
         {
             const service = await startTestService();
 
@@ -1568,11 +1507,9 @@ describe('T-011..T-013 every route answers the documented validation failures (c
 
             expect(response.status).toBe(422);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses an abandon with no reason, since the row would be unreadable
+    });
+
+    it('refuses an abandon with no reason, since the row would be unreadable', async () => {
         {
             const service = await startTestService();
 
@@ -1584,11 +1521,9 @@ describe('T-011..T-013 every route answers the documented validation failures (c
 
             expect(response.status).toBe(422);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a blocked reason outside the four declared causes
+    });
+
+    it('refuses a blocked reason outside the four declared causes', async () => {
         {
             const service = await startTestService();
 
@@ -1609,11 +1544,9 @@ describe('T-011..T-013 every route answers the documented validation failures (c
             expect(response.status).toBe(422);
             expect(((await response.json()) as { error: { code: string } }).error.code).toBe('validation');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: accepts each of the five declared blocked reasons
+    });
+
+    it('accepts each of the five declared blocked reasons', async () => {
         {
             const service = await startTestService();
 
@@ -1655,8 +1588,7 @@ describe('T-011..T-013 every route answers the documented validation failures (c
 });
 
 describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC-119)', () => {
-    it('answers 200 with auditWritten false and keeps the st… (+2 cases)', async () => {
-        // case: answers 200 with auditWritten false and keeps the state change when the append fails
+    it('answers 200 with auditWritten false and keeps the state change when the append fails', async () => {
         {
             const claimed = await seedAndClaim(80);
             const failing = {
@@ -1690,11 +1622,9 @@ describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC
             expect(outcome.auditWritten).toBe(false);
             expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe(STARTING);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: logs the failure naming the run, so the degradation is diagnosable
+    });
+
+    it('logs the failure naming the run, so the degradation is diagnosable', async () => {
         {
             const claimed = await seedAndClaim(81);
             LOG_LINES.length = 0;
@@ -1722,11 +1652,9 @@ describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC
             expect(warning).toContain(claimed.correlationId);
             expect(warning).toContain(RESERVED_ROW);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: reports auditWritten false for a refusal whose own row failed
+    });
+
+    it('reports auditWritten false for a refusal whose own row failed', async () => {
         {
             const claimed = await seedAndClaim(82);
 
@@ -1749,16 +1677,16 @@ describe('T-011..T-013 a degraded trail is reported, never swallowed (FR-063, AC
             });
 
             expect(outcome.status).toBe(REFUSED);
-            expect(outcome.status === REFUSED ? outcome.auditWritten : true).toBe(false);
+            expect(outcome.status !== REFUSED || !outcome.auditWritten).toBe(true);
             // Nothing moved either way.
             expect(await readRun(claimed.correlationId).then((found) => found.state)).toBe('claimed');
         }
     });
+
 });
 
 describe('T-012 one live authorization survives concurrent reserves (AC-109, AC-112)', () => {
-    it('lets exactly one of two concurrent reserves through (+1 cases)', async () => {
-        // case: lets exactly one of two concurrent reserves through
+    it('lets exactly one of two concurrent reserves through', async () => {
         {
             const claimed = await seedAndClaim(83);
 
@@ -1792,11 +1720,9 @@ describe('T-012 one live authorization survives concurrent reserves (AC-109, AC-
             // Exactly one reservation and one `dispatch.reserved` row survive.
             expect(await rowsOf(RESERVED_ROW)).toHaveLength(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: lets exactly one of two concurrent identical results through
+    });
+
+    it('lets exactly one of two concurrent identical results through', async () => {
         {
             const claimed = await seedAndClaim(84);
             const authorized = await reserve(claimed);
@@ -1821,6 +1747,7 @@ describe('T-012 one live authorization survives concurrent reserves (AC-109, AC-
             expect(raced.attempts.filter((entry) => entry.sessionId !== null)).toHaveLength(1);
         }
     });
+
 });
 
 describe('T-011..T-013 every refusing operation owes exactly one refusal row (FR-003)', () => {
@@ -1925,7 +1852,6 @@ async function setPolicy(users: readonly string[] | null): Promise<void> {
 /**
  * Reserve one run whose only reference is attributed to `login`.
  *
- * @param issueNumber - Issue to seed.
  * @param login - The actor the delivery is attributed to, or `null` to store no
  *   attribution at all (a reference written before 002 v1.11.0).
  * @param basis - The attribution basis to record.
@@ -1936,7 +1862,6 @@ async function reserveAs(input: {
     readonly issueNumber: number;
     /** The attributed actor. */
     readonly login: string;
-    /** The attribution basis. */
     readonly basis: ActorAttribution;
 }) {
     const claim = await seedAndClaim(input.issueNumber, {
@@ -1949,7 +1874,6 @@ async function reserveAs(input: {
 
 describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)', () => {
     it('answers 409 actor-not-allowed, mints nothing, and leaves the run byte-identical', async () => {
-        // case: refuses the one denied actor, with the full detail set and no permitted login
         {
             await setPolicy([PERMITTED]);
             const claim = await seedAndClaim(90, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
@@ -1992,11 +1916,10 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
             const written = await trail();
             expect(JSON.stringify(written)).not.toContain(PERMITTED);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: states a legacy basis's provenance, and asserts nothing false about
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         // GitHub (002 NFR-011 as re-cut at v1.12.0)
         {
             await setPolicy([PERMITTED]);
@@ -2021,11 +1944,10 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
                 deniedAttributions: [PROXY_BASIS],
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses an unreadable actor even under the **open** policy (FR-080)
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             // `open` is permission for a named human actor, not for nobody: this
             // run's only reference records no attribution at all, which is only
@@ -2043,11 +1965,10 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
                 unreadableReferences: 1,
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a bot-shaped actor even when the list names it (FR-080)
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             // The `[bot]` entry is legal in the list (plan D7) and inert: no bot
             // event is ever created for it to admit (002 FR-045(a)/(c)), so a
@@ -2064,7 +1985,6 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
     });
 
     it('denies when the policy cannot be read, in one code (plan D15)', async () => {
-        // case: an absent bindings document is a denial, never a silent open policy
         {
             await rm(join(tempRoot, 'store', 'bindings.json'), { force: true });
             const { outcome } = await reserveAs({ issueNumber: 94, login: DENIED_DIRECT, basis: DIRECT_BASIS });
@@ -2089,11 +2009,10 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
             expect(row.deniedAttributions).toBeUndefined();
             expect(outcome.status === 'refused' ? outcome.refusal.message : '').toContain('bindings document');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: a binding the run does not name is the other unreadable-policy case,
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         // and says **which** one it was rather than blaming an unreadable file
         {
             await writeOpenBinding({ store, bindingId: 'bnd-somewhere-else' });
@@ -2113,7 +2032,6 @@ describe('003 v1.8.0 the gate refuses without minting anything (FR-077, AC-130)'
 
 describe('003 v1.8.0 the admitted cases (FR-077, FR-079, AC-132)', () => {
     it('authorizes on one allowed reference and records the policy shape (FR-077, AC-132)', async () => {
-        // case: the open policy admits any readable human actor, and records `'open'`
         {
             await setPolicy(null);
             const { claim, outcome } = await reserveAs({ issueNumber: 96, login: DENIED_DIRECT, basis: DIRECT_BASIS });
@@ -2123,11 +2041,10 @@ describe('003 v1.8.0 the admitted cases (FR-077, FR-079, AC-132)', () => {
             expect(open.actorPolicy).toBe('open');
             expect(await firstRowOf(RESERVED_ROW)).toMatchObject({ actorPolicy: 'open' });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: a populated list admits the actor it names, and records `'restricted'`
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             await setPolicy([PERMITTED]);
             const { claim, outcome } = await reserveAs({ issueNumber: 97, login: PERMITTED, basis: DIRECT_BASIS });
@@ -2139,11 +2056,10 @@ describe('003 v1.8.0 the admitted cases (FR-077, FR-079, AC-132)', () => {
             expect(await firstRowOf(RESERVED_ROW)).toMatchObject({ actorPolicy: 'restricted' });
             expect(JSON.stringify(await trail())).not.toContain(PERMITTED);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: a coalesced run is authorized on ONE allowed reference (FR-077, AC-133)
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             await setPolicy([PERMITTED]);
             const first = assignment(98, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
@@ -2318,7 +2234,6 @@ describe('003 v1.8.0 a truncated reference list is refused **and says so** (FR-0
 
 describe('003 v1.8.0 the verdict never pre-empts an existing one (FR-076, AC-130)', () => {
     it('answers already-dispatched and stale-lease on their own paths, not the gate', async () => {
-        // case: a run that already produced a session still names it (FR-022, AC-112)
         {
             const claim = await seedAndClaim(101, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });
             const reserved = await reserve(claim);
@@ -2340,11 +2255,10 @@ describe('003 v1.8.0 the verdict never pre-empts an existing one (FR-076, AC-130
             // The gate never reached a decision, so it wrote no row.
             expect(await refusalRowCount()).toBe(0);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: a stale lease is answered stale, not by a policy verdict
+        await closeFixture();
+        await openFixture();
+        await closeFixture();
+        await openFixture();
         {
             await setPolicy([PERMITTED]);
             const claim = await seedAndClaim(102, { actorLogin: DENIED_DIRECT, actorAttribution: DIRECT_BASIS });

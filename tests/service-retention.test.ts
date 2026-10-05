@@ -20,9 +20,8 @@
  * waiting of any kind — both boundaries are driven directly.
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { mkdir } from 'node:fs/promises';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
@@ -36,6 +35,7 @@ import type { GitHubIssuePoller, PollIssue } from '../service/poll/poller-github
 import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Path of the configuration resource. */
 const CONFIG_PATH = '/v1/config';
@@ -73,25 +73,20 @@ let dataDir = '';
 /** Services started by a case, shut down with the fixture. */
 const running: TestService[] = [];
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-retention-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('retention'));
     await mkdir(dataDir, { recursive: true });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     for (const service of running.splice(0)) {
         await service.shutdown();
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+    await removeTempTree(tempRoot);
+});
 
 /**
  * Build a capturing logger for the drive-only cases.
@@ -113,7 +108,6 @@ function capturingLogger(): { readonly log: ServiceLogger; readonly lines: strin
 /**
  * Build a complete audit row for a seeded trail.
  *
- * @param seed - Sequence number, RFC 3339 stamp, and event vocabulary name.
  * @returns The stored shape `parseAuditEntry` accepts.
  */
 function trailRow(seed: {
@@ -226,7 +220,6 @@ async function plantQueue(target: ServiceStore): Promise<void> {
 /**
  * The `audit.trimmed` rows a trail holds.
  *
- * @param trail - The trail to filter.
  * @returns The trim rows, in trail order.
  */
 function trimRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {
@@ -253,7 +246,6 @@ function idlePoller(): GitHubIssuePoller {
 /**
  * Wrap a store so every `config.json` read fails the way a bad disk would.
  *
- * @param inner - The real store behind the wrapper.
  * @returns A store whose only difference is that refusal.
  */
 function brokenConfigStore(inner: ServiceStore): ServiceStore {
@@ -304,8 +296,7 @@ describe('retention runs at store open (006 T-014, FR-055(a))', () => {
 });
 
 describe('a configuration write runs no trim (006 T-014, FR-047, AC-128)', () => {
-    it('applies a lowered retention limit at the next cycle … (+1 cases)', async () => {
-        // case: applies a lowered retention limit at the next cycle boundary, not at the write
+    it('applies a lowered retention limit at the next cycle boundary, not at the write', async () => {
         {
             const seed = await openStore({ dataDir });
             await plantFreshWindowTrail(seed);
@@ -345,11 +336,9 @@ describe('a configuration write runs no trim (006 T-014, FR-047, AC-128)', () =>
             expect(afterCycle.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(false);
             expect(afterCycle.some((entry) => entry.seq === FRESH_SEQ)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: degrades an unreadable configuration at the boundary to the documented defaults
+    });
+
+    it('degrades an unreadable configuration at the boundary to the documented defaults', async () => {
         {
             const seed = await openStore({ dataDir });
             await plantMixedTrail(seed);
@@ -367,4 +356,5 @@ describe('a configuration write runs no trim (006 T-014, FR-047, AC-128)', () =>
             expect(trail.some((entry) => entry.seq === MIDDLE_SEQ)).toBe(true);
         }
     });
+
 });

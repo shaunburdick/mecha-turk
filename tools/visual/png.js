@@ -23,7 +23,7 @@ import { readFileSync } from 'node:fs';
 import { crc32, deflateSync, inflateSync } from 'node:zlib';
 
 /** Leading bytes of a PNG, as the header reader compares them. */
-const PNG_SIGNATURE = 0x89504e47;
+const PNG_SIGNATURE = 0x89_50_4E_47;
 
 /** The same eight bytes as hex, which `Buffer.from(…, 'hex')` accepts. */
 const PNG_SIGNATURE_HEX = '89504e470d0a1a0a';
@@ -195,13 +195,13 @@ function unfilteredRow(values) {
     const { filter, line, previous, bytesPerPixel } = values;
     const current = Buffer.alloc(line.length);
 
-    for (let index = 0; index < line.length; index++) {
+    for (const [index, element] of line.entries()) {
         const left = index >= bytesPerPixel ? current[index - bytesPerPixel] : 0;
         const above = previous[index];
         const upperLeft = index >= bytesPerPixel ? previous[index - bytesPerPixel] : 0;
         const added = predictor({ filter, left, above, upperLeft });
 
-        current[index] = (line[index] + added) % BYTE_WRAP;
+        current[index] = (element + added) % BYTE_WRAP;
     }
 
     return current;
@@ -244,11 +244,11 @@ function expandRgb(pixels) {
 function expandGray(pixels) {
     const rgba = Buffer.alloc(pixels.length * 4);
 
-    for (let index = 0; index < pixels.length; index++) {
+    for (const [index, pixel] of pixels.entries()) {
         const target = index * 4;
-        rgba[target] = pixels[index];
-        rgba[target + 1] = pixels[index];
-        rgba[target + 2] = pixels[index];
+        rgba[target] = pixel;
+        rgba[target + 1] = pixel;
+        rgba[target + 2] = pixel;
         rgba[target + 3] = OPAQUE_ALPHA;
     }
 
@@ -280,13 +280,13 @@ function expandPalette(input) {
 
     const rgba = Buffer.alloc(pixels.length * 4);
 
-    for (let index = 0; index < pixels.length; index++) {
-        const entry = pixels[index] * 3;
+    for (const [index, pixel] of pixels.entries()) {
+        const entry = pixel * 3;
         const target = index * 4;
         rgba[target] = palette[entry];
         rgba[target + 1] = palette[entry + 1];
         rgba[target + 2] = palette[entry + 2];
-        rgba[target + 3] = transparency === null ? OPAQUE_ALPHA : transparency[pixels[index]];
+        rgba[target + 3] = transparency === null ? OPAQUE_ALPHA : transparency[pixel];
     }
 
     return rgba;
@@ -319,6 +319,65 @@ function expandToRgba(input) {
     throw new Error(`unsupported PNG colour type ${colorType}`);
 }
 
+/**
+ * Record one chunk, and say whether the scan should go on.
+ *
+ * Its own function so the scan loop has no `break` buried inside it: `IEND`
+ * answering "stop" is a fact about the format, and the loop reading that answer
+ * is the whole shape of the thing.
+ *
+ * @param {object} chunks - The accumulator the scan fills.
+ * @param {string} type - Four-character chunk type.
+ * @param {Buffer} body - The chunk's bytes.
+ * @returns `false` at `IEND`, `true` otherwise.
+ */
+function applyChunk(chunks, type, body) {
+    switch (type) {
+        case 'IHDR': {
+            chunks.header = readHeader(body);
+
+            return true;
+        }
+
+        case 'PLTE': {
+            chunks.palette = Buffer.from(body);
+
+            return true;
+        }
+
+        case 'tRNS': {
+            chunks.transparency = Buffer.from(body);
+
+            return true;
+        }
+
+        case 'IDAT': {
+            chunks.data.push(Buffer.from(body));
+
+            return true;
+        }
+
+        default: {
+            return type !== 'IEND';
+        }
+    }
+}
+
+/**
+ * The chunks a finished file must have produced.
+ *
+ * A separate step so the scan can stop the moment it sees `IEND` *and* still go
+ * through the same check: reaching the end of the buffer without an `IEND` is
+ * just as truncated as one that ends early.
+ */
+function finishedChunks(chunks) {
+    if (chunks.header === null || chunks.data.length === 0) {
+        throw new Error('not a PNG: no header or no image data');
+    }
+
+    return chunks;
+}
+
 /** Split the file into its header, palette, and concatenated image data. */
 function parseChunks(buffer) {
     const chunks = { header: null, palette: null, transparency: null, data: [] };
@@ -329,26 +388,14 @@ function parseChunks(buffer) {
         const type = buffer.toString('ascii', offset + CHUNK.typeAt, offset + CHUNK.bodyAt);
         const body = buffer.subarray(offset + CHUNK.bodyAt, offset + CHUNK.bodyAt + length);
 
-        if (type === 'IHDR') {
-            chunks.header = readHeader(body);
-        } else if (type === 'PLTE') {
-            chunks.palette = Buffer.from(body);
-        } else if (type === 'tRNS') {
-            chunks.transparency = Buffer.from(body);
-        } else if (type === 'IDAT') {
-            chunks.data.push(Buffer.from(body));
-        } else if (type === 'IEND') {
+        offset += CHUNK.frame + length;
+
+        if (!applyChunk(chunks, type, body)) {
             break;
         }
-
-        offset += CHUNK.frame + length;
     }
 
-    if (chunks.header === null || chunks.data.length === 0) {
-        throw new Error('not a PNG: no header or no image data');
-    }
-
-    return chunks;
+    return finishedChunks(chunks);
 }
 
 /**
@@ -383,7 +430,6 @@ function readPng(path) {
 /**
  * Fraction of pixels whose colour is within `DEFAULT_TOLERANCE` of `rgb`.
  *
- * @param image - Image to scan.
  * @param rgb - `[red, green, blue]` to look for.
  * @returns Matched fraction of all pixels, 0–1.
  */
@@ -402,7 +448,6 @@ function colorFraction(image, rgb) {
 /**
  * Mean colour of a rectangle of the image — how the strip pill is read back.
  *
- * @param image - Image to sample.
  * @param box - `{ x, y, width, height }` in image pixels.
  * @returns The `[red, green, blue]` mean, or black for an empty box.
  */
@@ -467,11 +512,7 @@ function diffFraction(left, right) {
 
 /** Two images identical in size and bytes. */
 function imagesEqual(left, right) {
-    if (left.width !== right.width || left.height !== right.height) {
-        return false;
-    }
-
-    if (left.data.length !== right.data.length) {
+    if (left.width !== right.width || left.height !== right.height || left.data.length !== right.data.length) {
         return false;
     }
 

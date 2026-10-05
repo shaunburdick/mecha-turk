@@ -27,8 +27,8 @@
  * clock of our own, no network, no credential (FR-086).
  */
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -48,6 +48,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, ListPace, PollIssue } from '../service/poll/poller-github.ts';
 import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/verify.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** First fixture binding. */
 const BINDING_A = 'bnd-cycle-a';
@@ -94,26 +95,19 @@ let dataDir = '';
 /** Open store handle for the tests that read through the real store. */
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-cycle-config-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('cycle-config'));
     store = await openStore({ dataDir });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /**
  * Build a logger that records every line it is asked to write.
- *
- * @returns The logger plus the lines it captured.
  */
 function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
     const lines: string[] = [];
@@ -130,7 +124,6 @@ function capturingLogger(): { readonly log: ServiceLogger; readonly lines: strin
 /**
  * Build one active binding with only the assignment trigger on.
  *
- * @param bindingId - Id of the binding.
  * @returns A complete stored binding record.
  */
 function fixtureBinding(bindingId: string): BindingRecord {
@@ -174,7 +167,6 @@ function fixtureAccount(): Account {
 /**
  * Build one open issue assigned to the fixture account.
  *
- * @param issueNumber - Issue number to report.
  * @param updatedAt - `updated_at` stamp the window is matched against.
  * @returns The normalized issue a fake poller answers with.
  */
@@ -204,7 +196,6 @@ interface RecordedCall {
 /**
  * Build a poller that answers with one fixed issue list and records its calls.
  *
- * @param issues - Issues to return on every call.
  * @returns The poller plus what each call was handed.
  */
 function recordingPoller(issues: readonly PollIssue[]): {
@@ -253,7 +244,6 @@ function recordingPoller(issues: readonly PollIssue[]): {
 /**
  * Wrap a store so the configuration reads can be counted.
  *
- * @param inner - The real store.
  * @param onConfigRead - Called once per `config.json` read.
  * @returns A store whose only difference is that counter.
  */
@@ -276,7 +266,6 @@ function countingStore(inner: ServiceStore, onConfigRead: () => void): ServiceSt
 /**
  * Wrap a store so the configuration read fails the way a bad disk would.
  *
- * @param inner - The real store.
  * @returns A store that rejects every `config.json` read and nothing else.
  */
 function brokenConfigStore(inner: ServiceStore): ServiceStore {
@@ -297,8 +286,6 @@ function brokenConfigStore(inner: ServiceStore): ServiceStore {
 
 /**
  * Write one scan-state document straight into the store directory.
- *
- * @param value - The document to plant.
  */
 async function plantScanState(value: unknown): Promise<void> {
     await writeFile(join(dataDir, SCAN_STATE_FILE), JSON.stringify(value), 'utf8');
@@ -312,7 +299,6 @@ async function plantScanState(value: unknown): Promise<void> {
  * `tests/github.test.ts` assembles its own — string pieces with the numbers
  * and stamps substituted in (the shape `readIssueEntry` consumes).
  *
- * @param count - How many entries the page carries.
  * @param updatedAt - `updated_at` stamp every entry carries.
  * @returns The page body as JSON text.
  */
@@ -327,9 +313,9 @@ function issuePage(count: number, updatedAt: string): string {
     const entries: string[] = [];
     for (let index = 1; index <= count; index += 1) {
         const one = entry
-            .replaceAll('ISSUE', String(index))
-            .replace('LOGIN', ACCOUNT_LOGIN)
-            .replace('STAMP', updatedAt);
+            .replaceAll('ISSUE', () => String(index))
+            .replace('LOGIN', () => ACCOUNT_LOGIN)
+            .replace('STAMP', () => updatedAt);
         entries.push(one);
     }
 
@@ -337,8 +323,7 @@ function issuePage(count: number, updatedAt: string): string {
 }
 
 describe('one configuration read per cycle (006 T-007, FR-055)', () => {
-    it('reads config.json exactly once, however many binding… (+1 cases)', async () => {
-        // case: reads config.json exactly once, however many bindings the cycle walks
+    it('reads config.json exactly once, however many bindings the cycle walks', async () => {
         {
             await writeBindings({
                 store,
@@ -369,11 +354,9 @@ describe('one configuration read per cycle (006 T-007, FR-055)', () => {
                 maxMs: DEFAULT_CONFIG.retryMaxMs,
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: degrades an unreadable document to the documented defaults, with one warn line
+    });
+
+    it('degrades an unreadable document to the documented defaults, with one warn line', async () => {
         {
             await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
             await writeAccount(store, fixtureAccount());
@@ -389,6 +372,7 @@ describe('one configuration read per cycle (006 T-007, FR-055)', () => {
             expect(calls[0]?.pace.perPage).toBe(DEFAULT_CONFIG.perPage);
         }
     });
+
 });
 
 describe('the window is widened by the saved overlap (006 T-008, FR-059(a), AC-149)', () => {
@@ -426,7 +410,6 @@ describe('the window is widened by the saved overlap (006 T-008, FR-059(a), AC-1
 /**
  * Build the real poller over a fake transport that records its URLs.
  *
- * @param body - Body every request answers with.
  * @returns The poller and the URLs it was asked to fetch.
  */
 function realPoller(body: string): {
@@ -447,7 +430,6 @@ function realPoller(body: string): {
 /**
  * The pace a cycle of this configuration would carry.
  *
- * @param perPage - Configured page size.
  * @returns The pace the loop builds from a stored document.
  */
 function paceFor(perPage: number): ListPace {
@@ -465,8 +447,7 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
     /** A page that fills a 12-item cap, so paging asks for a second page. */
     const FULL_PAGE = issuePage(SAVED_PER_PAGE, UPDATED_IN_WINDOW);
 
-    it('asks for per_page=12 and stops at two pages, never a… (+2 cases)', async () => {
-        // case: asks for per_page=12 and stops at two pages, never a third
+    it('asks for per_page=12 and stops at two pages, never a third', async () => {
         {
             const { poller, requested } = realPoller(FULL_PAGE);
 
@@ -486,11 +467,9 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
                 expect(Number(url.searchParams.get('per_page'))).toBeLessThanOrEqual(NUMERIC_BOUNDS.perPage.max);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: stops after the first page when it does not fill the cap
+    });
+
+    it('stops after the first page when it does not fill the cap', async () => {
         {
             const { poller, requested } = realPoller(issuePage(SAVED_PER_PAGE - 1, UPDATED_IN_WINDOW));
 
@@ -505,11 +484,9 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
             expect(requested).toHaveLength(1);
             expect(requested[0]?.searchParams.get('per_page')).toBe(String(SAVED_PER_PAGE));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: never asks for more than the field maximum, even at the ceiling
+    });
+
+    it('never asks for more than the field maximum, even at the ceiling', async () => {
         {
             const { poller, requested } = realPoller(issuePage(1, UPDATED_IN_WINDOW));
 
@@ -525,6 +502,7 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
             expect(requested[0]?.searchParams.get('per_page')).toBe('30');
         }
     });
+
 });
 
 /** The vocabulary name 002 reserved for a configuration change (006 FR-070). */
@@ -565,7 +543,6 @@ function isChangeTriple(value: unknown): value is ChangeTriple {
 /**
  * The `config.changed` rows of one trail read, oldest first.
  *
- * @param trail - Every row the trail held.
  * @returns The configuration rows alone.
  */
 function configRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {
@@ -575,7 +552,6 @@ function configRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {
 /**
  * Read a row's `changes` as triples, without casting anything through `any`.
  *
- * @param row - One stored row, or `undefined`.
  * @returns Every entry that already has the triple's three members.
  */
 function changesOf(row: AuditEntry | undefined): readonly ChangeTriple[] {
@@ -611,7 +587,7 @@ describe('the cycle observes the global tier (004 FR-088, 006 FR-070, plan N7)',
         expect(row?.actorSource).toBe('service');
         expect(row?.decision).toBe('applied');
         expect(row?.entity).toEqual({ kind: 'service', id: 'configuration' });
-        const [change] = changesOf(row).filter((entry) => entry.field === PROMPT_FIELD);
+        const change = changesOf(row).find((entry) => entry.field === PROMPT_FIELD);
         expect(change?.from).toBeNull();
         expect(String(change?.from)).toMatch(FINGERPRINT_PAIR);
         expect(String(change?.to)).toMatch(FINGERPRINT);

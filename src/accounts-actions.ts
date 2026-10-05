@@ -45,14 +45,11 @@ const BINDINGS_REFUSAL =
 const NOTHING_SELECTED = 'Select the account to remove first.';
 
 /**
- * Record one working-state patch the Accounts body just made (FR-066).
+ * Record one working-state patch the Accounts body just made.
  *
  * A field's draft is working state, not data: it is loaded when a row opens
  * and written only through the profile write, so a repaint that lands
  * mid-edit cannot make the field disagree with what a save would send.
- *
- * @param rt - Panel runtime.
- * @param patch - The fields to update.
  */
 export function editAccounts(rt: PanelRuntime, patch: Partial<AccountsTabState>): void {
     if (rt.disposed) {
@@ -64,13 +61,10 @@ export function editAccounts(rt: PanelRuntime, patch: Partial<AccountsTabState>)
 }
 
 /**
- * Arm the Remove-account control for one row (FR-055).
+ * Arm the Remove-account control for one row.
  *
  * The first click changes no data: it only puts the cascade statement on the
  * row, so the count the operator reads is the count the delete will act on.
- *
- * @param rt - Panel runtime.
- * @param numericUserId - GitHub numeric user id of the row being armed.
  */
 export function armAccountRemoval(rt: PanelRuntime, numericUserId: string): void {
     if (rt.disposed) {
@@ -85,15 +79,12 @@ export function armAccountRemoval(rt: PanelRuntime, numericUserId: string): void
 }
 
 /**
- * Delete the armed account and leave its bindings disabled (FR-065, AC-127).
+ * Delete the armed account and leave its bindings disabled.
  *
  * Runs only after {@link armAccountRemoval} has stated the cascade; the
  * `force=1` query is that statement's confirmation, not a bypass of the
  * service's guard (see `accountRemovePath`). A refusal renders its own copy
  * and changes nothing — the account and every binding stay as they were.
- *
- * @param rt - Panel runtime.
- * @param numericUserId - GitHub numeric user id of the account to delete.
  */
 export async function removeAccount(rt: PanelRuntime, numericUserId: string): Promise<void> {
     const { accounts, bindings } = rt.state;
@@ -151,15 +142,12 @@ export async function removeAccount(rt: PanelRuntime, numericUserId: string): Pr
 }
 
 /**
- * Arm — or disarm — the Rotate-token control for one row (FR-064).
+ * Arm — or disarm — the Rotate-token control for one row.
  *
  * The arm is what makes the paste field above the list a rotation rather than
  * a second account: {@link `handoff.ts`} reads it to pick the route, and the
  * armed row carries the retention statement until the operator completes or
  * cancels it. Clicking the armed control again cancels without sending.
- *
- * @param rt - Panel runtime.
- * @param numericUserId - GitHub numeric user id of the row being armed.
  */
 export function toggleRotation(rt: PanelRuntime, numericUserId: string): void {
     if (rt.disposed) {
@@ -215,9 +203,8 @@ export type ProfileRefusal = Readonly<Record<AccountMember, string | null>>;
  * slots, so a reason is never dropped on its way to the operator.
  *
  * Every character a slot receives is the service's own copy (already redacted
- * by the caller), so nothing here can echo a submitted value back (FR-085).
+ * by the caller), so nothing here can echo a submitted value back.
  *
- * @param message - The service's `message`, exactly as it arrived.
  * @returns Each member's reason, or `null` for a member the refusal did not name.
  */
 export function splitProfileRefusal(message: string): ProfileRefusal {
@@ -238,13 +225,12 @@ export function splitProfileRefusal(message: string): ProfileRefusal {
 }
 
 /**
- * Put both members to the account profile write (004 FR-082, 005 FR-066).
+ * Put both members to the account profile write.
  *
  * The route has always taken the two members together (absent = unchanged),
  * so the wire did not change when the owner ruled "One Save button, both
  * fields" (PR #12) — only the panel stopped sending one member at a time.
  *
- * @param input - The runtime, the row, and both members' on-screen text.
  * @returns The service's own answer for that one write.
  */
 async function putProfile(input: {
@@ -271,8 +257,6 @@ async function putProfile(input: {
  * draft that outlived its selection would edit the wrong account (FR-066's
  * open-row guard, 004 FR-089's per-account field).
  *
- * @param accounts - The Accounts tab's working state.
- * @param numericUserId - The row the write is about to touch.
  * @returns `true` when the save must not run at all.
  */
 function staleProfileRow(accounts: AccountsTabState, numericUserId: string): boolean {
@@ -288,9 +272,7 @@ function staleProfileRow(accounts: AccountsTabState, numericUserId: string): boo
  * save that silently did nothing. Each slot then takes the half that named
  * it; a member the refusal did not name keeps whatever its own field already
  * said, because this answer had nothing against it and it must not inherit
- * the other member's reason (FR-085).
- *
- * @param input - The tab's working state, and the service's answer.
+ * the other member's reason.
  */
 function paintProfileRefusal(input: {
     /** The Accounts tab's working state. */
@@ -315,9 +297,7 @@ function paintProfileRefusal(input: {
  * Retire both members' refusals after a write the service accepted.
  *
  * The accepted write covered **both** fields, so both answers are current
- * (005 FR-085's "the next save retires the refusal").
- *
- * @param accounts - The Accounts tab's working state.
+ * (the next save retires the refusal).
  */
 function clearProfileRefusals(accounts: AccountsTabState): void {
     for (const member of PROFILE_MEMBERS) {
@@ -338,16 +318,13 @@ function clearProfileRefusals(accounts: AccountsTabState): void {
  * across two fields — and it is why the refusal is split *per member* below
  * rather than rendered whole on both.
  *
- * The service stays the only validator (004 plan D24): nothing here checks a
+ * The service stays the only validator: nothing here checks a
  * draft, so a refusal is always the service's own, and the answer for a
  * member the service did not name is left untouched rather than cleared or
  * borrowed from the other field. Both drafts stay exactly as typed, both
  * stored members stay in force, and a success is confirmed by re-reading the
  * list — the service is the authority on what it stored, and the panel never
  * paints a value it invented.
- *
- * @param rt - Panel runtime.
- * @param input - The row being written and both members' on-screen text.
  */
 export async function saveProfile(
     rt: PanelRuntime,

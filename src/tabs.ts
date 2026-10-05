@@ -3,9 +3,8 @@
  *
  * The panel root owns exactly one navigation surface: the SDK's `mountTabs`
  * strip, six body containers beneath it, and the registry that says which
- * bodies have mounted. Everything the spike era implemented by writing `hidden`
- * onto two containers is deleted rather than reproduced here — this module
- * switches *tabs*, not surfaces that could drift apart (FR-011).
+ * bodies have mounted. This module switches *tabs*, not surfaces that could
+ * drift apart (FR-011).
  *
  * Three rules shape it:
  *
@@ -32,12 +31,11 @@ export type TabDisposer = () => void;
 export interface TabSpec {
     /** The tab's id; also the key its `oc-tab-<id>` association uses. */
     readonly id: TabId;
-    /** Visible label, in {@link TAB_IDS} order (FR-010). */
+    /** Visible label, in {@link TAB_IDS} order. */
     readonly label: string;
     /**
-     * Mount this body's contents into `body`, exactly once (FR-013).
+     * Mount this body's contents into `body`, exactly once.
      *
-     * @param body - The container the shell created for this tab.
      * @returns A disposer for teardown, or `null` when it owns nothing.
      */
     readonly mount: (body: HTMLElement) => TabDisposer | null;
@@ -46,7 +44,7 @@ export interface TabSpec {
 /** What the shell owns: activation, read stamps, and disposal. */
 export interface TabShell {
     /**
-     * Show one tab, mounting its body the first time (FR-013, FR-014).
+     * Show one tab, mounting its body the first time.
      *
      * @param id - The tab to show; a no-op when it already shows.
      */
@@ -54,13 +52,12 @@ export interface TabShell {
     /**
      * Record that a tab landed a read.
      *
-     * @param id - The tab that read.
      * @param at - RFC 3339 stamp of the read that landed.
      */
     noteRead(id: TabId, at: string): void;
-    /** Re-stamp the tab↔body association (FR-016, FR-082). */
+    /** Re-stamp the tab↔body association. */
     associate(): void;
-    /** Dispose every mounted body in strip order, then the strip (FR-017). */
+    /** Dispose every mounted body in strip order, then the strip. */
     dispose(): void;
 }
 
@@ -77,8 +74,6 @@ export interface TabShell {
  * deliberately leaves to this element; its `flex-shrink: 0` rule covers
  * every other child of `#root`.
  *
- * @param root - Panel root element the strip already appended to.
- * @param specs - The six specs, in FR-010's order.
  * @returns The region and the containers it holds, keyed by tab id.
  */
 function createBodyRegion(
@@ -87,7 +82,7 @@ function createBodyRegion(
 ): { readonly region: HTMLElement; readonly bodies: Map<TabId, HTMLElement> } {
     const document = root.ownerDocument;
     const region = document.createElement('div');
-    region.setAttribute('data-body-region', 'true');
+    region.dataset.bodyRegion = 'true';
     region.style.display = 'flex';
     region.style.flexDirection = 'column';
     region.style.gap = '12px';
@@ -100,7 +95,7 @@ function createBodyRegion(
     const bodies = new Map<TabId, HTMLElement>();
     for (const spec of specs) {
         const body = document.createElement('div');
-        body.setAttribute('data-body', spec.id);
+        body.dataset.body = spec.id;
         region.append(body);
         bodies.set(spec.id, body);
     }
@@ -114,10 +109,6 @@ function createBodyRegion(
  * The SDK emits `role="tab"`, `aria-selected`, and the roving `tabIndex`, but
  * no `id`/`aria-controls` pair — so the shell owns the association and
  * re-stamps it whenever the strip repaints (FR-016, D4).
- *
- * @param root - Panel root the strip lives in.
- * @param specs - The six specs, in strip order.
- * @param bodies - The containers keyed by tab id.
  */
 function associate(input: {
     /** Panel root the strip lives in. */
@@ -129,24 +120,22 @@ function associate(input: {
 }): void {
     const { root, specs, bodies } = input;
     for (const spec of specs) {
+        // eslint-disable-next-line unicorn/require-css-escape -- `TabId` is six literals; escape is the identity.
         const tab = root.querySelector(`[role="tab"][data-id="${spec.id}"]`);
-        if (tab !== null) {
-            tab.setAttribute('id', `oc-tab-${spec.id}`);
-        }
+        tab?.setAttribute('id', `oc-tab-${spec.id}`);
 
         const body = bodies.get(spec.id);
-        if (body !== undefined) {
-            body.setAttribute('role', 'tabpanel');
-            body.setAttribute('aria-labelledby', `oc-tab-${spec.id}`);
+        if (body === undefined) {
+            continue;
         }
+
+        body.setAttribute('role', 'tabpanel');
+        body.setAttribute('aria-labelledby', `oc-tab-${spec.id}`);
     }
 }
 
 /**
- * Mount one body the first time it is shown (FR-013).
- *
- * @param input - Runtime, specs, containers, and the disposer registry.
- * @param id - The tab whose body is wanted on screen.
+ * Mount one body the first time it is shown.
  */
 function mountOnce(input: {
     /** Runtime whose mount registry records the body. */
@@ -177,9 +166,8 @@ function mountOnce(input: {
 }
 
 /**
- * Build the pair that shows exactly one body at a time (FR-012, FR-014).
+ * Build the pair that shows exactly one body at a time.
  *
- * @param input - Runtime, specs, containers, disposers, and the strip handle.
  * @returns `activate` for the strip's callback and `paint` for the shell.
  */
 function createActivation(input: {
@@ -234,10 +222,7 @@ function createActivation(input: {
  * Release everything the shell mounted: bodies in strip order, then the strip.
  *
  * The order is fixed and never depends on which tab was showing — `TabId` is
- * the closed union, so `TAB_IDS` reaches every body a spec could have mounted
- * (FR-017, NFR-108).
- *
- * @param input - Runtime, disposers, strip handle, region, and containers.
+ * the closed union, so `TAB_IDS` reaches every body a spec could have mounted.
  */
 function disposeShell(input: {
     /** Runtime whose registries are cleared. */
@@ -271,7 +256,6 @@ function disposeShell(input: {
 /**
  * Mount the six-tab strip and its body region under the panel root.
  *
- * @param input - Runtime, root element, and the six specs in strip order.
  * @returns The shell; it is also stored on `rt.shell`.
  */
 export function mountTabShell(input: {
@@ -279,7 +263,7 @@ export function mountTabShell(input: {
     readonly rt: PanelRuntime;
     /** Panel root element from `panel/index.html`. */
     readonly root: HTMLElement;
-    /** The six specs, in FR-010's order. */
+    /** The six specs order. */
     readonly specs: readonly TabSpec[];
 }): TabShell {
     const { rt, root, specs } = input;

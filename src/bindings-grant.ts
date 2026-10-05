@@ -39,7 +39,7 @@ import type { PanelBinding } from './bindings-service.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import type { ServiceErrorResult } from './service-calls.ts';
 
-/** The one binding whose prompt a whole-file write carries (004 FR-014). */
+/** The one binding whose prompt a whole-file write carries. */
 export interface PromptPatch {
     /** Binding whose prompt the operator edited. */
     readonly bindingId: string;
@@ -54,7 +54,6 @@ export interface PromptPatch {
 /**
  * Strip the prompt from one row, then write it back on the edited one.
  *
- * @param binding - One row of the list being granted.
  * @param patch - The edited binding's prompt, or `null` when none was edited.
  * @returns The row as it goes on the wire.
  */
@@ -92,7 +91,6 @@ interface GrantOverrides {
  * field holds logins, and `undefined` (which `JSON.stringify` drops) when the
  * operator cleared the field.
  *
- * @param input - The row, and the two overrides this write applies.
  * @returns The row as it goes on the wire.
  */
 function rowForGrant(input: {
@@ -110,7 +108,6 @@ function rowForGrant(input: {
 /**
  * Serialize one whole-file grant.
  *
- * @param overrides - The replacement list and the two per-binding overrides.
  * @returns The request body.
  */
 function grantBody(overrides: GrantOverrides): string {
@@ -125,7 +122,7 @@ function grantBody(overrides: GrantOverrides): string {
  * Arming used to happen in exactly two places — a *successful* mount-time
  * read with a binding in it (`bindings-mode.loadInitialBindings`) and an
  * integration-card connection while bindings were already active (the card
- * and its connection handler went with the 2026-09-30 de-spike sweep). Both
+ * and its connection handler went with the 2026-09-30 sweep). Both
  * were mount-time signals, so a panel whose
  * first binding landed in-session, or whose mount-time `GET /v1/bindings`
  * answered 503 (the service's spawn race on a first run), never armed:
@@ -139,7 +136,6 @@ function grantBody(overrides: GrantOverrides): string {
  * mark queued events `binding-missing` before the binding they belong to
  * ever lands.
  *
- * @param rt - Panel runtime.
  * @param bindings - The bindings list the service just confirmed as stored.
  */
 export function armRelayForBindings(rt: PanelRuntime, bindings: readonly PanelBinding[]): void {
@@ -151,16 +147,13 @@ export function armRelayForBindings(rt: PanelRuntime, bindings: readonly PanelBi
 /**
  * Report a refused whole-file write on the tab's note.
  *
- * The grant is all-or-nothing after validation (FR-058), so a refusal changed
+ * The grant is all-or-nothing after validation, so a refusal changed
  * nothing — and the panel says so rather than looking as though it half-saved.
  * The list on screen is still the last one the service confirmed, which is what
  * makes AC-125's byte-identical guarantee true rather than merely intended. The
  * service's own field-level copy is **not** rendered here: it goes to the field
- * it names (FR-052, FR-095), which the caller splits out of the answer this
+ * it names, which the caller splits out of the answer this
  * returns.
- *
- * @param rt - Panel runtime whose note and repaint this writes.
- * @param result - The refused answer.
  */
 function noteRefusal(rt: PanelRuntime, result: ServiceErrorResult): void {
     if (result.ok) {
@@ -199,20 +192,17 @@ function unreadableListRefusal(): ServiceErrorResult {
  * A granted list with an enabled row also arms the relay (see
  * {@link armRelayForBindings}), so the first binding created in-session
  * dispatches without waiting for a remount. Every row is built by
- * {@link rowForGrant}: an untouched prompt is omitted rather than re-submitted
- * (004 FR-014), while every row states its own allow-list and the edited one
+ * {@link rowForGrant}: an untouched prompt is omitted rather than re-submitted,
+ * while every row states its own allow-list and the edited one
  * states the operator's (002 FR-047, contract §2).
  *
  * The result is handed back as well as rendered: the note carries the
  * operator-facing sentence, while the envelope's own code and copy let a
  * caller put a field-level refusal next to the field it belongs to.
  *
- * @param input - Runtime, the replacement list, the success note, and the one
- *   prompt and one allow-list this write overrides (if either was edited).
  * @returns The service's answer, including its refusal when it sent one.
  */
 export async function grantBindings(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The replacement list. */
     readonly bindings: readonly PanelBinding[];

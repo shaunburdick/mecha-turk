@@ -36,7 +36,6 @@ const ACCOUNT_FILE_SUFFIX = '.json';
 /**
  * Build the store-relative path of one account file.
  *
- * @param numericUserId - GitHub numeric user id.
  * @returns `accounts/<id>.json`.
  * @throws {Error} When the id is not a pure digit string — a programming
  *   error at the call site, refused here rather than turned into a path.
@@ -62,14 +61,13 @@ interface ReadAccountInput {
 /**
  * Log a quarantine without ever failing the read that discovered it.
  *
- * @param input - The store read outcome, its subject, and the parser's note.
+ * @returns The outcome, its subject, and the parser's refusal note.
  */
 function reportQuarantine(input: {
     /** Outcome of the store read. */
     readonly result: JsonReadResult<Account>;
     /** What was set aside, for the log line. */
     readonly subject: string;
-    /** Logger. */
     readonly log: ServiceLogger;
     /** First `field: remediation` the parser refused, when one was named. */
     readonly note: AccountRefusalNote;
@@ -77,11 +75,11 @@ function reportQuarantine(input: {
     const { result, subject, log, note } = input;
     if (result.status === 'quarantined') {
         // The reason is field + remediation only: the refusal vocabulary never
-        // echoes a value, so this line cannot leak one (004 FR-024, FR-019).
+        // echoes a value, so this line cannot leak one.
         log.warn('stored record was unusable and has been set aside', {
             subject,
             quarantinePath: result.quarantinePath,
-            ...(note.reason === null ? {} : { reason: note.reason }),
+            ...(note.reason !== null && { reason: note.reason }),
         });
     }
 }
@@ -92,7 +90,6 @@ function reportQuarantine(input: {
  * This is the reader the chain-holding profile write uses, so the chain can
  * never deadlock against itself (plan C20, mirroring `readBindingsUnobserved`).
  *
- * @param input - Store, numeric key, and the quarantine logger.
  * @returns The account, or `null` when absent or unusable.
  */
 export async function readAccountUnobserved(input: ReadAccountInput): Promise<Account | null> {
@@ -110,12 +107,11 @@ export async function readAccountUnobserved(input: ReadAccountInput): Promise<Ac
  * The observation runs *after* the read answered, on the per-store account
  * chain, so a prompt edited outside the panel is recorded exactly once with
  * the actor the service can actually attribute it to — `service`, because no
- * panel asked for it (004 FR-088). A read that finds **no** account forgets
+ * panel asked for it. A read that finds **no** account forgets
  * that id's baseline: the tier died with the record, so a re-added account
  * reads as a fresh `set` rather than a diff against a fingerprint nobody holds
- * any more (AC-149).
+ * any more.
  *
- * @param input - Store, numeric key, and the logger.
  * @returns The account, or `null` when absent or unusable.
  */
 export async function readAccount(input: ReadAccountInput): Promise<Account | null> {
@@ -124,7 +120,7 @@ export async function readAccount(input: ReadAccountInput): Promise<Account | nu
         store: input.store,
         log: input.log,
         accounts: account === null ? [] : [account],
-        ...(account === null ? { absent: [input.numericUserId] } : {}),
+        ...(account === null && { absent: [input.numericUserId] }),
         actor: 'service',
     });
 
@@ -134,8 +130,6 @@ export async function readAccount(input: ReadAccountInput): Promise<Account | nu
 /**
  * List every stored account **without** running the prompt-change observer.
  *
- * @param store - Open store.
- * @param log - Logger used when a stored document had to be quarantined.
  * @returns The accounts; a missing directory is simply an empty list.
  */
 export async function listAccountsUnobserved(store: ServiceStore, log: ServiceLogger): Promise<readonly Account[]> {
@@ -157,7 +151,7 @@ export async function listAccountsUnobserved(store: ServiceStore, log: ServiceLo
         }
     }
 
-    return accounts.sort((left, right) => left.numericUserId.localeCompare(right.numericUserId));
+    return accounts.toSorted((left, right) => left.numericUserId.localeCompare(right.numericUserId));
 }
 
 /**
@@ -168,8 +162,6 @@ export async function listAccountsUnobserved(store: ServiceStore, log: ServiceLo
  * as the tier's own story rather than a diff across a hole (004 FR-088,
  * AC-149).
  *
- * @param store - Open store.
- * @param log - Logger used when a stored document had to be quarantined.
  * @returns The accounts; a missing directory is simply an empty list.
  */
 export async function listAccounts(store: ServiceStore, log: ServiceLogger): Promise<readonly Account[]> {
@@ -182,8 +174,6 @@ export async function listAccounts(store: ServiceStore, log: ServiceLogger): Pro
 /**
  * Persist an account (credential included) with the store's atomic writer.
  *
- * @param store - Open store.
- * @param account - The record to write.
  * @throws {StorageUnavailableError} When the write cannot complete.
  */
 export async function writeAccount(store: ServiceStore, account: Account): Promise<void> {
@@ -193,8 +183,6 @@ export async function writeAccount(store: ServiceStore, account: Account): Promi
 /**
  * Remove an account credential file (operator-driven delete only).
  *
- * @param store - Open store.
- * @param numericUserId - Key of the account to remove.
  * @throws {StorageUnavailableError} When the removal cannot complete.
  */
 export async function removeAccount(store: ServiceStore, numericUserId: string): Promise<void> {
@@ -217,8 +205,6 @@ export interface BindingRecord {
  * `accountNumericUserId` are skipped rather than rejected, and survivors keep
  * every field they arrived with.
  *
- * @param store - Open store.
- * @param numericUserId - Account the bindings must reference.
  * @returns The referencing bindings; no file means none.
  */
 export async function bindingsReferencing(
@@ -247,8 +233,6 @@ export async function bindingsReferencing(
 /**
  * Disable every binding that references one account, preserving all fields.
  *
- * @param store - Open store.
- * @param bindings - Bindings returned by {@link bindingsReferencing}.
  * @throws {StorageUnavailableError} When the rewrite cannot complete.
  * @returns The bindings after the state change, in file order.
  */

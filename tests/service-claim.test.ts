@@ -16,8 +16,8 @@
  * sleeping — the claim takes its stamp at the seam.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -35,8 +35,10 @@ import type { EventSnapshot } from '../service/poll/events.ts';
 import type { PromptSnapshot } from '../service/prompt.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
+import { byText, byTextLoose } from './support/sort.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every fixture uses, so no test ever waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -49,7 +51,7 @@ const SUBJECT_KEY = `github|${ACCOUNT_ID}|${REPOSITORY}|issue|`;
 const CLAIM_PATH = '/v1/events/pending';
 const CLAIMED_EVENT = 'dispatch.claimed';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let dataDir = '';
@@ -58,22 +60,17 @@ let store: ServiceStore;
 /** Lease duration the config fixture uses; half the documented maximum. */
 const LEASE_MS = 45_000;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-claim-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('claim'));
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /** Build an assignment detection for one issue. */
 function assignment(issueNumber: number): EventSnapshot {
@@ -100,7 +97,7 @@ function assignment(issueNumber: number): EventSnapshot {
 
 /** Enqueue one detection, creating its run. */
 async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
-    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map(createEvent) });
+    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map((snapshot) => createEvent(snapshot)) });
 }
 
 /**
@@ -118,7 +115,7 @@ async function seedPrompted(
     prompt: PromptSnapshot | null,
     ...snapshots: readonly EventSnapshot[]
 ): Promise<void> {
-    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map(createEvent), prompt });
+    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map((snapshot) => createEvent(snapshot)), prompt });
 }
 
 /** Persist the configured lease duration the claim reads. */
@@ -180,8 +177,7 @@ async function seedRunInState(input: {
 }
 
 describe('T-007 claim eligibility (FR-037)', () => {
-    it('offers every waiting run once and nothing the second… (+3 cases)', async () => {
-        // case: offers every waiting run once and nothing the second time
+    it('offers every waiting run once and nothing the second time', async () => {
         {
             await seed(assignment(1), assignment(2));
             await setLeaseMs(LEASE_MS);
@@ -189,16 +185,14 @@ describe('T-007 claim eligibility (FR-037)', () => {
             const first = await claim();
             const second = await claim();
 
-            expect(first.map((run) => run.issueNumber).sort()).toEqual([1, 2]);
+            expect(first.map((run) => run.issueNumber).toSorted((left, right) => left - right)).toEqual([1, 2]);
             expect(second).toEqual([]);
             const stored = await readRunsDocument({ store, log: LOGGER });
             expect(stored.runs.every((run) => run.state === 'claimed')).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers nothing for any state other than pending
+    });
+
+    it('answers nothing for any state other than pending', async () => {
         {
             const states: readonly Run['state'][] = [
                 'claimed',
@@ -215,11 +209,9 @@ describe('T-007 claim eligibility (FR-037)', () => {
 
             expect(await claim()).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: never offers a pending run whose history already records a session
+    });
+
+    it('never offers a pending run whose history already records a session', async () => {
         {
             const run = await seedRunInState({ issueNumber: 30, state: 'pending' });
             await writeRunsDocument({
@@ -247,11 +239,9 @@ describe('T-007 claim eligibility (FR-037)', () => {
             // the claim surfaces the refusal rather than offering the run.
             await expect(claim()).rejects.toThrow('run document is unreadable');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: leaves a delivered run alone: nothing is claimed, nothing is requeued
+    });
+
+    it('leaves a delivered run alone: nothing is claimed, nothing is requeued', async () => {
         {
             await seedRunInState({ issueNumber: 31, state: 'dispatched', sessionId: 'ses_done' });
 
@@ -262,11 +252,11 @@ describe('T-007 claim eligibility (FR-037)', () => {
             expect(stored.runs[0]?.lease).toBeNull();
         }
     });
+
 });
 
 describe('T-007 lease coordinates (FR-030, FR-031)', () => {
-    it('derives the expiry from the configured lease duratio… (+3 cases)', async () => {
-        // case: derives the expiry from the configured lease duration on the service clock
+    it('derives the expiry from the configured lease duration on the service clock', async () => {
         {
             await seed(assignment(3));
             await setLeaseMs(LEASE_MS);
@@ -282,11 +272,9 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
             });
             expect(claimed?.attempt).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: mints a fresh lease per claim and never re-derives one
+    });
+
+    it('mints a fresh lease per claim and never re-derives one', async () => {
         {
             await seed(assignment(4));
             await setLeaseMs(LEASE_MS);
@@ -298,11 +286,9 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
             expect(leaseId).toBe(buildLeaseId({
                 correlationId: first?.correlationId ?? '', attempt: 1, issuedAt: STAMP }));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: records the panel opaque holder, and never treats it as authorization
+    });
+
+    it('records the panel opaque holder, and never treats it as authorization', async () => {
         {
             await seed(assignment(5));
             const [claimed] = await claim('panel.mount_1~x');
@@ -314,11 +300,9 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
             expect(holderOf('x'.repeat(65))).toBe(UNKNOWN_HOLDER);
             expect(holderOf('a'.repeat(64))).toBe('a'.repeat(64));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: opens the attempt but consumes nothing by being offered (FR-036)
+    });
+
+    it('opens the attempt but consumes nothing by being offered', async () => {
         {
             await seed(assignment(6));
             await claim();
@@ -338,6 +322,7 @@ describe('T-007 lease coordinates (FR-030, FR-031)', () => {
             }]);
         }
     });
+
 });
 
 describe('T-007 batch atomicity', () => {
@@ -357,14 +342,13 @@ describe('T-007 batch atomicity', () => {
         // leases agree with both answers.
         expect(first.every((run) => run.lease.holder === 'panel-a')).toBe(true);
         expect(second.every((run) => run.lease.holder === 'panel-b')).toBe(true);
-        expect(stored.runs.map((run) => run.lease?.leaseId).sort())
-            .toEqual([...first, ...second].map((run) => run.lease.leaseId).sort());
+        expect(stored.runs.map((run) => run.lease?.leaseId).toSorted(byTextLoose))
+            .toEqual([...first, ...second].map((run) => run.lease.leaseId).toSorted(byText));
     });
 });
 
 describe('T-007 the claim answer', () => {
-    it('projects the run, its lease, and every retained sour… (+3 cases)', async () => {
-        // case: projects the run, its lease, and every retained source reference
+    it('projects the run, its lease, and every retained source reference', async () => {
         {
             await seed(assignment(11));
             const [claimed] = await claim();
@@ -401,11 +385,9 @@ describe('T-007 the claim answer', () => {
                 presentAtAuthorization: true,
             }]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: carries no credential-shaped string and no unlisted member (NFR-106)
+    });
+
+    it('carries no credential-shaped string and no unlisted member', async () => {
         {
             await seed(assignment(12));
             const [claimed] = await claim();
@@ -413,7 +395,7 @@ describe('T-007 the claim answer', () => {
 
             expect(body).not.toMatch(/gh[pousr]_[A-Za-z0-9]{16,}/);
             expect(body).not.toContain('accountNumericUserId');
-            expect(Object.keys(claimed ?? {}).sort()).toEqual([
+            expect(Object.keys(claimed ?? {}).toSorted(byText)).toEqual([
                 'accountLogin',
                 'attachmentId',
                 'attempt',
@@ -444,11 +426,9 @@ describe('T-007 the claim answer', () => {
                 'worktreeOption',
             ]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: writes one dispatch.claimed row per claimed run, correlated to the run
+    });
+
+    it('writes one dispatch.claimed row per claimed run, correlated to the run', async () => {
         {
             await seed(assignment(13), assignment(14));
             await setLeaseMs(LEASE_MS);
@@ -459,7 +439,8 @@ describe('T-007 the claim answer', () => {
 
             expect(rows).toHaveLength(2);
             expect(rows.every((row) => row.actorSource === 'panel')).toBe(true);
-            expect(rows.map((row) => row.correlationId).sort()).toEqual(claimed.map((run) => run.correlationId).sort());
+            expect(rows.map((row) => row.correlationId).toSorted(byText))
+                .toEqual(claimed.map((run) => run.correlationId).toSorted(byText));
             expect(rows.every((row) => row.entity.kind === 'run')).toBe(true);
             expect(rows.map((row) => row.details)).toEqual(claimed.map((run) => ({
                 leaseId: run.lease.leaseId,
@@ -469,11 +450,9 @@ describe('T-007 the claim answer', () => {
                 holder: HOLDER,
             })));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: writes no claim row for a claim that leased nothing
+    });
+
+    it('writes no claim row for a claim that leased nothing', async () => {
         {
             await seedRunInState({ issueNumber: 15, state: 'unconfirmed' });
 
@@ -483,6 +462,7 @@ describe('T-007 the claim answer', () => {
             expect(audits.filter((entry) => entry.eventType === CLAIMED_EVENT)).toEqual([]);
         }
     });
+
 });
 
 /** The harness service's open store; a claim test cannot run without one. */
@@ -688,8 +668,7 @@ describe('T-040h a quarantined run document answers the documented 503', () => {
 });
 
 describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
-    it('answers the prompt sources on every claim row (+2 cases)', async () => {
-        // case: an unset run answers five explicit nulls — presence, text, fingerprint, length, sources
+    it('an unset run answers five explicit nulls — presence, text, fingerprint, length, sources', async () => {
         {
             await seed(assignment(60));
             const [claimed] = await claim();
@@ -700,9 +679,9 @@ describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
             expect(claimed?.promptLength).toBeNull();
             expect(claimed?.promptSources).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: a set run answers its contributing tiers as an ordered list
+    });
+
+    it('a set run answers its contributing tiers as an ordered list', async () => {
         {
             const bindingOnly = resolvePromptSnapshot({
                 global: null,
@@ -731,9 +710,9 @@ describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
                 && run.promptText !== null
                 && run.promptFingerprint !== null)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: the maximal batch paginates against a ≤6,004-char promptText, never truncating one
+    });
+
+    it('the maximal batch paginates against a ≤6,004-char promptText, never truncating one', async () => {
         {
             const tier = 'x'.repeat(STARTING_PROMPT_MAX_CODE_POINTS);
             const maximal = resolvePromptSnapshot({
@@ -803,4 +782,5 @@ describe('T-024 the claim answer names the prompt sources (FR-087)', () => {
             expect(seen.size).toBe(totalRuns);
         }
     });
+
 });

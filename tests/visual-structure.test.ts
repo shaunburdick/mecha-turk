@@ -49,7 +49,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -191,12 +191,11 @@ const NO_MEDIA: ReadonlySet<string> = new Set<string>();
  * The stylesheet with the named hiding rules stripped — the panel as it was
  * before them, which is the answer a non-vacuity case must fall back to.
  *
- * @param source - The rules to strip.
  * @param selectors - A rule is dropped when it carries any of these.
  * @returns The rules that are left, in their original order.
  */
 function withoutHidingRules(source: readonly StyleRule[], selectors: readonly string[]): readonly StyleRule[] {
-    return source.filter((rule) => !rule.selectors.some((selector) => selectors.includes(selector)));
+    return source.filter((rule) => rule.selectors.every((selector) => !selectors.includes(selector)));
 }
 
 /** The Settings header's modifier, which the narrow default and the wide return share. */
@@ -209,7 +208,6 @@ const SETTINGS_HEAD_SELECTOR = '.mt-head--settings';
  * `.mt-head`'s `display: grid` is the only declaration left, so a narrow
  * assertion that still answered `none` would be asserting nothing.
  *
- * @param rules - The rules to filter.
  * @returns Every rule but the unguarded one, in their original order.
  */
 function withoutNarrowDefault(rules: readonly StyleRule[]): readonly StyleRule[] {
@@ -223,7 +221,6 @@ function withoutNarrowDefault(rules: readonly StyleRule[]): readonly StyleRule[]
  * route answers is a tab that has not been tested against a service that is
  * still spawning (FR-003).
  *
- * @param request - The call the panel made.
  * @returns The answer for that path.
  */
 async function answer(request: GuestRequest): Promise<GuestRequestResult> {
@@ -262,7 +259,6 @@ async function renderSixTabs(): Promise<{ readonly dom: FakeDom; readonly log: r
 /**
  * Every string one SDK mount was handed, at any depth.
  *
- * @param log - The recorded mounts.
  * @returns The strings among them, in property order.
  */
 function stringsIn(log: readonly MountRecord[]): readonly string[] {
@@ -297,8 +293,7 @@ function stringsIn(log: readonly MountRecord[]): readonly string[] {
 }
 
 describe('every tab is a stack of blocks with a real heading', () => {
-    it('mounts at least one heading per section, and never s… (+2 cases)', async () => {
-        // case: mounts at least one heading per section, and never skips a level
+    it('mounts at least one heading per section, and never skips a level', async () => {
         {
             const { dom } = await renderSixTabs();
             const levels = dom.created
@@ -309,7 +304,9 @@ describe('every tab is a stack of blocks with a real heading', () => {
             expect(levels.every((level) => level === 2 || level === 3)).toBe(true);
             expect(levels).not.toContain(1);
         }
-        // case: hands each section heading to the SDK text path, so the scans still see it
+    });
+
+    it('hands each section heading to the SDK text path, so the scans still see it', async () => {
         {
             const { log } = await renderSixTabs();
             const strings = stringsIn(log);
@@ -318,13 +315,16 @@ describe('every tab is a stack of blocks with a real heading', () => {
                 expect(strings, `${heading} never reached the SDK`).toContain(heading);
             }
         }
-        // case: keeps the strip contract the A3 pass pinned
+    });
+
+    it('keeps the strip contract the A3 pass pinned', async () => {
         {
             expect(PANEL_HTML).toMatch(/#root > \* \{\s*flex-shrink: 0;\s*\}/);
             expect(PANEL_HTML).toMatch(/#root \{[^}]*display: flex;/);
             expect(PANEL_HTML).toMatch(/#root \{[^}]*flex-direction: column;/);
         }
     });
+
 });
 
 describe('the list surfaces carry the header rows their columns hang from', () => {
@@ -380,8 +380,7 @@ describe('the Settings header is hidden over the single-column rail', () => {
         return cascadedDisplay({ rules: PANEL_RULES, element: settingsHead, media });
     }
 
-    it('reads the narrow default and the wide return as two … (+3 cases)', () => {
-        // case: reads the narrow default and the wide return as two distinct rules
+    it('reads the narrow default and the wide return as two distinct rules', () => {
         {
             const narrow = PANEL_RULES.filter(
                 (rule) => rule.media === null && rule.selectors.includes(SETTINGS_HEAD_SELECTOR),
@@ -395,7 +394,6 @@ describe('the Settings header is hidden over the single-column rail', () => {
             expect(mediaVariants(PANEL_RULES).some((media) => media.has(WIDE))).toBe(true);
             expect(mediaVariants(PANEL_RULES).some((media) => !media.has(WIDE))).toBe(true);
         }
-        // case: gives it `none` under every reading that carries no wide return
         {
             for (const media of mediaVariants(PANEL_RULES)) {
                 if (media.has(WIDE)) {
@@ -409,7 +407,6 @@ describe('the Settings header is hidden over the single-column rail', () => {
                 );
             }
         }
-        // case: gives it a grid under every reading that carries the wide return
         {
             for (const media of mediaVariants(PANEL_RULES)) {
                 if (!media.has(WIDE)) {
@@ -419,7 +416,6 @@ describe('the Settings header is hidden over the single-column rail', () => {
                 expect(settingsHeadDisplay(media), `settings head at ${[...media].join(', ')}`).toBe('grid');
             }
         }
-        // case: would not be hidden if the narrow default were stripped
         {
             const without = withoutNarrowDefault(PANEL_RULES);
 
@@ -433,8 +429,7 @@ describe('the Settings header is hidden over the single-column rail', () => {
 });
 
 describe('the Status tab renders structure instead of loose lines', () => {
-    it('renders definition rows and one card per prerequisit… (+1 cases)', async () => {
-        // case: renders definition rows and one card per prerequisite
+    it('renders definition rows and one card per prerequisite', async () => {
         {
             const { dom } = await renderSixTabs();
             const rows = dom.created.filter(
@@ -445,7 +440,9 @@ describe('the Status tab renders structure instead of loose lines', () => {
             expect(rows.length).toBeGreaterThanOrEqual(14);
             expect(cards).toHaveLength(5);
         }
-        // case: paints the three prerequisite states as toned chips carrying the state
+    });
+
+    it('paints the three prerequisite states as toned chips carrying the state', async () => {
         {
             const { log } = await renderSixTabs();
             const badges = log.filter((entry) => entry.key === 'mountBadge').map(
@@ -459,6 +456,7 @@ describe('the Status tab renders structure instead of loose lines', () => {
 
         }
     });
+
 });
 
 /**
@@ -483,12 +481,10 @@ describe('exactly one tab body is in the layout', () => {
     /**
      * One body container: classless, so only attribute selectors can reach it.
      *
-     * @param input - Which body, and whether the shell marked it hidden.
      * @returns The element the cascade is asked about.
      */
     function bodyProbe(input: { readonly id: string; readonly hidden: boolean }): ProbeElement {
-        const attributes: Record<string, string> = { role: 'tabpanel' };
-        attributes['data-body'] = input.id;
+        const attributes: Record<string, string> = { role: 'tabpanel' , ['data-body']: input.id, };
 
         if (input.hidden) {
             attributes.hidden = '';
@@ -507,7 +503,6 @@ describe('exactly one tab body is in the layout', () => {
     /**
      * Resolve one body's `display` under one set of media.
      *
-     * @param input - The body id, whether it is hidden, and the media in force.
      * @returns The winning `display`, or null when no rule declares one.
      */
     function displayOf(input: {
@@ -522,13 +517,11 @@ describe('exactly one tab body is in the layout', () => {
         });
     }
 
-    it('parses a real stylesheet rather than a fragment of o… (+3 cases)', () => {
-        // case: parses a real stylesheet rather than a fragment of one
+    it('parses a real stylesheet rather than a fragment of one', () => {
         {
             expect(rules.length).toBeGreaterThan(30);
             expect(mediaVariants(rules).length).toBeGreaterThan(1);
         }
-        // case: takes every hidden body out of the layout, under every media reading
         {
             for (const media of mediaVariants(rules)) {
                 for (const id of TAB_IDS) {
@@ -539,13 +532,11 @@ describe('exactly one tab body is in the layout', () => {
                 }
             }
         }
-        // case: leaves the active body in it, as the flex stack the shell needs
         {
             for (const media of mediaVariants(rules)) {
                 expect(displayOf({ id: 'status', hidden: false, media }), 'status shown').toBe('flex');
             }
         }
-        // case: would fail against the stylesheet as it was before either rule hid a body
         {
             const without = withoutHidingRules(rules, HIDING_SELECTORS);
 
@@ -598,14 +589,12 @@ const HIDDEN_SHAPES: readonly HiddenShape[] = [
 /**
  * One of those shapes as the cascade sees it.
  *
- * @param shape - Which element to build.
- * @param hidden - Whether the panel has marked it hidden, the way `src/` does.
  * @returns The probe to resolve a `display` for.
  */
-function shapeProbe(shape: HiddenShape, hidden: boolean): ProbeElement {
+function shapeProbe(shape: HiddenShape, isHidden: boolean): ProbeElement {
     const attributes: Record<string, string> = {};
 
-    if (hidden) {
+    if (isHidden) {
         attributes.hidden = '';
     }
 
@@ -634,8 +623,7 @@ function shapeProbe(shape: HiddenShape, hidden: boolean): ProbeElement {
  * from any stylesheet can reach an element the panel marked hidden.
  */
 describe('no element the panel hid is still painted', () => {
-    it('takes every hidden one out of the layout, under ever… (+2 cases)', () => {
-        // case: takes every hidden one out of the layout, under every media reading
+    it('takes every hidden one out of the layout, under every media reading', () => {
         {
             for (const media of mediaVariants(COMBINED_RULES)) {
                 const joined = [...media].join(', ');
@@ -649,7 +637,6 @@ describe('no element the panel hid is still painted', () => {
                 }
             }
         }
-        // case: paints each of them while the panel has not marked it hidden
         {
             for (const shape of HIDDEN_SHAPES) {
                 expect(
@@ -658,7 +645,6 @@ describe('no element the panel hid is still painted', () => {
                 ).toBe(shape.painted);
             }
         }
-        // case: would paint every one of them again if the `[hidden]` rule were stripped
         {
             const without = withoutHidingRules(COMBINED_RULES, ['[hidden]']);
 

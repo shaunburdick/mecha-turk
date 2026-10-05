@@ -27,9 +27,6 @@
  * comments.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -62,7 +59,9 @@ import type {
 } from '../service/poll/poller-github.ts';
 import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { byText } from './support/sort.ts';
 import { scopeResults } from './support/verify.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Binding id the mention fixtures bind. */
 const MENTION_BINDING = 'bnd-mention';
@@ -153,10 +152,9 @@ let log: ServiceLogger;
 /** Lines the capturing logger wrote. */
 let logLines: string[];
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-triggers-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('triggers'));
     store = await openStore({ dataDir });
     logLines = [];
     log = createLogger({
@@ -165,22 +163,16 @@ const beforeEachWork1 = async (): Promise<void> => {
             logLines.push(line);
         },
     });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /**
  * Build one stored binding with the given trigger set.
  *
- * @param bindingId - Id of the binding.
- * @param triggers - The switches this fixture turns on.
  * @returns A complete active binding.
  */
 function fixtureBinding(bindingId: string, triggers: BindingTriggers): BindingRecord {
@@ -224,7 +216,6 @@ function fixtureAccount(): Account {
 /**
  * Build one open issue the mention scan resolves titles against.
  *
- * @param overrides - Fields to change from the default fixture issue.
  * @returns The normalized issue.
  */
 function fixtureIssue(overrides: Partial<PollIssue> = {}): PollIssue {
@@ -246,7 +237,6 @@ function fixtureIssue(overrides: Partial<PollIssue> = {}): PollIssue {
 /**
  * Build one issue comment.
  *
- * @param input - Comment id, body, and author identity.
  * @returns The normalized comment.
  */
 function fixtureComment(input: {
@@ -273,7 +263,6 @@ function fixtureComment(input: {
  * v1.12.0, because the review trigger's actor now comes from the naming
  * `review_requested` event's `review_requester` (002 FR-049, FR-050).
  *
- * @param input - PR number and the reviewers GitHub reports.
  * @returns The normalized pull request.
  */
 function fixturePull(input: {
@@ -306,7 +295,6 @@ interface RecordedPoller {
  * An **absent** member is `''`/`''`, exactly as GitHub sends `null` and as every
  * other feed's author reads — so one authorship rule covers the events feed too.
  *
- * @param input - The row's kind word, its subjects and actors, and its stamp.
  * @returns The normalized event.
  */
 function itemEvent(input: {
@@ -374,7 +362,6 @@ function itemEvents(...rows: readonly PollItemEvent[]): Readonly<Record<number, 
  * evidence for this candidate (002 FR-050) — and the actor is whoever assigned
  * it, which is what the row now records.
  *
- * @param input - The item, the assigner the event names, and any overrides.
  * @returns One in-window naming event.
  */
 function assignedEvent(input: {
@@ -401,7 +388,6 @@ function assignedEvent(input: {
 /**
  * The naming `review_requested` event a matched review candidate is answered by.
  *
- * @param input - The pull request, the requester the event names, and overrides.
  * @returns One in-window naming event.
  */
 function reviewRequestedEvent(input: {
@@ -477,8 +463,6 @@ function recordingPoller(feeds: {
 /**
  * Run one cycle over the given binding and answer its queued events.
  *
- * @param binding - The binding to scan.
- * @param recorded - The poller feeding that scan.
  * @returns The events the cycle enqueued, in queue order.
  */
 async function scan(binding: BindingRecord, recorded: RecordedPoller): Promise<readonly QueuedEvent[]> {
@@ -492,8 +476,7 @@ async function scan(binding: BindingRecord, recorded: RecordedPoller): Promise<r
 }
 
 describe('mention detection (M6)', () => {
-    it('queues one event per human comment that mentions the… (+2 cases)', async () => {
-        // case: queues one event per human comment that mentions the account, keyed by comment id
+    it('queues one event per human comment that mentions the account, keyed by comment id', async () => {
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue()],
@@ -530,11 +513,9 @@ describe('mention detection (M6)', () => {
             expect(events[0]?.triggerNote).toContain(HUMAN_AUTHOR_LOGIN);
             expect(events[0]?.issueBodyExcerpt).toBe('cc @OCTOCAT-MT — drift again');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: skips bot authors, lookalike handles, and bodies that never mention the account
+    });
+
+    it('skips bot authors, lookalike handles, and bodies that never mention the account', async () => {
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue()],
@@ -569,11 +550,9 @@ describe('mention detection (M6)', () => {
             expect(events).toHaveLength(1);
             expect(events[0]?.id).toBe(`evt-acme~widget~7~${ACCOUNT_ID}~mention~605`);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: never lists comments when the mention switch is off
+    });
+
+    it('never lists comments when the mention switch is off', async () => {
         {
             const recorded = recordingPoller({ issues: [], comments: [] });
 
@@ -586,11 +565,11 @@ describe('mention detection (M6)', () => {
             expect(events).toEqual([]);
         }
     });
+
 });
 
 describe('issue-body mention detection (M6, operator product decision 2026-09-28)', () => {
-    it('queues one mention event with the fixed ~mention~bod… (+5 cases)', async () => {
-        // case: queues one mention event with the fixed ~mention~body id and a bounded excerpt
+    it('queues one mention event with the fixed ~mention~body id and a bounded excerpt', async () => {
         {
             const filler = 'lorem ipsum '.repeat(80);
             const body = `Hey ${MENTION_TOKEN.toUpperCase()} — the flux capacitor drifts.\n${filler}`;
@@ -621,11 +600,9 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             expect(events[0]?.issueBodyExcerpt).toHaveLength(600);
             expect(events[0]?.issueBodyExcerpt.endsWith('…')).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: queues nothing for lookalikes, bots, unreadable authors, or an empty body
+    });
+
+    it('queues nothing for lookalikes, bots, unreadable authors, or an empty body', async () => {
         {
             const recorded = recordingPoller({
                 issues: [
@@ -660,11 +637,9 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
 
             expect(events).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: never reads an issue body when the mention switch is off
+    });
+
+    it('never reads an issue body when the mention switch is off', async () => {
         {
             const recorded = recordingPoller({ issues: [fixtureIssue({ body: `please look ${MENTION_TOKEN}` })] });
 
@@ -677,11 +652,9 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             expect(recorded.calls).toEqual(['issues']);
             expect(events).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: keeps an assignment and a body mention on one issue as two distinct, deduplicable events
+    });
+
+    it('keeps an assignment and a body mention on one issue as two distinct, deduplicable events', async () => {
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue({ body: `Hey ${MENTION_TOKEN}, please triage`, assignees: [ACCOUNT_LOGIN] })],
@@ -708,11 +681,9 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             expect(replayed.enqueued).toBe(0);
             expect(await readEvents({ store, log })).toHaveLength(2);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: coalesces a pull-request assignment and review request under the PR subject
+    });
+
+    it('coalesces a pull-request assignment and review request under the PR subject', async () => {
         {
             const pullRequest = fixtureIssue({
                 issueNumber: 31,
@@ -743,11 +714,9 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
                 events[0]?.runCorrelationId,
             ]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: keeps a comment mention and a body mention on one issue as two distinct events
+    });
+
+    it('keeps a comment mention and a body mention on one issue as two distinct events', async () => {
         {
             const recorded = recordingPoller({
                 issues: [fixtureIssue({ body: `details in the body, ${MENTION_TOKEN}` })],
@@ -788,8 +757,7 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
 });
 
 describe('mention and review detectors (unit)', () => {
-    it('matches the token case-insensitively and bounded on … (+3 cases)', async () => {
-        // case: matches the token case-insensitively and bounded on both sides
+    it('matches the token case-insensitively and bounded on both sides', async () => {
         {
             expect(mentionsLogin(`hey ${MENTION_TOKEN.toUpperCase()}`, ACCOUNT_LOGIN)).toBe(true);
             expect(mentionsLogin(`(${MENTION_TOKEN})`, ACCOUNT_LOGIN)).toBe(true);
@@ -799,11 +767,9 @@ describe('mention and review detectors (unit)', () => {
             expect(mentionsLogin('x@octocat-mt', ACCOUNT_LOGIN)).toBe(false);
             expect(mentionsLogin(MENTION_TOKEN, '')).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: reads a bot comment as a bot whatever the author field says
+    });
+
+    it('reads a bot comment as a bot whatever the author field says', async () => {
         {
             expect(isMentionComment(fixtureComment({
                 commentId: 701,
@@ -818,11 +784,9 @@ describe('mention and review detectors (unit)', () => {
             }), ACCOUNT_LOGIN)).toBe(false);
             expect(isMentionComment(fixtureComment({ commentId: 703, body: MENTION_TOKEN }), ACCOUNT_LOGIN)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: reads an issue-body mention the same way — author first, bounded token second
+    });
+
+    it('reads an issue-body mention the same way — author first, bounded token second', async () => {
         {
             expect(isIssueBodyMention(fixtureIssue({ body: `hey ${MENTION_TOKEN}` }), ACCOUNT_LOGIN)).toBe(true);
             expect(isIssueBodyMention(fixtureIssue({ body: 'no handle here' }), ACCOUNT_LOGIN)).toBe(false);
@@ -837,11 +801,9 @@ describe('mention and review detectors (unit)', () => {
             expect(isIssueBodyMention(fixtureIssue({ body: null }), ACCOUNT_LOGIN)).toBe(false);
             expect(isIssueBodyMention(fixtureIssue({ body: MENTION_TOKEN }), '')).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: matches a requested reviewer case-insensitively, and nobody else
+    });
+
+    it('matches a requested reviewer case-insensitively, and nobody else', async () => {
         {
             expect(isReviewRequestPull(fixturePull({ pullNumber: 1, requestedReviewers: [
                 'OCTOCAT-MT'] }), ACCOUNT_LOGIN))
@@ -853,11 +815,11 @@ describe('mention and review detectors (unit)', () => {
             ] }), ACCOUNT_LOGIN)).toBe(false);
         }
     });
+
 });
 
 describe('review-request detection (M7)', () => {
-    it('queues a review event with the PR head and base capt… (+1 cases)', async () => {
-        // case: queues a review event with the PR head and base captured, and lists no issues
+    it('queues a review event with the PR head and base captured, and lists no issues', async () => {
         {
             const recorded = recordingPoller({
                 pulls: [fixturePull({ pullNumber: 3, requestedReviewers: [ACCOUNT_LOGIN.toUpperCase()] })],
@@ -886,11 +848,9 @@ describe('review-request detection (M7)', () => {
             // The id carries the PR number, the account, and the kind.
             expect(events[0]?.id).toBe(`evt-acme~widget~3~${ACCOUNT_ID}~review`);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: queues nothing for a pull request that does not ask this account
+    });
+
+    it('queues nothing for a pull request that does not ask this account', async () => {
         {
             const recorded = recordingPoller({
                 pulls: [fixturePull({ pullNumber: 9, requestedReviewers: ['someone-else'] })],
@@ -904,11 +864,11 @@ describe('review-request detection (M7)', () => {
             expect(events).toEqual([]);
         }
     });
+
 });
 
 describe('event kind round-trip (nullable Slice-2 fields)', () => {
-    it('round-trips a review event with headSha and baseRef … (+2 cases)', async () => {
-        // case: round-trips a review event with headSha and baseRef intact
+    it('round-trips a review event with headSha and baseRef intact', async () => {
         {
             const snapshot: EventSnapshot = {
                 bindingId: REVIEW_BINDING,
@@ -933,39 +893,37 @@ describe('event kind round-trip (nullable Slice-2 fields)', () => {
             };
             const event = createEvent(snapshot);
 
-            expect(parseStoredEvent(JSON.parse(JSON.stringify(event)) as unknown)).toEqual(event);
+            expect(parseStoredEvent(structuredClone(event))).toEqual(event);
             expect(event.headSha).toBe(HEAD_SHA);
             expect(event.baseRef).toBe(BASE_REF);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: reads a row written before M7 — no headSha/baseRef at all — as null
+    });
+
+    it('reads a row written before M7 — no headSha/baseRef at all — as null', async () => {
         {
-            const stored: Record<string, unknown> = {
-                ...createEvent({
-                    bindingId: MENTION_BINDING,
-                    repository: REPO_LABEL,
-                    accountNumericUserId: ACCOUNT_ID,
-                    accountLogin: ACCOUNT_LOGIN,
-                    projectId: PROJECT_ID,
-                    worktreeOption: 'none',
-                    kind: 'assignment',
-                    issue: {
-                        issueNumber: 2,
-                        issueTitle: 'Ticket #2',
-                        issueUrl: 'https://github.com/acme/widget/issues/2',
-                        issueBodyExcerpt: '',
-                    },
-                    actorLogin: HUMAN_AUTHOR_LOGIN,
-                    actorAttribution: LEGACY_BASIS,
-                    triggerNote: 'Issue assigned to the bound account',
-                    detectedAt: STAMP,
-                }),
-            };
-            delete stored.headSha;
-            delete stored.baseRef;
+            const stored = Object.fromEntries(
+                Object.entries(
+                    createEvent({
+                        bindingId: MENTION_BINDING,
+                        repository: REPO_LABEL,
+                        accountNumericUserId: ACCOUNT_ID,
+                        accountLogin: ACCOUNT_LOGIN,
+                        projectId: PROJECT_ID,
+                        worktreeOption: 'none',
+                        kind: 'assignment',
+                        issue: {
+                            issueNumber: 2,
+                            issueTitle: 'Ticket #2',
+                            issueUrl: 'https://github.com/acme/widget/issues/2',
+                            issueBodyExcerpt: '',
+                        },
+                        actorLogin: HUMAN_AUTHOR_LOGIN,
+                        actorAttribution: LEGACY_BASIS,
+                        triggerNote: 'Issue assigned to the bound account',
+                        detectedAt: STAMP,
+                    }),
+                ).filter(([key]) => key !== 'headSha' && key !== 'baseRef'),
+            );
 
             const parsed = parseStoredEvent(stored);
 
@@ -974,11 +932,9 @@ describe('event kind round-trip (nullable Slice-2 fields)', () => {
             expect(parsed?.baseRef).toBeNull();
             expect(parsed?.kind).toBe('assignment');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: still refuses a row whose Slice-2 fields are not text
+    });
+
+    it('still refuses a row whose Slice-2 fields are not text', async () => {
         {
             const event = createEvent({
                 bindingId: REVIEW_BINDING,
@@ -1006,6 +962,7 @@ describe('event kind round-trip (nullable Slice-2 fields)', () => {
             expect(parseStoredEvent({ ...event, baseRef: ['main'] })).toBeNull();
         }
     });
+
 });
 
 /** Login an assignment fixture's issue is authored by, distinct from any reviewer. */
@@ -1024,8 +981,6 @@ const ALL_KINDS = { assignment: true, mention: true, reviewRequest: true } as co
  * stores, so the helper reads all three rather than making each case repeat the
  * plumbing: the queue's events, the run document's runs, and the audit trail.
  *
- * @param binding - The binding to scan.
- * @param recorded - The poller feeding that scan.
  * @returns The events, the runs, and the audit rows the scan wrote.
  */
 async function scanAndRead(
@@ -1078,7 +1033,8 @@ describe('002 FR-043–FR-045 attribution at detection (AC-024, AC-025, A-5, A-6
         const { events, runs } = await scanAndRead(fixtureBinding(MENTION_BINDING, ALL_KINDS), recorded);
 
         // All four kinds, one event each, through the real loop and the real queue.
-        expect(events.map((event) => event.kind).sort()).toEqual(['assignment', 'mention', 'mention', 'review']);
+        expect(events.map((event) => event.kind).toSorted(byText))
+            .toEqual(['assignment', 'mention', 'mention', 'review']);
         const comment = events.find((event) => event.id.endsWith(`~mention~${FIRST_COMMENT_ID}`));
         const body = events.find((event) => event.id.endsWith('~mention~body'));
         const assignment = events.find((event) => event.kind === 'assignment');
@@ -1153,7 +1109,7 @@ describe('002 FR-043–FR-045 attribution at detection (AC-024, AC-025, A-5, A-6
             }
 
             if (kind === 'mention') {
-                return createEvent({ ...attributed, kind, origin: 'comment', commentId: 4242 }).id;
+                return createEvent({ ...attributed, kind, origin: 'comment', commentId: 4_242 }).id;
             }
 
             return createEvent({ ...attributed, kind }).id;

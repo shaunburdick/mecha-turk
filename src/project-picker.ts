@@ -1,5 +1,5 @@
 /**
- * Pure helpers behind the spike panel's project picker.
+ * Pure helpers behind the panel's project picker.
  *
  * The operator has no Settings surface that prints OpenChamber project ids,
  * so the panel lists what `host.listProjects()` reports and remembers the
@@ -76,7 +76,7 @@ export const NOT_LISTED_LABEL = 'Not listed?';
  * The manual ways OpenChamber registers a project, in the order the operator
  * meets them.
  *
- * The extension has no project-creation call anywhere (FR-070, AC-121), so
+ * The extension has no project-creation call anywhere, so
  * these three routes are the *only* way a project comes to exist — naming
  * them is the whole affordance.
  */
@@ -94,7 +94,6 @@ export const PROJECT_REGISTRATION_ROUTES: readonly string[] = [
  * the list. The directory goes in the hint slot, where it is still visible in
  * the popup without crowding the trigger.
  *
- * @param project - Project reported by `host.listProjects()`.
  * @returns The option rendered by the SDK select.
  */
 export function projectOption(project: GuestProject): SelectOption {
@@ -112,7 +111,6 @@ export function projectOption(project: GuestProject): SelectOption {
  * retain stale projects internally, and offering those would let the operator
  * pick a project the host did not just confirm.
  *
- * @param picker - Project picker state.
  * @returns The options to render, empty when no list is usable.
  */
 export function pickerOptions(picker: ProjectPickerState): SelectOption[] {
@@ -120,7 +118,7 @@ export function pickerOptions(picker: ProjectPickerState): SelectOption[] {
         return [];
     }
 
-    return picker.projects.map(projectOption);
+    return picker.projects.map((project) => projectOption(project));
 }
 
 /**
@@ -131,7 +129,6 @@ export function pickerOptions(picker: ProjectPickerState): SelectOption[] {
  * these carry no directory hint, because the form's row already names the
  * repository and the id.
  *
- * @param picker - Project picker state.
  * @returns The options, only when a ready list is loaded.
  */
 export function formProjectOptions(picker: ProjectPickerState): SelectOption[] {
@@ -151,7 +148,6 @@ export function formProjectOptions(picker: ProjectPickerState): SelectOption[] {
  * A dynamic note (a failure detail, a copy confirmation) wins over the text
  * derived from the status, so the last thing that happened stays visible.
  *
- * @param picker - Project picker state.
  * @returns The operator-facing line for the picker.
  */
 export function pickerNote(picker: ProjectPickerState): string {
@@ -160,23 +156,28 @@ export function pickerNote(picker: ProjectPickerState): string {
     }
 
     switch (picker.status) {
-        case 'loading':
+        case 'loading': {
             return LOADING_NOTE;
-        case 'error':
+        }
+
+        case 'error': {
             return ERROR_NOTE;
+        }
+
         case 'ready': {
             const count = picker.projects.length;
             return count === 0 ? EMPTY_NOTE : `${count} project${count === 1 ? '' : 's'} available.`;
         }
-        case 'idle':
+
+        case 'idle': {
             return IDLE_NOTE;
+        }
     }
 }
 
 /**
  * Derive the placeholder rendered inside the picker trigger.
  *
- * @param picker - Project picker state.
  * @returns Text shown when the current value has no option to match it.
  */
 export function pickerPlaceholder(picker: ProjectPickerState): string {
@@ -198,15 +199,13 @@ export function pickerPlaceholder(picker: ProjectPickerState): string {
 /**
  * Explain why a selection outside the loaded list was refused.
  *
- * One wording for both pickers (the spike's dispatch target and the binding
+ * One wording for both pickers (the dispatch target and the binding
  * form's dispatch project), so an operator who sees the line once recognises
  * it the second time. Nothing changes when a selection is refused: without a
  * confirmed id the dispatch — and the binding draft — stay exactly as they
  * were, which is what keeps a binding in its recoverable `project_missing`
- * state until a registered project is chosen (FR-070).
+ * state until a registered project is chosen.
  *
- * @param picker - Project picker state.
- * @param id - Project id the caller asked to select.
  * @returns The operator-facing refusal line.
  */
 export function projectRefusalReason(picker: ProjectPickerState, id: string): string {
@@ -216,7 +215,7 @@ export function projectRefusalReason(picker: ProjectPickerState, id: string): st
 }
 
 /**
- * The "Not listed?" guidance the pickers show (FR-070, AC-121).
+ * The "Not listed?" guidance the pickers show.
  *
  * Rendered as ordinary text inside the panel, so the routes are reachable
  * without leaving the panel — the operator reads them at the moment they
@@ -244,8 +243,6 @@ export function notListedGuidance(): string {
  * or hostile value can never become the dispatch target: dispatch additionally
  * re-resolves the id against `host.listProjects()` before it sends.
  *
- * @param picker - Project picker state.
- * @param id - Candidate project id.
  * @returns `true` when the id comes from the currently loaded list.
  */
 export function isSelectableProject(picker: ProjectPickerState, id: string): boolean {
@@ -258,7 +255,6 @@ export function isSelectableProject(picker: ProjectPickerState, id: string): boo
  * The picker's stored selection wins; otherwise the binding-derived dispatch
  * context supplies one. Since 002 FR-041 there is no third source.
  *
- * @param state - Panel state.
  * @returns The panel-picker selection, else the binding's id, else `null`.
  */
 export function selectedProjectId(state: PanelState): string | null {
@@ -273,9 +269,6 @@ export function selectedProjectId(state: PanelState): string | null {
  * instead of surprising. Since 002 FR-041 emptied the integration card there
  * are exactly two answers: the operator's own picker selection, or the
  * binding that already carries a project.
- *
- * @param state - Panel state.
- * @returns One line describing the effective selection.
  */
 export function describeProjectSelection(state: PanelState): string {
     const selected = selectedProjectId(state);
@@ -283,7 +276,7 @@ export function describeProjectSelection(state: PanelState): string {
         return 'No project selected — dispatch stays blocked until one is.';
     }
 
-    const source = state.projectSelection !== null ? 'panel picker' : 'binding';
+    const source = state.projectSelection === null ? 'binding' : 'panel picker';
     return `Selected project: ${selected} (from the ${source}).`;
 }
 
@@ -293,9 +286,6 @@ export function describeProjectSelection(state: PanelState): string {
  * Only `ready` establishes complete success: `loading` keeps whatever the list
  * held before, and `error` reports the failure while retaining the previous
  * projects so a transient blip does not erase the operator's context.
- *
- * @param picker - Picker state to update in place.
- * @param snapshot - Snapshot returned by the host.
  */
 export function applyProjectSnapshot(picker: ProjectPickerState, snapshot: GuestProjectsSnapshot): void {
     if (snapshot.state === 'error') {

@@ -39,7 +39,7 @@ export interface HandoffHandlers {
     /**
      * The operator submitted the pasted credential.
      *
-     * The second argument is the optional expected-login constraint (FR-006):
+     * The second argument is the optional expected-login constraint:
      * an empty string means *no constraint*, which is what the caller sends
      * when the field was left alone.
      */
@@ -49,7 +49,7 @@ export interface HandoffHandlers {
 /** Every surface the render step may write to. */
 export interface HandoffView {
     /** Enable or disable the credential input (F10 pre-flight gate). */
-    setTokenEnabled(enabled: boolean): void;
+    setTokenEnabled(isEnabled: boolean): void;
     /** Replace the credential input's value; `''` clears it (§2 step ⑧). */
     setTokenValue(value: string): void;
     /** Render the operator-facing note; never credential material. */
@@ -57,9 +57,9 @@ export interface HandoffView {
     /** Render `Connected as <login>`, or hide the line with `null`. */
     setConnected(text: string | null): void;
     /** Show or hide the paste row (credential input and submit). */
-    setPasteVisible(visible: boolean): void;
+    setPasteVisible(isVisible: boolean): void;
     /** Enable or disable the submit button. */
-    setSubmitEnabled(enabled: boolean): void;
+    setSubmitEnabled(isEnabled: boolean): void;
     /** Remove every node this view created. */
     dispose(): void;
 }
@@ -70,7 +70,6 @@ export interface HandoffView {
  * The input stays disabled until the pre-flight proved the service storage is
  * writable (F10/SEC-08).
  *
- * @param state - Current handoff state.
  * @returns `true` when the operator may type and submit a credential.
  */
 export function handoffInputEnabled(state: HandoffState): boolean {
@@ -83,16 +82,13 @@ export function handoffInputEnabled(state: HandoffState): boolean {
  * A connected account — adopted from the service or handed off one-shot —
  * hides the paste row: the paste field must not offer a credential the
  * service already holds (MVP blocker 2).
- *
- * @param state - Current handoff state.
- * @param view - Surface to write to.
  */
 export function renderHandoff(state: HandoffState, view: HandoffView): void {
-    const connected = state.connected !== null;
-    view.setPasteVisible(!connected);
-    const enabled = handoffInputEnabled(state);
-    view.setTokenEnabled(enabled);
-    view.setSubmitEnabled(enabled);
+    const isConnected = state.connected !== null;
+    view.setPasteVisible(!isConnected);
+    const isEnabled = handoffInputEnabled(state);
+    view.setTokenEnabled(isEnabled);
+    view.setSubmitEnabled(isEnabled);
     view.setNote(state.note);
     view.setConnected(state.connected === null ? null : connectedLine(state.connected.login));
 }
@@ -102,8 +98,6 @@ export function renderHandoff(state: HandoffState, view: HandoffView): void {
  *
  * A panel without a mounted group (the tests, and any surface that hides the
  * accounts UI) repaints nothing — the state is still authoritative.
- *
- * @param rt - Panel runtime carrying state and, possibly, the mounted view.
  */
 export function refreshHandoff(rt: PanelRuntime): void {
     if (rt.handoffView !== null) {
@@ -118,8 +112,6 @@ export function refreshHandoff(rt: PanelRuntime): void {
  * account the mirror lost (extension reinstall) is adopted from
  * `GET /v1/accounts` before the operator is shown a paste form that could
  * only end in the service's duplicate refusal (MVP blocker 2).
- *
- * @param rt - Panel runtime whose handoff group may be mounted.
  */
 export async function preflightAndRepaint(rt: PanelRuntime): Promise<void> {
     await adoptServiceAccounts(rt);
@@ -139,7 +131,7 @@ export async function preflightAndRepaint(rt: PanelRuntime): Promise<void> {
 export interface HandoffSubmission {
     /** The pasted credential; lives only in the call's scope. */
     readonly token: string;
-    /** Optional expected-login constraint; omitted means none (FR-006). */
+    /** Optional expected-login constraint; omitted means none. */
     readonly expectedLogin?: string;
 }
 
@@ -149,19 +141,16 @@ export interface HandoffSubmission {
  *
  * The credential input is cleared in `finally`, on **every** exit — success,
  * service refusal, host failure, timeout, or a thrown error — so a paste never
- * survives the handoff it belonged to (contract §2 step ⑧, FR-007). The mount
+ * survives the handoff it belonged to (contract §2 step ⑧). The mount
  * step already wrote the value through at capture time (it reads the input and
  * empties it before the request starts); this second clear is what removes a
  * value that reappeared while the request was in flight, and it is why
  * {@link HandoffView.setTokenValue} has a production call site.
  *
- * The expected-login constraint (FR-006) travels only when the operator
+ * The expected-login constraint travels only when the operator
  * typed one: an empty or blank field omits the `expectedLogin` member
  * entirely, which is how the service is told *no constraint* and stores
- * `expectedLogin: null` (002 FR-009, 005 AC-141).
- *
- * @param rt - Panel runtime.
- * @param submission - The pasted credential and its optional constraint.
+ * `expectedLogin: null`.
  */
 export async function submitHandoffAndRepaint(
     rt: PanelRuntime,
@@ -205,7 +194,6 @@ interface CredentialField {
 /**
  * Create one element with the SDK's own class names.
  *
- * @param spec - Document, tag name, and class attribute.
  * @returns The element.
  */
 function makeElement(spec: { readonly doc: Document; readonly tag: string; readonly className: string }): HTMLElement {
@@ -225,12 +213,9 @@ type HandoffButtonVariant = 'default' | 'outline';
  * transparent border as its base and paints every real treatment from an
  * attribute selector (`[data-variant="…"]`), so a button with no variant is
  * bare text on the page — which is how every button here used to read before
- * the variant rule landed (product-owner review 2026-10-01). The attribute is written with
- * `setAttribute` rather than `dataset` so the offline DOM double records it
- * like any other attribute and a test can pin it.
- *
- * @param spec - Document, label, variant, and click handler.
- * @returns The button.
+ * the variant rule landed (product-owner review 2026-10-01). The attribute is
+ * written through `dataset`, which records the same `data-variant` the sheet's
+ * selector matches.
  */
 function makeButton(spec: {
     readonly doc: Document;
@@ -240,7 +225,7 @@ function makeButton(spec: {
 }): HTMLButtonElement {
     const button = spec.doc.createElement('button');
     button.className = 'oc-sdk oc-sdk-btn';
-    button.setAttribute('data-variant', spec.variant);
+    button.dataset.variant = spec.variant;
     button.type = 'button';
     button.textContent = spec.label;
     button.addEventListener('click', spec.onClick);
@@ -249,7 +234,7 @@ function makeButton(spec: {
 }
 
 /**
- * Mount the optional expected-login input (005 FR-006, 002 FR-009).
+ * Mount the optional expected-login input.
  *
  * The add form's **only** other field: a plain login string the *service*
  * validates, so the panel renders it as an ordinary optional input with no
@@ -290,7 +275,6 @@ function mountExpectedLoginField(doc: Document): {
  * expected-login field sits in the same row so the two hide together once an
  * account is connected (the paste row is then pointless for both).
  *
- * @param doc - Document to create in.
  * @returns The row's container, both inputs, and the note node.
  */
 function mountCredentialField(doc: Document): CredentialField {
@@ -316,13 +300,12 @@ function mountCredentialField(doc: Document): CredentialField {
  *
  * The pasted credential is read and the input emptied in the **same tick**, so
  * the DOM holds the value only between the paste and the click — one shot, no
- * cache, no retry buffer (contract §2 steps ② and ⑧, FR-007). The expected
+ * cache, no retry buffer (contract §2 steps ② and ⑧). The expected
  * login is captured the same way and for the inverse reason: it is not a
  * secret, but an empty field has to *stay* empty, or a constraint typed for
  * one account would be submitted with the next one (FR-006: absent or empty
  * means no constraint).
  *
- * @param spec - Document, both inputs to read, and the callbacks.
  * @returns The wired submit button.
  */
 function mountSubmitButton(spec: {
@@ -352,7 +335,6 @@ function mountSubmitButton(spec: {
 /**
  * Mount the handoff group: credential input, submit, and outcome lines.
  *
- * @param input - Panel root and the callbacks the button invokes.
  * @returns The view over the mounted nodes.
  */
 export function mountHandoffDom(input: DomInput): HandoffView {
@@ -373,8 +355,8 @@ export function mountHandoffDom(input: DomInput): HandoffView {
     root.append(group);
 
     return {
-        setTokenEnabled: (enabled: boolean): void => {
-            credential.input.disabled = !enabled;
+        setTokenEnabled: (isEnabled: boolean): void => {
+            credential.input.disabled = !isEnabled;
         },
         setTokenValue: (value: string): void => {
             credential.input.value = value;
@@ -387,12 +369,12 @@ export function mountHandoffDom(input: DomInput): HandoffView {
             connected.textContent = text ?? '';
             connected.hidden = text === null;
         },
-        setPasteVisible: (visible: boolean): void => {
-            credential.field.hidden = !visible;
-            submit.hidden = !visible;
+        setPasteVisible: (isVisible: boolean): void => {
+            credential.field.hidden = !isVisible;
+            submit.hidden = !isVisible;
         },
-        setSubmitEnabled: (enabled: boolean): void => {
-            submit.disabled = !enabled;
+        setSubmitEnabled: (isEnabled: boolean): void => {
+            submit.disabled = !isEnabled;
         },
         dispose: (): void => {
             group.remove();

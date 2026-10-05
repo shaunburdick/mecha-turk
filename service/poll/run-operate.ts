@@ -23,7 +23,7 @@
  * - **Attempt discipline is exact.** A retry and a resolve-to-*no-session* each
  *   increment the attempt exactly once; a verification report (in
  *   `run-verify.ts`) increments nothing and changes no state at all; the
- *   dead-letter return resets both counters (contract invariant 5, AC-106).
+ *   dead-letter return resets both counters (contract invariant 5).
  * - **The service corroborates what it can and records what it cannot.**
  *   `blocked:binding-missing` and `blocked:actor-not-allowed` are re-checked
  *   against the live store, because the service *can* check them;
@@ -59,7 +59,7 @@ import type { Run, RunState } from './runs-types.ts';
 // itself, and how — lives in `run-corroborate.ts`, extracted for the size bound.
 export { CAUSE_NOT_CLEARED, judgeActorCause } from './run-corroborate.ts';
 
-/** The two explicit resolutions of an `unconfirmed` run (FR-027). */
+/** The two explicit resolutions of an `unconfirmed` run. */
 export type ResolveDecision = 'session-created' | 'no-session';
 
 /**
@@ -93,7 +93,6 @@ export interface RefusalTarget {
  * tells the operator nothing is wrong, "a dispatched run cannot be retried"
  * tells them the opposite, and a generic refusal would collapse them into one.
  *
- * @param state - The state the run was found in.
  * @returns The refusal, naming that state in its own words.
  */
 function invalidTransition(state: RunState): RunRefusal {
@@ -110,13 +109,12 @@ function invalidTransition(state: RunState): RunRefusal {
 }
 
 /**
- * Answer a refused operator call with its one `dispatch.refused` row (FR-003).
+ * Answer a refused operator call with its one `dispatch.refused` row.
  *
  * Exported because [`run-verify.ts`](./run-verify.ts) answers its own refusals
  * the same way: one writer for the family is what keeps "every refusal writes
  * exactly one row naming its cause" true across all five operations.
  *
- * @param input - The operation's store and logger, the run, and the verdict.
  * @returns The refusal, carrying whether its row reached the trail.
  */
 export async function refused(input: RefusalTarget & {
@@ -150,9 +148,6 @@ export async function refused(input: RefusalTarget & {
  * would increment a counter the caller never saw, which is precisely the
  * half-apply that rule exists to prevent.
  *
- * @param input - The run, the attempt the operator names, whether they reported
- *   the cause cleared, and the live binding table for the causes the service can
- *   re-check itself.
  * @returns The refusal, or how the cause was shown to have cleared.
  */
 function judgeRetry(input: {
@@ -201,9 +196,8 @@ function judgeRetry(input: {
 }
 
 /**
- * Build the waiting run a retry produces (FR-041).
+ * Build the waiting run a retry produces.
  *
- * @param input - The failed or blocked run and the stamp.
  * @returns The `pending` run, with the attempt incremented exactly once.
  */
 function waitingRun(input: { readonly run: Run; readonly now: string }): Run {
@@ -236,7 +230,7 @@ interface RetryRowInput {
     readonly causeReportedCleared: boolean | null;
     /** Whether the service corroborated it, the panel reported it, or neither. */
     readonly causeClearedSource: CauseSource;
-    /** Whether this action reset the attempt chain (FR-033). */
+    /** Whether this action reset the attempt chain. */
     readonly reset: boolean;
     /** The operator's or panel's own words about the cause. */
     readonly causeReport: string | null;
@@ -246,9 +240,8 @@ interface RetryRowInput {
  * Write one `dispatch.retry` row, covering both shapes FR-041 and FR-033 require.
  *
  * `reset` is what makes the dead-letter return legible in the trail, because it
- * is the action that starts a fresh token-consumption chain (plan D6).
+ * is the action that starts a fresh token-consumption chain.
  *
- * @param input - The row's contents plus the store and logger.
  * @returns `true` when the row reached the trail.
  */
 async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
@@ -267,16 +260,12 @@ async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
 }
 
 /**
- * Return a `failed` or `blocked:*` run to waiting under the same run key
- * (FR-041).
+ * Return a `failed` or `blocked:*` run to waiting under the same run key.
+ *
  *
  * The run keeps its source references and every prior attempt's record, and the
- * automatic requeue budget is untouched: only an expired claim consumes it
- * (plan D5).
+ * automatic requeue budget is untouched: only an expired claim consumes it.
  *
- * @param input - Store, logger, the run, the attempt the request names (which
- *   is validated against the run's own), the operator's cause report, and an
- *   injectable service clock.
  * @returns The waiting run, or the distinct refusal naming why it did not move.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
@@ -293,7 +282,7 @@ export async function retryDispatch(input: {
     readonly causeCleared: boolean;
     /** The operator's own words about the cause. */
     readonly causeReport: string | null;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }): Promise<OperationResult> {
     const bindings = await readBindings({ store: input.store, log: input.log });
@@ -331,14 +320,13 @@ export async function retryDispatch(input: {
 
 /**
  * Return a dead-lettered run to waiting with the attempt and requeue counters
- * reset — the single control that resolves it (FR-033).
+ * reset — the single control that resolves it.
  *
- * The reset is also what starts a fresh token-consumption chain (plan D6):
+ * The reset is also what starts a fresh token-consumption chain:
  * consumption is scoped per attempt, and `attempt = 1` re-derives a token no
  * earlier report could have consumed. The history rows survive untouched, which
  * is what makes the boundary legible to an operator reading the trail.
  *
- * @param input - Store, logger, the run, and an injectable service clock.
  * @returns The waiting run, or the refusal naming its state.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
@@ -349,7 +337,7 @@ export async function requeueDispatch(input: {
     readonly log: ServiceLogger;
     /** The run to return to waiting, by correlation id. */
     readonly correlationId: string;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }): Promise<OperationResult> {
     return await operateRun(input, async ({ run, now, persist }): Promise<OperationResult> => {
@@ -395,7 +383,6 @@ export async function requeueDispatch(input: {
 /**
  * Judge a resolve (contract §8).
  *
- * @param input - The run being resolved.
  * @returns The refusal, or `null` when this `unconfirmed` run may be resolved.
  */
 function judgeResolve(input: { readonly run: Run }): RunRefusal | null {
@@ -410,7 +397,7 @@ function judgeResolve(input: { readonly run: Run }): RunRefusal | null {
 }
 
 /**
- * Build the run an operator's resolution produces (FR-027).
+ * Build the run an operator's resolution produces.
  *
  * `sessionId` is terminal and stores the session the operator named, with the
  * attempt record naming it **in the same write** — the store's parser refuses a
@@ -419,7 +406,6 @@ function judgeResolve(input: { readonly run: Run }): RunRefusal | null {
  * the attempt incremented and is **the only path that re-dispatches an
  * `unconfirmed` run**, ever.
  *
- * @param input - The `unconfirmed` run, the session id or `null`, and the stamp.
  * @returns The resolved run.
  */
 function resolvedRun(input: {
@@ -468,10 +454,8 @@ function resolvedRun(input: {
 }
 
 /**
- * Resolve an `unconfirmed` run on the operator's explicit word (FR-027).
+ * Resolve an `unconfirmed` run on the operator's explicit word.
  *
- * @param input - Store, logger, the run, the decision, the session id, the
- *   note, the guidance shown, and an injectable service clock.
  * @returns The resolved run, or the refusal naming why it did not move.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
@@ -490,7 +474,7 @@ export async function resolveDispatch(input: {
     readonly note: string | null;
     /** The guidance the operator was shown before deciding. */
     readonly guidance: string | null;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }): Promise<OperationResult> {
     return await operateRun(input, async ({ run, now, persist }): Promise<OperationResult> => {

@@ -57,9 +57,9 @@ export interface AccountsBody {
     readonly pane: HTMLElement;
     /** Status line above the list. */
     readonly status: TextHandle;
-    /** The credential-free account list (FR-062, FR-067). */
+    /** The credential-free account list. */
     readonly list: ListHandle;
-    /** Explicit re-read of the accounts list (FR-014). */
+    /** Explicit re-read of the accounts list. */
     readonly refreshAccounts: ButtonHandle;
     /** Wrapper around the selected account's own line. */
     readonly detailBox: HTMLElement;
@@ -75,14 +75,13 @@ export interface AccountsBody {
     readonly controls: DetailControls;
     /** Note under the body; never credential material. */
     readonly note: TextHandle;
-    /** Remove every node this body mounted (FR-017). */
+    /** Remove every node this body mounted. */
     readonly dispose: () => void;
 }
 
 /**
  * Compose the body's one status line.
  *
- * @param input - How many accounts the service listed and how many can poll.
  * @returns The summary text the status line shows.
  */
 function composeStatus(input: { readonly total: number; readonly usable: number }): string {
@@ -104,9 +103,6 @@ const LIST_COLUMNS: readonly string[] = ['Lifecycle', 'Account', 'Bindings'];
 /**
  * Repaint the open row: its words, both members' fields, and the two
  * confirmations.
- *
- * @param rt - Panel runtime.
- * @param view - The mounted body.
  */
 function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
     const { bindings, accounts } = rt.state;
@@ -120,7 +116,7 @@ function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
     view.detailChips.paint(selected ?? null);
     // One repaint path for both members: each field reads the same view its
     // mount built, so a draft, a refusal, and FR-064's not-set state cannot
-    // disagree with what the mount showed (FR-063, FR-064, FR-085). The
+    // disagree with what the mount showed. The
     // shared save is offered only while **both** fields are editable — it
     // writes both members in one body, so one closed row closes it
     // (owner ruling, PR #12: "One Save button, both fields").
@@ -131,12 +127,12 @@ function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
     for (const { member, painted } of views) {
         view.controls.members[member].field.update({
             value: painted.value,
-            disabled: painted.disabled,
+            disabled: painted.isDisabled,
             helper: painted.helper,
             placeholder: painted.placeholder,
         });
     }
-    view.controls.saveProfile.update({ disabled: views.some(({ painted }) => painted.disabled) });
+    view.controls.saveProfile.update({ disabled: views.some(({ painted }) => painted.isDisabled) });
     view.controls.rotateToken.update({
         label: armLabel({
             armed: accounts.rotateArmed,
@@ -158,10 +154,7 @@ function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
 }
 
 /**
- * Repaint the Accounts body from state (FR-062, FR-063, FR-067).
- *
- * @param rt - Panel runtime.
- * @param view - The mounted body.
+ * Repaint the Accounts body from state.
  */
 export function repaintAccountsBody(rt: PanelRuntime, view: AccountsBody): void {
     const { bindings } = rt.state;
@@ -179,11 +172,8 @@ export function repaintAccountsBody(rt: PanelRuntime, view: AccountsBody): void 
 /**
  * Mount the relocated one-shot handoff group: paste → connect, with the
  * static disclaimer beneath it and no Accept/Decline step (002 FR-060 as
- * re-cut at v1.9.0 — the substance the consent copy carried is that
+ * re-cut — the substance the consent copy carried is that
  * disclaimer).
- *
- * @param rt - Panel runtime whose handoff state the group renders.
- * @param pane - Pane root the group mounts into.
  */
 function mountHandoffGroup(rt: PanelRuntime, pane: HTMLElement): void {
     rt.handoffView = mountHandoffDom({
@@ -210,9 +200,8 @@ interface ListBoard {
 }
 
 /**
- * Mount the status line, list, refresh, note, and the disclaimer, as re-cut at v1.9.0 (002 FR-008).
+ * Mount the status line, list, refresh, note, and the disclaimer, as re-cut.
  *
- * @param input - Runtime, pane root, and the callbacks the controls invoke.
  * @returns The handles the body carries.
  */
 function mountListBoard(input: {
@@ -267,8 +256,7 @@ interface AccountsParts {
 /**
  * Build the disposer that releases every node and handle the body mounted.
  *
- * @param parts - What the mount created.
- * @returns The disposer the body hands its caller (FR-017).
+ * @returns The disposer the body hands its caller.
  */
 function accountsDisposer(parts: AccountsParts): () => void {
     const { board, detail, controls, detailBox, detailChips, pane } = parts;
@@ -289,7 +277,6 @@ function accountsDisposer(parts: AccountsParts): () => void {
 /**
  * Mount the Accounts body: handoff group, list, detail, and note.
  *
- * @param input - Runtime, body container, and the callbacks the controls use.
  * @returns The mounted body's handles.
  */
 export function mountAccountsBody(input: {
@@ -337,7 +324,7 @@ export function mountAccountsBody(input: {
     rt.accountsUi = view;
     repaintAccountsBody(rt, view);
     // Nothing has ever been read when the panel mounted against a service
-    // that was still spawning; this is that read's one retry path (FR-019).
+    // that was still spawning; this is that read's one retry path.
     if (rt.state.bindings.status === 'idle') {
         void loadBindings(rt);
     }
@@ -346,15 +333,12 @@ export function mountAccountsBody(input: {
 }
 
 /**
- * Record the account row the operator opened (FR-062).
+ * Record the account row the operator opened.
  *
  * Selecting a different row closes whatever the previous one had open: both
  * members' drafts and both armed controls belong to a row, and carrying them
  * across would let a confirm step — or a save — fire against the wrong
- * account (FR-066, 004 FR-089).
- *
- * @param rt - Panel runtime.
- * @param id - Numeric user id of the row the operator selected.
+ * account.
  */
 export function selectAccountRow(rt: PanelRuntime, id: string): void {
     if (rt.disposed) {
@@ -384,7 +368,6 @@ export function selectAccountRow(rt: PanelRuntime, id: string): void {
  * Every row-scoped callback resolves the open row first, so a control with
  * no selection does nothing rather than acting on the first row it finds.
  *
- * @param rt - Panel runtime the actions read and repaint.
  * @returns The handler table for {@link mountAccountsBody}.
  */
 export function createAccountsHandlers(rt: PanelRuntime): AccountsHandlers {

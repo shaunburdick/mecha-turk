@@ -59,7 +59,7 @@ export type { ActorAttribution, ActorPolicy } from './run-actor.ts';
 
 /** One run, as `GET /v1/events` projects it: credential-free, and carrying the
  * prompt's {@link PromptReference} — presence, the ordered `promptSources`
- * tier list, fingerprint, length, never text (FR-052, FR-087). */
+ * tier list, fingerprint, length, never text. */
 export interface RunRow extends PromptReference {
     /** **The run's correlation id**: row key and every run-operation path segment. */
     readonly id: string;
@@ -71,25 +71,25 @@ export interface RunRow extends PromptReference {
     readonly stateReason: string;
     /** FR-010's human-readable tuple, shown beside the correlation id. */
     readonly runKey: string;
-    /** 0-based ordinal of this run for its subject (FR-010). */
+    /** 0-based ordinal of this run for its subject. */
     readonly ordinal: number;
     /** Attempt the run currently stands on; retry/verification bodies echo it. */
     readonly attempt: number;
-    /** `= correlationId`; displayed so an operator can find the session (FR-029). */
+    /** `= correlationId`; displayed so an operator can find the session. */
     readonly attachmentId: string;
-    /** Target project, snapshotted at enqueue (AC-124). */
+    /** Target project, snapshotted at enqueue. */
     readonly projectId: string;
-    /** Worktree option, snapshotted at enqueue (AC-124). */
+    /** Worktree option, snapshotted at enqueue. */
     readonly worktreeOption: string;
     /** Live lease expiry, else `null` (the lease is fencing, not authority). */
     readonly leaseExpiresAt: string | null;
     /** Live reservation's result deadline, else `null` (contract §1). */
     readonly resultDeadlineAt: string | null;
-    /** Every retained reference, in join order (FR-013); excerpts never projected. */
+    /** Every retained reference, in join order; excerpts never projected. */
     readonly sourceReferences: readonly RunReference[];
     /**
-     * The **shape** of the binding's allow-list at the moment of authorization
-     * (003 FR-079).
+     * The **shape** of the binding's allow-list at the moment of authorization.
+     *
      *
      * `null` is *no authorization recorded yet* — a waiting or adopted run — and
      * is never read as `'open'` (005 FR-093: the panel computes no policy
@@ -99,13 +99,13 @@ export interface RunRow extends PromptReference {
     readonly actorPolicy: ActorPolicy | null;
     /** How many triggers have joined, retained or not (T-038's total). */
     readonly referenceCount: number;
-    /** Whether the reference list was cut at the cap (NFR-107). */
+    /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
-    /** How many joining triggers the cap kept off the list; `0` when none (T-038). */
+    /** How many joining triggers the cap kept off the list; `0` when none. */
     readonly referencesNotRetained: number;
-    /** Session pointer, or `null` when this run never produced one (FR-028). */
+    /** Session pointer, or `null` when this run never produced one. */
     readonly session: RunSession | null;
-    /** Recorded agent read-back, or `null` when none was filed (FR-043). */
+    /** Recorded agent read-back, or `null` when none was filed. */
     readonly verification: RunVerification | null;
     /** Trigger kind that opened the run (the earliest reference's). */
     readonly kind: RunKind;
@@ -199,8 +199,6 @@ const RUN_STRING_FIELDS = [
 /**
  * Read a required finite number member.
  *
- * @param record - Parsed row.
- * @param field - Member name.
  * @returns The value, or `null` when it is missing or not a number.
  */
 function requiredNumber(record: Record<string, unknown>, field: string): number | null {
@@ -214,10 +212,9 @@ function requiredNumber(record: Record<string, unknown>, field: string): number 
  *
  * `referenceCount` is the total that ever joined, `sourceReferences` is what
  * was retained, and `referencesNotRetained` is the difference — so a row whose
- * three disagree would render as either silently lossy or falsely complete
- * (T-038). Refusing it is the same call the store's own parser makes.
+ * three disagree would render as either silently lossy or falsely complete.
+ * Refusing it is the same call the store's own parser makes.
  *
- * @param input - The counting members and the retained list's length.
  * @returns `true` when they reconcile.
  */
 function countsReconcile(input: { readonly counts: RunCounts; readonly retained: number }): boolean {
@@ -232,12 +229,10 @@ function countsReconcile(input: { readonly counts: RunCounts; readonly retained:
 /**
  * Bound one already-read number below, refusing a fractional value.
  *
- * @param value - The number, or `null` when the member was unusable.
- * @param min - Smallest acceptable value.
  * @returns The value, or `null` when it is missing, fractional, or too small.
  */
 function atLeast(value: number | null, min: number): number | null {
-    if (value === null || !Number.isInteger(value) || value < min) {
+    if (value === null || !Number.isSafeInteger(value) || value < min) {
         return null;
     }
 
@@ -247,7 +242,6 @@ function atLeast(value: number | null, min: number): number | null {
 /**
  * Read the twelve string members the row renders from, as one step.
  *
- * @param record - Parsed row.
  * @returns The members, or `null` when any is missing, not a string, or empty.
  */
 function readRunScalars(record: Record<string, unknown>): RunScalars | null {
@@ -279,7 +273,6 @@ function readRunScalars(record: Record<string, unknown>): RunScalars | null {
 /**
  * Read the counting members of the row as one step.
  *
- * @param record - Parsed row.
  * @returns The members, or `null` when any is missing, fractional, or out of bounds.
  */
 function readRunCounts(record: Record<string, unknown>): RunCounts | null {
@@ -288,11 +281,13 @@ function readRunCounts(record: Record<string, unknown>): RunCounts | null {
     const referenceCount = atLeast(requiredNumber(record, 'referenceCount'), 0);
     const referencesNotRetained = atLeast(requiredNumber(record, 'referencesNotRetained'), 0);
     const { referencesTruncated } = record;
-    if (ordinal === null || attempt === null || referenceCount === null || referencesNotRetained === null) {
-        return null;
-    }
-
-    if (typeof referencesTruncated !== 'boolean') {
+    if (
+        ordinal === null ||
+        attempt === null ||
+        referenceCount === null ||
+        referencesNotRetained === null ||
+        typeof referencesTruncated !== 'boolean'
+    ) {
         return null;
     }
 
@@ -303,7 +298,6 @@ function readRunCounts(record: Record<string, unknown>): RunCounts | null {
  * Read the projected detail: references, pointers, stamps, and the optional
  * coordinates a delivery row can be evicted out from under.
  *
- * @param record - Parsed row.
  * @returns The members, or `null` when any structured member is unusable.
  */
 function readRunDetail(record: Record<string, unknown>): RunDetail | null {
@@ -338,7 +332,6 @@ function readRunDetail(record: Record<string, unknown>): RunDetail | null {
  * every step agreed — so a half-readable row is a refused row, never a
  * partially applied one (AGENTS invariant 8).
  *
- * @param value - One element of the `events` array.
  * @returns The row, or `null` when its shape is unusable.
  */
 function parseRunEntry(value: unknown): RunRow | null {
@@ -353,17 +346,17 @@ function parseRunEntry(value: unknown): RunRow | null {
     const state = runStateOf(record.state);
     const issueNumber = issueNumberFrom(record);
     // Read fail-closed like every other member: an unusable prompt reference
-    // refuses the row, so a half-read answer never renders a prompt line (004 FR-052).
+    // refuses the row, so a half-read answer never renders a prompt line.
     const prompt = readPromptReference(record);
-    if (scalars === null || counts === null || detail === null || state === null) {
-        return null;
-    }
-
-    if (issueNumber === 0 || prompt === null) {
-        return null;
-    }
-
-    if (!countsReconcile({ counts, retained: detail.sourceReferences.length })) {
+    if (
+        scalars === null ||
+        counts === null ||
+        detail === null ||
+        state === null ||
+        issueNumber === 0 ||
+        prompt === null ||
+        !countsReconcile({ counts, retained: detail.sourceReferences.length })
+    ) {
         return null;
     }
 
@@ -373,7 +366,6 @@ function parseRunEntry(value: unknown): RunRow | null {
 /**
  * Parse the runs-history (`GET /v1/events`) response body.
  *
- * @param text - Response body text.
  * @returns The rows in the order the service sent them (newest detected
  *   first), or `null` when any part of the shape is unusable.
  */
@@ -385,7 +377,6 @@ function parseRunEntry(value: unknown): RunRow | null {
  * than being skipped, because a list with a hole in it is a record an operator
  * would misread.
  *
- * @param events - The `events` member (unchecked).
  * @returns The rows, or `null` when the member is not an array or a row fails.
  */
 export function parseEventRows(events: unknown): RunRow[] | null {
@@ -409,7 +400,6 @@ export function parseEventRows(events: unknown): RunRow[] | null {
 /**
  * Parse the runs-history (`GET /v1/events`) response body's rows alone.
  *
- * @param text - Response body text.
  * @returns The rows in the order the service sent them (newest detected
  *   first), or `null` when any part of the shape is unusable.
  */

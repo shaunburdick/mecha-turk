@@ -31,7 +31,6 @@ export interface StatusSnapshot {
 /**
  * Parse the status document defensively; a shape it cannot read is `null`.
  *
- * @param result - The service's `/v1/status` response.
  * @returns The snapshot, or `null` when the body is not a usable status.
  */
 function parseStatus(result: GuestRequestResult): StatusSnapshot | null {
@@ -59,7 +58,6 @@ function parseStatus(result: GuestRequestResult): StatusSnapshot | null {
 /**
  * Map a thrown host failure onto its documented copy (panel-service §1).
  *
- * @param error - The caught failure.
  * @returns Its code, or `null` when the failure carries no known code.
  */
 export function hostErrorCode(error: unknown): string | null {
@@ -79,7 +77,6 @@ export function hostErrorCode(error: unknown): string | null {
 /**
  * Run the `GET /v1/status` pre-flight that gates the token input (F10).
  *
- * @param rt - Panel runtime.
  * @returns The parsed snapshot, or `null` when the service could not answer.
  */
 export async function preflightHandoff(rt: PanelRuntime): Promise<StatusSnapshot | null> {
@@ -102,7 +99,6 @@ export async function preflightHandoff(rt: PanelRuntime): Promise<StatusSnapshot
 /**
  * Re-read `/v1/status` after a host timeout before declaring failure (F4).
  *
- * @param rt - Panel runtime.
  * @returns The snapshot, or `null` when the re-read itself failed.
  */
 export async function rereadStatusAfterTimeout(rt: PanelRuntime): Promise<StatusSnapshot | null> {

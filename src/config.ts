@@ -11,7 +11,7 @@
  * the only configuration resolution mode (`bindings-mode.ts`), the project id
  * comes from the panel picker's `mecha-turk:project` selection alone
  * ({@link parseProjectId}), and the agent-verification baseline is read from
- * `GET /v1/config` per verification (`agent-verify.ts`, 002 FR-029).
+ * `GET /v1/config` per verification (`agent-verify.ts`).
  *
  * What survives are the value parsers: the service and the binding editor
  * still hand this module an `owner/name` string, a worktree option, and a
@@ -43,7 +43,7 @@ export type WorktreeSelection =
  * `bindings-mode.ts`, which derives it from the first enabled binding; it is
  * no longer parsed out of `ctx.settings`.
  */
-export interface SpikeConfig {
+export interface BindingContext {
     /** Repository polled under this context. */
     readonly repository: RepositoryRef;
     /** Optional expected login; when set it must equal the PAT identity. */
@@ -60,7 +60,7 @@ export interface SpikeConfig {
 export const DEFAULT_POLL_INTERVAL_MS = 60_000;
 
 /**
- * Documented default for the agent-verification baseline (002 FR-029).
+ * Documented default for the agent-verification baseline.
  *
  * **Blank, on purpose.** The product owner's order of 2026-10-01, verbatim:
  * *"Default Agent pin should default to blank, not everyone is going to use
@@ -98,6 +98,7 @@ const PARENT_PATH_REFERENCE = '..';
  * fail-closed behaviour instead of forwarding a malformed id to
  * `host.startSession()`.
  */
+// eslint-disable-next-line unicorn/prefer-unicode-code-point-escapes -- the `u` flag trips another rule instead.
 const PROJECT_ID_PATTERN = /^[\x20-\x7E]+$/;
 
 /** Longest project id the panel accepts; the host's own ids are far shorter. */
@@ -106,7 +107,6 @@ const PROJECT_ID_MAX = 128;
 /**
  * Parse an `owner/name` repository string.
  *
- * @param value - Raw repository string.
  * @returns The repository reference, or `null` when the value is not `owner/name`.
  */
 export function parseRepository(value: string): RepositoryRef | null {
@@ -117,11 +117,14 @@ export function parseRepository(value: string): RepositoryRef | null {
 
     const owner = parts[0];
     const name = parts[1];
-    if (owner === undefined || name === undefined || owner === '' || name === '') {
-        return null;
-    }
-
-    if (!REPOSITORY_PART_PATTERN.test(owner) || !REPOSITORY_PART_PATTERN.test(name)) {
+    if (
+        owner === undefined ||
+        name === undefined ||
+        owner === '' ||
+        name === '' ||
+        !REPOSITORY_PART_PATTERN.test(owner) ||
+        !REPOSITORY_PART_PATTERN.test(name)
+    ) {
         return null;
     }
 
@@ -129,13 +132,11 @@ export function parseRepository(value: string): RepositoryRef | null {
 }
 
 /**
- * Parse a worktree option value.
  *
  * Accepted values are `none` (and the empty string), `generated`, and
  * `new:<branch-name>`. A new-branch name must be a plain branch name: no path
  * separators and no `..`, because the host derives a directory from it.
  *
- * @param value - Raw worktree option.
  * @returns The worktree selection, or `null` when the value is not understood.
  */
 export function parseWorktreeOption(value: string): WorktreeSelection | null {
@@ -165,10 +166,10 @@ export function parseWorktreeOption(value: string): WorktreeSelection | null {
  *
  * Shared by the panel's project picker and by the selection restore, so a
  * stored selection and a freshly picked id are held to the same rule. The
- * integration card no longer supplies a `project-id` value (002 FR-041): the
+ * integration card no longer supplies a `project-id` value: the
  * stored `mecha-turk:project` selection and the host's own project list are
  * the only sources, and a source that holds no valid id leaves the resolution
- * `null` rather than inventing a project (002 FR-004).
+ * `null` rather than inventing a project.
  *
  * @param raw - Candidate id from a stored selection or a picker pick.
  * @returns The trimmed id, or `null` when the candidate is absent or malformed.
@@ -189,7 +190,6 @@ export function parseProjectId(raw: string | null): string | null {
 /**
  * Render a worktree selection in the option's own syntax.
  *
- * @param selection - Selection to render.
  * @returns The `none` / `generated` / `new:<name>` string.
  */
 export function formatWorktreeOption(selection: WorktreeSelection): string {
@@ -203,7 +203,6 @@ export function formatWorktreeOption(selection: WorktreeSelection): string {
 /**
  * Render a repository reference as `owner/name`.
  *
- * @param repository - Repository to render.
  * @returns The `owner/name` label used by GitHub paths and evidence records.
  */
 export function repositoryLabel(repository: RepositoryRef): string {
@@ -232,7 +231,7 @@ export function repositoryLabel(repository: RepositoryRef): string {
  */
 export function repositoryRefOf(repository: string): RepositoryRef {
     const index = repository.indexOf('/');
-    if (index < 0) {
+    if (index === -1) {
         return { owner: repository, name: '' };
     }
 

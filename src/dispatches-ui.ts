@@ -87,11 +87,11 @@ export interface DispatchesBoard {
     readonly retryRun: ButtonHandle;
     /** Wrapper around return-to-waiting, hidden unless the run is parked. */
     readonly requeueRunBox: HTMLElement;
-    /** Return the selected parked run to waiting (FR-033). */
+    /** Return the selected parked run to waiting. */
     readonly requeueRun: ButtonHandle;
     /** Wrapper around FR-027's two resolutions, hidden unless `unconfirmed`. */
     readonly resolveBox: HTMLElement;
-    /** The resolution group's heading — the affordance's own label (T-024). */
+    /** The resolution group's heading — the affordance's own label. */
     readonly resolveHeading: TextHandle;
     /** First resolution: the dispatch did create a session. */
     readonly resolveSession: ButtonHandle;
@@ -133,9 +133,8 @@ const AUDIT_HEADING = 'Audit trail';
 const LIST_COLUMNS: readonly string[] = ['Trigger', 'Subject', 'State', 'Age'];
 
 /**
- * Mount the status line that says which set is on screen (FR-042).
+ * Mount the status line that says which set is on screen.
  *
- * @param input - Pane root and runtime.
  * @returns The status handle.
  */
 function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<DispatchesBoard, DispatchesHeadKeys> {
@@ -152,9 +151,8 @@ function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<Disp
  *
  * Its empty slot is the one AC-122 polices: with a filter on it says the
  * filter matched nothing and offers the control that clears it, never that
- * there are no dispatches (FR-043).
+ * there are no dispatches.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The list handle.
  */
 function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, DispatchesListKeys> {
@@ -184,7 +182,6 @@ const OPEN_ISSUE_LABEL = 'Open issue';
 /**
  * Mount the two controls every selection offers: refresh, and open the issue.
  *
- * @param input - Pane root and handlers.
  * @returns The two buttons.
  */
 function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<DispatchesBoard, SharedActionKeys> {
@@ -211,7 +208,6 @@ function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick
  * Each sits in its own group so the group's `hidden` flag can say "not this
  * state" without leaving a greyed-out sibling visible.
  *
- * @param input - Pane root and handlers.
  * @returns The groups and their buttons.
  */
 function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
@@ -241,7 +237,6 @@ function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
 /**
  * Mount FR-027's two resolutions and the field that names the session.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The group, its heading, its two buttons, and the session field.
  */
 function mountResolutions(input: MountInputs): Pick<
@@ -282,9 +277,8 @@ function mountResolutions(input: MountInputs): Pick<
  *
  * The list sits in its own wrapper so it can disappear when there is nothing
  * to show while the status line keeps saying why — an empty trail, a failed
- * read, and a still-loading one all read differently (T-026).
+ * read, and a still-loading one all read differently.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The audit view's handles.
  */
 function mountAuditView(input: MountInputs): Pick<
@@ -320,7 +314,6 @@ function mountAuditView(input: MountInputs): Pick<
 /**
  * Mount the verification banner in its own hide-able wrapper.
  *
- * @param pane - Pane root.
  * @param runs - Section state, for the wrapper's first flag.
  * @returns The wrapper and the banner.
  */
@@ -340,12 +333,10 @@ function mountAgentNotice(
 }
 
 /**
- * Dispose every SDK handle a mounted dispatches board owns (FR-017).
+ * Dispose every SDK handle a mounted dispatches board owns.
  *
  * The wrapper elements go with their body's node; the handles themselves carry
  * listeners the host would otherwise outlive the teardown with.
- *
- * @param board - The board the Dispatches body mounted.
  */
 export function disposeDispatchesBoard(board: DispatchesBoard): void {
     const handles = [
@@ -378,9 +369,7 @@ export function disposeDispatchesBoard(board: DispatchesBoard): void {
  *
  * Split out of {@link repaintDispatchesBoard} because the two armed labels are the
  * two branches an operator reads as "this click will send". Each label names
- * the row it will act on (FR-081).
- *
- * @param input - The runs state, the label namer, and the mounted board.
+ * the row it will act on.
  */
 function repaintResolutions(input: {
     /** The runs section's state. */
@@ -408,17 +397,14 @@ function repaintResolutions(input: {
  *
  * The affordance table decides which transition group exists: one nobody can
  * use is hidden rather than greyed out, because a disabled button still
- * promises an action the service would refuse (FR-041, AC-123), and an armed
+ * promises an action the service would refuse, and an armed
  * control repaints its confirm label from the same state the action module
- * wrote (T-025).
+ * wrote.
  *
  * Every row-level action also repaints an **accessible name that names its
  * row** — *Retry dispatch for #412 in owner/name* — because a list of
  * identically-labelled buttons is a list an operator cannot act on with a
- * screen reader (FR-081).
- *
- * @param rt - Panel runtime.
- * @param board - The mounted runs half.
+ * screen reader.
  */
 export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard): void {
     const { dispatches: runs } = rt.state;
@@ -470,9 +456,8 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
  * fresh panel, rows after a restore), so a mount finishes with **one repaint**
  * — the body first appears long after the mount-time read landed, and without
  * it the paging controls would render their pre-read flags while the rows
- * already show the answer (FR-019, FR-081).
+ * already show the answer.
  *
- * @param input - Runtime, pane root, and handlers.
  * @returns The runs handles the pane repaints through.
  */
 export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {

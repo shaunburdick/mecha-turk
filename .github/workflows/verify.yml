@@ -60,6 +60,15 @@ jobs:
         run: npm ci
 
       - name: Run the repository gate
+        # No `env` here on purpose: the heap floor for the type-aware lint lives
+        # in `package.json`'s `lint` script, so a local `npm run verify` and this
+        # job get the same one. `eslint .` needs between 1.5 and 2 GB of old
+        # space for a tree this size — measured, not guessed: the run aborts with
+        # an OOM at `--max-old-space-size=1536` and passes at 2048, and `main` has
+        # the same profile as any branch, so it is a property of the repository's
+        # size rather than of one change. Node's default ceiling lands just under
+        # the requirement on a hosted runner, which is what made this gate fail
+        # intermittently before the floor was stated anywhere.
         run: npm run verify
 
       # AGENTS.md invariant 1, enforced by CI instead of by review: OpenChamber

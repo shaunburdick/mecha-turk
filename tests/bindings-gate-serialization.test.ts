@@ -43,8 +43,6 @@
  * the **real** module, both over a temp store and a real account record.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { accountPath, BINDINGS_FILE } from '../service/accounts/store.ts';
@@ -64,6 +62,7 @@ import type { RouteContext, RouteRequest } from '../service/routes/types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { offlineVerifier } from './support/github.ts';
 import { CAPABILITIES } from './support/verify.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every fixture uses; no test waits on a clock (NFR-112). */
 const STAMP = '2026-10-03T09:00:00.000Z';
@@ -177,7 +176,6 @@ function latch(): Latch {
 /**
  * Arm one observation point, holding or watching as asked.
  *
- * @param input - Which file, which half of its traffic, and whether to hold.
  * @returns The hook, with `reached` still pending.
  */
 function armHook(input: {
@@ -220,8 +218,6 @@ function armHook(input: {
  * the file however many turns pass — so a slow machine can only make this drain
  * more generous, never wrong, and a fast one cannot make it miss anything that
  * was going to happen at all.
- *
- * @param turns - How many macrotask boundaries to cross.
  */
 async function drainInMemoryWork(turns = 8): Promise<void> {
     for (let turn = 0; turn < turns; turn += 1) {
@@ -239,24 +235,20 @@ let store: ServiceStore;
 
 /** Capture sink; this suite asserts on locking, not on log text. */
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
 
 /** Per-test setup: a fresh store, a live lease window, and no log noise. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-serialized-'));
+beforeEach(async (): Promise<void> => {
+    tempRoot = await makeTempTree('serialized');
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, leaseMs: WINDOW_MS, resultDeadlineMs: WINDOW_MS });
     LOG_LINES.length = 0;
-};
-
-beforeEach(beforeEachWork1);
+});
 
 /** Per-test teardown. */
-const afterEachWork1 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork1);
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /**
  * Seed the one account the grant's existence check requires.
@@ -294,7 +286,6 @@ async function seedAccount(): Promise<void> {
 /**
  * The one binding row, with the allow-list the case under test submits.
  *
- * @param allowedUsers - The list the operator is saving.
  * @returns The row exactly as the panel's whole-file grant sends it.
  */
 function bindingRow(allowedUsers: readonly string[]): Record<string, unknown> {
@@ -320,7 +311,6 @@ function bindingRow(allowedUsers: readonly string[]): Record<string, unknown> {
  * suite is the locking, and driving the setup through the route would put the
  * operation under test on both sides of it.
  *
- * @param allowedUsers - The list to store.
  * @returns A promise that settles once the document is durable.
  */
 async function seedBindings(allowedUsers: readonly string[]): Promise<void> {
@@ -355,7 +345,6 @@ function detection(): EventSnapshot {
 /**
  * Enqueue one detection and claim it, as the panel would.
  *
- * @param log - The logger the enqueue and the claim report through.
  * @returns The claim coordinates a reserve needs.
  */
 async function seedAndClaim(log: ServiceLogger): Promise<{
@@ -366,7 +355,7 @@ async function seedAndClaim(log: ServiceLogger): Promise<{
 }> {
     await enqueueEvents({ store, log, incoming: [createEvent(detection())] });
     const claimed = await claimPendingRuns({ store, log, holder: HOLDER, now: STAMP });
-    const [run] = claimed.runs.filter((candidate) => candidate.issueNumber === ISSUE);
+    const run = claimed.runs.find((candidate) => candidate.issueNumber === ISSUE);
     if (run?.lease === undefined) {
         throw new Error('the fixture run was not claimed');
     }
@@ -381,8 +370,6 @@ async function seedAndClaim(log: ServiceLogger): Promise<{
  * A decorator rather than a fake: the assertion is about **which real operation
  * reaches the disk first**, so both sides have to be the real ones.
  *
- * @param inner - The store every other call is delegated to.
- * @param hooks - The observation points to install.
  * @param events - The ordered record of `bindings.json` and `runs.json` traffic.
  * @returns The decorated store.
  */
@@ -447,8 +434,6 @@ function routeContext(target: ServiceStore): RouteContext {
 /**
  * One whole-file grant through the **real** route handler.
  *
- * @param target - The store the grant writes through.
- * @param allowedUsers - The list the operator is saving.
  * @returns The response status.
  */
 async function grant(target: ServiceStore, allowedUsers: readonly string[]): Promise<number> {
@@ -467,8 +452,6 @@ async function grant(target: ServiceStore, allowedUsers: readonly string[]): Pro
 /**
  * One reserve through the **real** module, as the panel's relay calls it.
  *
- * @param target - The store the gate reads and writes through.
- * @param claim - The claim coordinates the reserve presents.
  * @returns Whatever the reserve answered.
  */
 async function reserve(target: ServiceStore, claim: {

@@ -63,7 +63,6 @@ export const PREREQUISITES_HEADING = 'Setup prerequisites';
 /**
  * Render one prerequisite as the line its `TextHandle` shows.
  *
- * @param item - The prerequisite to render.
  * @returns `title · state — detail remediation`, in that order, so the state
  *   is readable even when the line wraps.
  */
@@ -146,7 +145,6 @@ const surfaces = new WeakMap<PanelRuntime, PrerequisitesSurface>();
 /**
  * Read (or create) one runtime's surface record.
  *
- * @param rt - Panel runtime.
  * @returns The mutable surface record for this runtime.
  */
 function surfaceFor(rt: PanelRuntime): PrerequisitesSurface {
@@ -167,8 +165,6 @@ function surfaceFor(rt: PanelRuntime): PrerequisitesSurface {
  * Nothing happens on a runtime with no mounted surface, which is what lets
  * every state change route through `refresh` without knowing what is on
  * screen (headless tests, and the window before the first mount).
- *
- * @param rt - Panel runtime.
  */
 export function repaintPrerequisites(rt: PanelRuntime): void {
     const surface = surfaces.get(rt);
@@ -199,8 +195,6 @@ export function repaintPrerequisites(rt: PanelRuntime): void {
  * notice that disappears when the operator switches tabs is one they can
  * switch away from. The wrapper starts hidden, so a panel that has derived
  * nothing unmet shows no banner until the first repaint paints one.
- *
- * @param input - Runtime, and the panel-root element to append the wrapper to.
  */
 export function mountPrerequisiteNotice(input: {
     /** Runtime whose state the banner repaints from. */
@@ -226,8 +220,6 @@ export function mountPrerequisiteNotice(input: {
  * the single-line format used to print between them, and changes no word
  * inside any of them.
  *
- * @param parent - The block body to append the card into.
- * @param item - The prerequisite this card shows.
  * @returns The card, repainted and disposed as one unit.
  */
 function mountPrereqCard(parent: HTMLElement, item: Prerequisite): PrereqCard {
@@ -272,8 +264,6 @@ function mountPrereqCard(parent: HTMLElement, item: Prerequisite): PrereqCard {
  * Mount the five-card section inside the Status body: one block so the
  * heading and its cards read as one thing, one card per prerequisite because
  * each repaints from its own record.
- *
- * @param input - Runtime, and the Status body the block mounts into.
  */
 export function mountPrerequisitesSection(input: {
     /** Runtime whose state the cards repaint from. */
@@ -293,8 +283,6 @@ export function mountPrerequisitesSection(input: {
  *
  * Called from the app's teardown beside the other handle disposals: the
  * wrappers are not part of `PanelUi`, so nothing else would release them.
- *
- * @param rt - Panel runtime being torn down.
  */
 export function disposePrerequisites(rt: PanelRuntime): void {
     const surface = surfaces.get(rt);

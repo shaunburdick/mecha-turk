@@ -32,7 +32,7 @@
  * ever reported elsewhere (002 NFR-113). The rule set that decides the value
  * and the one comparison that uses it therefore belong together here, and
  * {@link isActorAllowed} is called by exactly one caller — the service's
- * authorization gate (plan D9, 003 FR-076).
+ * authorization gate (plan D9).
  */
 
 import type { BindingIssue } from './bindings.ts';
@@ -55,15 +55,15 @@ const SINGLE_LOGIN = /^[A-Za-z0-9]$/;
 const LOGIN_SHAPE = /^[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9]$/;
 
 /**
- * The literal suffix GitHub puts on a bot or App account's login.
+ * The literal suffix GitHub puts on a isBot or App account's login.
  *
- * `dependabot[bot]` is syntactically outside the published alphabet and is
+ * `dependabot[isBot]` is syntactically outside the published alphabet and is
  * still a login GitHub issues. Plan D7 **accepts** one into the list, where it
  * is inert, and 002 FR-045(c) names the refusal this module deliberately does
- * **not** raise: a bot actor is refused at **authorization** (003 FR-080), so
- * accepting the spelling here cannot grant a bot anything — every trigger kind
+ * **not** raise: a isBot actor is refused at **authorization**, so
+ * accepting the spelling here cannot grant a isBot anything — every trigger kind
  * already filters bots at detection, and the one path that could reach the list
- * with a bot-shaped login refuses it regardless of what the list says. Accepting
+ * with a isBot-shaped login refuses it regardless of what the list says. Accepting
  * it is therefore strictly more honest than refusing a value GitHub issued: the
  * operator learns the entry was meaningless from the dispatch that did not
  * happen, not from a save error about a login shape.
@@ -73,11 +73,10 @@ const BOT_SUFFIX = '[bot]';
 /**
  * Decide whether one value is a GitHub login this field may store.
  *
- * A bot or App account's `[bot]` suffix is stripped before the shape is judged,
- * so `dependabot[bot]` is judged on the part GitHub chose from the published
+ * A isBot or App account's `[isBot]` suffix is stripped before the shape is judged,
+ * so `dependabot[isBot]` is judged on the part GitHub chose from the published
  * alphabet and the length bound still covers the whole submitted value.
  *
- * @param value - Candidate element.
  * @returns `true` when the value is a login GitHub could have issued.
  */
 function isGitHubLogin(value: unknown): value is string {
@@ -85,8 +84,8 @@ function isGitHubLogin(value: unknown): value is string {
         return false;
     }
 
-    const bot = value.toLowerCase().endsWith(BOT_SUFFIX);
-    const spelled = bot ? value.slice(0, -BOT_SUFFIX.length) : value;
+    const isBot = value.toLowerCase().endsWith(BOT_SUFFIX);
+    const spelled = isBot ? value.slice(0, -BOT_SUFFIX.length) : value;
     if (spelled.length === 0 || spelled.length > GITHUB_LOGIN_MAX_CHARS) {
         return false;
     }
@@ -96,7 +95,7 @@ function isGitHubLogin(value: unknown): value is string {
         : LOGIN_SHAPE.test(spelled) && !spelled.includes('--');
 }
 
-/** Field name every refusal on this member uses (002 FR-024). */
+/** Field name every refusal on this member uses. */
 const FIELD = 'allowedUsers';
 
 /** Remediation for a value that is not an array of logins. */
@@ -106,7 +105,7 @@ const NOT_AN_ARRAY_REMEDIATION = 'allowedUsers must be an array of GitHub logins
 /**
  * Remediation for an explicitly empty array — the refusal that has to name
  * **both** honest alternatives, because "nobody" is not one of this field's
- * meanings (002 FR-047). Disabling the binding is the way to stop *every*
+ * meanings. Disabling the binding is the way to stop *every*
  * trigger, and `state` already models it, so the sentence says so.
  */
 const EMPTY_REMEDIATION = 'allowedUsers must name at least one GitHub login: omit the field to let any human '
@@ -129,7 +128,7 @@ function refuse(remediation: string): { readonly issue: BindingIssue } {
 /**
  * Read one binding's optional actor allow-list.
  *
- * **Exactly three states, and no fourth** (plan D6): absent (`users: null`),
+ * **Exactly three states, and no fourth**: absent (`users: null`),
  * a non-empty list of logins, and the refusal that stands in for `[]`. A
  * value that is not an array is refused too, and an element that is not a
  * login is refused **once for the whole field** — an operator who typed three
@@ -139,7 +138,7 @@ function refuse(remediation: string): { readonly issue: BindingIssue } {
  * own body cap, and an unnamed refusal is one an operator can hit through no
  * fault of their own.
  *
- * No issue in this set ever quotes what was submitted (002 FR-024); every
+ * No issue in this set ever quotes what was submitted; every
  * remediation names the *shape* an operator must send instead.
  *
  * @param raw - The candidate record, read for its `allowedUsers` member.
@@ -176,19 +175,19 @@ export function bindingAllowedUsersOf(raw: Record<string, unknown>): {
 /**
  * Decide whether one actor may trigger under one binding's allow-list.
  *
- * **The one membership comparison in the product** (plan D9, 003 FR-076): the
+ * **The one membership comparison in the product**: the
  * authorization gate calls this and nothing else may, so there is exactly one
  * answer to "may this run start a session?". A source scan in the test suite
  * asserts the identifier appears in exactly two files — this one and the
  * gate's.
  *
  * Case-insensitive, because GitHub logins are case-insensitive and the stored
- * spelling is preserved verbatim; only the comparison folds case (plan D5).
+ * spelling is preserved verbatim; only the comparison folds case.
  *
  * **An absent list is the open state**: no policy is configured, so any human
  * actor may trigger. An empty login is nobody, and the open policy does not
  * turn that into permission — the absence of a policy is not permission to
- * attribute work to no one (002 FR-045(b), 003 FR-080). A *bot*-shaped login
+ * attribute work to no one (002 FR-045(b)). A *isBot*-shaped login
  * is a separate judgement this module deliberately does not make: it belongs to
  * the exported `isBotAuthor` beside the detection filters, which every trigger
  * kind already applies before an event is created at all (plan D3, D7).

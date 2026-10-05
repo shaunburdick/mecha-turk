@@ -16,8 +16,8 @@
  * (product decision, 2026-09-28: the first scan is a replay, not a baseline).
  */
 
-import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readdir, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createLogger } from '../service/log.ts';
@@ -28,6 +28,7 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { ScanState } from '../service/poll/scan.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Binding id used by every fixture slot. */
 const BINDING_ID = 'bnd-quarantine';
@@ -56,26 +57,19 @@ let dataDir = '';
 /** Open store handle for the tests that read through the real store. */
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-scan-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('scan'));
     store = await openStore({ dataDir });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /**
  * Build a logger that records every line it is asked to write.
- *
- * @returns The logger plus the lines it captured.
  */
 function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
     const lines: string[] = [];
@@ -93,8 +87,6 @@ function capturingLogger(): { readonly log: ServiceLogger; readonly lines: strin
  * Write one scan-state document straight into the store directory.
  *
  * The bytes are exactly what the loop writes: serialized JSON, no formatting.
- *
- * @param value - The document to plant.
  */
 async function plantScanState(value: unknown): Promise<void> {
     await writeFile(join(dataDir, SCAN_STATE_FILE), JSON.stringify(value), 'utf8');
@@ -142,33 +134,28 @@ function stateWith(slot: { readonly lastScanAt: string | null; readonly lastErro
 }
 
 describe('parseStoredScanState (never-scanned slot, MVP fix 1)', () => {
-    it('round-trips the null lastScanAt the loop writes with… (+2 cases)', async () => {
-        // case: round-trips the null lastScanAt the loop writes with its skip reason
+    it('round-trips the null lastScanAt the loop writes with its skip reason', async () => {
         {
             // The operator's exact on-disk file, as it arrives after a JSON load.
             const stored = { bindings: { [BINDING_ID]: { lastScanAt: null, lastError: SKIP_REASON } } };
-            const reloaded = JSON.parse(JSON.stringify(stored)) as Record<string, unknown>;
+            const reloaded = structuredClone(stored) as Record<string, unknown>;
 
             const parsed = parseStoredScanState(reloaded);
 
             expect(parsed).toEqual(stored);
             expect(parsed?.bindings[BINDING_ID]).toEqual({ lastScanAt: null, lastError: SKIP_REASON });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: round-trips a completed scan stamp alongside its reason
+    });
+
+    it('round-trips a completed scan stamp alongside its reason', async () => {
         {
             const stored = { bindings: { [BINDING_ID]: { lastScanAt: SCANNED_AT, lastError: null } } };
 
             expect(parseStoredScanState(stored)).toEqual(stored);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: still refuses a genuinely malformed slot so the store quarantines it
+    });
+
+    it('still refuses a genuinely malformed slot so the store quarantines it', async () => {
         {
             const malformed: readonly unknown[] = [
                 { bindings: { [BINDING_ID]: { lastScanAt: 1_758_950_400, lastError: null } } },
@@ -183,11 +170,11 @@ describe('parseStoredScanState (never-scanned slot, MVP fix 1)', () => {
             }
         }
     });
+
 });
 
 describe('readScanState (real store, no more per-minute quarantine files)', () => {
-    it('reads the loop-written file in place, leaving no qua… (+1 cases)', async () => {
-        // case: reads the loop-written file in place, leaving no quarantine file behind
+    it('reads the loop-written file in place, leaving no quarantine file behind', async () => {
         {
             await plantScanState({ bindings: { [BINDING_ID]: { lastScanAt: null, lastError: SKIP_REASON } } });
             const { log, lines } = capturingLogger();
@@ -198,11 +185,9 @@ describe('readScanState (real store, no more per-minute quarantine files)', () =
             expect(await quarantined()).toEqual([]);
             expect(lines.filter((line) => line.includes('quarantine'))).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: quarantines a malformed file and answers an empty state instead
+    });
+
+    it('quarantines a malformed file and answers an empty state instead', async () => {
         {
             await plantScanState({ bindings: { [BINDING_ID]: { lastScanAt: 42 } } });
             const { log, lines } = capturingLogger();
@@ -214,11 +199,11 @@ describe('readScanState (real store, no more per-minute quarantine files)', () =
             expect(lines.some((line) => line.includes('unusable'))).toBe(true);
         }
     });
+
 });
 
 describe('windowFor (never-scanned opens a replay, scanned opens widened)', () => {
-    it('opens with no window when no scan ever completed — a… (+2 cases)', async () => {
-        // case: opens with no window when no scan ever completed — a full replay
+    it('opens with no window when no scan ever completed — a full replay', async () => {
         {
             // Product decision 2026-09-28: pre-binding assignments must work, so
             // the first scan lists every open issue instead of a createdAt
@@ -227,11 +212,9 @@ describe('windowFor (never-scanned opens a replay, scanned opens widened)', () =
 
             expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: opens at the recorded stamp minus the configured overlap (006 FR-059(a))
+    });
+
+    it('opens at the recorded stamp minus the configured overlap (006 FR-059(a))', async () => {
         {
             const scanned = stateWith({ lastScanAt: SCANNED_AT, lastError: null });
 
@@ -239,15 +222,14 @@ describe('windowFor (never-scanned opens a replay, scanned opens widened)', () =
             expect(widened).toBe(WIDENED_AT);
             expect(Date.parse(WIDENED_AT)).toBeLessThan(Date.parse(SCANNED_AT));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: opens with no window for a binding the state file never mentions
+    });
+
+    it('opens with no window for a binding the state file never mentions', async () => {
         {
             const scanned = stateWith(null);
 
             expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toBeNull();
         }
     });
+
 });

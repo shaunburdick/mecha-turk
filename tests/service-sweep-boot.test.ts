@@ -40,8 +40,8 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
+
 import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -53,6 +53,7 @@ import type { ClaimedRun } from '../service/poll/claim.ts';
 import type { SweepOutcome } from '../service/poll/sweep.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Path of the claim route the panel polls. */
 const CLAIM_PATH = '/v1/events/pending';
@@ -109,20 +110,20 @@ const LEGACY_CLAIMED_AT: string = sweepClockFixture().legacyRow.claimedAt;
 let running: TestService | null = null;
 let scratch: string | null = null;
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
-    if (scratch !== null) {
-        await rm(scratch, { recursive: true, force: true });
-        scratch = null;
+    if (scratch === null) {
+        return;
     }
-};
 
-afterEach(afterEachWork1);
+    await removeTempTree(scratch);
+    scratch = null;
+});
 
 /**
  * Seed the store from the fixture, then assert the shape a first boot needs.
@@ -135,7 +136,7 @@ afterEach(afterEachWork1);
  * @returns The data directory to start the service against.
  */
 async function seedStrandedClaim(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), 'mecha-turk-boot-sweep-'));
+    const root = await makeTempTree('boot-sweep');
     scratch = root;
     const dataDir = join(root, 'store');
     const store = await openStore({ dataDir });
@@ -156,14 +157,13 @@ async function seedStrandedClaim(): Promise<string> {
  * answered `undefined` that later assertions reported far from its cause —
  * the misdirection T-045's precondition assertions exist to end.
  *
- * @param service - The running service to claim against.
  * @returns The run rows it answered with.
  */
 async function claim(service: TestService): Promise<readonly ClaimedRun[]> {
     const response = await service.call(CLAIM_PATH);
     const body: { events?: ClaimedRun[] } = await response.json();
     if (!Array.isArray(body.events)) {
-        throw new Error(`claim answered no run list (status ${response.status}): ${JSON.stringify(body)}`);
+        throw new TypeError(`claim answered no run list (status ${response.status}): ${JSON.stringify(body)}`);
     }
 
     return body.events;
@@ -172,7 +172,6 @@ async function claim(service: TestService): Promise<readonly ClaimedRun[]> {
 /**
  * The harness service's open store; a boot-sweep test cannot run without one.
  *
- * @param instance - The running service.
  * @returns Its store handle.
  */
 function openHarnessStore(instance: TestService): NonNullable<TestService['handle']['store']> {
@@ -186,7 +185,6 @@ function openHarnessStore(instance: TestService): NonNullable<TestService['handl
 /**
  * Every lease-expiry row the store holds, in the order they were written.
  *
- * @param store - Store to read the trail from.
  * @returns The `dispatch.lease-expired` rows.
  */
 async function leaseExpiryRows(store: NonNullable<TestService['handle']['store']>): Promise<readonly unknown[]> {
@@ -199,7 +197,6 @@ async function leaseExpiryRows(store: NonNullable<TestService['handle']['store']
  * Everything a failed precondition should print: the boot's own sweep outcome,
  * what it answered the claim, and every line it logged.
  *
- * @param input - The first boot under assertion.
  * @returns A diagnostic string for the assertion message.
  */
 function bootDiagnostics(input: {
@@ -218,8 +215,7 @@ function bootDiagnostics(input: {
 }
 
 describe('T-010 boot sweep ordering', () => {
-    it('recovers a stranded claim before the first claim ans… (+1 cases)', async () => {
-        // case: recovers a stranded claim before the first claim answer (FR-032)
+    it('recovers a stranded claim before the first claim answer', async () => {
         {
             const dataDir = await seedStrandedClaim();
             running = await startTestService({ dataDir });
@@ -241,9 +237,9 @@ describe('T-010 boot sweep ordering', () => {
             expect(rows).toHaveLength(1);
             expect((rows[0] as { details: { migrationRecovery: boolean } }).details.migrationRecovery).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: leaves a live lease alone across a restart, and recovers the same run once
+    });
+
+    it('leaves a live lease alone across a restart, and recovers the same run once', async () => {
         {
             const dataDir = await seedStrandedClaim();
             const first = await startTestService({ dataDir });
@@ -288,18 +284,19 @@ describe('T-010 boot sweep ordering', () => {
                 .toEqual(firstClaim.map((run) => run.correlationId));
         }
     });
+
 });
 
 describe('T-045 the pass adopts under the stamp it judges with', () => {
     it('recovers the migration lease it mints, whatever clock the pass sampled', async () => {
         const fixture = sweepClockFixture();
-        const root = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-stamp-'));
+        const root = await makeTempTree('sweep-stamp');
         scratch = root;
         const dataDir = join(root, 'store');
         const store = await openStore({ dataDir });
         await store.writeJson(EVENTS_FILE, [fixture.legacyRow]);
         const lines: string[] = [];
-        const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+        const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
 
         // The captured failing input: a pass whose stamp is injected, on a
         // store no one has read yet, so the read adopts. Adoption must mint the
@@ -319,7 +316,7 @@ describe('T-045 the pass adopts under the stamp it judges with', () => {
         // that stamp and one millisecond before the pass's stamp — so it reads
         // as expired to a pass from *any* moment, including one whose clock
         // sample predates this mint (the shape that failed).
-        expect(recovery?.details.leaseExpiry).toBe(String(fixture.legacyRow.claimedAt));
+        expect(recovery?.details.leaseExpiry).toBe(fixture.legacyRow.claimedAt);
         expect(outcome.auditWritten, JSON.stringify({ log: lines })).toBe(true);
         const rows = await leaseExpiryRows(store);
         expect(rows).toHaveLength(1);
@@ -328,8 +325,7 @@ describe('T-045 the pass adopts under the stamp it judges with', () => {
 });
 
 describe('T-010 the periodic sweep', () => {
-    it('names its recoveries in the service log without any … (+1 cases)', async () => {
-        // case: names its recoveries in the service log without any secret
+    it('names its recoveries in the service log without any secret', async () => {
         {
             const dataDir = await seedStrandedClaim();
             running = await startTestService({ dataDir });
@@ -342,15 +338,15 @@ describe('T-010 the periodic sweep', () => {
             expect(recoveries[0]).not.toContain('octocat');
             expect(recoveries[0]).not.toMatch(/gh[pousr]_[A-Za-z0-9]{16,}/);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: stops on shutdown, leaving the timer to the process exit
+    });
+
+    it('stops on shutdown, leaving the timer to the process exit', async () => {
         {
-            const root = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-timer-'));
+            const root = await makeTempTree('sweep-timer');
             scratch = root;
             const store = await openStore({ dataDir: join(root, 'store') });
             const lines: string[] = [];
-            const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+            const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
 
             const loop = startSweep({ store, log });
             loop.stop();
@@ -361,11 +357,12 @@ describe('T-010 the periodic sweep', () => {
             expect(lines).toEqual([]);
         }
     });
+
 });
 
 describe('T-010 a degraded start', () => {
     it('still answers the claim route when the store was unusable', async () => {
-        const blocked = await mkdtemp(join(tmpdir(), 'mecha-turk-boot-blocked-'));
+        const blocked = await makeTempTree('boot-blocked');
         scratch = blocked;
         const blocker = join(blocked, 'blocker');
         await writeFile(blocker, 'i am a file', 'utf8');

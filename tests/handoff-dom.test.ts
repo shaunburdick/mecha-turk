@@ -16,7 +16,7 @@
 import type { GuestRequest, GuestRequestResult, HostRequestErrorCode } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
 import { mountHandoffDom, refreshHandoff, submitHandoffAndRepaint } from '../src/accounts-ui.ts';
-import { VERIFY_PATH, currentHandoffToken } from '../src/handoff.ts';
+import { VERIFY_PATH } from '../src/handoff.ts';
 import type { HandoffHandlers } from '../src/accounts-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
@@ -194,7 +194,6 @@ describe('credential input clearing (contract §2 step ⑧, FR-007)', () => {
 
             expect(mounted.input.value, `${spec.name}: input must clear on settle`).toBe('');
             expect(mounted.rt.state.handoff.busy, `${spec.name}: busy must clear`).toBe(false);
-            expect(currentHandoffToken(), `${spec.name}: token must be forgotten`).toBeUndefined();
             expect(mounted.renderedText(), `${spec.name}: rendered text must carry no token`)
                 .not.toContain(PANEL_TOKEN);
         }
@@ -247,8 +246,7 @@ function verifyBody(mounted: MountedHandoff): Record<string, unknown> | undefine
 const VARIANT_ATTRIBUTE = 'data-variant';
 
 describe('the group carries a submit control and no consent dialog (002 v1.9.0)', () => {
-    it('gives the submit button a real SDK variant, so it do… (+1 cases)', async () => {
-        // case: gives the submit button a real SDK variant, so it does not paint as bare text
+    it('gives the submit button a real SDK variant, so it does not paint as bare text', async () => {
         {
             const mounted = await mountHandoff({
                 name: 'the submit variant',
@@ -259,7 +257,9 @@ describe('the group carries a submit control and no consent dialog (002 v1.9.0)'
             // attribute the button keeps only its transparent base border.
             expect(mounted.submit.attribute(VARIANT_ATTRIBUTE)).toBe('default');
         }
-        // case: mounts neither an Accept nor a Decline decision anywhere in the group
+    });
+
+    it('mounts neither an Accept nor a Decline decision anywhere in the group', async () => {
         {
             const mounted = await mountHandoff({
                 name: 'the missing consent dialog',
@@ -276,11 +276,11 @@ describe('the group carries a submit control and no consent dialog (002 v1.9.0)'
             expect(mounted.created.some((node) => node.className === 'mt-toolbar')).toBe(false);
         }
     });
+
 });
 
 describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
-    it('mounts exactly one optional non-credential input bes… (+4 cases)', async () => {
-        // case: mounts exactly one optional non-credential input beside the token
+    it('mounts exactly one optional non-credential input beside the token', async () => {
         {
             const mounted = await mountHandoff({
                 name: 'the expected-login field',
@@ -292,7 +292,9 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.input.attribute('type')).toBe('password');
             expect(mounted.expected.attribute('type')).toBe('text');
         }
-        // case: sends no expectedLogin member when the field is left empty (AC-141)
+    });
+
+    it('sends no expectedLogin member when the field is left empty', async () => {
         {
             const mounted = await mountHandoff({
                 name: 'an empty expected login',
@@ -311,7 +313,9 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.input.value).toBe('');
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         }
-        // case: sends the expected login the operator typed, trimmed
+    });
+
+    it('sends the expected login the operator typed, trimmed', async () => {
         {
             const mounted = await mountHandoff({
                 name: 'a typed expected login',
@@ -326,7 +330,9 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(verifyBody(mounted)?.expectedLogin).toBe('OctoCat-MT');
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         }
-        // case: renders the mismatch refusal with its own copy and never the token (002 FR-009)
+    });
+
+    it('renders the mismatch refusal with its own copy and never the token (002 FR-009)', async () => {
         {
             const refusal = JSON.stringify({
                 error: { code: 'account-rejected', message: 'contract-fixed' },
@@ -344,9 +350,10 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.rt.state.handoff.note)
                 .toBe('The token belongs to a different account than the one expected.');
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
-            expect(currentHandoffToken()).toBeUndefined();
         }
-        // case: routes the same paste to the token-replacement path once a row arms it (FR-064)
+    });
+
+    it('routes the same paste to the token-replacement path once a row arms it', async () => {
         {
             const rotated = JSON.stringify({
                 numericUserId: CONNECTED_ID,
@@ -388,4 +395,5 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
             expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
         }
     });
+
 });

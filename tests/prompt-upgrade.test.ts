@@ -44,8 +44,8 @@
  * cycle skips it (no poller, no network) and its window cannot move.
  */
 
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readFile, readdir } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendAudit, readAuditEntries } from '../service/audit.ts';
@@ -67,6 +67,7 @@ import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/handoff.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every seeded row carries, so nothing here waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -110,7 +111,7 @@ const NO_STORE = 'the harness started without a store';
 
 /** Log sink shared by the seeding handle and the booted service. */
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let dataDir = '';
@@ -118,28 +119,23 @@ let store: ServiceStore;
 /** The service this suite boots, drained before the temp root goes. */
 let running: TestService | null = null;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-prompt-upgrade-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('prompt-upgrade'));
     store = await openStore({ dataDir });
     running = null;
     LOG_LINES.length = 0;
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+    await removeTempTree(tempRoot);
+});
 
 /** The pre-004 binding: no prompt member anywhere, and `disabled` so no scan runs. */
 function pre004Binding(): Record<string, unknown> {
@@ -233,7 +229,7 @@ async function seedPre004Store(prompt: string | null = null): Promise<SeededByte
         store,
         log: LOGGER,
         incoming: [createEvent(detection())],
-        ...(snapshot === null ? {} : { prompt: snapshot }),
+        ...(snapshot !== null && { prompt: snapshot }),
     });
     await store.writeJson(BINDINGS_FILE, [pre004Binding()]);
     await store.writeJson(ACCOUNT_FILE, pre004Account());
@@ -281,9 +277,6 @@ async function bootPre004Store(): Promise<TestService> {
 /**
  * The message a dispatch of the seeded run would compose, built exactly the
  * way the relay builds it: the run's own snapshot, the delivery's own text.
- *
- * @param target - The service whose store holds the run.
- * @returns The complete first message.
  */
 async function composedMessageFor(target: TestService): Promise<string> {
     const handle = target.handle.store;
@@ -352,8 +345,7 @@ function goldenMessage(correlationId: string): string {
 }
 
 describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
-    it('boots the pre-004 store with no quarantine, no windo… (+2 cases)', async () => {
-        // case: boots the pre-004 store with no quarantine, no window reset, and no rewrite
+    it('boots the pre-004 store with no quarantine, no window reset, and no rewrite', async () => {
         {
             const seed = await seedPre004Store();
             const service = await bootPre004Store();
@@ -389,11 +381,9 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
             expect(await auditRowsOf(handle)).toBeGreaterThanOrEqual(seed.auditRows);
             expect(service.logLines.some((line) => line.includes('.corrupt-'))).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: composes the seeded prompt-less run byte-identically to the shipped frame (SC-121)
+    });
+
+    it('composes the seeded prompt-less run byte-identically to the shipped frame', async () => {
         {
             const seed = await seedPre004Store();
             const service = await bootPre004Store();
@@ -405,11 +395,9 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
             expect(composed).not.toContain(PROMPT_FENCE_MARKER);
             expect(composed.startsWith('Mecha Turk dispatch (automated')).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: keeps a queued run on its snapshot after the binding’s prompt is edited (AC-138)
+    });
+
+    it('keeps a queued run on its snapshot after the binding’s prompt is edited', async () => {
         {
             await seedPre004Store(QUEUED_PROMPT);
             const service = await bootPre004Store();
@@ -439,6 +427,7 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
             expect(await composedMessageFor(service)).not.toContain(LATE_PROMPT);
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *
@@ -543,8 +532,6 @@ async function seedPrePromptConfig(): Promise<Buffer> {
  * One wire answer read as an untrusted record (never a typed shortcut).
  *
  * @typeParam T - The envelope shape the caller asserts on.
- * @param service - The running instance to call.
- * @param path - Route to fetch.
  * @returns The parsed body, as the caller's envelope.
  * @throws {Error} When the route answers anything but `200`.
  */
@@ -560,7 +547,6 @@ async function wireGet<T>(service: TestService, path: string): Promise<T> {
 /**
  * The bindings the booted service serves, as records.
  *
- * @param service - The running instance to call.
  * @returns Every stored binding row.
  */
 async function servedBindings(service: TestService): Promise<readonly Record<string, unknown>[]> {
@@ -572,7 +558,6 @@ async function servedBindings(service: TestService): Promise<readonly Record<str
 /**
  * The accounts the booted service serves, as credential-free records.
  *
- * @param service - The running instance to call.
  * @returns Every stored account row.
  */
 async function servedAccounts(service: TestService): Promise<readonly Record<string, unknown>[]> {
@@ -752,7 +737,7 @@ describe('T-036 arrival writes nothing (FR-018, FR-089, SC-128, AC-131, AC-142)'
         const accountBytes = await fileBytes(ACCOUNT_FILE);
         const bindingsBytes = await fileBytes(BINDINGS_FILE);
         const service = await bootPre004Store();
-        const profilePath = ACCOUNT_PATH.replace(':numericUserId', ACCOUNT_ID);
+        const profilePath = ACCOUNT_PATH.replace(':numericUserId', () => ACCOUNT_ID);
 
         for (const { label, value, forbidden } of NON_TEXT_VALUES) {
             // The configuration write is a whole-document replacement: the
@@ -846,9 +831,9 @@ describe('T-036 arrival writes nothing (FR-018, FR-089, SC-128, AC-131, AC-142)'
         // is the only file set aside (SC-128 counts zeros for *valid*
         // documents; this one is not valid, and is refused closed).
         const entries = await readdir(dataDir);
-        const setAside = entries.filter((entry) => entry.includes('.corrupt-'));
-        expect(setAside).toHaveLength(1);
-        const [asideName] = setAside;
+        const asideNames = entries.filter((entry) => entry.includes('.corrupt-'));
+        expect(asideNames).toHaveLength(1);
+        const [asideName] = asideNames;
         if (asideName === undefined) {
             throw new Error('the refusal set no file aside');
         }

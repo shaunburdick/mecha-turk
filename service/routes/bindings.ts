@@ -47,7 +47,6 @@ export const BINDINGS_PATH = '/v1/bindings';
  * credential, a scan that never ran) visible on the binding rows instead of
  * only in the service log.
  *
- * @param context - Route context carrying the open store.
  * @returns `200 { bindings, status }`, or the documented 503.
  */
 async function handleGetBindings(context: RouteContext): Promise<HttpResponse> {
@@ -94,8 +93,6 @@ function omittedPromptIds(submitted: readonly unknown[]): ReadonlySet<string> {
 /**
  * Attach the stored prompt to every submitted row that left the field out.
  *
- * @param input - The validated rows, the ids that omitted the field, and the
- *   stored document read fresh inside the same chain as the write.
  * @returns The document to write: submitted values where the field was sent,
  *   stored values where it was not.
  */
@@ -139,7 +136,6 @@ interface CustodyVerdict {
  * validates before it observes). The observation the read implies belongs to
  * the caller, and runs only once the write is certain to happen.
  *
- * @param input - Open store, its logger, and the raw PUT body.
  * @returns The custody as it stood plus the verdict over the body.
  */
 async function readCustodyAndValidate(input: {
@@ -157,7 +153,7 @@ async function readCustodyAndValidate(input: {
         accounts,
         validation: validateBindings({
             raw: input.body,
-            accountExists: (numericUserId) => known.has(numericUserId),
+            hasAccount: (numericUserId: string) => known.has(numericUserId),
         }),
     };
 }
@@ -176,14 +172,12 @@ async function readCustodyAndValidate(input: {
  * just revoked. The prompt-observation chain nests inside it, never the other
  * way round, so there is no lock order to invert.
  *
- * Inside, one task on the prompt-observation chain (plan C2): read the stored
+ * Inside, one task on the prompt-observation chain: read the stored
  * document fresh, record any hand edit it carries with actor `service`, merge
  * the preserved prompts, write, then record this submission's own changes with
  * actor `operator`. Reading, writing, and diffing inside one chain is what makes
  * SC-125's "exactly one row per change" hold under a race rather than by luck.
  *
- * @param input - The open store, its logger, the validated rows, and the ids
- *   whose submitted row left the prompt key out.
  * @returns The rows as stored, which is what the answer echoes.
  */
 async function writeGrant(input: {
@@ -226,10 +220,8 @@ async function writeGrant(input: {
  * The write itself is one task on the queue chain, which nests one task on the
  * prompt-observation chain (plan C2, {@link writeGrant}) — and the **outer**
  * chain is what keeps an operator's allow-list edit and the authorization gate's
- * read-and-mint from interleaving (003 FR-076).
+ * read-and-mint from interleaving.
  *
- * @param context - Route context carrying the open store.
- * @param request - The routed request carrying the full replacement body.
  * @returns `200 { bindings, status }` after the write, or the field-level 422.
  */
 async function handlePutBindings(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -256,7 +248,7 @@ async function handlePutBindings(context: RouteContext, request: RouteRequest): 
     // Only a submission that will actually be written earns the observation
     // its read implied: the whole custody directory, exactly as `listAccounts`
     // would have observed it, so a hand edit outside the panel is still
-    // recorded exactly once with actor `service` (004 FR-088).
+    // recorded exactly once with actor `service`.
     await observeAccountPromptChanges({
         store,
         log: context.log,
@@ -281,7 +273,7 @@ async function handlePutBindings(context: RouteContext, request: RouteRequest): 
 }
 
 /** Read the stored bindings, credential-free. */
-export const getBindingsRoute: Route = {
+export const bindingsRoute: Route = {
     method: 'GET',
     path: BINDINGS_PATH,
     handler: (context) => handleGetBindings(context),

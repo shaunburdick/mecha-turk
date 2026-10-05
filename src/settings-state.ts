@@ -25,7 +25,7 @@ export const CONFIG_SOURCE = 'GET /v1/config';
 /** Heading above the banner. */
 export const SETTINGS_HEADING = 'Settings';
 
-/** Title of the banner while a save is possible (FR-045). */
+/** Title of the banner while a save is possible. */
 export const EDITABLE_TITLE = 'Editing the whole configuration';
 
 /** Body of the banner while a save is possible: last-writer-wins, stated. */
@@ -34,7 +34,7 @@ export const EDITABLE_BODY =
     'hand edit and this one produce a last writer. Nothing is written until you activate Save, and ' +
     'each row names when its value takes effect.';
 
-/** Title of the banner when no save is possible (FR-011). */
+/** Title of the banner when no save is possible. */
 export const READ_ONLY_TITLE = 'Read-only for now';
 
 /** Body of the banner when no save is possible; the reason is named separately. */
@@ -51,24 +51,24 @@ export const REFRESH_LABEL = 'Refresh configuration';
 /** Title of the failure notice, whatever the failure was. */
 export const FAILURE_TITLE = 'Settings could not be read';
 
-/** What the rows area says while no document has ever been read (FR-078). */
+/** What the rows area says while no document has ever been read. */
 export const NO_DOCUMENT =
     `No configuration has been read yet. The rows appear once the service answers ${CONFIG_SOURCE}.`;
 
-/** Accessible name of the row region, so the rows are findable (005 FR-081). */
+/** Accessible name of the row region, so the rows are findable. */
 export const ROWS_LABEL = 'Service configuration';
 
 /** Label of the one write the tab offers (FR-012: one save, not ten). */
 export const SAVE_LABEL = 'Save configuration';
 
-/** Label of the discard control (FR-015). */
+/** Label of the discard control. */
 export const DISCARD_LABEL = 'Discard changes';
 
-/** Label of the non-primary restore-defaults control, whose second activation writes (FR-016). */
+/** Label of the non-primary restore-defaults control, whose second activation writes. */
 export const RESTORE_LABEL = 'Restore defaults';
 
 /**
- * Label of the control that disarms an armed confirmation (006 FR-054).
+ * Label of the control that disarms an armed confirmation.
  *
  * The panel has no dialog primitive and never grows one: the confirmation is
  * dismissed by this control the same way every other two-step action in the
@@ -110,14 +110,14 @@ export const FAILURE_LINES: Readonly<Record<SettingsFailureCause, string>> = {
         'and the panel does not retry it automatically.',
 };
 
-/** The warning a save earns when its audit row never reached the trail (FR-070, AC-139). */
+/** The warning a save earns when its audit row never reached the trail. */
 export const AUDIT_MISSING_LINE =
     'Saved — but the audit row for this change did not reach the trail: the configuration is in force, ' +
     'this save has no config.changed record, and the change is therefore not traceable from the audit ' +
     'history. The service logged the failure and rolled nothing back.';
 
 /**
- * Classify one service answer into the four causes the tab renders (FR-061 – FR-064).
+ * Classify one service answer into the four causes the tab renders.
  *
  * The panel reads no new vocabulary here: `storage-unavailable` and
  * `unauthorized` are the service's own error codes, the status sentences are
@@ -125,7 +125,6 @@ export const AUDIT_MISSING_LINE =
  * call that never reached the service. Anything else is *undocumented* rather
  * than guessed at.
  *
- * @param input - The envelope's machine code, and the wrapper's problem.
  * @returns The cause whose copy the tab shows.
  */
 export function causeOf(input: {
@@ -151,7 +150,7 @@ export function causeOf(input: {
 }
 
 /**
- * Build the failure a failed write records (FR-061 – FR-064).
+ * Build the failure a failed write records.
  *
  * @param input - The envelope's code, the wrapper's problem, and the
  *   envelope's correlation identifier, if it sent one.
@@ -171,9 +170,8 @@ export function writeFailure(input: {
 /**
  * What the issues region shows for a failed write: the cause's copy, the
  * service's own problem beside it, and — when the envelope carried one — the
- * correlation identifier as its own line of copyable text (FR-064, AC-133).
+ * correlation identifier as its own line of copyable text.
  *
- * @param failure - The recorded failure.
  * @returns The lines, in render order.
  */
 export function writeFailureLines(failure: SettingsFailure): readonly string[] {
@@ -186,14 +184,13 @@ export function writeFailureLines(failure: SettingsFailure): readonly string[] {
 }
 
 /**
- * What the failure notice says for a **read** that failed (FR-060 – FR-063).
+ * What the failure notice says for a **read** that failed.
  *
  * The same four causes, in the read's words: the transport case is the state
  * AC-129 names exactly, the store case is 002 FR-039's setup prerequisite,
  * and the unauthorised case is the grant the panel will not work around
  * (constitution II).
  *
- * @param problem - The wrapper's problem string for the failed read.
  * @returns The notice body.
  */
 export function readFailureBody(problem: string): string {
@@ -223,7 +220,7 @@ export function readFailureBody(problem: string): string {
 }
 
 /**
- * Where the Settings tab stands, and what it last rendered (FR-013, FR-019).
+ * Where the Settings tab stands, and what it last rendered.
  *
  * Same shape as the Status tab's slice on purpose: a failed read behaves the
  * same way on every tab, so an operator learns one rule instead of six.
@@ -255,7 +252,6 @@ export function initialSettingsTab(): SettingsTabState {
 /**
  * The tab's own read state, in FR-019's three shapes.
  *
- * @param slice - The Settings tab's read state.
  * @returns The read-state line the tab paints.
  */
 export function readStateLine(slice: SettingsTabState): string {

@@ -52,7 +52,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -161,9 +161,9 @@ function snapshot(issueNumber: number): EventSnapshot {
 /**
  * One queue row in the vocabulary the panel retired (005 FR-005).
  *
- * @param input - The row's issue and its shipped lifecycle state.
  * @returns The row as the pre-003 build wrote it.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
 function legacyRow(input: { readonly issueNumber: number; readonly state: RetiredState }): unknown {
     return {
         ...createEvent(snapshot(input.issueNumber)),
@@ -262,7 +262,7 @@ function stringsOf(log: readonly { readonly key: string; readonly props: unknown
 function sources(): readonly { readonly path: string; readonly text: string }[] {
     const files: { path: string; text: string }[] = [];
     for (const dir of ['src', 'service']) {
-        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map((entry) => String(entry));
+        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map(String);
         for (const entry of entries) {
             if (entry.endsWith('.ts')) {
                 files.push({
@@ -386,8 +386,7 @@ describe('FR-005 / NFR-103 a pre-003 store boots through the upgraded panel and 
 });
 
 describe('NFR-102 / AC-129 no surface carries the credential in the store', () => {
-    it('keeps the planted token out of every rendered string… (+1 cases)', async () => {
-        // case: keeps the planted token out of every rendered string and every storage value
+    it('keeps the planted token out of every rendered string and every storage value', async () => {
         {
             const { loop, rt } = await bootUpgradedPanel();
             try {
@@ -407,7 +406,9 @@ describe('NFR-102 / AC-129 no surface carries the credential in the store', () =
                 await loop.shutdown();
             }
         }
-        // case: renders the starting prompt in exactly one place (SC-105)
+    });
+
+    it('renders the starting prompt in exactly one place', async () => {
         {
             const { loop, rt } = await bootUpgradedPanel();
             try {
@@ -433,6 +434,7 @@ describe('NFR-102 / AC-129 no surface carries the credential in the store', () =
             }
         }
     });
+
 });
 
 describe('FR-002 / FR-089 the panel never writes to GitHub and never mutates the host', () => {
@@ -462,8 +464,7 @@ describe('FR-002 / FR-089 the panel never writes to GitHub and never mutates the
 });
 
 describe('FR-025 / FR-026 no storage key is added, and the wire keeps its members', () => {
-    it('uses exactly the documented storage keys and never s… (+1 cases)', async () => {
-        // case: uses exactly the documented storage keys and never stores the active tab
+    it('uses exactly the documented storage keys and never stores the active tab', async () => {
         {
             const keys = new Set<string>();
             for (const text of panelSources()) {
@@ -478,7 +479,9 @@ describe('FR-025 / FR-026 no storage key is added, and the wire keeps its member
             expect([...keys].filter((key) => key.includes('tab'))).toEqual([]);
             expect(keys.size).toBeLessThanOrEqual(STORAGE_KEYS.length + 1);
         }
-        // case: keeps the `repositories` member the status document answers with (FR-026)
+    });
+
+    it('keeps the `repositories` member the status document answers with', async () => {
         {
             const loop = await startDispatchLoop();
             try {
@@ -493,6 +496,7 @@ describe('FR-025 / FR-026 no storage key is added, and the wire keeps its member
             }
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *
@@ -571,10 +575,6 @@ async function acPutBindings(
 
 /**
  * One whole-document `PUT /v1/config`, patched over the stored document.
- *
- * @param loop - The running loop to call.
- * @param patch - Members to replace in the document as `GET` reports it.
- * @returns The response.
  */
 async function acPutConfig(
     loop: Awaited<ReturnType<typeof startDispatchLoop>>,
@@ -595,7 +595,7 @@ function acPutProfile(
     loop: Awaited<ReturnType<typeof startDispatchLoop>>,
     body: Record<string, unknown>,
 ): Promise<Response> {
-    return loop.service.call(ACCOUNT_PATH.replace(':numericUserId', ACCOUNT_ID), {
+    return loop.service.call(ACCOUNT_PATH.replace(':numericUserId', () => ACCOUNT_ID), {
         method: 'PUT',
         headers: acJsonHeaders(),
         body: JSON.stringify(body),
@@ -614,7 +614,6 @@ function firstIssueOf(body: string): AcRefusalIssue {
 /**
  * The account record the three paths act on, with its own tier set.
  *
- * @param prompt - The account tier to store.
  * @returns One `accounts/<id>.json` document.
  */
 function acAccount(prompt: string): Record<string, unknown> {
@@ -632,7 +631,6 @@ function acAccount(prompt: string): Record<string, unknown> {
 /**
  * The binding record the three paths act on, with its own tier set.
  *
- * @param prompt - The binding tier to store.
  * @returns One `bindings.json` element.
  */
 function acBinding(prompt: string): Record<string, unknown> {
@@ -642,7 +640,6 @@ function acBinding(prompt: string): Record<string, unknown> {
 /**
  * Read the bytes of every file a prompt tier is stored in, right now.
  *
- * @param dataDir - The service's data directory.
  * @returns Store-relative path → file bytes.
  */
 function tierBytes(dataDir: string): ReadonlyMap<string, string> {

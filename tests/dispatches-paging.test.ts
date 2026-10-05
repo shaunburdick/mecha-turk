@@ -81,7 +81,6 @@ const PAGE_ONE_FILTERED = 'GET /v1/events?limit=25&bindingId=bnd_one';
 /**
  * The `page` member a fixture answer carries.
  *
- * @param overrides - Members to replace.
  * @returns The member.
  */
 function pageMember(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -108,17 +107,43 @@ function answerBody(rows: readonly unknown[], page: Record<string, unknown>): st
 }
 
 /**
+ * The serialized answer one page-metadata override produces.
+ *
+ * Every rejection test here asks the same question of the same three steps —
+ * wrap the override in a page member, wrap that in an empty answer, hand the body
+ * to the parser — so it is written once here rather than at each assertion.
+ *
+ * @returns The serialized body.
+ */
+function bodyFor(overrides: Record<string, unknown> = {}): string {
+    return answerBody([], pageMember(overrides));
+}
+
+/** No filter on either axis: the state the pane mounts in. */
+const NO_FILTERS: DispatchesState['filters'] = { bindingId: null, state: null };
+
+/**
  * Build a section state with the paging position a test needs.
  *
- * @param page - The position to start from.
- * @param filters - Filters to apply.
  * @returns The section state.
  */
 function section(
     page: DispatchesState['page'] = initialDispatchListPage(),
-    filters: DispatchesState['filters'] = { bindingId: null, state: null },
+    filters: DispatchesState['filters'] = NO_FILTERS,
 ): DispatchesState {
     return { ...initialDispatches(), page, filters };
+}
+
+/**
+ * The path a section state would request.
+ *
+ * @returns The path, built the way the service reads it back.
+ */
+function pathFor(
+    page: DispatchesState['page'] = initialDispatchListPage(),
+    filters?: DispatchesState['filters'],
+): string {
+    return dispatchListPath(section(page, filters));
 }
 
 /**
@@ -145,12 +170,10 @@ function doubleRuntime(table: Record<string, { status: number; body: string }>):
 }
 
 describe('dispatchListPath (005 contract §1)', () => {
-    it('always names the page size and nothing else when not… (+3 cases)', () => {
-        // case: always names the page size and nothing else when nothing is chosen
+    it('always names the page size and nothing else when nothing is chosen', () => {
         {
             expect(dispatchListPath(section())).toBe(PAGE_ONE_PATH);
         }
-        // case: carries the cursor only once the operator has stepped past page one
         {
             const page = recordDispatchPageMeta(initialDispatchListPage(), {
                 nextCursor: CURSOR_ONE,
@@ -161,15 +184,13 @@ describe('dispatchListPath (005 contract §1)', () => {
             const advanced = advanceDispatchPage(page);
 
             expect(cursorFor(advanced)).toBe(CURSOR_ONE);
-            expect(dispatchListPath(section(advanced))).toBe(`${PAGE_ONE_PATH}&cursor=${CURSOR_ONE}`);
+            expect(pathFor(advanced)).toBe(`${PAGE_ONE_PATH}&cursor=${CURSOR_ONE}`);
         }
-        // case: carries each filter only while it is on, and both when both are
         {
             const on = { bindingId: 'bnd_one', state: 'blocked:project-missing' };
-            expect(dispatchListPath(section(initialDispatchListPage(), on)))
+            expect(pathFor(undefined, on))
                 .toBe(`${PAGE_ONE_PATH}&bindingId=bnd_one&state=blocked%3Aproject-missing`);
         }
-        // case: quotes a cursor so an opaque token never breaks the query
         {
             const page = recordDispatchPageMeta(initialDispatchListPage(), {
                 nextCursor: 'a b&c',
@@ -178,14 +199,13 @@ describe('dispatchListPath (005 contract §1)', () => {
                 snapshotAt: FIXTURE_TIMESTAMP,
             });
 
-            expect(dispatchListPath(section(advanceDispatchPage(page)))).toContain('cursor=a%20b%26c');
+            expect(pathFor(advanceDispatchPage(page))).toContain('cursor=a%20b%26c');
         }
     });
 });
 
 describe('the paging position machine (data-model §3.2)', () => {
-    it('starts on page one with the default size and no boun… (+4 cases)', () => {
-        // case: starts on page one with the default size and no boundary
+    it('starts on page one with the default size and no boundary', () => {
         {
             const page = initialDispatchListPage();
 
@@ -193,7 +213,6 @@ describe('the paging position machine (data-model §3.2)', () => {
             expect(page.pageIndex).toBe(0);
             expect(page.limit).toBe(25);
         }
-        // case: advances on the boundary the answer supplied and retreats on demand
         {
             const first = recordDispatchPageMeta(initialDispatchListPage(), {
                 nextCursor: CURSOR_ONE,
@@ -216,10 +235,10 @@ describe('the paging position machine (data-model §3.2)', () => {
 
             const back = retreatDispatchPage(third);
             expect(cursorFor(back)).toBe(CURSOR_ONE);
-            expect(cursorFor(retreatDispatchPage(retreatDispatchPage(back)))).toBeNull();
+            const atFirstPage = retreatDispatchPage(retreatDispatchPage(back));
+            expect(cursorFor(atFirstPage)).toBeNull();
             expect(retreatDispatchPage(initialDispatchListPage()).pageIndex).toBe(0);
         }
-        // case: refuses to advance with no boundary, and truncates the abandoned tail
         {
             const stuck = advanceDispatchPage(initialDispatchListPage());
             expect(stuck.pageIndex).toBe(0);
@@ -255,7 +274,6 @@ describe('the paging position machine (data-model §3.2)', () => {
             expect(again.cursorStack).toEqual([null, CURSOR_ONE, CURSOR_ONE_AGAIN]);
             expect(again.pageIndex).toBe(2);
         }
-        // case: resets to page one on a filter change but keeps the page size
         {
             const positioned = { ...dispatchListPageAt(50), pageIndex: 3, cursorStack: [null, 'a', 'b', 'c'] };
             const reset = resetDispatchListPage(positioned);
@@ -264,7 +282,6 @@ describe('the paging position machine (data-model §3.2)', () => {
             expect(reset.limit).toBe(50);
             expect(reset.cursorStack).toEqual([null]);
         }
-        // case: falls back to the default page size for a size the contract does not accept
         {
             expect(dispatchListPageAt(7).limit).toBe(25);
             expect(dispatchListPageAt(100).limit).toBe(100);
@@ -273,8 +290,7 @@ describe('the paging position machine (data-model §3.2)', () => {
 });
 
 describe('parseDispatchListBody (005 contract §2)', () => {
-    it('reads rows and their page label together (+4 cases)', () => {
-        // case: reads rows and their page label together
+    it('reads rows and their page label together', () => {
         {
             const answer = parseDispatchListBody(answerBody([], pageMember({ total: 3, hasMore: true })));
 
@@ -282,25 +298,21 @@ describe('parseDispatchListBody (005 contract §2)', () => {
             expect(answer?.page.total).toBe(3);
             expect(answer?.page.hasMore).toBe(true);
         }
-        // case: refuses an answer with no page label rather than paging blind
         {
             expect(parseDispatchListBody('{"events":[]}')).toBeNull();
         }
-        // case: refuses a page size outside the four the contract accepts
         {
-            expect(parseDispatchListBody(answerBody([], pageMember({ limit: 7 })))).toBeNull();
-            expect(parseDispatchListBody(answerBody([], pageMember({ limit: 25 })))).not.toBeNull();
+            expect(parseDispatchListBody(bodyFor({ limit: 7 }))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ limit: 25 }))).not.toBeNull();
         }
-        // case: refuses a filter echo that does not name both members
         {
-            expect(parseDispatchListBody(answerBody([], pageMember({ filter: { bindingId: null } })))).toBeNull();
-            expect(parseDispatchListBody(answerBody([], pageMember({ filter: 'all' })))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ filter: { bindingId: null } }))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ filter: 'all' }))).toBeNull();
         }
-        // case: refuses a label whose members are the wrong type
         {
-            expect(parseDispatchListBody(answerBody([], pageMember({ hasMore: 'yes' })))).toBeNull();
-            expect(parseDispatchListBody(answerBody([], pageMember({ snapshotAt: 42 })))).toBeNull();
-            expect(parseDispatchListBody(answerBody([], pageMember({ nextCursor: 7 })))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ hasMore: 'yes' }))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ snapshotAt: 42 }))).toBeNull();
+            expect(parseDispatchListBody(bodyFor({ nextCursor: 7 }))).toBeNull();
         }
     });
 });
@@ -308,8 +320,7 @@ describe('parseDispatchListBody (005 contract §2)', () => {
 describe('loadDispatches records where the answer sits (FR-042)', () => {
     const answer = answerBody([], pageMember({ total: 137, hasMore: true, nextCursor: CURSOR_ONE }));
 
-    it('records the boundary, the flag, the total, and the a… (+1 cases)', async () => {
-        // case: records the boundary, the flag, the total, and the answer’s stamp
+    it('records the boundary, the flag, the total, and the answer’s stamp', async () => {
         {
             const { rt } = doubleRuntime({ [PAGE_ONE]: { status: 200, body: answer } });
 
@@ -322,7 +333,9 @@ describe('loadDispatches records where the answer sits (FR-042)', () => {
             expect(page.total).toBe(137);
             expect(page.snapshotAt).toBe(FIXTURE_TIMESTAMP);
         }
-        // case: leaves the position untouched when the answer is refused
+    });
+
+    it('leaves the position untouched when the answer is refused', async () => {
         {
             const { rt } = doubleRuntime({ [PAGE_ONE]: { status: 503, body: '{}' } });
             const before = { ...rt.state.dispatches.page };
@@ -333,11 +346,11 @@ describe('loadDispatches records where the answer sits (FR-042)', () => {
             expect(rt.state.dispatches.page).toEqual(before);
         }
     });
+
 });
 
 describe('stepping through the set (FR-042)', () => {
-    it('reads the next page from its cursor and the previous… (+2 cases)', async () => {
-        // case: reads the next page from its cursor and the previous one from the stack
+    it('reads the next page from its cursor and the previous one from the stack', async () => {
         {
             const first = answerBody([], pageMember({ nextCursor: CURSOR_ONE, hasMore: true, total: 40 }));
             const second = answerBody([], pageMember({ nextCursor: CURSOR_TWO, hasMore: true, total: 40 }));
@@ -363,7 +376,9 @@ describe('stepping through the set (FR-042)', () => {
             expect(rt.state.dispatches.page.pageIndex).toBe(1);
             expect(calls.at(-1)).toBe(`GET /v1/events?limit=25&cursor=${CURSOR_ONE}`);
         }
-        // case: rolls the position back when the next page is refused
+    });
+
+    it('rolls the position back when the next page is refused', async () => {
         {
             const { rt } = doubleRuntime({
                 [PAGE_ONE]: {
@@ -380,7 +395,9 @@ describe('stepping through the set (FR-042)', () => {
             expect(rt.state.dispatches.status).toBe('error');
             expect(rt.state.dispatches.page).toEqual(before);
         }
-        // case: steps nowhere when the answer reported no further page
+    });
+
+    it('steps nowhere when the answer reported no further page', async () => {
         {
             const { rt, calls } = doubleRuntime({
                 [PAGE_ONE]: { status: 200, body: answerBody([], pageMember()) },
@@ -392,11 +409,11 @@ describe('stepping through the set (FR-042)', () => {
             expect(calls).toHaveLength(1);
         }
     });
+
 });
 
 describe('changing the size and the filters (FR-042, FR-043)', () => {
-    it('re-reads at a new page size from page one (+2 cases)', async () => {
-        // case: re-reads at a new page size from page one
+    it('re-reads at a new page size from page one', async () => {
         {
             const { rt, calls } = doubleRuntime({
                 [PAGE_ONE_WIDE]: { status: 200, body: answerBody([], pageMember({ limit: 50 })) },
@@ -409,7 +426,9 @@ describe('changing the size and the filters (FR-042, FR-043)', () => {
             expect(rt.state.dispatches.page.limit).toBe(50);
             expect(rt.state.dispatches.page.pageIndex).toBe(0);
         }
-        // case: resets to page one and asks the service for the filtered set
+    });
+
+    it('resets to page one and asks the service for the filtered set', async () => {
         {
             const { rt, calls } = doubleRuntime({
                 [PAGE_ONE_FILTERED]: {
@@ -424,7 +443,9 @@ describe('changing the size and the filters (FR-042, FR-043)', () => {
             expect(calls[0]).toBe(PAGE_ONE_FILTERED);
             expect(rt.state.dispatches.filters.bindingId).toBe('bnd_one');
         }
-        // case: clears both filters and returns to the unfiltered first page
+    });
+
+    it('clears both filters and returns to the unfiltered first page', async () => {
         {
             const { rt, calls } = doubleRuntime({
                 [PAGE_ONE]: { status: 200, body: answerBody([], pageMember()) },
@@ -438,6 +459,7 @@ describe('changing the size and the filters (FR-042, FR-043)', () => {
             expect(rt.state.dispatches.filters).toEqual({ bindingId: null, state: null });
         }
     });
+
 });
 
 /** One binding the filter line and its options can name. */
@@ -461,8 +483,6 @@ const PAGE_ONE_STATE_FILTERED = 'GET /v1/events?limit=25&state=failed';
  * Build one row the way the service projects it, keyed by its position.
  *
  * @param index - One-based position in the fixture set; also its issue number.
- * @param overrides - Fields the test changes.
- * @returns A complete, parseable row.
  */
 function fixtureRow(index: number, overrides: Partial<RunRow> = {}): RunRow {
     const id = `mt-run-${index.toString(16).padStart(24, '0')}`;
@@ -511,7 +531,6 @@ function fixtureRow(index: number, overrides: Partial<RunRow> = {}): RunRow {
 /**
  * Build one source reference the way the service projects it (FR-013).
  *
- * @param overrides - Fields the test changes.
  * @returns A complete, valid reference.
  */
 function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {
@@ -530,7 +549,6 @@ function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {
  * A `serviceRequest` that pages a fixed set exactly the way the contract does.
  *
  * @param rows - The whole set, in the retained order.
- * @param calls - Recorder of every path the panel asked for.
  * @returns The double {@link fakeHost} answers with.
  */
 function pagedSource(
@@ -538,7 +556,7 @@ function pagedSource(
     calls: string[],
 ): (request: GuestRequest) => Promise<GuestRequestResult> {
     return async (request) => {
-        const url = new URL(request.path, 'http://panel.invalid');
+        const url = new URL(request.path, 'https://panel.invalid');
         const limit = Number(url.searchParams.get('limit') ?? '25');
         const start = Number(url.searchParams.get('cursor') ?? '0');
         const slice = rows.slice(start, start + limit);
@@ -605,8 +623,7 @@ describe('AC-121 250 dispatches page through with none dropped at a boundary (FR
 });
 
 describe('AC-122 a filter that matched nothing says so and offers the way out (FR-043)', () => {
-    it('never reports the honest empty while a filter is on (+3 cases)', async () => {
-        // case: never reports the honest empty while a filter is on
+    it('never reports the honest empty while a filter is on', async () => {
         {
             const { rt } = doubleRuntime({
                 [PAGE_ONE_FILTERED]: {
@@ -627,13 +644,17 @@ describe('AC-122 a filter that matched nothing says so and offers the way out (F
                 'Filters: binding acme/one · all states',
             );
         }
-        // case: keeps both filters visible even when neither is on
+    });
+
+    it('keeps both filters visible even when neither is on', async () => {
         {
             const unfiltered = section();
 
             expect(hasActiveFilters(unfiltered)).toBe(false);
         }
-        // case: applies a state filter server-side and resets to its first page
+    });
+
+    it('applies a state filter server-side and resets to its first page', async () => {
         {
             const { rt, calls } = doubleRuntime({
                 [PAGE_ONE_STATE_FILTERED]: {
@@ -648,7 +669,9 @@ describe('AC-122 a filter that matched nothing says so and offers the way out (F
             expect(calls[0]).toBe(PAGE_ONE_STATE_FILTERED);
             expect(rt.state.dispatches.page.pageIndex).toBe(0);
         }
-        // case: offers an explicit "all" alongside every binding and state token
+    });
+
+    it('offers an explicit "all" alongside every binding and state token', async () => {
         {
             expect(bindingFilterOptions([FILTER_BINDING]).map((option) => option.id)).toEqual(['all', 'bnd_one']);
             const states = stateFilterOptions().map((option) => option.id);
@@ -661,6 +684,7 @@ describe('AC-122 a filter that matched nothing says so and offers the way out (F
             );
         }
     });
+
 });
 
 describe('AC-115 the resolve detail names what the operator has to check (FR-044)', () => {
@@ -683,8 +707,7 @@ describe('AC-115 the resolve detail names what the operator has to check (FR-044
 });
 
 describe('AC-120 the row detail lists every source reference (FR-048)', () => {
-    it('lists kind, origin, link, and detection time, markin… (+1 cases)', () => {
-        // case: lists kind, origin, link, and detection time, marking the late one
+    it('lists kind, origin, link, and detection time, marking the late one', () => {
         {
             const row = fixtureRow(412, {
                 referenceCount: 3,
@@ -716,7 +739,6 @@ describe('AC-120 the row detail lists every source reference (FR-048)', () => {
             expect(lines[1]).toContain('2026-09-28 09:05');
             expect(lines[2]).toContain(ISSUE_URL);
         }
-        // case: reveals only when the operator asks, and never on a single-reference row
         {
             const three = fixtureRow(1, {
                 referenceCount: 3,

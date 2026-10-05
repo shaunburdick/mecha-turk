@@ -35,7 +35,7 @@ export const OPERATOR_PROMPT_FENCE_BEGIN = '--- BEGIN OPERATOR STARTING PROMPT -
 export const OPERATOR_PROMPT_FENCE_END = '--- END OPERATOR STARTING PROMPT ---';
 
 /**
- * Prefixes no stored prompt line may begin with (004 FR-025).
+ * Prefixes no stored prompt line may begin with.
  *
  * The trailing space is part of each prefix on purpose: `--- BEGINNING OF PLAN
  * ---` is ordinary operator text, while a line starting `--- BEGIN ` is an
@@ -48,7 +48,7 @@ export const RESERVED_MARKER_PREFIXES: readonly string[] = ['--- BEGIN ', '--- E
 const NEWLINE = '\n';
 
 /**
- * Wire and storage shape of a prompt fingerprint (004 FR-016).
+ * Wire and storage shape of a prompt fingerprint.
  *
  * Defined here rather than beside the hasher so the panel and the service read
  * the *same* rule: the service derives the value, the panel checks the shape
@@ -60,12 +60,12 @@ export const PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
  * The closed tier vocabulary: which store a starting prompt came from (004
  * FR-072, FR-087).
  *
- * The three tiers stack most-general-first into the one composed block
- * (FR-080), and every surface that carries a fingerprint carries this
- * vocabulary's ordered, duplicate-free list beside it (FR-087). Declared
+ * The three tiers stack most-general-first into the one composed block,
+ * and every surface that carries a fingerprint carries this
+ * vocabulary's ordered, duplicate-free list beside it. Declared
  * here — browser-safe, no `node:` import — so the service that *writes*
  * `promptSources` and the panel that *reads* it name the same three strings,
- * and neither side can drift into a fourth tier on its own (FR-070).
+ * and neither side can drift into a fourth tier on its own.
  */
 export type PromptSource = 'global' | 'account' | 'binding';
 
@@ -82,13 +82,12 @@ export type PromptSource = 'global' | 'account' | 'binding';
 export const PROMPT_SOURCE_ORDER = ['global', 'account', 'binding'] as const;
 
 /**
- * Whether one value names a tier this build knows (004 FR-087).
+ * Whether one value names a tier this build knows.
  *
  * Membership walks {@link PROMPT_SOURCE_ORDER} instead of spelling the
  * strings a second time, so the type, the order, and this predicate cannot
  * disagree: adding a tier would be an FR-070 scope change made in one tuple.
  *
- * @param value - Any value read from a wire document or a store record.
  * @returns `true` for exactly `'global'`, `'account'`, or `'binding'`.
  */
 export function isPromptSource(value: unknown): value is PromptSource {
@@ -105,7 +104,7 @@ export function isPromptSource(value: unknown): value is PromptSource {
 
 /**
  * Whether a list could stand as a run's `promptSources`: a duplicate-free
- * subsequence of {@link PROMPT_SOURCE_ORDER} (004 FR-087).
+ * subsequence of {@link PROMPT_SOURCE_ORDER}.
  *
  * The two refusals FR-087 names collapse into one walk: every element must
  * be a known tier ({@link isPromptSource}), and each must sit strictly
@@ -120,7 +119,6 @@ export function isPromptSource(value: unknown): value is PromptSource {
  * whether a prompt exists, so this predicate checks order and membership
  * only and never guesses at presence (FR-087, AGENTS.md invariant 8).
  *
- * @param value - Any value read from a wire document or a store record.
  * @returns `true` when the list is all-known, in order, and duplicate-free.
  */
 export function isPromptSourceList(value: unknown): value is readonly PromptSource[] {
@@ -152,28 +150,27 @@ const LAST_FORBIDDEN_LOW_CODE_POINT = 0x08;
 const TAB_CODE_POINT = 0x09;
 
 /** Line feed, the second of the two control characters an instruction may contain. */
-const LINE_FEED_CODE_POINT = 0x0a;
+const LINE_FEED_CODE_POINT = 0x0A;
 
 /** First code point of the forbidden middle range: vertical tab. */
-const FORBIDDEN_MIDDLE_START = 0x0b;
+const FORBIDDEN_MIDDLE_START = 0x0B;
 
 /** Last code point of the forbidden middle range: unit separator. */
-const FORBIDDEN_MIDDLE_END = 0x1f;
+const FORBIDDEN_MIDDLE_END = 0x1F;
 
 /** First code point of the forbidden upper range: delete. */
-const FORBIDDEN_UPPER_START = 0x7f;
+const FORBIDDEN_UPPER_START = 0x7F;
 
 /** Last code point of the forbidden upper range: application program control. */
-const FORBIDDEN_UPPER_END = 0x9f;
+const FORBIDDEN_UPPER_END = 0x9F;
 
 /**
- * Trim whitespace from the two ends of a prompt only (004 FR-022).
+ * Trim whitespace from the two ends of a prompt only.
  *
  * Internal whitespace is the instruction — the newlines an operator used to
  * separate a goal from a constraint must survive byte for byte — so this is
  * outer trimming and nothing else.
  *
- * @param text - Candidate prompt text.
  * @returns The text without leading or trailing whitespace.
  */
 export function trimPrompt(text: string): string {
@@ -181,14 +178,13 @@ export function trimPrompt(text: string): string {
 }
 
 /**
- * Fold Windows and legacy-Mac line endings onto the product's canonical form
- * (004 FR-023).
+ * Fold Windows and legacy-Mac line endings onto the product's canonical form.
+ *
  *
  * `\r\n` is replaced as a pair so a CRLF paste never leaves a stray `\r`, and
  * a lone `\r` becomes `\n`. Normalisation runs **before** the control-character
  * test, so a carriage return is read as a line ending rather than refused.
  *
- * @param text - Candidate prompt text, already trimmed at the ends.
  * @returns The text with every line ending spelled `\n`.
  */
 export function normaliseLineEndings(text: string): string {
@@ -209,28 +205,24 @@ export function normaliseLineEndings(text: string): string {
 }
 
 /**
- * Count Unicode **code points**, not UTF-16 units (004 FR-020).
+ * Count Unicode **code points**, not UTF-16 units.
  *
  * Spreading a string iterates code points, so a surrogate pair (an emoji, a
  * rare ideograph) counts as one — the unit the specification's 2,000-character
  * cap is written in.
- *
- * @param text - Candidate text.
- * @returns How many code points the text holds.
  */
 export function countCodePoints(text: string): number {
     return [...text].length;
 }
 
 /**
- * Whether any line of the text tries to speak in the composition's voice
- * (004 FR-025, AC-134).
+ * Whether any line of the text tries to speak in the composition's voice.
+ *
  *
  * A "line" is delimited by the normalised `\n`, so this runs after
  * {@link normaliseLineEndings} — otherwise a CRLF file would hide the prefix
  * behind a trailing carriage return.
  *
- * @param text - Candidate prompt text, normalised.
  * @returns `true` when a line begins with a reserved marker prefix.
  */
 export function hasReservedMarkerLine(text: string): boolean {
@@ -240,15 +232,14 @@ export function hasReservedMarkerLine(text: string): boolean {
 }
 
 /**
- * Whether one code point is a control character no instruction may contain
- * (004 FR-026): anything but tab and line feed inside the C0/C1 control
+ * Whether one code point is a control character no instruction may contain:
+ * anything but tab and line feed inside the C0/C1 control
  * ranges.
  *
  * Written as a comparison rather than a character-class regexp so the three
  * forbidden ranges are named constants a reader can check against the
  * specification's own `[\u0000-\u0008\u000B-\u001F\u007F-\u009F]`.
  *
- * @param codePoint - The code point under test.
  * @returns `true` for a forbidden control character.
  */
 function isForbiddenControl(codePoint: number): boolean {
@@ -268,13 +259,12 @@ function isForbiddenControl(codePoint: number): boolean {
 }
 
 /**
- * Whether the text holds a character no instruction may contain (004 FR-026).
+ * Whether the text holds a character no instruction may contain.
  *
  * Call this **after** {@link normaliseLineEndings}: a raw carriage return sits
  * inside the forbidden middle range, and normalisation is what makes it a line
  * ending instead.
  *
- * @param text - Candidate prompt text, normalised.
  * @returns `true` for a null character or any control character other than
  *   newline and tab.
  */
@@ -289,12 +279,12 @@ export function hasIllegalControlChar(text: string): boolean {
 }
 
 /**
- * The prompt reference the machine-readable `data` carries (004 FR-037, FR-087).
+ * The prompt reference the machine-readable `data` carries.
  *
  * Three scalars, the ordered source list, and **never the text**: the
  * instruction travels once, in the message's `text`, so a second copy in
  * `data` would be exactly the duplicate 004 FR-037 forbids. The list names
- * which tiers produced the block — everywhere the fingerprint is (FR-087) —
+ * which tiers produced the block — everywhere the fingerprint is —
  * and its presence is part of the reference's iff: a present reference holds
  * a non-empty {@link PromptSource} list, an absent one holds `null`.
  */
@@ -305,7 +295,7 @@ export interface PromptReference {
     readonly promptFingerprint: string | null;
     /** Code points of the normalised text, or `null` when none. */
     readonly promptLength: number | null;
-    /** Tiers that contributed, most general first, or `null` when none (004 FR-087). */
+    /** Tiers that contributed, most general first, or `null` when none. */
     readonly promptSources: readonly PromptSource[] | null;
 }
 
@@ -316,7 +306,6 @@ export interface PromptReference {
  * excerpt budget, which is what makes FR-035's rule mechanical: the excerpt
  * shortens first and the prompt never shortens at all.
  *
- * @param prompt - The normalised prompt text, or `null` when unset.
  * @returns The reserved character count; `0` for an unset prompt.
  */
 export function promptBlockChars(prompt: string | null): number {
@@ -337,11 +326,8 @@ export function promptBlockChars(prompt: string | null): number {
  * FR-033): the operator's text is concatenated byte for byte between the two
  * markers — no escaping, no reflow, no substitution — and when the prompt is
  * unset the frame comes back untouched: no fence, no blank line, no note about
- * the absence (004 FR-032, SC-121). This is the one function that produces the
- * message (004 FR-036); nothing else renders it.
- *
- * @param input - The prompt, and the frame the bounded context built.
- * @returns The complete first message.
+ * the absence. This is the one function that produces the
+ * message; nothing else renders it.
  */
 export function composeFirstMessage(input: {
     /** The normalised prompt text, or `null` for a run with none. */

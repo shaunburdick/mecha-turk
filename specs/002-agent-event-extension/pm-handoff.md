@@ -1,5 +1,23 @@
 # PM Handoff: `002-agent-event-extension` — the actor allow-list (GitHub issue #9)
 
+> ## Retained as provenance (2026-10-05, issue #15 Phase D)
+>
+> Issue #15 Phase D proposed deleting this file with the other superseded PM
+> artefacts, on the reasoning that the *mandate* to write one lives in the global
+> `agent-routing` and `orchestration` skills and that nothing in this repo
+> requires the file. That reasoning is sound and still holds: a future PM session
+> creates one file rather than inheriting this tax.
+>
+> What the phase did not account for is that this file is cited **as a source**.
+> `## Flagged` is the target of four live relative links — `005/research.md:95`,
+> `005/tasks.md:397`, `005/plan.md:426` and `003/tasks.md:206` — and its content
+> appears nowhere in `002/spec.md` or `002/changelog.md`. `005/plan.md:426` cites
+> it for a decision D14 turns on, so deleting this file would remove the record a
+> later spec's own plan leans on, with nothing to repoint to — and nothing in the
+> suite would notice, because no test validates relative markdown links.
+>
+> So the file stays. The coordination role is over; the provenance role is not.
+
 > ## ⚠️ Supersession notice — read this first
 >
 > This file previously held the **002 MVP delivery record** (the M1–M9 cut, dispatched
@@ -11,7 +29,7 @@
 > **The live handoff is everything above that heading**: the per-repository actor allow-list,
 > specified in phases 1–3 and planned in phases 4–5 on **2026-10-03**, ready for the phase gate.
 > Two other files are superseded by this one and are **left intact**: `003-dispatch-integrity/pm-handoff.md`
-> (the 003 cycle's dispatch record) and `orchestration.md` (the 003 wave state).
+> (the 003 cycle's dispatch record).
 
 ---
 
@@ -227,7 +245,6 @@ decision, the same posture 003 v1.7.0 recorded for the `agent.mismatch` rows it 
 - **Tasks**: specs/002-agent-event-extension/tasks.md (35 tasks, 11 waves, 2 gates — APPROVED)
 - **Constitution**: .specify/memory/constitution.md (v1.3.0, APPROVED)
 - **Branch**: `001-agent-event-orchestrator` (local-only, no remote)
-- **Orchestration state**: specs/002-agent-event-extension/orchestration.md
 
 ### Current State
 - **Phase**: Phase 6 (implementation), Waves 0+1 dispatched

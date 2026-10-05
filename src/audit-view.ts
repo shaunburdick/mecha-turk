@@ -105,7 +105,7 @@ const UNREADABLE_NOTE =
     'The service answered an audit history the panel could not read — press Audit history to retry.';
 
 /**
- * Build the empty audit-history state (003 T-026).
+ * Build the empty audit-history state.
  *
  * @returns The state before the first read.
  */
@@ -116,7 +116,6 @@ export function initialAuditHistory(): AuditViewState {
 /**
  * Cut one line to a character budget, marking the cut.
  *
- * @param text - The text to bound.
  * @param limit - Character budget (the marker is counted inside it).
  * @returns The text, whole or cut with {@link TRUNCATED_SUFFIX}.
  */
@@ -127,7 +126,6 @@ function truncate(text: string, limit: number): string {
 /**
  * Serialize one row's details for the line, bounded.
  *
- * @param details - The row's structured details.
  * @returns JSON text, cut to the details budget.
  */
 function detailsText(details: Readonly<Record<string, unknown>>): string {
@@ -137,7 +135,6 @@ function detailsText(details: Readonly<Record<string, unknown>>): string {
 /**
  * Read one audit row, refusing anything half-usable.
  *
- * @param value - One element of the response's `entries`.
  * @returns The row, or `null` when its shape is unusable.
  */
 function parseAuditRow(value: unknown): AuditRow | null {
@@ -147,19 +144,14 @@ function parseAuditRow(value: unknown): AuditRow | null {
     }
 
     const { seq, timestamp, correlationId, eventType, actorSource, decision, reason, details } = record;
-    if (typeof seq !== 'number' || !Number.isInteger(seq)) {
-        return null;
-    }
-
-    if ([timestamp, correlationId, eventType, actorSource].some((field) => typeof field !== 'string' || field === '')) {
-        return null;
-    }
-
-    if (decision !== null && typeof decision !== 'string') {
-        return null;
-    }
-
-    if (reason !== null && typeof reason !== 'string') {
+    if (
+        typeof seq !== 'number' ||
+        !Number.isSafeInteger(seq) ||
+        [timestamp, correlationId, eventType, actorSource].some((field) => typeof field !== 'string' ||
+        field === '') ||
+        decision !== null && typeof decision !== 'string' ||
+        reason !== null && typeof reason !== 'string'
+    ) {
         return null;
     }
 
@@ -183,7 +175,6 @@ function parseAuditRow(value: unknown): AuditRow | null {
 /**
  * Parse the audit-read body (`{ entries: AuditEntry[] }`, contract §2).
  *
- * @param text - Response body text.
  * @returns The rows in the order the service sent them, capped at
  *   {@link AUDIT_ROW_LIMIT}, or `null` when any part of the shape is unusable.
  */
@@ -212,7 +203,6 @@ export function parseAuditBody(text: string): AuditRow[] | null {
 /**
  * Compose one audit row as a list row: seq, event, actor, decision, reason.
  *
- * @param row - One row from the trail.
  * @returns The list row, every string written as text by the primitive.
  */
 export function auditItem(row: AuditRow): ListItem {
@@ -226,24 +216,22 @@ export function auditItem(row: AuditRow): ListItem {
         leading: String(row.seq),
         title: `${row.eventType} · ${row.actorSource}${decision}`,
         meta: utcStamp(row.timestamp),
-        ...(subtitle === '' ? {} : { subtitle }),
+        ...(subtitle !== '' && { subtitle }),
     };
 }
 
 /**
  * Build the audit list from the view's state.
  *
- * @param state - The audit-history state.
  * @returns At most {@link AUDIT_ROW_LIMIT} rows, oldest first.
  */
 export function auditItems(state: AuditViewState): ListItem[] {
-    return state.rows.slice(0, AUDIT_ROW_LIMIT).map(auditItem);
+    return state.rows.slice(0, AUDIT_ROW_LIMIT).map((row) => auditItem(row));
 }
 
 /**
  * Compose the audit view's status line.
  *
- * @param state - The audit-history state.
  * @returns The status text for where the read stands.
  */
 export function auditStatusText(state: AuditViewState): string {
@@ -269,14 +257,12 @@ export function auditStatusText(state: AuditViewState): string {
 }
 
 /**
- * Read the selected run's audit history (FR-053, AC-117).
+ * Read the selected run's audit history.
  *
  * The fetch is keyed by the **selected row's** correlation id and by nothing
  * else — that is the whole point of FR-051's one identifier — and the answer
  * replaces the view wholesale, so a failure can never leave one run's rows on
  * screen under another's status line.
- *
- * @param rt - Panel runtime.
  */
 export async function loadAuditHistory(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;

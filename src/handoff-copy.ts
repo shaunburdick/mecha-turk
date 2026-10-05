@@ -3,7 +3,7 @@
  *
  * Every string here is built from a **status code or reason class** and from
  * contract prose — never from a received value — so no failure surface can
- * echo a credential (token-handoff §4 rules 3–4, AC-003). The three tables are
+ * echo a credential (token-handoff §4 rules 3–4). The three tables are
  * `Map`s rather than object literals because the codes themselves are not
  * camelCase identifiers, and because one lookup per code keeps the routing
  * logic branch-free.
@@ -78,7 +78,6 @@ export const DUPLICATE_ADOPTED_CODE = 'duplicate-account';
  * says "already registered" so the operator understands no second paste was
  * needed, then names who was connected.
  *
- * @param login - Login reported by the service's accounts list.
  * @returns The adopted note line.
  */
 export function duplicateAdoptedLine(login: string): string {
@@ -88,7 +87,6 @@ export function duplicateAdoptedLine(login: string): string {
 /**
  * The copy line a successful handoff renders (contract §2 step ⑨).
  *
- * @param login - Login reported by the service.
  * @returns The connected line.
  */
 export function connectedLine(login: string): string {

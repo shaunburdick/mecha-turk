@@ -31,7 +31,7 @@ export type ThrottleDecision =
     | { readonly allowed: true; readonly lease: VerifyLease }
     | { readonly allowed: false; readonly code: 'verify-busy' | 'rate-limited'; readonly retryAfterSeconds: number };
 
-/** Handle released when the attempt finishes, so the slot frees exactly once. */
+/** Handle isReleased when the attempt finishes, so the slot frees exactly once. */
 export interface VerifyLease {
     /** Marks the attempt finished; idempotent across repeated calls. */
     release(): void;
@@ -39,7 +39,7 @@ export interface VerifyLease {
 
 /** The throttle routes share: one rolling window plus one in-flight slot. */
 export interface VerifyThrottle {
-    /** Ask to start an attempt; every accepted lease must be released. */
+    /** Ask to start an attempt; every accepted lease must be isReleased. */
     attempt(): ThrottleDecision;
     /** Number of attempts currently in flight. */
     inFlight(): number;
@@ -70,7 +70,7 @@ export function createVerifyThrottle(now: () => number = Date.now): VerifyThrott
             }
 
             const oldest = stamps[0];
-            if (stamps.length >= VERIFY_MAX_ATTEMPTS && oldest !== undefined) {
+            if (oldest !== undefined && stamps.length >= VERIFY_MAX_ATTEMPTS) {
                 const waitMs = VERIFY_WINDOW_MS - (at - oldest);
 
                 return {
@@ -82,17 +82,17 @@ export function createVerifyThrottle(now: () => number = Date.now): VerifyThrott
 
             stamps.push(at);
             active += 1;
-            let released = false;
+            let isReleased = false;
 
             return {
                 allowed: true,
                 lease: {
                     release: (): void => {
-                        if (released) {
+                        if (isReleased) {
                             return;
                         }
 
-                        released = true;
+                        isReleased = true;
                         active -= 1;
                     },
                 },

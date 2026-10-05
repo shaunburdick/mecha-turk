@@ -73,6 +73,7 @@ import type { PanelBinding, PanelTriggers } from '../src/bindings-service.ts';
 import type { StatusView } from '../src/status-document.ts';
 import type { RunRow } from '../src/dispatches-service.ts';
 import { BINDINGS_PATH } from '../src/service-calls.ts';
+import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost, tick } from './support/panel.ts';
 
@@ -121,7 +122,7 @@ function sdkHandle(key: string, id: number): {
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): ReturnType<typeof sdkHandle> => {
@@ -244,9 +245,6 @@ const inertHandlers: PanelHandlers = {
  * `state` and `triggers` are overridable because FR-092's table is a function of
  * both (005 v1.14.0) and a fixture that could not vary them could not reach four
  * of its eight rows.
- *
- * @param input - The row's identity, its stored allow-list, and its state.
- * @returns One complete binding row.
  */
 function bindingRow(input: {
     /** Panel-generated id. */
@@ -277,7 +275,7 @@ function bindingRow(input: {
         state: input.state ?? 'active',
         createdAt: FIXTURE_TIMESTAMP,
         updatedAt: FIXTURE_TIMESTAMP,
-        ...(input.allowedUsers === undefined ? {} : { allowedUsers: input.allowedUsers }),
+        ...(input.allowedUsers !== undefined && { allowedUsers: input.allowedUsers }),
     };
 }
 
@@ -366,7 +364,6 @@ interface Editor {
 /**
  * Mount the Bindings body over the rows a case supplies, with nothing selected.
  *
- * @param input - The binding rows to load, and the service to mount against.
  * @returns The runtime, its handler table, and the service double.
  */
 function editor(input: {
@@ -390,8 +387,6 @@ function editor(input: {
 
 /**
  * Release one case's mounted body and stop the relay a granted list armed.
- *
- * @param mounted - What {@link editor} answered with.
  */
 function release(mounted: Editor): void {
     stopRelayPolling(mounted.rt);
@@ -402,7 +397,6 @@ function release(mounted: Editor): void {
 /**
  * Read one mount's props as the object a count compares over.
  *
- * @param raw - Whatever the SDK primitive was handed.
  * @returns The props as a plain record (a bare string prop reads as `text`).
  */
 function propsOf(raw: unknown): Record<string, unknown> {
@@ -425,7 +419,6 @@ function propsOf(raw: unknown): Record<string, unknown> {
  * painted with the text a beat later still counts as **one** element — while a
  * second element carrying the same text counts as two.
  *
- * @param sentinel - The text to look for.
  * @returns The elements carrying it, each named by its SDK primitive.
  */
 function elementsCarrying(sentinel: string): readonly { readonly key: string }[] {
@@ -466,7 +459,7 @@ function listFieldProps(): Record<string, unknown> {
         (entry) => entry.key === TEXT_FIELD
             && (entry.props as { readonly label?: unknown }).label === ALLOWED_USERS_LABEL,
     );
-    if (at < 0) {
+    if (at === -1) {
         throw new Error('the allow-list field never mounted');
     }
 
@@ -477,7 +470,7 @@ function listFieldProps(): Record<string, unknown> {
         }
     }
 
-    const props: Record<string, unknown> = { ...(mounts.log[at]?.props as Record<string, unknown>) };
+    const props = { ...mounts.log[at]?.props as Record<string, unknown> };
     for (const update of mounts.updates) {
         if (update.key === TEXT_FIELD && update.id === id) {
             Object.assign(props, update.props);
@@ -493,7 +486,6 @@ function listFieldProps(): Record<string, unknown> {
  * A disabled control fires no handler, so the input is refused here loudly
  * rather than as a silent no-op that would let a dead field read as a live one.
  *
- * @param text - What the operator types.
  * @throws {Error} When the field is disabled, or wired no handler at all.
  */
 function typeIntoListField(text: string): void {
@@ -503,7 +495,7 @@ function typeIntoListField(text: string): void {
     }
 
     if (typeof props.onChange !== 'function') {
-        throw new Error('the allow-list field wired no onChange');
+        throw new TypeError('the allow-list field wired no onChange');
     }
 
     (props.onChange as (value: string) => void)(text);
@@ -512,7 +504,6 @@ function typeIntoListField(text: string): void {
 /**
  * Read the PUT a test drove, failing loudly when none was sent.
  *
- * @param requests - The legs the service recorded.
  * @returns The raw body the panel put on the wire.
  * @throws {Error} When the panel never put the bindings list.
  */
@@ -528,7 +519,6 @@ function putBody(requests: readonly GuestRequest[]): string {
 /**
  * The rows one grant put on the wire, as raw JSON.
  *
- * @param requests - The legs the service recorded.
  * @returns Each submitted row.
  */
 function grantedRows(requests: readonly GuestRequest[]): readonly Record<string, unknown>[] {
@@ -542,7 +532,6 @@ function grantedRows(requests: readonly GuestRequest[]): readonly Record<string,
  * `initialBindings()` is the real empty state, so a case states only what it is
  * about and the patch is judged against the type the actions actually use.
  *
- * @param input - The field's text, and whether the operator changed it.
  * @returns A Bindings-tab state with the field loaded.
  */
 function listDraft(input: {
@@ -563,7 +552,6 @@ function listDraft(input: {
 /**
  * Build one runs row for the dispatch-row scan.
  *
- * @param overrides - Fields the case changes.
  * @returns A complete, valid row.
  */
 function runRow(overrides: Partial<RunRow> = {}): RunRow {
@@ -623,18 +611,18 @@ function runRow(overrides: Partial<RunRow> = {}): RunRow {
  * shape the parser would have refused.
  *
  * @param policy - The allow-list shape both rows report.
- * @param active - Whether both rows are enabled; the Status denominator's own
+ * @param isActive - Whether both rows are enabled; the Status denominator's own
  *   member (FR-093 as re-cut at v1.14.0).
  * @returns The parsed document.
  * @throws {Error} When the fixture document cannot be read.
  */
-function statusView(policy: 'open' | 'restricted', active = true): StatusView {
+function statusView(policy: 'open' | 'restricted', isActive = true): StatusView {
     const repository = (bindingId: string, name: string): Record<string, unknown> => ({
         bindingId,
         repository: name,
         projectId: PROJECT_ID,
         accountLogin: LOGIN,
-        active,
+        active: isActive,
         lastScanAt: FIXTURE_TIMESTAMP,
         lastError: null,
         pendingCount: 0,
@@ -675,7 +663,6 @@ function statusView(policy: 'open' | 'restricted', active = true): StatusView {
  * that *documents* the rule in a comment may say `restricted` freely, while a
  * literal that reaches the DOM may not.
  *
- * @param source - The file's text.
  * @returns Each literal's own contents, unquoted.
  */
 function stringLiterals(source: string): readonly string[] {
@@ -697,14 +684,13 @@ function stringLiterals(source: string): readonly string[] {
  * in a copy constant alike, and `restricts` is left to the composition scan
  * above rather than guessed at here.
  *
- * @param source - The file's text.
  * @returns The distinct words found, sorted.
  */
 function wordsFound(source: string): readonly string[] {
     return POLICY_MATCHERS
         .filter(([, matcher]) => matcher.test(source))
         .map(([word]) => word)
-        .sort();
+        .toSorted(byText);
 }
 
 /**
@@ -749,8 +735,7 @@ function unearnedClaims(line: string): readonly string[] {
  * -------------------------------------------------------------------- */
 
 describe('AC-142 the allow-list is one field whose guidance states all three states', () => {
-    it('labels it, states every state, and judges nothing (+4 cases)', () => {
-        // case: the field is labelled as the set of logins, for this repository
+    it('labels it, states every state, and judges nothing', () => {
         {
             const mounted = editor({ rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY })] });
             mounted.handlers.selectBinding(EDITED_ID);
@@ -772,7 +757,6 @@ describe('AC-142 the allow-list is one field whose guidance states all three sta
             release(mounted);
         }
 
-        // case: the guidance carries 002 FR-047's three states in the panel's words
         {
             const mounted = editor({ rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY })] });
             mounted.handlers.selectBinding(EDITED_ID);
@@ -795,7 +779,6 @@ describe('AC-142 the allow-list is one field whose guidance states all three sta
             release(mounted);
         }
 
-        // case: the field opens on what the service stores, in both states
         {
             const unset = editor({ rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY })] });
             unset.handlers.selectBinding(EDITED_ID);
@@ -820,7 +803,6 @@ describe('AC-142 the allow-list is one field whose guidance states all three sta
             release(set);
         }
 
-        // case: the panel judges nothing — it splits, and never manufactures `[]`
         {
             // Blank is the complete "unset" answer: the product owner ruled at
             // the phase-5 gate that a cleared field takes the binding back to
@@ -845,8 +827,7 @@ describe('AC-142 the allow-list is one field whose guidance states all three sta
  * -------------------------------------------------------------------- */
 
 describe('AC-143 twelve permitted logins render exactly once, and the row reads a count', () => {
-    it('counts one carrier per login across all six tabs (+2 cases)', async () => {
-        // case: the twelve strings appear exactly once panel-wide, and the rows count
+    it('the twelve strings appear exactly once panel-wide, and the rows count', async () => {
         {
             freshJournal();
             const rt = createTestRuntime(fakeHost());
@@ -891,7 +872,9 @@ describe('AC-143 twelve permitted logins render exactly once, and the row reads 
             rt.shell?.dispose();
         }
 
-        // case: the counter itself answers 0 and 2 alike — it is not shaped to answer 1
+    });
+
+    it('the counter itself answers 0 and 2 alike — it is not shaped to answer 1', async () => {
         {
             // Nothing carries this: a vanished field would read this way rather
             // than the count agreeing with itself.
@@ -904,6 +887,7 @@ describe('AC-143 twelve permitted logins render exactly once, and the row reads 
             release(mounted);
         }
     });
+
 });
 
 /* -------------------------------------------------------------------- *
@@ -911,8 +895,7 @@ describe('AC-143 twelve permitted logins render exactly once, and the row reads 
  * -------------------------------------------------------------------- */
 
 describe('AC-144 a binding with no list is warned about, in words and not as an error', () => {
-    it('names who can trigger it and the field, and warns about neither listed binding (+2 cases)', () => {
-        // case: two bindings, both with lists — the count and no warning
+    it('names who can trigger it and the field, and warns about neither listed binding', () => {
         {
             const mounted = editor({
                 rows: [
@@ -932,7 +915,6 @@ describe('AC-144 a binding with no list is warned about, in words and not as an 
             release(mounted);
         }
 
-        // case: the no-list row's own warning, on every binding that has none
         {
             const mounted = editor({
                 rows: [
@@ -972,8 +954,7 @@ describe('AC-144 a binding with no list is warned about, in words and not as an 
  * -------------------------------------------------------------------- */
 
 describe('the whole-file write states the allow-list on every row (contract §2)', () => {
-    it('carries the operator array, omits the key when cleared, and never sends [] (+4 cases)', async () => {
-        // case: every row carries the member, and an untouched row keeps its own
+    it('every row carries the member, and an untouched row keeps its own', async () => {
         {
             const mounted = editor({
                 rows: [
@@ -995,7 +976,9 @@ describe('the whole-file write states the allow-list on every row (contract §2)
             release(mounted);
         }
 
-        // case: the edited row carries the operator's array
+    });
+
+    it('the edited row carries the operator\'s array', async () => {
         {
             const mounted = editor({
                 rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, allowedUsers: ['alice'] })],
@@ -1010,7 +993,9 @@ describe('the whole-file write states the allow-list on every row (contract §2)
             release(mounted);
         }
 
-        // case: a cleared field omits the key — the binding goes back to open
+    });
+
+    it('a cleared field omits the key — the binding goes back to open', async () => {
         {
             const mounted = editor({
                 rows: [bindingRow({
@@ -1032,7 +1017,9 @@ describe('the whole-file write states the allow-list on every row (contract §2)
             release(mounted);
         }
 
-        // case: an edit of another field never erases the list
+    });
+
+    it('an edit of another field never erases the list', async () => {
         {
             const mounted = editor({
                 rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, allowedUsers: TWELVE_LOGINS })],
@@ -1050,6 +1037,7 @@ describe('the whole-file write states the allow-list on every row (contract §2)
             release(mounted);
         }
     });
+
 });
 
 /* -------------------------------------------------------------------- *
@@ -1057,8 +1045,7 @@ describe('the whole-file write states the allow-list on every row (contract §2)
  * -------------------------------------------------------------------- */
 
 describe('FR-095 a refused allow-list takes the field, changes nothing, and echoes nothing', () => {
-    it('renders the service remediation and keeps every binding byte-identical (+3 cases)', async () => {
-        // case: the refusal renders at the field, and the stored list stands
+    it('the refusal renders at the field, and the stored list stands', async () => {
         {
             const service = refusingService();
             const mounted = editor({
@@ -1091,7 +1078,9 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
             release(mounted);
         }
 
-        // case: a refusal about another field never lands on this one
+    });
+
+    it('a refusal about another field never lands on this one', async () => {
         {
             const other = {
                 ok: false as const,
@@ -1111,7 +1100,9 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
             expect(actorsRefusal({ ok: true, body: '{}' })).toBeNull();
         }
 
-        // case: the field's own rules never reach the panel's own validation
+    });
+
+    it('the field\'s own rules never reach the panel\'s own validation', async () => {
         {
             // `allowedUsersPatch` is the only place a save turns the field into a
             // wire value, and it splits without judging: no case folding, no
@@ -1125,6 +1116,7 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
             expect(allowedUsersPatch(listDraft({ text: 'alice', dirty: false }), 'bnd-1')).toBeUndefined();
         }
     });
+
 });
 
 /* -------------------------------------------------------------------- *
@@ -1132,8 +1124,7 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
  * -------------------------------------------------------------------- */
 
 describe('AC-146 no user-facing string implies a policy the service did not report', () => {
-    it('composes every binding-rendering surface with every binding open and finds no claim (+2 cases)', () => {
-        // case: with every binding reported `open`, nothing claims a control
+    it('composes every binding-rendering surface with every binding open and finds no claim', () => {
         {
             const open = statusView('open');
             const strings = [
@@ -1146,7 +1137,7 @@ describe('AC-146 no user-facing string implies a policy the service did not repo
                         bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY }),
                         bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY }),
                     ]),
-                }).flatMap((row) => [String(row.title), String(row.subtitle), String(row.leading)]),
+                }).flatMap((row) => [row.title, String(row.subtitle), String(row.leading)]),
                 // Status: the roll-up and every per-binding line.
                 ...actorPolicyLines(open),
                 ...bindingLines(open),
@@ -1174,7 +1165,6 @@ describe('AC-146 no user-facing string implies a policy the service did not repo
             expect(restricted.some((line) => line.includes('restricts'))).toBe(true);
         }
 
-        // case: the source sweep finds every occurrence accounted for
         {
             /**
              * The files whose occurrences are about something other than a
@@ -1191,9 +1181,11 @@ describe('AC-146 no user-facing string implies a policy the service did not repo
             ];
             const dir = resolve(import.meta.dirname, '../src');
             const offenders: string[] = [];
-            for (const name of readdirSync(dir).filter((entry) => entry.endsWith('.ts')).sort()) {
-                const hits = wordsFound(stringLiterals(readFileSync(resolve(dir, name), 'utf8')).join(' '));
-                if (hits.length > 0 && EXEMPT.some(([file]) => file === name) === false) {
+            const sourceNames = readdirSync(dir).filter((entry) => entry.endsWith('.ts')).toSorted(byText);
+            for (const name of sourceNames) {
+                const text = readFileSync(resolve(dir, name), 'utf8');
+                const hits = wordsFound(stringLiterals(text).join(' '));
+                if (hits.length > 0 && EXEMPT.every(([file]) => file !== name)) {
                     offenders.push(`${name}: ${hits.join(', ')}`);
                 }
             }
@@ -1274,8 +1266,7 @@ const PHRASES: readonly (readonly [keyof PanelTriggers, string])[] = [
 ];
 
 describe('AC-148 one derivation over all eight subsets of the three switches (005 FR-096)', () => {
-    it('maps every subset to exactly one clause, names no act that is off, and names no login (+5 cases)', () => {
-        // case: every subset maps to its own clause, and `none` maps to no clause
+    it('maps every subset to exactly one clause, names no act that is off, and names no login', () => {
         {
             for (const [name, switches, expected] of SUBSETS) {
                 expect(derivedTriggerClause(switches), name).toBe(expected);
@@ -1287,7 +1278,6 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
             expect(new Set(clauses).size).toBe(SUBSETS.length);
         }
 
-        // case: a phrase appears only in the clauses of the subsets that switch
         // its own trigger on — so a binding with only `reviewRequest` names
         // requesting a review and neither opening an issue nor commenting nor
         // assigning.
@@ -1295,38 +1285,37 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
             for (const [switched, phrase] of PHRASES) {
                 for (const [name, switches, clause] of SUBSETS) {
                     const shouldName = switches[switched];
-                    const named = clause?.includes(phrase) ?? false;
-                    expect(named, `${phrase} in the ${name} subset`).toBe(shouldName);
+                    const isNamed = clause?.includes(phrase) ?? false;
+                    expect(isNamed, `${phrase} in the ${name} subset`).toBe(shouldName);
                 }
             }
         }
 
-        // case: the composed order is the declared order, whatever the subset
         {
             const clause = derivedTriggerClause({ assignment: true, mention: true, reviewRequest: true });
 
             expect(clause).not.toBeNull();
             const at = PHRASES.map(([, phrase]) => (clause ?? '').indexOf(phrase));
-            expect(at.every((index) => index >= 0)).toBe(true);
-            expect([...at].sort((left, right) => left - right)).toEqual(at);
+            expect(at.every((index) => index !== -1)).toBe(true);
+            expect([...at].toSorted((left, right) => left - right)).toEqual(at);
         }
 
-        // case: no clause ever names the bound account's login — the row already
         // renders that member, and an identity is not a permitted login anyway
         {
             for (const [, switches] of SUBSETS) {
                 const clause = derivedTriggerClause(switches);
 
-                if (clause !== null) {
-                    expect(clause).not.toContain(LOGIN);
-                    expect(clause).not.toContain('octocat');
-                    // …and it says *the account*, never the login.
-                    expect(clause).toContain('the account');
+                if (clause === null) {
+                    continue;
                 }
+
+                expect(clause).not.toContain(LOGIN);
+                expect(clause).not.toContain('octocat');
+                // …and it says *the account*, never the login.
+                expect(clause).toContain('the account');
             }
         }
 
-        // case: the editor guidance is driven by the same derivation in both
         // modes — an add-mode draft's switches and an edited row's own
         {
             for (const [name, switches, clause] of SUBSETS) {
@@ -1343,11 +1332,13 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
             // `reviewRequest`, and that is what the field's helper must describe.
             const added = editor({ rows: [] });
             added.handlers.newBinding();
-            const addHelper = String(listFieldProps().helper);
+            const newBindingHelper = String(listFieldProps().helper);
 
-            expect(addHelper).toBe(allowedUsersGuidance({ assignment: true, mention: false, reviewRequest: true }));
-            expect(addHelper).toContain('request a review from the account on a pull request');
-            expect(addHelper).not.toContain('mention the account');
+            expect(newBindingHelper).toBe(
+                allowedUsersGuidance({ assignment: true, mention: false, reviewRequest: true }),
+            );
+            expect(newBindingHelper).toContain('request a review from the account on a pull request');
+            expect(newBindingHelper).not.toContain('mention the account');
             release(added);
 
             // Edit mode: the loaded row's own switches, which differ from the
@@ -1363,7 +1354,7 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
             const editHelper = String(listFieldProps().helper);
 
             expect(editHelper).toBe(allowedUsersGuidance(MENTION_ONLY));
-            expect(editHelper).not.toBe(addHelper);
+            expect(editHelper).not.toBe(newBindingHelper);
             release(edited);
         }
     });
@@ -1378,8 +1369,7 @@ describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability a
     /** The twelve permitted logins AC-147's count half is read against. */
     const TWELVE = TWELVE_LOGINS;
 
-    it('renders the table row the three facts select, and claims nothing it cannot do (+5 cases)', () => {
-        // case: all eight rows, asserted from the table rather than by example
+    it('renders the table row the three facts select, and claims nothing it cannot do', () => {
         {
             const TABLE: readonly (readonly [
                 'active' | 'disabled',
@@ -1441,7 +1431,6 @@ describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability a
             }
         }
 
-        // case: the row the Bindings tab renders carries the same clause — the
         // table is not a private vocabulary the rows bypass.
         {
             const triggers: PanelTriggers = MENTION_ONLY;
@@ -1464,7 +1453,6 @@ describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability a
             release(mounted);
         }
 
-        // case: a disabled binding carrying twelve logins reads `once this
         // binding is enabled` and **never** the bare count — the count sentence
         // is where the defect was found.
         {
@@ -1490,7 +1478,6 @@ describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability a
             release(mounted);
         }
 
-        // case: NFR-114's sweep over **every** string about a binding that
         // cannot trigger — the row, the editor's guidance, the editor's
         // placeholder, and Status — finds no unframed present-tense claim, and
         // the sweep is proved non-vacuous by the enabled form it also renders.
@@ -1519,7 +1506,7 @@ describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability a
 
                 const strings = [
                     ...bindingRows(mounted.rt.state.bindings)
-                        .flatMap((row) => [String(row.title), String(row.subtitle), String(row.leading)]),
+                        .flatMap((row) => [row.title, String(row.subtitle), String(row.leading)]),
                     String(listFieldProps().helper),
                     String(listFieldProps().placeholder),
                     // Status speaks about bindings too, so its roll-up is in the
@@ -1544,7 +1531,6 @@ describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability a
                 release(mounted);
             }
 
-            // case: the field's placeholder carries the consequence too, in all
             // four states. It renders on **every** unset field, so v1.11.0's
             // fixed `not set — anyone may trigger this repository` was an
             // unframed claim sitting in a disabled binding's value slot — which

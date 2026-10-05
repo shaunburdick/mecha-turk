@@ -61,7 +61,6 @@ export interface FixtureBindingOptions {
  * Build one binding row exactly as the panel's whole-file grant writes it.
  *
  * @param bindingId - The binding's id, matching the fixture runs'.
- * @param options - Per-fixture overrides.
  * @returns The stored row.
  */
 export function fixtureBindingRow(
@@ -81,7 +80,7 @@ export function fixtureBindingRow(
         state: options.state ?? 'active',
         createdAt: FIXTURE_BINDING_STAMP,
         updatedAt: FIXTURE_BINDING_STAMP,
-        ...(allowedUsers === null ? {} : { allowedUsers: [...allowedUsers] }),
+        ...(allowedUsers !== null && { allowedUsers: [...allowedUsers] }),
     };
 }
 
@@ -92,8 +91,6 @@ export function fixtureBindingRow(
  * this twice (across a restart, say) wants the same single fixture binding
  * rather than an accumulation.
  *
- * @param store - Open store to write through.
- * @param bindings - Each binding's id and overrides.
  * @returns A promise that settles once the document is durable.
  */
 export async function writeFixtureBindings(
@@ -111,8 +108,6 @@ export async function writeFixtureBindings(
  * The common case, named separately so a suite's setup reads as what it means:
  * "this run has a binding, and that binding restricts nobody".
  *
- * @param input - The open store, the binding the fixture runs name, and any
- *   per-fixture overrides (usually the repository and project).
  * @returns A promise that settles once the document is durable.
  */
 export async function writeOpenBinding(input: {
@@ -134,7 +129,6 @@ export async function writeOpenBinding(input: {
  * `POST …/reserve` and denies when it cannot (003 FR-076, constitution II). The
  * two must agree: a run exists because this binding's scan created it.
  *
- * @param store - Open store to write through.
  * @returns A promise that settles once the document is durable.
  */
 export async function writeLoopBinding(store: ServiceStore): Promise<void> {

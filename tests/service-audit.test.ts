@@ -12,8 +12,8 @@
  * extending without a gap.)
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendAudit, composeAudit, readAuditEntries, serializeAudit } from '../service/audit.ts';
@@ -21,6 +21,7 @@ import { openStore } from '../service/store/index.ts';
 import type { AuditEntry, AuditInput } from '../service/audit.ts';
 import type { NdjsonReadResult } from '../service/store/ndjson.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Store file the audit trail lives in. */
 const AUDIT_FILE = 'audit.ndjson';
@@ -37,21 +38,16 @@ let tempRoot = '';
 /** Absolute data directory the store is opened on. */
 let dataDir = '';
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-audit-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('audit'));
     await mkdir(dataDir, { recursive: true });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /**
  * Build one audit input for the fixtures (ids only, never credential material).
@@ -66,7 +62,6 @@ function sampleRow(eventType: string): AuditInput {
 /**
  * Count reads of the store's NDJSON files through one open handle.
  *
- * @param store - Store whose `readLines` calls should be counted.
  * @returns A counter the test asserts against after its writes.
  */
 function countReads(store: ServiceStore): { readonly count: () => number } {
@@ -84,7 +79,6 @@ function countReads(store: ServiceStore): { readonly count: () => number } {
 /**
  * Write a valid audit line directly into the trail (fixtures for "pre-existing").
  *
- * @param entry - The line to plant, already carrying its own `seq`.
  * @returns The serialized NDJSON line.
  */
 function plantedLine(entry: Readonly<Record<string, unknown>>): string {
@@ -128,8 +122,7 @@ async function plantTrail(): Promise<void> {
 }
 
 describe('audit sequence and chain (M6, W2-2)', () => {
-    it('appends without ever re-reading the audit file (+2 cases)', async () => {
-        // case: appends without ever re-reading the audit file
+    it('appends without ever re-reading the audit file', async () => {
         {
             const store = await openStore({ dataDir });
             const reads = countReads(store);
@@ -144,11 +137,9 @@ describe('audit sequence and chain (M6, W2-2)', () => {
             // Exactly the seed: three appends, one file read.
             expect(reads.count()).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: continues a trail that existed before the store opened
+    });
+
+    it('continues a trail that existed before the store opened', async () => {
         {
             await plantTrail();
             const store = await openStore({ dataDir });
@@ -166,11 +157,9 @@ describe('audit sequence and chain (M6, W2-2)', () => {
             await appendAudit(store, sampleRow(STARTED_EVENT));
             expect(reads.count()).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: serializes concurrent appends so seq stays unique and file-ordered
+    });
+
+    it('serializes concurrent appends so seq stays unique and file-ordered', async () => {
         {
             const store = await openStore({ dataDir });
 
@@ -185,6 +174,7 @@ describe('audit sequence and chain (M6, W2-2)', () => {
             expect(stored.map((entry) => entry.seq)).toEqual([1, 2, 3]);
         }
     });
+
 });
 
 /** Let every pending microtask plus one macrotask turn run; never sleeps. */
@@ -202,7 +192,6 @@ const SECOND_RUN = 'second:run';
 /**
  * Compare two entries without the wall-clock stamp each one records.
  *
- * @param entry - Entry to normalise.
  * @returns The entry with its timestamp replaced by a fixed marker.
  */
 function stampless(entry: AuditEntry): AuditEntry {
@@ -210,16 +199,17 @@ function stampless(entry: AuditEntry): AuditEntry {
 }
 
 describe('chain join and entry composer (006 T-011)', () => {
-    it('serialises chained tasks so the second starts only a… (+2 cases)', async () => {
-        // case: serialises chained tasks so the second starts only after the first settles
+    it('serialises chained tasks so the second starts only after the first settles', async () => {
         {
             const store = await openStore({ dataDir });
             const order: string[] = [];
             let release: (() => void) | undefined;
+            // eslint-disable-next-line unicorn/prefer-promise-with-resolvers -- ES2024, not on our target.
             const gate = new Promise<void>((resolve) => {
                 release = resolve;
             });
             let markStarted: (() => void) | undefined;
+            // eslint-disable-next-line unicorn/prefer-promise-with-resolvers -- ES2024, not on our target.
             const started = new Promise<void>((resolve) => {
                 markStarted = resolve;
             });
@@ -248,11 +238,9 @@ describe('chain join and entry composer (006 T-011)', () => {
             expect(await Promise.all([first, second])).toEqual(['first', 'second']);
             expect(order).toEqual([FIRST_START, FIRST_END, SECOND_RUN]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: composes the entry appendAudit would write, without writing a line
+    });
+
+    it('composes the entry appendAudit would write, without writing a line', async () => {
         {
             const composing = await openStore({ dataDir });
             const appending = await openStore({ dataDir: join(tempRoot, 'appended-store') });
@@ -269,11 +257,9 @@ describe('chain join and entry composer (006 T-011)', () => {
             const next = await appendAudit(composing, input);
             expect(next.seq).toBe(2);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: runs the writer’s redaction pass over a composed entry
+    });
+
+    it('runs the writer’s redaction pass over a composed entry', async () => {
         {
             const store = await openStore({ dataDir });
             const input: AuditInput = {
@@ -289,4 +275,5 @@ describe('chain join and entry composer (006 T-011)', () => {
             expect(JSON.stringify(composed)).toContain('[redacted:github-token-classic]');
         }
     });
+
 });

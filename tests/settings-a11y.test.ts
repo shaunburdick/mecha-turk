@@ -44,7 +44,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -91,7 +91,6 @@ interface TabRender {
 /**
  * Every string inside one mount's props, however deeply nested.
  *
- * @param value - Whatever the primitive was handed.
  * @param found - Accumulator the caller owns.
  */
 function collectStrings(value: unknown, found: string[]): void {
@@ -119,7 +118,6 @@ function collectStrings(value: unknown, found: string[]): void {
 /**
  * Mount every body and attribute its mounts to it, in order.
  *
- * @param rt - Panel runtime the specs build from.
  * @returns One entry per tab, in `TAB_IDS` order.
  */
 async function renderAllTabs(rt: PanelRuntime): Promise<readonly TabRender[]> {
@@ -185,7 +183,6 @@ function runtime(): PanelRuntime {
 /**
  * The labels that name a configuration field.
  *
- * @param render - One tab's mounts.
  * @returns The labels that mention a documented field.
  */
 function configurationLabels(render: TabRender): readonly string[] {
@@ -195,12 +192,12 @@ function configurationLabels(render: TabRender): readonly string[] {
 }
 
 describe('the configuration is editable in exactly one tab (006 AC-141, SC-113, FR-019)', () => {
-    it('mounts every documented field as a control in Settin… (+1 cases)', async () => {
-        // case: mounts every documented field as a control in Settings, and nowhere else
+    it('mounts every documented field as a control in Settings, and nowhere else', async () => {
         {
             const renders = await renderAllTabs(runtime());
+            const otherTabs = renders.filter((entry) => entry.id !== 'settings');
 
-            for (const render of renders.filter((entry) => entry.id !== 'settings')) {
+            for (const render of otherTabs) {
                 expect(configurationLabels(render), `${render.id} rendered a configuration control`).toEqual([]);
             }
 
@@ -210,7 +207,9 @@ describe('the configuration is editable in exactly one tab (006 AC-141, SC-113, 
             // as surely as at two (a second rendering appeared).
             expect(configurationLabels(settings as TabRender)).toHaveLength(Object.keys(DEFAULT_CONFIG).length);
         }
-        // case: AC-141: the poll interval is rendered on Settings, and on no other tab but Status
+    });
+
+    it('AC-141: the poll interval is rendered on Settings, and on no other tab but Status', async () => {
         {
             const renders = await renderAllTabs(runtime());
 
@@ -227,11 +226,11 @@ describe('the configuration is editable in exactly one tab (006 AC-141, SC-113, 
             }
         }
     });
+
 });
 
 describe('the other tabs grow no configuration or credential control (006 AC-142, FR-082)', () => {
-    it('mounts none on Bindings, Dispatches, Accounts, or Ab… (+1 cases)', async () => {
-        // case: mounts none on Bindings, Dispatches, Accounts, or About
+    it('mounts none on Bindings, Dispatches, Accounts, or About', async () => {
         {
             const renders = await renderAllTabs(runtime());
 
@@ -241,7 +240,9 @@ describe('the other tabs grow no configuration or credential control (006 AC-142
                 expect(configurationLabels(render as TabRender)).toEqual([]);
             }
         }
-        // case: mounts no password field anywhere, and no credential word on Settings
+    });
+
+    it('mounts no password field anywhere, and no credential word on Settings', async () => {
         {
             const renders = await renderAllTabs(runtime());
 
@@ -258,11 +259,11 @@ describe('the other tabs grow no configuration or credential control (006 AC-142
             expect(labelled).toEqual([]);
         }
     });
+
 });
 
 describe('every configuration control is operable and named (006 FR-018, FR-039, NFR-107)', () => {
-    it('names each with its field, its unit or its absence, … (+1 cases)', async () => {
-        // case: names each with its field, its unit or its absence, and its boundary
+    it('names each with its field, its unit or its absence, and its boundary', async () => {
         {
             const renders = await renderAllTabs(runtime());
             const settings = renders.find((render) => render.id === 'settings');
@@ -284,7 +285,9 @@ describe('every configuration control is operable and named (006 FR-018, FR-039,
                 expect(typeof props.onChange).toBe('function');
             }
         }
-        // case: offers exactly one save, discard, and restore control (FR-012, FR-045)
+    });
+
+    it('offers exactly one save, discard, and restore control', async () => {
         {
             const renders = await renderAllTabs(runtime());
             const settings = renders.find((render) => render.id === 'settings');
@@ -301,4 +304,5 @@ describe('every configuration control is operable and named (006 FR-018, FR-039,
             }
         }
     });
+
 });

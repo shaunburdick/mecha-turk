@@ -132,29 +132,29 @@ function checkMetrics(sample) {
     const band = boxAverage(sample, { x: 0, y: 0, width: SAMPLE.width, height: SAMPLE.band });
     const unchanged = diffFraction(sample, sample);
     const changed = diffFraction(sample, invert(sample));
-    const ok =
+    const isOk =
         Math.abs(red - EXPECTED_RED_FRACTION) < FRACTION_SLACK &&
         unchanged === 0 &&
         changed > EXPECTED_FULL_DIFF;
 
     return outcome({
         name: 'colorFraction, boxAverage, and diffFraction agree with the sample',
-        ok,
+        ok: isOk,
         detail: `red=${red.toFixed(3)} band=${band.join('/')} same=${unchanged} inverted=${changed.toFixed(3)}`,
     });
 }
 
-/** Garbage must be refused, not half-decoded. */
+/** Garbage must be isRefused, not half-decoded. */
 function checkGarbage() {
-    let refused = false;
+    let isRefused = false;
 
     try {
         decodePng(Buffer.from('this is not a png file at all'));
     } catch {
-        refused = true;
+        isRefused = true;
     }
 
-    return outcome({ name: 'non-PNG bytes are refused', ok: refused, detail: 'decodePng threw' });
+    return outcome({ name: 'non-PNG bytes are refused', ok: isRefused, detail: 'decodePng threw' });
 }
 
 /**
@@ -174,10 +174,10 @@ function writeLine(text) {
     process.stdout.write(`${text}\n`);
 }
 
-const invokedDirectly =
+const isInvokedDirectly =
     process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-if (invokedDirectly) {
+if (isInvokedDirectly) {
     const result = selfTest();
     writeLine(JSON.stringify(result, null, 2));
     if (!result.ok) {
@@ -185,4 +185,5 @@ if (invokedDirectly) {
     }
 }
 
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export { selfTest };

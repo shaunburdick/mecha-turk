@@ -84,7 +84,6 @@ const STATE_TRANSITION_EVENTS: ReadonlySet<string> = new Set([
 /**
  * Decide whether a row is run-scoped (data-model §4.2's reading of FR-056).
  *
- * @param entry - Trail row.
  * @returns `true` for a `run` entity or a `run.`/`dispatch.`/`agent.` event.
  */
 function isRunScoped(entry: AuditEntry): boolean {
@@ -98,7 +97,6 @@ function isRunScoped(entry: AuditEntry): boolean {
 /**
  * Decide whether a row records a policy or configuration decision (FR-056(d)).
  *
- * @param entry - Trail row.
  * @returns `true` for the two vocabulary names the rule names.
  */
 function isDecisionEvent(entry: AuditEntry): boolean {
@@ -108,7 +106,6 @@ function isDecisionEvent(entry: AuditEntry): boolean {
 /**
  * Decide whether a row records a hop to a new run state (003 data-model §4.3).
  *
- * @param entry - Trail row.
  * @returns `true` for a name in the closed set
  *   {@link STATE_TRANSITION_EVENTS}; nothing outside it counts.
  */
@@ -139,16 +136,15 @@ function openersOf(entries: readonly AuditEntry[]): ReadonlyMap<string, AuditEnt
  * takes — the outcome axis and the hop axis are two calls of this one rule.
  *
  * @param entries - Trail rows, in any order.
- * @param accept - Whether this row belongs on the axis at all.
  * @returns The latest accepted row of every chain, keyed by correlation id.
  */
 function latestOf(
     entries: readonly AuditEntry[],
-    accept: (entry: AuditEntry) => boolean,
+    isAccepted: (entry: AuditEntry) => boolean,
 ): ReadonlyMap<string, AuditEntry> {
     const latest = new Map<string, AuditEntry>();
     for (const entry of entries) {
-        if (!accept(entry)) {
+        if (!isAccepted(entry)) {
             continue;
         }
 
@@ -177,9 +173,9 @@ function chainSeqs(entries: readonly AuditEntry[], openers: ReadonlyMap<string, 
 
     // A chain is only protected when it *contains* a run-scoped row, and it
     // keeps three things: the opener and the outcome together — which is what
-    // makes "an outcome with no opener" structurally impossible (FR-056) — and
+    // makes "an outcome with no opener" structurally impossible — and
     // the latest hop, the row whose `decision` carries the run's final state,
-    // its session, and the reason for it (003 FR-065, cited by 006 FR-053).
+    // its session, and the reason for it (003 FR-065, cited).
     // Every hop type is run-scoped by prefix, so a hop's chain always reaches
     // this loop.
     for (const [correlationId, outcome] of outcomes) {
@@ -237,6 +233,7 @@ function creationSeqs(entries: readonly AuditEntry[], openers: ReadonlyMap<strin
  * @param entries - Trail rows, in any order.
  * @returns The protected `seq` numbers this half of the rule contributes.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function chainAndDecisionSeqs(entries: readonly AuditEntry[]): readonly number[] {
     const openers = openersOf(entries);
     const protectedSeqs: number[] = [];

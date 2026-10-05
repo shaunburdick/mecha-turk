@@ -1,5 +1,5 @@
 /**
- * The selected binding's chip row (2026-09-30 visual redesign).
+ * The selected binding's chip row.
  *
  * A binding row prints *enabled* inside the subtitle the operator reads as
  * prose, and the form below it restates the triggers as checkboxes — so the
@@ -47,7 +47,6 @@ export interface DetailChips {
  * underneath it edits — so the chips and the form cannot disagree about which
  * row they are about.
  *
- * @param detailBox - The wrapper the detail line lives in.
  * @returns The chip row, repainted and disposed as one unit.
  */
 export function mountDetailChips(detailBox: HTMLElement): DetailChips {
@@ -67,10 +66,10 @@ export function mountDetailChips(detailBox: HTMLElement): DetailChips {
             return;
         }
 
-        const active = row.state === 'active';
+        const isActive = row.state === 'active';
         chips.push(mountBadge(container, {
-            label: active ? STATE_ON : STATE_OFF,
-            tone: active ? 'success' : 'warning',
+            label: isActive ? STATE_ON : STATE_OFF,
+            tone: isActive ? 'success' : 'warning',
         }));
         const triggers = [
             [row.triggers.assignment, TRIGGER_ASSIGNMENT],

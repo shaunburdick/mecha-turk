@@ -21,7 +21,6 @@ const DIGEST_ALGORITHM = 'sha256';
 /**
  * Extract the credential behind the `Bearer ` prefix.
  *
- * @param header - Raw `Authorization` header value, if any.
  * @returns The presented credential, or `''` for a missing or differently
  *   shaped header (indistinguishable from an empty credential by design).
  */
@@ -36,8 +35,6 @@ function bearerCredential(header: string | undefined): string {
 /**
  * Compare two strings in constant time via their digests.
  *
- * @param presented - Credential taken from the request.
- * @param expected - Token the service was started with.
  * @returns `true` when the digests are byte-identical.
  */
 function digestsMatch(presented: string, expected: string): boolean {
@@ -50,10 +47,10 @@ function digestsMatch(presented: string, expected: string): boolean {
 /**
  * Decide whether an `Authorization` header carries the expected token.
  *
- * @param header - Raw `Authorization` header value, if any.
  * @param token - The expected `OPENCHAMBER_SERVICE_TOKEN`.
  * @returns `true` only when the bearer credential matches in constant time.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function isAuthorized(header: string | undefined, token: string): boolean {
     return digestsMatch(bearerCredential(header), token);
 }

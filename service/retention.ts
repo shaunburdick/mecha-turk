@@ -52,8 +52,6 @@ export interface RetentionInput {
 
 /**
  * Run one pass without letting its failure stop the boundary.
- *
- * @param input - A static, secret-free log line, the pass, and the logger.
  */
 async function runGuarded(input: {
     /** Message the failure is reported under; never carries upstream text. */
@@ -73,7 +71,6 @@ async function runGuarded(input: {
 /**
  * Run both retention passes for one boundary, oldest limit first.
  *
- * @param input - Store, logger, the effective configuration, and the clock.
  * @returns Resolves when both passes have settled; never rejects.
  */
 export async function runRetentionPasses(input: RetentionInput): Promise<void> {
@@ -97,7 +94,6 @@ export async function runRetentionPasses(input: RetentionInput): Promise<void> {
  * the operator one pass at default limits rather than a service that never
  * trims at all (invariant 8).
  *
- * @param store - Open store.
  * @param log - Logger used when the document cannot be read.
  * @returns The effective configuration for this boundary.
  */
@@ -119,8 +115,6 @@ async function readOpenConfig(store: ServiceStore, log: ServiceLogger): Promise<
  * Run both passes once, at store open, before the listener accepts (FR-055(a),
  * FR-057's "once at service start").
  *
- * @param input - The store (or `null` when the directory was unusable) and the
- *   logger. A degraded start runs no pass: there is no store to trim.
  * @returns Resolves when both passes have settled; never rejects.
  */
 export async function runRetentionAtOpen(input: {

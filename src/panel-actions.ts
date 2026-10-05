@@ -1,13 +1,10 @@
 /**
  * Durable ledger writes, shared by every surface that records one.
  *
- * What remains of the spike's action module is the ledger itself: the poll
- * loop (one repository window, its match-and-accept sweep, the cadence
- * timer), the integration card's `/user` identity diagnostic, and the
- * host-state verification action all went with the install-time GitHub
- * credential and the spike dispatch path (product-owner order, 2026-09-30).
- * The product's loops are the service's poll loop and the root-owned relay;
- * neither is armed, stopped, or fed from here.
+ * The product's only loops are the service's poll loop and the root-owned
+ * relay; neither is armed, stopped, or fed from here. The panel's own poll
+ * loop, its `/user` identity diagnostic, its host-state verification action,
+ * and its dispatch path all went with the install-time GitHub credential.
  *
  * Everything that still records a ledger entry — the relay, the mount-time
  * reconciliation, the agent read-back — lands through
@@ -29,7 +26,6 @@ import { describeError } from './session.ts';
 /**
  * Write the serialized ledger to host storage.
  *
- * @param rt - Panel runtime.
  * @throws {Error} When the ledger exceeds the host's value limit, or the
  *   host refuses the write for its own reasons.
  */
@@ -47,8 +43,6 @@ async function writeLedger(rt: PanelRuntime): Promise<void> {
  * so one bad entry cannot poison every later write. Whatever is left is
  * reported through the banner so the panel never claims durable progress it
  * does not have.
- *
- * @param rt - Panel runtime.
  */
 export async function persistLedger(rt: PanelRuntime): Promise<void> {
     if (rt.disposed) {
@@ -76,9 +70,6 @@ export async function persistLedger(rt: PanelRuntime): Promise<void> {
 
 /**
  * Append a ledger entry, persist it, and let the caller repaint.
- *
- * @param rt - Panel runtime.
- * @param input - Entry to append.
  */
 export function appendEntryAndPersist(rt: PanelRuntime, input: LedgerEntryInput): void {
     rt.state.ledger = appendEntry(rt.state.ledger, input);

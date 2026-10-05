@@ -114,7 +114,6 @@ function isAcknowledged(value: JsonValue): boolean {
 /**
  * Build a recorded double for one mounted panel.
  *
- * @param routes - Initial route table.
  * @param options - `failAcknowledge` makes the acknowledgement write throw, so
  *   a landed report still leaves the record unacknowledged (the case that
  *   proves a repeat is byte-identical rather than a fresh report).
@@ -177,22 +176,18 @@ function harness(routes: RouteTable = okRoutes(), options: { readonly failAcknow
 
 /**
  * Record one dispatch outcome the way the relay does, durably, unacknowledged.
- *
- * @param rt - Runtime whose record to write.
- * @param input - The run, its attempt, and the outcome.
  */
 async function record(rt: PanelRuntime, input: {
     /** Run the attempt belongs to. */
     readonly correlationId: string;
     /** FR-010's run tuple. */
     readonly runKey: string;
-    /** Attempt number. */
     readonly attempt: number;
     /** What the host call produced. */
     readonly outcome: { readonly kind: 'dispatched'; readonly sessionId: string };
 }): Promise<void> {
-    const written = await recordDispatchOutcome(rt, { dispatchToken: TOKEN, ...input });
-    expect(written).toBe(true);
+    const isWritten = await recordDispatchOutcome(rt, { dispatchToken: TOKEN, ...input });
+    expect(isWritten).toBe(true);
 }
 
 describe('reconcile mount order (FR-025, AC-111)', () => {
@@ -257,8 +252,7 @@ describe('reconciliation is idempotent (FR-025)', () => {
 });
 
 describe('reconciliation is never silent (FR-025)', () => {
-    it('warns with the run named when the service refuses th… (+3 cases)', async () => {
-        // case: warns with the run named when the service refuses throughout, and still polls
+    it('warns with the run named when the service refuses throughout, and still polls', async () => {
         {
             const relay = harness({
                 ...okRoutes(),
@@ -287,7 +281,9 @@ describe('reconciliation is never silent (FR-025)', () => {
                 stopRelayPolling(relay.rt);
             }
         }
-        // case: puts the service\'s own refusal copy on the panel note (contract §2)
+    });
+
+    it('puts the service\'s own refusal copy on the panel note (contract §2)', async () => {
         {
             const relay = harness({
                 ...okRoutes(),
@@ -307,7 +303,9 @@ describe('reconciliation is never silent (FR-025)', () => {
             expect(relay.rt.state.bindings.note).toContain(RUN_A);
             expect(relay.rt.state.status.body).toContain(RUN_A);
         }
-        // case: stops at the budget and names the run it never reached
+    });
+
+    it('stops at the budget and names the run it never reached', async () => {
         {
             const relay = harness();
             await record(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, attempt: 1, outcome: {
@@ -335,7 +333,9 @@ describe('reconciliation is never silent (FR-025)', () => {
             expect(relay.rt.state.status.body).toContain(RUN_B);
             expect(relay.rt.state.status.body).not.toContain(RUN_A);
         }
-        // case: warns when the record itself is unreadable, and reports nothing
+    });
+
+    it('warns when the record itself is unreadable, and reports nothing', async () => {
         {
             const relay = harness();
             await relay.rt.host.storage.set(DISPATCH_STORAGE_KEY, {
@@ -350,6 +350,7 @@ describe('reconciliation is never silent (FR-025)', () => {
             expect(relay.rt.state.status.tone).toBe('warning');
         }
     });
+
 });
 
 describe('reconciliation of nothing (FR-025 wipe permutation)', () => {

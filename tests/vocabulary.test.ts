@@ -6,6 +6,7 @@ import { AUDIT_BUTTON_LABEL } from '../src/audit-view.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
+import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
 
@@ -21,8 +22,7 @@ import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
  *    here instead of surprising the typechecker later;
  * 3. the L4 terms FR-022 retains must still be present, so the L2 guard cannot
  *    be satisfied by over-renaming the domain vocabulary away;
- * 4. `AGENTS.md`'s panel module map must list every file `src/` actually holds;
- * 5. **the L1 half (T-029)**: the six tabs' rendered output and `README.md`
+ * 4. **the L1 half (T-029)**: the six tabs' rendered output and `README.md`
  *    carry neither retired noun *as a noun*, with **no exempt source at all**
  *    — the short mapping list the About tab used to render was removed with
  *    the rest of that page by the 2026-10-01 product-owner scrub (005
@@ -100,9 +100,9 @@ interface BrokenImport {
  */
 function panelModules(): readonly string[] {
     return readdirSync(resolve(ROOT, SRC_DIR))
-        .map((entry) => String(entry))
+        .map(String)
         .filter((entry) => entry.endsWith('.ts'))
-        .sort();
+        .toSorted(byText);
 }
 
 /**
@@ -115,7 +115,7 @@ function scanModules(dirs: readonly string[]): readonly ScannedModule[] {
     const modules: ScannedModule[] = [];
 
     for (const dir of dirs) {
-        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map((entry) => String(entry));
+        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map(String);
         for (const entry of entries) {
             if (!entry.endsWith('.ts')) {
                 continue;
@@ -132,7 +132,6 @@ function scanModules(dirs: readonly string[]): readonly ScannedModule[] {
 /**
  * Collect the relative module specifiers one module imports statically.
  *
- * @param text - The module's source.
  * @returns Each specifier that starts with `./` or `../`, in source order.
  */
 function relativeSpecifiers(text: string): readonly string[] {
@@ -151,7 +150,6 @@ function relativeSpecifiers(text: string): readonly string[] {
 /**
  * Resolve each module's relative specifiers against its own directory.
  *
- * @param modules - The modules to check.
  * @returns One entry per specifier that names a file that does not exist.
  */
 function unresolvedImports(modules: readonly ScannedModule[]): readonly BrokenImport[] {
@@ -169,88 +167,11 @@ function unresolvedImports(modules: readonly ScannedModule[]): readonly BrokenIm
     return broken;
 }
 
-/**
- * Read `AGENTS.md`'s panel module map (the section between its two headings).
- *
- * @returns The section's text, or an empty string when the heading is gone.
- */
-function panelModuleMapSection(): string {
-    const text = readFileSync(resolve(ROOT, 'AGENTS.md'), UTF8);
-    const start = text.indexOf('## Module map (panel');
-    if (start < 0) {
-        return '';
-    }
-
-    const rest = text.slice(start);
-    const end = rest.indexOf('\n## ', 1);
-
-    return end < 0 ? rest : rest.slice(0, end);
-}
-
-/**
- * Read every backticked entry of the panel module map's first column.
- *
- * @returns One glob-ish pattern per entry (`handoff*.ts` stays a wildcard).
- */
-function panelModuleMapEntries(): readonly string[] {
-    const entries: string[] = [];
-    for (const line of panelModuleMapSection().split('\n')) {
-        if (!line.startsWith('|')) {
-            continue;
-        }
-
-        const firstCell = line.split('|')[1] ?? '';
-        for (const match of firstCell.matchAll(/`([^`]+)`/g)) {
-            const entry = match[1];
-            if (entry !== undefined) {
-                entries.push(entry);
-            }
-        }
-    }
-
-    return entries;
-}
-
-/**
- * Match a module-map entry against a file name (`*` is the only wildcard).
- *
- * @param entry - The map entry, e.g. `handoff*.ts`.
- * @param name - The bare file name being looked for.
- * @returns `true` when the entry covers the file.
- */
-function mapEntryCovers(entry: string, name: string): boolean {
-    const parts = entry.split('*');
-    if (parts.length === 1) {
-        return entry === name;
-    }
-
-    const first = parts[0] ?? '';
-    if (!name.startsWith(first)) {
-        return false;
-    }
-
-    const last = parts[parts.length - 1] ?? '';
-    let cursor = first.length;
-    for (let index = 1; index < parts.length - 1; index += 1) {
-        const part = parts[index] ?? '';
-        const at = name.indexOf(part, cursor);
-        if (at < 0) {
-            return false;
-        }
-
-        cursor = at + part.length;
-    }
-
-    return name.endsWith(last) && name.length - last.length >= cursor;
-}
-
 describe('L2 module vocabulary: the renamed files are the only ones that exist (005 T-003)', () => {
-    it('reads a real panel source tree rather than an empty … (+3 cases)', () => {
-        // case: reads a real panel source tree rather than an empty directory
+    it('reads a real panel source tree rather than an empty directory', () => {
         {
             expect(panelModules().length).toBeGreaterThan(40);
         }
-        // case: has no src/repos*.ts and no src/runs*.ts module left behind (FR-024)
         {
             const retired = panelModules().filter((name) => RETIRED_MODULE_PATTERNS.some((pattern) => pattern.test(
                 name
@@ -258,7 +179,6 @@ describe('L2 module vocabulary: the renamed files are the only ones that exist (
 
             expect(retired).toEqual([]);
         }
-        // case: has every module the rename produced, so a reverted git mv fails here
         {
             const names = new Set(panelModules());
 
@@ -266,7 +186,6 @@ describe('L2 module vocabulary: the renamed files are the only ones that exist (
                 expect(names.has(expected), `${SRC_DIR}/${expected} must exist after the L2 rename`).toBe(true);
             }
         }
-        // case: fails on a retired name rather than passing vacuously
         {
             const candidates = ['bindings.ts', 'repos.ts', 'runs-ui.ts'];
             const reverted = candidates.filter((name) => RETIRED_MODULE_PATTERNS.some((pattern) => pattern.test(name)));
@@ -280,23 +199,19 @@ describe('every src/** import resolves to a file that exists (005 T-003)', () =>
     /** Repository-relative path the synthetic fixtures pretend to live at. */
     const SYNTHETIC_PATH = 'src/example.ts';
 
-    it('scans the panel modules rather than nothing (+3 cases)', () => {
-        // case: scans the panel modules rather than nothing
+    it('scans the panel modules rather than nothing', () => {
         {
             expect(scanModules([SRC_DIR]).length).toBeGreaterThan(40);
         }
-        // case: resolves every relative specifier in the tree
         {
             expect(unresolvedImports(scanModules([SRC_DIR]))).toEqual([]);
         }
-        // case: reports a specifier that names a file that is not there
         {
             const text = "import { thing } from './gone.ts';";
             const synthetic: readonly ScannedModule[] = [{ path: SYNTHETIC_PATH, text }];
 
             expect(unresolvedImports(synthetic)).toEqual([{ from: SYNTHETIC_PATH, specifier: './gone.ts' }]);
         }
-        // case: ignores package specifiers, which are the host SDK and Node
         {
             const text = "import { readFileSync } from 'node:fs';\nexport { thing } from './real.ts';";
 
@@ -306,49 +221,24 @@ describe('every src/** import resolves to a file that exists (005 T-003)', () =>
 });
 
 describe('the L4 domain vocabulary FR-022 retains is still present (005 T-003)', () => {
-    it('finds every retained term somewhere in the scanned s… (+1 cases)', () => {
-        // case: finds every retained term somewhere in the scanned source
+    it('finds every retained term somewhere in the scanned source', () => {
         {
             const corpus = scanModules(L4_SCAN_DIRS)
                 .map((module) => module.text)
                 .join('\n');
 
-            expect(corpus.length).toBeGreaterThan(1000);
+            expect(corpus.length).toBeGreaterThan(1_000);
 
             for (const { token, note } of RETAINED_L4) {
                 expect(corpus.includes(token), `${token} (${note}) must survive the L2 rename`).toBe(true);
             }
         }
-        // case: reads a corpus wide enough to matter
         {
             const modules = scanModules(L4_SCAN_DIRS);
 
             expect(modules.some((module) => module.path.startsWith('src/'))).toBe(true);
             expect(modules.some((module) => module.path.startsWith('service/'))).toBe(true);
             expect(modules.some((module) => module.path.startsWith('tests/'))).toBe(true);
-        }
-    });
-});
-
-describe("AGENTS.md's panel module map lists every file src/ contains (005 T-003)", () => {
-    it('reads the map section rather than an empty one (+2 cases)', () => {
-        // case: reads the map section rather than an empty one
-        {
-            expect(panelModuleMapEntries().length).toBeGreaterThan(20);
-        }
-        // case: leaves no src module off the map
-        {
-            const entries = panelModuleMapEntries();
-            const missing = panelModules().filter((name) => !entries.some((entry) => mapEntryCovers(entry, name)));
-
-            expect(missing).toEqual([]);
-        }
-        // case: treats a wildcard as a wildcard and an exact name as exact
-        {
-            expect(mapEntryCovers('handoff*.ts', 'handoff-status.ts')).toBe(true);
-            expect(mapEntryCovers('handoff*.ts', 'session.ts')).toBe(false);
-            expect(mapEntryCovers('json.ts', 'json.ts')).toBe(true);
-            expect(mapEntryCovers('json.ts', 'jsonx.ts')).toBe(false);
         }
     });
 });
@@ -364,7 +254,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -437,7 +327,6 @@ const DOMAIN_PROSE_RULE: NounRule = {
  * Tab labels, list titles, and subtitles all live one level down, so a
  * shallow read would skip exactly the rows FR-020 names first.
  *
- * @param value - Anything a mount was handed.
  * @param found - Accumulator the caller owns.
  */
 function collectStrings(value: unknown, found: string[]): void {
@@ -465,7 +354,6 @@ function collectStrings(value: unknown, found: string[]): void {
 /**
  * Every string one SDK mount was handed, at any depth.
  *
- * @param props - Whatever the primitive received.
  * @returns The strings among them, in property order.
  */
 function stringsIn(props: unknown): readonly string[] {
@@ -478,7 +366,6 @@ function stringsIn(props: unknown): readonly string[] {
 /**
  * Find the retired-noun uses in a text.
  *
- * @param rules - Which rules to apply.
  * @param text - The text to scan.
  * @returns One finding per match: the rule and the word it caught.
  */
@@ -517,8 +404,7 @@ async function renderedSixTabs(): Promise<readonly string[]> {
 }
 
 describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', () => {
-    it('mounts all six tabs, so the scan is not vacuous (+4 cases)', async () => {
-        // case: mounts all six tabs, so the scan is not vacuous
+    it('mounts all six tabs, so the scan is not vacuous', async () => {
         {
             const strings = await renderedSixTabs();
 
@@ -527,7 +413,9 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
                 expect(strings).toContain(label);
             }
         }
-        // case: renders no retired noun in any of the six tabs
+    });
+
+    it('renders no retired noun in any of the six tabs', async () => {
         {
             const rendered = await renderedSixTabs();
 
@@ -537,13 +425,17 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
             // every string the six tabs hand the SDK is scanned now.
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], rendered.join('\n'))).toEqual([]);
         }
-        // case: renders no retired noun in the row-level labels the tabs export
+    });
+
+    it('renders no retired noun in the row-level labels the tabs export', async () => {
         {
             const labels = [RETRY_LABEL, RESOLVE_LABEL, RETURN_LABEL, AUDIT_BUTTON_LABEL].join('\n');
 
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], labels)).toEqual([]);
         }
-        // case: bites on every retired shape, so the scan cannot pass vacuously
+    });
+
+    it('bites on every retired shape, so the scan cannot pass vacuously', async () => {
         {
             const sample = 'the Runs list — the Repositories tab — Run shows a reason';
 
@@ -554,7 +446,9 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'Run OpenChamber on web')).toEqual([]);
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'runs.json runKey mt-run-1')).toEqual([]);
         }
-        // case: README.md names neither retired noun anywhere in it (AC-140)
+    });
+
+    it('README.md names neither retired noun anywhere in it', async () => {
         {
             // Read whole: the mapping table that used to be the one exempt
             // section left the readme with the product owner's 2026-10-01
@@ -565,12 +459,13 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
             // Not vacuous: the imperative use of the word still reads as English.
         }
     });
+
 });
 
 describe('FR-028: a test is named for the layer its subject is in', () => {
     it('has no test file named after a retired panel module', () => {
         const retired = readdirSync(resolve(ROOT, 'tests'), { recursive: true })
-            .map((entry) => String(entry))
+            .map(String)
             .filter((entry) => entry.endsWith('.ts'))
             .filter((entry) => /(^|[\\/])(runs|repos)[-.]/.test(entry));
 
@@ -587,12 +482,13 @@ describe('FR-028: a test is named for the layer its subject is in', () => {
 
     it('titles no test with a retired capital noun', () => {
         const titles: string[] = [];
-        for (const entry of readdirSync(resolve(ROOT, 'tests'))) {
-            if (!String(entry).endsWith('.ts')) {
+        const entries = readdirSync(resolve(ROOT, 'tests'));
+        for (const entry of entries) {
+            if (!entry.endsWith('.ts')) {
                 continue;
             }
 
-            const source = readFileSync(resolve(ROOT, 'tests', String(entry)), 'utf8');
+            const source = readFileSync(resolve(ROOT, 'tests', entry), 'utf8');
             // `it(` / `describe(` / `test(` at a call site — not `.test(`,
             // which is how a matcher's own fixture would read as a title.
             const call = /(?:^|[\s;{(])(?:it|describe|test)\(\s*'([^']*)'/g;

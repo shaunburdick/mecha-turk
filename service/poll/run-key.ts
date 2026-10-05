@@ -64,7 +64,7 @@ export const FINGERPRINT_PREFIX = 'tokfp-';
 /** Separator joining the run key's tuple segments. */
 const KEY_SEPARATOR = '|';
 
-/** The subject shapes a run can be about (FR-010). */
+/** The subject shapes a run can be about. */
 export type RunSubjectType = 'issue' | 'pull_request';
 
 /** Coordinates a run key and its ordinal-free subject key are built from. */
@@ -77,7 +77,7 @@ export interface RunKeyInput {
     readonly subjectType: RunSubjectType;
     /** Issue or pull request number. */
     readonly subjectNumber: number;
-    /** 0-based ordinal of this run for its subject (FR-010). */
+    /** 0-based ordinal of this run for its subject. */
     readonly ordinal: number;
 }
 
@@ -90,17 +90,16 @@ export interface RunKeyInput {
  * key (constitution II: ambiguity is a stop condition, never a guess), and a
  * non-integer number or ordinal would make the key impossible to round-trip.
  *
- * @param input - The coordinates being assembled.
  * @returns The five segments, provider first and ordinal last.
  * @throws {Error} When a segment is empty or carries the `|` separator, or
  *   when the subject number or ordinal is not the integer its field names.
  */
 function keySegments(input: RunKeyInput): readonly string[] {
-    if (!Number.isInteger(input.subjectNumber) || input.subjectNumber < 1) {
+    if (!Number.isSafeInteger(input.subjectNumber) || input.subjectNumber < 1) {
         throw new Error('refusing to derive a run key without a positive subject number');
     }
 
-    if (!Number.isInteger(input.ordinal) || input.ordinal < 0) {
+    if (!Number.isSafeInteger(input.ordinal) || input.ordinal < 0) {
         throw new Error('refusing to derive a run key without a non-negative ordinal');
     }
 
@@ -122,7 +121,6 @@ function keySegments(input: RunKeyInput): readonly string[] {
 /**
  * Build the run key: FR-010's deterministic tuple.
  *
- * @param input - Subject coordinates plus this run's ordinal.
  * @returns `github|<account>|<owner/name>|<subjectType>|<number>|<ordinal>`.
  * @throws {Error} When a segment would make the tuple ambiguous.
  */
@@ -134,7 +132,7 @@ export function buildRunKey(input: RunKeyInput): string {
  * Build the ordinal counter's key: the run key without its ordinal.
  *
  * The subject key is what `runs.json`'s `subjects` map is keyed by, and what
- * coalescing looks up (FR-011): every run of one subject under one account
+ * coalescing looks up: every run of one subject under one account
  * shares it, so the counter survives terminal-run eviction and ordinals are
  * never reused (data-model §2.6).
  *
@@ -149,8 +147,6 @@ export function buildSubjectKey(input: RunKeyInput): string {
 /**
  * Hex-encode the prefix of one SHA-256 digest.
  *
- * @param text - Bytes to hash.
- * @param hexChars - How many hex characters of the digest to keep.
  * @returns The lower-case hex prefix.
  */
 function digestHex(text: string, hexChars: number): string {
@@ -158,9 +154,8 @@ function digestHex(text: string, hexChars: number): string {
 }
 
 /**
- * Derive a run's correlation id from its run key (FR-050).
+ * Derive a run's correlation id from its run key.
  *
- * @param runKey - The run's key.
  * @returns `mt-run-<24 hex characters>` — one path-safe URL segment.
  */
 export function buildCorrelationId(runKey: string): string {
@@ -168,9 +163,8 @@ export function buildCorrelationId(runKey: string): string {
 }
 
 /**
- * Derive a run's attachment id (FR-029): the correlation id, verbatim.
+ * Derive a run's attachment id: the correlation id, verbatim.
  *
- * @param correlationId - The run's correlation id.
  * @returns The same string, as the attachment id.
  * @throws {Error} When the id is not a single path-safe segment or exceeds
  *   {@link ATTACHMENT_ID_MAX} — a derivation bug must fail loudly rather than
@@ -185,20 +179,19 @@ export function buildAttachmentId(correlationId: string): string {
 }
 
 /**
- * Mint the single-use dispatch token for one attempt (FR-020).
+ * Mint the single-use dispatch token for one attempt.
  *
  * Deterministic in the run key/attempt pair by design: the service
  * re-derives and validates it without storing a token table, and FR-033's
- * attempt reset (plan D6) re-derives a *fresh* token for the reset attempt.
- * Callers mint it **at reservation only** — never at claim (plan D4).
+ * attempt reset re-derives a *fresh* token for the reset attempt.
+ * Callers mint it **at reservation only** — never at claim.
  *
- * @param runKey - The run's key.
  * @param attempt - The attempt number the token is for (starts at 1).
  * @returns `dtk-<32 hex characters>` — one path-safe URL segment.
  * @throws {Error} When the attempt is not a positive integer.
  */
 export function buildDispatchToken(runKey: string, attempt: number): string {
-    if (!Number.isInteger(attempt) || attempt < 1) {
+    if (!Number.isSafeInteger(attempt) || attempt < 1) {
         throw new Error('refusing to mint a dispatch token for an attempt that is not a positive integer');
     }
 

@@ -1,22 +1,20 @@
 /**
- * Stored schema and parser for one relay event (MVP tasks M1/M2).
+ * Stored schema and parser for one relay event.
  *
  * `events.json` is one flat array of {@link QueuedEvent} rows, and this module
  * owns the whole read side of that contract: the row type, the field
  * vocabulary the writer emits, and the validator the store runs before it
- * trusts a file. The parse block lives apart from `events.ts` (chain,
- * enqueue, claim, dispatch) so each module stays inside the file-length gate;
- * the queue module re-exports everything here so callers keep one import path.
+ * trusts a file. The parse block lives apart from `events.ts` (chain, enqueue,
+ * claim, dispatch) so each module stays inside the file-length gate; the queue
+ * module re-exports everything here so callers keep one import path.
  *
- * `issueNumber` is a **number** on both the writer and the wire
- * ({@link QueuedEvent.issueNumber}, `EventSnapshot.issue`), so it is
+ * `issueNumber` is a **number** on both the writer and the wire, so it is
  * deliberately *not* in {@link REQUIRED_FIELDS}: that list is the text set,
- * validated with `typeof value === 'string'`, and requiring text there made
- * the writer's own output fail validation — every `events.json` was
- * quarantined on first read and the pending queue was silently lost. The
- * field keeps its own presence-and-shape check in {@link parseStoredEvent}
- * via `positiveIntOf`, so a missing, string, zero, or fractional value still
- * quarantines the file.
+ * validated with `typeof value === 'string'`, and requiring text there made the
+ * writer's own output fail validation — every `events.json` was quarantined on
+ * first read and the pending queue was silently lost. The field keeps its own
+ * presence-and-shape check in {@link parseStoredEvent} via `positiveIntOf`, so
+ * a missing, string, zero, or fractional value still quarantines the file.
  */
 
 import { isRecord } from '../json.ts';
@@ -27,22 +25,21 @@ import type { ActorAttribution } from './attribution.ts';
 export const EVENTS_FILE = 'events.json';
 
 /**
- * Event kinds the service enqueues: `assignment` (M1), `mention` (M6), and
- * `review` (M7). Rows written before a kind existed still parse — the queue
- * file is append-mostly and never rewritten in bulk on upgrade.
+ * Event kinds the service enqueues: `assignment`, `mention`, and `review`.
+ * Rows written before a kind existed still parse — the queue file is
+ * append-mostly and never rewritten in bulk on upgrade.
  */
 export type EventKind = 'assignment' | 'mention' | 'review';
 
 /** Lifecycle of one relay event, as the shipped three-state queue stored it. */
 export type EventState = 'pending' | 'in-flight' | 'dispatched';
 
-/** The subject shapes a delivery can be about (003 FR-010). */
+/** The subject shapes a delivery can be about. */
 export type SubjectType = 'issue' | 'pull_request';
 
 /**
  * The attribution basis lives in `attribution.ts` beside the rules that judge
- * an author; it is re-exported here so the queue keeps one import path (002
- * FR-044).
+ * an author; it is re-exported here so the queue keeps one import path.
  */
 export type { ActorAttribution } from './attribution.ts';
 
@@ -52,7 +49,7 @@ export interface QueuedEvent {
     readonly id: string;
     /** Binding that produced this event. */
     readonly bindingId: string;
-    /** Trigger kind: assignment, mention (M6), or review (M7). */
+    /** Trigger kind: assignment, mention, or review. */
     readonly kind: EventKind;
     /** The repository in `owner/name` form. */
     readonly repository: string;
@@ -64,7 +61,6 @@ export interface QueuedEvent {
     readonly projectId: string;
     /** Worktree option snapshotted at enqueue (`none`/`generated`/`new:<name>`). */
     readonly worktreeOption: string;
-    /** Issue number. */
     readonly issueNumber: number;
     /** Issue title; untrusted source text. */
     readonly issueTitle: string;
@@ -72,19 +68,20 @@ export interface QueuedEvent {
     readonly issueUrl: string;
     /** Truncated issue body; untrusted source text, bounded at enqueue. */
     readonly issueBodyExcerpt: string;
-    /** Head commit SHA of a review-request pull request, else `null` (M7). */
+    /** Head commit SHA of a review-request pull request, else `null`. */
     readonly headSha: string | null;
-    /** Base ref name of that pull request, else `null` (M7). */
+    /** Base ref name of that pull request, else `null`. */
     readonly baseRef: string | null;
     /** Operator-readable trigger phrase the panel shows in the dispatch context. */
     readonly triggerNote: string;
     /** RFC 3339 detection stamp. */
     readonly detectedAt: string;
     /**
-     * The run this delivery belongs to (003 FR-012), assigned at enqueue.
+     * The run this delivery belongs to, assigned at enqueue.
      *
      * Absent on rows written before the run layer and on rows whose subject
-     * was too ambiguous to fold into a run; rows 003 enqueues carry it.
+     * was too ambiguous to fold into a run; rows the run layer enqueues carry
+     * it.
      */
     readonly runCorrelationId?: string;
     /**
@@ -97,49 +94,48 @@ export interface QueuedEvent {
     /**
      * Queue state, flipped in place by a claim and a dispatch.
      *
-     * **Frozen legacy (003):** still parsed as migration input, still written
-     * by the shipped claim and dispatch paths, and *never* written by a row
-     * 003 enqueues — a post-003 row carries no lifecycle fields at all, and
-     * its truth lives on the run.
+     * **Frozen legacy:** still parsed as migration input, still written by the
+     * shipped claim and dispatch paths, and *never* written by a row the run
+     * layer enqueues — such a row carries no lifecycle fields at all, and its
+     * truth lives on the run.
      */
     readonly state?: EventState;
-    /** Claim stamp when (or after) it was claimed; absent on a post-003 row. */
+    /** Claim stamp when (or after) it was claimed; absent on a run-layer row. */
     readonly claimedAt?: string | null;
-    /** Dispatch stamp once the panel answered; absent on a post-003 row. */
+    /** Dispatch stamp once the panel answered; absent on a run-layer row. */
     readonly dispatchedAt?: string | null;
-    /** Session id or failure text the panel reported; absent on a post-003 row. */
+    /** Session id or failure text the panel reported; absent on a run-layer row. */
     readonly dispatchResult?: string | null;
     /**
-     * RFC 3339 stamp the retention pass cleared `issueBodyExcerpt` at (006
-     * FR-057), absent on every row that pass has not touched.
+     * RFC 3339 stamp the retention pass cleared `issueBodyExcerpt` at, absent on
+     * every row that pass has not touched.
      *
-     * This is the distinction FR-057 requires a reader to be able to make: a
-     * cleared row (`issueBodyExcerpt: ''` **with** this stamp) is not a row that
-     * never carried a body (`issueBodyExcerpt: ''` without it). Absentable and
-     * additive — rows written before 006 parse identically, and the marker
-     * survives a store round trip because it is parsed back with the rest of
-     * the row.
+     * This is the distinction a reader has to be able to make: a cleared row
+     * (`issueBodyExcerpt: ''` **with** this stamp) is not a row that never
+     * carried a body (`issueBodyExcerpt: ''` without it). Absentable and
+     * additive — older rows parse identically, and the marker survives a store
+     * round trip because it is parsed back with the rest of the row.
      */
     readonly excerptTrimmedAt?: string;
     /**
-     * The GitHub login this delivery is attributed to (002 FR-043).
+     * The GitHub login this delivery is attributed to.
      *
      * **Absentable on read, validated when present**, and both rules live in
      * [`attribution.ts`](./attribution.ts) beside the basis's own vocabulary.
      * A row enqueued before this member existed carries none and keeps none:
      * requiring it would quarantine every pre-existing row, which is a
-     * migration by side effect (plan D2). Absence is not a permission — the
+     * migration by side effect. Absence is not a permission — the
      * authorization gate refuses a run whose references name no readable actor
-     * rather than reading absence as allowed (003 FR-080).
+     * rather than reading absence as allowed.
      *
      * Public repository identity, never a credential, so the member is
      * credential-free by construction.
      */
     readonly actorLogin?: string;
     /**
-     * How that attribution was made (002 FR-044), absentable on read and
+     * How that attribution was made, absentable on read and
      * **validated when present**: an unrecognized basis refuses the row rather
-     * than defaulting to a guess (002 FR-024). A row written before this
+     * than defaulting to a guess. A row written before this
      * member existed reads as *no attribution was recorded* — which is not the
      * same as `direct`, and never silently becomes it.
      */
@@ -169,15 +165,15 @@ const REQUIRED_FIELDS = [
 
 /**
  * Fields a row may carry as text, as literal `null`, or omit entirely: the
- * Slice-2 PR coordinates *and* the frozen legacy lifecycle stamps (a row 003
- * enqueued carries neither).
+ * pull-request coordinates *and* the frozen legacy lifecycle stamps (a row the
+ * run layer enqueued carries neither).
  *
- * The queue file outlives the build that wrote it: every `events.json`
- * written before M7 has no `headSha`/`baseRef` at all, every row written
- * before 003 has all four lifecycle fields, and every row written after it
+ * The queue file outlives the build that wrote it: a file written before the
+ * coordinates existed has no `headSha`/`baseRef` at all, a row written before
+ * the run layer has all four lifecycle fields, and every row written after it
  * has none — all three shapes must keep parsing, because an unreadable file
  * would quarantine a healthy queue and reset every binding's window for
- * nothing (FR-005).
+ * nothing.
  */
 const ABSENTABLE_FIELDS = ['headSha', 'baseRef', 'claimedAt', 'dispatchedAt', 'dispatchResult'] as const;
 
@@ -187,7 +183,7 @@ const KNOWN_STATES = new Set<string>(['pending', 'in-flight', 'dispatched']);
 /** Trigger kinds the writer and migration know how to interpret. */
 const KNOWN_KINDS = new Set<string>(['assignment', 'mention', 'review']);
 
-/** Subject shapes a delivery may carry (003 FR-010). */
+/** Subject shapes a delivery may carry. */
 const SUBJECT_TYPES: ReadonlySet<string> = new Set(['issue', 'pull_request']);
 
 /** Correlation ids are service-minted, fixed-format path segments. */
@@ -196,24 +192,20 @@ const RUN_CORRELATION_ID = /^mt-run-[0-9a-f]{24}$/;
 /**
  * Validate the event fields that must carry usable text.
  *
- * @param record - Parsed candidate row.
- * @param fields - Field names to check.
  * @returns `true` when every field is usable text.
  */
 function isUsableTextFieldSet(record: Record<string, unknown>, fields: readonly string[]): boolean {
     return fields.every((field) => {
         const value = record[field];
 
-        return field in record && typeof value === 'string' && value !== '';
+        return typeof value === 'string' && value !== '';
     });
 }
 
 /**
  * Validate the fields a row may carry as text, as literal `null`, or omit
- * entirely (the Slice-2 coordinates and the frozen legacy lifecycle stamps).
+ * entirely (the coordinates and the frozen legacy lifecycle stamps).
  *
- * @param record - Parsed candidate row.
- * @param fields - Field names to check.
  * @returns `true` when every field is absent, `null`, or text.
  */
 function isAbsentableTextFieldSet(record: Record<string, unknown>, fields: readonly string[]): boolean {
@@ -227,16 +219,14 @@ function isAbsentableTextFieldSet(record: Record<string, unknown>, fields: reado
 /**
  * Read the positive integer field the writer emits for `issueNumber`.
  *
- * @param value - Candidate value.
  * @returns The integer, or `null` when the value is not one.
  */
 function positiveIntOf(value: unknown): number | null {
-    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 /**
  * Validate the stored `state` field.
  *
- * @param value - Candidate value.
  * @returns The state name, or `null` when it is from another vocabulary.
  */
 function knownStateOf(value: unknown): string | null {
@@ -250,9 +240,9 @@ function knownStateOf(value: unknown): string | null {
 /**
  * Read the frozen legacy `state` field.
  *
- * @param record - Parsed candidate row.
- * @returns `undefined` when the row carries no state (a post-003 row), the
- *   state when it is from the shipped vocabulary, or `null` when it is not.
+ * @returns `undefined` when the row carries no state (a row the run layer
+ *   enqueued), the state when it is from the shipped vocabulary, or `null` when
+ *   it is not.
  */
 function readStateField(record: Record<string, unknown>): EventState | undefined | null {
     if (record.state === undefined) {
@@ -265,7 +255,6 @@ function readStateField(record: Record<string, unknown>): EventState | undefined
 /**
  * Read the `subjectType` field.
  *
- * @param record - Parsed candidate row.
  * @returns `undefined` when the row predates it, the subject shape, or `null`
  *   when the value is neither shape.
  */
@@ -281,9 +270,8 @@ function readSubjectTypeField(record: Record<string, unknown>): SubjectType | un
 /**
  * Read the `runCorrelationId` field.
  *
- * @param record - Parsed candidate row.
  * @returns `undefined` when the row has no run yet, the id, or `null` when
- *   the value is an empty string (an id is never empty).
+ *   the value is not a service-minted id.
  */
 function readRunLinkField(record: Record<string, unknown>): string | undefined | null {
     const value = record.runCorrelationId;
@@ -295,9 +283,8 @@ function readRunLinkField(record: Record<string, unknown>): string | undefined |
 }
 
 /**
- * Read the retention marker the excerpt pass writes (006 FR-057).
+ * Read the retention marker the excerpt pass writes.
  *
- * @param record - Parsed candidate row.
  * @returns `undefined` when the row carries no marker (a literal `null`
  *   counts as absent), the stamp when it parses as a date, or `null` when the
  *   value cannot be trusted — which refuses the row rather than guessing at
@@ -319,7 +306,6 @@ function readTrimMarkerField(record: Record<string, unknown>): string | undefine
 /**
  * Validate every text, lifecycle, and run-link field of one stored row.
  *
- * @param record - Parsed candidate row.
  * @returns `true` when all fields hold usable values or are absent.
  */
 function fieldsHold(record: Record<string, unknown>): boolean {
@@ -350,14 +336,12 @@ interface LifecycleFields {
 }
 
 /**
- * Read the frozen legacy lifecycle fields a row carries, omitting every one
- * it does not: a post-003 row keeps none of them (its truth lives on the
- * run), and a shipped row returns exactly what the file held — the parser
- * never fills in a value the file did not (FR-005: legacy rows keep every
- * byte, and a new row carries no lifecycle state at all).
+ * Read the frozen legacy lifecycle fields a row carries, omitting every one it
+ * does not: a row the run layer enqueued keeps none of them (its truth lives
+ * on the run), and a shipped row returns exactly what the file held — the
+ * parser never fills in a value the file did not. Legacy rows keep every byte,
+ * and a new row carries no lifecycle state at all.
  *
- * @param record - Parsed candidate row, already validated.
- * @param state - The row's state, or `undefined` when it carries none.
  * @returns The lifecycle fields present on this row.
  */
 function lifecycleOf(record: Record<string, unknown>, state: EventState | undefined): LifecycleFields {
@@ -383,17 +367,15 @@ function lifecycleOf(record: Record<string, unknown>, state: EventState | undefi
 
 /** The run-layer fields one row carries, when it carries them at all. */
 interface RunLinkFields {
-    /** The run this delivery belongs to, assigned at enqueue (FR-012). */
+    /** The run this delivery belongs to, assigned at enqueue. */
     readonly runCorrelationId?: string;
-    /** Subject shape captured at detection (FR-010). */
+    /** Subject shape captured at detection. */
     readonly subjectType?: SubjectType;
 }
 
 /**
  * Read the run-layer fields a row carries, omitting the ones it does not.
  *
- * @param record - Parsed candidate row, already validated.
- * @param subjectType - The row's subject shape, or `undefined`.
  * @returns The run-layer fields present on this row.
  */
 function runLinkOf(record: Record<string, unknown>, subjectType: SubjectType | undefined): RunLinkFields {
@@ -402,23 +384,23 @@ function runLinkOf(record: Record<string, unknown>, subjectType: SubjectType | u
     const runCorrelationId = readRunLinkField(record);
 
     return {
-        ...(runCorrelationId === undefined || runCorrelationId === null ? {} : { runCorrelationId }),
-        ...(subjectType === undefined ? {} : { subjectType }),
+        ...(!(runCorrelationId === undefined || runCorrelationId === null) && { runCorrelationId }),
+        ...(subjectType !== undefined && { subjectType }),
     };
 }
 
 /** The retention marker one row carries, when the pass has touched it. */
 interface TrimMarkerFields {
-    /** Stamp the excerpt was cleared at (006 FR-057); omitted when untouched. */
+    /** Stamp the excerpt was cleared at; omitted when untouched. */
     readonly excerptTrimmedAt?: string;
 }
 
 /**
  * Read the retention marker a row carries, omitting it when it carries none.
  *
- * @param record - Parsed candidate row, already validated by `fieldsHold`,
- *   which refuses a marker it cannot read — hence `null` is typed out here
- *   rather than asserted away.
+ * `fieldsHold` has already refused a marker it cannot read, hence `null` is
+ * typed out here rather than asserted away.
+ *
  * @returns The marker's fields, or `{}` for a row the pass never touched.
  */
 function trimMarkerOf(record: Record<string, unknown>): TrimMarkerFields {
@@ -428,9 +410,8 @@ function trimMarkerOf(record: Record<string, unknown>): TrimMarkerFields {
 }
 
 /**
- * Read the Slice-2 pull-request coordinates, which older rows omit outright.
+ * Read the pull-request coordinates, which older rows omit outright.
  *
- * @param record - Parsed candidate row, already validated.
  * @returns The coordinates, normalized to `null` when absent.
  */
 function coordinatesOf(
@@ -448,20 +429,18 @@ function coordinatesOf(
  * The writer's own output is the shape this must accept: every text field
  * non-empty, `issueNumber` a positive integer, a `state` from the shipped
  * vocabulary **when the row carries one**, and an excerpt that may
- * legitimately be `''` (an issue with no body). The Slice-2 fields (`headSha`,
- * `baseRef`) may be missing outright — a row written before M7 still parses,
- * with both read as `null` — and the legacy lifecycle stamps may be missing
- * too, which is how a row 003 enqueued reads. The two actor members
+ * legitimately be `''` (an issue with no body). The coordinates (`headSha`,
+ * `baseRef`) may be missing outright — an older row still parses, with both
+ * read as `null` — and the legacy lifecycle stamps may be missing too, which
+ * is how a row the run layer enqueued reads. The two actor members
  * (`actorLogin`, `actorAttribution`) may be missing outright as well: they are
- * **absentable on read and validated when present** (002 FR-043, plan D2), so
- * a row written before 002 v1.11.0 still parses and reads as *no attribution
- * recorded* — never as a default basis, because a defaulted basis states an
- * inference as a fact (002 FR-044, NFR-011). Anything else — including a row
- * missing `issueNumber` outright, a `state` outside the shipped three, or an
- * unrecognized attribution basis — answers `null`, which the store turns into
- * a quarantine.
+ * **absentable on read and validated when present**, so an older row still
+ * parses and reads as *no attribution recorded* — never as a default basis,
+ * because a defaulted basis states an inference as a fact. Anything else —
+ * including a row missing `issueNumber` outright, a `state` outside the shipped
+ * three, or an unrecognized attribution basis — answers `null`, which the store
+ * turns into a quarantine.
  *
- * @param raw - One element from the stored array.
  * @returns The event, or `null` when the row cannot be trusted.
  */
 export function parseStoredEvent(raw: unknown): QueuedEvent | null {
@@ -510,10 +489,9 @@ export function parseStoredEvent(raw: unknown): QueuedEvent | null {
  *
  * A row written before the run layer carries no `subjectType`, and the run key
  * still needs one: a review trigger is the only detection that *knows* it is
- * about a pull request, so every other kind reads as an issue (data-model
- * §2.1's adopted-row rule, reused for rows detection could not classify).
+ * about a pull request, so every other kind reads as an issue (the adopted-row
+ * rule, reused for rows detection could not classify).
  *
- * @param delivery - The stored delivery.
  * @returns `issue` or `pull_request`, never absent.
  */
 export function subjectTypeOf(delivery: QueuedEvent): SubjectType {
@@ -523,7 +501,6 @@ export function subjectTypeOf(delivery: QueuedEvent): SubjectType {
 /**
  * Parse the whole stored queue.
  *
- * @param raw - Parsed `events.json` document.
  * @returns The queue, or `null` when the document is unusable (quarantined).
  */
 export function parseStoredEvents(raw: unknown): QueuedEvent[] | null {

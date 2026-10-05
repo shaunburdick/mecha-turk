@@ -73,7 +73,6 @@ function parseFilterEcho(value: unknown): DispatchFilters | null {
 /**
  * Check the three members that bound the read itself.
  *
- * @param page - The `page` record.
  * @returns `true` when the size is one of the four the contract accepts, the
  *   boundary is a string or `null`, and the flag is a boolean.
  */
@@ -89,7 +88,6 @@ function pageBoundsUsable(page: Record<string, unknown>): boolean {
 /**
  * Check the two members that label the answer.
  *
- * @param page - The `page` record.
  * @returns `true` when the total is a number or `null` and the stamp is a string.
  */
 function pageLabelsUsable(page: Record<string, unknown>): boolean {
@@ -99,7 +97,7 @@ function pageLabelsUsable(page: Record<string, unknown>): boolean {
 }
 
 /**
- * Read the `page` member of a paged answer, fail closed (FR-042).
+ * Read the `page` member of a paged answer, fail closed.
  *
  * @param value - The `page` member (unchecked).
  * @returns The metadata, or `null` when any member is missing or wrong.
@@ -130,7 +128,6 @@ function parsePageMeta(value: unknown): DispatchPageMeta | null {
 /**
  * Parse the paged `GET /v1/events` answer as a whole (005 contract §2).
  *
- * @param text - Response body text.
  * @returns The rows and their page label, or `null` when either is unusable.
  */
 export function parseDispatchListBody(text: string): DispatchListAnswer | null {
@@ -154,9 +151,8 @@ export function parseDispatchListBody(text: string): DispatchListAnswer | null {
  * Every value the panel cannot stand behind is simply omitted: the cursor only
  * travels when the operator has stepped past page one, and a filter only when
  * it is on — so the barest call is still the closest analogue of an unfiltered
- * first page rather than a filter nobody chose (FR-042, FR-043).
+ * first page rather than a filter nobody chose.
  *
- * @param runs - The section's filters and paging position.
  * @returns `GET /v1/events` with this read's parameters.
  */
 export function dispatchListPath(runs: DispatchesState): string {

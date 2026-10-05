@@ -49,8 +49,6 @@ const MS_PER_SECOND = 1_000;
 /**
  * Whether one pass is still inside its budget.
  *
- * @param clock - The injected (or real) clock.
- * @param startedAt - When the pass began.
  * @returns `true` while there is budget left to spend.
  */
 function withinBudget(clock: () => number, startedAt: number): boolean {
@@ -76,9 +74,6 @@ export interface ReconcileOutcome {
  * only after the host call returned, which is exactly what distinguishes a
  * Result from an Abandon. `problem` is the recorded cause, bounded to what the
  * route accepts — the panel never invents one.
- *
- * @param attempt - The stored attempt.
- * @returns The body text.
  */
 function reportBody(attempt: DispatchAttemptRecord): string {
     const shared = {
@@ -97,8 +92,6 @@ function reportBody(attempt: DispatchAttemptRecord): string {
 /**
  * Re-report one stored attempt; never throws (`servicePost` catches).
  *
- * @param rt - Panel runtime.
- * @param attempt - The stored attempt.
  * @returns The service's answer, carrying its refusal copy when it sent one.
  */
 async function reportAttempt(
@@ -118,8 +111,6 @@ type ServiceRefusal = Extract<ServiceErrorResult, { readonly ok: false }>;
 /**
  * The refusal copy for one attempt, naming the run and what the service said.
  *
- * @param attempt - The attempt that was not acknowledged.
- * @param answer - The service's refusal.
  * @returns One line carrying the service's own copy when it sent one.
  */
 function refusalLine(attempt: DispatchAttemptRecord, answer: ServiceRefusal): string {
@@ -135,7 +126,6 @@ function refusalLine(attempt: DispatchAttemptRecord, answer: ServiceRefusal): st
  * can only ever shorten the *reasons* — the runs an operator has to look at
  * are never the part that gets truncated away.
  *
- * @param input - The runs still outstanding and why.
  * @returns The banner body, already bounded.
  */
 function warningBody(input: {
@@ -153,8 +143,6 @@ function warningBody(input: {
 /**
  * Publish one reconciliation warning: banner first, refusal copy on the note.
  *
- * @param rt - Panel runtime.
- * @param outcome - What the pass reached.
  * @returns The warning the panel now shows.
  */
 function publishWarning(rt: PanelRuntime, input: {
@@ -179,7 +167,6 @@ function publishWarning(rt: PanelRuntime, input: {
 /**
  * Report every outstanding attempt, within one budget, and say what is left.
  *
- * @param rt - Panel runtime.
  * @param options - Injectable clock so the budget is testable without sleeping.
  * @returns What the pass reached, including the warning it published.
  */
@@ -200,11 +187,9 @@ interface PassResult {
 /**
  * Re-report every outstanding attempt inside the remaining budget.
  *
- * @param input - Runtime, the record, and the clock the budget reads.
  * @returns What the loop reached, before anything is published.
  */
 async function reportOutstanding(input: {
-    /** Panel runtime. */
     readonly rt: PanelRuntime;
     /** The stored record this pass works from. */
     readonly document: DispatchRecordDocument;
@@ -231,12 +216,12 @@ async function reportOutstanding(input: {
         attempted += 1;
         const answer = await reportAttempt(rt, attempt);
         if (answer.ok) {
-            const flipped = await acknowledgeDispatch({
+            const isFlipped = await acknowledgeDispatch({
                 rt,
                 correlationId: attempt.correlationId,
                 attempt: attempt.attempt,
             });
-            if (flipped) {
+            if (isFlipped) {
                 acknowledged += 1;
             } else {
                 // The report landed but the panel could not record that it did;
@@ -261,7 +246,6 @@ async function reportOutstanding(input: {
 /**
  * Report every outstanding attempt, within one budget, and say what is left.
  *
- * @param rt - Panel runtime.
  * @param options - Injectable clock so the budget is testable without sleeping.
  * @returns What the pass reached, including the warning it published.
  */

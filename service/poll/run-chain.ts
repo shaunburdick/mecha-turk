@@ -36,7 +36,7 @@ export interface RunOperationTarget {
     readonly log: ServiceLogger;
     /** The run this operation addresses, by correlation id. */
     readonly correlationId: string;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }
 
@@ -56,8 +56,6 @@ export interface RunTaskContext {
  * Generic over the answer so an operation that carries extra members on its
  * success case keeps them typed instead of widening them away.
  *
- * @param target - Store, logger, correlation id, and an optional service clock.
- * @param task - The operation to perform.
  * @returns The operation's answer, or `not-found` when no run carries the id.
  * @throws {StorageUnavailableError} When the run document cannot be read or
  *   written; the route layer turns that into `503 storage-unavailable`.
@@ -103,8 +101,8 @@ export interface RefusalRowInput {
     /** Token the caller presented as its fingerprint, when the verdict was about the token. */
     readonly dispatchTokenFingerprint?: string | undefined;
     /**
-     * The gate's extra details, on the one refusal that carries them
-     * (003 FR-077).
+     * The gate's extra details, on the one refusal that carries them.
+     *
      *
      * Optional rather than required so the *other* six operations' refusals are
      * unchanged: a staleness verdict has no policy to describe, and a required
@@ -115,13 +113,12 @@ export interface RefusalRowInput {
 }
 
 /**
- * Write the single `dispatch.refused` row an outcome owes (FR-003).
+ * Write the single `dispatch.refused` row an outcome owes.
  *
  * The row's `reason` is the refusal's own message — the same string the response
  * carries — passed in rather than composed here, which is what makes the trail
  * and the wire provably agree.
  *
- * @param input - Store, logger, and the row's contents.
  * @returns `true` when the row reached the trail.
  */
 export async function appendRefusalRow(input: {
@@ -139,11 +136,10 @@ export async function appendRefusalRow(input: {
         code: refusal.refusal.code,
         reason: refusal.refusal.message,
         attempt: refusal.attempt,
-        ...(refusal.leaseId === undefined ? {} : { leaseId: refusal.leaseId }),
-        ...(refusal.dispatchTokenFingerprint === undefined
-            ? {}
-            : { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint }),
-        ...(refusal.actor === undefined ? {} : { actor: refusal.actor }),
+        ...(refusal.leaseId !== undefined && { leaseId: refusal.leaseId }),
+        ...(refusal.dispatchTokenFingerprint !== undefined
+            && { dispatchTokenFingerprint: refusal.dispatchTokenFingerprint }),
+        ...(refusal.actor !== undefined && { actor: refusal.actor }),
     });
 
     return await appendRunRow({
@@ -161,7 +157,6 @@ export async function appendRefusalRow(input: {
  * source link comes from the run's first retained reference, which is the same
  * delivery the dispatch was built from.
  *
- * @param input - The run, the session id, and the service-clock stamp.
  * @returns The reference stored on the run.
  */
 export function sessionRefOf(input: {

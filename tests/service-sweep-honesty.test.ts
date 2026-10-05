@@ -38,8 +38,8 @@
  * network, and no sleeping on a timer.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -60,6 +60,7 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { Run } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 const DETECTED_AT = '2026-09-28T12:00:00.000Z';
 const ONE_HOUR_LATER = '2026-09-28T13:00:00.000Z';
@@ -82,28 +83,23 @@ const DEAD_LETTERED = 'run.dead_lettered';
 /** A stored dispatch token, used only where a run must record having reserved. */
 const FIXTURE_DISPATCH_TOKEN = 'dtk-0123456789abcdef0123456789abcdef';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let dataDir = '';
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-honesty-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('honesty'));
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /** Build an assignment detection for one issue on the fixture binding. */
 function assignment(issueNumber: number, bindingId = BINDING_ID): EventSnapshot {
@@ -130,7 +126,7 @@ function assignment(issueNumber: number, bindingId = BINDING_ID): EventSnapshot 
 
 /** Enqueue detections, one per issue. */
 async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
-    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map(createEvent) });
+    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map((snapshot) => createEvent(snapshot)) });
 }
 
 /** One stored binding record for the status-row reader. */
@@ -151,7 +147,7 @@ function binding(bindingId: string): BindingRecord {
 
 /** Persist the bindings the status reader is given, so the store agrees. */
 async function storeBindings(...ids: readonly string[]): Promise<void> {
-    await writeBindings({ store, bindings: ids.map(binding) });
+    await writeBindings({ store, bindings: ids.map((id) => binding(id)) });
 }
 
 /** Claim with the shared fixture holder and stamp. */
@@ -200,7 +196,6 @@ async function storedIntents(): Promise<readonly unknown[] | null> {
  * would not carry the run's current attempt, which the store's parser (rightly)
  * refuses — so only the expiry is moved.
  *
- * @param correlationId - The run whose lease should lapse.
  * @returns The run as it now stands.
  */
 async function lapseLeaseOf(correlationId: string): Promise<Run> {
@@ -222,7 +217,7 @@ async function lapseLeaseOf(correlationId: string): Promise<Run> {
 /** Claim the run waiting for one issue, as the panel would. */
 async function claimRun(issueNumber: number): Promise<string> {
     const result = await claim();
-    const [claimed] = result.runs.filter((run) => run.issueNumber === issueNumber);
+    const claimed = result.runs.find((run) => run.issueNumber === issueNumber);
     if (claimed === undefined) {
         throw new Error(`the run for issue ${issueNumber} was not claimed`);
     }
@@ -268,8 +263,7 @@ async function reserveAndAbandon(issueNumber: number): Promise<Run> {
 }
 
 describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
-    it('counts only waiting runs, never claimed or dispatche… (+2 cases)', async () => {
-        // case: counts only waiting runs, never claimed or dispatched ones
+    it('counts only waiting runs, never claimed or dispatched ones', async () => {
         {
             // The longest documented lease, so a claim at DETECTED_AT stays live
             // until 12:10:00 and the sweep can requeue exactly the lease this test
@@ -346,11 +340,9 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
             // are not waiting, so neither counts.
             expect(settled[0]?.pendingCount).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: keys the count per binding, so one binding work is not another
+    });
+
+    it('keys the count per binding, so one binding work is not another', async () => {
         {
             await storeBindings(BINDING_ID, OTHER_BINDING_ID);
             await seed(assignment(1, BINDING_ID), assignment(2, BINDING_ID), assignment(3, OTHER_BINDING_ID));
@@ -363,11 +355,9 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
             expect(rows.find((row) => row.bindingId === BINDING_ID)?.pendingCount).toBe(2);
             expect(rows.find((row) => row.bindingId === OTHER_BINDING_ID)?.pendingCount).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: reports zero for a binding with no runs at all
+    });
+
+    it('reports zero for a binding with no runs at all', async () => {
         {
             await storeBindings(BINDING_ID);
             const rows = await readStatusRows({ store, log: LOGGER, bindings: await readBindings({
@@ -376,11 +366,11 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
             expect(rows[0]?.pendingCount).toBe(0);
         }
     });
+
 });
 
 describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', () => {
-    it('reports auditWritten true when every row landed (+3 cases)', async () => {
-        // case: reports auditWritten true when every row landed
+    it('reports auditWritten true when every row landed', async () => {
         {
             await strandClaim(31);
 
@@ -389,11 +379,9 @@ describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', ()
             expect(outcome.recoveries).toHaveLength(1);
             expect(outcome.auditWritten).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: backs each owed row with an intent the next read drains
+    });
+
+    it('backs each owed row with an intent the next read drains', async () => {
         {
             const run = await strandClaim(32);
             await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
@@ -408,11 +396,9 @@ describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', ()
                 decision: 'requeued',
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: retires the intent once the row is durable, writing no second row
+    });
+
+    it('retires the intent once the row is durable, writing no second row', async () => {
         {
             await strandClaim(33);
             const first = await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
@@ -430,11 +416,9 @@ describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', ()
             expect(await storedIntents()).toEqual([]);
             expect(first.auditWritten).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: distinguishes a second recovery of the same run from the first
+    });
+
+    it('distinguishes a second recovery of the same run from the first', async () => {
         {
             const first = await strandClaim(34);
             await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
@@ -455,11 +439,11 @@ describe('T-040b the sweep owes a durable, recoverable audit trail (FR-063)', ()
             expect(first.correlationId).toBe(rowsAfterSecond[1]?.correlationId);
         }
     });
+
 });
 
 describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () => {
-    it('names the outstanding token by fingerprint only (+3 cases)', async () => {
-        // case: names the outstanding token by fingerprint only
+    it('names the outstanding token by fingerprint only', async () => {
         {
             const reserved = await reserveAndAbandon(41);
             const token = reserved.reservation?.dispatchToken ?? '';
@@ -477,11 +461,9 @@ describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () 
             // row is scanned rather than just the member the fix changed.
             expect(JSON.stringify(unconfirmed)).not.toContain(token);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: produces a different fingerprint for each outstanding authorization
+    });
+
+    it('produces a different fingerprint for each outstanding authorization', async () => {
         {
             const first = await reserveAndAbandon(42);
             await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
@@ -498,11 +480,9 @@ describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () 
             expect(new Set(fingerprints).size).toBe(2);
             expect(first.reservation?.dispatchToken).not.toBe(second.reservation?.dispatchToken);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: scans every audit row the service wrote for a token-shaped value
+    });
+
+    it('scans every audit row the service wrote for a token-shaped value', async () => {
         {
             // The strongest form of the assertion: drive the paths that write
             // lifecycle rows, then scan the entire trail — not one row, not one
@@ -522,11 +502,9 @@ describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () 
                 expect(row, `${entry.eventType} carried a dispatch token`).not.toMatch(/dtk-[0-9a-f]{8,}/);
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: leaves the project secret guard alone: a token is not a credential shape
+    });
+
+    it('leaves the project secret guard alone: a token is not a credential shape', async () => {
         {
             // `SECRET_PATTERNS` deliberately does NOT include `dtk-`: 003 T-019
             // legitimately stores tokens in panel storage, so a guard that refused
@@ -535,6 +513,7 @@ describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () 
             expect(findSecretLeak('dtk-0123456789abcdef0123456789abcdef')).toBeNull();
         }
     });
+
 });
 
 describe('T-040d the claim reads outside the chain and writes only when needed', () => {
@@ -571,8 +550,7 @@ describe('T-040d the claim reads outside the chain and writes only when needed',
 });
 
 describe('T-040e lease provenance is typed, and the parser refuses anything else', () => {
-    it('records adoption provenance as a member, not an id p… (+3 cases)', async () => {
-        // case: records adoption provenance as a member, not an id prefix alone
+    it('records adoption provenance as a member, not an id prefix alone', async () => {
         {
             const run = await strandClaim(61);
 
@@ -582,11 +560,9 @@ describe('T-040e lease provenance is typed, and the parser refuses anything else
             const stored = JSON.stringify(document.runs[0]?.lease);
             expect(stored).toContain('"provenance":"panel"');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a lease whose id is neither of the two shapes this build mints
+    });
+
+    it('refuses a lease whose id is neither of the two shapes this build mints', async () => {
         {
             const run = await strandClaim(62);
             const document = await readRunsDocument({ store, log: LOGGER });
@@ -601,11 +577,9 @@ describe('T-040e lease provenance is typed, and the parser refuses anything else
             const reopened = await openStore({ dataDir });
             await expect(readRunsDocument({ store: reopened, log: LOGGER })).rejects.toThrow('run document');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a lease with no provenance member at all
+    });
+
+    it('refuses a lease with no provenance member at all', async () => {
         {
             const run = await strandClaim(63);
             const document = await readRunsDocument({ store, log: LOGGER });
@@ -615,8 +589,9 @@ describe('T-040e lease provenance is typed, and the parser refuses anything else
                     if (candidate.correlationId !== run.correlationId || candidate.lease === null) {
                         return candidate;
                     }
-                    const lease: Record<string, unknown> = { ...candidate.lease };
-                    delete lease.provenance;
+                    const lease = Object.fromEntries(
+                        Object.entries(candidate.lease).filter(([key]) => key !== 'provenance'),
+                    );
 
                     return { ...candidate, lease };
                 }),
@@ -625,11 +600,9 @@ describe('T-040e lease provenance is typed, and the parser refuses anything else
             const reopened = await openStore({ dataDir });
             await expect(readRunsDocument({ store: reopened, log: LOGGER })).rejects.toThrow('run document');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: accepts both legal shapes, so adoption recovery still works
+    });
+
+    it('accepts both legal shapes, so adoption recovery still works', async () => {
         {
             const run = await strandClaim(64);
             const document = await readRunsDocument({ store, log: LOGGER });
@@ -656,11 +629,11 @@ describe('T-040e lease provenance is typed, and the parser refuses anything else
             expect(lease?.provenance).toBe('migration');
         }
     });
+
 });
 
 describe('T-040f the first sweep tick is armed from the stored durations', () => {
-    it('reads the operator minimum rather than the default w… (+1 cases)', async () => {
-        // case: reads the operator minimum rather than the default when arming
+    it('reads the operator minimum rather than the default when arming', async () => {
         {
             await store.writeJson('config.json', {
                 ...DEFAULT_CONFIG,
@@ -676,11 +649,9 @@ describe('T-040f the first sweep tick is armed from the stored durations', () =>
             expect(sweepIntervalMs(stored)).toBeLessThan(sweepIntervalMs(DEFAULT_CONFIG));
             expect(sweepIntervalMs(DEFAULT_CONFIG)).toBe(60_000);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers the defaults when the configuration cannot be read
+    });
+
+    it('answers the defaults when the configuration cannot be read', async () => {
         {
             const stored = await readSweepDurations({ store, log: LOGGER });
 
@@ -688,6 +659,7 @@ describe('T-040f the first sweep tick is armed from the stored durations', () =>
                 leaseMs: DEFAULT_CONFIG.leaseMs, resultDeadlineMs: DEFAULT_CONFIG.resultDeadlineMs });
         }
     });
+
 });
 
 describe('T-040h a quarantined runs.json answers the documented 503', () => {
@@ -705,8 +677,7 @@ describe('T-040h a quarantined runs.json answers the documented 503', () => {
 });
 
 describe('T-040g the sweep is the only requeue path', () => {
-    it('exports no single-run requeue wrapper that could byp… (+1 cases)', async () => {
-        // case: exports no single-run requeue wrapper that could bypass the budget
+    it('exports no single-run requeue wrapper that could bypass the budget', async () => {
         {
             // `requeueExpiredRun` charged the requeue budget and never dead-lettered,
             // so a caller reaching for it would requeue a run forever. The sweep's
@@ -715,11 +686,9 @@ describe('T-040g the sweep is the only requeue path', () => {
             expect('requeueExpiredRun' in storeModule).toBe(false);
             expect('markUnconfirmed' in storeModule).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: still parks a run whose budget is spent, through the sweep alone
+    });
+
+    it('still parks a run whose budget is spent, through the sweep alone', async () => {
         {
             const run = await strandClaim(71);
 
@@ -740,4 +709,5 @@ describe('T-040g the sweep is the only requeue path', () => {
             expect(rows).toHaveLength(1);
         }
     });
+
 });

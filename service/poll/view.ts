@@ -29,7 +29,6 @@ export type PausedReason = (typeof PAUSED_REASONS)[number];
 /**
  * Whether a string is a member of the closed vocabulary.
  *
- * @param value - The candidate reason.
  * @returns `true` when the service itself would emit it.
  */
 export function isPausedReason(value: string): value is PausedReason {
@@ -71,14 +70,14 @@ export interface PollingViewSlot {
  */
 export function createPollingView(): PollingViewSlot {
     let loop: PollLoop | null = null;
-    let stopping = false;
+    let isStopping = false;
 
-    const running = (): boolean => !stopping && loop !== null && !loop.state().stopped;
+    const isRunning = (): boolean => !isStopping && loop !== null && !loop.state().stopped;
 
     const view: PollingView = {
-        isRunning: (): boolean => running(),
-        nextPollAtMs: (): number | null => (running() ? loop?.state().nextPollAtMs ?? null : null),
-        isStopping: (): boolean => stopping,
+        isRunning: (): boolean => isRunning(),
+        nextPollAtMs: (): number | null => (isRunning() ? loop?.state().nextPollAtMs ?? null : null),
+        isStopping: (): boolean => isStopping,
     };
 
     return {
@@ -87,7 +86,7 @@ export function createPollingView(): PollingViewSlot {
             loop = next;
         },
         beginShutdown: (): void => {
-            stopping = true;
+            isStopping = true;
         },
     };
 }
@@ -95,7 +94,6 @@ export function createPollingView(): PollingViewSlot {
 /**
  * The `nextPollAt` member of the polling block (contract §1).
  *
- * @param view - The scheduler view the route reads.
  * @param intervalMs - The effective configured interval the route already read.
  * @returns The next-poll stamp while polling runs, `null` while it does not.
  */
@@ -120,7 +118,6 @@ export function nextPollAtOf(view: PollingView, intervalMs: number): string | nu
  * function never maps an unknown code to a friendly guess because it never
  * receives one.
  *
- * @param input - Store usability, scheduler state, and the active-binding count.
  * @returns `''` while polling runs, else the closed-vocabulary reason.
  */
 export function pausedReasonOf(input: {

@@ -105,9 +105,25 @@ const DARK_THEME = {
     radius: '8px',
 };
 
+/**
+ * The body container the shell made for one tab.
+ *
+ * `name` is a tab id — six lowercase literals from `TAB_IDS` — so nothing needs
+ * escaping, and `CSS` is absent from this harness anyway, so
+ * `unicorn/require-css-escape` cannot be satisfied here at all.
+ *
+ * @param {Element} panel - The panel root.
+ * @param {string} name - Tab id.
+ * @returns {Element | null} The body, or null when the tab has not mounted.
+ */
+function bodyOf(panel, name) {
+    // eslint-disable-next-line unicorn/require-css-escape -- a tab id, and `CSS` is absent in this harness
+    return panel.querySelector(`[data-body="${name}"]`);
+}
+
 const harnessDoc = globalThis.document;
-const frame = harnessDoc.getElementById('panel');
-const sentinelLayer = harnessDoc.getElementById('sentinel');
+const frame = harnessDoc.querySelector('#panel');
+const sentinelLayer = harnessDoc.querySelector('#sentinel');
 
 /** The panel's own document — every measurement reads it, never the harness's. */
 function panelDoc() {
@@ -115,10 +131,10 @@ function panelDoc() {
 }
 const storage = new Map([[LEDGER_KEY, { schemaVersion: 'dispatch-attempts-1', attempts: [] }]]);
 
-let themeMode = LIGHT;
-let harnessError = null;
-let routes = {};
-let projects = null;
+// One object rather than four `let` bindings: the bridge is driven from a
+// `message` handler that fills this in and a control surface that reads it back
+// later, so the state has a shape a reader can hold in their head.
+const state = { themeMode: LIGHT, harnessError: null, routes: {}, projects: null };
 
 /** The envelope every host→guest message travels in. */
 function envelope(type) {
@@ -143,7 +159,7 @@ function refuse(id, problem) {
 /** The `ready` payload: a complete host theme plus the surface description. */
 function readyPayload() {
     return {
-        theme: { mode: themeMode, tokens: themeMode === LIGHT ? LIGHT_THEME : DARK_THEME },
+        theme: { mode: state.themeMode, tokens: state.themeMode === LIGHT ? LIGHT_THEME : DARK_THEME },
         locale: 'en-US',
         directory: null,
         session: null,
@@ -164,9 +180,9 @@ function answerStorage(message) {
     const { id, payload } = message;
 
     if (payload.op === 'get') {
-        const found = storage.has(payload.key);
+        const isFound = storage.has(payload.key);
 
-        return reply(id, { storage: true, op: 'get', found, value: found ? storage.get(payload.key) : undefined });
+        return reply(id, { storage: true, op: 'get', isFound, value: isFound ? storage.get(payload.key) : undefined });
     }
 
     if (payload.op === 'set') {
@@ -190,9 +206,9 @@ function answerStorage(message) {
 
 /** Answer one `service-request` from the fixture route table. */
 function answerServiceRequest(message) {
-    const path = String(message.payload.path).split('?')[0];
+    const path = String(message.payload.path).split('?', 1)[0];
     const key = `${message.payload.method} ${path}`;
-    const route = routes[key];
+    const route = state.routes.get(key);
 
     if (route === undefined) {
         const body = { error: { code: 'not-found', message: `harness: no fixture for ${key}` } };
@@ -208,7 +224,7 @@ function answerWorkspace(message) {
     const kind = message.payload?.kind;
 
     if (kind === 'projects') {
-        return reply(message.id, projects);
+        return reply(message.id, state.projects);
     }
 
     const shared = { projectId: message.payload?.projectId ?? null };
@@ -234,27 +250,34 @@ function answerStartSession(message) {
 /** Route one validated guest message to its answer. */
 function dispatch(message) {
     switch (message.type) {
-        case 'hello':
+        case 'hello': {
             sendReady();
             return;
-        case 'storage':
+        }
+        case 'storage': {
             answerStorage(message);
             return;
-        case 'service-request':
+        }
+        case 'service-request': {
             answerServiceRequest(message);
             return;
+        }
         case 'workspace-read':
-        case 'workspace-subscribe':
+        case 'workspace-subscribe': {
             answerWorkspace(message);
             return;
-        case 'service-status':
+        }
+        case 'service-status': {
             reply(message.id, { status: 'ready' });
             return;
-        case 'start-session':
+        }
+        case 'start-session': {
             answerStartSession(message);
             return;
-        default:
+        }
+        default: {
             reply(message.id, {});
+        }
     }
 }
 
@@ -265,11 +288,12 @@ function onMessage(event) {
     }
 
     const message = event.data;
-    if (message === null || typeof message !== 'object') {
-        return;
-    }
-
-    if (message.channel !== CHANNEL || message.v !== PROTOCOL_VERSION) {
+    if (
+        message === null ||
+        typeof message !== 'object' ||
+        message.channel !== CHANNEL ||
+        message.v !== PROTOCOL_VERSION
+    ) {
         return;
     }
 
@@ -294,7 +318,7 @@ function booted() {
     const body = panel.querySelector('[data-body]');
     const tabs = panel.querySelectorAll('[role="tab"]');
 
-    return tabs.length > 0 && body !== null && body.innerText.length > MIN_BODY_TEXT;
+    return tabs.length > 0 && body !== null && body.textContent.length > MIN_BODY_TEXT;
 }
 
 /**
@@ -309,9 +333,9 @@ function measure(name) {
         return null;
     }
 
-    const body = panel.querySelector(`[data-body="${name}"]`);
+    const body = bodyOf(panel, name);
     const region = panel.querySelector('[data-body-region]');
-    const root = panel.getElementById('root');
+    const root = panel.querySelector('#root');
 
     if (body === null || region === null || root === null) {
         return null;
@@ -344,7 +368,7 @@ function measure(name) {
         scrollTop: Math.round(region.scrollTop),
         scrollHeight: Math.round(region.scrollHeight),
         maxScroll: Math.round(region.scrollHeight - region.clientHeight),
-        textLength: body.innerText.length,
+        textLength: body.textContent.length,
     };
 }
 
@@ -356,7 +380,6 @@ function measure(name) {
  * still runs because a body that outgrows the region (a `--full` capture, a
  * viewport left short by an earlier tab) has to be brought up by hand.
  *
- * @param name - Tab id to bring to the top of the region.
  * @returns The measurement after the scroll, or null if the body is missing.
  */
 function align(name) {
@@ -365,7 +388,7 @@ function align(name) {
         return null;
     }
 
-    const body = panel.querySelector(`[data-body="${name}"]`);
+    const body = bodyOf(panel, name);
     const region = panel.querySelector('[data-body-region]');
 
     if (body === null || region === null) {
@@ -388,7 +411,6 @@ function align(name) {
  * `getComputedStyle` for every `[hidden]` element in the live document, so a
  * capture cannot publish a stray control the panel meant to remove.
  *
- * @param panel - The panel's document.
  * @returns One entry per painted element: its tag, its classes, its display.
  */
 function paintedHidden(panel) {
@@ -425,7 +447,7 @@ function bodyView() {
 
     const selected = panel.querySelector(SELECTED_TAB);
     const bodies = [...panel.querySelectorAll('[data-body]')].map((body) => ({
-        id: body.getAttribute('data-body'),
+        id: body.dataset.body,
         hidden: body.hasAttribute('hidden'),
         display: panel.defaultView.getComputedStyle(body).display,
         labelledBy: body.getAttribute('aria-labelledby'),
@@ -469,7 +491,7 @@ function strip() {
     const active = panel.querySelector(SELECTED_TAB);
 
     return {
-        tabs: [...panel.querySelectorAll('[role="tab"]')].map(stripBox),
+        tabs: [...panel.querySelectorAll('[role="tab"]')].map((tab) => stripBox(tab)),
         activeColor: active === null ? null : panel.defaultView.getComputedStyle(active).backgroundColor,
     };
 }
@@ -536,19 +558,20 @@ async function stretch(height) {
 
 /** Switch the host theme the panel paints from, and re-ready the guest. */
 function setTheme(mode) {
-    themeMode = mode === DARK ? DARK : LIGHT;
+    state.themeMode = mode === DARK ? DARK : LIGHT;
     sendReady();
 
-    return themeMode;
+    return state.themeMode;
 }
 
 /** Boot the bridge: load fixtures, then let the frame load the panel. */
 async function boot() {
     const { routes: table, projects: list, error } = await loadFixtures();
-    harnessError = error;
-    routes = table;
-    projects = list;
-    globalThis.__MT_HARNESS_ERROR__ = harnessError;
+    state.harnessError = error;
+    state.routes = table;
+    state.projects = list;
+    // eslint-disable-next-line unicorn/no-global-object-property-assignment -- this is the harness's channel to shot.js
+    globalThis.__MT_HARNESS_ERROR__ = state.harnessError;
     frame.src = frame.dataset.src;
 }
 
@@ -557,9 +580,10 @@ frame.addEventListener('load', sendReady);
 void boot();
 
 /** The control surface `shot.js` drives over `agent-browser eval`. */
+// eslint-disable-next-line unicorn/no-global-object-property-assignment -- the surface shot.js drives
 globalThis.__MT__ = {
     booted,
-    error: () => harnessError,
+    error: () => state.harnessError,
     activeTab,
     measure,
     align,

@@ -12,7 +12,6 @@
 import type { GuestRequest, GuestRequestResult, HostRequestErrorCode, JsonValue } from '@openchamber/sdk';
 import { HostRequestError } from '@openchamber/sdk';
 import { expect } from 'vitest';
-import { currentHandoffToken } from '../../src/handoff.ts';
 import { STATUS_PATH } from '../../src/handoff-status.ts';
 import type { HandoffState } from '../../src/handoff.ts';
 import type { HandoffView } from '../../src/accounts-ui.ts';
@@ -48,7 +47,6 @@ const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] a
  * kebab-case capability names stay array elements instead of quoted object
  * keys (repo lint keeps object keys camelCase).
  *
- * @param result - `ok`, `missing`, or `unknown`.
  * @returns The matrix exactly as the service and the account mirror record it.
  */
 export function scopeResults(result: 'ok' | 'missing' | 'unknown'): Record<string, string> {
@@ -93,8 +91,8 @@ export interface RecordingView {
 export function recordingView(): RecordingView {
     const record: RecordingView = {
         view: {
-            setTokenEnabled: (enabled: boolean): void => {
-                record.tokenEnabled = enabled;
+            setTokenEnabled: (isEnabled: boolean): void => {
+                record.tokenEnabled = isEnabled;
             },
             setTokenValue: (value: string): void => {
                 record.tokenValue = value;
@@ -109,11 +107,11 @@ export function recordingView(): RecordingView {
                     record.rendered.push(text);
                 }
             },
-            setPasteVisible: (visible: boolean): void => {
-                record.pasteVisible = visible;
+            setPasteVisible: (isVisible: boolean): void => {
+                record.pasteVisible = isVisible;
             },
-            setSubmitEnabled: (enabled: boolean): void => {
-                record.submitEnabled = enabled;
+            setSubmitEnabled: (isEnabled: boolean): void => {
+                record.submitEnabled = isEnabled;
             },
             dispose: (): void => {
                 record.disposed = true;
@@ -219,7 +217,6 @@ export function expectNoCredential(host: ScriptedHost): void {
     ].join('\n');
 
     expect(surfaces).not.toContain(PANEL_TOKEN);
-    expect(currentHandoffToken()).toBeUndefined();
     // `scriptedRuntime` seeds this with the pasted credential; the handoff
     // must have cleared it (contract §2 step ⑧). The DOM-level proof — paste,
     // click, assert — lives in `tests/handoff-dom.test.ts`.

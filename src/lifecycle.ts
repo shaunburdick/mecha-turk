@@ -3,13 +3,13 @@
  *
  * The documented host clears subscriptions on unmount, pause, removal, and
  * server switch, and a panel is not documented as a background worker. The
- * spike therefore does not assume either outcome: it records explicit phase
+ * panel therefore does not assume either outcome: it records explicit phase
  * markers plus poll activity, and the verdict comes from stored entries
  * (see {@link analyzeLastCloseGap}).
  */
 
 import { analyzePollingGap } from './ledger.ts';
-import type { GapAnalysis, LifecyclePhase, SpikeLedger } from './ledger.ts';
+import type { GapAnalysis, LifecyclePhase, PanelLedger } from './ledger.ts';
 
 /** One step of the lifecycle experiment. */
 export interface LifecycleStep {
@@ -90,9 +90,8 @@ export interface MountContext {
  * a silently fresh state.
  *
  * @param existing - Ledger read from storage, or `null` when absent/unusable.
- * @returns Generation and storage-presence context for the new mount.
  */
-export function buildMountContext(existing: SpikeLedger | null): MountContext {
+export function buildMountContext(existing: PanelLedger | null): MountContext {
     if (existing === null) {
         return {
             panelGeneration: 1,
@@ -113,10 +112,9 @@ export function buildMountContext(existing: SpikeLedger | null): MountContext {
 /**
  * Find the timestamp the gap analysis should start from.
  *
- * @param ledger - Prior ledger.
  * @returns The last `closed` phase time, else the last entry time, else `null`.
  */
-function findBaseline(ledger: SpikeLedger): string | null {
+function findBaseline(ledger: PanelLedger): string | null {
     let baseline: string | null = null;
     for (const entry of ledger.entries) {
         if (entry.kind === 'phase' && entry.phase === 'closed') {
@@ -137,10 +135,9 @@ function findBaseline(ledger: SpikeLedger): string | null {
  * Either way the analysis is driven by stored evidence: a running panel is the
  * only thing that writes `poll` entries.
  *
- * @param input - Prior ledger and the current mount time.
  * @returns The gap verdict, or `null` when the ledger has no baseline yet.
  */
-export function analyzeLastCloseGap(input: { prior: SpikeLedger | null; mountedAt: string }): GapAnalysis | null {
+export function analyzeLastCloseGap(input: { prior: PanelLedger | null; mountedAt: string }): GapAnalysis | null {
     const { prior } = input;
     if (prior === null) {
         return null;

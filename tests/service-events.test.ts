@@ -32,8 +32,8 @@
  *    queue still holds, pending or dispatched.
  */
 
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { readdir, readFile, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -64,9 +64,11 @@ import type { GitHubIssuePoller, PollIssue } from '../service/poll/poller-github
 import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { byText, byTextLoose } from './support/sort.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { scopeResults } from './support/verify.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** First fixture binding. */
 const BINDING_A = 'bnd-recover-a';
@@ -116,26 +118,19 @@ let dataDir = '';
 /** Open store handle for the tests that read through the real store. */
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-events-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('events'));
     store = await openStore({ dataDir });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /**
  * Build a logger that records every line it is asked to write.
- *
- * @returns The logger plus the lines it captured.
  */
 function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
     const lines: string[] = [];
@@ -163,9 +158,7 @@ const LEGACY_BASIS = 'subject-author';
 /**
  * Build the writer's inputs for one assignment detection.
  *
- * @param issueNumber - Issue number the detection carries.
  * @param excerpt - Issue body excerpt (`''` is a legal stored value).
- * @returns A complete event snapshot.
  */
 function fixtureSnapshot(issueNumber: number, excerpt: string): EventSnapshot {
     return {
@@ -192,7 +185,6 @@ function fixtureSnapshot(issueNumber: number, excerpt: string): EventSnapshot {
 /**
  * Build one stored binding row.
  *
- * @param bindingId - Id of the binding.
  * @returns A complete active binding with the assignment trigger on.
  */
 function fixtureBinding(bindingId: string): BindingRecord {
@@ -236,7 +228,6 @@ function fixtureAccount(): Account {
 /**
  * Build one open issue assigned to the fixture account.
  *
- * @param issueNumber - Issue number to report.
  * @param updatedAt - `updated_at` stamp the window is matched against.
  * @returns The normalized issue the poller would return.
  */
@@ -275,7 +266,6 @@ interface RecordedPoller {
  * in-window exactly when the listing let the candidate through (002 FR-051) —
  * a fixture cannot accidentally produce an event the window would have refused.
  *
- * @param issue - The candidate the read was issued for.
  * @returns The one naming event, and the bound's own subject match.
  */
 function namingEventFor(issue: PollIssue): readonly PollItemEvent[] {
@@ -293,7 +283,6 @@ function namingEventFor(issue: PollIssue): readonly PollItemEvent[] {
 /**
  * Build a poller that answers with one fixed issue list and records its windows.
  *
- * @param issues - Issues to return on every call.
  * @returns The poller, the windows it was asked to open, and the items its
  *   per-item actor read was asked about.
  */
@@ -316,9 +305,7 @@ function recordingPoller(issues: readonly PollIssue[]): RecordedPoller {
             seenEvents.push(input.issueNumber);
             const candidate = issues.find((issue) => issue.issueNumber === input.issueNumber);
 
-            return candidate === undefined
-                ? { kind: 'ok', events: [], exhausted: false }
-                : { kind: 'ok', events: namingEventFor(candidate), exhausted: false };
+            return ({ kind: 'ok', events: candidate === undefined ? [] : namingEventFor(candidate), exhausted: false });
         },
     };
 
@@ -327,8 +314,6 @@ function recordingPoller(issues: readonly PollIssue[]): RecordedPoller {
 
 /**
  * Write one queue document straight into the store directory.
- *
- * @param rows - Rows to plant as the `events.json` array.
  */
 async function plantQueue(rows: readonly unknown[]): Promise<void> {
     await writeFile(join(dataDir, EVENTS_FILE), JSON.stringify(rows), 'utf8');
@@ -336,8 +321,6 @@ async function plantQueue(rows: readonly unknown[]): Promise<void> {
 
 /**
  * Write one scan-state document straight into the store directory.
- *
- * @param value - The document to plant.
  */
 async function plantScanState(value: unknown): Promise<void> {
     await writeFile(join(dataDir, SCAN_STATE_FILE), JSON.stringify(value), 'utf8');
@@ -374,6 +357,7 @@ async function auditRowsOf(eventType: string): Promise<readonly AuditEntry[]> {
  *
  * @returns The unusable row.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
 function unusableRow(): unknown {
     return { ...createEvent(fixtureSnapshot(2, 'the row the writer never writes')), issueNumber: '2' };
 }
@@ -442,15 +426,14 @@ describe('event queue round-trip (writer → reader)', () => {
 describe('parseStoredEvent (the issueNumber boundary)', () => {
     it('accepts the writer\'s numeric issueNumber as stored', () => {
         const event = createEvent(fixtureSnapshot(2, ''));
-        const stored = JSON.parse(JSON.stringify(event)) as unknown;
+        const stored = structuredClone(event);
 
         expect(parseStoredEvent(stored)).toEqual(event);
     });
 
     it('still refuses a missing, text, or non-positive issueNumber', () => {
         const event = createEvent(fixtureSnapshot(2, ''));
-        const withoutNumber: Record<string, unknown> = { ...event };
-        delete withoutNumber.issueNumber;
+        const withoutNumber = Object.fromEntries(Object.entries(event).filter(([key]) => key !== 'issueNumber'));
 
         expect(parseStoredEvent(withoutNumber)).toBeNull();
         expect(parseStoredEvent({ ...event, issueNumber: '2' })).toBeNull();
@@ -462,7 +445,7 @@ describe('parseStoredEvent (the issueNumber boundary)', () => {
 describe('delivery row shapes (003 run layer, T-004)', () => {
     it('writes no lifecycle state onto a new row, and does carry its subject type', () => {
         const row = createEvent(fixtureSnapshot(2, ''));
-        const stored = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+        const stored = structuredClone(row);
 
         expect('state' in stored).toBe(false);
         expect('claimedAt' in stored).toBe(false);
@@ -481,7 +464,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
 
     it('parses an old-shape (shipped) row and a new-shape row alike', () => {
         const oldShape = shippedRow();
-        const newShape = JSON.parse(JSON.stringify(createEvent(fixtureSnapshot(7, '')))) as unknown;
+        const newShape = structuredClone(createEvent(fixtureSnapshot(7, '')));
 
         expect(parseStoredEvent(oldShape)).toEqual(oldShape);
         expect(parseStoredEvent(newShape)).toEqual(newShape);
@@ -528,7 +511,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
     // observed twice is still one event.
     it('carries the actor and its basis onto the row, and round-trips on real bytes', async () => {
         const row = createEvent({ ...fixtureSnapshot(9, 'body'), actorLogin: 'Alice', actorAttribution: 'direct' });
-        const stored = JSON.parse(JSON.stringify(row)) as Record<string, unknown>;
+        const stored = structuredClone(row);
 
         expect(stored.actorLogin).toBe('Alice');
         expect(stored.actorAttribution).toBe('direct');
@@ -549,7 +532,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
     });
 
     it('accepts both members when present and refuses an unrecognized basis', () => {
-        const row = JSON.parse(JSON.stringify(createEvent(fixtureSnapshot(4, '')))) as Record<string, unknown>;
+        const row = { ...structuredClone(createEvent(fixtureSnapshot(4, ''))) };
 
         expect(parseStoredEvent(row)).toMatchObject({ actorLogin: 'alice', actorAttribution: LEGACY_BASIS });
         expect(parseStoredEvent({ ...row, actorAttribution: 'direct' })).toMatchObject({ actorAttribution: 'direct' });
@@ -600,7 +583,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
             ...fixtureSnapshot(12, ''),
             kind: 'mention',
             origin: 'comment',
-            commentId: 4242,
+            commentId: 4_242,
             actorAttribution: 'direct',
         });
         expect(mentioned.id).toBe('evt-acme~widget~12~77331~mention~4242');
@@ -608,7 +591,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
             ...fixtureSnapshot(12, ''),
             kind: 'mention',
             origin: 'comment',
-            commentId: 4242,
+            commentId: 4_242,
             actorAttribution: 'direct',
             actorLogin: 'another',
         });
@@ -884,20 +867,17 @@ interface RunSeed {
 /** Services the paging block started; shut down before the store goes away. */
 const paged: TestService[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork3 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (paged.length > 0) {
         const service = paged.pop();
         await service?.shutdown();
     }
-};
-
-afterEach(afterEachWork3);
+});
 
 /**
  * Build the delivery snapshot one seed describes.
  *
- * @param seed - The run to detect.
  * @returns The event the run is created from.
  */
 function snapshotFor(seed: RunSeed): EventSnapshot {
@@ -959,7 +939,6 @@ function documentFor(seeds: readonly RunSeed[]): RunsDocument {
 /**
  * Start a service whose store already holds the seeded runs.
  *
- * @param seeds - The runs to serve.
  * @returns The running instance.
  */
 async function startWithRuns(seeds: readonly RunSeed[]): Promise<TestService> {
@@ -1017,8 +996,6 @@ interface RefusalBody {
  * Both awaits are separate statements on purpose: awaiting a member call on an
  * awaited response reads as one expression nobody can step through.
  *
- * @param service - The running instance.
- * @param query - Path plus query string.
  * @returns The parsed answer.
  */
 async function historyAnswer(service: TestService, query: string): Promise<HistoryBody> {
@@ -1030,7 +1007,6 @@ async function historyAnswer(service: TestService, query: string): Promise<Histo
 /**
  * Read one refusal envelope through the loopback route.
  *
- * @param response - The `4xx` answer.
  * @returns The parsed envelope.
  */
 async function refusalOf(response: Response): Promise<RefusalBody> {
@@ -1061,8 +1037,7 @@ function filterSeeds(): readonly RunSeed[] {
 }
 
 describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-121)', () => {
-    it('refuses a page size outside the accepted set and cha… (+5 cases)', async () => {
-        // case: refuses a page size outside the accepted set and changes nothing
+    it('refuses a page size outside the accepted set and changes nothing', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1083,13 +1058,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             const answer = (await untouched.json()) as HistoryBody;
             expect(answer.events).toHaveLength(6);
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a cursor this service did not issue instead of restarting at page one
+    });
+
+    it('refuses a cursor this service did not issue instead of restarting at page one', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1100,13 +1071,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             expect(body.error.code).toBe('validation');
             expect(body.error.issues[0]?.field).toBe('cursor');
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a state outside the dispatch vocabulary
+    });
+
+    it('refuses a state outside the dispatch vocabulary', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1119,13 +1086,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             expect(body.error.issues[0]?.remediation).toContain('blocked');
             expect(body.error.issues[0]?.remediation).not.toContain('bogus');
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: returns both blocked-family rows for state=blocked and only failed for state=failed
+    });
+
+    it('returns both blocked-family rows for state=blocked and only failed for state=failed', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1142,13 +1105,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             expect(failed.events).toHaveLength(1);
             expect(failed.events[0]?.state).toBe('failed');
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: composes a binding filter with every page and reports one total
+    });
+
+    it('composes a binding filter with every page and reports one total', async () => {
         {
             const seeds = Array.from({ length: 12 }, (_, index) => ({
                 issueNumber: index + 1,
@@ -1180,13 +1139,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             expect(seen).toHaveLength(6);
             expect(new Set(seen).size).toBe(6);
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers an unknown binding id with an empty set rather than a 404
+    });
+
+    it('answers an unknown binding id with an empty set rather than a 404', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1200,8 +1155,7 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
         }
     });
 
-    it('keeps the order stable when rows share a detection s… (+1 cases)', async () => {
-        // case: keeps the order stable when rows share a detection stamp
+    it('keeps the order stable when rows share a detection stamp', async () => {
         {
             const at = '2026-09-27T00:30:00.000Z';
             const service = await startWithRuns([
@@ -1217,13 +1171,9 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             // The tiebreak is the row key descending, so the boundary is exact.
             expect(String(first.events[0]?.correlationId) > String(first.events[1]?.correlationId)).toBe(true);
         }
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork3();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: never reports the page size as the total
+    });
+
+    it('never reports the page size as the total', async () => {
         {
             const service = await startWithRuns(filterSeeds());
 
@@ -1244,6 +1194,7 @@ describe('GET /v1/events paging and server-side filters (005 FR-042, FR-043, AC-
             }).total).toBeNull();
         }
     });
+
 });
 
 /**
@@ -1296,7 +1247,7 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
     it('keeps a comment and a pull request to one event each across both observations', async () => {
         const { log } = capturingLogger();
         const comment = {
-            commentId: 4242,
+            commentId: 4_242,
             issueNumber: 12,
             body: `cc @${ACCOUNT_LOGIN}`,
             url: 'https://github.com/acme/widget/issues/12#issuecomment-4242',
@@ -1356,33 +1307,34 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
         // Two kinds, two rows — and the same two rows whichever policy is in
         // force. An allow-list neither splits an observation nor resurrects a
         // deduplicated one, so the second observation enqueues nothing.
-        expect(restricted.map((event) => event.id).sort()).toEqual([
+        expect(restricted.map((event) => event.id).toSorted(byText)).toEqual([
             `evt-acme~widget~12~${ACCOUNT_ID}~mention~4242`,
             `evt-acme~widget~12~${ACCOUNT_ID}~review`,
         ]);
-        expect(open.map((event) => event.id).sort()).toEqual(restricted.map((event) => event.id).sort());
+        expect(open.map((event) => event.id).toSorted(byText))
+            .toEqual(restricted.map((event) => event.id).toSorted(byText));
         // Both kinds are `direct` now that each names its own actor, and the
         // body's mention needed the issue list the cycle listed for it.
-        expect(open.map((event) => event.actorAttribution).sort()).toEqual(['direct', 'direct']);
-        expect(open.map((event) => event.actorLogin).sort()).toEqual(['alice', 'alice']);
+        expect(open.map((event) => event.actorAttribution).toSorted(byTextLoose)).toEqual(['direct', 'direct']);
+        expect(open.map((event) => event.actorLogin).toSorted(byTextLoose)).toEqual(['alice', 'alice']);
     });
 
     it('asserts buildEventId\'s docblock promise against the shipped format (FR-046, AC-104)', () => {
         // The docblock promises a `[A-Za-z0-9._~]`-only, one-path-segment id of
         // the form `evt-<owner>~<repo>~<issue>~<account>` plus its discriminator.
         // Every produced id is checked against that promise, not against itself.
-        const ids = [
-            ...['', '~mention~body', '~mention~4242', '~review'].map((discriminator) => buildEventId({
+        const ids =
+            ['', '~mention~body', '~mention~4242', '~review'].map((discriminator) => buildEventId({
                 repository: { owner: 'acme', name: 'widget' },
                 issueNumber: 12,
                 accountNumericUserId: ACCOUNT_ID,
-                ...(discriminator === '' ? {} : { discriminator }),
-            })),
-        ];
+                ...(discriminator !== '' && { discriminator }),
+            }))
+        ;
 
         for (const id of ids) {
             expect(id).toMatch(/^evt-[A-Za-z0-9._~|-]+$/);
-            expect(id.split('~')[0]).toBe('evt-acme');
+            expect(id.split('~', 1)[0]).toBe('evt-acme');
             expect(id).not.toContain('/');
             // "One URL path segment" means it needs no percent-encoding at all.
             expect(encodeURIComponent(id)).toBe(id);

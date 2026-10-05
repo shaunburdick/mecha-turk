@@ -31,17 +31,14 @@ interface BaseEventSnapshot {
     readonly worktreeOption: string;
     /** Issue fields, already normalized. */
     readonly issue: {
-        /** Issue number. */
         readonly issueNumber: number;
-        /** Issue title. */
         readonly issueTitle: string;
-        /** Issue URL. */
         readonly issueUrl: string;
         /** The (bounded) issue body excerpt. */
         readonly issueBodyExcerpt: string;
     };
     /**
-     * The GitHub login this delivery is attributed to (002 FR-043).
+     * The GitHub login this delivery is attributed to.
      *
      * **Required on every snapshot**, because attribution is mandatory and
      * fail-closed: a trigger that cannot name a human author must not build a
@@ -50,12 +47,12 @@ interface BaseEventSnapshot {
      */
     readonly actorLogin: string;
     /**
-     * How that attribution was made (002 FR-044) — the difference between a
+     * How that attribution was made — the difference between a
      * record and an inference, and never left implicit: `direct` when GitHub
-     * named the identity that performed the act, which since v1.12.0 is every
+     * named the identity that performed the act, which is every
      * kind — the text's author for a mention, and the `assigner` /
      * `review_requester` the naming event recorded for an assignment or a
-     * review request (002 NFR-011). The legacy `subject-author` member is still
+     * review request. The legacy `subject-author` member is still
      * readable and is written by nothing.
      */
     readonly actorAttribution: ActorAttribution;
@@ -150,7 +147,6 @@ export type EventSnapshot =
  * panel ledgers, audit rows, and the run history. The actor therefore
  * **rides the record and never its identity**.
  *
- * @param input - Repository, issue, account, and discriminator for the id.
  * @returns A `[A-Za-z0-9._~]`-only id of one path segment.
  */
 export function buildEventId(input: {
@@ -172,7 +168,6 @@ export function buildEventId(input: {
 /**
  * Read the id discriminator one snapshot contributes.
  *
- * @param snapshot - Detection inputs.
  * @returns `undefined` for an assignment, the discriminator otherwise.
  */
 function discriminatorOf(snapshot: EventSnapshot): string | undefined {
@@ -186,7 +181,6 @@ function discriminatorOf(snapshot: EventSnapshot): string | undefined {
 /**
  * Read the head SHA one snapshot contributes; `null` for the other triggers.
  *
- * @param snapshot - Detection inputs.
  * @returns The SHA, or `null`.
  */
 function headShaOf(snapshot: EventSnapshot): string | null {
@@ -196,7 +190,6 @@ function headShaOf(snapshot: EventSnapshot): string | null {
 /**
  * Read the base ref one snapshot contributes; `null` for the other triggers.
  *
- * @param snapshot - Detection inputs.
  * @returns The ref, or `null`.
  */
 function baseRefOf(snapshot: EventSnapshot): string | null {
@@ -207,7 +200,6 @@ function baseRefOf(snapshot: EventSnapshot): string | null {
  * Read the subject shape one snapshot carries, defaulting the way a row
  * written before the run layer reads (data-model §2.1).
  *
- * @param snapshot - Detection inputs.
  * @returns The subject shape this row stores.
  */
 function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
@@ -231,18 +223,17 @@ function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
  * The two actor members ride beside the other optional snapshot members
  * (`subjectType`), **not** the id: `buildEventId` is untouched, because that
  * id is simultaneously the dedupe key, the relay path segment, and the
- * reference already recorded in panel ledgers, audit rows, and the run history
- * (002 FR-046). An issue observed once before this change and once after it is
+ * reference already recorded in panel ledgers, audit rows, and the run history.
+ * An issue observed once before this change and once after it is
  * still **one** event, and tightening a binding's allow-list can never
  * manufacture duplicate work.
  *
- * @param snapshot - Detection inputs.
  * @returns A fresh delivery row.
  */
 export function createEvent(snapshot: EventSnapshot): QueuedEvent {
     const separatorIndex = snapshot.repository.indexOf('/');
-    const owner = separatorIndex < 0 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
-    const name = separatorIndex < 0 ? '' : snapshot.repository.slice(separatorIndex + 1);
+    const owner = separatorIndex === -1 ? snapshot.repository : snapshot.repository.slice(0, separatorIndex);
+    const name = separatorIndex === -1 ? '' : snapshot.repository.slice(separatorIndex + 1);
 
     const base = {
         bindingId: snapshot.bindingId,

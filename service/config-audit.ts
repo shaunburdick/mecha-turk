@@ -38,7 +38,7 @@
  * Both writers swallow their own failure into `false` plus a structured warn:
  * the configuration write is the durable record, so a row that could not reach
  * disk is surfaced as `auditWritten: false` (accepted) or a warn line (refused)
- * rather than rolled back or swallowed (FR-070's edge case, 003 FR-063).
+ * rather than rolled back or swallowed (FR-070's edge case).
  *
  * The **observed** half of FR-088 — a change to this field noticed in the
  * stored document without a write — lives in
@@ -56,35 +56,35 @@ import type { ServiceLogger } from './log.ts';
 import type { ServiceStore } from './store/index.ts';
 
 /**
- * The vocabulary name 002 reserved for a configuration change (006 FR-070).
+ * The vocabulary name 002 reserved for a configuration change.
  *
  * Exported so the observer lane seeds from the same spelling the writers use —
  * there is no second name for this event, in either direction.
  */
 export const CONFIG_CHANGED_EVENT = 'config.changed';
 
-/** What an unrecognized key is recorded as in a refusal row (FR-072). */
+/** What an unrecognized key is recorded as in a refusal row. */
 const WITHHELD = '<withheld>';
 
-/** Reason text the applied row carries; secret-free by construction (FR-071). */
+/** Reason text the applied row carries; secret-free by construction. */
 const APPLIED_REASON = 'configuration replaced';
 
-/** Reason text the refused row carries; secret-free by construction (FR-072). */
+/** Reason text the refused row carries; secret-free by construction. */
 const REFUSED_REASON = 'configuration refused';
 
 /** Who caused a `config.changed` row: the write's operator, or the service (006 FR-070). */
 export type ConfigChangeActor = 'operator' | 'service';
 
-/** What a `{ field, from, to }` triple may carry as either side of a change (006 FR-071). */
+/** What a `{ field, from, to }` triple may carry as either side of a change. */
 export type ConfigChangeValue = number | string | null;
 
 /** One field a whole-document write changed, with both sides of the change. */
 export interface ConfigChange {
     /** Documented field that moved. */
     readonly field: ServiceConfigField;
-    /** Value in force before the write (FR-071); `null` for an unset global tier. */
+    /** Value in force before the write; `null` for an unset global tier. */
     readonly from: ConfigChangeValue;
-    /** Value the write put in force (FR-071); `null` for an unset global tier. */
+    /** Value the write put in force; `null` for an unset global tier. */
     readonly to: ConfigChangeValue;
 }
 
@@ -96,17 +96,17 @@ export interface ConfigChange {
  * @returns `mtp-<sha256 hex[0:32]>` over the normalised text, or `null` —
  *   never the text itself, and never a fingerprint of a value the validator
  *   would refuse: an unusable value reads as *unset*, which is the only safe
- *   answer a durable trail may give (004 FR-053).
+ *   answer a durable trail may give.
  */
 export function configPromptFingerprint(text: string | null | undefined): string | null {
     // `null` and an absent member are the same *unset* to the one validator
-    // every tier shares (004 FR-017), so the normalisation loses nothing.
+    // every tier shares, so the normalisation loses nothing.
     const tier = promptTierOf({ startingPrompt: text ?? null });
 
     return tier === null ? null : tier.fingerprint;
 }
 
-/** The one shape a recorded global-tier value may have (004 FR-016). */
+/** The one shape a recorded global-tier value may have. */
 const PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
 
 /**
@@ -129,9 +129,8 @@ export function recordedConfigPromptFingerprint(value: unknown): string | null {
 
 /**
  * The value this field's row entry records; every other field records itself
- * (FR-071 as amended for `startingPrompt` at 006 v1.6.0).
+ * (FR-071 as amended for `startingPrompt`).
  *
- * @param field - Documented field being recorded.
  * @param value - The field's value as the document carried it.
  * @returns The fingerprint pair side for the global tier, the value otherwise.
  */
@@ -149,20 +148,18 @@ function recordedValue(field: ServiceConfigField, value: number | string): Confi
 /**
  * Compare the validated candidate with the stored document, field by field.
  *
- * This is also the **no-op detector** (FR-048): an empty result means the two
+ * This is also the **no-op detector**: an empty result means the two
  * documents are equal over every documented field, so the write changed
  * nothing, reports *already saved*, and owes no row at all. The comparison is
  * deliberately **raw** — a fingerprint decides nothing here, it only labels the
  * row afterwards.
  *
- * @param previous - The document in force before the write.
- * @param next - The validated candidate about to be written.
  * @returns The changes, ordered by field name as FR-071 requires.
  */
 export function configChanges(previous: ServiceConfig, next: ServiceConfig): readonly ConfigChange[] {
     const fields = (Object.keys(DEFAULT_CONFIG) as readonly ServiceConfigField[])
         .filter((field) => previous[field] !== next[field])
-        .sort((left, right) => left.localeCompare(right));
+        .toSorted((left, right) => left.localeCompare(right));
 
     return fields.map((field) => ({
         field,
@@ -172,9 +169,8 @@ export function configChanges(previous: ServiceConfig, next: ServiceConfig): rea
 }
 
 /**
- * The take-effect class each changed field declares (FR-071).
+ * The take-effect class each changed field declares.
  *
- * @param changes - The changes the row is about to record.
  * @returns A field → class map, empty for a no-op.
  */
 function takeEffectOf(changes: readonly ConfigChange[]): Record<string, TakeEffect> {
@@ -192,11 +188,10 @@ function takeEffectOf(changes: readonly ConfigChange[]): Record<string, TakeEffe
  * A documented field keeps its name; anything else — a foreign key, the `body`
  * sentinel a non-object document answers with, or the validator's own
  * `<withheld>` — collapses to the withheld marker, because a durable trail is
- * strictly narrower than the refusal body the panel renders (FR-072, AC-114).
+ * strictly narrower than the refusal body the panel renders.
  * Duplicates collapse too: `issueCount` carries the count, `fields` the set of
  * names.
  *
- * @param issues - Every issue the refusal answered with.
  * @returns The field names the row records.
  */
 function refusedFields(issues: readonly ConfigIssue[]): readonly string[] {
@@ -213,18 +208,16 @@ function refusedFields(issues: readonly ConfigIssue[]): readonly string[] {
 }
 
 /**
- * Append the row for an accepted change to the document (FR-071).
+ * Append the row for an accepted change to the document.
  *
  * The **write** path calls it with the fields a `PUT` moved and actor
  * `operator`; the observation lane calls it with the single `startingPrompt`
- * move it noticed and actor `service`. One composer, one shape (006 FR-070).
+ * move it noticed and actor `service`. One composer, one shape.
  *
- * @param input - The open store, its logger, the changes that were applied,
- *   and who caused them (`operator` unless stated).
  * @returns `true` when the row reached disk, `false` when the append failed —
  *   in which case the change still stands and a structured warn names the
  *   loss. It never throws, which is what lets the lane advance its baseline
- *   past a row that could not be written (003 FR-063).
+ *   past a row that could not be written.
  */
 export async function appendConfigApplied(input: {
     /** Open store the trail lives on. */
@@ -233,7 +226,7 @@ export async function appendConfigApplied(input: {
     readonly log: ServiceLogger;
     /** The fields that changed, ordered by field name. */
     readonly changes: readonly ConfigChange[];
-    /** Who caused the change (006 FR-070). */
+    /** Who caused the change. */
     readonly actor?: ConfigChangeActor;
 }): Promise<boolean> {
     try {
@@ -245,7 +238,7 @@ export async function appendConfigApplied(input: {
             reason: APPLIED_REASON,
             // No correlation id is supplied: the writer mints one, so the row
             // is retrievable under its own identifier and excluded from every
-            // run-filtered read (FR-074, 003 FR-052).
+            // run-filtered read.
             details: {
                 changes: input.changes.map((change) => ({
                     field: change.field,
@@ -268,10 +261,8 @@ export async function appendConfigApplied(input: {
 }
 
 /**
- * Append the row for a refused write (FR-072).
+ * Append the row for a refused write.
  *
- * @param input - The open store (or `null` when it is unusable), its logger,
- *   and the issue list the refusal answered with.
  * @returns `true` when the row reached disk, `false` otherwise; a failure is
  *   logged rather than echoed, because the `422` envelope is unchanged.
  */

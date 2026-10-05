@@ -3,8 +3,8 @@
  *
  * The shell ([`tabs.ts`](./tabs.ts)) owns *when* a body appears; this module
  * owns *what* appears in each one. Every mount is a mapping from an existing
- * surface onto a container — the spike era's two hidden bodies become six
- * bodies that each mount once and stay mounted (FR-013).
+ * surface onto a container — six bodies, each of which mounts once and stays
+ * mounted (FR-013).
  *
  * Each body owns its own read and its own disposer: Settings reads the
  * configuration document on first activation and releases it on teardown,
@@ -25,7 +25,7 @@ import type { TabDisposer, TabSpec } from './tabs.ts';
 
 /**
  * The Accounts body: the handoff group, the account list, and one detail
- * line (FR-060, FR-061, FR-062).
+ * line.
  *
  * The flow is relocated with the same storage
  * pre-flight and the same two-step refusal (the consent gate it used to open
@@ -34,8 +34,6 @@ import type { TabDisposer, TabSpec } from './tabs.ts';
  * the service answers with. Only this body's own handles are disposed here:
  * the handoff view stays owned by the panel root, exactly as before.
  *
- * @param rt - Panel runtime.
- * @param body - The Accounts body container the shell created.
  * @returns A disposer that releases the list, detail, and note handles.
  */
 function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): () => void {
@@ -48,15 +46,13 @@ function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): () => void {
 }
 
 /**
- * The Status body: the honest projection, then the first-run prerequisites
- * (FR-030, FR-037).
+ * The Status body: the honest projection, then the first-run prerequisites.
+ *
  *
  * The projection leads because it is the answer to "is it working"; the
  * checklist follows with its own remediation per line, and the unmet notice
  * it raises lives in the root region where switching tabs cannot hide it.
  *
- * @param rt - Panel runtime the body reads.
- * @param body - The Status body container the shell created.
  * @returns A disposer that releases the projection's handles; the section
  *   disposes through its own registry at teardown.
  */
@@ -68,14 +64,12 @@ function statusSpec(rt: PanelRuntime, body: HTMLElement): () => void {
 }
 
 /**
- * The Settings body: the read-only configuration rows (FR-070–FR-073).
+ * The Settings body: the read-only configuration rows.
  *
  * The mount reads `GET /v1/config` once — the tab's one read, with Refresh as
  * its one retry — and the disposer releases every handle it created. Nothing
- * here writes: the configuration document is rendered, not edited (FR-070).
+ * here writes: the configuration document is rendered, not edited.
  *
- * @param rt - Panel runtime the body reads and repaints.
- * @param body - The Settings body container the shell created.
  * @returns A disposer that releases the body's handles.
  */
 function settingsSpec(rt: PanelRuntime, body: HTMLElement): TabDisposer {
@@ -85,10 +79,8 @@ function settingsSpec(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 }
 
 /**
- * The Dispatches body: the list, its affordances, and its audit trail (FR-040).
+ * The Dispatches body: the list, its affordances, and its audit trail.
  *
- * @param rt - Panel runtime.
- * @param body - The body container the shell created.
  * @returns A disposer that releases the board's handles.
  */
 function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
@@ -102,11 +94,8 @@ function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
 }
 
 /**
- * The Bindings body: the picker, the status/list, and the add form (FR-038).
+ * The Bindings body: the picker, the status/list, and the add form.
  *
- * @param rt - Panel runtime.
- * @param body - The body container the shell created.
- * @param handlers - The picker's callbacks.
  * @returns A disposer that releases the picker and the pane's handles.
  */
 function mountBindingsBody(input: {
@@ -124,7 +113,7 @@ function mountBindingsBody(input: {
         // The picker opens the tab's first block rather than floating above
         // it: one rule across the six tabs — the tab title is the first
         // block's heading, and the controls live inside that block
-        // (2026-10-01 review).
+        // .
         mountFirst: (into) => {
             rt.pickerUi = mountProjectPicker({ rt, root: into, handlers });
         },
@@ -150,10 +139,8 @@ function mountBindingsBody(input: {
 
 /**
  * The About body: static identity, the version, and the read-only
- * Diagnostics section (FR-074, FR-075).
+ * Diagnostics section.
  *
- * @param rt - Panel runtime the body reads and repaints.
- * @param body - The About body container the shell created.
  * @returns A disposer that releases the body's handles.
  */
 function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
@@ -163,12 +150,11 @@ function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 }
 
 /**
- * The six tab bodies, in FR-010's order.
+ * The six tab bodies order.
  *
- * @param rt - Panel runtime the bodies read and repaint.
- * @param handlers - The picker's callbacks, which live on the Bindings body.
  * @returns The specs the shell mounts from.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function tabSpecs(rt: PanelRuntime, handlers: PanelHandlers): readonly TabSpec[] {
     return [
         { id: 'status', label: 'Status', mount: (body) => statusSpec(rt, body) },

@@ -48,7 +48,8 @@ function contractParagraphs(): string[] {
 
     const paragraphs: string[] = [];
     let current: string | null = null;
-    for (const line of lines.slice(heading + 1)) {
+    const after = lines.slice(heading + 1);
+    for (const line of after) {
         if (line === RULES_HEADING) {
             break;
         }
@@ -93,8 +94,7 @@ const PINNED_DISCLAIMER: readonly string[] = [
 ];
 
 describe('ACCOUNTS_DISCLAIMER', () => {
-    it('matches the pinned copy in the contract and in the s… (+3 cases)', () => {
-        // case: matches the pinned copy in the contract and in the shipped mirror
+    it('matches the pinned copy in the contract and in the shipped mirror', () => {
         {
             // Contract side: the §1.1 block must match the pin.
             expect(contractParagraphs()).toEqual(PINNED_DISCLAIMER);
@@ -103,16 +103,13 @@ describe('ACCOUNTS_DISCLAIMER', () => {
             // match the same pin, so the two sources cannot drift apart.
             expect(ACCOUNTS_DISCLAIMER_PARAGRAPHS).toEqual(PINNED_DISCLAIMER);
         }
-        // case: keeps the advisory full-user-access sentence FR-008 exists to state
         {
             expect(ACCOUNTS_DISCLAIMER).toContain('Phase 1 does not enforce an OS sandbox');
         }
-        // case: renders four paragraphs separated by blank lines, with no markup markers
         {
             expect(ACCOUNTS_DISCLAIMER.split('\n\n')).toHaveLength(ACCOUNTS_DISCLAIMER_PARAGRAPHS.length);
             expect(ACCOUNTS_DISCLAIMER).not.toContain('**');
         }
-        // case: asks the operator for nothing: no accept, no decline, no consent gate
         {
             // The whole point of the 2026-10-01 removal: the copy is information,
             // and neither the shipped text nor the contract block may read as a

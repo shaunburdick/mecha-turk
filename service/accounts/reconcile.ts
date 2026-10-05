@@ -33,7 +33,7 @@ import { listAccounts, writeAccount } from './store.ts';
 export const INTERRUPTED_HANDOFF_REASON = 'interrupted-handoff';
 
 /** Lifecycle states a crash can strand an account in (data-model transitions). */
-const TRANSIENT_STATES: readonly Account['state'][] = ['pending_handoff', 'verifying'];
+const TRANSIENT_STATES: ReadonlySet<Account['state']> = new Set(['pending_handoff', 'verifying']);
 
 /** What startup reconciliation found and did. */
 export interface ReconcileSummary {
@@ -58,7 +58,6 @@ export interface ReconcileDeps {
 /**
  * Mark one stranded account as an interrupted handoff, audited (F13).
  *
- * @param input - Store, the stranded account, and the correlation id.
  * @returns The rewritten account.
  */
 async function markInterrupted(input: {
@@ -93,7 +92,6 @@ async function markInterrupted(input: {
 /**
  * Apply a successful re-verification to a marked account.
  *
- * @param input - Store, the marked account, the outcome, and correlation id.
  * @returns The restored account.
  */
 async function restoreAccount(input: {
@@ -136,7 +134,6 @@ async function restoreAccount(input: {
 /**
  * Reconcile one stranded account: mark it, then try to re-verify it.
  *
- * @param deps - Store, verifier, and logger.
  * @param account - The account in a transient state.
  * @returns What happened to this account, for the summary.
  */
@@ -188,7 +185,6 @@ async function reconcileAccount(
 /**
  * Run the startup reconciliation pass.
  *
- * @param deps - Store, verifier, and logger.
  * @returns How many accounts were examined, marked, and restored.
  */
 export async function reconcileInterruptedAccounts(deps: ReconcileDeps): Promise<ReconcileSummary> {
@@ -197,7 +193,7 @@ export async function reconcileInterruptedAccounts(deps: ReconcileDeps): Promise
     }
 
     const accounts = await listAccounts(deps.store, deps.log);
-    const stranded = accounts.filter((account) => TRANSIENT_STATES.includes(account.state));
+    const stranded = accounts.filter((account) => TRANSIENT_STATES.has(account.state));
     let marked = 0;
     let restored = 0;
     for (const account of stranded) {

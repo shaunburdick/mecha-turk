@@ -16,9 +16,6 @@
  *    `blocked:` with an empty reason refuses, an unproduced reason parses.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
     MAX_ATTEMPT_RECORDS,
@@ -33,6 +30,7 @@ import { openStore } from '../service/store/index.ts';
 import type { JsonReadResult } from '../service/store/index.ts';
 import type { DispatchAttempt, Run, RunsDocument, SourceReference } from '../service/poll/runs-types.ts';
 import { runHistoryIndicatesSession } from '../service/poll/runs-document.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Store file this suite round-trips through, named as the run store names it. */
 const RUNS_FILE = 'runs.json';
@@ -52,20 +50,15 @@ let tempRoot = '';
 /** Data directory the store opens on. */
 let dataDir = '';
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-runs-parse-'));
-    dataDir = join(tempRoot, 'store');
-};
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('runs-parse'));
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /**
  * Build the one source reference every fixture run starts with.
@@ -103,13 +96,12 @@ function attemptRecord(): DispatchAttempt {
 /**
  * Build one complete run row, overridable per assertion.
  *
- * @param overrides - Fields the case under test changes.
  * @returns A row the writer could have persisted.
  */
 function fixtureRun(overrides: Partial<Run> = {}): Run {
     const ordinal = overrides.ordinal !== undefined && overrides.ordinal >= 0 ? overrides.ordinal : 0;
     const subjectNumber = overrides.subjectNumber !== undefined
-        && Number.isInteger(overrides.subjectNumber)
+        && Number.isSafeInteger(overrides.subjectNumber)
         && overrides.subjectNumber > 0
         ? overrides.subjectNumber
         : 12;
@@ -180,10 +172,7 @@ function fixtureDocument(runs: readonly unknown[]): RunsDocument {
  * @returns The row, as an untrusted record.
  */
 function poisoned(field: string, value: unknown): Record<string, unknown> {
-    const row: Record<string, unknown> = { ...fixtureRun() };
-    row[field] = value;
-
-    return row;
+    return { ...fixtureRun(), [field]: value };
 }
 
 /**
@@ -204,19 +193,12 @@ function poisonedState(value: unknown): Record<string, unknown> {
  * Build a fixture row with some fields dropped, as a truncated file would
  * hold it.
  *
- * @param fields - Fields to remove.
  * @returns The row, missing those fields.
  */
 function without(...fields: readonly string[]): Record<string, unknown> {
-    const row: Record<string, unknown> = { ...fixtureRun() };
-    const kept: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(row)) {
-        if (!fields.includes(key)) {
-            kept[key] = value;
-        }
-    }
+    const row = { ...fixtureRun() };
 
-    return kept;
+    return Object.fromEntries(Object.entries(row).filter(([key]) => !fields.includes(key)));
 }
 
 /**
@@ -230,7 +212,6 @@ function without(...fields: readonly string[]): Record<string, unknown> {
  *
  * @param count - How many references the row claims to have joined.
  * @param overshoot - Extra entries to force onto the stored list itself.
- * @returns The row.
  */
 function withReferences(count: number, overshoot = 0): Record<string, unknown> {
     const kept = Array.from({ length: Math.min(count, MAX_SOURCE_REFERENCES) }, (_unused, index) => ({
@@ -254,7 +235,6 @@ function withReferences(count: number, overshoot = 0): Record<string, unknown> {
  * Build a fixture row claiming an attempt history of one size.
  *
  * @param count - How many attempt records the row claims to hold.
- * @returns The row.
  */
 function withAttempts(count: number): Record<string, unknown> {
     return poisoned('attempts', Array.from(
@@ -269,6 +249,7 @@ function withAttempts(count: number): Record<string, unknown> {
  * @param value - Counter value the validator must refuse.
  * @returns A document fragment carrying that counter.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
 function badSubjects(value: unknown): unknown {
     return {
         schemaVersion: RUNS_SCHEMA_VERSION,
@@ -291,8 +272,7 @@ async function readBack(document: unknown): Promise<JsonReadResult<RunsDocument>
 }
 
 describe('writer → reader round-trip (real bytes)', () => {
-    it('reads back exactly what the writer persisted (+3 cases)', async () => {
-        // case: reads back exactly what the writer persisted
+    it('reads back exactly what the writer persisted', async () => {
         {
             const document = fixtureDocument([
                 fixtureRun(),
@@ -310,11 +290,9 @@ describe('writer → reader round-trip (real bytes)', () => {
             expect(result.status).toBe('ok');
             expect(result.status === 'ok' ? result.value : null).toEqual(document);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: reads back a stacked three-tier snapshot at its own stack bound (FR-085)
+    });
+
+    it('reads back a stacked three-tier snapshot at its own stack bound', async () => {
         {
             const body = 'x'.repeat(6_004);
             const snapshot = {
@@ -330,11 +308,9 @@ describe('writer → reader round-trip (real bytes)', () => {
             expect(result.status).toBe('ok');
             expect(result.status === 'ok' ? result.value.runs[0]?.prompt : null).toEqual(snapshot);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: keeps all eight dispatch states readable, blocked family included
+    });
+
+    it('keeps all eight dispatch states readable, blocked family included', async () => {
         {
             const states = [
                 'pending',
@@ -357,17 +333,16 @@ describe('writer → reader round-trip (real bytes)', () => {
             expect(result.status).toBe('ok');
             expect(result.status === 'ok' ? result.value.runs.map((run) => run.state) : []).toEqual([...states]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses the file rather than half-reading it when one row is wrong
+    });
+
+    it('refuses the file rather than half-reading it when one row is wrong', async () => {
         {
             const result = await readBack(fixtureDocument([fixtureRun(), fixtureRun({ attempt: 0 })]));
 
             expect(result.status).toBe('quarantined');
         }
     });
+
 });
 
 describe('fail-closed document and row validation', () => {
@@ -379,6 +354,8 @@ describe('fail-closed document and row validation', () => {
         readonly document: unknown;
     }
 
+    const shortPrompt = 'x'.repeat(12);
+    const longPrompt = 'x'.repeat(6_005);
     const broken: readonly BadCase[] = [
         { name: 'not an object', document: 'runs' },
         { name: 'array document', document: [] },
@@ -460,34 +437,31 @@ describe('fail-closed document and row validation', () => {
         {
             name: 'prompt without its sources',
             document: fixtureDocument([poisoned('prompt', {
-                text: 'x'.repeat(12),
-                fingerprint: promptFingerprint('x'.repeat(12)),
-                length: 12,
+                text: shortPrompt,
+                fingerprint: promptFingerprint(shortPrompt),
+                length: shortPrompt.length,
             })]),
         },
         {
             name: 'prompt whose length exceeds its stack bound',
             document: fixtureDocument([poisoned('prompt', {
-                text: 'x'.repeat(6_005),
-                fingerprint: promptFingerprint('x'.repeat(6_005)),
-                length: 6_005,
+                text: longPrompt,
+                fingerprint: promptFingerprint(longPrompt),
+                length: longPrompt.length,
                 sources: ['global', 'account', 'binding'],
             })]),
         },
     ];
 
-    it('refuses every malformed document in the table (+5 cases)', async () => {
-        // case: refuses every malformed document in the table
+    it('refuses every malformed document in the table', async () => {
         {
             for (const { name, document } of broken) {
                 expect(parseRunsDocument(document), `must refuse: ${name}`).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a row whose lease, reservation, session, or verification is malformed
+    });
+
+    it('refuses a row whose lease, reservation, session, or verification is malformed', async () => {
         {
             const patches: readonly (readonly [string, unknown])[] = [
                 ['lease', { leaseId: '', holder: 'panel', issuedAt: STAMP, expiresAt: STAMP, attempt: 1 }],
@@ -518,11 +492,9 @@ describe('fail-closed document and row validation', () => {
                 expect(parseRun(poisoned(field, value))).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: accepts every nullable sub-object written as null, and as absent
+    });
+
+    it('accepts every nullable sub-object written as null, and as absent', async () => {
         {
             expect(parseRun(fixtureRun())).not.toBeNull();
             expect(parseRun(without('lease', 'reservation', 'session', 'verification'))).not.toBeNull();
@@ -534,11 +506,9 @@ describe('fail-closed document and row validation', () => {
             });
             expect(parseRun(blankBaseline)).not.toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses contradictory attempt history that records a session on a non-dispatched run
+    });
+
+    it('refuses contradictory attempt history that records a session on a non-dispatched run', async () => {
         {
             const createdSessionAttempt = {
                 ...attemptRecord(),
@@ -553,11 +523,9 @@ describe('fail-closed document and row validation', () => {
             expect(parseRun(pending)).toBeNull();
             expect(runHistoryIndicatesSession(pending)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses an attempt session id that conflicts with the run session pointer
+    });
+
+    it('refuses an attempt session id that conflicts with the run session pointer', async () => {
         {
             const session = {
                 sessionId: 'ses_pointer',
@@ -581,11 +549,9 @@ describe('fail-closed document and row validation', () => {
 
             expect(parseRun(run)).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: accepts a blocked state whose reason the panel has never produced
+    });
+
+    it('accepts a blocked state whose reason the panel has never produced', async () => {
         {
             const run = parseRun(fixtureRun({
                 state: 'blocked:policy', stateReason: 'no policy allowed this dispatch' }));
@@ -594,19 +560,16 @@ describe('fail-closed document and row validation', () => {
         }
     });
 
-    it('accepts a reference that records a comment id as its… (+1 cases)', async () => {
-        // case: accepts a reference that records a comment id as its origin
+    it('accepts a reference that records a comment id as its origin', async () => {
         {
             const reference = { ...fixtureReference(), kind: 'mention' as const, origin: 'comment:4242' as const };
             const run = parseRun(fixtureRun({ sourceReferences: [reference] }));
 
             expect(run?.sourceReferences).toEqual([reference]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: reads a capped run whose overflow is counted rather than hidden (T-038)
+    });
+
+    it('reads a capped run whose overflow is counted rather than hidden', async () => {
         {
             const capped = withReferences(MAX_SOURCE_REFERENCES + 7);
             const run = parseRun(capped);
@@ -617,6 +580,7 @@ describe('fail-closed document and row validation', () => {
             expect(run?.referencesTruncated).toBe(true);
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *
@@ -641,8 +605,7 @@ function attributedReference(overrides: Partial<SourceReference> = {}): SourceRe
 }
 
 describe('the run model gains the actor and the policy shape (003 FR-079, FR-080)', () => {
-    it('round-trips both members on real bytes (+4 cases)', async () => {
-        // case: round-trips an attributed reference and both policy words
+    it('round-trips an attributed reference and both policy words', async () => {
         {
             const reference = attributedReference({ actorAttribution: 'subject-author' });
             const document = fixtureDocument([
@@ -658,11 +621,9 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
             expect(runs.map((run) => run.actorPolicy)).toEqual(['restricted', 'open', null]);
             expect(runs[0]?.sourceReferences).toEqual([reference]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: reads a run stored before either member existed (003 FR-080's reach)
+    });
+
+    it('reads a run stored before either member existed (003 FR-080\'s reach)', async () => {
         {
             const row = without('actorPolicy');
             row.sourceReferences = [{ ...fixtureReference() }];
@@ -676,11 +637,9 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
             expect(run?.sourceReferences[0]).not.toHaveProperty('actorLogin');
             expect(run?.sourceReferences[0]).not.toHaveProperty('actorAttribution');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses an unknown basis and an unusable login on a stored reference
+    });
+
+    it('refuses an unknown basis and an unusable login on a stored reference', async () => {
         {
             const bases: readonly unknown[] = ['subject_author', 'none', '', 7, null];
             for (const actorAttribution of bases) {
@@ -700,11 +659,9 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
                 ).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses an `actorPolicy` outside the closed two-word union
+    });
+
+    it('refuses an `actorPolicy` outside the closed two-word union', async () => {
         {
             const stored: readonly unknown[] = ['Open', 'everyone', '', 1, {}, []];
             for (const actorPolicy of stored) {
@@ -715,4 +672,5 @@ describe('the run model gains the actor and the policy shape (003 FR-079, FR-080
             expect(parseRun(poisoned('actorPolicy', null))?.actorPolicy).toBeNull();
         }
     });
+
 });

@@ -110,7 +110,7 @@ export interface SweepOutcome {
      *
      * `false` means the recovery is durable and the row is not **yet** — the
      * durable intent will write it on the next run-document read. Reported so
-     * the boot pass and any caller can see a degraded trail (FR-063).
+     * the boot pass and any caller can see a degraded trail.
      */
     readonly auditWritten: boolean;
 }
@@ -124,7 +124,7 @@ interface PlannedRecovery {
 }
 
 /**
- * The automatic requeue budget, as a secret-free reason line (FR-033).
+ * The automatic requeue budget, as a secret-free reason line.
  *
  * @param requeuesUsed - Automatic requeues the run has already consumed.
  * @returns The reason an exhausted run is parked with.
@@ -143,11 +143,10 @@ const MIGRATION_RECOVERY_REASON = 'lease expired on migration recovery after upg
  * Park a run whose next requeue would exceed the automatic budget.
  *
  * The budget bounds how often a crashed panel can requeue one run, so the run
- * that would exceed it stops moving and waits for an operator (FR-033). The
+ * that would exceed it stops moving and waits for an operator. The
  * attempt and the budget counters keep the values that explain the park — the
  * operator's return-to-waiting is the thing that resets them.
  *
- * @param input - The expired run, its lease, and the service-clock stamp.
  * @returns The recovery, or `null` when the run must not be parked.
  */
 function parkExhaustedRun(input: {
@@ -200,7 +199,7 @@ function parkExhaustedRun(input: {
 }
 
 /**
- * Recover one run whose lease expired with no reservation (FR-032).
+ * Recover one run whose lease expired with no reservation.
  *
  * A **migrated** claim — the synthetic lease adoption mints for a legacy
  * `in-flight` row, which the lease's `provenance` names — is recovered once as
@@ -208,7 +207,6 @@ function parkExhaustedRun(input: {
  * migration table): the budget bounds a crashed-panel loop, and a one-shot
  * adoption cannot loop.
  *
- * @param input - The expired run and the service-clock stamp.
  * @returns The recovery, or `null` when the run is not an expired claim.
  */
 function recoverExpiredLease(input: { readonly run: Run; readonly now: string }): PlannedRecovery | null {
@@ -218,20 +216,20 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
         return null;
     }
 
-    const migration = lease.provenance === 'migration';
-    const requeued = expireLease({ run, now, chargeBudget: !migration });
+    const isMigration = lease.provenance === 'migration';
+    const requeued = expireLease({ run, now, chargeBudget: !isMigration });
     if (requeued === null) {
         return null;
     }
 
-    if (!migration) {
+    if (!isMigration) {
         const parked = parkExhaustedRun({ run, lease, now });
         if (parked !== null) {
             return parked;
         }
     }
 
-    const reason = migration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON;
+    const reason = isMigration ? MIGRATION_RECOVERY_REASON : LEASE_EXPIRED_REASON;
     const details = {
         priorState: run.state,
         leaseId: lease.leaseId,
@@ -241,7 +239,7 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
         requeuesBefore: run.requeuesUsed,
         requeuesAfter: requeued.requeuesUsed,
         budget: MAX_AUTO_REQUEUES,
-        migrationRecovery: migration,
+        migrationRecovery: isMigration,
     };
 
     return {
@@ -265,7 +263,7 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
 }
 
 /**
- * Wedge one run whose result never arrived (FR-023).
+ * Wedge one run whose result never arrived.
  *
  * The row records the outstanding token's **fingerprint**, never the token
  * (T-040c): an unconsumed dispatch token is a live authorization to report a
@@ -273,7 +271,6 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
  * still answers which token was outstanding because the fingerprint is derived
  * from it and is reproducible by the service.
  *
- * @param input - The authorized run and the service-clock stamp.
  * @returns The recovery, or `null` when the run is not past its deadline.
  */
 function recoverLateResult(input: { readonly run: Run; readonly now: string }): PlannedRecovery | null {
@@ -319,7 +316,6 @@ function recoverLateResult(input: { readonly run: Run; readonly now: string }): 
 /**
  * Decide every recovery one pass makes, without writing anything.
  *
- * @param input - The document and the service-clock stamp.
  * @returns The document to persist plus the recoveries to log and audit.
  */
 export function planSweep(input: {
@@ -383,10 +379,9 @@ async function appendSweepAudit(input: {
  *
  * The intents travel in the **same atomic write** as the state change they
  * describe, so a crash between the recovery and its row leaves the row owed
- * rather than lost — the same durability the enqueue path gets from T-037's
+ * rather than lost — the same durability the enqueue path gets
  * outbox, reused rather than reinvented.
  *
- * @param input - The document to persist and the recoveries it owes rows for.
  * @returns The document with its intents appended.
  */
 function withIntents(input: {
@@ -408,7 +403,6 @@ function withIntents(input: {
  * the audit rows follow, so a row that cannot be appended is retried by the
  * outbox on the next read rather than rolled back (FR-063, T-040b).
  *
- * @param input - Store, logger, and an injectable service-clock stamp.
  * @returns The recoveries this pass made and whether their rows reached the trail.
  * @throws {StorageUnavailableError} When the store cannot be read or written.
  */
@@ -426,7 +420,7 @@ export async function sweepOnce(input: {
         // first-read adoption must judge the lease it just minted with the
         // same clock sample, or a millisecond tick between the two reads makes
         // an already-expired migration lease look live and defers the one-shot
-        // recovery to a later pass (T-045).
+        // recovery to a later pass.
         const document = await readRunsDocument({ ...input, now });
         const outcome = planSweep({ document, now });
         if (outcome.recoveries.length === 0) {

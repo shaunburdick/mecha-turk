@@ -78,7 +78,7 @@ export interface ControlRegion {
     readonly armBox: HTMLElement;
     /** What the armed write will do — the contract's content items, as text. */
     readonly armText: TextHandle;
-    /** The control that disarms the confirmation and returns the fields (FR-054). */
+    /** The control that disarms the confirmation and returns the fields. */
     readonly cancel: ButtonHandle;
     /** Wrapper around the named reason a save is not offered. */
     readonly blockedBox: HTMLElement;
@@ -91,9 +91,8 @@ export interface ControlRegion {
 }
 
 /**
- * Mount the failure notice, hidden until a read fails (FR-078).
+ * Mount the failure notice, hidden until a read fails.
  *
- * @param pane - Pane the notice mounts into.
  * @returns The wrapper, which the repaint shows, and the banner inside it.
  */
 export function mountFailureNotice(pane: HTMLElement): {
@@ -117,9 +116,8 @@ export function mountFailureNotice(pane: HTMLElement): {
 }
 
 /**
- * Mount the source note, the empty message, and the row region (FR-014).
+ * Mount the source note, the empty message, and the row region.
  *
- * @param pane - Pane the three mount into.
  * @returns The handles and the region element rows are painted into.
  */
 export function mountRowRegion(pane: HTMLElement): RowRegion {
@@ -143,13 +141,12 @@ export function mountRowRegion(pane: HTMLElement): RowRegion {
  * A box rather than a dialog: it mounts the same way the "no save" reason
  * does, so an unarmed tab never shows a control that cannot act.
  *
- * @param input - The pane, and what Cancel does.
  * @returns The wrapper, the copy inside it, and the control that disarms it.
  */
 function mountArmBox(input: {
     /** Pane the box mounts into. */
     readonly pane: HTMLElement;
-    /** What Cancel does: disarm and return the fields (FR-054). */
+    /** What Cancel does: disarm and return the fields. */
     readonly onCancel: () => void;
 }): Pick<ControlRegion, 'armBox' | 'armText' | 'cancel'> {
     const armBox = input.pane.ownerDocument.createElement('div');
@@ -167,26 +164,25 @@ function mountArmBox(input: {
 
 /**
  * Mount the save bar, the armed confirmation, the "no save" reason, and the
- * error region (FR-012, FR-013, FR-016, FR-042, FR-051).
+ * error region.
  *
  * The confirmation is **a box, not a dialog**: it mounts hidden exactly the
  * way the "no save" reason does, so an unarmed tab never shows a control that
  * cannot act — and it carries its own Cancel, because the panel has no dialog
- * primitive to lean on and never reintroduces one (FR-054).
+ * primitive to lean on and never reintroduces one.
  *
- * @param input - The pane, and the four handlers the controls invoke.
  * @returns The handles and wrappers.
  */
 export function mountControlRegion(input: {
     /** Pane the four regions mount into. */
     readonly pane: HTMLElement;
-    /** What Save does: arm, or one whole-document write (FR-040, FR-051). */
+    /** What Save does: arm, or one whole-document write. */
     readonly onSave: () => void;
-    /** What Discard does: restore the last-read draft (FR-015). */
+    /** What Discard does: restore the last-read draft. */
     readonly onDiscard: () => void;
-    /** What Restore defaults does: stage the defaults under a confirmation (FR-016). */
+    /** What Restore defaults does: stage the defaults under a confirmation. */
     readonly onRestore: () => void;
-    /** What Cancel does: disarm and return the fields to the last-read values (FR-054). */
+    /** What Cancel does: disarm and return the fields to the last-read values. */
     readonly onCancel: () => void;
 }): ControlRegion {
     // The save bar, the confirmation, the "no save" reason, and the issues
@@ -233,9 +229,8 @@ export function mountControlRegion(input: {
 }
 
 /**
- * Mount the re-read row: the read controls and their state line (FR-014).
+ * Mount the re-read row: the read controls and their state line.
  *
- * @param input - The pane, what a click does, and the line to show first.
  * @returns The handles.
  */
 export function mountReadControls(input: {
@@ -262,7 +257,7 @@ export function mountReadControls(input: {
 }
 
 /**
- * Dispose every region the body mounted (005 FR-017, NFR-108).
+ * Dispose every region the body mounted.
  *
  * @param input - Everything {@link buildTabUi} was handed, minus the pane it
  *   can read off the regions themselves.
@@ -272,11 +267,9 @@ function disposeRegions(input: {
     readonly pane: HTMLElement;
     /** Tab heading. */
     readonly heading: TextHandle;
-    /** The banner. */
     readonly banner: BannerHandle;
     /** The read row's handles. */
     readonly controls: { readonly refresh: ButtonHandle; readonly readLine: TextHandle };
-    /** The failure notice. */
     readonly notice: { readonly box: HTMLElement; readonly failure: BannerHandle };
     /** The rows region. */
     readonly region: RowRegion;
@@ -311,14 +304,13 @@ function disposeRegions(input: {
 }
 
 /**
- * Assemble the mounted view and its single dispose path (005 FR-017).
+ * Assemble the mounted view and its single dispose path.
  *
  * Every handle the body mounts is disposed here, so "nothing survives
  * teardown" is one function rather than a promise spread across the mount
- * (NFR-108) — including the rows, which are rebuilt whenever the field list
+ * — including the rows, which are rebuilt whenever the field list
  * changes and disposed with everything else when the body goes.
  *
- * @param input - Every region the tab mounted.
  * @returns The view, ready to hand to the runtime.
  */
 export function buildTabUi(input: {
@@ -326,11 +318,9 @@ export function buildTabUi(input: {
     readonly pane: HTMLElement;
     /** Tab heading. */
     readonly heading: TextHandle;
-    /** The banner. */
     readonly banner: BannerHandle;
     /** The read row's handles. */
     readonly controls: { readonly refresh: ButtonHandle; readonly readLine: TextHandle };
-    /** The failure notice. */
     readonly notice: { readonly box: HTMLElement; readonly failure: BannerHandle };
     /** The rows region. */
     readonly region: RowRegion;

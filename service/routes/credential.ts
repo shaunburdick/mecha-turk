@@ -52,7 +52,6 @@ export type CredentialBodyResult =
  * (non-empty, no whitespace, ≤4096 characters), collecting every issue rather
  * than stopping at the first.
  *
- * @param raw - The `token` field as it arrived.
  * @returns The token when it is usable, plus every issue found otherwise.
  */
 function readToken(raw: unknown): { readonly token?: string; readonly issues: readonly FieldIssue[] } {
@@ -77,7 +76,6 @@ function readToken(raw: unknown): { readonly token?: string; readonly issues: re
 /**
  * Collect the optional `expectedLogin` issue.
  *
- * @param raw - The field as it arrived, or `undefined` when absent.
  * @returns One issue when the value is present but unusable, otherwise none.
  */
 function expectedLoginIssues(raw: unknown): readonly FieldIssue[] {
@@ -105,11 +103,10 @@ function expectedLoginIssues(raw: unknown): readonly FieldIssue[] {
  * "shape before network" still means a body that cannot be a handoff never
  * reaches GitHub or the store.
  *
- * @param raw - Parsed request body (possibly `undefined`).
- * @param allowExpectedLogin - `true` for verify, `false` for rotation.
+ * @param canAcceptExpectedLogin - `true` for verify, `false` for rotation.
  * @returns The credential request, or the refusal to answer with.
  */
-export function parseCredentialBody(raw: unknown, allowExpectedLogin: boolean): CredentialBodyResult {
+export function parseCredentialBody(raw: unknown, canAcceptExpectedLogin: boolean): CredentialBodyResult {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
         return {
             ok: false,
@@ -119,7 +116,7 @@ export function parseCredentialBody(raw: unknown, allowExpectedLogin: boolean): 
 
     const body = raw as Record<string, unknown>;
     const read = readToken(body.token);
-    const issues = [...read.issues, ...(allowExpectedLogin ? expectedLoginIssues(body.expectedLogin) : [])];
+    const issues = [...read.issues, ...(canAcceptExpectedLogin ? expectedLoginIssues(body.expectedLogin) : [])];
     if (issues.length > 0 || read.token === undefined) {
         return { ok: false, response: validationResponse(issues) };
     }
@@ -128,7 +125,7 @@ export function parseCredentialBody(raw: unknown, allowExpectedLogin: boolean): 
         ok: true,
         credential: {
             token: read.token,
-            expectedLogin: allowExpectedLogin && typeof body.expectedLogin === 'string' ? body.expectedLogin : null,
+            expectedLogin: canAcceptExpectedLogin && typeof body.expectedLogin === 'string' ? body.expectedLogin : null,
         },
     };
 }
@@ -136,20 +133,26 @@ export function parseCredentialBody(raw: unknown, allowExpectedLogin: boolean): 
 /**
  * Human name of a scope-missing capability, as the contract's copy spells it.
  *
- * @param reason - A `scope-missing:<capability>` reason class.
  * @returns The capability name shown to the operator.
  */
 function capabilityLabel(reason: `scope-missing:${ScopeCapability}`): string {
     const capability = reason.slice(SCOPE_MISSING_PREFIX.length);
     switch (capability) {
-        case 'metadata':
+        case 'metadata': {
             return 'Metadata';
-        case 'issues':
+        }
+
+        case 'issues': {
             return 'Issues';
-        case 'pull-requests':
+        }
+
+        case 'pull-requests': {
             return 'Pull requests';
-        default:
+        }
+
+        default: {
             return 'Contents';
+        }
     }
 }
 
@@ -157,9 +160,8 @@ function capabilityLabel(reason: `scope-missing:${ScopeCapability}`): string {
  * Operator-facing copy for one reason class (panel-service §4).
  *
  * Each branch names the capability or the remediation and never any part of
- * the credential (AC-003).
+ * the credential.
  *
- * @param reason - Classified rejection reason.
  * @returns The reason-specific remediation copy.
  */
 function reasonCopy(reason: RejectReason): string {
@@ -181,10 +183,6 @@ function reasonCopy(reason: RejectReason): string {
  * render the reason-specific copy of §4 without parsing prose; HTTP `401` is
  * reserved for bearer failure against *our* service and is never used here
  * (SEC-03).
- *
- * @param reason - Classified rejection reason.
- * @param correlationId - Correlation id for the chain.
- * @returns The response.
  */
 export function credentialRejectedResponse(reason: RejectReason, correlationId: string): HttpResponse {
     return errorResponse(STATUS.validation, {
@@ -199,10 +197,6 @@ export function credentialRejectedResponse(reason: RejectReason, correlationId: 
  * Build the `502 upstream-unavailable` response (panel-service F9's
  * `network` reason): GitHub could not answer, so nothing was verified and
  * nothing was persisted.
- *
- * @param detail - Which stage of the upstream call failed.
- * @param correlationId - Correlation id for the chain.
- * @returns The response.
  */
 export function upstreamUnavailableResponse(
     detail: 'offline' | 'timeout' | 'upstream',
@@ -224,7 +218,6 @@ export function upstreamUnavailableResponse(
 /**
  * Build the `429 rate-limited` response for GitHub's own refusal (F15).
  *
- * @param retryAfterSeconds - Seconds GitHub asked us to wait.
  * @returns The response; the panel clears the token and never auto-retries.
  */
 export function githubRateLimitedResponse(retryAfterSeconds: number): HttpResponse {
@@ -242,9 +235,6 @@ const VERIFY_BUSY_MESSAGE = 'a verification is already running — wait a moment
 /**
  * Build the `429` refusal a throttled attempt answers with (SEC-04).
  *
- * @param code - `verify-busy` when a slot is held, `rate-limited` when the
- *   rolling window is full.
- * @param retryAfterSeconds - Seconds the caller should wait.
  * @returns The response carrying `retry-after`.
  */
 export function throttleRefusal(code: 'verify-busy' | 'rate-limited', retryAfterSeconds: number): HttpResponse {
@@ -258,10 +248,6 @@ export function throttleRefusal(code: 'verify-busy' | 'rate-limited', retryAfter
 
 /**
  * Build the `422 account-rejected` response (F7 / SEC-06).
- *
- * @param message - Fixed, secret-free explanation of the identity disagreement.
- * @param correlationId - Correlation id for the chain.
- * @returns The response.
  */
 export function accountRejectedResponse(message: string, correlationId: string): HttpResponse {
     return errorResponse(STATUS.validation, {
@@ -273,9 +259,6 @@ export function accountRejectedResponse(message: string, correlationId: string):
 
 /**
  * Build the `409 duplicate-account` response (F8 → the panel offers rotation).
- *
- * @param correlationId - Correlation id for the chain.
- * @returns The response.
  */
 export function duplicateAccountResponse(correlationId: string): HttpResponse {
     return errorResponse(STATUS.conflict, {
@@ -294,7 +277,6 @@ export function duplicateAccountResponse(correlationId: string): HttpResponse {
  * of trusting every future call site. Storage failures keep their documented
  * `503 storage-unavailable` shape.
  *
- * @param handler - The route body to guard.
  * @returns A handler with the sanitized error boundary around it.
  */
 export function guardCredentialRoute(handler: RouteHandler): RouteHandler {

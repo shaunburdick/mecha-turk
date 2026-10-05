@@ -161,27 +161,24 @@ interface WireAnswer {
 const LOG_LINES: string[] = [];
 
 /** Logger every direct store call in this suite reports through. */
-const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let running: TestService | null = null;
 let store: ServiceStore;
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
     LOG_LINES.length = 0;
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Start a service against a fresh temp store and register it for cleanup.
  *
- * @param options - Pass `registered` to also register the fixture credential.
  * @returns The running instance, with its store handle open for seeding.
  */
 async function startSeededService(options: { readonly registered?: boolean } = {}): Promise<TestService> {
@@ -223,11 +220,6 @@ async function startSeededService(options: { readonly registered?: boolean } = {
 
 /**
  * Build the detection one fixture delivery is assembled from.
- *
- * @param input - Issue number, title, trigger kind, detection stamp, and the
- *   comment a mention matched on (which is what makes two mentions two
- *   deliveries — the id is a function of the observation).
- * @returns A complete event snapshot of the kind asked for.
  */
 function detection(input: {
     readonly issueNumber: number;
@@ -273,7 +265,7 @@ function detection(input: {
             kind: 'mention',
             actorAttribution: 'direct',
             origin: 'comment',
-            commentId: input.commentId ?? 4242,
+            commentId: input.commentId ?? 4_242,
         }
         : { ...base, kind: 'assignment', actorAttribution: 'subject-author' };
 }
@@ -281,7 +273,6 @@ function detection(input: {
 /**
  * The dispatch token a stored run holds, or the fixture's own failure.
  *
- * @param run - The run whose reservation carries the token.
  * @returns The token the reserve minted.
  */
 function tokenOf(run: Run): string {
@@ -315,7 +306,7 @@ async function enqueueRun(snapshot: EventSnapshot, prompt?: PromptSnapshot): Pro
         store,
         log: LOGGER,
         incoming: [createEvent(snapshot)],
-        ...(prompt === undefined ? {} : { prompt }),
+        ...(prompt !== undefined && { prompt }),
     });
     const after = await readDocument();
     const created = after.find((run) => !known.has(run.correlationId));
@@ -329,7 +320,6 @@ async function enqueueRun(snapshot: EventSnapshot, prompt?: PromptSnapshot): Pro
 /**
  * Read one stored run back, by the id the fixture created it with.
  *
- * @param correlationId - The run to read.
  * @returns The stored run.
  * @throws {Error} When the run is no longer stored.
  */
@@ -346,18 +336,15 @@ async function readRun(correlationId: string): Promise<Run> {
 /**
  * The concrete path one run-scoped route answers on, bound to a run id.
  *
- * @param pattern - The route's declared pattern.
- * @param correlationId - The run the path should name.
  * @returns The same path with its parameter bound.
  */
 function bound(pattern: string, correlationId: string): string {
-    return pattern.replace(':correlationId', correlationId);
+    return pattern.replace(':correlationId', () => correlationId);
 }
 
 /**
  * POST one run-scoped body over the loopback service.
  *
- * @param service - The running instance to call.
  * @param request - The concrete path and the body to post.
  * @returns The status and the parsed body.
  */
@@ -377,7 +364,6 @@ async function post(
 /**
  * Claim every waiting run, exactly as the relay does.
  *
- * @param service - The running instance to call.
  * @returns The claim answer, for the lease it issued.
  */
 async function claim(service: TestService): Promise<WireAnswer> {
@@ -389,7 +375,6 @@ async function claim(service: TestService): Promise<WireAnswer> {
 /**
  * Read the history route and return its single row with the raw text beside it.
  *
- * @param service - The running instance to call.
  * @returns The one row this suite's fixtures produce, plus the answer text.
  * @throws {Error} When the answer is not exactly one row.
  */
@@ -412,7 +397,6 @@ async function onlyRow(service: TestService): Promise<{ readonly row: RunHistory
 /**
  * Reserve the fixture run under the lease its claim just issued.
  *
- * @param service - The running instance to call.
  * @param run - The claimed run.
  * @returns The reserve answer, carrying the token and both deadlines.
  */
@@ -431,8 +415,6 @@ async function reserve(service: TestService, run: Run): Promise<WireAnswer> {
 /**
  * Report the outcome of the fixture run's authorization.
  *
- * @param input - The running instance, the run to report for, and exactly one
- *   of `sessionId` / `problem` (FR-040 refuses a body carrying both or neither).
  * @returns The result answer.
  */
 async function report(input: {
@@ -452,8 +434,8 @@ async function report(input: {
             correlationId: input.run.correlationId,
             attempt: authorized.attempt,
             dispatchToken: tokenOf(authorized),
-            ...(sessionId === undefined ? {} : { sessionId }),
-            ...(problem === undefined ? {} : { problem }),
+            ...(sessionId !== undefined && { sessionId }),
+            ...(problem !== undefined && { problem }),
         },
     });
 }
@@ -515,7 +497,7 @@ describe('T-016 the history row carries every member contract §1 names', () => 
         expect(afterClaim.row.state).toBe('claimed');
         expect(afterClaim.row.leaseExpiresAt).toBe(leased.lease?.expiresAt ?? null);
         expect(afterClaim.row.claimedAt).toBe(leased.lease?.issuedAt ?? null);
-        expect(String(afterClaim.row.stateReason)).toContain(String(leased.lease?.expiresAt));
+        expect(afterClaim.row.stateReason).toContain(String(leased.lease?.expiresAt));
 
         // Authorized: the result deadline joins, and it is the reserve's own.
         const reserved = await reserve(service, run);

@@ -2,12 +2,12 @@
  * The wiring that puts the Bindings tab on screen (MVP blocker, 2026-09-27).
  *
  * `bindings-ui.ts` exports {@link mountBindingsPane} and its painter, but
- * nothing called them: the panel mounted only the legacy spike UI, so the
+ * nothing called them: the panel mounted only the legacy UI, so the
  * operator could never reach the bindings form, could never add a binding,
  * and bindings mode could never activate. This module is that missing call
  * site. It mounts the pane first, so the shared tab strip is the panel's
  * first element and both tab bodies hang beneath it: the Bindings pane on
- * its tab, and the spike body (a plain container the legacy UI and the
+ * its tab, and the dispatch body (a plain container the legacy UI and the
  * handoff group mount into) on the other.
  *
  * Every pane callback maps onto an action that already exists: `editBindings`
@@ -69,16 +69,15 @@ import {
 } from './dispatches.ts';
 
 /**
- * The prompt field's callback, and the row click that opens the editor
- * (005 FR-051, FR-052, FR-090).
+ * The prompt field's callback, and the row click that opens the editor.
+ *
  *
  * Split out so the handler table below stays a table. Selecting a row both
  * selects it and loads it into the editor — the row *is* the Edit affordance
  * since the 2026-10-01 review — so the field opens on what the service holds
  * for that row, never on a fingerprint and never on whichever row was
- * selected before (005 FR-051).
+ * selected before.
  *
- * @param rt - Panel runtime the actions read and repaint.
  * @returns The handlers the fields invoke.
  */
 function promptHandlers(rt: PanelRuntime): Pick<
@@ -108,8 +107,8 @@ function promptHandlers(rt: PanelRuntime): Pick<
             // paint once, and SC-105 counts the paints that carry the prompt.
             bindings.selectedBinding = id;
             // The editor fields open on what the service holds for this row
-            // (004 FR-012, 002 FR-012) — never on a fingerprint, and never on
-            // whichever row was selected before (005 FR-051).
+            // — never on a fingerprint, and never on
+            // whichever row was selected before.
             bindings.startingPromptInput = storedPromptFor(bindings, id);
             bindings.startingPromptDirty = false;
             bindings.startingPromptError = null;
@@ -118,7 +117,7 @@ function promptHandlers(rt: PanelRuntime): Pick<
             bindings.allowedUsersError = null;
             // The click opens the editor on this row — or refuses to open it
             // (a worktree option this editor cannot render) and says why with
-            // the editor shut and the draft clean (FR-003).
+            // the editor shut and the draft clean.
             startEditingBinding(rt);
         },
         setStartingPrompt: (value) => editBindings(rt, {
@@ -135,14 +134,13 @@ function promptHandlers(rt: PanelRuntime): Pick<
 }
 
 /**
- * The note a cancelled editor leaves behind (2026-10-01 review).
+ * The note a cancelled editor leaves behind.
  *
  * A loaded edit says it wrote nothing, because that is the promise the
  * control makes; the add form simply closes — there was no row to disown, and
  * an empty note is the honest one rather than claiming a cancelled *edit*
  * that never started.
  *
- * @param rt - Panel runtime the cancel reads.
  * @returns The note, which may be empty but is never `null`-meaningful.
  */
 function cancelNote(rt: PanelRuntime): string {
@@ -156,7 +154,6 @@ function cancelNote(rt: PanelRuntime): string {
  * the handlers stay one-line delegations and the tab cannot diverge from what
  * the runtime knows.
  *
- * @param rt - Panel runtime the actions read and repaint.
  * @returns The handler table for {@link mountBindingsPane}.
  */
 export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
@@ -164,7 +161,7 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
         refresh: () => void loadBindings(rt),
         // One primary control, two shapes: the same button adds a row in add
         // mode and saves the loaded one in edit mode, so there is never a
-        // second write path beside the whole-file grant (005 FR-050).
+        // second write path beside the whole-file grant.
         submit: (): void => {
             if (rt.state.bindings.editing) {
                 void saveEditedBinding(rt);
@@ -181,9 +178,9 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
         setRepoInput: (value) => editBindings(rt, { repoInput: value }),
         selectAccount: (id) => editBindings(rt, { accountSelection: id }),
         selectProject: (id) => selectBindingProject(rt, id),
-        setAssignment: (checked) => editBindings(rt, { triggerAssignment: checked }),
-        setMention: (checked) => editBindings(rt, { triggerMention: checked }),
-        setReviewRequest: (checked) => editBindings(rt, { triggerReviewRequest: checked }),
+        setAssignment: (isChecked) => editBindings(rt, { triggerAssignment: isChecked }),
+        setMention: (isChecked) => editBindings(rt, { triggerMention: isChecked }),
+        setReviewRequest: (isChecked) => editBindings(rt, { triggerReviewRequest: isChecked }),
         setWorktree: (id) => editBindings(rt, { worktreeSelection: id }),
         ...promptHandlers(rt),
         refreshProjects: () => void loadProjects(rt),
@@ -208,7 +205,7 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
 }
 
 /**
- * Mount the Bindings tab body into the container the shell created (FR-013).
+ * Mount the Bindings tab body into the container the shell created.
  *
  * The six-tab shell owns the strip and decides when this body first appears;
  * everything here is the body itself — the status line, the list, and the add
@@ -219,9 +216,6 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
  * first frame would show "No binding yet" under a status line that already
  * counts the bindings the runtime holds — true only until the next refresh
  * tick, which is exactly how long a first frame is allowed to lie.
- *
- * @param input - Runtime, the body container `mountTabShell` created for
- *   `bindings`, and the mount that opens the first block.
  */
 export function mountBindingsTabBody(input: {
     /** Panel runtime the body repaints for. */
@@ -235,13 +229,13 @@ export function mountBindingsTabBody(input: {
         root: input.root,
         rt: input.rt,
         handlers: createBindingsHandlers(input.rt),
-        ...(input.mountFirst === undefined ? {} : { mountFirst: input.mountFirst }),
+        ...(input.mountFirst !== undefined && { mountFirst: input.mountFirst }),
     });
     // The bundle gate greps the built panel for this attribute: a string
     // literal that only ships when this pane is wired (identifier names are
     // minified away, so a marker must ride live code). It also names the pane
     // for the operator's DOM inspector.
-    view.pane.setAttribute('data-mount', 'mountBindingsBody');
+    view.pane.dataset.mount = 'mountBindingsBody';
     input.rt.bindingsUi = view;
     // Paint what the runtime already knows, before anything is read: the
     // status line mounts composed from state, but the list does not, and the

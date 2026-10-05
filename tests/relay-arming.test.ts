@@ -63,7 +63,6 @@ function activeBinding(): PanelBinding {
 /**
  * Body `GET /v1/bindings` answers with for the given rows.
  *
- * @param bindings - Stored bindings to report.
  * @returns The snapshot body the parser accepts.
  */
 function bindingsBody(bindings: readonly PanelBinding[]): string {
@@ -128,7 +127,6 @@ function mutableService(initial: GuestRequestResult): MutableService {
  * Arming starts a real interval; leaving it running would let a later test's
  * host double answer a stale tick.
  *
- * @param rt - Runtime under test.
  * @param scenario - The assertions to run while the relay is armed.
  */
 async function withRelay(rt: PanelRuntime, scenario: () => Promise<void> | void): Promise<void> {
@@ -140,8 +138,7 @@ async function withRelay(rt: PanelRuntime, scenario: () => Promise<void> | void)
 }
 
 describe('relay arming (bind after mount / mount-time read failure)', () => {
-    it('arms when the first binding is created in an otherwi… (+3 cases)', async () => {
-        // case: arms when the first binding is created in an otherwise empty session
+    it('arms when the first binding is created in an otherwise empty session', async () => {
         {
             // The mount-time read answers an empty list, then the operator binds
             // a repository: the grant must arm what the mount could not see.
@@ -168,7 +165,9 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 expect(service.requests).toContain(`GET ${EVENTS_PENDING_PATH}`);
             });
         }
-        // case: arms on a later read after the mount-time bindings read failed
+    });
+
+    it('arms on a later read after the mount-time bindings read failed', async () => {
         {
             // First-run shape: the service is still spawning, so the mount-time
             // GET answers 503. A Refresh that later succeeds must join the loop.
@@ -191,7 +190,9 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 expect(rt.relayArmed).toBe(true);
             });
         }
-        // case: stays unarmed when a later read still answers no bindings
+    });
+
+    it('stays unarmed when a later read still answers no bindings', async () => {
         {
             // The read succeeds, so the failure branch is ruled out: only an
             // empty list keeps the relay out of the loop.
@@ -208,7 +209,9 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 expect(service.requests).not.toContain(`GET ${EVENTS_PENDING_PATH}`);
             });
         }
-        // case: arms exactly once across a grant and a subsequent read
+    });
+
+    it('arms exactly once across a grant and a subsequent read', async () => {
         {
             // `startRelayPolling` is idempotent: the second arming site must not
             // stack a second interval on the same runtime.
@@ -231,4 +234,5 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
             });
         }
     });
+
 });

@@ -39,11 +39,11 @@ export type ActorAttribution = 'direct' | 'subject-author';
 /**
  * The **shape** of the binding's allow-list at authorization (003 FR-079).
  *
- * Two words, never the logins (002 NFR-113).
+ * Two words, never the logins.
  */
 export type ActorPolicy = 'open' | 'restricted';
 
-/** Attribution bases a stored reference may carry (002 FR-044), and nothing else. */
+/** Attribution bases a stored reference may carry, and nothing else. */
 const ACTOR_ATTRIBUTIONS: ReadonlySet<string> = new Set(['direct', 'subject-author']);
 
 /**
@@ -54,10 +54,10 @@ const ACTOR_ATTRIBUTIONS: ReadonlySet<string> = new Set(['direct', 'subject-auth
  * guessed basis.
  */
 export interface ActorFields {
-    /** The actor this delivery is attributed to (002 FR-043). */
+    /** The actor this delivery is attributed to. */
     readonly actorLogin?: string;
     /**
-     * How it was attributed (002 FR-044).
+     * How it was attributed.
      *
      * `'subject-author'` is a **legacy basis**: an earlier build attributed
      * assignment and review triggers to the issue or pull-request author because
@@ -78,16 +78,16 @@ export interface ActorFields {
  */
 export function actorFieldsOf(record: Record<string, unknown>): ActorFields | null {
     const { actorLogin, actorAttribution } = record;
-    const loginOk = actorLogin === undefined || (typeof actorLogin === 'string' && actorLogin !== '');
-    const basisOk = actorAttribution === undefined
+    const isLoginOk = actorLogin === undefined || (typeof actorLogin === 'string' && actorLogin !== '');
+    const isBasisOk = actorAttribution === undefined
         || (typeof actorAttribution === 'string' && ACTOR_ATTRIBUTIONS.has(actorAttribution));
-    if (!loginOk || !basisOk) {
+    if (!isLoginOk || !isBasisOk) {
         return null;
     }
 
     return {
-        ...(typeof actorLogin === 'string' ? { actorLogin } : {}),
-        ...(typeof actorAttribution === 'string' ? { actorAttribution: actorAttribution as ActorAttribution } : {}),
+        ...(typeof actorLogin === 'string' && { actorLogin }),
+        ...(typeof actorAttribution === 'string' && { actorAttribution: actorAttribution as ActorAttribution }),
     };
 }
 
@@ -112,7 +112,7 @@ export function readRequiredActorPolicy(raw: unknown): ActorPolicy | null {
 
 /**
  * The panel's own words for a **legacy** `subject-author` attribution
- * (002 FR-044 as re-cut at v1.12.0; NFR-011; 005 FR-094 as re-cut at v1.13.0).
+ * (002 FR-044 as re-cut; NFR-011; 005 FR-094 as re-cut).
  *
  * This clause reached only rows written **before** 002 v1.12.0, and it had to
  * be re-cut rather than re-worded, because the sentence it used to carry was
@@ -120,7 +120,7 @@ export function readRequiredActorPolicy(raw: unknown): ActorPolicy | null {
  * or requested the review"*. GitHub records both — `assigner` on the `assigned`
  * event, `review_requester` on the `review_requested` event — and the service
  * reads them, so every row written now is `direct` and this clause is a
- * compatibility rendering rather than a live surface (002 AC-024, 005 FR-094).
+ * compatibility rendering rather than a live surface.
  *
  * So it says the one thing that is still true and still useful: **this login is
  * whoever the rule in force when the row was written could name** — which is a
@@ -135,7 +135,7 @@ export const SUBJECT_AUTHOR_BASIS =
 
 /**
  * Name one reference's actor, and its basis where the attribution's provenance
- * needs one (005 FR-094 as re-cut at v1.13.0).
+ * needs one (005 FR-094 as re-cut).
  *
  * Three states, none of them a guess:
  *
@@ -147,14 +147,12 @@ export const SUBJECT_AUTHOR_BASIS =
  *   {@link SUBJECT_AUTHOR_BASIS}.
  * - **Absent** — *actor not recorded*, which is a run stored before attribution
  *   existed. It is named rather than filled in, because printing a plausible
- *   login there would record an inference as a fact (002 FR-024).
+ *   login there would record an inference as a fact.
  *
  * Every reference gets its **own** phrase, because a coalesced run carries
  * several and a person outside the binding's policy can ride in on a run an
- * allowed actor authorized — which is exactly what has to stay visible
- * (003 FR-011, FR-077).
+ * allowed actor authorized — which is exactly what has to stay visible.
  *
- * @param actor - One reference's two actor members, as the panel holds them.
  * @returns The clause naming the actor, and the basis for a legacy row.
  */
 export function actorPhrase(actor: ActorFields): string {
@@ -181,7 +179,7 @@ export type PolicyRead =
  *
  * Fail-closed like every other member: a policy word from a future build must
  * not render as one this build would mis-tint, and `null` is the documented
- * *no authorization recorded* rather than a default of `'open'` (005 FR-093).
+ * *no authorization recorded* rather than a default of `'open'`.
  *
  * @param record - The parsed row, read as an untrusted record.
  * @returns The read, marked unusable for a value outside the closed union.

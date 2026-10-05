@@ -63,9 +63,9 @@ interface QuarantinedOutcome {
  *   rename race and the evidence sits under that reader's name instead.
  */
 export type JsonReadResult<T> =
+    | QuarantinedOutcome
     | { readonly status: 'ok'; readonly value: T }
-    | { readonly status: 'absent' }
-    | QuarantinedOutcome;
+    | { readonly status: 'absent' };
 
 /**
  * Write text to a fresh file and flush it to disk before it is renamed.
@@ -76,7 +76,6 @@ export type JsonReadResult<T> =
  * calling this function against a path inside the target directory.
  *
  * @param tempPath - Absolute path of the temporary file to create.
- * @param text - Serialized content to write.
  */
 export async function writeSyncedTempFile(tempPath: string, text: string): Promise<void> {
     const handle = await fs.open(tempPath, 'w', DATA_FILE_MODE);
@@ -179,7 +178,7 @@ export function isTempDebris(name: string): boolean {
  * @param depth - Remaining recursion depth.
  * @returns How many debris files were removed (removal is best-effort).
  */
-export async function sweepTempDebris(dirPath: string, depth = SWEEP_MAX_DEPTH): Promise<number> {
+export async function sweepTempDebris(dirPath: string, depth: number = SWEEP_MAX_DEPTH): Promise<number> {
     if (depth < 0) {
         return 0;
     }

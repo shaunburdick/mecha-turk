@@ -48,12 +48,12 @@ import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { PromptSnapshot } from '../prompt.ts';
 import type { ServiceStore } from '../store/index.ts';
-import { EVENTS_FILE, parseStoredEvent, parseStoredEvents } from './events-parse.ts';
+import { EVENTS_FILE, parseStoredEvents } from './events-parse.ts';
 import { recordEnqueueAudits } from './events-enqueue-audit.ts';
 import { applyEnqueue } from './runs-join.ts';
 import { inQueueChain, readRunsDocument, writeRunsDocument } from './runs-document.ts';
 import { readScanState, serializeScan, writeScanState } from './scan.ts';
-import type { EventKind, EventState, QueuedEvent, SubjectType } from './events-parse.ts';
+import type { QueuedEvent } from './events-parse.ts';
 import type { BindingScanState } from './scan.ts';
 
 /** Store file holding the event queue (declared beside the row schema). */
@@ -70,10 +70,12 @@ export { inQueueChain };
 export const MAX_DISPATCHED_EVENTS = 500;
 
 /** Re-exported: this module stays the one import path for the queue's readers. */
-export { parseStoredEvent, parseStoredEvents };
+export { parseStoredEvent } from './events-parse.ts';
+export { parseStoredEvents };
 
 /** Row types re-exported alongside them for the routes and the scan loop. */
-export type { EventKind, EventState, QueuedEvent, SubjectType };
+export type { EventKind, EventState, SubjectType } from './events-parse.ts';
+export type { QueuedEvent };
 // The attribution basis is declared in `attribution.ts` and re-exported by the
 // row's own module, so the queue keeps one import path for it too (002 FR-044).
 export type { ActorAttribution } from './events-parse.ts';
@@ -92,7 +94,7 @@ export type {
 /**
  * The one rule for "this **legacy** row is finished" — used by the
  * dispatched-tail cap, and by 006's excerpt retention pass as the first half
- * of its eligibility rule (006 FR-057, plan D6).
+ * of its eligibility rule.
  *
  * A row is terminal exactly when it carries the shipped `dispatched` state:
  * such a row answers `409` to a retry and can never re-enter the queue, so
@@ -108,7 +110,6 @@ export type {
  * state itself (`poll/excerpt-trim.ts`) rather than asking this function to
  * guess.
  *
- * @param event - One stored queue row.
  * @returns `true` only for a row in the terminal `dispatched` state.
  */
 export function isDispatchedTerminal(event: QueuedEvent): boolean {
@@ -120,9 +121,6 @@ export function isDispatchedTerminal(event: QueuedEvent): boolean {
  *
  * The pending and in-flight events always come forward; the dispatched tail
  * is bounded so the file stays small no matter how long the operator works.
- *
- * @param events - The queue to store.
- * @returns The array to write.
  */
 function serializedQueue(events: readonly QueuedEvent[], retainedRunIds?: ReadonlySet<string>): QueuedEvent[] {
     const retained = retainedRunIds === undefined
@@ -151,7 +149,6 @@ const recoveredQuarantines = new WeakMap<ServiceStore, Set<string>>();
 /**
  * Claim one quarantine observation for recovery.
  *
- * @param store - Store handle that observed the loss.
  * @param quarantinePath - Path (or store-relative name) of the quarantined file.
  * @returns `true` when this caller owns the recovery.
  */
@@ -181,13 +178,11 @@ function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boole
  * duplicate-free. The write runs on the scan-state chain, so it cannot
  * interleave with the loop's own read-modify-write of that file.
  *
- * @param input - Open store and logger the scan-state read takes.
  * @returns How many bindings had a window to clear.
  */
 async function resetScanWindows(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<number> {
     return await serializeScan(async () => {
@@ -210,13 +205,10 @@ async function resetScanWindows(input: {
 
 /**
  * Record one queue-quarantine recovery in the audit trail.
- *
- * @param input - Open store, logger, the quarantine path, and the reset count.
  */
 async function recordQueueRecovery(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
     /** Where the unusable queue was set aside. */
     readonly quarantinePath: string;
@@ -250,13 +242,10 @@ async function recordQueueRecovery(input: {
  * repair can run: clear every binding's scan window — the lost assignments
  * are re-detected on the next pass, and the deterministic event ids keep that
  * replay duplicate-free — then leave one audit row saying so.
- *
- * @param input - Open store, logger, and the quarantine path.
  */
 async function recoverQuarantinedQueue(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
     /** Where the unusable queue was set aside. */
     readonly quarantinePath: string;
@@ -285,13 +274,10 @@ const QUARANTINE_EVIDENCE_PREFIX = `${EVENTS_FILE}.corrupt-`;
  * claim set holds that to one reset and one audit row per loss per process.
  * The reset is idempotent, and deterministic event ids keep the re-detection
  * duplicate-free even when a later process repeats it.
- *
- * @param input - Open store and logger.
  */
 async function recoverFromEvidence(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<void> {
     const entries = await input.store.listDir('.');
@@ -311,13 +297,11 @@ async function recoverFromEvidence(input: {
  * be quarantined right now, or the evidence an earlier process left behind
  * when the file is already gone.
  *
- * @param input - Open store and logger.
  * @returns Any stored events, `[]` when absent or quarantined.
  */
 async function readQueue(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent[]> {
     const result = await input.store.readJson(EVENTS_FILE, parseStoredEvents);
@@ -353,13 +337,11 @@ async function readQueue(input: {
  * an empty list with a log line (never fail-stuck), and a quarantined read
  * has already run the scan-window recovery before it answers.
  *
- * @param input - Open store and logger.
  * @returns The queue, or `[]`.
  */
 export async function readEvents(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent[]> {
     try {
@@ -397,16 +379,17 @@ async function enqueueWithinChain(input: {
         document,
         deliveries: fresh,
         now: nowIso(),
-        ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+        ...(input.prompt !== undefined && { prompt: input.prompt }),
     });
     const appended = fresh.map((event) => {
         const runCorrelationId = outcome.links.get(event.id);
         return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
     });
     const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
+    const persistedIds = new Set(persistedRuns.runs.map((run) => run.correlationId));
     await input.store.writeJson(
         EVENTS_FILE,
-        serializedQueue([...existing, ...appended], new Set(persistedRuns.runs.map((run) => run.correlationId))),
+        serializedQueue([...existing, ...appended], persistedIds),
     );
     // Creation audits are backed by intents in runs.json; draining after both
     // durable state writes closes the crash window without changing audit row
@@ -420,13 +403,11 @@ async function enqueueWithinChain(input: {
 /**
  * Append events with delivery-id deduplication and one atomic run/queue chain.
  *
- * @param input - Open store and freshly detected events.
  * @returns The events that were actually appended, linked to their run.
  */
 export async function enqueueEvents(input: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
     /** Fresh events this scan produced. */
     readonly incoming: readonly QueuedEvent[];
@@ -435,7 +416,7 @@ export async function enqueueEvents(input: {
      * events the same binding produced `projectId`/`worktreeOption` for.
      *
      * **No field is added to the delivery rows** — the text persists in
-     * exactly two places, the binding and this run snapshot (004 FR-053) — so
+     * exactly two places, the binding and this run snapshot — so
      * `buildEventId`, dedupe, and the NDJSON event contract are untouched.
      */
     readonly prompt?: PromptSnapshot | null;

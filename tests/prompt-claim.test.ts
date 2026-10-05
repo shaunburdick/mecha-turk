@@ -32,6 +32,7 @@ import { EVENTS_PATH, EVENTS_PENDING_PATH } from '../service/routes/events.ts';
 import { promptFingerprint, resolvePromptSnapshot } from '../service/prompt.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
+import type { AuditEntry } from '../service/audit.ts';
 import { startTestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
 import type { TestService } from './support/service.ts';
@@ -61,7 +62,6 @@ interface Attempt {
 /**
  * Build the header map the run-scoped operations take.
  *
- * @param pairs - Header name/value pairs.
  * @returns The headers as `fetch` accepts them.
  */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -78,20 +78,18 @@ const SENT_ROWS = ['dispatch.reserved', 'dispatch.result'] as const;
 
 /** Log sink for the enqueue calls; nothing here asserts on it. */
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /** Running harness instances, drained between tests. */
 const running: TestService[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /** The store the harness instance is serving, already open. */
 function storeOf(service: TestService): NonNullable<TestService['handle']['store']> {
@@ -158,8 +156,8 @@ async function seed(input: SeedInput): Promise<void> {
     await enqueueEvents({
         store: storeOf(service),
         log: LOGGER,
-        incoming: snapshots.map(createEvent),
-        ...(snapshot === null ? {} : { prompt: snapshot }),
+        incoming: snapshots.map((detected) => createEvent(detected)),
+        ...(snapshot !== null && { prompt: snapshot }),
     });
 }
 
@@ -176,8 +174,6 @@ interface Attempt {
 /**
  * Claim through the route and return the first offered run's coordinates.
  *
- * @param service - Harness instance.
- * @param query - Optional query string for the claim.
  * @returns The coordinates, or a failure when nothing was offered.
  */
 async function claimFirst(service: TestService, query = ''): Promise<Attempt> {
@@ -210,7 +206,7 @@ interface DispatchInput {
 async function dispatchOnce(service: TestService, input: DispatchInput): Promise<Attempt> {
     const attempt = await claimFirst(service, input.query ?? '');
     const scoped = (suffix: string): string =>
-        suffix.replace(':correlationId', encodeURIComponent(attempt.correlationId));
+        suffix.replace(':correlationId', () => encodeURIComponent(attempt.correlationId));
 
     const reserve = await service.call(scoped(RESERVE_PATH), {
         method: 'POST',
@@ -244,17 +240,16 @@ async function dispatchOnce(service: TestService, input: DispatchInput): Promise
 }
 
 /** Every stored row of one event type, as plain records. */
-async function rowsOf(service: TestService, eventType: string): Promise<readonly Record<string, unknown>[]> {
+async function rowsOf(service: TestService, eventType: string): Promise<readonly AuditEntry[]> {
     const entries = await readAuditEntries(storeOf(service));
 
     return entries
         .filter((entry) => entry.eventType === eventType)
-        .map((entry) => JSON.parse(JSON.stringify(entry)) as Record<string, unknown>);
+        .map((entry) => structuredClone(entry));
 }
 
 describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037, FR-087)', () => {
-    it('answers all five explicitly when the run queued with… (+3 cases)', async () => {
-        // case: answers all five explicitly when the run queued with no prompt
+    it('answers all five explicitly when the run queued with no prompt', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: null, snapshots: [assignment(1)] });
@@ -270,9 +265,9 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
             expect(row?.promptSources).toBeNull();
             expect(row?.promptText).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: carries the text for transport only, with the reference beside it
+    });
+
+    it('carries the text for transport only, with the reference beside it', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(2)] });
@@ -290,9 +285,9 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
             // The reference is an identity, never a credential.
             expect(findSecretLeak(text)).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: keeps a maximal batch inside the transport response cap
+    });
+
+    it('keeps a maximal batch inside the transport response cap', async () => {
         {
             const service = await startService();
             const issues = Array.from({ length: 50 }, (_unused, index) => assignment(index + 1));
@@ -307,9 +302,9 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
             expect(body.events.every((row) => row.promptPresent === true)).toBe(true);
             expect(findSecretLeak(text)).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: leaves eligibility, the lease, and the claim row to 003 unchanged
+    });
+
+    it('leaves eligibility, the lease, and the claim row to 003 unchanged', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(3)] });
@@ -322,11 +317,11 @@ describe('T-007 the claim answer carries the five prompt members (FR-015, FR-037
             expect(Object.keys(claimed[0]?.details as Record<string, unknown>)).not.toContain('promptFingerprint');
         }
     });
+
 });
 
 describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-052, AC-139)', () => {
-    it('names the binding and the fingerprint on both rows, … (+3 cases)', async () => {
-        // case: names the binding and the fingerprint on both rows, under the run’s id
+    it('names the binding and the fingerprint on both rows, under the run’s id', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(4)] });
@@ -352,9 +347,9 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
             expect(trailText).not.toContain(PROMPT);
             expect(trailText).not.toContain('promptText');
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: surfaces those rows from a correlation-filtered audit read (SC-124)
+    });
+
+    it('surfaces those rows from a correlation-filtered audit read', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(5)] });
@@ -376,9 +371,9 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
             // The answer to "which prompt produced this run" never needs the text.
             expect(text).not.toContain(PROMPT);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: projects presence, fingerprint, and length — and no text — on the run row
+    });
+
+    it('projects presence, fingerprint, and length — and no text — on the run row', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: PROMPT, snapshots: [assignment(6)] });
@@ -396,9 +391,9 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
             expect(text).not.toContain(PROMPT);
             expect(findSecretLeak(text)).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: projects a run queued with no prompt as false / null / null / null (AC-142)
+    });
+
+    it('projects a run queued with no prompt as false / null / null / null', async () => {
         {
             const service = await startService();
             await seed({ service, prompt: null, snapshots: [assignment(7)] });
@@ -413,4 +408,5 @@ describe('T-008 the two "what was sent" rows and the run projection (FR-050, FR-
             expect(row?.promptSources).toBeNull();
         }
     });
+
 });

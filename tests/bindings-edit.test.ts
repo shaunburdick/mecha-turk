@@ -25,7 +25,7 @@ import { parseBindingsBody } from '../src/bindings-service.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { BINDINGS_PATH } from '../src/service-calls.ts';
 import type { PanelBinding, PanelTriggers } from '../src/bindings-service.ts';
-import type { SpikeHost } from '../src/session.ts';
+import type { PanelHost } from '../src/session.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
@@ -65,15 +65,13 @@ const REFUSED_PROMPT = 'ghp_AbCdEf0123456789AbCdEf0123456789AbCd';
 /** Running harness instances, drained between tests. */
 const running: TestService[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /** Build a header map without writing HTTP header names as object keys. */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -93,10 +91,9 @@ function jsonHeaders(): Record<string, string> {
  * complete bridge: the panel code under test cannot tell it from the host's
  * own implementation.
  *
- * @param service - Running harness instance.
  * @returns The host double the runtime runs against.
  */
-function panelHost(service: TestService): SpikeHost {
+function panelHost(service: TestService): PanelHost {
     return fakeHost({
         serviceRequest: async (request) => {
             const init: RequestInit = { method: request.method };
@@ -117,8 +114,6 @@ function panelHost(service: TestService): SpikeHost {
  *
  * The bindings route refuses an unregistered account fail-closed (002
  * FR-015's custody rule), so every grant here runs over a real one.
- *
- * @returns The running harness instance.
  */
 async function startWithAccount(): Promise<TestService> {
     const github = fakeGitHub({
@@ -160,9 +155,6 @@ function panelRow(): PanelBinding {
 
 /**
  * Write the fixture row through the real `PUT /v1/bindings`.
- *
- * @param service - Running harness instance.
- * @param row - The binding to store.
  */
 async function seedRow(service: TestService, row: PanelBinding): Promise<void> {
     const response = await service.call(BINDINGS_PATH, {
@@ -176,7 +168,6 @@ async function seedRow(service: TestService, row: PanelBinding): Promise<void> {
 /**
  * Read the bindings back **out of the service** (never out of panel state).
  *
- * @param service - Running harness instance.
  * @returns The stored rows, as the panel's own parser reads them.
  */
 async function storedBindings(service: TestService): Promise<readonly PanelBinding[]> {
@@ -208,8 +199,7 @@ async function editorRuntime(service: TestService): Promise<ReturnType<typeof cr
 }
 
 describe('loading the selected binding into the editor (FR-053)', () => {
-    it('repopulates every field, and readDraft answers with … (+2 cases)', async () => {
-        // case: repopulates every field, and readDraft answers with the stored row
+    it('repopulates every field, and readDraft answers with the stored row', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -245,9 +235,9 @@ describe('loading the selected binding into the editor (FR-053)', () => {
             });
             expect(draft?.triggers).toEqual({ assignment: true, mention: false, reviewRequest: true });
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: demands a selection instead of inventing a row to edit
+    });
+
+    it('demands a selection instead of inventing a row to edit', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -258,9 +248,9 @@ describe('loading the selected binding into the editor (FR-053)', () => {
 
             expect(rt.state.bindings.editing).toBe(false);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: refuses a row whose worktree option the editor cannot render (FR-003)
+    });
+
+    it('refuses a row whose worktree option the editor cannot render', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, { ...panelRow(), worktreeOption: 'new:feature' });
@@ -275,11 +265,11 @@ describe('loading the selected binding into the editor (FR-053)', () => {
             expect(rt.state.bindings.repoInput).toBe('');
         }
     });
+
 });
 
 describe('saving an edited binding through the whole-file grant (FR-050)', () => {
-    it('round-trips the edited fields through the real servi… (+2 cases)', async () => {
-        // case: round-trips the edited fields through the real service
+    it('round-trips the edited fields through the real service', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -318,9 +308,9 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
             expect(rt.state.bindings.editing).toBe(false);
             expect(rt.state.bindings.note).toBe(`Saved ${NEXT_REPOSITORY}.`);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: keeps the row byte-identical and renders the remediation when the service refuses
+    });
+
+    it('keeps the row byte-identical and renders the remediation when the service refuses', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -353,9 +343,9 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
             expect(rt.state.bindings.note).not.toContain('Saved');
             expect(rt.state.bindings.note).not.toContain(REFUSED_PROMPT);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: leaves the list untouched when the draft no longer reads (repository shape)
+    });
+
+    it('leaves the list untouched when the draft no longer reads (repository shape)', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, panelRow());
@@ -373,10 +363,11 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
             expect(rt.state.bindings.editing).toBe(true);
         }
     });
+
 });
 
 /** A recording service double for the handler-wiring assertions. */
-function recordingHost(): { readonly host: SpikeHost; readonly puts: string[] } {
+function recordingHost(): { readonly host: PanelHost; readonly puts: string[] } {
     const puts: string[] = [];
 
     return {
@@ -404,8 +395,7 @@ function otherRow(): PanelBinding {
 }
 
 describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
-    it('loads on a row click, and another row click swaps th… (+1 cases)', async () => {
-        // case: loads on a row click, and another row click swaps the edit to that row
+    it('loads on a row click, and another row click swaps the edit to that row', async () => {
         {
             const { host } = recordingHost();
             const rt = createTestRuntime(host);
@@ -437,9 +427,9 @@ describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
             expect(rt.state.bindings.editorOpen).toBe(false);
             expect(rt.state.bindings.repoInput).toBe('');
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: routes the primary control to the save once the row is loaded
+    });
+
+    it('routes the primary control to the save once the row is loaded', async () => {
         {
             const { host, puts } = recordingHost();
             const rt = createTestRuntime(host);
@@ -464,11 +454,11 @@ describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
             stopRelayPolling(rt);
         }
     });
+
 });
 
 describe('New binding opens the editor on an empty draft (2026-10-01 review)', () => {
-    it('selects nothing, empties every field, and opens the … (+1 cases)', async () => {
-        // case: selects nothing, empties every field, and opens the editor
+    it('selects nothing, empties every field, and opens the editor', async () => {
         {
             const rt = createTestRuntime(recordingHost().host);
             rt.state.bindings.status = 'ready';
@@ -489,9 +479,9 @@ describe('New binding opens the editor on an empty draft (2026-10-01 review)', (
             expect(bindings.startingPromptInput).toBe('');
             expect(bindings.startingPromptDirty).toBe(false);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: closes again on cancel, with nothing written
+    });
+
+    it('closes again on cancel, with nothing written', async () => {
         {
             const rt = createTestRuntime(recordingHost().host);
             rt.state.bindings.status = 'ready';
@@ -506,4 +496,5 @@ describe('New binding opens the editor on an empty draft (2026-10-01 review)', (
             expect(rt.state.bindings.note).toBe('');
         }
     });
+
 });

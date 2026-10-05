@@ -42,14 +42,13 @@ function capturingLogger(level: 'debug' | 'info' | 'warn' | 'error'): {
     readonly lines: string[];
 } {
     const lines: string[] = [];
-    const log = createLogger({ level, sink: (line) => lines.push(line) });
+    const log = createLogger({ level, sink: (line) => void lines.push(line) });
 
     return { log, lines };
 }
 
 describe('createLogger carries a threshold that can be moved (006 FR-033)', () => {
-    it('admits an entry that was dropped a moment before, on… (+4 cases)', () => {
-        // case: admits an entry that was dropped a moment before, once the level is lowered
+    it('admits an entry that was dropped a moment before, once the level is lowered', () => {
         {
             const { log, lines } = capturingLogger('info');
 
@@ -62,7 +61,6 @@ describe('createLogger carries a threshold that can be moved (006 FR-033)', () =
             expect(lines).toHaveLength(1);
             expect(lines[0]).toContain(AFTER);
         }
-        // case: drops an entry that was admitted a moment before, once the level is raised
         {
             const { log, lines } = capturingLogger('debug');
 
@@ -79,7 +77,6 @@ describe('createLogger carries a threshold that can be moved (006 FR-033)', () =
             log.error('still written');
             expect(lines).toHaveLength(2);
         }
-        // case: judges every entry at the current threshold, never the construction one
         {
             const { log, lines } = capturingLogger('error');
 
@@ -93,7 +90,6 @@ describe('createLogger carries a threshold that can be moved (006 FR-033)', () =
             expect(lines.map((line) => JSON.parse(line) as { readonly message: string }).map((entry) => entry.message))
                 .toEqual(['first', 'second']);
         }
-        // case: keeps the redaction pass exactly as it was, at every threshold (NFR-102)
         {
             const { log, lines } = capturingLogger('error');
             log.setLevel('error');
@@ -104,7 +100,6 @@ describe('createLogger carries a threshold that can be moved (006 FR-033)', () =
             expect(lines[0]).toContain(REDACTED);
             expect(lines[0]).not.toContain(TOKEN_VALUE);
         }
-        // case: takes no effect on entries already written
         {
             const { log, lines } = capturingLogger('debug');
             log.debug(BEFORE);

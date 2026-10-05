@@ -26,8 +26,7 @@ import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 import type { ServiceErrorResult } from './service-calls.ts';
 
 /**
- * Open the editor on an empty draft — the list's **New binding** control
- * (2026-10-01 review).
+ * Open the editor on an empty draft — the list's **New binding** control.
  *
  * Opening a new row and editing an existing one are mutually exclusive
  * states of one editor, so this does exactly what a row click does in
@@ -35,8 +34,6 @@ import type { ServiceErrorResult } from './service-calls.ts';
  * account picker lists, the prompt field waits), every draft field returns to
  * its default, and the stale note from the last action is cleared so the form
  * opens saying nothing rather than repeating an old refusal.
- *
- * @param rt - Panel runtime.
  */
 export function startNewBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
@@ -55,8 +52,8 @@ export function startNewBinding(rt: PanelRuntime): void {
 }
 
 /**
- * Load the selected binding into the editor and enter edit mode
- * (005 FR-050, FR-053).
+ * Load the selected binding into the editor and enter edit mode.
+ *
  *
  * Every field the editor presents is loaded from the stored row — repository,
  * bound account, project, the three triggers, the worktree option, and the
@@ -70,8 +67,6 @@ export function startNewBinding(rt: PanelRuntime): void {
  * edit does not open) — and the editor **closes with a clean draft**, because
  * a form that stays open showing one row's values while another row is
  * selected is exactly how a save writes one binding's values into another.
- *
- * @param rt - Panel runtime.
  */
 export function startEditingBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
@@ -109,7 +104,7 @@ export function startEditingBinding(rt: PanelRuntime): void {
     bindings.startingPromptInput = storedPromptFor(bindings, binding.bindingId);
     bindings.startingPromptDirty = false;
     bindings.startingPromptError = null;
-    // The allow-list loads the same way (002 FR-047): the field shows what the
+    // The allow-list loads the same way: the field shows what the
     // service holds for this row, so what the form shows is what a save writes.
     bindings.allowedUsersInput = storedActorsFor(bindings, binding.bindingId);
     bindings.allowedUsersDirty = false;
@@ -129,7 +124,6 @@ export function startEditingBinding(rt: PanelRuntime): void {
  * from cannot be mistaken for a saved one (004 FR-014's untouched-omits rule
  * depends on the dirty flag being reset with it).
  *
- * @param rt - Panel runtime.
  * @param note - Note to leave behind, or `null` to keep the current one (a
  *   row selection that merely closes the editor already has its own copy).
  */
@@ -143,7 +137,7 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
     bindings.startingPromptError = null;
     // The allow-list returns to what the service stores, so a draft the
     // operator walks away from cannot be mistaken for a saved one — which is
-    // the same reason the dirty flag is reset with it (002 FR-047).
+    // the same reason the dirty flag is reset with it.
     bindings.allowedUsersInput = storedActorsFor(bindings, bindings.selectedBinding);
     bindings.allowedUsersDirty = false;
     bindings.allowedUsersError = null;
@@ -161,24 +155,20 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
  * The row is rebuilt from the draft under its own id, state, and creation
  * stamp; a prompt the operator touched in the same pass travels with the
  * write, and one they left alone is omitted so the service keeps what it
- * holds (004 FR-014). A refusal leaves the stored list byte-identical
- * (AC-125) and keeps the draft on screen with the remediation — on the
- * prompt field when it belongs there (FR-052), on the tab note otherwise.
- *
- * @param rt - Panel runtime.
+ * holds. A refusal leaves the stored list byte-identical
+ * and keeps the draft on screen with the remediation — on the
+ * prompt field when it belongs there, on the tab note otherwise.
  */
 /**
  * Apply one save's answer to the editor's state.
  *
  * **Accepted** closes the editor and repaints both fields from what the service
  * actually stored — which is what makes a *cleared* field read as cleared rather
- * than as a draft that failed to save (004 FR-014, 002 FR-047). **Refused**
+ * than as a draft that failed to save. **Refused**
  * leaves the draft on screen with the service's own remediation split back to
- * whichever field it names (FR-052, FR-095) and never reports the value as
- * saved (AC-125); the stored list stays byte-identical because the grant is
+ * whichever field it names and never reports the value as
+ * saved; the stored list stays byte-identical because the grant is
  * all-or-nothing after validation.
- *
- * @param input - The tab state, the grant's answer, and the row this save wrote.
  */
 function applySaveOutcome(input: {
     /** The Bindings tab's state. */
@@ -221,14 +211,12 @@ function applySaveOutcome(input: {
  * The row is rebuilt from the draft under its own id, state, and creation
  * stamp; a prompt the operator touched in the same pass travels with the
  * write, and one they left alone is omitted so the service keeps what it
- * holds (004 FR-014). The allow-list rides the same write with the opposite
+ * holds. The allow-list rides the same write with the opposite
  * default: every row states its own, and only the operator's edit overrides it
  * (002 FR-047, contract §2). A refusal leaves the stored list byte-identical
- * (AC-125) and keeps the draft on screen with the remediation — on the prompt
- * field or the allow-list field when it belongs there (FR-052, FR-095), on the
+ * and keeps the draft on screen with the remediation — on the prompt
+ * field or the allow-list field when it belongs there, on the
  * tab note otherwise.
- *
- * @param rt - Panel runtime.
  */
 export async function saveEditedBinding(rt: PanelRuntime): Promise<void> {
     const { bindings } = rt.state;
@@ -259,8 +247,8 @@ export async function saveEditedBinding(rt: PanelRuntime): Promise<void> {
         rt,
         bindings: updated,
         note: `Saved ${draft.repository}.`,
-        ...(prompt === undefined ? {} : { prompt }),
-        ...(actors === undefined ? {} : { actors }),
+        ...(prompt !== undefined && { prompt }),
+        ...(actors !== undefined && { actors }),
     });
     if (rt.disposed) {
         return;

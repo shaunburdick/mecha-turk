@@ -41,16 +41,15 @@ afterEach(stopAllServices);
 const ACCOUNT_PATH_PARAM = ':numericUserId';
 
 /** Routed path of the fixture account's credential resource. */
-const ROTATION_PATH = ACCOUNT_TOKEN_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+const ROTATION_PATH = ACCOUNT_TOKEN_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUNT_ID));
 
 /** Routed path of the fixture account resource (delete). */
-const DELETE_PATH = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, String(ACCOUNT_ID));
+const DELETE_PATH = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUNT_ID));
 
 /**
  * Rotate the fixture account's credential (contract §2.2, M5b).
  *
  * @param service - Harness instance; its bearer token is attached for you.
- * @param token - Replacement credential.
  * @returns The rotation response.
  */
 function rotateFixture(service: TestService, token: string): Promise<Response> {
@@ -58,8 +57,7 @@ function rotateFixture(service: TestService, token: string): Promise<Response> {
 }
 
 describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
-    it('fails closed on an expectedLogin mismatch with nothi… (+3 cases)', async () => {
-        // case: fails closed on an expectedLogin mismatch with nothing persisted
+    it('fails closed on an expectedLogin mismatch with nothing persisted', async () => {
         {
             const { service } = await startWithGitHub({ user: USER_OK });
 
@@ -70,7 +68,9 @@ describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
             expect(error.code).toBe('account-rejected');
             expect(await accountFileExists(service)).toBe(false);
         }
-        // case: answers 409 duplicate-account when the numeric id is already registered
+    });
+
+    it('answers 409 duplicate-account when the numeric id is already registered', async () => {
         {
             const { service } = await startWithGitHub({ user: USER_OK });
             await postVerify(service, verifyBody(REGISTERED_TOKEN));
@@ -81,7 +81,9 @@ describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
             expect(response.status).toBe(409);
             expect(error.code).toBe('duplicate-account');
         }
-        // case: refuses a malformed token before any network call
+    });
+
+    it('refuses a malformed token before any network call', async () => {
         {
             const { service, github } = await startWithGitHub({ user: USER_OK });
             const malformed = [{ token: '' }, { token: 'has whitespace' }, { token: OVERSIZED_TOKEN }, { token: 42 }];
@@ -98,7 +100,9 @@ describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
 
             expect(github.calls).toHaveLength(0);
         }
-        // case: never echoes a received value in a validation message
+    });
+
+    it('never echoes a received value in a validation message', async () => {
         {
             const { service } = await startWithGitHub({ user: USER_OK });
 
@@ -115,11 +119,11 @@ describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {
             expect(JSON.stringify(error)).not.toContain(REGISTERED_TOKEN);
         }
     });
+
 });
 
 describe('POST /v1/accounts/verify — throttles (SEC-04, invariant 9)', () => {
-    it('answers 429 verify-busy while another verification h… (+1 cases)', async () => {
-        // case: answers 429 verify-busy while another verification holds the slot
+    it('answers 429 verify-busy while another verification holds the slot', async () => {
         {
             let release: (() => void) | undefined;
             const scripted = scriptedVerifier(
@@ -148,7 +152,9 @@ describe('POST /v1/accounts/verify — throttles (SEC-04, invariant 9)', () => {
             expect(completed.status).toBe(201);
             expect(scripted.tokens).toHaveLength(1);
         }
-        // case: answers 429 rate-limited with retry-after after 10 attempts in the window
+    });
+
+    it('answers 429 rate-limited with retry-after after 10 attempts in the window', async () => {
         {
             const { service, github } = await startWithGitHub({ user: { status: 401 } });
 
@@ -167,16 +173,16 @@ describe('POST /v1/accounts/verify — throttles (SEC-04, invariant 9)', () => {
             expect(github.calls).toHaveLength(10);
         }
     });
+
 });
 
 describe('POST /v1/accounts/:id/token — the same throttle rules as verify (M5b)', () => {
-    it('answers 429 verify-busy while another rotation holds… (+1 cases)', async () => {
-        // case: answers 429 verify-busy while another rotation holds the single slot
+    it('answers 429 verify-busy while another rotation holds the single slot', async () => {
         {
             let release: (() => void) | undefined;
-            let hang = false;
+            let shouldHang = false;
             const scripted = scriptedVerifier(async (): Promise<VerifyOutcome> => {
-                if (!hang) {
+                if (!shouldHang) {
                     return OK_OUTCOME;
                 }
 
@@ -190,7 +196,7 @@ describe('POST /v1/accounts/:id/token — the same throttle rules as verify (M5b
             const registered = await postVerify(service, verifyBody(REGISTERED_TOKEN));
             expect(registered.status).toBe(201);
 
-            hang = true;
+            shouldHang = true;
             const rotation = rotateFixture(service, ROTATED_TOKEN);
             expect(await waitFor(() => release !== undefined)).toBe(true);
             const second = await rotateFixture(service, REGISTERED_TOKEN);
@@ -203,7 +209,9 @@ describe('POST /v1/accounts/:id/token — the same throttle rules as verify (M5b
             const completed = await rotation;
             expect(completed.status).toBe(200);
         }
-        // case: shares the rolling attempt window with verify rather than opening a second one (M5b)
+    });
+
+    it('shares the rolling attempt window with verify rather than opening a second one (M5b)', async () => {
         {
             const { service } = await startWithGitHub({ user: USER_OK });
             const registered = await postVerify(service, verifyBody(REGISTERED_TOKEN));
@@ -223,11 +231,11 @@ describe('POST /v1/accounts/:id/token — the same throttle rules as verify (M5b
             expect(rotation.headers.get(RETRY_AFTER)).not.toBeNull();
         }
     });
+
 });
 
 describe('secret containment (NFR-004, contract §3 assertion)', () => {
-    it('keeps the registered token out of every response, lo… (+2 cases)', async () => {
-        // case: keeps the registered token out of every response, log line, and audit row
+    it('keeps the registered token out of every response, log line, and audit row', async () => {
         {
             const { service } = await startWithGitHub({ user: USER_OK });
             const responses: string[] = [];
@@ -248,7 +256,9 @@ describe('secret containment (NFR-004, contract §3 assertion)', () => {
 
             expectNoSecret('responses/logs/audit', [...responses, await secretSurfaces(service)].join('\n'));
         }
-        // case: keeps the token out of the log when a verify is forced to fail with 500
+    });
+
+    it('keeps the token out of the log when a verify is forced to fail with 500', async () => {
         {
             const thrower = scriptedVerifier((token) => {
                 throw new Error(`upstream exploded while holding ${token}`);
@@ -266,7 +276,9 @@ describe('secret containment (NFR-004, contract §3 assertion)', () => {
             expectNoSecret('forced-500 log', log);
             expectNoSecret('forced-500 audit', await secretSurfaces(service));
         }
-        // case: keeps both credentials out of the rotation and delete responses (M5c)
+    });
+
+    it('keeps both credentials out of the rotation and delete responses (M5c)', async () => {
         {
             const { service } = await startWithGitHub({ user: USER_OK });
             const registered = await postVerify(service, verifyBody(REGISTERED_TOKEN));
@@ -286,5 +298,6 @@ describe('secret containment (NFR-004, contract §3 assertion)', () => {
             expect(removalText).not.toContain('"credential"');
         }
     });
+
 });
 

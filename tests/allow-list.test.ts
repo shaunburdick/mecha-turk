@@ -88,7 +88,6 @@ const BAD_REPOSITORY = 'not-a-repository';
 /**
  * Build a header map without writing HTTP header names as object keys.
  *
- * @param pairs - Header name/value pairs.
  * @returns The headers as `fetch` accepts them.
  */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -137,8 +136,6 @@ function silentPoller(): GitHubIssuePoller {
 
 /**
  * Start the service against a fake GitHub and register the fixture account.
- *
- * @returns The running harness instance.
  */
 async function startWithAccount(): Promise<TestService> {
     const github = fakeGitHub({
@@ -164,7 +161,6 @@ async function startWithAccount(): Promise<TestService> {
 /**
  * Build one binding this suite grants.
  *
- * @param overrides - Members to replace on the base row.
  * @returns The submitted record.
  */
 function bindingRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -214,7 +210,6 @@ async function storedBytes(service: TestService): Promise<string> {
 /**
  * Every binding the `GET` answer reports, in document order.
  *
- * @param service - Harness instance to ask.
  * @returns The answer's `bindings` array.
  */
 async function storedRows(service: TestService): Promise<readonly Record<string, unknown>[]> {
@@ -229,7 +224,8 @@ async function storedRows(service: TestService): Promise<readonly Record<string,
 async function storeFiles(service: TestService): Promise<readonly string[]> {
     const found: string[] = [];
     const walk = async (dir: string): Promise<void> => {
-        for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const children = await readdir(dir, { withFileTypes: true });
+        for (const entry of children) {
             const path = join(dir, entry.name);
             if (entry.isDirectory()) {
                 await walk(path);
@@ -251,7 +247,8 @@ async function storeFiles(service: TestService): Promise<readonly string[]> {
  */
 async function storeTextWithoutBindings(service: TestService): Promise<string> {
     const parts: string[] = [];
-    for (const path of await storeFiles(service)) {
+    const files = await storeFiles(service);
+    for (const path of files) {
         if (path.endsWith(BINDINGS_FILE)) {
             continue;
         }
@@ -277,7 +274,8 @@ function committedBundles(): string {
  */
 function sourceFiles(dir: string): ReadonlyMap<string, string> {
     const files = new Map<string, string>();
-    for (const entry of readdirSync(resolvePath(ROOT, dir), { recursive: true })) {
+    const names = readdirSync(resolvePath(ROOT, dir), { recursive: true });
+    for (const entry of names) {
         const relative = String(entry);
         if (relative.endsWith('.ts')) {
             files.set(`${dir}/${relative}`, readFileSync(resolvePath(ROOT, dir, relative), 'utf8'));

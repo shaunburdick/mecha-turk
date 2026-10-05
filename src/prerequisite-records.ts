@@ -41,7 +41,7 @@ import type { PanelAccount, PanelBinding } from './bindings-service.ts';
 /** The three states FR-072 allows, and nothing else. */
 export type PrerequisiteState = 'met' | 'not-met' | 'not-checkable';
 
-/** The five prerequisites FR-071 names after 005 v1.7.0, as stable identifiers. */
+/** The five prerequisites FR-071 names as stable identifiers. */
 export type PrerequisiteId =
     /** Session Defaults → Default Agent pin (002 prerequisite 1). */
     | 'default-agent'
@@ -95,9 +95,8 @@ export const STATE_NOT_MET = 'not-met';
 export const STATE_NOT_CHECKABLE = 'not-checkable';
 
 /**
- * Label one state is rendered with, in FR-072's own vocabulary.
+ * Label one state is rendered with own vocabulary.
  *
- * @param state - The prerequisite's state.
  * @returns The operator-facing label, never a bare enum value.
  */
 export function prerequisiteStateLabel(state: PrerequisiteState): string {
@@ -118,9 +117,8 @@ export function prerequisiteStateLabel(state: PrerequisiteState): string {
  * Deliberately three different answers: *met* is green because it is settled,
  * *not met* is red because it is the one state that raises FR-073's notice,
  * and *not checkable* stays neutral because a panel that could not look must
- * not paint a verdict it never reached (FR-072, AC-122).
+ * not paint a verdict it never reached.
  *
- * @param state - The prerequisite's state.
  * @returns The badge tone that state renders with.
  */
 export function prerequisiteTone(state: PrerequisiteState): Tone {
@@ -136,10 +134,10 @@ export function prerequisiteTone(state: PrerequisiteState): Tone {
 }
 
 /**
- * The Default Agent pin: checkable only after a dispatch (FR-072).
+ * The Default Agent pin: checkable only after a dispatch.
  *
  * The remediation names the **setting path** and no agent name, because the
- * default is blank since 006 v1.5.0 / 002 v1.10.0 (product-owner order:
+ * default is blank / 002 v1.10.0 (product-owner order:
  * *"Default Agent pin should default to blank, not everyone is going to use
  * project-manager"*). Prescribing an agent here would tell every operator the
  * same thing the owner just refused to assume, so the line asks for the agent
@@ -166,11 +164,10 @@ function defaultAgentPin(): Prerequisite {
 /**
  * Whether OpenChamber is running: the host has answered this panel or not.
  *
- * @param hostAnswered - Whether a settings/ready snapshot has arrived.
  * @returns `met` once the host answers, `not-checkable` before that.
  */
-function openChamberRunning(hostAnswered: boolean): Prerequisite {
-    if (!hostAnswered) {
+function openChamberRunning(hasAnswered: boolean): Prerequisite {
+    if (!hasAnswered) {
         return {
             id: IDS.openchamberRunning,
             title: TITLES.openchamberRunning,
@@ -213,7 +210,7 @@ function desktopOrWebSurface(): Prerequisite {
  * without a readable matrix makes the whole set not checkable — one account
  * the panel cannot vouch for means it cannot vouch for the set. No surface in
  * this system reports write scopes, so *read* scopes decide the state and the
- * remediation keeps the no-write-scopes instruction visible (FR-071).
+ * remediation keeps the no-write-scopes instruction visible.
  *
  * @param accounts - Accounts as the last `GET /v1/accounts` read reported them.
  * @returns The prerequisite for the connected set.
@@ -277,7 +274,6 @@ function tokenScopes(accounts: readonly PanelAccount[]): Prerequisite {
  * bindings is nothing to satisfy, so a fresh install reads met rather than
  * nagging with nothing actionable).
  *
- * @param bindings - Bindings as the last read reported them.
  * @returns The prerequisite for the bound set.
  */
 function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequisite {
@@ -321,8 +317,7 @@ function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequ
  * which is what makes the section testable without a host and impossible to
  * leave stale.
  *
- * @param state - Panel state to read.
- * @returns The five prerequisites, in FR-071's order.
+ * @returns The five prerequisites order.
  */
 export function derivePrerequisites(state: PanelState): readonly Prerequisite[] {
     return [

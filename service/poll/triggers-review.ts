@@ -40,8 +40,6 @@ import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
  * the per-item events read behind this is for, and an empty bound login matches
  * nothing because a listing never reports an empty reviewer login.
  *
- * @param pull - Normalized pull request.
- * @param bindingLogin - The bound account's login.
  * @returns `true` when that account is one of the requested reviewers.
  */
 export function isReviewRequestPull(pull: PollPull, bindingLogin: string): boolean {
@@ -59,10 +57,9 @@ export function isReviewRequestPull(pull: PollPull, bindingLogin: string): boole
  *
  * The basis is `direct`: GitHub records who requested the review, in
  * `review_requester`, so this row carries a fact and there is no inference on it
- * to disclose (002 FR-044, FR-050). The legacy `subject-author` basis remains
+ * to disclose. The legacy `subject-author` basis remains
  * readable for rows written before this correction and is written by nothing here.
  *
- * @param input - The binding, the matched pull request, the actor, and the stamp.
  * @returns The event, with the event-named attribution.
  */
 function reviewEvent(input: {
@@ -109,7 +106,6 @@ function reviewEvent(input: {
  * their own outcomes through {@link resolveCandidateActor}, whose two
  * no-event answers are recorded rather than silent.
  *
- * @param input - The shared scan input.
  * @returns The review events, or the failure that ended the branch.
  */
 export async function reviewRequestEvents(input: TriggerScanInput): Promise<TriggerEvents> {

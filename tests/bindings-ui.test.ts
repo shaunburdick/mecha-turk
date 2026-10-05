@@ -77,7 +77,7 @@ function sdkHandle(key: string): { readonly update: () => void; readonly dispose
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): ReturnType<typeof sdkHandle> => {
@@ -133,10 +133,12 @@ const MATCHED_TOKEN_LINE = 'Mention token in force: @octocat-mt';
 /** Label the bound-account select mounts with, so its props can be found. */
 const ACCOUNT_SELECT_LABEL = 'Poll as account';
 
+/** A scan two minutes back, as the ISO stamp a stale row carries. */
+const TWO_MINUTES_AGO = new Date(Date.now() - 120_000).toISOString();
+
 /**
  * Read the string values one mount was handed.
  *
- * @param props - Whatever the SDK primitive received.
  * @returns The strings among them, in property order.
  */
 function stringsIn(props: unknown): readonly string[] {
@@ -197,38 +199,37 @@ function mountBindingsTab(options: {
  * Read the props of one mounted — or repainted — SDK primitive.
  *
  * @param key - The primitive's name, e.g. `mountSelect`.
- * @param match - Selects the one call to read, by its own props.
+ * @param isMatch - Selects the call by its own props.
  * @returns The props that call received, or `undefined` when there is none.
  */
 /**
  * Every call to one primitive whose props match, oldest first.
  *
  * @param key - The primitive's name, e.g. `mountSelect`.
- * @param match - Filters the calls, by their own props.
  * @returns The matching props, in call order.
  */
 function propsLog(
     key: string,
-    match: (props: Record<string, unknown>) => boolean,
+    isMatch: (props: Record<string, unknown>) => boolean,
 ): readonly Record<string, unknown>[] {
     return mounts.log
         .filter((entry) => entry.key === key || entry.key === `${key}:update`)
         .map((entry) => entry.props as Record<string, unknown>)
-        .filter((props) => match(props));
+        .filter((props) => isMatch(props));
 }
 
 /**
  * Read the props of the first call to one primitive — what it mounted with.
  *
  * @param key - The primitive's name, e.g. `mountSelect`.
- * @param match - Selects the one call to read, by its own props.
+ * @param isMatch - Selects the call by its own props.
  * @returns The props that call received, or `undefined` when there is none.
  */
 function propsOf(
     key: string,
-    match: (props: Record<string, unknown>) => boolean,
+    isMatch: (props: Record<string, unknown>) => boolean,
 ): Record<string, unknown> | undefined {
-    return propsLog(key, match)[0];
+    return propsLog(key, isMatch)[0];
 }
 
 /**
@@ -236,23 +237,20 @@ function propsOf(
  * repaint handed it, which is what is on screen now.
  *
  * @param key - The primitive's name, e.g. `mountSelect`.
- * @param match - Selects the one call to read, by its own props.
+ * @param isMatch - Selects the call by its own props.
  * @returns The props that call received, or `undefined` when there is none.
  */
 function lastPropsOf(
     key: string,
-    match: (props: Record<string, unknown>) => boolean,
+    isMatch: (props: Record<string, unknown>) => boolean,
 ): Record<string, unknown> | undefined {
-    const all = propsLog(key, match);
+    const all = propsLog(key, isMatch);
 
-    return all[all.length - 1];
+    return all.at(-1);
 }
 
 /**
  * Build one binding for the row and detail copy.
- *
- * @param overrides - Fields the test changes.
- * @returns One complete binding.
  */
 function bindingFixture(overrides: Partial<PanelBinding> = {}): PanelBinding {
     return {
@@ -272,9 +270,6 @@ function bindingFixture(overrides: Partial<PanelBinding> = {}): PanelBinding {
 
 /**
  * Build one scan-status row for the selected binding's line.
- *
- * @param overrides - Fields the test changes.
- * @returns One complete status row.
  */
 function statusFixture(overrides: Partial<BindingStatusRow> = {}): BindingStatusRow {
     return {
@@ -293,7 +288,6 @@ function statusFixture(overrides: Partial<BindingStatusRow> = {}): BindingStatus
 /**
  * Build a bindings state around one selected row.
  *
- * @param input - The row, its scan status, and whether one is selected.
  * @returns The state the detail line reads.
  */
 function bindingsState(input: {
@@ -314,8 +308,7 @@ function bindingsState(input: {
 }
 
 describe('T-022 the selected binding presents its own state, stamps, and scan (FR-053)', () => {
-    it('says a fresh binding has not been scanned, with a pe… (+3 cases)', () => {
-        // case: says a fresh binding has not been scanned, with a pending count of zero
+    it('says a fresh binding has not been scanned, with a pending count of zero', () => {
         {
             const detail = selectedBindingDetail(bindingsState({
                 binding: bindingFixture(),
@@ -328,17 +321,15 @@ describe('T-022 the selected binding presents its own state, stamps, and scan (F
             expect(detail).toContain(`created ${utcStamp(FIXTURE_TIMESTAMP)}`);
             expect(detail).toContain(`updated ${utcStamp(FIXTURE_TIMESTAMP)}`);
         }
-        // case: reports how long ago the last scan ran, and that it was clean
         {
             const detail = selectedBindingDetail(bindingsState({
                 binding: bindingFixture(),
-                status: statusFixture({ lastScanAt: new Date(Date.now() - 120_000).toISOString() }),
+                status: statusFixture({ lastScanAt: TWO_MINUTES_AGO }),
                 selected: true,
             }));
 
             expect(detail).toContain('scan: 2m ago · ok');
         }
-        // case: carries the skip reason next to the stamp, and names a disabled row
         {
             const detail = selectedBindingDetail(bindingsState({
                 binding: bindingFixture({ state: 'disabled' }),
@@ -350,20 +341,15 @@ describe('T-022 the selected binding presents its own state, stamps, and scan (F
             expect(detail).toContain('auth-failed');
             expect(detail).toContain('2 pending');
         }
-        // case: says nothing at all when no binding is selected
         {
-            expect(selectedBindingDetail(bindingsState({
-                binding: bindingFixture(),
-                status: null,
-                selected: false,
-            }))).toBeNull();
+            const noStatus = bindingsState({ binding: bindingFixture(), status: null, selected: false });
+            expect(selectedBindingDetail(noStatus)).toBeNull();
         }
     });
 });
 
 describe('AC-112 the picker names every manual route and keeps the binding recoverable', () => {
-    it('renders the three registration routes and the recove… (+1 cases)', () => {
-        // case: renders the three registration routes and the recoverable state
+    it('renders the three registration routes and the recoverable state', () => {
         {
             const { dispose } = mountBindingsTab();
             const guidance = renderedStrings().find((line) => line.startsWith('Not listed?'));
@@ -375,7 +361,6 @@ describe('AC-112 the picker names every manual route and keeps the binding recov
             }
 
         }
-        // case: never offers to create a project anywhere in the panel source (FR-089)
         {
             const root = resolve(import.meta.dirname, '..', 'src');
             const modules = readdirSync(root, { recursive: true }).map(String);
@@ -389,8 +374,7 @@ describe('AC-112 the picker names every manual route and keeps the binding recov
 });
 
 describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => {
-    it('renders Bindings copy, never the retired noun, on ev… (+2 cases)', () => {
-        // case: renders Bindings copy, never the retired noun, on every control it mounts
+    it('renders Bindings copy, never the retired noun, on every control it mounts', () => {
         {
             const { dispose } = mountBindingsTab();
             const strings = renderedStrings();
@@ -400,7 +384,6 @@ describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => 
             expect(strings).toContain('Bindings');
             expect(strings.some((line) => line.includes('Repositories'))).toBe(false);
         }
-        // case: carries no service-tuning field name anywhere in the bindings modules (FR-059)
         {
             const root = resolve(import.meta.dirname, '..', 'src');
             const modules = readdirSync(root, { recursive: true })
@@ -420,7 +403,6 @@ describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => 
             expect(modules.length).toBeGreaterThan(0);
             expect(offenders).toEqual([]);
         }
-        // case: offers no account-removal or rotation control on this tab (FR-059, T-026)
         {
             const { dispose } = mountBindingsTab();
             const strings = renderedStrings();
@@ -439,7 +421,6 @@ describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => 
 /**
  * Build one credential-free account the editor's fixtures offer.
  *
- * @param overrides - Fields the test changes.
  * @returns One complete account.
  */
 function accountFixture(overrides: Partial<PanelAccount> = {}): PanelAccount {
@@ -455,7 +436,6 @@ function accountFixture(overrides: Partial<PanelAccount> = {}): PanelAccount {
 /**
  * Read one select's option list out of the props it was handed.
  *
- * @param props - The mount or repaint props of the select.
  * @returns Its `{ id, label }` options, or an empty list when it has none.
  */
 function optionsOf(props: Record<string, unknown> | undefined): readonly { id: string; label: string }[] {
@@ -468,8 +448,7 @@ function optionsOf(props: Record<string, unknown> | undefined): readonly { id: s
 }
 
 describe('T-022 the mention token in force, marked only when it differs (FR-057)', () => {
-    it('renders the value the service matches on, with no ov… (+5 cases)', () => {
-        // case: renders the value the service matches on, with no override mark
+    it('renders the value the service matches on, with no override mark', () => {
         {
             const state = {
                 ...bindingsState({ binding: bindingFixture(), status: statusFixture(), selected: true }),
@@ -482,7 +461,6 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
             expect(view.override).toBe(false);
             expect(view.line).not.toContain('override');
         }
-        // case: marks the override when the binding matches on something else than the current login
         {
             // Upstream rename: the binding keeps the login it was bound under,
             // which is exactly what `mentionsLogin` goes on matching.
@@ -498,7 +476,6 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
             expect(view.line).toContain('override');
             expect(view.line).toContain('@octocat-renamed');
         }
-        // case: claims no override when the account cannot be compared (FR-003: no invented mark)
         {
             const state = {
                 ...bindingsState({ binding: bindingFixture(), status: statusFixture(), selected: true }),
@@ -510,7 +487,6 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
             expect(view.line).toBe(MATCHED_TOKEN_LINE);
             expect(view.override).toBe(false);
         }
-        // case: does not mark a case-only difference, because the service matches case-insensitively
         {
             const state = {
                 ...bindingsState({ binding: bindingFixture(), status: statusFixture(), selected: true }),
@@ -519,7 +495,6 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
 
             expect(mentionTokenView(state).override).toBe(false);
         }
-        // case: defaults to @<login> of the account the add form is bound to
         {
             const state: BindingsTabState = {
                 ...initialBindings(),
@@ -533,7 +508,6 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
             expect(view.line).toBe(MATCHED_TOKEN_LINE);
             expect(view.override).toBe(false);
         }
-        // case: offers no token until the draft is bound to an account
         {
             const view = mentionTokenView(initialBindings());
 
@@ -552,8 +526,7 @@ describe('T-022 the mention token in force, marked only when it differs (FR-057)
 });
 
 describe('T-022 a displayed bound account and a saved one can never disagree (PM ruling 5)', () => {
-    it('fixes the field to the selected binding own account … (+2 cases)', async () => {
-        // case: fixes the field to the selected binding own account in edit mode
+    it('fixes the field to the selected binding own account in edit mode', async () => {
         {
             const binding = bindingFixture();
             const state = {
@@ -572,7 +545,9 @@ describe('T-022 a displayed bound account and a saved one can never disagree (PM
                 { id: binding.accountNumericUserId, label: binding.accountLogin },
             ]);
         }
-        // case: lists the accounts available to bind in add mode, and never an unusable one
+    });
+
+    it('lists the accounts available to bind in add mode, and never an unusable one', async () => {
         {
             const state: BindingsTabState = {
                 ...initialBindings(),
@@ -589,7 +564,9 @@ describe('T-022 a displayed bound account and a saved one can never disagree (PM
             expect(field.disabled).toBe(false);
             expect(field.options).toEqual([{ id: '77331', label: LOGIN }]);
         }
-        // case: shows the account fixed on screen and saves exactly that account (ruling 5)
+    });
+
+    it('shows the account fixed on screen and saves exactly that account (ruling 5)', async () => {
         {
             const binding = bindingFixture();
             const requests: GuestRequest[] = [];
@@ -635,6 +612,7 @@ describe('T-022 a displayed bound account and a saved one can never disagree (PM
             expect(savedRow?.accountLogin).toBe(LOGIN);
         }
     });
+
 });
 
 /**
@@ -652,8 +630,6 @@ function primaryControl(): Record<string, unknown> | undefined {
 
 /**
  * Arrange a ready list holding exactly the fixture row.
- *
- * @param rt - Runtime the Bindings body is about to mount against.
  */
 function withSelectedRow(rt: ReturnType<typeof createTestRuntime>): void {
     rt.state.bindings.status = 'ready';
@@ -662,17 +638,16 @@ function withSelectedRow(rt: ReturnType<typeof createTestRuntime>): void {
 }
 
 describe('T-036 the editor opens on request and states what it holds (FR-050, FR-053)', () => {
-    it('shows the list first, with New binding beside the ro… (+2 cases)', () => {
-        // case: shows the list first, with New binding beside the row controls and no Edit button
+    it('shows the list first, with New binding beside the row controls and no Edit button', () => {
         {
             const { rt, dispose } = mountBindingsTab({ setup: withSelectedRow });
             const strings = renderedStrings();
-            const editorOpen = rt.bindingsUi?.editorBox.hidden === false;
+            const isEditorOpen = rt.bindingsUi?.editorBox.hidden === false;
             dispose();
 
             // The list is the tab: the editor block is shut until a row click or
             // New binding opens it (2026-10-01 review).
-            expect(editorOpen).toBe(false);
+            expect(isEditorOpen).toBe(false);
             expect(strings).toContain('Remove');
             // One primary control with a contextual label; the separate Edit row
             // button is gone — the row click *is* the Edit affordance.
@@ -681,7 +656,6 @@ describe('T-036 the editor opens on request and states what it holds (FR-050, FR
             // The prompt is a field of this form, not a section with its own save.
             expect(strings).not.toContain('Save starting prompt');
         }
-        // case: opens on the row load, and reads Save changes while that row is loaded
         {
             const { rt, dispose } = mountBindingsTab({ setup: withSelectedRow });
 
@@ -700,7 +674,6 @@ describe('T-036 the editor opens on request and states what it holds (FR-050, FR
             expect(rt.state.bindings.editing).toBe(false);
             dispose();
         }
-        // case: states whether the loaded binding is enabled or disabled (2026-10-01 review)
         {
             const { rt, dispose } = mountBindingsTab({
                 setup: (runtime): void => {
@@ -733,7 +706,7 @@ function paintedListItems(): readonly { readonly title?: string; readonly subtit
     const paints = mounts.log.filter(
         (entry) => entry.key === 'mountList' || entry.key === 'mountList:update',
     );
-    const frame = paints[paints.length - 1];
+    const frame = paints.at(-1);
     const items = (frame?.props as { readonly items?: unknown } | undefined)?.items;
 
     return Array.isArray(items)

@@ -37,7 +37,7 @@ import { ISSUE_URL, createTestRuntime, fakeHost } from './support/panel.ts';
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (root: unknown, props: unknown): {
@@ -106,9 +106,6 @@ interface MountedDispatches {
 
 /**
  * Build one runs row the way the service projects it.
- *
- * @param state - Dispatch state the row should carry.
- * @returns A complete, valid row (003 contract §2's projection).
  */
 function runRow(state: RunRow['state']): RunRow {
     return {
@@ -154,7 +151,6 @@ function runRow(state: RunRow['state']): RunRow {
 /**
  * Build the Dispatches state a body mounts with.
  *
- * @param input - The one row's state, and whether the operator has it open.
  * @returns A ready list holding that single row.
  */
 function runsState(input: { readonly state: RunRow['state']; readonly open: boolean }): DispatchesState {
@@ -192,7 +188,6 @@ function mountBoard(setup?: (rt: PanelRuntime) => void): MountedDispatches {
  * what proves *where* a node sits: a heading under a hidden block is not on
  * screen, whatever its own flags say.
  *
- * @param dom - The mounted tree.
  * @returns Every child mapped to the node that appended it.
  */
 function parentsOf(dom: FakeDom): Map<HidableNode, HidableNode> {
@@ -234,8 +229,6 @@ function isOutOfLayout(parents: Map<HidableNode, HidableNode>, node: HidableNode
  * answer is a heading the panel never mounted at all — a failure that says so
  * rather than an `undefined` assertion downstream.
  *
- * @param dom - The mounted tree.
- * @param text - Exact text to find.
  * @returns The first node carrying it.
  * @throws {Error} When no node carries the text.
  */
@@ -249,8 +242,7 @@ function textIn(dom: FakeDom, text: string): HidableNode {
 }
 
 describe('the Selected dispatch block disappears when nothing is selected (Accounts rule)', () => {
-    it('takes the whole block, heading included, out of the … (+1 cases)', () => {
-        // case: takes the whole block, heading included, out of the layout
+    it('takes the whole block, heading included, out of the layout', () => {
         {
             const { dom, board } = mountBoard();
             const heading = textIn(dom, SELECTED_HEADING);
@@ -258,7 +250,6 @@ describe('the Selected dispatch block disappears when nothing is selected (Accou
             expect(isOutOfLayout(parentsOf(dom), heading)).toBe(true);
             expect(board.selectedBox.hidden).toBe(true);
         }
-        // case: keeps the read-failure note on screen while nothing is selected
         {
             const { dom, board } = mountBoard((rt) => {
                 rt.state.dispatches = { ...initialDispatches(), status: 'error', note: READ_FAILURE_NOTE };
@@ -272,8 +263,7 @@ describe('the Selected dispatch block disappears when nothing is selected (Accou
 });
 
 describe('a selected dispatch keeps every control its row opens', () => {
-    it('shows the block, the retry group, and the source-ref… (+1 cases)', () => {
-        // case: shows the block, the retry group, and the source-reference detail for a failed row
+    it('shows the block, the retry group, and the source-reference detail for a failed row', () => {
         {
             const { dom, board } = mountBoard((rt) => {
                 rt.state.dispatches = runsState({ state: 'failed', open: true });
@@ -290,7 +280,6 @@ describe('a selected dispatch keeps every control its row opens', () => {
             // than greying out, because a disabled control still promises a send.
             expect(board.resolveBox.hidden).toBe(true);
         }
-        // case: shows the resolve group, session-id field included, for an unconfirmed row
         {
             const { dom, board } = mountBoard((rt) => {
                 rt.state.dispatches = runsState({ state: 'unconfirmed', open: true });

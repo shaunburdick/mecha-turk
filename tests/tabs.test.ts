@@ -42,17 +42,12 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual: Record<string, unknown> = await importOriginal();
     return {
         ...actual,
-        mountTabs: (root: Element, initial: {
+        mountTabs: (root: FakeElement, initial: {
             readonly items: readonly { readonly id: string; readonly label: string }[];
             readonly activeId: string;
             readonly onChange: (id: string) => void;
             readonly trackBackground?: boolean;
         }): { update: (next: { readonly activeId: string }) => void; dispose: () => void } => {
-            const host = root as unknown as {
-                readonly ownerDocument: { createElement(tagName: string): FakeElement };
-                append(...nodes: FakeElement[]): void;
-                addEventListener(type: string, listener: () => void): void;
-            };
             strip.labels = initial.items.map((item) => item.label);
             strip.activeId = initial.activeId;
             strip.onChange = initial.onChange;
@@ -60,29 +55,31 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
             strip.disposed = false;
             strip.key = null;
 
-            const track = host.ownerDocument.createElement('div');
+            const track = root.ownerDocument.createElement('div');
             track.setAttribute('role', 'tablist');
-            host.append(track);
+            root.append(track);
 
             const paint = (activeId: string): void => {
                 for (const item of initial.items) {
                     const button = strip.buttons[initial.items.indexOf(item)];
-                    if (button !== undefined) {
-                        button.setAttribute('aria-selected', item.id === activeId ? 'true' : 'false');
-                        button.tabIndex = item.id === activeId ? 0 : -1;
+                    if (button === undefined) {
+                        continue;
                     }
+
+                    button.setAttribute('aria-selected', item.id === activeId ? 'true' : 'false');
+                    button.tabIndex = item.id === activeId ? 0 : -1;
                 }
             };
 
             strip.buttons = initial.items.map((item) => {
-                const button = host.ownerDocument.createElement('button');
+                const button = root.ownerDocument.createElement('button');
                 button.setAttribute('role', 'tab');
-                button.setAttribute('data-id', item.id);
+                button.dataset.id = item.id;
                 track.append(button);
                 return button;
             });
             paint(initial.activeId);
-            host.addEventListener('keydown', (): void => undefined);
+            root.addEventListener('keydown', (): void => undefined);
             track.addEventListener('keydown', (): void => undefined);
 
             return {
@@ -149,8 +146,6 @@ function countedSpecs(): { readonly specs: readonly TabSpec[]; readonly counts: 
 
 /**
  * Mount the shell over a fresh runtime and a fake root.
- *
- * @returns Everything a test needs to read back: runtime, root, specs, counts.
  */
 function mountShell(): {
     readonly rt: ReturnType<typeof createTestRuntime>;
@@ -163,15 +158,13 @@ function mountShell(): {
     const { specs, counts } = countedSpecs();
     const shell = mountTabShell({ rt, root: dom.root, specs });
 
-    return { rt, root: dom.root as unknown as FakeElement, counts, shell };
+    return { rt, root: dom.rootElement, counts, shell };
 }
 
 /**
  * Read the body container the shell created for one tab (they live inside the
  * body region, one level below the root the strip also appended to).
  *
- * @param root - The fake panel root.
- * @param id - The tab id the container carries.
  * @returns The container, or `undefined` when the shell never made one.
  */
 function bodyOf(root: FakeElement, id: string): FakeElement | undefined {
@@ -196,7 +189,6 @@ function bodyOf(root: FakeElement, id: string): FakeElement | undefined {
  * Read the body region the shell created — the one element carrying
  * `data-body-region`, and the panel's only scroller (005 FR-082).
  *
- * @param root - The fake panel root.
  * @returns The region, or `undefined` when the shell made none.
  */
 function regionOf(root: FakeElement): FakeElement | undefined {
@@ -204,31 +196,29 @@ function regionOf(root: FakeElement): FakeElement | undefined {
 }
 
 describe('mountTabShell (the six-tab shell, 005 FR-010)', () => {
-    it('mounts six tabs in FR-010 order with Status active (… (+2 cases)', () => {
-        // case: mounts six tabs in FR-010 order with Status active (AC-101)
+    it('mounts six tabs in FR-010 order with Status active', () => {
         {
             const { rt, root, counts } = mountShell();
 
             expect(strip.labels).toEqual(LABELS);
             expect(strip.buttons).toHaveLength(6);
             expect(rt.activeTab).toBe('status');
+            const idleIds = TAB_IDS.filter((tab) => tab !== 'status');
             expect(bodyOf(root, 'status')?.hidden).toBe(false);
-            for (const id of TAB_IDS.filter((tab) => tab !== 'status')) {
+            for (const id of idleIds) {
                 expect(bodyOf(root, id)?.hidden).toBe(true);
             }
 
             // Status is active, so its body mounted on the first paint (FR-013).
             expect(counts.get('status')?.mounts).toBe(1);
         }
-        // case: puts the strip before the bodies, so every body follows it (FR-082)
         {
             const { root } = mountShell();
 
-            expect(root.children[0]?.attribute('role')).toBe('tablist');
-            const region = root.children[1];
-            expect(region?.children[0]?.attribute('data-body')).toBe('status');
+            expect(root.firstElementChild?.attribute('role')).toBe('tablist');
+            const region = regionOf(root);
+            expect(region?.firstElementChild?.attribute('data-body')).toBe('status');
         }
-        // case: gives exactly one tab the roving slot (FR-016)
         {
             mountShell();
 
@@ -241,8 +231,7 @@ describe('mountTabShell (the six-tab shell, 005 FR-010)', () => {
 });
 
 describe('the strip holds its layout while content scrolls (005 FR-082)', () => {
-    it('makes the body region the panel’s only scroller (+2 cases)', () => {
-        // case: makes the body region the panel’s only scroller
+    it('makes the body region the panel’s only scroller', () => {
         {
             const { root } = mountShell();
             const region = regionOf(root);
@@ -255,11 +244,10 @@ describe('the strip holds its layout while content scrolls (005 FR-082)', () => 
             expect(region?.style.minHeight).toBe('0');
             expect(region?.style.overflowY).toBe('auto');
         }
-        // case: keeps the strip outside the region, so tall bodies scroll under it
         {
             const { root } = mountShell();
             const region = regionOf(root);
-            const stripElement = root.children[0];
+            const stripElement = root.firstElementChild;
 
             expect(stripElement?.attribute('role')).toBe('tablist');
             expect(region).toBeDefined();
@@ -270,7 +258,6 @@ describe('the strip holds its layout while content scrolls (005 FR-082)', () => 
             expect(stripIndex).toBe(0);
             expect(regionIndex).toBeGreaterThan(stripIndex);
         }
-        // case: lets no root child but the region give up height (panel/index.html)
         {
             const html = readFileSync(resolve(import.meta.dirname, '../panel/index.html'), 'utf8');
 
@@ -285,8 +272,7 @@ describe('the strip holds its layout while content scrolls (005 FR-082)', () => 
 });
 
 describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
-    it('mounts a body once and never again (FR-013) (+5 cases)', () => {
-        // case: mounts a body once and never again (FR-013)
+    it('mounts a body once and never again (FR-013)', () => {
         {
             const { rt, root, counts } = mountShell();
 
@@ -299,7 +285,6 @@ describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
             expect(bodyOf(root, 'bindings')?.hidden).toBe(false);
             expect(bodyOf(root, 'status')?.hidden).toBe(true);
         }
-        // case: treats activating the shown tab as a no-op with no repaint (FR-014)
         {
             const { rt } = mountShell();
             const { updates } = strip;
@@ -309,7 +294,6 @@ describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
             expect(strip.updates).toBe(updates);
             expect(rt.activeTab).toBe('status');
         }
-        // case: reaches every one of the six tabs exactly once
         {
             const { rt, counts } = mountShell();
 
@@ -322,7 +306,6 @@ describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
                 expect(counts.get(id)?.mounts).toBe(1);
             }
         }
-        // case: keeps the tab↔body association across two strip repaints (FR-016, FR-082)
         {
             const { rt, root } = mountShell();
 
@@ -330,6 +313,7 @@ describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
             rt.shell?.activate('accounts');
 
             for (const id of TAB_IDS) {
+                // eslint-disable-next-line unicorn/require-css-escape -- `id` comes from `TAB_IDS`, six literals.
                 const tab = root.querySelector(`[role="tab"][data-id="${id}"]`);
                 const body = bodyOf(root, id);
                 expect(tab?.attribute('id')).toBe(`oc-tab-${id}`);
@@ -338,7 +322,6 @@ describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
             }
             expect(strip.updates).toBe(2);
         }
-        // case: turns a strip selection change into the same activation
         {
             const { rt, counts } = mountShell();
 
@@ -348,7 +331,6 @@ describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
             expect(counts.get('about')?.mounts).toBe(1);
             expect(strip.key).toBeNull();
         }
-        // case: records a landed read without activating anything (FR-014)
         {
             const { rt } = mountShell();
 
@@ -361,8 +343,7 @@ describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
 });
 
 describe('mountTabShell teardown (005 FR-017, NFR-108)', () => {
-    it('disposes every mounted body in strip order and clear… (+1 cases)', () => {
-        // case: disposes every mounted body in strip order and clears the registries
+    it('disposes every mounted body in strip order and clears the registries', () => {
         {
             const { rt, counts, shell } = mountShell();
             rt.shell?.activate('about');
@@ -381,7 +362,6 @@ describe('mountTabShell teardown (005 FR-017, NFR-108)', () => {
             expect(strip.disposed).toBe(true);
             expect(rt.shell).toBeNull();
         }
-        // case: removes the body region it appended
         {
             const { root, shell } = mountShell();
             expect(root.children.length).toBeGreaterThan(1);
@@ -418,8 +398,7 @@ function hiddenWrites(): readonly string[] {
 }
 
 describe('the spike surface is deleted, not hidden (005 SC-103, FR-011)', () => {
-    it('leaves no code path that hides a spike-era container (+1 cases)', () => {
-        // case: leaves no code path that hides a spike-era container
+    it('leaves no code path that hides a spike-era container', () => {
         {
             // The old switch wrote `section.spike.hidden` and
             // `section.bindings.pane.hidden`; neither container exists any more,
@@ -428,7 +407,6 @@ describe('the spike surface is deleted, not hidden (005 SC-103, FR-011)', () => 
 
             expect(retired).toEqual([]);
         }
-        // case: hides a tab body only inside the shell
         {
             const offenders = hiddenWrites().filter(
                 (entry) => entry.includes('body.hidden') && !entry.startsWith('src/tabs.ts'),

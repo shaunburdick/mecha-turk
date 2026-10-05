@@ -38,9 +38,9 @@ export type RunRefusalCode =
     | 'unknown-run'
     /** The lease or token is expired, superseded, unknown, or mismatched. */
     | 'stale-lease'
-    /** The run already holds a live authorization (FR-022). */
+    /** The run already holds a live authorization. */
     | 'already-reserved'
-    /** The run already produced a session; the message names it (FR-022, AC-112). */
+    /** The run already produced a session; the message names it. */
     | 'already-dispatched'
     /** The run is not in a state this operation accepts, with a distinct message. */
     | 'invalid-transition'
@@ -48,8 +48,8 @@ export type RunRefusalCode =
      * The binding's actor allow-list admits nobody on this run (003 FR-077).
      *
      * The gate's one code covers all three of its causes — no reference names an
-     * allowed actor; a reference's actor is absent, empty, or bot-shaped
-     * (FR-080); the policy itself could not be read (constitution II) — because
+     * allowed actor; a reference's actor is absent, empty, or bot-shaped;
+     * the policy itself could not be read (constitution II) — because
      * all three leave the run in the same place and are repaired the same way:
      * the operator changes the binding's `allowedUsers`, then retries. One code
      * is also one less wire vocabulary for the panel to keep in step.
@@ -71,7 +71,7 @@ export type RunRefusalCode =
 
 /**
  * How much of a run's trigger history an authorization decision could actually
- * see (003 T-038, NFR-107).
+ * see.
  *
  * A **closed word rather than the run's boolean**, for three reasons that all
  * point the same way:
@@ -90,8 +90,7 @@ export type RunRefusalCode =
  *   shape or a boolean that would mean two different things per code.
  *
  * **Value-free by construction** — two words about a list, never a login — so
- * it can ride the envelope without becoming a second copy of the access policy
- * (NFR-113).
+ * it can ride the envelope without becoming a second copy of the access policy.
  */
 export type ReferenceWindow = 'complete' | 'truncated';
 
@@ -132,7 +131,7 @@ export function refuse(code: RunRefusalCode, message: string): RunRefusal {
 }
 
 /**
- * Build the one refusal that also states the window its gate judged (003 T-038).
+ * Build the one refusal that also states the window its gate judged.
  *
  * **A second constructor rather than a third argument**, and that is a
  * readability decision as much as a lint one: every other refusal in the family
@@ -179,7 +178,7 @@ export interface RunApplied {
     readonly status: 'applied';
     /** The run as it now stands. */
     readonly run: Run;
-    /** Whether the lifecycle row reached the trail (FR-063). */
+    /** Whether the lifecycle row reached the trail. */
     readonly auditWritten: boolean;
 }
 
@@ -208,7 +207,7 @@ export interface RunRefused {
     readonly refusal: RunRefusal;
     /** The run as it stood, or `null` when no run carries this id. */
     readonly run: Run | null;
-    /** Whether the `dispatch.refused` row reached the trail (FR-003). */
+    /** Whether the `dispatch.refused` row reached the trail. */
     readonly auditWritten: boolean;
 }
 
@@ -227,7 +226,6 @@ export type RunResult = RunOutcome | RunNotFound;
 /**
  * Narrow an operation result to a refusal the caller must answer `4xx`.
  *
- * @param outcome - Whatever the operation returned.
  * @returns The refusal shape, or `null` when the operation applied, duplicated,
  *   or found nothing at all.
  */

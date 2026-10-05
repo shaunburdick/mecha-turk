@@ -46,13 +46,11 @@ const RUN_TEXT_FIELDS = [
 export interface RunScalars {
     /** Current state. */
     readonly state: RunState;
-    /** Reason line: `null` while pending, required everywhere else (FR-074). */
+    /** Reason line: `null` while pending, required everywhere else. */
     readonly stateReason: string | null;
     /** Subject shape. */
     readonly subjectType: Run['subjectType'];
-    /** Ordinal. */
     readonly ordinal: number;
-    /** Subject number. */
     readonly subjectNumber: number;
     /** Attempt count. */
     readonly attempt: number;
@@ -60,13 +58,13 @@ export interface RunScalars {
     readonly requeuesUsed: number;
     /** Deliveries that joined, retained or not. */
     readonly referenceCount: number;
-    /** Joining triggers the cap kept off the list (T-038). */
+    /** Joining triggers the cap kept off the list. */
     readonly referencesNotRetained: number;
     /** Whether the reference list was cut. */
     readonly referencesTruncated: boolean;
     /**
      * The snapshotted allow-list shape, or `null` when no authorization has
-     * been recorded yet (003 FR-079).
+     * been recorded yet.
      */
     readonly actorPolicy: ActorPolicy | null;
     /** Creation stamp. */
@@ -94,7 +92,6 @@ function isBlockedReason(reason: string): boolean {
  * Narrow a value to a run state, or `null` when it is from another
  * vocabulary.
  *
- * @param value - Candidate state.
  * @returns The state, or `null`.
  */
 function runStateOf(value: unknown): RunState | null {
@@ -118,7 +115,6 @@ function runStateOf(value: unknown): RunState | null {
  * Narrow a value to a run state, for callers that must *refuse* rather than
  * read (the block report validates its reason before it writes a state).
  *
- * @param value - Candidate state.
  * @returns `true` for one of the eight model states or a `blocked:<reason>`.
  */
 export function isRunState(value: unknown): value is RunState {
@@ -158,14 +154,14 @@ function readStateLine(raw: Record<string, unknown>): StateLine | null {
 }
 
 /**
- * Read the snapshotted actor policy (003 FR-079).
+ * Read the snapshotted actor policy.
  *
  * Absent **or** stored `null` both read as *no authorization recorded*, which
  * is how every run written before this member existed reads — a statement
  * about that run rather than a hole in the record. A **present** value outside
  * the closed two-word union refuses the row instead of defaulting to `'open'`,
  * because defaulting would silently upgrade an unreadable policy into
- * permission (constitution II, 002 FR-024).
+ * permission (constitution II).
  *
  * @param raw - Candidate row, already known to be a record.
  * @returns The policy, `null` for "none recorded", or `undefined` when a
@@ -204,7 +200,7 @@ export function parseRunScalars(raw: Record<string, unknown>): RunScalars | null
     const createdAt = readStamp(raw.createdAt);
     const updatedAt = readStamp(raw.updatedAt);
     const values = [ordinal, subjectNumber, attempt, requeuesUsed, referenceCount, notRetained, createdAt, updatedAt];
-    if (values.includes(null) || truncated === null) {
+    if (truncated === null || values.includes(null)) {
         return null;
     }
 

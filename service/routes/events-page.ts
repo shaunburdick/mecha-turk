@@ -26,7 +26,7 @@ export const DEFAULT_PAGE_SIZE = 25;
 /** Middle page size `GET /v1/events` accepts (contract §1). */
 const MID_PAGE_SIZE = 50;
 
-/** Largest page `GET /v1/events` accepts; the shipped cap became it (FR-042). */
+/** Largest page `GET /v1/events` accepts; the shipped cap became it. */
 export const MAX_PAGE_SIZE = 100;
 
 /** Page sizes the route accepts, smallest first (contract §1). */
@@ -153,7 +153,6 @@ export function boundaryOf(
 /**
  * Encode a page boundary for the next answer.
  *
- * @param row - The last row of the page just served.
  * @returns The opaque token the next request carries back.
  */
 export function encodeBoundary(row: RunHistoryRow): string {
@@ -194,7 +193,7 @@ export function stateFilterOf(
         return { ok: true, state: null };
     }
 
-    if ((LISTABLE_STATES as readonly string[]).includes(raw) || raw === 'blocked') {
+    if (raw === 'blocked' || (LISTABLE_STATES as readonly string[]).includes(raw)) {
         return { ok: true, state: raw };
     }
 
@@ -265,8 +264,6 @@ export function listQueryOf(
 /**
  * Whether a row belongs to the filtered set the query describes.
  *
- * @param row - Row being tested.
- * @param query - The validated filters.
  * @returns `true` when the row survives both filters.
  */
 export function matchesFilters(row: RunHistoryRow, query: ListQuery): boolean {
@@ -288,7 +285,6 @@ export function matchesFilters(row: RunHistoryRow, query: ListQuery): boolean {
  * detection stamp — without it a page boundary could drop or duplicate a row,
  * which SC-106/AC-121 forbid.
  *
- * @param left - First row.
  * @param right - Second row.
  * @returns Negative when `left` sorts first.
  */
@@ -308,8 +304,6 @@ export function newestFirst(left: RunHistoryRow, right: RunHistoryRow): number {
 /**
  * Whether a row sits after the page boundary in the retained order.
  *
- * @param row - Row being tested.
- * @param boundary - The last row the previous page served.
  * @returns `true` when the row belongs to a later page.
  */
 export function afterBoundary(row: RunHistoryRow, boundary: PageBoundary): boolean {
@@ -326,9 +320,8 @@ export function afterBoundary(row: RunHistoryRow, boundary: PageBoundary): boole
  *
  * `total` is passed through exactly as the caller computed it: a withheld total
  * stays `null` rather than being replaced by the page size, which is the one
- * substitution that would turn "25 rows shown" into "25 rows exist" (NFR-112).
+ * substitution that would turn "25 rows shown" into "25 rows exist".
  *
- * @param input - The page's members.
  * @returns The member as it goes on the wire.
  */
 export function buildEventPage(input: {

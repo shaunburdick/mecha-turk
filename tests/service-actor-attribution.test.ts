@@ -45,8 +45,7 @@
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -74,6 +73,7 @@ import type { GitHubIssuePoller, ListPace } from '../service/poll/poller-github.
 import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/verify.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /* -------------------------------------------------------------------- *
  * Constants and fixtures
@@ -281,7 +281,6 @@ const REPOSITORY = { owner: OWNER, name: REPO_NAME };
 /**
  * Write one active binding the fixtures scan.
  *
- * @param triggers - Which switches this binding turns on.
  * @returns A complete active binding.
  */
 function fixtureBinding(triggers: BindingRecord['triggers']): BindingRecord {
@@ -329,7 +328,6 @@ function fixtureAccount(): Account {
 /**
  * Build one normalized event row.
  *
- * @param input - The kind word, its subjects and actors, and its stamp.
  * @returns The row the reader would have produced from that wire body.
  */
 function event(input: {
@@ -377,7 +375,6 @@ function assignedBy(assigner: string, overrides: Partial<PollItemEvent> = {}): P
  * the pull request (002 FR-049).
  *
  * @param requester - The `review_requester.login` the row names.
- * @param overrides - Members to replace on the returned row.
  * @returns The naming row.
  */
 function requestedBy(requester: string, overrides: Partial<PollItemEvent> = {}): PollItemEvent {
@@ -411,8 +408,6 @@ function candidate(overrides: Partial<Parameters<typeof namingEventOf>[1]> = {})
 /**
  * A normalized `simple-user` member with an explicit type.
  *
- * @param login - The account's login.
- * @param type - The account's type.
  * @returns The member.
  */
 function actorOf(login: string, type: string): ItemEventActor {
@@ -441,7 +436,6 @@ function issueMember(issueNumber?: number): string {
 /**
  * A `simple-user` member as GitHub sends a named account.
  *
- * @param login - The account's login.
  * @param type - The account's type, defaulting to a human.
  * @returns The member as wire JSON text.
  */
@@ -460,7 +454,6 @@ function wireActor(login: string, type = 'User'): string {
  * reader cannot mistake `assigner` for `actor`, which is the substitution FR-049
  * exists to make unreachable (002 FR-052).
  *
- * @param input - The kind word, each member as JSON text, and the row's stamp.
  * @returns The row as wire JSON text, ready to join into a page.
  */
 function wireRow(input: {
@@ -502,15 +495,20 @@ function wireRow(input: {
     return `{ ${parts.join(', ')} }`;
 }
 
-
 /**
  * Serialize a whole page of rows.
  *
- * @param rows - The rows the page carries, as wire text.
  * @returns A JSON array body.
  */
 function wirePage(rows: readonly string[]): string {
     return `[${rows.join(',')}]`;
+}
+
+/**
+ * The events page holding exactly one row.
+ */
+function wireEventsPage(input: Parameters<typeof wireRow>[0]): string {
+    return wirePage([wireRow(input)]);
 }
 
 /** The naming `assigned` row as the endpoint would answer it. */
@@ -531,6 +529,28 @@ function wireRequested(requester: string, issueNumber?: number): string {
         requestedReviewer: wireActor(ACCOUNT_LOGIN),
         issueNumber,
     });
+}
+
+/**
+ * The events page holding exactly one assigned row.
+ *
+ * Page and row in one step, because a scan route spells it as
+ * `fakeGitHub(scanRoutes({ events: … }))` and anything the reader has to count
+ * layers to parse is a step they will get wrong.
+ *
+ * @param assigner - Login the row records as its assigner.
+ */
+function assignedPage(assigner: string, createdAt?: string): string {
+    return wirePage([wireAssigned(assigner, createdAt)]);
+}
+
+/**
+ * The events page holding exactly one review-requested row.
+ *
+ * @param requester - Login the row records as its requester.
+ */
+function requestedPage(requester: string, issueNumber?: number): string {
+    return wirePage([wireRequested(requester, issueNumber)]);
 }
 
 /**
@@ -618,7 +638,7 @@ function fakeGitHub(routes: Readonly<Record<string, RouteAnswer>>): FakeGitHub {
         // lookup would silently answer an events request from the list fixture.
         const answer = Object.entries(routes)
             .filter(([prefix]) => parsed.pathname.startsWith(prefix))
-            .sort(([left], [right]) => right.length - left.length)[0]?.[1];
+            .toSorted(([left], [right]) => right.length - left.length)[0]?.[1];
         if (answer === undefined) {
             throw new Error(`the fixture scripted no answer for ${parsed.pathname}`);
         }
@@ -659,7 +679,6 @@ let tempRoot = '';
  * nothing waits at all — the values are otherwise the defaults, because
  * `retryBaseMs` is bounded at 1 000 ms and a fixture cannot simply write 1 ms.
  *
- * @param input - The binding's trigger switches, and the window to arm.
  * @returns The open store, the cycle's logger, and the lines it wrote.
  */
 async function seed(input: {
@@ -669,7 +688,7 @@ async function seed(input: {
 }): Promise<Seeded> {
     const store = await openStore({ dataDir: join(tempRoot, 'store') });
     const lines: string[] = [];
-    const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+    const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
     await writeBindings({ store, bindings: [fixtureBinding(input.triggers)] });
     await writeAccount(store, fixtureAccount());
     await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, retryMaxAttempts: NO_RETRIES });
@@ -685,11 +704,9 @@ async function seed(input: {
     return { store, log, lines };
 }
 
-
 /**
  * Build a poller over one fake GitHub.
  *
- * @param github - The fake to build on.
  * @param log - Logger the poller's waits are reported through.
  * @returns The production poller, bound to the fake.
  */
@@ -700,9 +717,6 @@ function pollerOver(github: FakeGitHub, log: ServiceLogger): GitHubIssuePoller {
 /**
  * The routes a scan fixture needs: the two list feeds plus the per-item read.
  *
- * @param events - What the events endpoint answers, per request.
- * @param issues - What the issues list answers.
- * @param pulls - What the pulls list answers.
  * @returns The script, keyed by path prefix.
  */
 function scanRoutes(input: {
@@ -720,18 +734,18 @@ function scanRoutes(input: {
         // The two list feeds first, because `EVENTS_PATH` is a **prefix** of
         // neither and the per-item path is a strict extension of it — the lookup
         // takes the first match, so the shorter, more general prefixes go first.
-        [ISSUES_PATH]: { body: input.issues ?? '[]', ...(status === undefined ? {} : { status }) },
-        [PULLS_PATH]: { body: input.pulls ?? '[]', ...(status === undefined ? {} : { status }) },
-        [EVENTS_PATH]: { body: input.events, ...(status === undefined ? {} : { status }) },
+        [ISSUES_PATH]: { body: input.issues ?? '[]', ...(status !== undefined && { status }) },
+        [PULLS_PATH]: { body: input.pulls ?? '[]', ...(status !== undefined && { status }) },
+        [EVENTS_PATH]: { body: input.events, ...(status !== undefined && { status }) },
     };
 }
 
 beforeEach(async () => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-actor-read-'));
+    tempRoot = await makeTempTree('actor-read');
 });
 
 afterEach(async () => {
-    await rm(tempRoot, { recursive: true, force: true });
+    await removeTempTree(tempRoot);
 });
 
 /* -------------------------------------------------------------------- *
@@ -878,7 +892,7 @@ describe('FR-051 the window is a client-side comparison, and the walk is one-dir
         const orders = [
             qualifying,
             rowsOf([qualifying[1], qualifying[2], qualifying[0]]),
-            [...qualifying].reverse(),
+            qualifying.toReversed(),
             rowsOf([qualifying[0], qualifying[2], qualifying[1]]),
         ];
 
@@ -951,7 +965,7 @@ describe('FR-051 the window is a client-side comparison, and the walk is one-dir
             [EVENTS_PATH]: { body: (request) => wireUnqualifyingPage(Number(request.page ?? '1')) },
         });
         const lines: string[] = [];
-        const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+        const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
 
         const outcome = await resolveCandidateActor({
             poller: pollerOver(github, log),
@@ -1024,7 +1038,7 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
             const outcome = actorOfNamingEvent({ kind: 'assignment', event: row });
 
             expect(outcome.usable, label).toBe(false);
-            expect(outcome.usable === false && outcome.reason, label).toMatch(/actor/);
+            expect(!outcome.usable && outcome.reason, label).toMatch(/actor/);
         }
         // And a readable, non-bot actor is admitted.
         expect(actorOfNamingEvent({ kind: 'assignment', event: assignedBy(ASSIGNER) }))
@@ -1039,7 +1053,7 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
         // have reached for is available, and none is used.
         const github = fakeGitHub({
             [EVENTS_PATH]: {
-                body: wirePage([wireRow({
+                body: wireEventsPage({
                     event: 'assigned',
                     // Substitute 1: the row's own `actor` member — readable.
                     actor: wireActor(AUTOMATION_ACTOR, BOT_TYPE),
@@ -1047,11 +1061,11 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
                     // `assignee` beside it names the bound account.
                     assigner: 'null',
                     assignee: wireActor(ACCOUNT_LOGIN),
-                })]),
+                }),
             },
         });
         const lines: string[] = [];
-        const log = createLogger({ level: 'debug', sink: (line) => lines.push(line) });
+        const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
 
         const outcome = await resolveCandidateActor({
             poller: pollerOver(github, log),
@@ -1081,11 +1095,11 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
         // on the cycle where GitHub has propagated a readable actor (FR-052).
         const unreadable = fakeGitHub({
             [EVENTS_PATH]: {
-                body: wirePage([wireRow({
+                body: wireEventsPage({
                     event: 'assigned',
                     assigner: 'null',
                     assignee: wireActor(ACCOUNT_LOGIN),
-                })]),
+                }),
             },
         });
         const { store, log } = await seed({ triggers: { assignment: true, mention: false, reviewRequest: false } });
@@ -1096,7 +1110,7 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
         expect(await readEvents({ store, log })).toEqual([]);
 
         // GitHub has now propagated the assigner; the **same** item, re-asked.
-        const routes = scanRoutes({ events: wirePage([wireAssigned(ASSIGNER)]), issues: issueListBody() });
+        const routes = scanRoutes({ events: assignedPage(ASSIGNER), issues: issueListBody() });
         const second = await runScanCycle({ store, log, poller: pollerOver(fakeGitHub(routes), log) });
         const queued = await readEvents({ store, log });
 
@@ -1125,10 +1139,12 @@ const ROOT = resolve(import.meta.dirname, '..');
  */
 function sourceFiles(dir: string): ReadonlyMap<string, string> {
     const files = new Map<string, string>();
-    for (const entry of readdirSync(resolve(ROOT, dir), { recursive: true })) {
+    const root = resolve(ROOT, dir);
+    const entries = readdirSync(root, { recursive: true });
+    for (const entry of entries) {
         const path = String(entry);
         if (path.endsWith('.ts')) {
-            files.set(`${dir}/${path}`, readFileSync(resolve(ROOT, dir, path), 'utf8'));
+            files.set(`${dir}/${path}`, readFileSync(resolve(root, path), 'utf8'));
         }
     }
 
@@ -1182,21 +1198,22 @@ describe('AC-028 the read is per item and never repository-wide (FR-049)', () =>
 
     it('issues exactly one events request per matched candidate', async () => {
         const github = fakeGitHub(scanRoutes({
-            events: wirePage([wireAssigned(ASSIGNER)]),
+            events: assignedPage(ASSIGNER),
             issues: issueListBody(),
         }));
         const { store, log } = await seed({ triggers: { assignment: true, mention: false, reviewRequest: false } });
 
         const cycle = await runScanCycle({ store, log, poller: pollerOver(github, log) });
 
+        const [eventRequest] = github.eventRequests();
         expect(cycle.enqueued).toBe(1);
         expect(github.eventRequests()).toHaveLength(1);
-        expect(github.eventRequests()[0]?.path).toBe(`${EVENTS_PATH}${ISSUE_NUMBER}/events`);
+        expect(eventRequest?.path).toBe(`${EVENTS_PATH}${ISSUE_NUMBER}/events`);
     });
 
     it('serves a pull request\'s review request from the same per-item path', async () => {
         const github = fakeGitHub(scanRoutes({
-            events: wirePage([wireRequested(REQUESTER, PULL_NUMBER)]),
+            events: requestedPage(REQUESTER, PULL_NUMBER),
             pulls: pullListBody(),
         }));
         const { store, log } = await seed({ triggers: { assignment: false, mention: false, reviewRequest: true } });

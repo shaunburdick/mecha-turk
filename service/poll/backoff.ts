@@ -28,7 +28,7 @@
 
 /** The three knobs one request's ladder runs on, read at the cycle boundary. */
 export interface RetryPolicy {
-    /** Attempts per request, the **first attempt included** (FR-058). */
+    /** Attempts per request, the **first attempt included**. */
     readonly maxAttempts: number;
     /** Delay the ladder starts from, before jitter. */
     readonly baseMs: number;
@@ -66,7 +66,6 @@ export type RandomFn = () => number;
 /**
  * Clamp a jitter source to the `[0, 1]` fraction the ladder assumes.
  *
- * @param value - Whatever the injected source returned.
  * @returns The value, bounded to the unit interval.
  */
 function unitFraction(value: number): number {
@@ -78,13 +77,11 @@ function unitFraction(value: number): number {
 }
 
 /** Milliseconds one second holds; the guidance header speaks in seconds. */
-const MILLISECONDS_PER_SECOND = 1000;
+const MILLISECONDS_PER_SECOND = 1_000;
 
 /**
  * The jittered ladder delay before an attempt.
  *
- * @param input - The policy, the attempt about to run (1 is immediate, so 2
- *   is `base`), and the injected jitter source in `[0, 1)`.
  * @returns Milliseconds, never above `policy.maxMs`.
  */
 export function backoffDelayMs(input: {
@@ -106,8 +103,6 @@ export function backoffDelayMs(input: {
 /**
  * Choose the wait that precedes the next attempt.
  *
- * @param input - Policy, the attempt to wait for, and optional rate-limit
- *   guidance in seconds (or `null` when the failure carried none).
  * @returns The wait the driver should perform.
  */
 export function nextWait(input: {
@@ -143,8 +138,6 @@ export function nextWait(input: {
  * start, and it carries the length and the source only — never a header
  * value, never a credential (FR-058's log requirement; 002 FR-007).
  *
- * @param input - Everything `nextWait` takes, plus the injected sleep and the
- *   observer that receives the chosen wait.
  * @returns The wait that was performed.
  */
 export async function waitForRetry(input: {

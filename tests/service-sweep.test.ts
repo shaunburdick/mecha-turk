@@ -22,9 +22,6 @@
  * property rather than a comment.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import type { AuditEntry } from '../service/audit.ts';
@@ -42,6 +39,8 @@ import type { EventSnapshot } from '../service/poll/events.ts';
 import type { DispatchAttempt, Run, RunsDocument } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import type { SweepOutcome } from '../service/poll/sweep.ts';
+import { byText } from './support/sort.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Detections use this stamp; the sweep uses whatever the test injects. */
 const DETECTED_AT = '2026-09-28T12:00:00.000Z';
@@ -69,28 +68,23 @@ const LEASE_EXPIRED = 'dispatch.lease-expired';
 const DEAD_LETTERED = 'run.dead_lettered';
 const UNCONFIRMED = 'dispatch.unconfirmed';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let dataDir = '';
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-sweep-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('sweep'));
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /** Build an assignment detection for one issue. */
 function assignment(issueNumber: number): EventSnapshot {
@@ -154,7 +148,6 @@ async function seedRun(issueNumber: number): Promise<Run> {
 /**
  * Rewrite one stored run through the store's own writer.
  *
- * @param correlationId - The run to patch.
  * @param patch - The new row, given the one being replaced.
  * @returns Nothing; the caller reads the run back with {@link readRun}.
  */
@@ -163,7 +156,7 @@ async function patchRun(correlationId: string, patch: (run: Run) => Run): Promis
     const runs = document.runs.map((candidate) => (candidate.correlationId === correlationId
         ? patch(candidate)
         : candidate));
-    if (!runs.some((candidate) => candidate.correlationId === correlationId)) {
+    if (runs.every((candidate) => candidate.correlationId !== correlationId)) {
         throw new Error('patched run is no longer stored');
     }
 
@@ -255,8 +248,7 @@ async function rowsOf(eventType: string): Promise<readonly AuditEntry[]> {
 }
 
 describe('T-009 lease expiry (FR-032)', () => {
-    it('requeues an expired unreserved claim and records the… (+2 cases)', async () => {
-        // case: requeues an expired unreserved claim and records the attempt before and after
+    it('requeues an expired unreserved claim and records the attempt before and after', async () => {
         {
             const run = await seedRun(101);
             await claimSeeded(run, LAPSED_LEASE);
@@ -282,11 +274,9 @@ describe('T-009 lease expiry (FR-032)', () => {
             });
             expect(rows[0]?.entity).toEqual({ kind: 'run', id: run.correlationId });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: leaves a live lease exactly where it is
+    });
+
+    it('leaves a live lease exactly where it is', async () => {
         {
             const run = await seedRun(102);
             await claimSeeded(run, LIVE_LEASE);
@@ -297,11 +287,9 @@ describe('T-009 lease expiry (FR-032)', () => {
             expect(outcome.recoveries).toEqual([]);
             expect(stillClaimed.state).toBe('claimed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: parks the run once the requeue budget is spent (FR-033, AC-106)
+    });
+
+    it('parks the run once the requeue budget is spent', async () => {
         {
             const run = await seedRun(103);
             await claimSeeded(run, LAPSED_LEASE);
@@ -336,11 +324,11 @@ describe('T-009 lease expiry (FR-032)', () => {
             expect(reclaim.runs).toEqual([]);
         }
     });
+
 });
 
 describe('T-009 late dispatch result (FR-023)', () => {
-    it('wedges a reserved run whose result never arrived (+2 cases)', async () => {
-        // case: wedges a reserved run whose result never arrived
+    it('wedges a reserved run whose result never arrived', async () => {
         {
             const run = await seedRun(111);
             await claimSeeded(run, LIVE_LEASE);
@@ -368,11 +356,9 @@ describe('T-009 late dispatch result (FR-023)', () => {
             });
             expect(JSON.stringify(rows[0])).not.toContain(DISPATCH_TOKEN);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: leaves a reserved run alone before its deadline
+    });
+
+    it('leaves a reserved run alone before its deadline', async () => {
         {
             const run = await seedRun(112);
             await claimSeeded(run, LIVE_LEASE);
@@ -384,11 +370,9 @@ describe('T-009 late dispatch result (FR-023)', () => {
             expect(outcome.recoveries).toEqual([]);
             expect(reserved.state).toBe('starting');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: leaves an unconfirmed wedge untouched through ten more passes (AC-107)
+    });
+
+    it('leaves an unconfirmed wedge untouched through ten more passes', async () => {
         {
             const run = await seedRun(113);
             await claimSeeded(run, LIVE_LEASE);
@@ -405,11 +389,11 @@ describe('T-009 late dispatch result (FR-023)', () => {
             expect(await rowsOf(UNCONFIRMED)).toHaveLength(1);
         }
     });
+
 });
 
 describe('T-009 what the sweep must not touch (FR-036, FR-028)', () => {
-    it('burns nothing for a run that is merely waiting (+1 cases)', async () => {
-        // case: burns nothing for a run that is merely waiting
+    it('burns nothing for a run that is merely waiting', async () => {
         {
             const run = await seedRun(121);
 
@@ -424,11 +408,9 @@ describe('T-009 what the sweep must not touch (FR-036, FR-028)', () => {
             expect(waiting.requeuesUsed).toBe(0);
             expect(await rowsOf(LEASE_EXPIRED)).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: never requeues a claimed run whose history already records a session
+    });
+
+    it('never requeues a claimed run whose history already records a session', async () => {
         {
             const run = await seedRun(122);
             await claimSeeded(run, LAPSED_LEASE);
@@ -465,6 +447,7 @@ describe('T-009 what the sweep must not touch (FR-036, FR-028)', () => {
             );
         }
     });
+
 });
 
 describe('T-009 migration recovery (data-model §1)', () => {
@@ -489,8 +472,7 @@ describe('T-009 migration recovery (data-model §1)', () => {
 });
 
 describe('T-009 the sweep pass itself', () => {
-    it('writes no row and no log line for a pass with nothin… (+3 cases)', async () => {
-        // case: writes no row and no log line for a pass with nothing to do
+    it('writes no row and no log line for a pass with nothing to do', async () => {
         {
             await seedRun(141);
 
@@ -501,11 +483,9 @@ describe('T-009 the sweep pass itself', () => {
             expect(await rowsOf(UNCONFIRMED)).toEqual([]);
             expect(LOG_LINES.filter((line) => line.includes('dispatch sweep recovered a run'))).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: names each recovery in the service log without any secret (SEC-11)
+    });
+
+    it('names each recovery in the service log without any secret', async () => {
         {
             const run = await seedRun(142);
             await claimSeeded(run, LAPSED_LEASE);
@@ -519,11 +499,9 @@ describe('T-009 the sweep pass itself', () => {
             expect(lines[0]).not.toContain('octocat');
             expect(lines[0]).not.toMatch(/gh[pousr]_[A-Za-z0-9]{16,}/);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: recovers several stranded runs in one pass
+    });
+
+    it('recovers several stranded runs in one pass', async () => {
         {
             const first = await seedRun(151);
             const second = await seedRun(152);
@@ -532,15 +510,13 @@ describe('T-009 the sweep pass itself', () => {
 
             const outcome = await sweep(ONE_HOUR_LATER);
 
-            expect(outcome.recoveries.map((recovery) => recovery.run.correlationId).sort())
-                .toEqual([first.correlationId, second.correlationId].sort());
+            expect(outcome.recoveries.map((recovery) => recovery.run.correlationId).toSorted(byText))
+                .toEqual([first.correlationId, second.correlationId].toSorted(byText));
             expect(await rowsOf(LEASE_EXPIRED)).toHaveLength(2);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: halves the shorter of the two durations for its cadence
+    });
+
+    it('halves the shorter of the two durations for its cadence', async () => {
         {
             expect(sweepIntervalMs({ leaseMs: 120_000, resultDeadlineMs: 120_000 })).toBe(60_000);
             expect(sweepIntervalMs({ leaseMs: 600_000, resultDeadlineMs: 30_000 })).toBe(15_000);
@@ -548,11 +524,11 @@ describe('T-009 the sweep pass itself', () => {
             expect(sweepIntervalMs(DEFAULT_CONFIG)).toBe(60_000);
         }
     });
+
 });
 
 describe('T-009 the enqueued path still joins an in-flight run', () => {
-    it('keeps coalescing into a run the claim leased, withou… (+1 cases)', async () => {
-        // case: keeps coalescing into a run the claim leased, without un-claiming it
+    it('keeps coalescing into a run the claim leased, without un-claiming it', async () => {
         {
             const run = await seedRun(161);
             await claimSeeded(run, LIVE_LEASE);
@@ -560,7 +536,7 @@ describe('T-009 the enqueued path still joins an in-flight run', () => {
             await enqueueEvents({
                 store,
                 log: LOGGER,
-                incoming: [createEvent({ ...assignment(161), kind: 'mention', origin: 'comment', commentId: 4242 })],
+                incoming: [createEvent({ ...assignment(161), kind: 'mention', origin: 'comment', commentId: 4_242 })],
             });
             const joined = await readRun(run.correlationId);
             const document = await readRunsDocument({ store, log: LOGGER });
@@ -573,11 +549,9 @@ describe('T-009 the enqueued path still joins an in-flight run', () => {
             // A delivery that arrives after authorization is marked as such (FR-015).
             expect(joined.sourceReferences.at(-1)?.presentAtAuthorization).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: marks a delivery that arrives after the reservation as post-authorization
+    });
+
+    it('marks a delivery that arrives after the reservation as post-authorization', async () => {
         {
             const run = await seedRun(162);
             await claimSeeded(run, LIVE_LEASE);
@@ -594,4 +568,5 @@ describe('T-009 the enqueued path still joins an in-flight run', () => {
             expect(joined.sourceReferences.at(-1)?.presentAtAuthorization).toBe(false);
         }
     });
+
 });

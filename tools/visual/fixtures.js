@@ -42,17 +42,20 @@ function buildRoutes(data) {
     const health = answer(data.health);
     const bindings = answer(data.bindings);
 
-    return {
-        'GET /v1/status': answer(data.status),
-        'GET /v1/config': answer(data.config),
-        'GET /v1/bindings': bindings,
-        'PUT /v1/bindings': bindings,
-        'GET /v1/accounts': answer(data.accounts),
-        'GET /v1/events': answer(data.events),
-        'GET /v1/events/pending': answer(data.pending),
-        'GET /v1/audit': answer(data.audit),
-        'GET /health': health,
-    };
+    // A Map rather than an object literal: the keys are HTTP method-and-path
+    // pairs, which is a protocol token and not a name, and a plain object would
+    // also answer `routes['constructor']` with `Object.prototype.constructor`.
+    return new Map([
+        ['GET /v1/status', answer(data.status)],
+        ['GET /v1/config', answer(data.config)],
+        ['GET /v1/bindings', bindings],
+        ['PUT /v1/bindings', bindings],
+        ['GET /v1/accounts', answer(data.accounts)],
+        ['GET /v1/events', answer(data.events)],
+        ['GET /v1/events/pending', answer(data.pending)],
+        ['GET /v1/audit', answer(data.audit)],
+        ['GET /health', health],
+    ]);
 }
 
 /**
@@ -86,6 +89,7 @@ function refreshRelativeTimes(data) {
  *
  * @returns `{ routes, projects, error }` — `error` is null after a good read.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function loadFixtures() {
     try {
         const response = await globalThis.fetch('./fixtures.json');

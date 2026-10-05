@@ -1,5 +1,5 @@
 /**
- * Mounting and disposing the Bindings tab body (2026-10-01 review).
+ * Mounting and disposing the Bindings tab body.
  *
  * [`bindings-ui.ts`](./bindings-ui.ts) holds the pane's contract and its
  * repaint; this module holds the **mount** — the two blocks, the controls
@@ -94,7 +94,6 @@ interface Board {
     readonly status: TextHandle;
     /** The tab's note line, under the status. */
     readonly note: TextHandle;
-    /** Bindings list. */
     readonly bindingsList: ListHandle;
     /** The toolbar row under the list, shared by the list's four controls. */
     readonly toolbar: HTMLElement;
@@ -108,21 +107,16 @@ interface Form {
     readonly editorState: TextHandle;
     /** Repository input. */
     readonly repoField: TextFieldHandle;
-    /** Account select. */
     readonly accountSelect: SelectHandle;
     /** Mention-token line under the account field. */
     readonly mentionToken: TextHandle;
-    /** Project select. */
     readonly projectSelect: SelectHandle;
-    /** Assignment checkbox. */
     readonly assignment: CheckboxHandle;
-    /** Mention checkbox. */
     readonly mention: CheckboxHandle;
     /** Review-request checkbox. */
     readonly reviewRequest: CheckboxHandle;
-    /** Worktree select. */
     readonly worktree: SelectHandle;
-    /** The actor allow-list field, beside the mention-token override (FR-090). */
+    /** The actor allow-list field, beside the mention-token override. */
     readonly actors: BindingActorControls;
 }
 
@@ -140,9 +134,7 @@ interface SelectedDetail {
 interface BodyParts {
     /** Element the two blocks mounted into. */
     readonly pane: HTMLElement;
-    /** The list block. */
     readonly listBlock: Block;
-    /** The editor block. */
     readonly editorBlock: Block;
     /** Status, note, list, and toolbar half. */
     readonly board: Board;
@@ -161,7 +153,6 @@ interface BodyParts {
 /**
  * Create the toolbar row a block's controls share.
  *
- * @param into - Element the row mounts into.
  * @returns The row element.
  */
 function createToolbar(into: HTMLElement): HTMLElement {
@@ -177,10 +168,7 @@ function createToolbar(into: HTMLElement): HTMLElement {
  *
  * The note sits directly under the status rather than under the form, because
  * a note reports what an action *did* — a refused write, a removal, a failed
- * read — and the editor being closed must not hide that answer (FR-085).
- *
- * @param input - Runtime, pane root, and handlers.
- * @returns The board handles.
+ * read — and the editor being closed must not hide that answer.
  */
 function mountBindingsBoard(input: MountInputs): Board {
     const { pane, rt, handlers } = input;
@@ -276,7 +264,6 @@ function mountTriggerChecks(input: MountInputs): {
  * everything above it, so it reads as part of the binding rather than as a
  * section of its own.
  *
- * @param input - Runtime, editor root, and handlers.
  * @returns The form handles.
  */
 function mountAddForm(input: MountInputs): Form {
@@ -319,7 +306,6 @@ function mountAddForm(input: MountInputs): Form {
 /**
  * Mount the selected row's own facts: its wrapper, its chips, its line.
  *
- * @param parent - The block body these facts describe rows of.
  * @returns The wrapper, the chip row, and the detail line.
  */
 function mountSelectedDetail(parent: HTMLElement): SelectedDetail {
@@ -335,13 +321,11 @@ function mountSelectedDetail(parent: HTMLElement): SelectedDetail {
 }
 
 /**
- * Release every handle the body mounted, then its own nodes (FR-017).
+ * Release every handle the body mounted, then its own nodes.
  *
  * Teardown releases what the tab mounted rather than merely hiding it — the
  * SDK handles carry listeners that would otherwise outlive the panel — and
  * both block headings go with their blocks.
- *
- * @param input - The body's elements, halves, and control rows.
  */
 function disposeBindingsBody(input: BodyParts): void {
     const { pane, listBlock, editorBlock, board, form, actions, actors, prompt, detail } = input;
@@ -383,7 +367,6 @@ function disposeBindingsBody(input: BodyParts): void {
  * The editor block lives in its own wrapper so hiding it is one attribute on
  * one element rather than a claim about which node `createBlock` handed back.
  *
- * @param pane - The pane root the blocks mount into.
  * @returns The list block, the wrapper, and the editor block inside it.
  */
 function createBlocks(pane: HTMLElement): {
@@ -404,7 +387,6 @@ function createBlocks(pane: HTMLElement): {
 /**
  * Assemble the pane the disposer and the repaint share.
  *
- * @param input - Everything the mount produced.
  * @returns The pane handle, with its one disposer attached.
  */
 function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): BindingsPane {
@@ -443,11 +425,10 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
 /**
  * Mount the Bindings tab body: the list first, the editor behind it.
  *
- * The six-tab shell owns the strip (005 FR-010), so this mounts no tabs of
+ * The six-tab shell owns the strip, so this mounts no tabs of
  * its own and no dispatches board — those live in their own bodies, which is
  * what makes each capability reachable through exactly one tab.
  *
- * @param input - Panel root, runtime, and the handlers the controls invoke.
  * @returns The mounted body's handles.
  */
 export function mountBindingsBody(input: {
@@ -467,7 +448,7 @@ export function mountBindingsBody(input: {
 
     input.mountFirst?.(listBlock.body);
     const board = mountBindingsBoard({ rt, pane: listBlock.body, handlers });
-    // The selected row's own facts sit under the list they describe (FR-053).
+    // The selected row's own facts sit under the list they describe.
     const detail = mountSelectedDetail(listBlock.body);
     const form = mountAddForm({ rt, pane: editorBlock.body, handlers });
     // The starting prompt is a field of this form, so it mounts before the

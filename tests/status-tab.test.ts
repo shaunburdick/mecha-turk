@@ -87,7 +87,6 @@ const EMPTY_CONFIG = '{"config":{}}';
 /**
  * Merge overrides into one service block.
  *
- * @param overrides - Members to replace.
  * @returns The service block.
  */
 function serviceFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -104,7 +103,6 @@ function serviceFixture(overrides: Record<string, unknown> = {}): Record<string,
 /**
  * Merge overrides into one account row: measured nothing yet (FR-034).
  *
- * @param overrides - Members to replace.
  * @returns One `accounts[]` element.
  */
 function accountFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -121,7 +119,6 @@ function accountFixture(overrides: Record<string, unknown> = {}): Record<string,
 /**
  * Merge overrides into one binding row.
  *
- * @param overrides - Members to replace.
  * @returns One `repositories[]` element.
  */
 function bindingFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -145,7 +142,6 @@ function bindingFixture(overrides: Record<string, unknown> = {}): Record<string,
 /**
  * Merge overrides into one agent-pin block.
  *
- * @param overrides - Members to replace.
  * @returns The `agentPin` member.
  */
 function agentPinFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -155,7 +151,6 @@ function agentPinFixture(overrides: Record<string, unknown> = {}): Record<string
 /**
  * Merge overrides into one polling block.
  *
- * @param overrides - Members to replace.
  * @returns The `polling` member.
  */
 function pollingFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -171,7 +166,6 @@ function pollingFixture(overrides: Record<string, unknown> = {}): Record<string,
 /**
  * The status document every fixture starts from.
  *
- * @param overrides - Top-level members to replace.
  * @returns The object `GET /v1/status` is modeled as answering.
  */
 function statusFixture(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -189,8 +183,6 @@ function statusFixture(overrides: Record<string, unknown> = {}): Record<string, 
 /**
  * Replace one top-level member of a fixture document.
  *
- * @param member - Member to replace.
- * @param value - Its new value.
  * @returns A new document; the fixture is never mutated in place.
  */
 function withMember(member: string, value: unknown): Record<string, unknown> {
@@ -200,7 +192,6 @@ function withMember(member: string, value: unknown): Record<string, unknown> {
 /**
  * Serialize one fixture document.
  *
- * @param document - The document to serialize.
  * @returns Its JSON body.
  */
 function bodyOf(document: Record<string, unknown>): string {
@@ -210,7 +201,6 @@ function bodyOf(document: Record<string, unknown>): string {
 /**
  * Parse a fixture document, failing loudly when it will not parse.
  *
- * @param document - The document to parse.
  * @returns The view.
  */
 function viewOf(document: Record<string, unknown>): StatusView {
@@ -223,10 +213,40 @@ function viewOf(document: Record<string, unknown>): StatusView {
 }
 
 /**
+ * The view for a fixture with one member replaced — the pipeline twenty-odd
+ * assertions spell out, named once so a test reads as one line of arrangement.
+ *
+ * @returns The parsed view.
+ */
+function viewForMember(member: string, value: unknown): StatusView {
+    return viewOf(withMember(member, value));
+}
+
+/**
+ * The view for the plain fixture document, with nothing overridden.
+ *
+ * @returns The parsed view.
+ */
+function defaultView(): StatusView {
+    return viewOf(statusFixture());
+}
+
+/**
+ * The parse verdict for a fixture with one member replaced.
+ *
+ * The counterpart to {@link viewForMember}: it returns `null` instead of
+ * throwing, which is what the rejection tests need and what {@link viewOf}
+ * cannot give them.
+ *
+ * @returns The parsed view, or `null` when the fixture does not parse.
+ */
+function parseMember(member: string, value: unknown): StatusView | null {
+    return parseStatusView(bodyOf(withMember(member, value)));
+}
+
+/**
  * Build a host whose service answers the two reads the tab makes.
  *
- * @param statusBody - Body `GET /v1/status` answers with.
- * @param configBody - Body `GET /v1/config` answers with.
  * @returns A runtime whose host answers both paths with 200.
  */
 function runtimeAnswering(statusBody: string, configBody: string): PanelRuntime {
@@ -242,13 +262,12 @@ function runtimeAnswering(statusBody: string, configBody: string): PanelRuntime 
 /**
  * Render the polling block over one overridden polling member.
  *
- * @param overrides - Members of the polling block to replace.
  * @param configured - Configured interval the tab read beside it.
  * @returns The lines.
  */
 function pollingLinesFor(overrides: Record<string, unknown>, configured: number | null): readonly string[] {
     return pollingLines({
-        view: viewOf(statusFixture({ polling: pollingFixture(overrides) })),
+        view: viewOf({ ...statusFixture(), polling: pollingFixture(overrides) }),
         configured,
         nowMs: Date.parse(FUTURE_STAMP),
     });
@@ -266,7 +285,6 @@ function guidanceBindings(): readonly StatusBindingView[] {
 /**
  * Build the inputs {@link projectGuidanceLines} takes.
  *
- * @param bindings - The binding rows to check.
  * @param registeredProjectIds - Registered ids, or `null` when not loaded.
  * @returns The inputs.
  */
@@ -278,10 +296,25 @@ function guidanceInput(
 }
 
 /**
+ * The guidance inputs for the fixture's own bindings.
+ *
+ * Every caller wants the default binding rows and varies only the registered
+ * ids, so the pairing is here rather than repeated.
+ *
+ * @param registeredProjectIds - Registered ids, or `null` when not loaded.
+ * @returns The inputs.
+ */
+function guidanceFor(registeredProjectIds: readonly string[] | null): {
+    readonly bindings: readonly StatusBindingView[];
+    readonly registeredProjectIds: readonly string[] | null;
+} {
+    return guidanceInput(guidanceBindings(), registeredProjectIds);
+}
+
+/**
  * Install a shell stub that records every call, so a test can prove the read
  * path stamped the tab without navigating it.
  *
- * @param rt - Panel runtime to install the stub on.
  * @returns The record of calls the stub received.
  */
 function stubShell(rt: PanelRuntime): { readonly calls: string[] } {
@@ -308,8 +341,6 @@ function stubShell(rt: PanelRuntime): { readonly calls: string[] } {
 /**
  * Build a runtime whose service refuses every read with one status code.
  *
- * @param status - HTTP status to answer with.
- * @param body - Body to answer with.
  * @returns The runtime.
  */
 function refusingRuntime(status: number, body: string): PanelRuntime {
@@ -354,16 +385,13 @@ function malformedAfterFirstRuntime(): PanelRuntime {
 
             reads += 1;
 
-            return reads > 1
-                ? { status: 200, body: '{"unexpected":"shape"}' }
-                : { status: 200, body: bodyOf(statusFixture()) };
+            return { status: 200, body: reads > 1 ? '{"unexpected":"shape"}' : bodyOf(statusFixture()) };
         },
     }));
 }
 
 describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
-    it('reads a complete document (+2 cases)', () => {
-        // case: reads a complete document
+    it('reads a complete document', () => {
         {
             const view = viewOf(statusFixture());
 
@@ -375,42 +403,36 @@ describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
             expect(view.agentPin.verification).toEqual({ kind: 'none' });
             expect(view.supported).toBe(true);
         }
-        // case: refuses every malformed document shape rather than defaulting any of it
         {
             expect(parseStatusView('not json'), 'a body that is not JSON').toBeNull();
 
             for (const member of ['service', 'accounts', 'repositories', 'polling', 'agentPin', 'surface']) {
-                const document = statusFixture();
-                const partial: Record<string, unknown> = {};
-                for (const [key, value] of Object.entries(document)) {
-                    if (key !== member) {
-                        partial[key] = value;
-                    }
-                }
+                const partial = Object.fromEntries(
+                    Object.entries(statusFixture()).filter(([key]) => key !== member),
+                );
 
                 expect(parseStatusView(bodyOf(partial)), `a document missing ${member}`).toBeNull();
             }
 
             expect(
-                parseStatusView(bodyOf(withMember('service', serviceFixture({ uptimeMs: 'a while' })))),
+                parseMember('service', serviceFixture({ uptimeMs: 'a while' })),
                 'a partially typed service block',
             ).toBeNull();
 
-            const rate: StatusRateView = { remaining: null, usedLastHour: 0 } as unknown as StatusRateView;
+            const rate = { remaining: null, usedLastHour: 0 };
             expect(
-                parseStatusView(bodyOf(withMember('accounts', [accountFixture({ rate })]))),
+                parseMember('accounts', [accountFixture({ rate })]),
                 'an account row with an incomplete rate block',
             ).toBeNull();
 
             expect(
-                parseStatusView(bodyOf(withMember('repositories', [bindingFixture({ readable: 'yes' })]))),
+                parseMember('repositories', [bindingFixture({ readable: 'yes' })]),
                 'a binding row whose flags are not booleans',
             ).toBeNull();
 
             const brokenPin = withMember('agentPin', agentPinFixture({ lastVerification: { somethingElse: true } }));
             expect(parseStatusView(bodyOf(brokenPin)), 'a verification member of an unknown shape').toBeNull();
         }
-        // case: reads the three verification shapes it does know
         {
             expect(viewOf(statusFixture()).agentPin.verification).toEqual({ kind: 'none' });
 
@@ -437,12 +459,10 @@ describe('parseStatusView (fail closed, AGENTS invariant 8)', () => {
 });
 
 describe('configuredIntervalFrom (FR-039)', () => {
-    it('reads the configured interval beside the effective o… (+1 cases)', () => {
-        // case: reads the configured interval beside the effective one
+    it('reads the configured interval beside the effective one', () => {
         {
             expect(configuredIntervalFrom('{"config":{"intervalMs":45000}}')).toBe(45_000);
         }
-        // case: reports an unreadable or absent value rather than a default
         {
             expect(configuredIntervalFrom(EMPTY_CONFIG)).toBeNull();
             expect(configuredIntervalFrom('{"other":1}')).toBeNull();
@@ -452,8 +472,7 @@ describe('configuredIntervalFrom (FR-039)', () => {
 });
 
 describe('the service block (FR-030)', () => {
-    it('reports health, uptime, location, schema, and storag… (+2 cases)', () => {
-        // case: reports health, uptime, location, schema, and storage
+    it('reports health, uptime, location, schema, and storage', () => {
         {
             const lines = serviceLines(viewOf(statusFixture()));
 
@@ -461,7 +480,6 @@ describe('the service block (FR-030)', () => {
             expect(lines[2]).toBe(`Data directory: ${DATA_DIR} — this is the directory to back up`);
             expect(lines[3]).toBe('Store schema version: 1');
         }
-        // case: says degraded, and says the schema is unavailable rather than inventing one
         {
             const service = serviceFixture({
                 status: 'degraded',
@@ -472,7 +490,6 @@ describe('the service block (FR-030)', () => {
 
             expect(lines[0]).toContain('degraded');
         }
-        // case: formats an uptime without a zero-sized segment
         {
             expect(formatUptime(0)).toBe('0s');
             expect(formatUptime(3_600_000)).toBe('1h 0m 0s');
@@ -481,8 +498,7 @@ describe('the service block (FR-030)', () => {
 });
 
 describe('the polling block (FR-031, FR-039)', () => {
-    it('reports the effective and the configured interval (+3 cases)', () => {
-        // case: reports the effective and the configured interval
+    it('reports the effective and the configured interval', () => {
         {
             const lines = pollingLinesFor({ intervalMs: 60_000 }, 60_000);
 
@@ -490,14 +506,12 @@ describe('the polling block (FR-031, FR-039)', () => {
             expect(lines).toContain('Configured interval: 60,000 ms');
             expect(lines.some((line) => line.includes('differ'))).toBe(false);
         }
-        // case: names the difference when the two intervals disagree
         {
             const lines = pollingLinesFor({ intervalMs: 60_000 }, 45_000);
 
             expect(lines.some((line) => line.includes('differ'))).toBe(true);
             expect(lines.some((line) => line.includes('45,000 ms'))).toBe(true);
         }
-        // case: shows a future stamp plainly and a past stamp as overdue
         {
             const lines = pollingLines({
                 view: viewOf(statusFixture()),
@@ -509,7 +523,6 @@ describe('the polling block (FR-031, FR-039)', () => {
             const overdue = pollingLinesFor({ nextPollAt: PAST_STAMP }, null);
             expect(overdue.some((line) => line.includes('(overdue)'))).toBe(true);
         }
-        // case: claims nothing while the surface cannot run a service
         {
             const view = viewOf(withMember('surface', { supported: false }));
             const lines = pollingLines({ view, configured: null, nowMs: Date.now() });
@@ -522,8 +535,7 @@ describe('the polling block (FR-031, FR-039)', () => {
 describe('rate honesty (FR-034, AC-107)', () => {
     const unmeasured: StatusRateView = { remaining: null, limit: null, resetAt: null, usedLastHour: 0 };
 
-    it('reports an unmeasured budget as not measured yet, ne… (+4 cases)', () => {
-        // case: reports an unmeasured budget as not measured yet, never as 0 of 0
+    it('reports an unmeasured budget as not measured yet, never as 0 of 0', () => {
         {
             const line = rateLine(unmeasured);
 
@@ -531,33 +543,28 @@ describe('rate honesty (FR-034, AC-107)', () => {
             expect(line).not.toContain('0 of 0');
             expect(line).toContain('0 used in the last hour');
         }
-        // case: keeps the real usage count even while the budget is unmeasured
         {
             expect(rateLine({ ...unmeasured, usedLastHour: 7 })).toContain('7 used in the last hour');
         }
-        // case: reports a measured budget against its limit
         {
             const line = rateLine({ remaining: 4_200, limit: 5_000, resetAt: PAST_STAMP, usedLastHour: 800 });
 
             expect(line).toContain('800 used in the last hour of 5,000');
             expect(line).toContain('4,200 left in this window');
         }
-        // case: renders one account row carrying its connection state and its rate
         {
             const rows = accountLines(viewOf(statusFixture()));
 
             expect(rows[0]).toBe(`${ACCOUNT} (77331) — connected · not measured yet (0 used in the last hour)`);
         }
-        // case: renders an honest empty when no account is connected
         {
-            expect(accountLines(viewOf(withMember('accounts', [])))).toEqual(['No accounts connected yet.']);
+            expect(accountLines(viewForMember('accounts', []))).toEqual(['No accounts connected yet.']);
         }
     });
 });
 
 describe('binding rows (FR-032, AC-104, AC-105)', () => {
-    it('reports scan, pending count, and enabled state (+4 cases)', () => {
-        // case: reports scan, pending count, and enabled state
+    it('reports scan, pending count, and enabled state', () => {
         {
             const rows = bindingLines(viewOf(statusFixture()));
 
@@ -565,25 +572,21 @@ describe('binding rows (FR-032, AC-104, AC-105)', () => {
             expect(rows[0]).toContain(`last scan ${STAMP}`);
             expect(rows[0]).toContain('2 pending');
         }
-        // case: keeps an unreadable row on the page and marks it
         {
-            const rows = bindingLines(viewOf(withMember('repositories', [bindingFixture({ readable: false })])));
+            const rows = bindingLines(viewForMember('repositories', [bindingFixture({ readable: false })]));
 
             expect(rows).toHaveLength(1);
             expect(rows[0]).toContain('unreadable');
         }
-        // case: shows the scan failure reason on the row it belongs to
         {
             const row = bindingFixture({ lastError: 'rate-limited' });
             const rows = bindingLines(viewOf(withMember('repositories', [row])));
 
             expect(rows[0]).toContain('rate-limited');
         }
-        // case: renders an honest empty when the store holds no bindings
         {
-            expect(bindingLines(viewOf(withMember('repositories', [])))).toEqual(['No bindings yet.']);
+            expect(bindingLines(viewForMember('repositories', []))).toEqual(['No bindings yet.']);
         }
-        // case: does not read an empty list as "you have none" when the store is degraded
         {
             const degraded = statusFixture({
                 service: serviceFixture({ status: 'degraded', storage: { writable: false } }),
@@ -602,14 +605,12 @@ describe('binding rows (FR-032, AC-104, AC-105)', () => {
 });
 
 describe('the agent pin (FR-033, AC-106)', () => {
-    it('reads not checkable before any dispatch, and names t… (+2 cases)', () => {
-        // case: reads not checkable before any dispatch, and names the first dispatch
+    it('reads not checkable before any dispatch, and names the first dispatch', () => {
         {
             const lines = agentPinLines(viewOf(statusFixture()));
 
             expect(lines.some((line) => line.includes('ok'))).toBe(false);
         }
-        // case: reports a mismatch as the outcome it is
         {
             const agentPin = agentPinFixture({
                 expectedAgent: 'planner',
@@ -624,7 +625,6 @@ describe('the agent pin (FR-033, AC-106)', () => {
 
             expect(lines[1]).toContain('executor');
         }
-        // case: names a blank baseline as unset and its read-back as not compared (002 FR-029)
         {
             // `ok: false` with an empty baseline is *no comparison*, and the
             // Status tab must not render it as a mismatch the panel never made.
@@ -648,27 +648,23 @@ describe('the agent pin (FR-033, AC-106)', () => {
 });
 
 describe('the two blocking notices (FR-035, FR-036, AC-108, AC-109)', () => {
-    it('raises nothing for a document that is healthy (+3 cases)', () => {
-        // case: raises nothing for a document that is healthy
+    it('raises nothing for a document that is healthy', () => {
         {
-            expect(noticeStates(viewOf(statusFixture()))).toEqual({ unsupported: false, storageBlocked: false });
+            expect(noticeStates(defaultView())).toEqual({ unsupported: false, storageBlocked: false });
         }
-        // case: raises nothing before anything has been read
         {
             expect(noticeStates(null)).toEqual({ unsupported: false, storageBlocked: false });
         }
-        // case: raises the storage blocker when the data directory cannot serve writes
         {
             const service = serviceFixture({ storage: { writable: false } });
 
-            expect(noticeStates(viewOf(withMember('service', service)))).toEqual({
+            expect(noticeStates(viewForMember('service', service))).toEqual({
                 unsupported: false,
                 storageBlocked: true,
             });
         }
-        // case: raises the unsupported-surface notice on a surface that cannot run a service
         {
-            expect(noticeStates(viewOf(withMember('surface', { supported: false })))).toEqual({
+            expect(noticeStates(viewForMember('surface', { supported: false }))).toEqual({
                 unsupported: true,
                 storageBlocked: false,
             });
@@ -677,23 +673,20 @@ describe('the two blocking notices (FR-035, FR-036, AC-108, AC-109)', () => {
 });
 
 describe('the Status → picker link (FR-038)', () => {
-    it('claims nothing while the host project list has not l… (+2 cases)', () => {
-        // case: claims nothing while the host project list has not loaded
+    it('claims nothing while the host project list has not loaded', () => {
         {
-            expect(projectGuidanceLines(guidanceInput(guidanceBindings(), null))).toEqual([]);
+            expect(projectGuidanceLines(guidanceFor(null))).toEqual([]);
         }
-        // case: points at the picker when a binding targets an unregistered project
         {
-            const lines = projectGuidanceLines(guidanceInput(guidanceBindings(), ['prj_other']));
+            const lines = projectGuidanceLines(guidanceFor(['prj_other']));
 
             expect(lines).toHaveLength(1);
             // The three manual routes belong to the picker alone (FR-038).
             expect(lines[0]).not.toContain('command palette');
             expect(lines[0]).not.toContain('sidebar');
         }
-        // case: says nothing when every binding has a registered project
         {
-            expect(projectGuidanceLines(guidanceInput(guidanceBindings(), ['prj_42']))).toEqual([]);
+            expect(projectGuidanceLines(guidanceFor(['prj_42']))).toEqual([]);
         }
     });
 });
@@ -717,8 +710,7 @@ describe('loadStatus', () => {
     /** Where the in-flight gate's release lands, written from the executor. */
     const holder: { release: (() => void) | null } = { release: null };
 
-    it('lands the document and the configured interval, and … (+5 cases)', async () => {
-        // case: lands the document and the configured interval, and stamps the tab
+    it('lands the document and the configured interval, and stamps the tab', async () => {
         {
             const rt = runtimeAnswering(bodyOf(statusFixture()), '{"config":{"intervalMs":45000}}');
             const shell = stubShell(rt);
@@ -733,7 +725,9 @@ describe('loadStatus', () => {
             expect(shell.calls).toEqual(['noteRead:status']);
             expect(rt.tabLastRead.get('status')).toBe(slice.at);
         }
-        // case: keeps reading the tab honest when the status read fails
+    });
+
+    it('keeps reading the tab honest when the status read fails', async () => {
         {
             const rt = refusingRuntime(503, PROBLEM_503);
 
@@ -745,7 +739,9 @@ describe('loadStatus', () => {
             expect(slice.stale).toBe(false);
             expect(slice.problem).toContain('503');
         }
-        // case: keeps the last document and marks it stale when a re-read fails
+    });
+
+    it('keeps the last document and marks it stale when a re-read fails', async () => {
         {
             const rt = flakyStatusRuntime();
 
@@ -759,7 +755,9 @@ describe('loadStatus', () => {
             expect(slice.at, 'the retained stamp stays on screen').not.toBeNull();
             expect(readStateLine(slice)).toContain(slice.at ?? '');
         }
-        // case: fails the read when the document will not parse, and keeps the previous one
+    });
+
+    it('fails the read when the document will not parse, and keeps the previous one', async () => {
         {
             const rt = malformedAfterFirstRuntime();
 
@@ -770,7 +768,9 @@ describe('loadStatus', () => {
             expect(slice.phase).toBe(PHASE_FAILED);
             expect(slice.stale).toBe(true);
         }
-        // case: reads the configured interval as not read when that half fails
+    });
+
+    it('reads the configured interval as not read when that half fails', async () => {
         {
             const rt = createTestRuntime(fakeHost({
                 serviceRequest: async (request) => {
@@ -787,7 +787,9 @@ describe('loadStatus', () => {
             expect(rt.state.statusTab.phase).toBe(PHASE_LOADED);
             expect(rt.state.statusTab.configuredIntervalMs).toBeNull();
         }
-        // case: refuses a second read while one is in flight
+    });
+
+    it('refuses a second read while one is in flight', async () => {
         {
             const gate = new Promise<void>((resolve) => {
                 holder.release = resolve;
@@ -816,14 +818,14 @@ describe('loadStatus', () => {
             expect(rt.state.statusTab.phase).toBe(PHASE_LOADED);
         }
     });
+
 });
 
 describe('hostile strings stay text (FR-080)', () => {
     /** Markup an operator or GitHub could have put in a field. */
     const HOSTILE = '<img src=x onerror="alert(1)">';
 
-    it('passes a hostile repository through the line as lite… (+1 cases)', () => {
-        // case: passes a hostile repository through the line as literal text
+    it('passes a hostile repository through the line as literal text', () => {
         {
             const repository = bindingFixture({ repository: HOSTILE });
             const rows = bindingLines(viewOf(withMember('repositories', [repository])));
@@ -831,7 +833,6 @@ describe('hostile strings stay text (FR-080)', () => {
             expect(rows[0]).toContain(HOSTILE);
             expect(rows[0]?.startsWith('acme/')).toBe(false);
         }
-        // case: passes a hostile connection state through the account line
         {
             const account = accountFixture({ connectionState: HOSTILE });
             const rows = accountLines(viewOf(withMember('accounts', [account])));
@@ -858,8 +859,7 @@ const OFF_REPOSITORY = 'acme/off';
 const EVERY_BINDING_RESTRICTS = 'every binding restricts';
 
 describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
-    it('counts the open ENABLED bindings, states the consequence, and never names one (+6 cases)', () => {
-        // case: one of three enabled bindings carries no list
+    it('counts the open ENABLED bindings, states the consequence, and never names one', () => {
         {
             const view = viewOf(withMember('repositories', [
                 bindingFixture({ bindingId: 'bnd_a', repository: 'acme/one', actorPolicy: 'restricted' }),
@@ -880,7 +880,6 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             }
         }
 
-        // case: every enabled binding restricted is a positive statement, never
         // silence — and the statement is scoped to `enabled`, because the
         // unqualified form is false the moment a disabled binding is open.
         {
@@ -904,7 +903,6 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             expect(line).not.toContain('3 of 2');
         }
 
-        // case: a service that could not be read reads *not available*
         {
             const [line] = actorPolicyLines(null);
 
@@ -917,7 +915,6 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             expect(line).not.toContain('0 of 0');
         }
 
-        // case: no bindings at all says so, rather than claiming every one is safe
         {
             const [line] = actorPolicyLines(viewOf(withMember('repositories', [])));
 
@@ -925,24 +922,20 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             expect(line).not.toContain(EVERY_BINDING_RESTRICTS);
         }
 
-        // case: an out-of-vocabulary policy refuses the document (AGENTS invariant 8)
         {
             for (const value of ['closed', 'OPEN', '', 1, null, undefined, ['open']]) {
                 expect(
-                    parseStatusView(bodyOf(withMember('repositories', [bindingFixture({ actorPolicy: value })]))),
+                    parseMember('repositories', [bindingFixture({ actorPolicy: value })]),
                     `actorPolicy ${JSON.stringify(value)}`,
                 ).toBeNull();
             }
             // …and the two legal words parse.
             for (const value of ['open', 'restricted']) {
-                const view = parseStatusView(
-                    bodyOf(withMember('repositories', [bindingFixture({ actorPolicy: value })])),
-                );
+                const view = parseMember('repositories', [bindingFixture({ actorPolicy: value })]);
                 expect(view?.bindings[0]?.actorPolicy, value).toBe(value);
             }
         }
 
-        // case: the unreadable row still reports its policy, because it comes
         // from the binding rather than from the scan projection
         {
             const view = viewOf(withMember('repositories', [
@@ -970,8 +963,7 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
             bindingFixture({ bindingId: 'bnd_c', repository: OFF_REPOSITORY, active: false, actorPolicy: 'open' }),
         ];
 
-        it('excludes a disabled open binding from both halves of the count (+3 cases)', () => {
-            // case: the disabled-open fixture renders 0 of 2, not 1 of 3
+        it('excludes a disabled open binding from both halves of the count', () => {
             {
                 const [line] = actorPolicyLines(viewOf(withMember('repositories', DISABLED_OPEN)));
 
@@ -996,14 +988,13 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
                 expect(rows.filter((row) => !row.active && row.actorPolicy === 'open')).toHaveLength(1);
             }
 
-            // case: one of two enabled is open — the count, the trigger-neutral
             // consequence, and nothing that names a login, a repository, or an
             // act.
             {
-                const [line] = actorPolicyLines(viewOf(withMember('repositories', [
+                const [line] = actorPolicyLines(viewForMember('repositories', [
                     bindingFixture({ bindingId: 'bnd_a', repository: 'acme/one', actorPolicy: 'restricted' }),
                     bindingFixture({ bindingId: 'bnd_b', repository: 'acme/two', actorPolicy: 'open' }),
-                ])));
+                ]));
 
                 expect(line).toContain('1 of 2 enabled bindings has no allow-list');
                 expect(line).toContain('whoever the trigger lets act can start a session');
@@ -1017,10 +1008,9 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
                 }
             }
 
-            // case: bindings exist and none is enabled — its own honest sentence,
             // never `0 of 0` and never the vacuously-true positive statement.
             {
-                const [line] = actorPolicyLines(viewOf(withMember('repositories', [
+                const [line] = actorPolicyLines(viewForMember('repositories', [
                     bindingFixture({ bindingId: 'bnd_a', active: false, actorPolicy: 'open' }),
                     bindingFixture({
                         bindingId: 'bnd_b', repository: 'acme/two', active: false, actorPolicy: 'restricted',
@@ -1028,7 +1018,7 @@ describe('the actor allow-list roll-up (005 FR-093, AC-144, AC-149)', () => {
                     bindingFixture({
                         bindingId: 'bnd_c', repository: THIRD_REPOSITORY, active: false, actorPolicy: 'open',
                     }),
-                ])));
+                ]));
 
                 expect(line).toContain('none of the 3 bindings is enabled');
                 expect(line).toContain('nothing can start a session right now');

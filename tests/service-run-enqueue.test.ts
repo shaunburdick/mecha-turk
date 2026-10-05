@@ -1,8 +1,5 @@
 /** Durable run allocation, transitions, and coalescing (003 T-003/T-006). */
 
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
 import { createLogger } from '../service/log.ts';
@@ -30,6 +27,7 @@ import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const HOLDER = 'panel-mount-1';
@@ -46,31 +44,26 @@ const RUN_CREATED_EVENT = 'run.created';
 const RUN_COALESCED_EVENT = 'run.coalesced';
 const CLAIM_EXPIRY = '2026-09-28T12:05:00.000Z';
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let dataDir = '';
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-run-enqueue-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('run-enqueue'));
     store = await openStore({ dataDir });
     // The gate reads `bindings.json` at authorization and denies when it cannot
     // (003 FR-076); this suite's single reserve needs the open policy so the
     // assertion stays about the enqueue path (002 FR-047).
     await writeOpenBinding({ store, bindingId: 'bnd-run-tests' });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
+    await removeTempTree(tempRoot);
+});
 
 /** Build an assignment fixture for one issue. */
 function assignment(issueNumber: number): EventSnapshot {
@@ -125,7 +118,7 @@ async function enqueue(snapshots: readonly EventSnapshot[]) {
     return await enqueueEvents({
         store,
         log: LOGGER,
-        incoming: snapshots.map(createEvent),
+        incoming: snapshots.map((snapshot) => createEvent(snapshot)),
     });
 }
 
@@ -142,8 +135,7 @@ function runFixture(): Run {
 }
 
 describe('T-006 run-aware enqueue', () => {
-    it('coalesces assignment and body mention from one scan … (+5 cases)', async () => {
-        // case: coalesces assignment and body mention from one scan and correlates every audit row
+    it('coalesces assignment and body mention from one scan and correlates every audit row', async () => {
         {
             const added = await enqueue([assignment(12), bodyMention(12)]);
             const document = await readRunsDocument({ store, log: LOGGER });
@@ -164,11 +156,9 @@ describe('T-006 run-aware enqueue', () => {
             ]);
             expect(audits.every((entry) => entry.correlationId === document.runs[0]?.correlationId)).toBe(true);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: joins a later-scan comment to the existing non-terminal run
+    });
+
+    it('joins a later-scan comment to the existing non-terminal run', async () => {
         {
             await enqueue([assignment(14)]);
             await enqueue([commentMention(14, 42)]);
@@ -183,11 +173,9 @@ describe('T-006 run-aware enqueue', () => {
                 document.runs[0]?.correlationId,
             ]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: opens the next ordinal after the prior run has a recorded session
+    });
+
+    it('opens the next ordinal after the prior run has a recorded session', async () => {
         {
             const [delivery] = await enqueue([assignment(16)]);
             const first = await readRunsDocument({ store, log: LOGGER });
@@ -235,25 +223,23 @@ describe('T-006 run-aware enqueue', () => {
             });
             expect(result.status).toBe('applied');
 
-            const second = await enqueue([commentMention(16, 4242)]);
+            const second = await enqueue([commentMention(16, 4_242)]);
             const document = await readRunsDocument({ store, log: LOGGER });
 
             expect(delivery?.runCorrelationId).toBe(first.runs[0]?.correlationId);
             expect(second[0]?.runCorrelationId).not.toBe(delivery?.runCorrelationId);
             expect(document.runs.map((run) => run.ordinal)).toEqual([0, 1]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: heals a crash after runs.json by joining the redetected delivery once
+    });
+
+    it('heals a crash after runs.json by joining the redetected delivery once', async () => {
         {
-            let failQueueWrite = true;
+            let shouldFailQueueWrite = true;
             const interruptedStore: ServiceStore = {
                 ...store,
                 writeJson: async (path, value) => {
-                    if (path === 'events.json' && failQueueWrite) {
-                        failQueueWrite = false;
+                    if (path === 'events.json' && shouldFailQueueWrite) {
+                        shouldFailQueueWrite = false;
                         throw new Error('simulated queue write interruption');
                     }
 
@@ -278,11 +264,9 @@ describe('T-006 run-aware enqueue', () => {
                 DELIVERY_DETECTED,
             ]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: serializes concurrent trigger deliveries on the shared queue/run chain
+    });
+
+    it('serializes concurrent trigger deliveries on the shared queue/run chain', async () => {
         {
             const scans = Array.from({ length: 10 }, (_unused, index) => enqueue([commentMention(20, index + 1)]));
             const concurrentClaim = claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
@@ -300,11 +284,9 @@ describe('T-006 run-aware enqueue', () => {
             const again = await claimPendingRuns({ store, log: LOGGER, holder: HOLDER, now: STAMP });
             expect(again.runs).toEqual([]);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: retains every reference up to the cap, then counts the overflow visibly (T-038)
+    });
+
+    it('retains every reference up to the cap, then counts the overflow visibly', async () => {
         {
             // One assignment opens the run; 199 comment mentions fill it exactly.
             await enqueue([assignment(SUBJECT_ISSUE), ...Array.from(
@@ -339,7 +321,7 @@ describe('T-006 run-aware enqueue', () => {
             const document = await readRunsDocument({ store, log: LOGGER });
             const capped = document.runs[0];
             const audits = await readAuditEntries(store);
-            const coalesced = audits.filter((entry) => entry.eventType === 'run.coalesced').at(-1);
+            const coalesced = audits.findLast((entry) => entry.eventType === 'run.coalesced');
 
             expect(overflow).toHaveLength(1);
             expect(overflow[0]?.runCorrelationId).toBe(capped?.correlationId);
@@ -380,8 +362,7 @@ describe('T-006 run-aware enqueue', () => {
 });
 
 describe('T-003 run transition invariants', () => {
-    it('permits one lease and one session for a run, refusin… (+1 cases)', async () => {
-        // case: permits one lease and one session for a run, refusing competing mutations
+    it('permits one lease and one session for a run, refusing competing mutations', async () => {
         {
             const fixture = runFixture();
             await writeRunsDocument({
@@ -425,7 +406,7 @@ describe('T-003 run transition invariants', () => {
             const reservations = await Promise.all([reserveOnce(), reserveOnce()]);
             expect(reservations.filter((result) => result.status === 'applied')).toHaveLength(1);
             expect(reservations.filter((result) => result.status === 'refused')).toHaveLength(1);
-            const [authorized] = reservations.filter((result) => result.status === 'applied');
+            const authorized = reservations.find((result) => result.status === 'applied');
             if (authorized === undefined) {
                 throw new Error('exactly one concurrent reserve must apply');
             }
@@ -452,11 +433,9 @@ describe('T-003 run transition invariants', () => {
             expect(final.runs[0]?.attempts[0]?.outcome).toBe('dispatched');
             expect(final.runs[0]?.attempts[0]?.dispatchToken).toMatch(/^dtk-[0-9a-f]{32}$/);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: never reuses an ordinal after terminal-run retention evicts old rows
+    });
+
+    it('never reuses an ordinal after terminal-run retention evicts old rows', async () => {
         {
             let document = emptyRunsDocument();
             for (let ordinal = 0; ordinal < 501; ordinal += 1) {
@@ -488,18 +467,18 @@ describe('T-003 run transition invariants', () => {
             expect(next.created[0]?.ordinal).toBe(501);
         }
     });
+
 });
 
 describe('T-037 durable run creation audit intent', () => {
-    it('recovers a creation audit missed after the run and d… (+2 cases)', async () => {
-        // case: recovers a creation audit missed after the run and delivery writes
+    it('recovers a creation audit missed after the run and delivery writes', async () => {
         {
-            let failAuditAppend = true;
+            let shouldFailAuditAppend = true;
             const interruptedStore: ServiceStore = {
                 ...store,
                 appendLine: async (path, value) => {
-                    if (path === AUDIT_FILE && failAuditAppend) {
-                        failAuditAppend = false;
+                    if (path === AUDIT_FILE && shouldFailAuditAppend) {
+                        shouldFailAuditAppend = false;
                         throw new Error('simulated process interruption before audit append');
                     }
 
@@ -521,14 +500,12 @@ describe('T-037 durable run creation audit intent', () => {
 
             expect(recovered.auditIntents).toEqual([]);
             expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
-            expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)[0]?.correlationId)
+            expect(audits.find((entry) => entry.eventType === RUN_CREATED_EVENT)?.correlationId)
                 .toBe(recovered.runs[0]?.correlationId);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: does not duplicate a creation audit when interrupted before retiring its intent
+    });
+
+    it('does not duplicate a creation audit when interrupted before retiring its intent', async () => {
         {
             let runWrites = 0;
             const interruptedStore: ServiceStore = {
@@ -560,11 +537,9 @@ describe('T-037 durable run creation audit intent', () => {
             expect(recovered.auditIntents).toEqual([]);
             expect(audits.filter((entry) => entry.eventType === RUN_CREATED_EVENT)).toHaveLength(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a pending run if attempt history already records a session
+    });
+
+    it('refuses a pending run if attempt history already records a session', async () => {
         {
             const run = runFixture();
             const dispatchedRun: Run = {
@@ -614,6 +589,7 @@ describe('T-037 durable run creation audit intent', () => {
             expect(writes).toBe(0);
         }
     });
+
 });
 
 describe('T-037 bounded run-linked delivery retention', () => {

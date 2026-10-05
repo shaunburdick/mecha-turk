@@ -46,7 +46,7 @@ import { parsePendingBody } from '../src/claim-service.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
 import { BEGIN_UNTRUSTED, END_UNTRUSTED, EXCERPT_TRUNCATION_MARKER } from '../src/context-blocks.ts';
 import { CONTEXT_MAX_CHARS, SOURCE_EXCERPT_MAX_CHARS, buildBoundedContext } from '../src/session.ts';
-import type { ContextSource, SpikeHost } from '../src/session.ts';
+import type { ContextSource, PanelHost } from '../src/session.ts';
 import type { PromptSource } from '../src/prompt.ts';
 import { DISPATCH_STORAGE_KEY, MAX_RECORDED_ATTEMPTS } from '../src/dispatch-record.ts';
 import { MAX_ATTEMPT_RECORDS, MAX_SOURCE_REFERENCES, applyEnqueue } from '../service/poll/runs.ts';
@@ -61,7 +61,7 @@ import type { PanelRuntime } from '../src/panel-state.ts';
 import {
     DEFAULT_STATUS,
     FIXTURE_TIMESTAMP,
-    IDLE_UNSUBSCRIBE,
+    hasNothingToRelease,
     LOGIN,
     PROJECT_ID,
     PROJECTS,
@@ -125,9 +125,6 @@ const STALE_RESERVE_REFUSAL: RouteAnswer = {
 
 /**
  * Build one offered run.
- *
- * @param overrides - Fields the test changes.
- * @returns A complete, parseable offer.
  */
 function claimedRun(overrides: Partial<ClaimedRun> = {}): ClaimedRun {
     return {
@@ -174,12 +171,10 @@ function claimedRun(overrides: Partial<ClaimedRun> = {}): ClaimedRun {
 /**
  * Serialize one claim answer.
  *
- * @param runs - The runs the service offers.
- * @param auditWritten - What FR-063's member reports.
- * @returns The body.
+ * @param isAuditWritten - What FR-063's member reports.
  */
-function claimBody(runs: readonly ClaimedRun[], auditWritten = true): string {
-    return JSON.stringify({ events: runs, status: [], auditWritten });
+function claimBody(runs: readonly ClaimedRun[], isAuditWritten = true): string {
+    return JSON.stringify({ events: runs, status: [], auditWritten: isAuditWritten });
 }
 
 /** The routes a fully co-operative service answers with. */
@@ -289,7 +284,7 @@ function harness(
     let capturedRequest = '';
     const storage = createStorageDouble();
 
-    const host: SpikeHost = fakeHost({
+    const host: PanelHost = fakeHost({
         serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
             const key = `${request.method} ${request.path}`;
             timeline.push(key);
@@ -318,7 +313,7 @@ function harness(
         onSession: (listener) => {
             listener(sessionSnapshot());
 
-            return IDLE_UNSUBSCRIBE;
+            return hasNothingToRelease;
         },
         openSession: async (sessionId) => {
             timeline.push(`openSession:${sessionId}`);
@@ -356,7 +351,6 @@ function harness(
  * it is filtered out: it is a display read, not part of what the contract
  * orders, and asserting it would couple these tests to the Dispatches section.
  *
- * @param timeline - Everything the double observed.
  * @returns The dispatch-contract entries, in order.
  */
 function dispatchTimeline(timeline: readonly string[]): string[] {
@@ -366,9 +360,7 @@ function dispatchTimeline(timeline: readonly string[]): string[] {
 /**
  * The body the panel sent to one path, failing loudly when it sent none.
  *
- * @param relay - The recorded double.
  * @param key - `METHOD path` the assertion is about.
- * @returns The body text.
  */
 function bodyOf(relay: Harness, key: string): string {
     const body = relay.sent[key];
@@ -380,8 +372,7 @@ function bodyOf(relay: Harness, key: string): string {
 }
 
 describe('relay dispatch order (FR-024, FR-028)', () => {
-    it('reserves, starts, records, reports, acknowledges, th… (+3 cases)', async () => {
-        // case: reserves, starts, records, reports, acknowledges, then reads the agent back
+    it('reserves, starts, records, reports, acknowledges, then reads the agent back', async () => {
         {
             const relay = harness();
 
@@ -401,7 +392,9 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
                 `POST ${RUN_PATH}/verification`,
             ]);
         }
-        // case: reports exactly one result carrying the token, the attempt, and the session
+    });
+
+    it('reports exactly one result carrying the token, the attempt, and the session', async () => {
         {
             const relay = harness();
 
@@ -415,7 +408,9 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
                 sessionId: SESSION_ID,
             });
         }
-        // case: never reaches the host when the service refuses the reserve
+    });
+
+    it('never reaches the host when the service refuses the reserve', async () => {
         {
             const relay = harness({
                 ...OK_ROUTES,
@@ -427,7 +422,9 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
             expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
             expect(relay.rt.state.bindings.note).toContain(STALE_LEASE_CODE);
         }
-        // case: never reaches the host when the service answers an unreadable authorization
+    });
+
+    it('never reaches the host when the service answers an unreadable authorization', async () => {
         {
             const relay = harness({
                 ...OK_ROUTES,
@@ -440,11 +437,11 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
             expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
         }
     });
+
 });
 
 describe('guard refusals are reported, never dispatched (FR-042)', () => {
-    it('posts blocked with the lease and the declared reason… (+2 cases)', async () => {
-        // case: posts blocked with the lease and the declared reason, and no result
+    it('posts blocked with the lease and the declared reason, and no result', async () => {
         {
             const relay = harness();
             relay.rt.state.bindings.bindings = [];
@@ -462,7 +459,9 @@ describe('guard refusals are reported, never dispatched (FR-042)', () => {
                 guidance: 're-create the repository binding, then retry',
             });
         }
-        // case: reports a disabled binding rather than treating it as dispatchable
+    });
+
+    it('reports a disabled binding rather than treating it as dispatchable', async () => {
         {
             const relay = harness();
             relay.rt.state.bindings.bindings = [{ ...activeBinding(), state: 'disabled' }];
@@ -473,7 +472,9 @@ describe('guard refusals are reported, never dispatched (FR-042)', () => {
             const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/blocked`)) as Record<string, unknown>;
             expect(body.detail).toContain('disabled');
         }
-        // case: posts blocked for a project the host will not resolve
+    });
+
+    it('posts blocked for a project the host will not resolve', async () => {
         {
             const relay = harness(OK_ROUTES, { projects: [] });
 
@@ -484,11 +485,11 @@ describe('guard refusals are reported, never dispatched (FR-042)', () => {
             expect(body.blockedReason).toBe('project-missing');
         }
     });
+
 });
 
 describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
-    it('keys one attempt and never re-dispatches it within t… (+2 cases)', async () => {
-        // case: keys one attempt and never re-dispatches it within the mount
+    it('keys one attempt and never re-dispatches it within the mount', async () => {
         {
             const relay = harness();
             const run = claimedRun();
@@ -500,7 +501,9 @@ describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
             expect(relay.rt.state.relay.handled).toEqual([`${CORRELATION}#1`]);
         }
-        // case: dispatches the same run again once the service hands it back on a new attempt
+    });
+
+    it('dispatches the same run again once the service hands it back on a new attempt', async () => {
         {
             const relay = harness();
             await dispatchClaimedRun(relay.rt, claimedRun());
@@ -514,7 +517,9 @@ describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(2);
             expect(relay.rt.state.relay.handled).toEqual([`${CORRELATION}#1`, `${CORRELATION}#2`]);
         }
-        // case: does not authorize a re-dispatch when the result report fails (FR-034)
+    });
+
+    it('does not authorize a re-dispatch when the result report fails', async () => {
         {
             const relay = harness({
                 ...OK_ROUTES,
@@ -530,14 +535,14 @@ describe('the handled list is keyed correlationId#attempt (FR-034)', () => {
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
         }
     });
+
 });
 
 describe('the relay dispatches only what it was offered, leased (FR-035)', () => {
-    it('dispatches nothing and says so when the offer carrie… (+4 cases)', async () => {
-        // case: dispatches nothing and says so when the offer carries no lease
+    it('dispatches nothing and says so when the offer carries no lease', async () => {
         {
-            const offer = JSON.parse(JSON.stringify(claimedRun())) as Record<string, unknown>;
-            delete offer.lease;
+            const { lease, ...offer } = structuredClone(claimedRun());
+            void lease;
             const relay = harness({
                 [PENDING_GET]: {
                     status: 200,
@@ -550,10 +555,11 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
             expect(relay.timeline.filter((entry) => entry === `POST ${RUN_PATH}/reserve`)).toHaveLength(0);
         }
-        // case: dispatches nothing when an offered run is not in the state it was offered in
+    });
+
+    it('dispatches nothing when an offered run is not in the state it was offered in', async () => {
         {
-            const offer = JSON.parse(JSON.stringify(claimedRun())) as Record<string, unknown>;
-            offer.state = 'claimed';
+            const offer = { ...structuredClone(claimedRun()), state: 'claimed' };
             const relay = harness({
                 [PENDING_GET]: {
                     status: 200,
@@ -565,7 +571,9 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 
             expect(relay.timeline).toEqual([PENDING_GET]);
         }
-        // case: dispatches an empty offer without touching the host
+    });
+
+    it('dispatches an empty offer without touching the host', async () => {
         {
             const relay = harness({ [PENDING_GET]: { status: 200, body: claimBody([]) } });
 
@@ -574,7 +582,9 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
             expect(relay.timeline).toEqual([PENDING_GET]);
             expect(relay.rt.state.relay.lastPollAt).not.toBeNull();
         }
-        // case: surfaces a degraded claim trail instead of implying one exists (FR-063)
+    });
+
+    it('surfaces a degraded claim trail instead of implying one exists', async () => {
         {
             const relay = harness({
                 ...OK_ROUTES,
@@ -585,7 +595,9 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
         }
-        // case: reads a well-formed offer end to end through the parser
+    });
+
+    it('reads a well-formed offer end to end through the parser', async () => {
         {
             const parsed = parsePendingBody(claimBody([claimedRun()]));
 
@@ -594,6 +606,7 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
             expect(parsed?.auditWritten).toBe(true);
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *
@@ -692,7 +705,6 @@ function boundsDetection(issueNumber: number): EventSnapshot {
  * Seed runs through the real join pass, so the caps are exercised on rows the
  * product itself produced rather than on hand-written literals.
  *
- * @param count - How many distinct subjects to open.
  * @returns The runs and the delivery rows they link to.
  */
 function seededRuns(count: number): {
@@ -790,7 +802,7 @@ function storedAttempts(storage: StorageDouble): readonly Record<string, unknown
 
     const { attempts } = raw as { attempts?: unknown };
     if (!Array.isArray(attempts)) {
-        throw new Error('the dispatch record carries no attempts');
+        throw new TypeError('the dispatch record carries no attempts');
     }
 
     return attempts.map((entry) => {
@@ -845,8 +857,7 @@ describe('detection-to-session round trips (NFR-101, AC-127, SC-110)', () => {
 });
 
 describe('003 v1.8.0 the panel reports the gate through the block report (FR-078)', () => {
-    it('posts blocked with the service own words, and calls no host method (+3 cases)', async () => {
-        // case: reserve → 409 → blocked, with **zero** `host.startSession()`
+    it('reserve → 409 → blocked, with **zero** `host.startSession()`', async () => {
         {
             const relay = harness(ACTOR_GATE_REFUSAL);
 
@@ -857,7 +868,9 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
             expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`, `POST ${RUN_PATH}/blocked`]);
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
         }
-        // case: the report names the cause, the denied login, and the field to fix
+    });
+
+    it('the report names the cause, the denied login, and the field to fix', async () => {
         {
             const relay = harness(ACTOR_GATE_REFUSAL);
 
@@ -878,7 +891,9 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
             });
             expect(JSON.stringify(body)).not.toContain('permitted');
         }
-        // case: a `409` that is not the gate's stays a bare refusal, un-reported
+    });
+
+    it('a `409` that is not the gate\'s stays a bare refusal, un-reported', async () => {
         {
             // `stale-lease` and `already-reserved` are `409` too. Reporting one of
             // those as a policy denial would be this panel announcing a verdict
@@ -893,6 +908,7 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
             expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
         }
     });
+
 
     it('narrows on the code, never the status (003 FR-076)', () => {
         // The pure reader, so the narrowing rule is asserted directly rather
@@ -917,7 +933,6 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
     });
 
     it('tells the operator the truth about a cut reference list (003 T-038)', async () => {
-        // case: the service states the window it judged, as a value-free word
         //
         // Built by running the **real** gate over a saturated run rather than by
         // writing a literal here, so this doubles as the drift test between the
@@ -934,7 +949,6 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
             expect(refusal?.message).toContain('incomplete list');
             expect(refusal?.message).not.toContain(PERMITTED);
         }
-        // case: the truncated guidance is a different sentence, and names no login
         {
             const ordinary = await guidanceFor({ code: ACTOR_BLOCKED_CODE, message: GATE_REFUSAL_MESSAGE });
             const truncated = await guidanceFor({
@@ -959,7 +973,6 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
             expect(truncated).not.toContain(DENIED);
             expect(ordinary).not.toContain(PERMITTED);
         }
-        // case: neither branch reads the message — the word decides, alone
         {
             // A `complete` window with the truncated sentence attached still gets
             // the ordinary guidance: the panel does not match prose, so a
@@ -1026,8 +1039,7 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
 });
 
 describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
-    it('holds 200 references inside the dispatch excerpt, wi… (+3 cases)', async () => {
-        // case: holds 200 references inside the dispatch excerpt, with a visible cut
+    it('holds 200 references inside the dispatch excerpt, with a visible cut', async () => {
         {
             const excerpt = 'r'.repeat(SOURCE_EXCERPT_MAX_CHARS);
             const sources: readonly ContextSource[] = Array.from({ length: MAX_SOURCE_REFERENCES }, (
@@ -1061,7 +1073,9 @@ describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
             // marked rather than silent: a 200-reference run can never blow it.
             expect(context.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
         }
-        // case: keeps the attempt history at its cap however many attempts a run records
+    });
+
+    it('keeps the attempt history at its cap however many attempts a run records', async () => {
         {
             const [seed] = seededRuns(1).runs;
             if (seed === undefined) {
@@ -1086,7 +1100,9 @@ describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
             expect(run.attempts.at(-1)?.attempt).toBe(MAX_ATTEMPT_RECORDS + 12);
             expect(run.attempts[0]?.attempt).toBe(13);
         }
-        // case: evicts the oldest acknowledged record once the panel holds its cap
+    });
+
+    it('evicts the oldest acknowledged record once the panel holds its cap', async () => {
         {
             const relay = harness();
             const total = MAX_RECORDED_ATTEMPTS + RECORDED_ATTEMPT_OVERFLOW;
@@ -1108,7 +1124,9 @@ describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
             expect(attempts.at(-1)?.attempt).toBe(total);
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(total);
         }
-        // case: projects at most the run-history cap however many runs exist
+    });
+
+    it('projects at most the run-history cap however many runs exist', async () => {
         {
             const seeded = seededRuns(MAX_LISTED_EVENTS + RUN_HISTORY_OVERFLOW);
             expect(seeded.runs.length).toBeGreaterThan(MAX_LISTED_EVENTS);
@@ -1123,6 +1141,7 @@ describe('bounded growth is asserted, not assumed (AC-129, NFR-107)', () => {
             expect(rows.length).toBeLessThan(seeded.runs.length);
         }
     });
+
 });
 
 /** Fingerprint the prompt fixture carries; the fixed `mtp-` shape, no text. */
@@ -1150,8 +1169,7 @@ function promptedRoutes(): RouteTable {
 }
 
 describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, FR-053)', () => {
-    it('adds no round trip: still claim, reserve, startSessi… (+2 cases)', async () => {
-        // case: adds no round trip: still claim, reserve, startSession (+0, NFR-120)
+    it('adds no round trip: still claim, reserve, startSession (+0, NFR-120)', async () => {
         {
             const relay = harness(promptedRoutes());
             await pollRelay(relay.rt);
@@ -1160,7 +1178,9 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
             expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
             expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
         }
-        // case: carries the text exactly once — inside the message — and nowhere else
+    });
+
+    it('carries the text exactly once — inside the message — and nowhere else', async () => {
         {
             const relay = harness(promptedRoutes());
             await pollRelay(relay.rt);
@@ -1190,7 +1210,9 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
             expect(JSON.stringify(relay.rt.state.ledger)).not.toContain(PROMPT_TEXT);
             expect(JSON.stringify(relay.rt.state.bindings)).not.toContain(PROMPT_TEXT);
         }
-        // case: composes a prompt-less dispatch byte-identically to the pre-004 frame (SC-121)
+    });
+
+    it('composes a prompt-less dispatch byte-identically to the pre-004 frame', async () => {
         {
             const relay = harness();
             await pollRelay(relay.rt);
@@ -1228,6 +1250,7 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
             });
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *
@@ -1241,7 +1264,6 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
  * Used by the secret-surface scan: an instruction copy could only hide in a
  * string, so walking every nested string is the whole search.
  *
- * @param value - Anything JSON-shaped.
  * @returns The value itself when it is a string, else every string beneath it.
  */
 function stringsIn(value: unknown): readonly string[] {
@@ -1265,8 +1287,7 @@ function stringsIn(value: unknown): readonly string[] {
 }
 
 describe('T-027 the relay refuses a claim answer whose sources it cannot read (FR-087, AC-151)', () => {
-    it('refuses the whole answer: no reserve and no session (+1 cases)', async () => {
-        // case: one entry with a hostile source list refuses the answer the relay ticks on
+    it('one entry with a hostile source list refuses the answer the relay ticks on', async () => {
         {
             // Built as a plain record because the tier is deliberately *not* one
             // `PromptSource` accepts — the wire is where it must be refused.
@@ -1293,11 +1314,11 @@ describe('T-027 the relay refuses a claim answer whose sources it cannot read (F
             expect(relay.timeline).toEqual([PENDING_GET]);
         }
     });
+
 });
 
 describe('T-027 the instruction reaches `text` and no copy (FR-053, AC-144)', () => {
-    it('appears once in the request and nowhere the panel wrote (+1 cases)', async () => {
-        // case: a real scan of every surface the panel owns finds no second copy
+    it('a real scan of every surface the panel owns finds no second copy', async () => {
         {
             const relay = harness(promptedRoutes());
             await pollRelay(relay.rt);
@@ -1323,6 +1344,7 @@ describe('T-027 the instruction reaches `text` and no copy (FR-053, AC-144)', ()
             expect(persisted).not.toContain('promptText');
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *
@@ -1356,7 +1378,6 @@ const MAXIMAL_THREE_TIERS = [MAXIMAL_TIER, MAXIMAL_TIER, MAXIMAL_TIER].join('\n\
 /**
  * The co-operative service answering with one prompt-carrying run.
  *
- * @param promptText - The instruction body the run snapshot carries.
  * @param sources - Tiers that contributed it; defaults to all three.
  * @returns The route table, with the claim answer swapped for that run.
  */
@@ -1382,7 +1403,6 @@ function promptRoutes(
 /**
  * The `problem` one attempt report carried, read without trusting its shape.
  *
- * @param relay - The recorded double.
  * @returns The problem text, or `''` when the report carried none.
  */
 function reportedProblem(relay: Harness): string {
@@ -1392,8 +1412,7 @@ function reportedProblem(relay: Harness): string {
 }
 
 describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132)', () => {
-    it('composes, refuses, and issues zero host calls… (+2 cases)', async () => {
-        // case: composes, refuses, and issues zero host calls
+    it('composes, refuses, and issues zero host calls', async () => {
         {
             const relay = harness(promptRoutes(OVER_BUDGET_PROMPT));
             await pollRelay(relay.rt);
@@ -1424,7 +1443,9 @@ describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132
             expect(problem).toContain('global, account, binding');
             expect(problem).not.toContain(OVER_BUDGET_MARKER);
         }
-        // case: names only the tiers the run actually carried
+    });
+
+    it('names only the tiers the run actually carried', async () => {
         {
             const relay = harness(promptRoutes(OVER_BUDGET_PROMPT, ['binding']));
             await pollRelay(relay.rt);
@@ -1435,7 +1456,9 @@ describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132
             expect(problem).not.toContain('global');
             expect(problem).not.toContain('account');
         }
-        // case: a maximal legal three-tier composition passes the floor untouched
+    });
+
+    it('a maximal legal three-tier composition passes the floor untouched', async () => {
         {
             const relay = harness(promptRoutes(MAXIMAL_THREE_TIERS));
             await pollRelay(relay.rt);
@@ -1448,6 +1471,7 @@ describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132
             expect(text.length).toBeLessThanOrEqual(CONTEXT_MAX_CHARS);
         }
     });
+
 });
 
 /* ------------------------------------------------------------------------- *
@@ -1487,8 +1511,7 @@ function maximalRoutes(): RouteTable {
 }
 
 describe('T-034 the budget suite end-to-end (FR-085, AC-147, AC-145, SC-132, NFR-120)', () => {
-    it('refuses the over-budget attempt before the host, adds no round trip (+2 cases)', async () => {
-        // case: the seeded over-budget attempt refuses before host.startSession(), starting no session
+    it('the seeded over-budget attempt refuses before host.startSession(), starting no session', async () => {
         {
             // A store hand-edited past the save-time cap: the claim reader
             // takes the body as it stands (shape, never a length), so the
@@ -1528,7 +1551,9 @@ describe('T-034 the budget suite end-to-end (FR-085, AC-147, AC-145, SC-132, NFR
             const composedChars = Number(/composed first message is (\d+) characters/.exec(problem)?.[1] ?? '0');
             expect(composedChars).toBeGreaterThan(CONTEXT_MAX_CHARS);
         }
-        // case: the maximal composition dispatches with no round trip added (NFR-120, AC-147)
+    });
+
+    it('the maximal composition dispatches with no round trip added', async () => {
         {
             // The full worst case on the wire: three maximal (2,000-code-point)
             // tiers plus a 1,200-code-point excerpt, composed through the
@@ -1589,4 +1614,5 @@ describe('T-034 the budget suite end-to-end (FR-085, AC-147, AC-145, SC-132, NFR
             }
         }
     });
+
 });

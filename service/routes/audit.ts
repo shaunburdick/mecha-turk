@@ -129,8 +129,6 @@ function cursorIssue(): HttpResponse {
  * than truncated, because shipping half a row would falsify the record the
  * operator is reading (contract §2; 002 contract §1).
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the query may carry the three parameters.
  * @returns `200 { entries, nextCursor, count }`, or the documented
  *   `422`/`401`/`503`.
  */
@@ -160,7 +158,7 @@ async function handleAuditRead(context: RouteContext, request: RouteRequest): Pr
         status: STATUS.ok,
         body: {
             entries: page,
-            nextCursor: ahead.length > page.length && last !== undefined ? last.seq : null,
+            nextCursor: last !== undefined && ahead.length > page.length ? last.seq : null,
             count: page.length,
         },
     };

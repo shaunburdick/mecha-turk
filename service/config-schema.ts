@@ -34,11 +34,11 @@ import type { ServiceConfig } from './config.ts';
 export type ServiceConfigField = keyof ServiceConfig;
 
 /**
- * The closed take-effect vocabulary (006 FR-030).
+ * The closed take-effect vocabulary.
  *
  * `restart` and `none` stay in the vocabulary because it is a wire contract
- * (FR-021) and removing a value would be a wire change; no field in this
- * feature declares either (FR-037).
+ * and removing a value would be a wire change; no field in this
+ * feature declares either.
  */
 export type TakeEffect = 'immediate' | 'next-cycle' | 'next-dispatch' | 'restart' | 'none';
 
@@ -48,11 +48,11 @@ const NEXT_CYCLE = 'next-cycle';
 /**
  * The class each documented field declares, projected onto the wire.
  *
- * `Record<ServiceConfigField, TakeEffect>` is exhaustive by construction
- * (plan D2): adding a member to `ServiceConfig` without declaring a class
+ * `Record<ServiceConfigField, TakeEffect>` is exhaustive by construction:
+ * adding a member to `ServiceConfig` without declaring a class
  * fails `tsc --noEmit`, so "a field gained no consumer" cannot survive a
- * typecheck (006 SC-106). `leaseMs` and `resultDeadlineMs` are 003's fields
- * and are declared `next-cycle` by 006 under plan X1's count-dynamics rule.
+ * typecheck. `leaseMs` and `resultDeadlineMs` are 003's fields
+ * and are declared `next-cycle` by 006 count-dynamics rule.
  *
  * `startingPrompt` is 004's global prompt tier (004 FR-081): the poll loop
  * re-reads configuration once per cycle and the snapshot resolves at
@@ -76,7 +76,7 @@ export const TAKE_EFFECT = {
     startingPrompt: NEXT_CYCLE,
 } as const satisfies Record<ServiceConfigField, TakeEffect>;
 
-/** A bounded numeric field, projected (006 FR-021). */
+/** A bounded numeric field, projected. */
 export interface IntegerFieldDescriptor {
     /** Documented key. */
     readonly name: keyof typeof NUMERIC_BOUNDS;
@@ -94,13 +94,13 @@ export interface IntegerFieldDescriptor {
     readonly takesEffect: TakeEffect;
 }
 
-/** A closed enum field, projected (006 FR-021). */
+/** A closed enum field, projected. */
 export interface EnumFieldDescriptor {
     /** Documented key. */
     readonly name: 'logLevel';
     /** Closed kind discriminator. */
     readonly kind: 'enum';
-    /** An enum has no unit; none may be fabricated (FR-014, FR-021). */
+    /** An enum has no unit; none may be fabricated. */
     readonly unit: null;
     /** Accepted values, verbatim. */
     readonly values: readonly LogLevel[];
@@ -123,7 +123,7 @@ export interface StringFieldDescriptor {
     readonly name: 'expectedAgent' | 'startingPrompt';
     /** Closed kind discriminator. */
     readonly kind: 'string';
-    /** A string has no unit; none may be fabricated (FR-014, FR-021). */
+    /** A string has no unit; none may be fabricated. */
     readonly unit: null;
     /** Service-authored prose describing the allowed characters, rendered as text only. */
     readonly format: string;
@@ -152,8 +152,8 @@ export interface StringFieldDescriptor {
 /**
  * One projected field — a closed discriminated union on `kind` (contract §2).
  *
- * The panel's parser refuses anything outside this union rather than guessing
- * (FR-021), and a `string` entry carries no `unit` and no numeric bound.
+ * The panel's parser refuses anything outside this union rather than guessing,
+ * and a `string` entry carries no `unit` and no numeric bound.
  */
 export type FieldDescriptor = IntegerFieldDescriptor | EnumFieldDescriptor | StringFieldDescriptor;
 
@@ -173,7 +173,7 @@ export type FieldDescriptor = IntegerFieldDescriptor | EnumFieldDescriptor | Str
  * beside this validator's own rules (trim, the cap, the three refusal shapes,
  * and empty meaning *unset*). The one number it quotes is interpolated from
  * {@link STARTING_PROMPT_MAX_CODE_POINTS}, so the cap cannot move in the
- * validator and stay put on the wire (006 SC-101).
+ * validator and stay put on the wire.
  */
 const STARTING_PROMPT_FORMAT = 'text sent to the agent verbatim, with no placeholders; '
     + `at most ${STARTING_PROMPT_MAX_CODE_POINTS} code points after trimming; `
@@ -187,7 +187,7 @@ const STARTING_PROMPT_FORMAT = 'text sent to the agent verbatim, with no placeho
  * Descriptor order equals `Object.keys(DEFAULT_CONFIG)` and `collectIssues`
  * order — `startingPrompt` first, then the bounds table in its own key
  * order, then `logLevel`, then `expectedAgent` — so the panel's rows and a
- * refusal's issue list share one order (AC-107). The prompt row leads the
+ * refusal's issue list share one order. The prompt row leads the
  * list by product-owner ruling on PR #12 ("move it to the top of the list");
  * the numerics keep their relative order and no validator moved with it.
  *
@@ -195,22 +195,23 @@ const STARTING_PROMPT_FORMAT = 'text sent to the agent verbatim, with no placeho
  */
 export function configSchema(): readonly FieldDescriptor[] {
     const numericFields = Object.keys(NUMERIC_BOUNDS) as readonly (keyof typeof NUMERIC_BOUNDS)[];
-    const descriptors: FieldDescriptor[] = [];
-    // First field: 004's global prompt tier, ahead of every numeric one, so
-    // this order stays `Object.keys(DEFAULT_CONFIG)` and `collectIssues`
-    // order exactly (006 AC-107; product-owner ruling, PR #12). `multiline`
-    // is declared here and nowhere else: an agent name is one line, an
-    // instruction is a paragraph.
-    descriptors.push({
-        name: 'startingPrompt',
-        kind: 'string',
-        unit: null,
-        format: STARTING_PROMPT_FORMAT,
-        maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
-        default: DEFAULT_CONFIG.startingPrompt,
-        takesEffect: TAKE_EFFECT.startingPrompt,
-        multiline: true,
-    });
+    const descriptors: FieldDescriptor[] = [
+        {
+            // First field: 004's global prompt tier, ahead of every numeric one, so
+            // this order stays `Object.keys(DEFAULT_CONFIG)` and `collectIssues`
+            // order exactly (006 AC-107; product-owner ruling, PR #12). `multiline`
+            // is declared here and nowhere else: an agent name is one line, an
+            // instruction is a paragraph.
+            name: 'startingPrompt',
+            kind: 'string',
+            unit: null,
+            format: STARTING_PROMPT_FORMAT,
+            maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
+            default: DEFAULT_CONFIG.startingPrompt,
+            takesEffect: TAKE_EFFECT.startingPrompt,
+            multiline: true,
+        },
+    ];
 
     for (const field of numericFields) {
         descriptors.push({
@@ -231,8 +232,7 @@ export function configSchema(): readonly FieldDescriptor[] {
         values: LOG_LEVEL_VALUES,
         default: DEFAULT_CONFIG.logLevel,
         takesEffect: TAKE_EFFECT.logLevel,
-    });
-    descriptors.push({
+    }, {
         name: 'expectedAgent',
         kind: 'string',
         unit: null,

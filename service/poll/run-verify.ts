@@ -37,8 +37,6 @@ const INVALID_TRANSITION = 'invalid-transition';
 /**
  * Judge a verification report (contract §5).
  *
- * @param input - The run, the attempt the panel names, and the session the
- *   read-back came from.
  * @returns The refusal, or `null` when this run may record the read-back.
  */
 function judgeVerification(input: {
@@ -67,7 +65,7 @@ function judgeVerification(input: {
 }
 
 /**
- * Record a post-dispatch agent read-back — and change nothing else (FR-043).
+ * Record a post-dispatch agent read-back — and change nothing else.
  *
  * The stored outcome is what makes a mismatch *visible* on the run row, and the
  * row is what makes it auditable; neither may promote a warning into a block, so
@@ -79,15 +77,13 @@ function judgeVerification(input: {
  * baseline** (002 FR-029 case (ii)): nothing was compared, and this stores the
  * observed agent beside the empty baseline so the absence — not a fabricated
  * match — is what the row says, under `agent.uncompared` rather than
- * `agent.mismatch` (003 v1.7.0). Verdict, note, and state rules are otherwise
+ * `agent.mismatch`. Verdict, note, and state rules are otherwise
  * untouched.
  *
- * @param input - Store, logger, the run, the attempt the panel names, the
- *   session read back, the observed and expected agents, where that baseline
- *   came from, the verdict, a note, and an injectable service clock.
  * @returns The run with its recorded read-back, or the refusal.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function recordVerification(input: {
     /** Open store. */
     readonly store: ServiceStore;
@@ -103,13 +99,13 @@ export async function recordVerification(input: {
     readonly observedAgent: string | null;
     /** Baseline judged against; `""` means none configured and nothing compared. */
     readonly expectedAgent: string;
-    /** Where that baseline came from; recorded on the uncompared row (002 FR-029). */
+    /** Where that baseline came from; recorded on the uncompared row. */
     readonly baselineProvenance: BaselineProvenance;
     /** Whether the two matched. */
     readonly ok: boolean;
     /** Note explaining a mismatch or an unreadable read-back. */
     readonly note: string | null;
-    /** Service-clock stamp; injectable so tests never sleep (NFR-112). */
+    /** Service-clock stamp; injectable so tests never sleep. */
     readonly now?: string | undefined;
 }): Promise<OperationResult> {
     return await operateRun(input, async ({ run, now, persist }): Promise<OperationResult> => {

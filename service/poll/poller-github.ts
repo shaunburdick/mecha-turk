@@ -58,13 +58,13 @@ export type { ListPace, PollFailure, PollerDeps };
 const NEWEST_UPDATED_FIRST = { sort: 'updated', direction: 'desc' } as const;
 
 /** Outcome of one issues-list call (classified at the boundary, like `verify`). */
-export type IssueListOutcome = { readonly kind: 'ok'; readonly issues: readonly PollIssue[] } | PollFailure;
+export type IssueListOutcome = PollFailure | { readonly kind: 'ok'; readonly issues: readonly PollIssue[] };
 
 /** Outcome of one issue-comments-list call. */
-export type CommentListOutcome = { readonly kind: 'ok'; readonly comments: readonly PollComment[] } | PollFailure;
+export type CommentListOutcome = PollFailure | { readonly kind: 'ok'; readonly comments: readonly PollComment[] };
 
 /** Outcome of one pulls-list call. */
-export type PullListOutcome = { readonly kind: 'ok'; readonly pulls: readonly PollPull[] } | PollFailure;
+export type PullListOutcome = PollFailure | { readonly kind: 'ok'; readonly pulls: readonly PollPull[] };
 
 /** Credential, repository, and the `since` window a windowed list takes. */
 interface WindowedListQuery {
@@ -76,7 +76,7 @@ interface WindowedListQuery {
     readonly name: string;
     /** Window start, or `null` for a replay scan; sent as `since`. */
     readonly since: string | null;
-    /** Page size and retry ladder this call runs under (006 FR-058, FR-059). */
+    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 
@@ -88,7 +88,7 @@ interface RepoListQuery {
     readonly owner: string;
     /** Repository name. */
     readonly name: string;
-    /** Page size and retry ladder this call runs under (006 FR-058, FR-059). */
+    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 
@@ -113,7 +113,6 @@ export interface GitHubIssuePoller {
     /**
      * List the open pull requests of one repository, newest-updated first (M7).
      *
-     * @param query - Token and repository.
      * @returns The classified outcome; upstream detail never escapes as text.
      */
     listOpenPulls(query: RepoListQuery): Promise<PullListOutcome>;
@@ -125,11 +124,10 @@ export interface GitHubIssuePoller {
      *
      * Called **once per matched candidate item**, never for a whole repository
      * and never through the timeline, so a cycle in which nothing matched costs
-     * zero requests (002 AC-028). It sends `per_page` and `page` only: this
+     * zero requests. It sends `per_page` and `page` only: this
      * endpoint has no `since` parameter, so the caller's window is compared
-     * against `created_at` here rather than sent (002 FR-051).
+     * against `created_at` here rather than sent.
      *
-     * @param query - Token, repository, item number, window start, and pace.
      * @returns The events read plus whether the page bound was reached, or the
      *   classified failure; upstream detail never escapes as text.
      */
@@ -140,7 +138,6 @@ export interface GitHubIssuePoller {
  * Run the M1 issue list and answer it under the field the interface promises.
  *
  * @param runtime - Transport plus the poller's injectables.
- * @param query - Credential, repository, window, and pace.
  * @returns The classified outcome; upstream detail never escapes as text.
  */
 async function issuesList(runtime: PollerRuntime, query: WindowedListQuery): Promise<IssueListOutcome> {
@@ -166,7 +163,6 @@ async function issuesList(runtime: PollerRuntime, query: WindowedListQuery): Pro
  * Run the M6 issue-comments list and answer it under its promised field.
  *
  * @param runtime - Transport plus the poller's injectables.
- * @param query - Credential, repository, window, and pace.
  * @returns The classified outcome; upstream detail never escapes as text.
  */
 async function commentsList(runtime: PollerRuntime, query: WindowedListQuery): Promise<CommentListOutcome> {
@@ -192,8 +188,6 @@ async function commentsList(runtime: PollerRuntime, query: WindowedListQuery): P
  * Run the M7 pulls list and answer it under its promised field.
  *
  * @param runtime - Transport plus the poller's injectables.
- * @param query - Credential, repository, and pace (no `since` window: the review
- *   request is matched against the PR's own `updated_at` in the scan).
  * @returns The classified outcome; upstream detail never escapes as text.
  */
 async function pullsList(runtime: PollerRuntime, query: RepoListQuery): Promise<PullListOutcome> {
@@ -216,7 +210,7 @@ async function pullsList(runtime: PollerRuntime, query: RepoListQuery): Promise<
 }
 
 /**
- * Build the per-item events URL (002 FR-049, FR-051).
+ * Build the per-item events URL.
  *
  * The query string carries **`per_page` and `page` and nothing else**, which is
  * not a style choice: GitHub's own OpenAPI description for this path accepts
@@ -226,7 +220,6 @@ async function pullsList(runtime: PollerRuntime, query: RepoListQuery): Promise<
  * for the two list feeds that genuinely accept one. The scan window is therefore
  * a **client-side comparison on `created_at`**, made by `poller-events.ts`.
  *
- * @param input - Repository coordinates and the item's number.
  * @returns The request URL, before paging parameters are set.
  */
 function itemEventsUrl(input: { readonly owner: string; readonly name: string; readonly issueNumber: number }): URL {
@@ -246,7 +239,6 @@ function itemEventsUrl(input: { readonly owner: string; readonly name: string; r
  * event rather than one attributed from a partial list.
  *
  * @param runtime - Transport plus the poller's injectables.
- * @param query - Credential, repository, item number, window, and pace.
  * @returns The events the walk saw, whether it exhausted its bound, or the class.
  */
 async function itemEventsList(runtime: PollerRuntime, query: ItemEventsQuery): Promise<ItemEventsOutcome> {
@@ -283,7 +275,7 @@ async function itemEventsList(runtime: PollerRuntime, query: ItemEventsQuery): P
  * Create the GitHub client the poll loop uses.
  *
  * @param deps - Logger every wait is reported through, plus the optional
- *   injected `sleep` and `random` a deterministic test supplies (plan D7).
+ *   injected `sleep` and `random` a deterministic test supplies.
  * @param fetchImpl - Injectable `fetch`; defaults to the process global so
  *   production uses Node's built-in client and tests supply a fake.
  * @returns The poller bound to that transport and those injectables.

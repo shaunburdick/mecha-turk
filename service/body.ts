@@ -39,20 +39,19 @@ export interface BodyReadResult {
 /**
  * Drain the request stream into memory, bounded by the byte ceiling.
  *
- * @param request - Incoming message whose body should be read.
  * @returns The collected chunks, or why collection stopped.
  */
 function readBytes(request: IncomingMessage): Promise<BufferOutcome> {
     return new Promise((resolve) => {
         const chunks: Buffer[] = [];
         let total = 0;
-        let settled = false;
+        let isSettled = false;
         const finish = (outcome: BufferOutcome): void => {
-            if (settled) {
+            if (isSettled) {
                 return;
             }
 
-            settled = true;
+            isSettled = true;
             resolve(outcome);
         };
 
@@ -81,7 +80,6 @@ function readBytes(request: IncomingMessage): Promise<BufferOutcome> {
 }
 
 /**
- * Read a request body as JSON.
  *
  * @param request - Incoming message from the host proxy.
  * @returns The parsed value, an empty/invalid/too-large marker, and whether

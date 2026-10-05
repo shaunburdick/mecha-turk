@@ -36,13 +36,13 @@ import type { Run } from './runs-types.ts';
 /** How a retry learned that the blocking cause had cleared. */
 export type CauseSource = 'corroborated' | 'reported' | null;
 
-/** The reason every un-cleared cause answers with (FR-041). */
+/** The reason every un-cleared cause answers with. */
 export const CAUSE_NOT_CLEARED = 'cause-not-cleared';
 
 /** The blocked cause whose clearing the service verifies by table lookup alone. */
 export const CORROBORATED_BINDING_REASON = 'binding-missing';
 
-/** The declared `blocked:` cause the actor-policy gate parks a run in (FR-078). */
+/** The declared `blocked:` cause the actor-policy gate parks a run in. */
 const ACTOR_BLOCKED_REASON = 'actor-not-allowed';
 
 /** The two blocked causes the service can re-check itself, and so corroborate. */
@@ -52,16 +52,15 @@ export const CORROBORATED_BLOCKED_REASONS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Re-judge a `blocked:actor-not-allowed` run against the live policy (FR-078).
+ * Re-judge a `blocked:actor-not-allowed` run against the live policy.
  *
  * A **truncated** reference list gets its own sentence, and the distinction is
- * load-bearing: the gate reads the run's *retained* references (T-038), so on a
+ * load-bearing: the gate reads the run's *retained* references, so on a
  * run that reached the cap this re-judge reaches the gate's verdict — and would
  * reach it after any amount of widening `allowedUsers`. Saying "still admits
  * none of this run's attributed actors" then sends the operator to make an edit
  * that cannot help (constitution IV).
  *
- * @param input - The blocked run, and the live binding table.
  * @returns The refusal naming the binding, or `'corroborated'` when the gate
  *   would now admit it.
  */

@@ -1,5 +1,5 @@
 /**
- * Panel rendering for the spike.
+ * Panel rendering.
  *
  * The UI is built once from `@openchamber/sdk/ui` controls and repainted from
  * state, so `onReady` refreshes never replace a control the user is
@@ -65,7 +65,6 @@ export interface ProjectPickerUi {
  * action: a control row for the select and its buttons, with the status and
  * selection lines underneath.
  *
- * @param root - Body element the picker mounts into.
  * @returns The group element and the control row inside it.
  */
 function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; readonly row: HTMLElement } {
@@ -92,9 +91,8 @@ function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; r
  * state, so the loading, error, and empty states are painted from state rather
  * than from whatever the mount happened to see. It mounts inside the Bindings
  * body, because that is where the operator is when a project is what is
- * missing (FR-038).
+ * missing.
  *
- * @param input - Runtime, body element, and the callbacks the picker invokes.
  * @returns The picker handles used for later repaints.
  */
 export function mountProjectPicker(input: {
@@ -146,7 +144,6 @@ export function mountProjectPicker(input: {
  * already has a tab that owns it, and a second home for a fact is a second
  * place it can drift from.
  *
- * @param root - Panel root element from `panel/index.html`.
  * @returns The one handle the repaint path updates.
  */
 export function mountPanelFraming(root: HTMLElement): PanelUi {
@@ -157,9 +154,6 @@ export function mountPanelFraming(root: HTMLElement): PanelUi {
 
 /**
  * Repaint the project picker from the picker state.
- *
- * @param state - Panel state.
- * @param ui - Mounted picker handles inside the Bindings body.
  */
 function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
     const picker = state.projects;
@@ -185,9 +179,7 @@ function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
  *
  * Nothing runs on a disposed runtime, and each body repaints only while it is
  * mounted: a tab the operator has never opened owns no handles yet, and the
- * registry on `rt` is what says so (FR-013, FR-019).
- *
- * @param rt - Panel runtime.
+ * registry on `rt` is what says so.
  */
 export function refresh(rt: PanelRuntime): void {
     if (rt.disposed) {

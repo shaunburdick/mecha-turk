@@ -31,9 +31,8 @@
  * host.
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { nowIso } from '../src/ids.ts';
@@ -63,6 +62,7 @@ import { offlineVerifier } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** The header carrying a JSON body, spelled as HTTP requires it. */
 const CONTENT_TYPE_HEADER = 'content-type';
@@ -147,32 +147,28 @@ const REPOSITORY = 'acme/wire';
 const ACCOUNT_ID = '77331';
 
 const LOG_LINES: string[] = [];
-const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let store: ServiceStore;
 let running: TestService | null = null;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-wire-'));
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    tempRoot = await makeTempTree('wire');
     LOG_LINES.length = 0;
     running = null;
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+    await removeTempTree(tempRoot);
+});
 
 /** Build an assignment detection for one issue. */
 function assignment(issueNumber: number): EventSnapshot {
@@ -273,7 +269,6 @@ async function authorize(run: Run): Promise<Run> {
 /**
  * Spend one authorization through the real result report.
  *
- * @param run - The `starting` run.
  * @param sessionId - The session the fixture says it created, else `null`.
  * @returns The run as it stands afterwards.
  */
@@ -303,7 +298,6 @@ async function settle(run: Run, sessionId: string | null): Promise<Run> {
  * Three requeues, then the park — asserted by looping rather than by a count so
  * the fixture follows whatever AC-106 pins instead of restating it.
  *
- * @param correlationId - The run to exhaust.
  * @returns The `dead-lettered` run.
  */
 async function driveToDeadLetter(correlationId: string): Promise<Run> {
@@ -328,8 +322,6 @@ async function driveToDeadLetter(correlationId: string): Promise<Run> {
  * route's *judge* is about, and a fixture the store merely accepts would let a
  * verdict pass against a shape the product can never produce.
  *
- * @param issueNumber - Issue to detect for this run.
- * @param target - The state to reach.
  * @returns The run as it stands in that state.
  */
 async function driveTo(issueNumber: number, target: Run['state']): Promise<Run> {
@@ -339,7 +331,7 @@ async function driveTo(issueNumber: number, target: Run['state']): Promise<Run> 
     const before = new Set(prior.runs.map((run) => run.correlationId));
     await enqueueEvents({ store, log: LOGGER, incoming: [createEvent(assignment(issueNumber))] });
     const seeded = await readRunsDocument({ store, log: LOGGER });
-    const [first] = seeded.runs.filter((run) => !before.has(run.correlationId));
+    const first = seeded.runs.find((run) => !before.has(run.correlationId));
     if (first === undefined) {
         throw new Error('the fixture run was not enqueued');
     }
@@ -396,7 +388,6 @@ async function driveTo(issueNumber: number, target: Run['state']): Promise<Run> 
 /**
  * Enqueue one issue and claim it, for the verdicts a lease decides.
  *
- * @param issueNumber - Issue to detect and claim.
  * @returns The claimed run and the lease the claim minted for it.
  */
 async function driveAndClaim(issueNumber: number): Promise<{ readonly run: Run; readonly leaseId: string }> {
@@ -408,12 +399,10 @@ async function driveAndClaim(issueNumber: number): Promise<{ readonly run: Run; 
 /**
  * The concrete path one run-scoped route answers on, bound to a run id.
  *
- * @param pattern - The route's declared pattern.
- * @param correlationId - The run the path should name.
  * @returns The same path with its parameter bound.
  */
 function bound(pattern: string, correlationId: string): string {
-    return pattern.replace(':correlationId', correlationId);
+    return pattern.replace(':correlationId', () => correlationId);
 }
 
 /** One response, with its status and parsed body. */
@@ -427,7 +416,6 @@ interface WireAnswer {
 /**
  * POST one run-scoped body over the loopback service.
  *
- * @param service - The running instance to call.
  * @param request - The concrete path and the body to post.
  * @returns The status and the parsed body.
  */
@@ -447,7 +435,6 @@ async function post(
 /**
  * The code and message of a failure envelope, read without trusting its shape.
  *
- * @param body - The response body.
  * @returns The envelope's code and message, or empty strings when it carries none.
  */
 function errorOf(body: Record<string, unknown>): { readonly code: string; readonly message: string } {
@@ -470,7 +457,6 @@ function errorOf(body: Record<string, unknown>): { readonly code: string; readon
  * The document read first drains the durable outbox (T-037), so a count taken
  * without it is one row short of what the operations actually owed.
  *
- * @param eventType - The vocabulary entry to collect.
  * @returns That row type's `details`, in trail order.
  */
 async function rowsOf(eventType: string): Promise<readonly Record<string, unknown>[]> {
@@ -515,8 +501,7 @@ async function detachedRun(issueNumber: number): Promise<Run> {
 }
 
 describe('T-042d a resolve may not name a session and ask for none', () => {
-    it('refuses 422 naming sessionId instead of re-dispatchi… (+1 cases)', async () => {
-        // case: refuses 422 naming sessionId instead of re-dispatching a run it just reported
+    it('refuses 422 naming sessionId instead of re-dispatching a run it just reported', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(1, 'unconfirmed');
@@ -542,11 +527,9 @@ describe('T-042d a resolve may not name a session and ask for none', () => {
             expect(stored.session).toBeNull();
             expect(stored.reservation?.consumed).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: still accepts the same body without sessionId, which is the documented shape
+    });
+
+    it('still accepts the same body without sessionId, which is the documented shape', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(2, 'unconfirmed');
@@ -561,6 +544,7 @@ describe('T-042d a resolve may not name a session and ask for none', () => {
             expect(await readRun(run.correlationId).then((found) => found.attempt)).toBe(2);
         }
     });
+
 });
 
 describe('T-043a the reserve 200 carries every member the panel acts on', () => {
@@ -596,8 +580,7 @@ describe('T-043a the reserve 200 carries every member the panel acts on', () => 
 });
 
 describe('T-043a every refusal code reaches the transport as 409', () => {
-    it('answers stale-lease for a lease the run never held (+4 cases)', async () => {
-        // case: answers stale-lease for a lease the run never held
+    it('answers stale-lease for a lease the run never held', async () => {
         {
             const service = await startSeededService();
             const { run } = await driveAndClaim(11);
@@ -611,11 +594,9 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
             expect(errorOf(result.json).code).toBe(STALE_LEASE);
             expect(errorOf(result.json).message).toContain('lease');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers already-reserved for a second authorization on one live run
+    });
+
+    it('answers already-reserved for a second authorization on one live run', async () => {
         {
             const service = await startSeededService();
             const { run, leaseId } = await driveAndClaim(12);
@@ -633,11 +614,9 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
             expect(errorOf(second.json).message).toContain('attempt 1');
             expect(errorOf(second.json).message).toContain(String(first.json.resultDeadlineAt));
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers already-dispatched naming the session a leaseless run recorded (AC-112)
+    });
+
+    it('answers already-dispatched naming the session a leaseless run recorded', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(13, 'dispatched');
@@ -652,11 +631,9 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
             expect(errorOf(result.json).code).toBe(ALREADY_DISPATCHED);
             expect(errorOf(result.json).message).toContain(SEEDED_SESSION);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers invalid-transition naming the state for a retry that cannot run
+    });
+
+    it('answers invalid-transition naming the state for a retry that cannot run', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(14, 'pending');
@@ -669,11 +646,9 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
             expect(result.status).toBe(409);
             expect(errorOf(result.json).code).toBe(INVALID_TRANSITION);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers cause-not-cleared when only the panel can check the cause
+    });
+
+    it('answers cause-not-cleared when only the panel can check the cause', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(15, 'blocked:project-missing');
@@ -688,11 +663,11 @@ describe('T-043a every refusal code reaches the transport as 409', () => {
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('blocked:project-missing');
         }
     });
+
 });
 
 describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
-    it('names the run and the operation when the refusal row… (+1 cases)', async () => {
-        // case: names the run and the operation when the refusal row failed to append
+    it('names the run and the operation when the refusal row failed to append', async () => {
         {
             const run = await detachedRun(90);
             const lines: string[] = [];
@@ -704,7 +679,7 @@ describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
             };
 
             const response = runOutcomeResponse({
-                context: answerContext((line) => lines.push(line)),
+                context: answerContext((line) => void lines.push(line)),
                 operation: 'reserve',
                 outcome: refused,
                 success: (found, auditWritten) =>
@@ -719,11 +694,9 @@ describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
             expect(warnings.join('\n')).toContain(run.correlationId);
             expect(warnings.join('\n')).toContain('reserve');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: says nothing when the refusal row did land
+    });
+
+    it('says nothing when the refusal row did land', async () => {
         {
             const run = await detachedRun(91);
             const lines: string[] = [];
@@ -735,7 +708,7 @@ describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
             };
 
             runOutcomeResponse({
-                context: answerContext((line) => lines.push(line)),
+                context: answerContext((line) => void lines.push(line)),
                 operation: 'retry',
                 outcome: refused,
                 success: (found, auditWritten) =>
@@ -745,11 +718,11 @@ describe('T-043b a degraded trail warns on a refusal too (FR-063)', () => {
             expect(lines.filter((line) => line.includes('could not record its row'))).toHaveLength(0);
         }
     });
+
 });
 
 describe('T-043c a 422 about a run that exists writes its refusal row', () => {
-    it('records the operation, code, prior state, and attemp… (+1 cases)', async () => {
-        // case: records the operation, code, prior state, and attempt for a malformed body
+    it('records the operation, code, prior state, and attempt for a malformed body', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(30, 'pending');
@@ -772,11 +745,9 @@ describe('T-043c a 422 about a run that exists writes its refusal row', () => {
                 attempt: 1,
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: keeps 404 unknown-run row-free, because there is no run to name
+    });
+
+    it('keeps 404 unknown-run row-free, because there is no run to name', async () => {
         {
             const service = await startSeededService();
 
@@ -790,6 +761,7 @@ describe('T-043c a 422 about a run that exists writes its refusal row', () => {
             expect(await rowsOf(REFUSED_ROW)).toHaveLength(0);
         }
     });
+
 });
 
 describe('T-043h §7 and §8 never require attempt', () => {
@@ -817,8 +789,7 @@ describe('T-043h §7 and §8 never require attempt', () => {
 });
 
 describe('T-043e an over-long optional free-text member is refused, not dropped', () => {
-    it('refuses an over-long causeReport on a retry, naming … (+5 cases)', async () => {
-        // case: refuses an over-long causeReport on a retry, naming the field
+    it('refuses an over-long causeReport on a retry, naming the field', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(40, 'failed');
@@ -834,11 +805,9 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             // nothing moved, and the panel is told which member was too long.
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('failed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses an over-long note on a resolve, naming the field
+    });
+
+    it('refuses an over-long note on a resolve, naming the field', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(41, 'unconfirmed');
@@ -852,11 +821,9 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             expect(errorOf(result.json).message).toContain('note');
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('unconfirmed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses over-long guidance on a block report, naming the field
+    });
+
+    it('refuses over-long guidance on a block report, naming the field', async () => {
         {
             const service = await startSeededService();
             const { run, leaseId } = await driveAndClaim(42);
@@ -877,11 +844,9 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             expect(errorOf(result.json).message).toContain('guidance');
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('claimed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses an over-long observedAgent on a verification, naming the field
+    });
+
+    it('refuses an over-long observedAgent on a verification, naming the field', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(43, 'dispatched');
@@ -901,11 +866,9 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             expect(result.status).toBe(422);
             expect(errorOf(result.json).message).toContain('observedAgent');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: accepts a blank baseline, and still refuses an absent one (002 FR-029 as amended)
+    });
+
+    it('accepts a blank baseline, and still refuses an absent one (002 FR-029 as amended)', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(48, 'dispatched');
@@ -944,9 +907,9 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             expect(missing.status).toBe(422);
             expect(errorOf(missing.json).message).toContain('expectedAgent');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a baseline provenance that is missing or contradicts its own baseline
+    });
+
+    it('refuses a baseline provenance that is missing or contradicts its own baseline', async () => {
         {
             // The provenance is the reason an `agent.uncompared` row can say
             // *why* nothing was compared (002 FR-029 case (ii); contract §5 as
@@ -983,11 +946,11 @@ describe('T-043e an over-long optional free-text member is refused, not dropped'
             expect(await readRun(run.correlationId).then((found) => found.verification)).toBeNull();
         }
     });
+
 });
 
 describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
-    it('refuses a result whose sessionId is not a host id (+3 cases)', async () => {
-        // case: refuses a result whose sessionId is not a host id
+    it('refuses a result whose sessionId is not a host id', async () => {
         {
             const service = await startSeededService();
             const { run } = await driveAndClaim(44);
@@ -1009,11 +972,9 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('claimed');
             expect(await readRun(run.correlationId).then((found) => found.session)).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a resolve naming a session the host would never mint
+    });
+
+    it('refuses a resolve naming a session the host would never mint', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(45, 'unconfirmed');
@@ -1027,11 +988,9 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
             expect(errorOf(result.json).message).toContain('sessionId');
             expect(await readRun(run.correlationId).then((found) => found.state)).toBe('unconfirmed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a verification whose sessionId is well-formed but unbounded
+    });
+
+    it('refuses a verification whose sessionId is well-formed but unbounded', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(46, 'dispatched');
@@ -1049,11 +1008,9 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
             expect(result.status).toBe(422);
             expect(errorOf(result.json).message).toContain('sessionId');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: accepts the host-shaped id the read-back actually carries
+    });
+
+    it('accepts the host-shaped id the read-back actually carries', async () => {
         {
             const service = await startSeededService();
             const run = await driveTo(47, 'dispatched');
@@ -1076,11 +1033,11 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
             expect(result.json.state).toBe('dispatched');
         }
     });
+
 });
 
 describe('T-043g the only authorization path left is the routed one', () => {
-    it('keeps the run store free of token minting and termin… (+1 cases)', async () => {
-        // case: keeps the run store free of token minting and terminal transitions
+    it('keeps the run store free of token minting and terminal transitions', async () => {
         {
             const source = await readFile(new URL('../service/poll/runs.ts', import.meta.url), 'utf8');
 
@@ -1092,15 +1049,14 @@ describe('T-043g the only authorization path left is the routed one', () => {
             );
             expect(source).not.toMatch(/from '\.\/run-key\.ts'/);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: retires the legacy queue mutations the run routes replaced
+    });
+
+    it('retires the legacy queue mutations the run routes replaced', async () => {
         {
             const source = await readFile(new URL('../service/poll/events.ts', import.meta.url), 'utf8');
 
             expect(source).not.toMatch(/export async function (markEventDispatched|retryEvent)\b/);
         }
     });
+
 });

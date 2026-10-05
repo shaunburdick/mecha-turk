@@ -46,7 +46,7 @@ export interface Relay {
     /** Whether a dispatch is being processed right now. */
     dispatching: boolean;
     /**
-     * Attempts this mount has already handed to the dispatch path (FR-034),
+     * Attempts this mount has already handed to the dispatch path,
      * keyed `"<correlationId>#<attempt>"`.
      *
      * A duplicate-suppression convenience, never a durability mechanism and
@@ -90,7 +90,7 @@ export interface BindingsTabState {
     /** Last relay status rows rendered per binding. */
     statusRows: readonly BindingStatusRow[];
     /**
-     * Whether the binding editor block is on screen at all (2026-10-01 review).
+     * Whether the binding editor block is on screen at all.
      *
      * The editor is **not open by default**: the tab entry shows the list, a
      * row click loads that row into the editor and opens it, and **New
@@ -101,7 +101,7 @@ export interface BindingsTabState {
     editorOpen: boolean;
     /**
      * Whether the form is loaded with `selectedBinding` and its primary
-     * control **saves** that row instead of adding one (005 FR-050).
+     * control **saves** that row instead of adding one.
      *
      * Set by the row click that loads a binding into the editor (the Edit
      * affordance the post-install review added, now the row itself) and
@@ -113,7 +113,7 @@ export interface BindingsTabState {
     /** The starting-prompt editor field's current text (005 FR-051). */
     startingPromptInput: string;
     /**
-     * Whether the operator changed that field on this selection (004 FR-014).
+     * Whether the operator changed that field on this selection.
      *
      * Untouched means a save **omits** `startingPrompt` entirely, so the
      * service keeps whatever it holds; a change — clearing the field included —
@@ -124,12 +124,12 @@ export interface BindingsTabState {
     startingPromptError: string | null;
     /**
      * The allow-list field's current text, one operator-supplied login per
-     * entry (005 FR-090).
+     * entry.
      *
-     * **The only element that ever holds these logins** (005 FR-091): the row
-     * summary reduces them to a count, and Status never carries a login at all
-     * (005 NFR-113). Free text the operator supplies — there is no identity
-     * picker, because the host exposes no such API (005 FR-004).
+     * **The only element that ever holds these logins**: the row
+     * summary reduces them to a count, and Status never carries a login at all.
+     * Free text the operator supplies — there is no identity
+     * picker, because the host exposes no such API.
      */
     allowedUsersInput: string;
     /**

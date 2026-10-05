@@ -1,5 +1,5 @@
 /**
- * Shared mutable state for the spike panel.
+ * Shared mutable state for the panel.
  *
  * One runtime object carries everything the panel's actions and rendering need:
  * the documented host client, the frame window, the ledger, and the small
@@ -7,14 +7,14 @@
  */
 
 import type { BannerTone } from '@openchamber/sdk/ui';
-import type { SpikeConfig } from './config.ts';
-import type { SpikeEvidence } from './evidence.ts';
+import type { BindingContext } from './config.ts';
+import type { PanelEvidence } from './evidence.ts';
 import type { AuditViewState } from './audit-view.ts';
 import { initialAuditHistory } from './audit-view.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { createLedger } from './ledger.ts';
 import { initialHandoffState } from './handoff.ts';
-import type { SpikeLedger } from './ledger.ts';
+import type { PanelLedger } from './ledger.ts';
 import type { HandoffState } from './handoff.ts';
 import type { HandoffView } from './accounts-ui.ts';
 import type { BindingsPane } from './bindings-ui.ts';
@@ -22,17 +22,9 @@ import type { AccountsBody } from './accounts-tab.ts';
 import { initialAccounts } from './accounts-state.ts';
 import type { AccountsTabState } from './accounts-state.ts';
 import { initialBindings } from './bindings-state.ts';
-import type { BindingsStatus, BindingsTabState } from './bindings-state.ts';
+import type { BindingsTabState } from './bindings-state.ts';
 import { initialProjectPicker } from './project-picker.ts';
 import type { ProjectPickerState } from './project-picker.ts';
-
-// The Accounts and Bindings tabs' working states moved out for the file-length
-// gate; both stay importable from here, so no call site had to change with the
-// move.
-export type { AccountsTabState } from './accounts-state.ts';
-export type { BindingsStatus, BindingsTabState };
-export { initialBindings };
-export { initialProjectPicker, type ProjectPickerState };
 import type { DispatchesBoard } from './dispatches-ui.ts';
 import type { StatusTabUi } from './status-tab.ts';
 import { initialStatusTab } from './status-document.ts';
@@ -44,14 +36,24 @@ import type { AboutTabState, AboutTabUi } from './about-tab.ts';
 import type { TabShell } from './tabs.ts';
 import type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
 
+// The Accounts and Bindings tabs' working states moved out for the file-length
+// gate; both stay importable from here, so no call site had to change with the
+// move.
+export type { AccountsTabState } from './accounts-state.ts';
+export type { BindingsStatus } from './bindings-state.ts';
+export type { BindingsTabState };
+export { initialBindings };
+export { initialProjectPicker };
+export type { ProjectPickerState } from './project-picker.ts';
+
 export type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
 import type { RunRow } from './dispatches-service.ts';
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 import { initialDispatchFilters, initialDispatchListPage } from './dispatch-page.ts';
 import type { DispatchFilters, DispatchListPage } from './dispatch-page.ts';
 
 /**
- * The six top-level surfaces, in strip order (005 FR-010).
+ * The six top-level surfaces, in strip order.
  *
  * A closed union: the shell constructs every value that reaches it, so an
  * unknown id can never arrive and there is no passthrough branch.
@@ -63,7 +65,6 @@ export const TAB_IDS: readonly TabId[] = ['status', 'dispatches', 'bindings', 'a
 
 /** Banner content shown at the top of the panel. */
 export interface PanelStatus {
-    /** Banner tone. */
     readonly tone: BannerTone;
     /** One-line headline. */
     readonly title: string;
@@ -112,20 +113,20 @@ export function initialRelay(): Relay {
 /** Mutable panel state. */
 export interface PanelState {
     /** Ledger being built for this mount. */
-    ledger: SpikeLedger;
+    ledger: PanelLedger;
     /**
      * Dispatch context derived from the first enabled binding, or `null`
      * while no binding supplies one. Since 002 FR-041 emptied the manifest
      * card, this is the **only** producer of the shape — nothing parses it
      * out of `ctx.settings` any more.
      */
-    config: SpikeConfig | null;
+    config: BindingContext | null;
     /**
      * Latest settings snapshot from the host, or `null` before the first one.
      *
      * The card declares zero settings, so the snapshot is a "the host is
      * ready" marker rather than a configuration source; prerequisites reads
-     * it for exactly that (005 FR-037).
+     * it for exactly that.
      */
     settings: Readonly<Record<string, string>> | null;
     /**
@@ -139,13 +140,13 @@ export interface PanelState {
      * Project id chosen by the panel picker, restored from extension storage.
      *
      * `null` means "no panel selection": no project is configured, and the
-     * panel says so rather than inventing one (002 FR-004, FR-041).
+     * panel says so rather than inventing one.
      */
     projectSelection: string | null;
     /** Project list backing the picker. */
     projects: ProjectPickerState;
     /** Evidence record for the current match. */
-    evidence: SpikeEvidence | null;
+    evidence: PanelEvidence | null;
     /** Banner content. */
     status: PanelStatus;
     /** Whether an action is running; blocks concurrent dispatches. */
@@ -154,9 +155,9 @@ export interface PanelState {
     handoff: HandoffState;
     /** Repository bindings as the Bindings tab reads and edits them (M3). */
     bindings: BindingsTabState;
-    /** Which row the Accounts tab has open, armed, or drafting (FR-060). */
+    /** Which row the Accounts tab has open, armed, or drafting. */
     accounts: AccountsTabState;
-    /** Dispatches list, selection, and M9 notice, as its own tab slice (FR-012). */
+    /** Dispatches list, selection, and M9 notice, as its own tab slice. */
     dispatches: DispatchesState;
     /** The Status tab's projection, read state, and staleness (FR-019, FR-030). */
     statusTab: StatusTabState;
@@ -179,7 +180,7 @@ export interface Relay {
     /** Whether a dispatch is being processed right now. */
     dispatching: boolean;
     /**
-     * Attempts this mount has already handed to the dispatch path (FR-034),
+     * Attempts this mount has already handed to the dispatch path,
      * keyed `"<correlationId>#<attempt>"`.
      *
      * A duplicate-suppression convenience, never a durability mechanism and
@@ -197,7 +198,7 @@ export interface Relay {
 /** Everything the panel's functions share. */
 export interface PanelRuntime {
     /** Documented host client. */
-    readonly host: SpikeHost;
+    readonly host: PanelHost;
     /** Frame window, used for the unload hook. */
     readonly panelWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>;
     /** Mutable panel state. */
@@ -209,7 +210,7 @@ export interface PanelRuntime {
     /** Mounted handoff group, when this surface shows one. */
     handoffView: HandoffView | null;
     /**
-     * The six-tab shell the panel root owns (005 FR-010).
+     * The six-tab shell the panel root owns.
      *
      * `null` before `mountTabShell` runs and after teardown, so a headless
      * runtime (orchestration tests) never has to know about tabs.
@@ -234,22 +235,22 @@ export interface PanelRuntime {
     /** `true` once the first `onReady` snapshot has been handled. */
     started: boolean;
     /**
-     * Which tab is showing — the shell's single activation field (FR-012).
+     * Which tab is showing — the shell's single activation field.
      *
      * Deliberately *not* persisted: the operator opens this panel because
-     * something happened, so a reopen always starts on Status (FR-015).
+     * something happened, so a reopen always starts on Status.
      */
     activeTab: TabId;
     /** Tabs whose bodies have mounted; each mounts once, on first activation. */
     tabMounted: Set<TabId>;
-    /** When each tab last landed a read; `null` until one does (FR-014). */
+    /** When each tab last landed a read; `null` until one does. */
     tabLastRead: Map<TabId, string | null>;
     /** Registered unload listener, so teardown can remove exactly what it added. */
     pagehideListener: (() => void) | null;
     /** Whether the event relay loop is armed on this runtime. */
     relayArmed: boolean;
     /**
-     * Whether mount-time reconciliation has settled for this runtime (FR-025).
+     * Whether mount-time reconciliation has settled for this runtime.
      *
      * `true` for a runtime that has not begun mounting — there is nothing to
      * reconcile until the panel has read its own record — and `false` for the
@@ -265,7 +266,7 @@ export interface PanelRuntime {
      * Verification read-backs this mount started and has not seen settle.
      *
      * The relay starts them detached so a slow read-back can never hold the
-     * claim slot (AC-125); nothing on a dispatch path awaits them, and a test
+     * claim slot; nothing on a dispatch path awaits them, and a test
      * drains the list to observe what a verification wrote without racing it.
      */
     readonly pendingVerifications: Promise<void>[];
@@ -309,7 +310,7 @@ export interface DispatchesState {
      */
     agentNotice: PanelStatus | null;
     /**
-     * The control the operator armed for its confirm step (003 T-025), or
+     * The control the operator armed for its confirm step, or
      * `null` when nothing is armed.
      *
      * The panel has no dialog primitive, so a destructive or state-changing
@@ -319,21 +320,21 @@ export interface DispatchesState {
      * history does not already explain, and the service answers it either way.
      */
     pendingAction: RunPendingAction | null;
-    /** Session id typed for the "a session was created" resolution (FR-027). */
+    /** Session id typed for the "a session was created" resolution. */
     sessionInput: string;
     /** Single in-flight gate for the run operations; one flag, never several. */
     busy: boolean;
     /** The selected run's audit trail, read on demand (003 T-026). */
     audit: AuditViewState;
-    /** Server-side filters the list applies; both off means the whole set (FR-043). */
+    /** Server-side filters the list applies; both off means the whole set. */
     filters: DispatchFilters;
-    /** Paging position inside the set the filters describe (FR-042). */
+    /** Paging position inside the set the filters describe. */
     page: DispatchListPage;
     /** Whether the selected row's source-reference reveal is open (FR-048). */
     referencesOpen: boolean;
 }
 
-/** The run controls that ask for a confirmation step before they act (T-025). */
+/** The run controls that ask for a confirmation step before they act. */
 export type RunPendingAction = 'requeue' | 'resolve-session' | 'resolve-no-session';
 
 /**
@@ -376,12 +377,11 @@ function initialState(createdAt: string): PanelState {
 /**
  * Create the runtime with a fresh, unmounted state.
  *
- * @param host - Documented host client.
  * @param panelWindow - Frame window for the unload hook.
  * @returns The shared panel runtime.
  */
 export function createPanelRuntime(
-    host: SpikeHost,
+    host: PanelHost,
     panelWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>,
 ): PanelRuntime {
     const createdAt = nowIso();
@@ -416,9 +416,6 @@ export function createPanelRuntime(
 
 /**
  * Replace the banner content.
- *
- * @param rt - Panel runtime.
- * @param next - Status to show.
  */
 export function setStatus(rt: PanelRuntime, next: PanelStatus): void {
     rt.state.status = next;

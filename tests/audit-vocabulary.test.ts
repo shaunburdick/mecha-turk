@@ -31,6 +31,7 @@ import { reservedRow, resultRow } from '../service/poll/dispatch-audit.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { PromptSnapshot } from '../service/prompt.ts';
 import type { Run } from '../service/poll/runs-types.ts';
+import { byText } from './support/sort.ts';
 import { EXPECTED_AGENT, shutdownDispatchCorpus } from './support/dispatch-corpus.ts';
 import { driveDispatchCorpus } from './support/dispatch-drive.ts';
 import type { DispatchCorpus } from './support/dispatch-corpus.ts';
@@ -319,15 +320,14 @@ function firstSeqFor(input: {
     /** The run whose row must match. */
     readonly correlationId: string;
 }): number {
-    const [row] = rowsOf(input.trail, input.eventType)
-        .filter((entry) => entry.correlationId === input.correlationId);
+    const row = rowsOf(input.trail, input.eventType)
+        .find((entry) => entry.correlationId === input.correlationId);
 
-    return row === undefined ? Number.NaN : row.seq;
+    return row === undefined ? NaN : row.seq;
 }
 
 describe('AC-115 every vocabulary entry is present with its required details', () => {
-    it('writes all seventeen types with the actor, decision, a… (+3 cases)', () => {
-        // case: writes all seventeen types with the actor, decision, and details the table names
+    it('writes all seventeen types with the actor, decision, and details the table names', () => {
         {
             const { trail } = driven();
             expect(new Set(trail.map((entry) => entry.eventType)).size).toBeGreaterThanOrEqual(
@@ -356,7 +356,6 @@ describe('AC-115 every vocabulary entry is present with its required details', (
                 }
             }
         }
-        // case: names the reference that joined after authorization as possibly unseen (FR-015)
         {
             const { trail } = driven();
             const coalesced = rowsOf(trail, COALESCED_ROW);
@@ -368,12 +367,11 @@ describe('AC-115 every vocabulary entry is present with its required details', (
                 presentAtAuthorization: false,
             });
         }
-        // case: records one refusal of each of the eight refusing operations (FR-003)
         {
             const { trail, refusals, adoptedRunId } = driven();
             expect(refusals).toHaveLength(REFUSING_OPERATIONS.length);
-            expect(refusals.map((observation) => observation.operation).sort())
-                .toEqual([...REFUSING_OPERATIONS].sort());
+            expect(refusals.map((observation) => observation.operation).toSorted(byText))
+                .toEqual([...REFUSING_OPERATIONS].toSorted(byText));
 
             const rows = rowsOf(trail, REFUSAL_ROW);
             const operations = new Set(rows.map((row) => row.details.operation));
@@ -402,7 +400,6 @@ describe('AC-115 every vocabulary entry is present with its required details', (
                 expect(typeof row.details.priorState).toBe('string');
             }
         }
-        // case: records a blank-baseline read-back as its own row, with the absence and no expectation
         {
             const { trail, adoptedRunId } = driven();
             const [uncompared] = rowsOf(trail, UNCOMPARED_ROW);
@@ -433,8 +430,7 @@ describe('AC-115 every vocabulary entry is present with its required details', (
 });
 
 describe('FR-062 every lifecycle row carries the run correlation id', () => {
-    it('reports the run id byte-identically, never a freshly… (+1 cases)', () => {
-        // case: reports the run id byte-identically, never a freshly generated one (AC-116)
+    it('reports the run id byte-identically, never a freshly generated one', () => {
         {
             const { trail, adoptedRunId, createdRunId } = driven();
             const lifecycle = lifecycleRows(trail);
@@ -458,7 +454,6 @@ describe('FR-062 every lifecycle row carries the run correlation id', () => {
                 expect([adoptedRunId, createdRunId]).toContain(row.correlationId);
             }
         }
-        // case: orders the trail the way the transitions happened
         {
             const { trail, adoptedRunId, createdRunId } = driven();
             // The drive's own order: adoption, the claim that gave the refusals a
@@ -484,7 +479,7 @@ describe('FR-062 every lifecycle row carries the run correlation id', () => {
             ].map((eventType) => firstSeqFor({ trail, eventType, correlationId: adoptedRunId }));
 
             expect(chain.every((seq) => !Number.isNaN(seq))).toBe(true);
-            expect([...chain].sort((left, right) => left - right)).toEqual(chain);
+            expect([...chain].toSorted((left, right) => left - right)).toEqual(chain);
             // Creation is the only row that belongs to the other run, and it is
             // written once — the vocabulary's first entry (AC-115's sample).
             expect(rowsOf(trail, CREATED_ROW)).toHaveLength(1);
@@ -499,7 +494,6 @@ describe('FR-062 every lifecycle row carries the run correlation id', () => {
  * when a prompt was present, `null` when none was, and nothing else standing
  * in for either.
  *
- * @param value - The member as the trail carried it.
  * @returns The tier list, `null`, or `undefined` when the member is neither
  *   shape — which the caller reports as the violation it is.
  */
@@ -531,9 +525,6 @@ function tiersOf(value: unknown): readonly string[] | null | undefined {
  *
  * Takes the pair structurally rather than a row type, so the same invariant
  * reads a stored {@link AuditEntry} and a row the builders just made.
- *
- * @param input - The row's vocabulary name and its `details`, as stored or as
- *   built (`undefined` is accepted and fails the invariant below).
  */
 function expectSourcesMatchPrompt(input: {
     /** Vocabulary name of the row, for the failure message. */
@@ -559,7 +550,7 @@ function expectSourcesMatchPrompt(input: {
     const order: readonly string[] = PROMPT_SOURCE_ORDER;
     const positions = tiers.map((tier) => order.indexOf(tier));
     expect(positions.every((position) => position >= 0), `${eventType} tier vocabulary`).toBe(true);
-    expect([...positions].sort((left, right) => left - right), `${eventType} tier order`).toEqual(positions);
+    expect([...positions].toSorted((left, right) => left - right), `${eventType} tier order`).toEqual(positions);
     expect(new Set(tiers).size, `${eventType} tier duplicates`).toBe(tiers.length);
 }
 
@@ -585,7 +576,7 @@ describe('004 the two rows that record what was sent carry the prompt reference 
             // still there and `promptSources` is the only addition, so a
             // rename or a removal fails here (FR-050's "changes none of its
             // existing fields", FR-087).
-            expect(Object.keys(details).sort(), `${row.eventType} details keys`).toEqual(
+            expect(Object.keys(details).toSorted(byText), `${row.eventType} details keys`).toEqual(
                 row.eventType === RESERVED_ROW ? RESERVED_DETAIL_KEYS : RESULT_DETAIL_KEYS,
             );
             expectSourcesMatchPrompt({ eventType: row.eventType, details });
@@ -638,7 +629,6 @@ const SYNTHETIC_BINDING = 'bnd-sources';
  * value, because the row builders read only `correlationId`, `bindingId`,
  * `attempt`, `attachmentId`, and `prompt`.
  *
- * @param prompt - The snapshot this run was queued with, or `null`.
  * @returns A run `reservedRow` and `resultRow` both accept.
  */
 function runWith(prompt: PromptSnapshot | null): Run {

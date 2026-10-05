@@ -12,8 +12,7 @@
  * **Entry detail is deliberately not rendered**: ledger lines are
  * `#seq · kind · time` and nothing else, so an account identifier, a prompt,
  * a fingerprint, or a path has no way into this section (FR-076). Nothing
- * here writes — the spike-era phase writer left with the tab it lived on
- * (FR-011).
+ * here writes — the phase writer left with the tab it lived on.
  */
 
 import type { TextHandle } from '@openchamber/sdk/ui';
@@ -37,7 +36,6 @@ const LEDGER_EMPTY = 'No ledger entries yet.';
 /**
  * Format an RFC 3339 timestamp as `HH:MM:SS`.
  *
- * @param iso - Timestamp to format.
  * @returns The time slice, or the raw value when it is too short.
  */
 function formatTime(iso: string): string {
@@ -45,13 +43,12 @@ function formatTime(iso: string): string {
 }
 
 /**
- * The phase record, read-only (FR-075).
+ * The phase record, read-only.
  *
- * @param rt - Panel runtime whose ledger the line reads.
  * @returns The last recorded phase, or that there is none yet.
  */
 export function phaseRecordLine(rt: PanelRuntime): string {
-    const phase = [...rt.state.ledger.entries].reverse().find((entry) => entry.kind === 'phase');
+    const phase = rt.state.ledger.entries.findLast((entry) => entry.kind === 'phase');
     if (phase === undefined) {
         return 'Phase record: none recorded yet.';
     }
@@ -60,9 +57,8 @@ export function phaseRecordLine(rt: PanelRuntime): string {
 }
 
 /**
- * The ledger as text: sequence, kind, and time, newest first (FR-075).
+ * The ledger as text: sequence, kind, and time, newest first.
  *
- * @param rt - Panel runtime whose ledger the lines read.
  * @returns The lines, or the empty-state sentence.
  */
 export function ledgerLines(rt: PanelRuntime): string {
@@ -81,9 +77,8 @@ export function ledgerLines(rt: PanelRuntime): string {
 }
 
 /**
- * Mount the read-only Diagnostics block's three lines (FR-075, FR-076).
+ * Mount the read-only Diagnostics block's three lines.
  *
- * @param input - Runtime whose ledger the block renders, and the block body.
  * @returns The three handles the pane carries.
  */
 export function mountDiagnostics(input: {

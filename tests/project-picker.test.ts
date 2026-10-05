@@ -28,6 +28,7 @@ import {
     storeProjectSelection,
 } from '../src/project-actions.ts';
 import { readDraft } from '../src/bindings.ts';
+import { byText } from './support/sort.ts';
 import {
     PROJECTS,
     PROJECT_ID,
@@ -83,7 +84,6 @@ function refusingStorage(): Parameters<typeof storeProjectSelection>[0]['storage
 /**
  * Build a picker in a specific state.
  *
- * @param overrides - Members to replace in the initial picker state.
  * @returns The picker state under test.
  */
 function picker(overrides: Partial<ProjectPickerState> = {}): ProjectPickerState {
@@ -216,7 +216,7 @@ describe('storeProjectSelection', () => {
         expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(PROJECT_ID);
 
         const untouched = createStorageDouble();
-        const refusedId = await storeProjectSelection({ storage: untouched.storage }, '   ');
+        const refusedId = await storeProjectSelection({ storage: untouched.storage }, ' '.repeat(3));
         expect(refusedId.ok, 'an invalid id').toBe(false);
         expect(untouched.operations, 'an invalid id must not touch storage').toEqual([]);
 
@@ -364,10 +364,10 @@ describe('"Not listed?" guidance (FR-070, AC-121)', () => {
         // The Bindings pane's mount moved into `bindings-body.ts` with the
         // 2026-10-01 editor re-cut; the guidance still paints from there.
         const bindingPicker = readFileSync(resolve(ROOT, 'src/bindings-body.ts'), 'utf8');
-        const spikePicker = readFileSync(resolve(ROOT, 'src/panel-ui.ts'), 'utf8');
+        const panelUiSource = readFileSync(resolve(ROOT, 'src/panel-ui.ts'), 'utf8');
 
         expect(bindingPicker).toContain('notListedGuidance()');
-        expect(spikePicker).toContain('notListedGuidance()');
+        expect(panelUiSource).toContain('notListedGuidance()');
     });
 });
 
@@ -448,7 +448,7 @@ interface ScannedFile {
 function scanProjectCreationSurface(): readonly ScannedFile[] {
     const files: ScannedFile[] = [];
     for (const dir of SCANNED_DIRS) {
-        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map((entry) => String(entry));
+        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map(String);
         for (const entry of entries) {
             if (!entry.endsWith('.ts') && !entry.endsWith('.js')) {
                 continue;
@@ -484,11 +484,11 @@ describe('no project-creation call exists anywhere (AC-121)', () => {
         // The Pick list itself, not every quoted word in the file's docs:
         // this is the surface a future module has to widen to reach a host
         // project-creation call, so it is the list that has to stay read-only.
-        const pick = session.match(/export type SpikeHost = Pick<\s*HostClient,\s*([\s\S]*?)\s*>/);
+        const pick = session.match(/export type PanelHost = Pick<\s*HostClient,\s*([\s\S]*?)\s*>/);
         expect(pick).not.toBeNull();
 
         const members = [...(pick?.[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] ?? '');
-        const projectMembers = members.filter((member) => member.includes('Project')).sort();
+        const projectMembers = members.filter((member) => member.includes('Project')).toSorted(byText);
 
         expect(projectMembers).toEqual(['listProjects', 'onProjects']);
     });

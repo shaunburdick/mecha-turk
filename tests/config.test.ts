@@ -90,7 +90,7 @@ describe('parseProjectId', () => {
         expect(parseProjectId(`  ${PANEL_PICK}  `), 'surrounding whitespace').toBe(PANEL_PICK);
         expect(parseProjectId(null), 'an absent selection').toBeNull();
         expect(parseProjectId(''), 'a blank selection').toBeNull();
-        expect(parseProjectId('   '), 'a whitespace selection').toBeNull();
+        expect(parseProjectId(' '.repeat(3)), 'a whitespace selection').toBeNull();
         expect(parseProjectId('bad\nid'), 'a control character').toBeNull();
         expect(parseProjectId('x'.repeat(200)), 'an id past the documented cap').toBeNull();
     });

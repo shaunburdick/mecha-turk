@@ -54,13 +54,12 @@ import type { PanelRuntime } from './panel-state.ts';
 export { RELAY_POLL_INTERVAL_MS };
 
 /**
- * The handled-list key for one offered attempt (FR-034).
+ * The handled-list key for one offered attempt.
  *
  * Keyed by correlation id **and** attempt, so the service handing the same run
  * back under a new lease and a new attempt is a new key — and a failed report
  * under the old one is not a licence to dispatch it again.
  *
- * @param run - The offered run.
  * @returns `"<correlationId>#<attempt>"`.
  */
 export function handledKey(run: Pick<ClaimedRun, 'correlationId' | 'attempt'>): string {
@@ -73,8 +72,6 @@ export function handledKey(run: Pick<ClaimedRun, 'correlationId' | 'attempt'>): 
  * Each gate ends the attempt on its own refusal, and every one of them ends it
  * **before** `host.startSession()` is reachable — which is the panel half of
  * FR-028's impossibility requirement.
- *
- * @param input - Runtime and the run to try.
  */
 async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: ClaimedRun }): Promise<void> {
     const { rt, run } = input;
@@ -91,8 +88,8 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
 
     const reserved = await reserveRun(rt, run);
     if (reserved.kind === 'refused') {
-        // The actor-policy gate's one refusal this panel owes a report for
-        // (FR-078), posted through the operation every other guard already uses.
+        // The actor-policy gate's one refusal this panel owes a report for,
+        //  posted through the operation every other guard already uses.
         // Every other refusal ends the attempt here, having written nothing.
         if (reserved.failure !== undefined) {
             await refuseWithBlocked({ rt, run, failure: reserved.failure });
@@ -115,12 +112,9 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
  * Dispatch one claimed run; never throws.
  *
  * The dispatch guard is one observed handoff per `correlationId#attempt` per
- * mount (FR-034), so a re-poll can never double-start the same attempt,
+ * mount, so a re-poll can never double-start the same attempt,
  * whatever the service did — and a failed report never clears the entry, so it
  * can never become a licence to dispatch it again.
- *
- * @param rt - Panel runtime.
- * @param run - The run to dispatch.
  */
 export async function dispatchClaimedRun(rt: PanelRuntime, run: ClaimedRun): Promise<void> {
     const key = handledKey(run);
@@ -150,7 +144,6 @@ export async function dispatchClaimedRun(rt: PanelRuntime, run: ClaimedRun): Pro
  * anything about work it was not offered — `status.pendingCount` carries that
  * signal, and the loop simply claims again on its own clock.
  *
- * @param rt - Panel runtime.
  * @returns The claim answer, or `null` when the service refused or answered
  *   something this build must not act on.
  */
@@ -179,8 +172,6 @@ async function claimRuns(rt: PanelRuntime): Promise<ClaimAnswer | null> {
 
 /**
  * One relay tick: claim, dispatch each, and repaint. Never throws.
- *
- * @param rt - Panel runtime.
  */
 export async function pollRelay(rt: PanelRuntime): Promise<void> {
     if (rt.disposed || rt.state.relay.inFlight || rt.state.busy) {
@@ -208,7 +199,7 @@ export async function pollRelay(rt: PanelRuntime): Promise<void> {
 /**
  * Arm the relay loop: one immediate poll, then the interval.
  *
- * Mount-time reconciliation settles first (FR-025): while it is running this
+ * Mount-time reconciliation settles first: while it is running this
  * call only records the intent, and reconciliation releases it once every
  * outstanding attempt has been re-reported. That makes "no claim before
  * reconciliation" a property of the arm itself rather than of whichever call
@@ -217,8 +208,6 @@ export async function pollRelay(rt: PanelRuntime): Promise<void> {
  *
  * The timer is unref'd, so it never keeps an idle process alive; teardown
  * clears it through {@link stopRelayPolling}.
- *
- * @param rt - Panel runtime.
  */
 export function startRelayPolling(rt: PanelRuntime): void {
     if (rt.relayArmed || rt.disposed) {
@@ -243,14 +232,12 @@ export function startRelayPolling(rt: PanelRuntime): void {
 }
 
 /**
- * Open the reconcile gate and release whatever arming it deferred (FR-025).
+ * Open the reconcile gate and release whatever arming it deferred.
  *
  * The gate is what makes "no claim before reconciliation" a property of the
  * arm rather than of the call site that happens to reach it first: any of the
  * three arming sites may ask while `app.ts` is still re-reporting outstanding
  * attempts, and each one only records its intent until this runs.
- *
- * @param rt - Panel runtime.
  */
 export function settleReconciliation(rt: PanelRuntime): void {
     rt.reconcileSettled = true;
@@ -262,15 +249,13 @@ export function settleReconciliation(rt: PanelRuntime): void {
     startRelayPolling(rt);
 }
 
-/**
- * Stop the relay loop.
- *
- * @param rt - Panel runtime.
- */
+/** Stop the relay loop. */
 export function stopRelayPolling(rt: PanelRuntime): void {
     rt.relayArmed = false;
-    if (rt.state.relay.timer !== null) {
-        clearInterval(rt.state.relay.timer);
-        rt.state.relay.timer = null;
+    if (rt.state.relay.timer === null) {
+        return;
     }
+
+    clearInterval(rt.state.relay.timer);
+    rt.state.relay.timer = null;
 }

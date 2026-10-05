@@ -24,7 +24,7 @@ function listBodies(bodies) {
         return 'none';
     }
 
-    return bodies.map(describeBody).join('; ');
+    return bodies.map((body) => describeBody(body)).join('; ');
 }
 
 /** `body` or `bodies`, so a count reads as English. */
@@ -95,7 +95,7 @@ function describePainted(entry) {
 
 /** Several painted hidden elements, named the same way. */
 function listPainted(painted) {
-    return painted.map(describePainted).join('; ');
+    return painted.map((box) => describePainted(box)).join('; ');
 }
 
 /** Refuse an element the panel hid that the cascade still gives a box. */
@@ -115,6 +115,7 @@ function assertNothingPainted(view) {
  * @param input - `{ tab, view, expected }`: the tab requested, the answer
  *   `__MT__.bodyView()` gave, and how many bodies the panel must hold.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function assertVisibleBody(input) {
     const { tab, view, expected } = input;
 

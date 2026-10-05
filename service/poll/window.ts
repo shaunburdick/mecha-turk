@@ -23,7 +23,7 @@ import type { ScanState } from './scan.ts';
  * filter at all, a full replay.
  *
  * This is 002 FR-019's configurable overlap made real: the requirement has
- * asked for a ten-minute look-back since 002 v1.1.0 and nothing in the service
+ * asked for a ten-minute look-back and nothing in the service
  * read `overlapMs` until now, so the widened window is a **conformance gap
  * closing**, not a new behaviour. The widened window re-observes what the
  * previous cycle already saw and `enqueueEvents`'s deterministic event id
@@ -39,8 +39,6 @@ import type { ScanState } from './scan.ts';
  * both replays duplicate-free. A stamp the clock cannot read is treated the
  * same way: an unbounded window is honest, a malformed `since` is not.
  *
- * @param input - The binding being scanned, the scan state read at cycle
- *   start, and the configured overlap.
  * @returns The widened stamp, or `null` for an unbounded (replay) window.
  */
 export function windowFor(input: {

@@ -89,7 +89,6 @@ const MEDIA_ENUMERATION_LIMIT = 4;
 /**
  * Pull every `<style>` element's text out of an HTML document.
  *
- * @param html - The document source.
  * @returns The style blocks joined, ready for {@link parseStylesheet}.
  */
 export function styleText(html: string): string {
@@ -101,8 +100,6 @@ export function styleText(html: string): string {
 /**
  * Consume a quoted run or open a new one; false when the char is not a quote.
  *
- * @param cursor - Cursor to advance.
- * @param grouping - The scan's depth and current quote character.
  * @returns True when the character belonged to a string.
  */
 function inQuotes(cursor: Cursor, grouping: Grouping): boolean {
@@ -110,7 +107,7 @@ function inQuotes(cursor: Cursor, grouping: Grouping): boolean {
 
     if (grouping.quote !== '') {
         cursor.index += char === '\\' ? 2 : 1;
-        if (char === grouping.quote && char !== '\\') {
+        if (char !== '\\' && char === grouping.quote) {
             grouping.quote = '';
         }
 
@@ -130,20 +127,19 @@ function inQuotes(cursor: Cursor, grouping: Grouping): boolean {
 /**
  * Consume a parenthesised or bracketed run; false for any other character.
  *
- * @param cursor - Cursor to advance.
  * @param grouping - The scan's depth, moved by the group it walked into.
  * @returns True when the character belonged to a group.
  */
 function inGroup(cursor: Cursor, grouping: Grouping): boolean {
     const char = cursor.text.charAt(cursor.index);
-    const opens = char === '(' || char === '[';
-    const closes = char === ')' || char === ']';
+    const isOpening = char === '(' || char === '[';
+    const isClosing = char === ')' || char === ']';
 
-    if (!opens && !closes) {
+    if (!isOpening && !isClosing) {
         return false;
     }
 
-    grouping.depth = Math.max(grouping.depth + (opens ? 1 : -1), 0);
+    grouping.depth = Math.max(grouping.depth + (isOpening ? 1 : -1), 0);
     cursor.index += 1;
 
     return true;
@@ -154,7 +150,6 @@ function inGroup(cursor: Cursor, grouping: Grouping): boolean {
  *
  * The stop is consumed, so a caller can scan again from where this left off.
  *
- * @param cursor - Cursor to advance past the stop it found.
  * @param stops - Characters that end the scan when they sit at depth zero.
  * @returns The text before the stop, and the stop itself.
  */
@@ -193,7 +188,6 @@ function scanTo(cursor: Cursor, stops: string): Scan {
 /**
  * Split one selector list on the commas that sit outside brackets and parens.
  *
- * @param prelude - Text holding the rule's selector list.
  * @returns The selectors, trimmed, in source order.
  */
 function splitSelectors(prelude: string): readonly string[] {
@@ -323,7 +317,7 @@ function scanRules(input: ScanInput): void {
  */
 export function parseStylesheet(css: string): readonly StyleRule[] {
     const state: ParseState = { rules: [], order: 0 };
-    scanRules({ cursor: { text: css.replace(COMMENT, ' '), index: 0 }, media: null, state });
+    scanRules({ cursor: { text: css.replaceAll(COMMENT, ' '), index: 0 }, media: null, state });
 
     return state.rules;
 }
@@ -334,7 +328,6 @@ export function parseStylesheet(css: string): readonly StyleRule[] {
  * Two blocks means four readings (neither, each on its own, both), which is
  * how a rule that only hides an element at one viewport width is caught.
  *
- * @param rules - The parsed stylesheet.
  * @returns One set of in-force media preludes per combination.
  */
 export function mediaVariants(rules: readonly StyleRule[]): readonly ReadonlySet<string>[] {

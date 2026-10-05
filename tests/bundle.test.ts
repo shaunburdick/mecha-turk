@@ -23,6 +23,7 @@ import { CONFIG_PATH } from '../service/routes/config.ts';
 import { EVENTS_PATH } from '../service/routes/events.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { ServiceLogger } from '../service/log.ts';
+import { byText } from './support/sort.ts';
 import { readRuns } from './support/dispatch-corpus.ts';
 import { startDispatchLoop } from './support/dispatch-loop.ts';
 import { BINDING_ID, REPOSITORY } from './support/fixture-enqueue.ts';
@@ -63,12 +64,10 @@ interface ServiceEntryModule {
 }
 
 describe('built panel bundle', () => {
-    it('exists where the manifest expects it (+5 cases)', () => {
-        // case: exists where the manifest expects it
+    it('exists where the manifest expects it', () => {
         {
             expect(existsSync(BUNDLE)).toBe(true);
         }
-        // case: is a classic IIFE rather than an ES module
         {
             const bundle = readFileSync(BUNDLE, UTF8);
             expect(bundle.startsWith('(()=>{')).toBe(true);
@@ -77,14 +76,12 @@ describe('built panel bundle', () => {
             expect(bundle).not.toMatch(/(^|\n)export\s/m);
             expect(bundle).not.toMatch(/(^|\n)import\s/m);
         }
-        // case: carries no GitHub token material
         {
             const bundle = readFileSync(BUNDLE, UTF8);
             for (const pattern of TOKEN_PATTERNS) {
                 expect(bundle).not.toMatch(pattern);
             }
         }
-        // case: is committed to the repository (006 AC-145, invariant 1)
         {
             // The host never compiles TypeScript for the panel either, so an
             // uncommitted bundle would install a shell with nothing behind it.
@@ -95,7 +92,6 @@ describe('built panel bundle', () => {
 
             expect(tracked.trim()).toBe(PANEL_BUNDLE_PATH);
         }
-        // case: ships the Bindings body (MVP blocker, 2026-09-27; re-cut by 005 T-009)
         {
             const bundle = readFileSync(BUNDLE, UTF8);
 
@@ -109,7 +105,6 @@ describe('built panel bundle', () => {
             // noun it used to lead with appears nowhere in the shipped bundle.
             expect(bundle).not.toContain('Repositories: ');
         }
-        // case: ships the six-tab shell and none of the spike controls it retired (005 T-010)
         {
             const bundle = readFileSync(BUNDLE, UTF8);
 
@@ -127,13 +122,11 @@ describe('built panel bundle', () => {
 });
 
 describe('panel html', () => {
-    it('loads the bundled script (+1 cases)', () => {
-        // case: loads the bundled script
+    it('loads the bundled script', () => {
         {
             const html = readFileSync(PANEL_HTML, UTF8);
             expect(html).toContain('<script src="main.js"></script>');
         }
-        // case: carries no inline secrets or external origins
         {
             const html = readFileSync(PANEL_HTML, UTF8);
             expect(html).not.toMatch(/(token|secret|password)\s*=/i);
@@ -318,7 +311,20 @@ const DISPATCH_MODULES: readonly string[] = [
  * The walk is dynamic — every `.ts` under {@link SOURCE_DIRS} is read — so
  * this list is the assertion that the newest additions are inside it.
  */
-const PROMPT_MODULES: readonly string[] = [
+/**
+ * The one suppression shape invariant 7 permits: scoped to the line below, and
+ * carrying the reason.
+ *
+ * A bare `eslint-disable`, a file-wide `/* eslint-disable … *\/` block, and a
+ * missing reason are all still failures here. The ESLint layer enforces the
+ * same three properties repo-wide (`no-unlimited-disable`,
+ * `disable-enable-pair`, `require-description`); keeping the check here as well
+ * is what attaches the guarantee to the prompt pipeline specifically, which is
+ * where a quietly suppressed check would cost the most.
+ */
+const LINE_SCOPED_DISABLE = /eslint-disable-next-line\s+[\w@/-]+\s+--\s+\S/u;
+
+const PROMPT_MODULES: ReadonlySet<string> = new Set([
     'src/prompt.ts',
     'src/prompt-wire.ts',
     'src/context-blocks.ts',
@@ -359,7 +365,7 @@ const PROMPT_MODULES: readonly string[] = [
     'service/routes/config.ts',
     'service/routes/index.ts',
     'service/routes/verify.ts',
-];
+]);
 
 /** One file the static scans read. */
 interface ScannedFile {
@@ -377,7 +383,7 @@ interface ScannedFile {
 function scanSources(): readonly ScannedFile[] {
     const files: ScannedFile[] = [];
     for (const dir of SOURCE_DIRS) {
-        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map((entry) => String(entry));
+        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map(String);
         for (const entry of entries) {
             if (!entry.endsWith('.ts')) {
                 continue;
@@ -395,8 +401,6 @@ function scanSources(): readonly ScannedFile[] {
 /**
  * Read one service answer as the text an operator's client would see.
  *
- * @param loop - The running loop to call.
- * @param path - Path to fetch.
  * @returns The response text.
  * @throws {Error} When the route answers anything but `200`.
  */
@@ -484,8 +488,7 @@ describe('003 records carry no credential (AC-120, NFR-106)', () => {
 });
 
 describe('NFR-109 no HTML sink on a shipped artifact or a new field', () => {
-    it('keeps both committed bundles free of HTML sinks (+1 cases)', () => {
-        // case: keeps both committed bundles free of HTML sinks
+    it('keeps both committed bundles free of HTML sinks', () => {
         {
             for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
                 const text = readFileSync(bundle, UTF8);
@@ -494,7 +497,6 @@ describe('NFR-109 no HTML sink on a shipped artifact or a new field', () => {
                 }
             }
         }
-        // case: keeps every module that renders a 003 field on the text-only path
         {
             const sources = scanSources();
             const rendered = [
@@ -511,8 +513,7 @@ describe('NFR-109 no HTML sink on a shipped artifact or a new field', () => {
 });
 
 describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
-    it('reads every source module, including every 003 addit… (+3 cases)', () => {
-        // case: reads every source module, including every 003 addition
+    it('reads every source module, including every 003 addition', () => {
         {
             const files = scanSources();
             expect(files.length).toBeGreaterThan(60);
@@ -522,7 +523,6 @@ describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
                 expect(paths.has(module), `${module} was not scanned`).toBe(true);
             }
         }
-        // case: finds a GitHub API reference only in the read-only gateways
         {
             // The scan has to bite before it can be believed.
             expect(GITHUB_API.test('const url = new URL(API_ORIGIN + "/repos/acme/widget/issues")')).toBe(true);
@@ -533,7 +533,6 @@ describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
                 .map((file) => file.path);
             expect(outsiders).toEqual([]);
         }
-        // case: finds no non-GET method in a gateway, where every GitHub call is built
         {
             expect(GITHUB_WRITE_METHOD.test("method: 'POST'")).toBe(true);
 
@@ -543,7 +542,6 @@ describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
                 expect(file.text, `${file.path} builds a GitHub write`).not.toMatch(GITHUB_WRITE_METHOD);
             }
         }
-        // case: embeds no concrete dispatch token in either bundle
         {
             for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
                 expect(readFileSync(bundle, UTF8), `${bundle} embeds a dispatch token`).not.toMatch(CONCRETE_TOKEN);
@@ -593,7 +591,6 @@ function containmentBinding(): Record<string, unknown> {
 /**
  * Build a header map without writing HTTP header names as object keys.
  *
- * @param pairs - Header name/value pairs.
  * @returns The headers as `fetch` accepts them.
  */
 function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -631,7 +628,7 @@ async function putConfig(loop: DispatchLoop, patch: Readonly<Record<string, unkn
 
 /** One `PUT /v1/accounts/:numericUserId` profile write against the seeded account. */
 function putProfile(loop: DispatchLoop, body: Record<string, unknown>): Promise<Response> {
-    return loop.service.call(ACCOUNT_PATH.replace(':numericUserId', SCANNED_ACCOUNT_ID), {
+    return loop.service.call(ACCOUNT_PATH.replace(':numericUserId', () => SCANNED_ACCOUNT_ID), {
         method: 'PUT',
         headers: jsonHeaders(),
         body: JSON.stringify(body),
@@ -647,9 +644,6 @@ const ACCOUNT_TIER_PROMPT = 'Prefer the smallest diff that closes the failing te
 /**
  * The detection the fixture queue would have written for this issue (003's
  * fixture shape), so the run claims and dispatches exactly as a scanned one.
- *
- * @param issueNumber - Issue the detection is about.
- * @returns One assignment snapshot.
  */
 function containmentDetection(issueNumber: number): EventSnapshot {
     return {
@@ -681,7 +675,6 @@ function containmentDetection(issueNumber: number): EventSnapshot {
  * — so the snapshot under scan is the one a real detection would compose,
  * not a fixture's hand-built copy (004 FR-080).
  *
- * @param input - The loop, the issue to enqueue, and the logger the queue write reports through.
  * @throws {Error} When the stored records do not resolve into a three-source snapshot.
  */
 async function enqueueThreeTierRun(input: {
@@ -792,8 +785,7 @@ function startingPromptPairs(auditBytes: string): readonly PromptPair[] {
 }
 
 describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
-    it('reads every 004 module in the static scans (+2 cases)', () => {
-        // case: reads every 004 module in the static scans
+    it('reads every 004 module in the static scans', () => {
         {
             const paths = new Set(scanSources().map((file) => file.path));
             for (const module of PROMPT_MODULES) {
@@ -804,12 +796,11 @@ describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
             // may reach for GitHub at all, let alone write to it (FR-002).
             const gateways = new Set(GITHUB_GATEWAYS);
             for (const file of scanSources()) {
-                if (PROMPT_MODULES.includes(file.path)) {
+                if (PROMPT_MODULES.has(file.path)) {
                     expect(gateways.has(file.path), `${file.path} reached GitHub`).toBe(false);
                 }
             }
         }
-        // case: carries the binding field exactly where 005 renders it (FR-051, SC-105)
         {
             // This assertion used to read "the panel never even names it": 004
             // shipped no editor, so `startingPrompt` had no business in the IIFE.
@@ -826,13 +817,16 @@ describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
             // refusal vocabulary does live.
             expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('startingPrompt');
         }
-        // case: introduces no suppression and no `any` into a 004 module (FR-005)
         {
-            const sources = scanSources().filter((file) => PROMPT_MODULES.includes(file.path));
-            expect(sources).toHaveLength(PROMPT_MODULES.length);
+            const sources = scanSources().filter((file) => PROMPT_MODULES.has(file.path));
+            expect(sources).toHaveLength(PROMPT_MODULES.size);
             for (const file of sources) {
-                expect(file.text, `${file.path} suppresses a rule`)
-                    .not.toMatch(/eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck/);
+                const directives = file.text.match(/eslint-disable[^\n]*/gu) ?? [];
+                for (const directive of directives) {
+                    expect(directive, `${file.path}: \`${directive}\``).toMatch(LINE_SCOPED_DISABLE);
+                }
+                expect(file.text, `${file.path} escapes the type system`)
+                    .not.toMatch(/@ts-ignore|@ts-expect-error|@ts-nocheck|# type: ignore/);
                 expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
             }
         }
@@ -844,7 +838,7 @@ describe('004 full-cycle containment (AC-133, AC-143, AC-151, FR-053, NFR-121)',
         const loop = await startDispatchLoop();
         // Every line the direct queue write produced, scanned with the service's.
         const enqueueLines: string[] = [];
-        const enqueueLog = createLogger({ level: 'debug', sink: (line) => enqueueLines.push(line) });
+        const enqueueLog = createLogger({ level: 'debug', sink: (line) => void enqueueLines.push(line) });
         try {
             // SAVE — three tiers, three documented paths (FR-081, FR-082, FR-014):
             // the configuration document, the account profile, the whole-file
@@ -927,11 +921,11 @@ describe('004 full-cycle containment (AC-133, AC-143, AC-151, FR-053, NFR-121)',
             const holdersOf = (seeded: string): readonly string[] => surfaces
                 .filter(([, text]) => text.includes(seeded))
                 .map(([name]) => name)
-                .sort();
+                .toSorted(byText);
 
-            expect(holdersOf(GLOBAL_TIER_PROMPT)).toEqual([CONFIG_FILE, RUNS_FILE].sort());
-            expect(holdersOf(ACCOUNT_TIER_PROMPT)).toEqual([CONTAINMENT_ACCOUNT_FILE, RUNS_FILE].sort());
-            expect(holdersOf(ACCEPTED_PROMPT)).toEqual([BINDINGS_FILE, RUNS_FILE].sort());
+            expect(holdersOf(GLOBAL_TIER_PROMPT)).toEqual([CONFIG_FILE, RUNS_FILE].toSorted(byText));
+            expect(holdersOf(ACCOUNT_TIER_PROMPT)).toEqual([CONTAINMENT_ACCOUNT_FILE, RUNS_FILE].toSorted(byText));
+            expect(holdersOf(ACCEPTED_PROMPT)).toEqual([BINDINGS_FILE, RUNS_FILE].toSorted(byText));
 
             // `audit.ndjson` scanned for the seeded tier text: 0 occurrences
             // of any tier, on any row (FR-053, FR-088, AC-148, AC-151).
@@ -978,8 +972,7 @@ describe('004 the field is documented, and the editor it points at is the shippe
     /** The two operator pages that owe the field a section. */
     const pages: readonly string[] = ['README.md', 'specs/002-agent-event-extension/quickstart.md'];
 
-    it('states the set path, the cap, the literal rule, the … (+1 cases)', () => {
-        // case: states the set path, the cap, the literal rule, the refusal, and the pinned agent
+    it('states the set path, the cap, the literal rule, the refusal, and the pinned agent', () => {
         {
             for (const page of pages) {
                 const text = readFileSync(resolve(ROOT, page), UTF8);
@@ -989,7 +982,6 @@ describe('004 the field is documented, and the editor it points at is the shippe
                 expect(text, `${page} promises literal text`).toContain('literal');
             }
         }
-        // case: points at the shipped Bindings editor rather than promising a future one (FR-062)
         {
             for (const page of pages) {
                 const text = readFileSync(resolve(ROOT, page), UTF8);
@@ -1019,8 +1011,7 @@ describe('004 the field is documented, and the editor it points at is the shippe
  * ------------------------------------------------------------------------- */
 
 describe('T-032 the three permitted tier sites are the only sites (005 FR-051, AC-123)', () => {
-    it('ships the binding field and bakes no second author of the guidance (+2 cases)', () => {
-        // case: the shipped panel bundle carries the binding tier's one field
+    it('ships the binding field and bakes no second author of the guidance', () => {
         {
             const bundle = readFileSync(BUNDLE, UTF8);
 
@@ -1033,19 +1024,17 @@ describe('T-032 the three permitted tier sites are the only sites (005 FR-051, A
             expect(bundle).not.toContain('text sent to the agent verbatim');
             expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('text sent to the agent verbatim');
         }
-        // case: the panel sources hand-author exactly two prompt labels — the binding site and the account site
         {
             const labelled = scanSources()
                 .filter((file) => file.path.startsWith('src/'))
                 .filter((file) => file.text.includes('Starting prompt for dispatches from'))
                 .map((file) => file.path)
-                .sort();
+                .toSorted(byText);
 
             expect(labelled).toEqual(['src/accounts-rows.ts', 'src/bindings-prompt.ts']);
             const account = scanSources().find((file) => file.path === 'src/accounts-rows.ts');
             expect(account?.text).toContain('Starting prompt for dispatches from this account');
         }
-        // case: the third site names itself from the descriptor the service sent
         {
             // Settings is the projected site: its row's label is composed
             // from `descriptor.name`, so the global tier has no hand-authored
@@ -1112,9 +1101,9 @@ const CREDENTIAL_ENV = /\bprocess\.env\.[A-Z_]*(TOKEN|PAT|SECRET|PASSWORD|API_KE
  */
 function testModules(): readonly ScannedFile[] {
     const entries = readdirSync(resolve(ROOT, 'tests'), { recursive: true })
-        .map((entry) => String(entry))
+        .map(String)
         .filter((entry) => entry.endsWith('.ts'))
-        .sort();
+        .toSorted(byText);
 
     return entries.map((entry) => ({
         path: `tests/${entry}`,
@@ -1126,7 +1115,6 @@ function testModules(): readonly ScannedFile[] {
  * The lines of a file that are not comments — the offline scan is about what
  * a test *does*, so a doc comment that names a URL is not a request.
  *
- * @param text - File text.
  * @returns The code lines, trimmed.
  */
 function codeLinesOf(text: string): readonly string[] {
@@ -1137,8 +1125,7 @@ function codeLinesOf(text: string): readonly string[] {
 }
 
 describe('006 the Settings edit surface ships in the panel bundle (T-028, invariant 1)', () => {
-    it('carries the confirmation, the failure causes, and th… (+1 cases)', () => {
-        // case: carries the confirmation, the failure causes, and the audit warning
+    it('carries the confirmation, the failure causes, and the audit warning', () => {
         {
             const bundle = readFileSync(BUNDLE, UTF8);
 
@@ -1146,7 +1133,6 @@ describe('006 the Settings edit surface ships in the panel bundle (T-028, invari
                 expect(bundle, `panel/main.js does not carry ${marker}`).toContain(marker);
             }
         }
-        // case: carries no credential shape in either bundle, with no exemption (NFR-102)
         {
             for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
                 const text = readFileSync(bundle, UTF8);
@@ -1161,24 +1147,18 @@ describe('006 the Settings edit surface ships in the panel bundle (T-028, invari
 });
 
 describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
-    it('reads every test module rather than a sample (+3 cases)', () => {
-        // case: reads every test module rather than a sample
+    it('reads every test module rather than a sample', () => {
         {
             const files = testModules();
 
             expect(files.length).toBeGreaterThan(90);
             expect(files.some((file) => file.path === 'tests/support/service.ts')).toBe(true);
         }
-        // case: only ever fetches a locally bound address
         {
             const offenders: string[] = [];
             for (const file of testModules()) {
                 for (const line of codeLinesOf(file.text)) {
-                    if (!FETCH_CALL.test(line)) {
-                        continue;
-                    }
-
-                    if (LOCAL_FETCH_TARGET.test(line)) {
+                    if (!FETCH_CALL.test(line) || LOCAL_FETCH_TARGET.test(line)) {
                         continue;
                     }
 
@@ -1188,7 +1168,6 @@ describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
 
             expect(offenders).toEqual([]);
         }
-        // case: never imports a third-party HTTP client
         {
             const importers = testModules()
                 .filter((file) => HTTP_CLIENT_IMPORT.test(file.text))
@@ -1196,7 +1175,6 @@ describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
 
             expect(importers).toEqual([]);
         }
-        // case: never reads a credential out of the environment (AC-144: no real token)
         {
             const readers = testModules()
                 .filter((file) => codeLinesOf(file.text).some((line) => CREDENTIAL_ENV.test(line)))
@@ -1284,7 +1262,7 @@ describe('003 v1.8.0 no permitted login reaches any surface (NFR-113, AC-132)', 
                 store: loop.store,
                 // The queue's own logger lines are scanned below; this sink keeps
                 // them out of the test output the way the harness's does.
-                log: createLogger({ level: 'error', sink: (line) => scanLogLines.push(line) }),
+                log: createLogger({ level: 'error', sink: (line) => void scanLogLines.push(line) }),
                 incoming: [createEvent({
                     ...containmentDetection(SCANNED_ISSUE),
                     bindingId: BINDING_ID,
@@ -1379,18 +1357,22 @@ describe('003 v1.8.0 no permitted login reaches any surface (NFR-113, AC-132)', 
     });
 
     it('introduces no suppression and no `any` into a Wave-2 module (invariant 7)', () => {
-        const modules: readonly string[] = [
+        const modules: ReadonlySet<string> = new Set([
             'service/poll/dispatch-actor-gate.ts',
             'service/bindings-read.ts',
             'src/relay-gates.ts',
             'src/run-actor.ts',
             'src/dispatches-detail.ts',
-        ];
-        const sources = scanSources().filter((file) => modules.includes(file.path));
-        expect(sources).toHaveLength(modules.length);
+        ]);
+        const sources = scanSources().filter((file) => modules.has(file.path));
+        expect(sources).toHaveLength(modules.size);
         for (const file of sources) {
-            expect(file.text, `${file.path} suppresses a rule`)
-                .not.toMatch(/eslint-disable|@ts-ignore|@ts-expect-error|@ts-nocheck/);
+            const directives = file.text.match(/eslint-disable[^\n]*/gu) ?? [];
+            for (const directive of directives) {
+                expect(directive, `${file.path}: \`${directive}\``).toMatch(LINE_SCOPED_DISABLE);
+            }
+            expect(file.text, `${file.path} escapes the type system`)
+                .not.toMatch(/@ts-ignore|@ts-expect-error|@ts-nocheck|# type: ignore/);
             expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
         }
     });

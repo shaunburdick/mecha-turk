@@ -101,7 +101,7 @@ function sdkHandle(key: string, id: number): {
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): ReturnType<typeof sdkHandle> => {
@@ -193,9 +193,6 @@ const OVER_CAP_CREDENTIAL = `ghp_${'x'.repeat(2_100)}`;
 
 /**
  * Build one binding as `GET /v1/bindings` serializes it.
- *
- * @param input - The row's identity and its stored prompt, if any.
- * @returns One complete binding row.
  */
 function bindingRow(input: {
     /** Panel-generated id. */
@@ -216,7 +213,7 @@ function bindingRow(input: {
         state: 'active',
         createdAt: FIXTURE_TIMESTAMP,
         updatedAt: FIXTURE_TIMESTAMP,
-        ...(input.startingPrompt === undefined ? {} : { startingPrompt: input.startingPrompt }),
+        ...(input.startingPrompt !== undefined && { startingPrompt: input.startingPrompt }),
     };
 }
 
@@ -283,7 +280,6 @@ function freshJournal(): void {
  * under test are about what reaches the field, not about what sits in
  * state.
  *
- * @param input - The binding rows to load, and the service to mount against.
  * @returns The runtime, the pane's handler table, and the service double.
  */
 function promptEditor(input: {
@@ -356,7 +352,6 @@ function refuseThenAcceptService(): {
 /**
  * Read the PUT a test drove, failing loudly when none was sent.
  *
- * @param requests - The legs the service recorded.
  * @returns The raw body the panel put on the wire.
  * @throws {Error} When the panel never sent one.
  */
@@ -380,8 +375,6 @@ function putBody(requests: readonly GuestRequest[]): string {
  * Assembled from the service's own projection, so the Settings row this
  * counts is the row the service would really declare — same descriptors,
  * same order, same cap — with only the value swapped for the sentinel.
- *
- * @returns The response body.
  */
 function globalTierBody(): string {
     return JSON.stringify({
@@ -418,7 +411,6 @@ function tierHost(): ReturnType<typeof fakeHost> {
 /**
  * Read one mount's props as the object the count compares over.
  *
- * @param raw - Whatever the SDK primitive was handed.
  * @returns The props as a plain record (a bare string prop reads as `text`).
  */
 function propsOf(raw: unknown): Record<string, unknown> {
@@ -444,7 +436,6 @@ function propsOf(raw: unknown): Record<string, unknown> {
  * element — while a second element carrying the same text counts as two,
  * which is the duplication AC-123 fails on.
  *
- * @param sentinel - The text to look for.
  * @returns The elements carrying it, each named by its SDK primitive.
  */
 function elementsCarrying(sentinel: string): readonly { readonly key: string }[] {
@@ -471,7 +462,7 @@ function elementsCarrying(sentinel: string): readonly { readonly key: string }[]
 }
 
 describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six tabs', () => {
-    it('counts exactly one element carrying each tier sentinel (+2 cases)', async () => {
+    it('counts exactly one element carrying each tier sentinel', async () => {
         // Each tier is opened the way an operator opens it: the binding row
         // click loads that binding's text into the editor, the account row
         // click loads that account's into its field.
@@ -494,7 +485,6 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six ta
         handlers.selectBinding(EDITED_ID);
         selectAccountRow(rt, ACCOUNT_ID);
 
-        // case: each of the three tier values is carried by exactly one element
         {
             const dom = fakeDom();
             mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
@@ -525,7 +515,6 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six ta
             }
         }
 
-        // case: the counter itself answers 0 and 2 alike — it is not shaped to answer 1
         {
             // Nothing carries this: a vanished field would read this way
             // rather than the count agreeing with itself.
@@ -536,7 +525,6 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six ta
             expect(elementsCarrying(PROMPT_NOT_SET).length).toBeGreaterThan(1);
         }
 
-        // case: row summaries carry presence and length only — never a tier's text, never a fingerprint
         {
             const bindingSummary = bindingRows(rt.state.bindings);
             expect(bindingSummary[0]?.subtitle).toContain(
@@ -560,8 +548,7 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six ta
 });
 
 describe('004 FR-014 the save carries the prompt only where it was edited', () => {
-    it('omits the key from every row when no prompt was edit… (+2 cases)', async () => {
-        // case: omits the key from every row when no prompt was edited
+    it('omits the key from every row when no prompt was edited', async () => {
         {
             const service = echoService();
             const rt = createTestRuntime(service.host);
@@ -579,7 +566,6 @@ describe('004 FR-014 the save carries the prompt only where it was edited', () =
             // Asserted on the raw body: "the key is absent" is a fact about bytes.
             expect(putBody(service.requests)).not.toContain(PROMPT_KEY);
         }
-        // case: sends an explicit empty value on exactly the row whose prompt was cleared
         {
             const service = echoService();
             const rt = createTestRuntime(service.host);
@@ -602,13 +588,12 @@ describe('004 FR-014 the save carries the prompt only where it was edited', () =
             const body = JSON.parse(raw) as { readonly bindings?: readonly Record<string, unknown>[] };
             const rows = body.bindings ?? [];
             expect(rows).toHaveLength(2);
-            expect(rows[0] === undefined ? false : Object.hasOwn(rows[0], 'startingPrompt')).toBe(true);
-            expect(rows[1] === undefined ? true : Object.hasOwn(rows[1], 'startingPrompt')).toBe(false);
+            expect(rows[0] !== undefined && Object.hasOwn(rows[0], 'startingPrompt')).toBe(true);
+            expect(rows[1] !== undefined && !Object.hasOwn(rows[1], 'startingPrompt')).toBe(true);
             expect(rt.state.bindings.startingPromptDirty).toBe(false);
             expect(rt.state.bindings.note).toBe(SAVED_NOTE);
             expect(rt.state.bindings.editorOpen).toBe(false);
         }
-        // case: omits the key from the save when the field was never touched
         {
             const service = echoService();
             const rt = createTestRuntime(service.host);
@@ -633,8 +618,7 @@ describe('004 FR-014 the save carries the prompt only where it was edited', () =
 });
 
 describe('AC-124 a refused prompt stays in force and is never reported as saved', () => {
-    it('renders the remediation at the field and keeps the s… (+1 cases)', async () => {
-        // case: renders the remediation at the field and keeps the stored prompt
+    it('renders the remediation at the field and keeps the stored prompt', async () => {
         {
             const requests: GuestRequest[] = [];
             const host = fakeHost({
@@ -668,7 +652,6 @@ describe('AC-124 a refused prompt stays in force and is never reported as saved'
             expect(rt.state.bindings.startingPromptDirty).toBe(true);
             expect(rt.state.bindings.note).not.toContain('saved');
         }
-        // case: clears the field-level refusal once the service accepts
         {
             const service = echoService();
             const rt = createTestRuntime(service.host);
@@ -723,7 +706,7 @@ function promptFieldProps(): Record<string, unknown> {
         (entry) => entry.key === TEXT_FIELD
             && (entry.props as { readonly label?: unknown }).label === STARTING_PROMPT_LABEL,
     );
-    if (at < 0) {
+    if (at === -1) {
         throw new Error('the starting-prompt field never mounted');
     }
 
@@ -734,7 +717,7 @@ function promptFieldProps(): Record<string, unknown> {
         }
     }
 
-    const props: Record<string, unknown> = { ...(mounts.log[at]?.props as Record<string, unknown>) };
+    const props = { ...mounts.log[at]?.props as Record<string, unknown> };
     for (const update of mounts.updates) {
         if (update.key === TEXT_FIELD && update.id === id) {
             Object.assign(props, update.props);
@@ -752,7 +735,6 @@ function promptFieldProps(): Record<string, unknown> {
  * before its `onChange` is reached, loudly instead of as a silent no-op that
  * would let a dead field read as a working one.
  *
- * @param text - What the operator types.
  * @throws {Error} When the field is disabled, or wired no handler at all.
  */
 function typeIntoPromptField(text: string): void {
@@ -762,7 +744,7 @@ function typeIntoPromptField(text: string): void {
     }
 
     if (typeof props.onChange !== 'function') {
-        throw new Error('the starting-prompt field wired no onChange');
+        throw new TypeError('the starting-prompt field wired no onChange');
     }
 
     (props.onChange as (value: string) => void)(text);
@@ -800,8 +782,6 @@ function mountedBindings(): {
 
 /**
  * Release one case's mounted body and stop the relay a granted list armed.
- *
- * @param mounted - What {@link mountedBindings} answered with.
  */
 function releaseBindings(mounted: ReturnType<typeof mountedBindings>): void {
     stopRelayPolling(mounted.rt);
@@ -870,8 +850,7 @@ describe('the prompt field takes input in both editor modes (005 FR-051, 004 FR-
 });
 
 describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-144)', () => {
-    it('conveys the five facts beside a field that validates nothing (+5 cases)', async () => {
-        // case: the five facts travel beside a selected row's field
+    it('conveys the five facts beside a field that validates nothing', async () => {
         {
             const { rt, handlers, service } = promptEditor({
                 rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS })],
@@ -889,7 +868,6 @@ describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-
             releaseBindings({ rt, handlers, service });
         }
 
-        // case: the guidance travels with the field in add mode too (FR-089)
         {
             const { rt, handlers, service } = promptEditor({
                 rows: [bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY })],
@@ -907,7 +885,6 @@ describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-
             releaseBindings({ rt, handlers, service });
         }
 
-        // case: an unset tier reads *not set*, a set one reads its text (FR-064)
         {
             const unset = promptEditor({
                 rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY })],
@@ -935,7 +912,6 @@ describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-
             releaseBindings(set);
         }
 
-        // case: the service stays the only validator — the field shapes nothing (plan D24)
         {
             const { rt, handlers, service } = promptEditor({
                 rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY, startingPrompt: PREVIOUS })],
@@ -955,7 +931,6 @@ describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-
             releaseBindings({ rt, handlers, service });
         }
 
-        // case: the refusal takes the field's slot, and the guidance returns once the service accepts
         {
             const service = refuseThenAcceptService();
             const { rt, handlers } = promptEditor({
@@ -990,7 +965,6 @@ describe('T-039 the binding tier carries FR-063 guidance and FR-064 honesty (AC-
             releaseBindings({ rt, handlers, service });
         }
 
-        // case: the row summary carries presence and length only — never the text, never a fingerprint
         {
             const { rt, handlers, service } = promptEditor({
                 rows: [

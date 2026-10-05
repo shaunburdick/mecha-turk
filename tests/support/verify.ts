@@ -23,7 +23,6 @@ import type { TestService } from './service.ts';
 /**
  * Build a header map without writing HTTP header names as object keys.
  *
- * @param pairs - Header name/value pairs.
  * @returns The headers as `fetch` accepts them.
  */
 export function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
@@ -108,7 +107,6 @@ export async function stopAllServices(): Promise<void> {
 /**
  * Build an FR-010 scope matrix where every capability carries one result.
  *
- * @param result - `ok`, `missing`, or `unknown`.
  * @returns The matrix, keyed as the data model declares.
  */
 export function scopeResults(result: ScopeResult): Record<ScopeCapability, ScopeResult> {
@@ -136,7 +134,6 @@ export async function startWithGitHub(script: GitHubScript): Promise<{ service: 
 /**
  * Build a `POST /v1/accounts/verify` body.
  *
- * @param token - Credential to present.
  * @param extra - Additional fields, e.g. `expectedLogin`.
  * @returns The serialized request body.
  */
@@ -146,10 +143,6 @@ export function verifyBody(token: string, extra: Readonly<Record<string, unknown
 
 /**
  * POST a verify body to the running service.
- *
- * @param service - Harness instance.
- * @param body - Serialized request body.
- * @returns The response.
  */
 export function postVerify(service: TestService, body: string): Promise<Response> {
     return service.call(VERIFY_PATH, { method: 'POST', headers: JSON_HEADERS, body });
@@ -158,7 +151,6 @@ export function postVerify(service: TestService, body: string): Promise<Response
 /**
  * Read the `error` envelope of a failure response.
  *
- * @param response - Response whose body should be decoded.
  * @returns The error code, message, and any reason class.
  */
 export async function errorOf(response: Response): Promise<{
@@ -192,7 +184,6 @@ export function expectNoSecret(subject: string, text: string): void {
 /**
  * Collect every secret-bearing surface of one harness instance.
  *
- * @param service - Harness instance to scan.
  * @returns Log lines and the audit trail, joined for one assertion.
  */
 export async function secretSurfaces(service: TestService): Promise<string> {
@@ -246,20 +237,23 @@ export async function accountFileExists(service: TestService): Promise<boolean> 
 /**
  * Wait until a predicate holds, or give up after the deadline.
  *
- * @param predicate - Condition to poll for.
- * @returns Whether the predicate held before the deadline.
+ * The budget is generous on purpose: it is only ever reached when the machine
+ * is loaded enough to starve the timer, and every caller asserts this return
+ * value, so a slow run should not read as the behaviour being broken.
+ *
+ * @returns Whether the condition held before the deadline.
  */
-export async function waitFor(predicate: () => boolean): Promise<boolean> {
-    const deadline = Date.now() + 1_000;
+export async function waitFor(isDone: () => boolean): Promise<boolean> {
+    const deadline = Date.now() + 10_000;
     while (Date.now() < deadline) {
-        if (predicate()) {
+        if (isDone()) {
             return true;
         }
 
         await new Promise((resolve) => setTimeout(resolve, 5));
     }
 
-    return predicate();
+    return isDone();
 }
 
 /** A `VerifyOutcome` that recovers the fixture identity. */

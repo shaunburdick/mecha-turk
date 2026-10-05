@@ -47,7 +47,6 @@ export function bodyView(browser) {
 /**
  * Refuse a tab whose body is missing, unselected, empty, or off-screen.
  *
- * @param input - The tab that was asked for and the measurement that came back.
  * @returns Nothing; it throws on the first contract the measurement breaks.
  */
 export function assertLayout(input) {
@@ -91,7 +90,6 @@ export function assertLayout(input) {
  * fails early and names the width the page reports, before a probe, a strip
  * read-back, and a file are spent on a frame that could not be right.
  *
- * @param measurement - The measurement `measure` just returned.
  * @param width - The viewport width the caller asked for.
  * @returns The same measurement, so the guard reads inline with the returns.
  */
@@ -109,7 +107,6 @@ function assertViewportWidth(measurement, width) {
 /**
  * Resize the viewport until the region holds exactly one tab body.
  *
- * @param input - Browser, the tab, the width to hold, and the height ceiling.
  * @returns The measurement the last resize produced, or null when the tab has
  *   no body to fit — so the caller reports that instead of a stale number.
  */

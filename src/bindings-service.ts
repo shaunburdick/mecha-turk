@@ -17,13 +17,11 @@
  */
 
 import { asRecord, fieldsHoldText, integerOrZero, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
-import { parseAccountsBody } from './accounts-service.ts';
-import type { AccountScopeMatrix, AccountScopeVerdict, PanelAccount } from './accounts-service.ts';
 
 // The accounts record moved to its own module for the file-length gate; these
 // names stay importable from here so no call site had to change with it.
-export { parseAccountsBody };
-export type { AccountScopeMatrix, AccountScopeVerdict, PanelAccount };
+export { parseAccountsBody } from './accounts-service.ts';
+export type { AccountScopeMatrix, AccountScopeVerdict, PanelAccount } from './accounts-service.ts';
 
 /** Path of the bindings collection. */
 
@@ -70,21 +68,21 @@ export interface PanelBinding {
     /** RFC 3339 stamp of the last change. */
     readonly updatedAt: string;
     /**
-     * The stored starting prompt, or absent when this binding has none
-     * (004 FR-012).
+     * The stored starting prompt, or absent when this binding has none.
+     *
      *
      * Read only: the row summary renders presence and length, never this text
-     * and never a fingerprint (005 FR-051), and a whole-file write carries it
+     * and never a fingerprint, and a whole-file write carries it
      * for exactly one binding — the one whose prompt the operator edited —
-     * so every other row omits the key and the service preserves its prompt
-     * (004 FR-014). `| undefined` is what lets that omission be expressed as
+     * so every other row omits the key and the service preserves its prompt.
+     * `| undefined` is what lets that omission be expressed as
      * data: `JSON.stringify` drops the member, and the route reads an absent
      * key as *leave this one alone*.
      */
     readonly startingPrompt?: string | undefined;
     /**
      * The GitHub logins allowed to trigger dispatches from this binding, or
-     * **absent** when it carries no list (002 FR-047).
+     * **absent** when it carries no list.
      *
      * Three states on the wire and two here: **absent** — no policy is
      * configured, so any human actor may trigger this repository — and **a
@@ -96,7 +94,7 @@ export interface PanelBinding {
      *
      * Read only: the logins are rendered **exactly once** panel-wide — in the
      * editor field the operator types into — while a row summary shows the
-     * **count** and nothing else (005 FR-091, NFR-113). `| undefined` is
+     * **count** and nothing else. `| undefined` is
      * load-bearing in the *other* direction from the prompt's: a whole-file
      * write carries this member on **every** row and **omission means unset**
      * (contract §2), so an operator who clears the field takes the binding
@@ -157,9 +155,24 @@ const BINDING_STAMP_FIELDS = ['createdAt', 'updatedAt'] as const;
  * M7 has no `reviewRequest` at all, and it reads as `false` (its operator
  * never asked for it).
  *
- * @param value - Candidate triggers.
  * @returns The flags, or `null` when the object itself is unusable.
  */
+/**
+ * One trigger flag, typed or defaulted.
+ *
+ * The `typeof` is load-bearing and `??` would lose it: that answers only
+ * `null` and `undefined`, while a flag stored as `"yes"` or `0` must read as
+ * absent rather than as a truthy member.
+ */
+function booleanFlagOf(record: Record<string, unknown>, field: string, isAbsent: boolean): boolean {
+    const value = record[field];
+    if (typeof value === 'boolean') {
+        return value;
+    }
+
+    return isAbsent;
+}
+
 function readTriggerFlags(value: unknown): PanelTriggers | null {
     const record = asRecord(value);
     if (record === null) {
@@ -167,9 +180,9 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
     }
 
     return {
-        assignment: typeof record.assignment === 'boolean' ? record.assignment : true,
-        mention: typeof record.mention === 'boolean' ? record.mention : false,
-        reviewRequest: typeof record.reviewRequest === 'boolean' ? record.reviewRequest : false,
+        assignment: booleanFlagOf(record, 'assignment', true),
+        mention: booleanFlagOf(record, 'mention', false),
+        reviewRequest: booleanFlagOf(record, 'reviewRequest', false),
     };
 }
 
@@ -180,21 +193,16 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
  * projection — one reader, one rule, so the claim parser and the runs parser
  * can never disagree about what counts as an issue number.
  *
- * @param record - Parsed row.
  * @returns The number, or `0` when absent (the entry was already refused).
  */
 export function issueNumberFrom(record: Record<string, unknown>): number {
     const value = record.issueNumber;
 
-    return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : 0;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
 /**
  * Read one status row, filling what the panel cannot trust with `''`/null.
- *
- * @param record - Parsed row.
- * @param ids - The identity fields the caller already narrowed.
- * @returns The row.
  */
 function statusRowOf(
     record: Record<string, unknown>,
@@ -215,7 +223,6 @@ function statusRowOf(
 /**
  * Read a status row collection leniently.
  *
- * @param rows - Parsed status rows.
  * @returns Rows this panel can render, dropping rows it cannot.
  */
 export function readStatusRows(rows: readonly unknown[]): BindingStatusRow[] {
@@ -258,10 +265,9 @@ type AllowedUsersRead =
  * nor *those logins* would be the third reading this product refuses to pick
  * silently, and 005 renders that case as *unreadable* rather than as open.
  *
- * The submitted spelling is preserved **verbatim** (002 FR-047, plan D5) — the
+ * The submitted spelling is preserved **verbatim** — the
  * panel compares nothing and normalizes nothing here; the service owns that.
  *
- * @param value - The member as received.
  * @returns The read, marked unusable for a shape this build may not half-apply.
  */
 function readAllowedUsers(value: unknown): AllowedUsersRead {
@@ -306,7 +312,6 @@ type OptionalMembers =
  * for both — that is the complete "this binding has none" state, never a
  * default the operator did not ask for.
  *
- * @param record - The parsed entry.
  * @returns Both members, or the refusal that stops the read.
  */
 function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
@@ -323,7 +328,6 @@ function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
 /**
  * Read one binding entry.
  *
- * @param value - One element of the `bindings` array.
  * @returns The binding, or `null` when its shape is unusable.
  */
 function parseBindingEntry(value: unknown): PanelBinding | null {
@@ -360,8 +364,8 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
         state,
         createdAt: record.createdAt as string,
         updatedAt: record.updatedAt as string,
-        ...(optional.startingPrompt === undefined ? {} : { startingPrompt: optional.startingPrompt }),
-        ...(optional.allowedUsers === undefined ? {} : { allowedUsers: optional.allowedUsers }),
+        ...(optional.startingPrompt !== undefined && { startingPrompt: optional.startingPrompt }),
+        ...(optional.allowedUsers !== undefined && { allowedUsers: optional.allowedUsers }),
     };
 }
 
@@ -372,7 +376,6 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
  * Shared with `dispatches-service.ts` for exactly the same reason: the runs list
  * renders rows the panel's own build may not have enqueued.
  *
- * @param value - Candidate kind from a stored row.
  * @returns A kind this panel can render.
  */
 export function eventKindOf(value: unknown): EventKind {
@@ -386,9 +389,6 @@ export function eventKindOf(value: unknown): EventKind {
 
 /**
  * Count the enabled bindings in a list.
- *
- * @param bindings - Bindings as the panel last read (or granted) them.
- * @returns How many are currently `active`.
  */
 export function countEnabledBindings(bindings: readonly PanelBinding[]): number {
     return bindings.filter((binding) => binding.state === 'active').length;
@@ -397,7 +397,6 @@ export function countEnabledBindings(bindings: readonly PanelBinding[]): number 
 /**
  * Parse the bindings response body.
  *
- * @param text - Response body text.
  * @returns The snapshot, or `null` when the shape is unusable.
  */
 export function parseBindingsBody(text: string): BindingsSnapshot | null {

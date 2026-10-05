@@ -55,7 +55,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -104,8 +104,11 @@ const PREREQUISITE = 'setup prerequisite';
 /** The audit event type a configuration write is recorded under (FR-070). */
 const CONFIG_EVENT = 'config.changed';
 
+/** The configuration as stored, with every field at its default. */
+const STORED_CONFIG = { ...DEFAULT_CONFIG };
+
 /** One `GET /v1/config` body, assembled the way the service sends it. */
-function envelopeBody(config: Record<string, unknown> = { ...DEFAULT_CONFIG }): string {
+function envelopeBody(config: Record<string, unknown> = STORED_CONFIG): string {
     return JSON.stringify({ config, fields: configSchema(), source: 'stored', defaultsApplied: [] });
 }
 
@@ -163,8 +166,6 @@ function recordedStrings(): readonly string[] {
 /**
  * The banner bodies this mount painted, newest last — the last one is the
  * failure notice whenever a read failed (FR-078).
- *
- * @returns The bodies.
  */
 function bannerBodies(): readonly string[] {
     return mounts.log
@@ -285,8 +286,7 @@ const storeRead: Answer = () => ({ status: 503, body: errorBody(STORE_CODE) });
 const grantRead: Answer = () => ({ status: 401, body: errorBody('unauthorized') });
 
 describe('a read the service could not answer keeps the tab readable (AC-129, AC-140, FR-060)', () => {
-    it('AC-129: an unreachable service reads *service not ru… (+3 cases)', async () => {
-        // case: AC-129: an unreachable service reads *service not running — settings read-only*
+    it('AC-129: an unreachable service reads *service not running — settings read-only*', async () => {
         {
             const view = await mountSettings(unreachableRead);
 
@@ -296,7 +296,9 @@ describe('a read the service could not answer keeps the tab readable (AC-129, AC
             expect(view.rt.settingsUi?.armBox.hidden).toBe(true);
             view.dispose();
         }
-        // case: AC-140: static content and the reason are present, and no number that did not come from a read
+    });
+
+    it('AC-140: static content and the reason are present, and no number that did not come from a read', async () => {
         {
             const view = await mountSettings(unreachableRead);
             const rendered = recordedStrings().join('\n');
@@ -307,7 +309,9 @@ describe('a read the service could not answer keeps the tab readable (AC-129, AC
             expect(rendered.replaceAll(CONFIG_ROUTE, '')).not.toMatch(/\d/);
             view.dispose();
         }
-        // case: AC-131: an unauthorised read renders *not authorised*, with no retry loop
+    });
+
+    it('AC-131: an unauthorised read renders *not authorised*, with no retry loop', async () => {
         {
             const view = await mountSettings(grantRead);
 
@@ -319,7 +323,9 @@ describe('a read the service could not answer keeps the tab readable (AC-129, AC
             expect(view.requests).toHaveLength(1);
             view.dispose();
         }
-        // case: SC-111: three read states, three distinct causes, no input control in any of them
+    });
+
+    it('SC-111: three read states, three distinct causes, no input control in any of them', async () => {
         {
             const answers: readonly Answer[] = [unreachableRead, storeRead, grantRead];
             const painted: string[] = [];
@@ -337,11 +343,11 @@ describe('a read the service could not answer keeps the tab readable (AC-129, AC
             expect(painted[2]).toContain(NOT_AUTHORISED);
         }
     });
+
 });
 
 describe('a failed read marks the values it keeps (006 AC-134)', () => {
-    it('AC-134: the values stay visible, marked stale, with … (+1 cases)', async () => {
-        // case: AC-134: the values stay visible, marked stale, with the cause named
+    it('AC-134: the values stay visible, marked stale, with the cause named', async () => {
         {
             let reads = 0;
             const view = await mountSettings((request) => {
@@ -379,7 +385,9 @@ describe('a failed read marks the values it keeps (006 AC-134)', () => {
             expect(notice()).toContain(String(slice.at));
             view.dispose();
         }
-        // case: a first read that never landed is not stale — there is nothing to be stale about
+    });
+
+    it('a first read that never landed is not stale — there is nothing to be stale about', async () => {
         {
             const view = await mountSettings(storeRead);
 
@@ -389,6 +397,7 @@ describe('a failed read marks the values it keeps (006 AC-134)', () => {
             view.dispose();
         }
     });
+
 });
 
 describe('a failed write names its own cause, never a refusal (006 T-023, AC-130 – AC-133)', () => {
@@ -428,8 +437,7 @@ describe('a failed write names its own cause, never a refusal (006 T-023, AC-130
         },
     ];
 
-    it('AC-130 – AC-133: each cause renders its own copy, an… (+3 cases)', async () => {
-        // case: AC-130 – AC-133: each cause renders its own copy, and none renders the refusal copy
+    it('AC-130 – AC-133: each cause renders its own copy, and none renders the refusal copy', async () => {
         {
             for (const failure of cases) {
                 const view = await mountForWrite(failure.put);
@@ -445,7 +453,9 @@ describe('a failed write names its own cause, never a refusal (006 T-023, AC-130
                 mounts.log.length = 0;
             }
         }
-        // case: AC-133: an unexpected failure renders its correlation identifier as copyable text
+    });
+
+    it('AC-133: an unexpected failure renders its correlation identifier as copyable text', async () => {
         {
             const view = await mountForWrite(() => ({ status: 500, body: errorBody('internal', 'mt-cfg-7') }));
             await saveOnce();
@@ -454,7 +464,9 @@ describe('a failed write names its own cause, never a refusal (006 T-023, AC-130
             expect(view.rt.state.settingsTab.edit.failure?.correlationId).toBe('mt-cfg-7');
             view.dispose();
         }
-        // case: AC-130/AC-133: a failure issues one write and nothing after it — no automatic retry
+    });
+
+    it('AC-130/AC-133: a failure issues one write and nothing after it — no automatic retry', async () => {
         {
             for (const failure of cases) {
                 const view = await mountForWrite(failure.put);
@@ -466,7 +478,9 @@ describe('a failed write names its own cause, never a refusal (006 T-023, AC-130
                 mounts.log.length = 0;
             }
         }
-        // case: a refusal still renders the service issues, so the split has not moved
+    });
+
+    it('a refusal still renders the service issues, so the split has not moved', async () => {
         {
             const view = await mountForWrite(() => ({ status: 422, body: REFUSAL }));
             await saveOnce();
@@ -477,11 +491,11 @@ describe('a failed write names its own cause, never a refusal (006 T-023, AC-130
             view.dispose();
         }
     });
+
 });
 
 describe('the copy each cause gets is its own (006 SC-111, FR-061 – FR-063)', () => {
-    it('gives the four write causes four different sentences… (+2 cases)', () => {
-        // case: gives the four write causes four different sentences, none of them a refusal
+    it('gives the four write causes four different sentences, none of them a refusal', () => {
         {
             const causes: readonly SettingsFailureCause[] = ['store', 'unauthorised', 'transport', 'unexpected'];
             const lines = causes.map((cause) => FAILURE_LINES[cause]);
@@ -491,7 +505,6 @@ describe('the copy each cause gets is its own (006 SC-111, FR-061 – FR-063)', 
                 expect(line).not.toContain('refused these values');
             }
         }
-        // case: gives the read its own three sentences, the transport one being AC-129s wording
         {
             const bodies = [
                 readFailureBody('service unreachable'),
@@ -504,7 +517,6 @@ describe('the copy each cause gets is its own (006 SC-111, FR-061 – FR-063)', 
             expect(bodies[1]).toContain(PREREQUISITE);
             expect(bodies[2]).toContain(NOT_AUTHORISED);
         }
-        // case: adds the correlation id only when the answer carried one
         {
             const plain = writeFailure({ code: 'internal', problem: 'service answered 500', correlationId: null });
             const traced = writeFailure({
@@ -520,7 +532,6 @@ describe('the copy each cause gets is its own (006 SC-111, FR-061 – FR-063)', 
 /**
  * Mount a tab and complete one save against the given write answer.
  *
- * @param body - The body the configuration write answers with.
  * @returns The mounted body, after that save.
  */
 async function savedWith(body: string): Promise<SettingsMount> {
@@ -531,8 +542,7 @@ async function savedWith(body: string): Promise<SettingsMount> {
 }
 
 describe('a save whose audit row never landed still shows as saved (006 T-024, AC-139)', () => {
-    it('AC-139: `auditWritten: false` renders a visible warn… (+2 cases)', async () => {
-        // case: AC-139: `auditWritten: false` renders a visible warning naming the missing row
+    it('AC-139: `auditWritten: false` renders a visible warning naming the missing row', async () => {
         {
             const view = await savedWith(JSON.stringify({
                 config: { ...DEFAULT_CONFIG, intervalMs: 120_000 },
@@ -549,7 +559,9 @@ describe('a save whose audit row never landed still shows as saved (006 T-024, A
             expect(AUDIT_MISSING_LINE).toContain(CONFIG_EVENT);
             view.dispose();
         }
-        // case: AC-139: a write whose row landed renders no such warning
+    });
+
+    it('AC-139: a write whose row landed renders no such warning', async () => {
         {
             const view = await savedWith(JSON.stringify({
                 config: { ...DEFAULT_CONFIG, intervalMs: 120_000 },
@@ -560,7 +572,9 @@ describe('a save whose audit row never landed still shows as saved (006 T-024, A
             expect(recordedStrings().join('\n')).not.toContain(AUDIT_MISSING_LINE);
             view.dispose();
         }
-        // case: the contract write shape — `{ config, auditWritten }` with no projection — still renders
+    });
+
+    it('the contract write shape — `{ config, auditWritten }` with no projection — still renders', async () => {
         {
             const view = await savedWith(JSON.stringify({
                 config: { ...DEFAULT_CONFIG, intervalMs: 120_000 },
@@ -576,6 +590,7 @@ describe('a save whose audit row never landed still shows as saved (006 T-024, A
             view.dispose();
         }
     });
+
 });
 
 describe('AC-137 panel half: a configuration row keeps its own id, and a run view never claims one', () => {
@@ -596,8 +611,7 @@ describe('AC-137 panel half: a configuration row keeps its own id, and a run vie
         }],
     });
 
-    it('renders a configuration row under its own correlatio… (+1 cases)', () => {
-        // case: renders a configuration row under its own correlation identifier
+    it('renders a configuration row under its own correlation identifier', () => {
         {
             const rows = parseAuditBody(CONFIG_ROW);
             expect(rows).toHaveLength(1);
@@ -611,7 +625,6 @@ describe('AC-137 panel half: a configuration row keeps its own id, and a run vie
             expect(text).toContain(CONFIG_ROW_ID);
             expect(rows?.[0]?.eventType).toBe(CONFIG_EVENT);
         }
-        // case: keeps the panel audit read run-filtered, so a configuration row cannot enter it
         {
             // The service compares `correlationId` byte for byte (003 contract §2),
             // and a configuration row mints an id no run ever owns (FR-074) — so

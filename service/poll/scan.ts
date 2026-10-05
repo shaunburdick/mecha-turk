@@ -52,7 +52,6 @@ export function emptyScanState(): ScanState {
  * string here would refuse every file the loop itself just wrote and set the
  * whole document aside on each cycle.
  *
- * @param value - Candidate slot.
  * @returns The slot, or `null` when the shape is unusable.
  */
 function parseBindingSlot(value: unknown): BindingScanState | null {
@@ -61,9 +60,9 @@ function parseBindingSlot(value: unknown): BindingScanState | null {
     }
 
     const { lastScanAt, lastError } = value;
-    const stampHolds = lastScanAt === null || typeof lastScanAt === 'string';
-    const reasonHolds = lastError === null || typeof lastError === 'string';
-    if (!stampHolds || !reasonHolds) {
+    const isStampHolds = lastScanAt === null || typeof lastScanAt === 'string';
+    const isReasonHolds = lastError === null || typeof lastError === 'string';
+    if (!isStampHolds || !isReasonHolds) {
         return null;
     }
 
@@ -76,7 +75,6 @@ function parseBindingSlot(value: unknown): BindingScanState | null {
 /**
  * Parse a stored scan-state document.
  *
- * @param raw - Parsed document.
  * @returns The state, or `null` when the shape is unusable (quarantined).
  */
 export function parseStoredScanState(raw: unknown): ScanState | null {
@@ -103,10 +101,10 @@ const scanChain: { write: Promise<unknown> } = { write: Promise.resolve() };
 /**
  * Serialize one scan-state read-modify-write.
  *
- * @param task - The work to chain.
  * @returns Whatever `task` produced.
  */
 export function serializeScan<T>(task: () => Promise<T>): Promise<T> {
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs task on its own rejection; this runs once.
     const run = scanChain.write.then(task, task);
     scanChain.write = run;
 
@@ -116,13 +114,11 @@ export function serializeScan<T>(task: () => Promise<T>): Promise<T> {
 /**
  * Read the scan state, best-effort.
  *
- * @param deps - Open store and logger.
  * @returns The state, or a fresh one when the file is absent/unusable.
  */
 export async function readScanState(deps: {
     /** Open store. */
     readonly store: ServiceStore;
-    /** Logger. */
     readonly log: ServiceLogger;
 }): Promise<ScanState> {
     const { store, log } = deps;
@@ -148,8 +144,6 @@ export async function readScanState(deps: {
 
 /**
  * Store the scan state atomically.
- *
- * @param input - Open store and the state to keep.
  */
 export async function writeScanState(input: {
     /** Open store. */
@@ -163,7 +157,6 @@ export async function writeScanState(input: {
 /**
  * Set one binding's slot in the scan state.
  *
- * @param input - Current state and the slot to write.
  * @returns The next state.
  */
 export function withBindingScanState(input: {

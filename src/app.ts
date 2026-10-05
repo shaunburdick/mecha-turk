@@ -49,12 +49,12 @@ import { loadStatus } from './status-tab.ts';
 import { mountTabShell } from './tabs.ts';
 import { tabSpecs } from './tab-bodies.ts';
 import { describeError } from './session.ts';
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 
-/** Options for {@link createSpikeApp}. */
-export interface SpikeAppOptions {
+/** Options for {@link createPanelApp}. */
+export interface PanelAppOptions {
     /** Documented host client. */
-    readonly host: SpikeHost;
+    readonly host: PanelHost;
     /** Panel root element from `panel/index.html`. */
     readonly root: HTMLElement;
     /** Frame window, used for the unload hook. */
@@ -62,7 +62,7 @@ export interface SpikeAppOptions {
 }
 
 /** Handle to the running panel app. */
-export interface SpikeApp {
+export interface PanelApp {
     /** Unsubscribe, stop timers, dispose UI, and release the host client. */
     dispose: () => void;
 }
@@ -86,10 +86,9 @@ export interface SpikeApp {
  *
  * Exported so the settings flow can be exercised directly by the
  * orchestration tests; the panel itself reaches this through the `onSettings`
- * subscription registered in {@link createSpikeApp}.
+ * subscription registered in {@link createPanelApp}.
  *
- * @param rt - Panel runtime.
- * @param settings - Values from `ctx.settings` (an empty record in practice).
+ * Values come from `ctx.settings`, which in practice is an empty record.
  */
 export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, string>>): void {
     rt.state.settings = settings;
@@ -114,15 +113,12 @@ export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string
  * The id must come from the list the host just loaded, so a stale or invented
  * value can never reach the dispatch path. It is then persisted to extension
  * storage — integration settings are read-only from the panel in SDK 1.24.2,
- * and since 002 FR-041 there are none to write anyway — and recorded on the
+ * and there are none to write anyway — and recorded on the
  * runtime as this mount's selection. A refused write keeps the in-memory
  * selection for this mount and says so on the picker line; either way the
  * panel fails closed until a valid id is resolved.
  *
  * Exported for the orchestration tests, which drive the picker without a DOM.
- *
- * @param rt - Panel runtime.
- * @param id - Project id the operator picked.
  */
 export async function selectProject(rt: PanelRuntime, id: string): Promise<void> {
     const candidate = parseProjectId(id);
@@ -152,9 +148,6 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
  * yields no ledger, and that is recorded rather than papered over. Exported so
  * the remount path — including restoring the evidence a reopened panel needs to
  * dispatch — can be driven directly by the orchestration tests.
- *
- * @param rt - Panel runtime.
- * @param mountedAt - RFC 3339 time of this mount.
  */
 export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<void> {
     let stored: JsonValue | undefined;
@@ -202,9 +195,7 @@ export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<v
  *
  * Exported for the orchestration tests, which assert that every subscription
  * collected on the runtime is released; the panel reaches it through the
- * `pagehide` hook and the `dispose()` handed back from {@link createSpikeApp}.
- *
- * @param rt - Panel runtime to tear down.
+ * `pagehide` hook and the `dispose()` handed back from {@link createPanelApp}.
  */
 export function teardown(rt: PanelRuntime): void {
     if (rt.disposed) {
@@ -212,8 +203,8 @@ export function teardown(rt: PanelRuntime): void {
     }
 
     rt.disposed = true;
-    // The relay is root-owned (plan D2), so this is where its loop stops: a
-    // torn-down panel must leave no surviving timer behind (FR-017, SC-108),
+    // The relay is root-owned, so this is where its loop stops: a
+    // torn-down panel must leave no surviving timer behind,
     // and nothing else in the teardown path knows the loop exists.
     stopRelayPolling(rt);
     if (rt.pagehideListener !== null) {
@@ -245,7 +236,7 @@ export function teardown(rt: PanelRuntime): void {
 
     if (rt.shell !== null) {
         // One path for all six bodies: each disposer it registered runs in
-        // strip order, then the strip itself removes (FR-017, NFR-108).
+        // strip order, then the strip itself removes.
         rt.shell.dispose();
     }
 
@@ -265,8 +256,6 @@ export function teardown(rt: PanelRuntime): void {
  * still detects the gap from its last stored entry. The persist call happens
  * before `disposed` is set, so the write is never skipped by the runtime's own
  * guard.
- *
- * @param rt - Panel runtime.
  */
 export function handlePagehide(rt: PanelRuntime): void {
     if (rt.disposed) {
@@ -286,7 +275,6 @@ export function handlePagehide(rt: PanelRuntime): void {
  * while the frame really can go away between two awaits — and carrying on would
  * reconcile, claim, and dispatch from a disposed panel.
  *
- * @param rt - Panel runtime.
  * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
@@ -295,9 +283,6 @@ function tornDown(rt: PanelRuntime): boolean {
 
 /**
  * Mount the panel: restore, configure, read, reconcile, repaint.
- *
- * @param rt - Panel runtime.
- * @param context - Ready snapshot from the host.
  */
 async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
     await loadLedger(rt, nowIso());
@@ -328,7 +313,7 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
     void loadDispatches(rt);
     // The Status tab's projection is read at mount as well, so the tab the
     // panel opens on answers its one question immediately; its own refresh
-    // control is the explicit re-read (FR-014, FR-019).
+    // control is the explicit re-read.
     void loadStatus(rt);
     // The handoff input stays disabled until this pre-flight proves the
     // service storage is writable (F10/SEC-08); a failed pre-flight leaves
@@ -347,12 +332,9 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
  * First-time start, driven by `onReady`.
  *
  * The reconcile gate closes before anything that could arm the relay and opens
- * only after every outstanding attempt has been re-reported (FR-025), in a
+ * only after every outstanding attempt has been re-reported, in a
  * `finally` so no mount path can leave the relay unarmed — or armed ahead of
  * its own reconciliation.
- *
- * @param rt - Panel runtime.
- * @param context - Ready snapshot from the host.
  */
 async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
     rt.reconcileSettled = false;
@@ -369,8 +351,7 @@ async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void>
  * Every registration is collected on the runtime so `teardown` can release
  * them, keeping the frame inside the host's 32-subscription budget.
  *
- * @param rt - Panel runtime.
- * @param root - Panel root element, needed to apply the theme once.
+ * The root element is needed to apply the theme once.
  */
 function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
     const { host } = rt;
@@ -406,10 +387,9 @@ function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
  * Mounts the UI immediately, then waits for `onReady` before reading settings
  * and storage, so the theme and context are applied exactly once.
  *
- * @param options - Host client, root element, and frame window.
  * @returns A handle that tears the panel down again.
  */
-export function createSpikeApp(options: SpikeAppOptions): SpikeApp {
+export function createPanelApp(options: PanelAppOptions): PanelApp {
     const { host, root, panelWindow } = options;
     const rt = createPanelRuntime(host, panelWindow);
     const handlers: PanelHandlers = {

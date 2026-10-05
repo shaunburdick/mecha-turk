@@ -28,16 +28,16 @@ import type { PromptSource } from './prompt.ts';
 import type { BindingStatusRow, EventKind } from './bindings-service.ts';
 import { eventKindOf, readStatusRows } from './bindings-service.ts';
 
-/** Whether the subject is an issue or a pull request (run key component, FR-010). */
+/** Whether the subject is an issue or a pull request (run key component). */
 export type SubjectType = 'issue' | 'pull_request';
 
 /**
- * The lease a claim issues, as the answer reports it (FR-030).
+ * The lease a claim issues, as the answer reports it.
  *
  * The lease is a **fencing/consistency token, not a capability**: holding the
  * id authorizes nothing (the service's bearer token is the only authentication
  * gate) and the single-use dispatch token is the only authorization to start a
- * session (FR-020, FR-021). It is what proves the service handed this run to
+ * session. It is what proves the service handed this run to
  * this panel — the guard keys off it, not off `state`, because `state` only
  * says the run was *offered*.
  */
@@ -48,13 +48,13 @@ export interface ClaimedLease {
     readonly attempt: number;
     /** Opaque per-mount id of the panel holding it; informational only. */
     readonly holder: string;
-    /** RFC 3339 issue stamp (service clock, NFR-112). */
+    /** RFC 3339 issue stamp (service clock). */
     readonly issuedAt: string;
     /** RFC 3339 expiry stamp; the sweep reclaims exactly here. */
     readonly expiresAt: string;
 }
 
-/** One retained source reference as the claim answer carries it (FR-013, FR-014). */
+/** One retained source reference as the claim answer carries it. */
 export interface ClaimedReference {
     /** The joining delivery's unchanged id (FR-012). */
     readonly deliveryId: string;
@@ -74,7 +74,7 @@ export interface ClaimedReference {
 
 /** One run the service offered in the claimed state (contract `claim-lease.md`). */
 export interface ClaimedRun {
-    /** Run identity on the wire; every later call is addressed by it (FR-050). */
+    /** Run identity on the wire; every later call is addressed by it. */
     readonly correlationId: string;
     /** FR-010's human-readable tuple, shown beside the correlation id. */
     readonly runKey: string;
@@ -82,9 +82,9 @@ export interface ClaimedRun {
     readonly ordinal: number;
     /** Attempt this lease is issued under. */
     readonly attempt: number;
-    /** The claim itself; its absence refuses the run (FR-035). */
+    /** The claim itself; its absence refuses the run. */
     readonly lease: ClaimedLease;
-    /** The state the run was **offered** in — always `pending` (FR-037). */
+    /** The state the run was **offered** in — always `pending`. */
     readonly state: 'pending';
     /** Why the run was waiting, rendered as the row's reason line (FR-074). */
     readonly stateReason: string;
@@ -102,7 +102,7 @@ export interface ClaimedRun {
     readonly subjectType: SubjectType;
     /** Issue or pull request number. */
     readonly issueNumber: number;
-    /** Issue title; untrusted source text, copied verbatim (NFR-109). */
+    /** Issue title; untrusted source text, copied verbatim. */
     readonly issueTitle: string;
     /** Canonical issue URL; may be empty when the delivery row is gone. */
     readonly issueUrl: string;
@@ -110,13 +110,13 @@ export interface ClaimedRun {
     readonly headSha: string | null;
     /** Base ref of that pull request; `null` on every other kind. */
     readonly baseRef: string | null;
-    /** `= correlationId`; what `startSession().id` is built from (FR-029). */
+    /** `= correlationId`; what `startSession().id` is built from. */
     readonly attachmentId: string;
     /** Every retained reference, in join order, with FR-013's full detail. */
     readonly sourceReferences: readonly ClaimedReference[];
     /** How many triggers joined the run, retained or not. */
     readonly referenceCount: number;
-    /** How many joining triggers the cap kept off the list (T-038). */
+    /** How many joining triggers the cap kept off the list. */
     readonly referencesNotRetained: number;
     /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
@@ -124,15 +124,15 @@ export interface ClaimedRun {
     readonly issueBodyExcerpt: string;
     /** Earliest source reference's detection stamp (row age). */
     readonly detectedAt: string;
-    /** Whether the run queued with a starting prompt (004 FR-015). */
+    /** Whether the run queued with a starting prompt. */
     readonly promptPresent: boolean;
-    /** Its `mtp-…` fingerprint, or `null` when none (004 FR-037). */
+    /** Its `mtp-…` fingerprint, or `null` when none. */
     readonly promptFingerprint: string | null;
     /** Code points of the normalised text, or `null` when none. */
     readonly promptLength: number | null;
     /**
-     * Tiers that produced the block, most general first, or `null` when none
-     * (004 FR-087): a duplicate-free subsequence of `global, account, binding`.
+     * Tiers that produced the block, most general first, or `null` when none:
+     * a duplicate-free subsequence of `global, account, binding`.
      *
      * Read by the same closed reader as the other three members, so a list the
      * build cannot stand behind refuses the run — never a defaulted source.
@@ -143,7 +143,7 @@ export interface ClaimedRun {
      *
      * Carried exactly like `sourceReferences[].excerpt`: so the panel can
      * build the message, never so a surface can display it. The panel never
-     * writes it anywhere (004 FR-053, AC-144).
+     * writes it anywhere.
      */
     readonly promptText: string | null;
 }
@@ -161,11 +161,11 @@ export interface ClaimAnswer {
 
 /** What one reserve answered with (contract `dispatch-authorization.md` §1). */
 export interface ReserveAnswer {
-    /** Echo of the run the path named (FR-051). */
+    /** Echo of the run the path named. */
     readonly correlationId: string;
     /** Attempt the reservation was made under. */
     readonly attempt: number;
-    /** The single-use authorization the result report presents (FR-020). */
+    /** The single-use authorization the result report presents. */
     readonly dispatchToken: string;
     /** RFC 3339 stamp of the lease the reservation was made under. */
     readonly tokenExpiresAt: string | null;
@@ -200,8 +200,6 @@ const REFERENCE_STRING_FIELDS = ['deliveryId', 'origin', 'sourceUrl', 'detectedA
 /**
  * Read one finite integer member.
  *
- * @param record - Parsed record.
- * @param field - Member name.
  * @returns The value, or `null` when it is missing or not a number.
  */
 function readInteger(record: Record<string, unknown>, field: string): number | null {
@@ -213,12 +211,10 @@ function readInteger(record: Record<string, unknown>, field: string): number | n
 /**
  * Bound one already-read number below, refusing a fractional value.
  *
- * @param value - The number, or `null` when the member was unusable.
- * @param min - Smallest acceptable value.
  * @returns The value, or `null` when it is missing, fractional, or too small.
  */
 function atLeast(value: number | null, min: number): number | null {
-    if (value === null || !Number.isInteger(value) || value < min) {
+    if (value === null || !Number.isSafeInteger(value) || value < min) {
         return null;
     }
 
@@ -228,11 +224,10 @@ function atLeast(value: number | null, min: number): number | null {
 /**
  * Read the claim's lease, which is what proves the service handed the run over.
  *
- * A run the answer does not lease is a run the panel must not dispatch
- * (FR-035), so an absent or malformed lease refuses the row rather than being
+ * A run the answer does not lease is a run the panel must not dispatch,
+ * so an absent or malformed lease refuses the row rather than being
  * defaulted — the guard keys off this member, never off `state`.
  *
- * @param value - The `lease` member as received.
  * @returns The lease, or `null`.
  */
 function parseLease(value: unknown): ClaimedLease | null {
@@ -260,16 +255,16 @@ function parseLease(value: unknown): ClaimedLease | null {
 /**
  * Read one retained source reference off the claim answer.
  *
- * @param value - One element of `sourceReferences`.
  * @returns The reference, or `null` when its shape is unusable.
  */
 function parseClaimReference(value: unknown): ClaimedReference | null {
     const record = asRecord(value);
-    if (record === null || !fieldsHoldText(record, REFERENCE_STRING_FIELDS)) {
-        return null;
-    }
-
-    if (typeof record.excerpt !== 'string' || typeof record.presentAtAuthorization !== 'boolean') {
+    if (
+        record === null ||
+        !fieldsHoldText(record, REFERENCE_STRING_FIELDS) ||
+        typeof record.excerpt !== 'string' ||
+        typeof record.presentAtAuthorization !== 'boolean'
+    ) {
         return null;
     }
 
@@ -289,7 +284,6 @@ function parseClaimReference(value: unknown): ClaimedReference | null {
 /**
  * Read the `sourceReferences` list, or `null` when any element is unusable.
  *
- * @param value - The member as received.
  * @returns The references, or `null`.
  */
 function parseClaimReferences(value: unknown): ClaimedReference[] | null {
@@ -313,8 +307,6 @@ function parseClaimReferences(value: unknown): ClaimedReference[] | null {
 /**
  * Check the answer's three reference-counting members against each other.
  *
- * @param counts - The counting members as received.
- * @param retained - How many references the answer actually carried.
  * @returns `true` when they reconcile.
  */
 function claimCountsReconcile(counts: ClaimNumbers, retained: number): boolean {
@@ -352,7 +344,6 @@ type ClaimSubject = Pick<ClaimedRun, 'subjectType' | 'issueNumber' | 'headSha' |
 /**
  * Read the identity members of one offered run.
  *
- * @param record - Parsed offer.
  * @returns The members, or `null` when any is missing, not a string, or empty.
  */
 function readClaimScalars(record: Record<string, unknown>): ClaimScalars | null {
@@ -382,7 +373,6 @@ function readClaimScalars(record: Record<string, unknown>): ClaimScalars | null 
 /**
  * Read the counting members of one offered run.
  *
- * @param record - Parsed offer.
  * @returns The members, or `null` when any is missing, fractional, or out of bounds.
  */
 function readClaimNumbers(record: Record<string, unknown>): ClaimNumbers | null {
@@ -391,11 +381,13 @@ function readClaimNumbers(record: Record<string, unknown>): ClaimNumbers | null 
     const referenceCount = atLeast(readInteger(record, 'referenceCount'), 0);
     const referencesNotRetained = atLeast(readInteger(record, 'referencesNotRetained'), 0);
     const { referencesTruncated } = record;
-    if (ordinal === null || attempt === null || referenceCount === null || referencesNotRetained === null) {
-        return null;
-    }
-
-    if (typeof referencesTruncated !== 'boolean') {
+    if (
+        ordinal === null ||
+        attempt === null ||
+        referenceCount === null ||
+        referencesNotRetained === null ||
+        typeof referencesTruncated !== 'boolean'
+    ) {
         return null;
     }
 
@@ -409,17 +401,12 @@ function readClaimNumbers(record: Record<string, unknown>): ClaimNumbers | null 
  * normalizes it: for the panel the two are the same fact, and the run-key
  * component that matters (`subjectType`) is refused rather than defaulted.
  *
- * @param record - Parsed offer.
  * @returns The members, or `null` when the subject cannot be identified.
  */
 function readClaimSubject(record: Record<string, unknown>): ClaimSubject | null {
     const issueNumber = atLeast(readInteger(record, 'issueNumber'), 1);
     const { subjectType } = record;
-    if (issueNumber === null) {
-        return null;
-    }
-
-    if (subjectType !== 'issue' && subjectType !== 'pull_request') {
+    if (issueNumber === null || subjectType !== 'issue' && subjectType !== 'pull_request') {
         return null;
     }
 
@@ -436,7 +423,6 @@ function readClaimSubject(record: Record<string, unknown>): ClaimSubject | null 
  * once every step agreed — so a half-readable offer is a refused offer, never
  * a partially applied one (AGENTS invariant 8).
  *
- * @param value - One element of the `events` array.
  * @returns The run, or `null` when its shape is unusable.
  */
 function parseClaimedRun(value: unknown): ClaimedRun | null {
@@ -458,15 +444,9 @@ function parseClaimedRun(value: unknown): ClaimedRun | null {
         || lease === null
         || references === null
         || prompt === null
+        || record.state !== 'pending'
+        || !claimCountsReconcile(numbers, references.length)
     ) {
-        return null;
-    }
-
-    if (record.state !== 'pending') {
-        return null;
-    }
-
-    if (!claimCountsReconcile(numbers, references.length)) {
         return null;
     }
 
@@ -495,11 +475,10 @@ function parseClaimedRun(value: unknown): ClaimedRun | null {
  * surfaces an unreadable answer on its own line rather than dispatching none
  * of it in silence.
  *
- * `auditWritten` is additive (FR-063): absent reads as `false`, so a build that
+ * `auditWritten` is additive: absent reads as `false`, so a build that
  * does not send it reports a degraded trail rather than claiming one it cannot
  * prove — a member that is present but not a boolean refuses the body.
  *
- * @param text - Response body text.
  * @returns The claim answer, or `null` when the shape is unusable.
  */
 export function parsePendingBody(text: string): ClaimAnswer | null {
@@ -536,7 +515,6 @@ export function parsePendingBody(text: string): ClaimAnswer | null {
  * — the authorization outlives the lease — so this reader accepts both and
  * gates on nothing but the token itself.
  *
- * @param text - Response body text.
  * @returns The answer, or `null` when the shape is unusable.
  */
 export function parseReserveBody(text: string): ReserveAnswer | null {
@@ -546,11 +524,11 @@ export function parseReserveBody(text: string): ReserveAnswer | null {
     }
 
     const attempt = atLeast(readInteger(root, 'attempt'), 1);
-    if (attempt === null || !DISPATCH_TOKEN_PATTERN.test(root.dispatchToken as string)) {
-        return null;
-    }
-
-    if ('auditWritten' in root && typeof root.auditWritten !== 'boolean') {
+    if (
+        attempt === null ||
+        !DISPATCH_TOKEN_PATTERN.test(root.dispatchToken as string) ||
+        'auditWritten' in root && typeof root.auditWritten !== 'boolean'
+    ) {
         return null;
     }
 

@@ -29,6 +29,7 @@ import { DISPATCH_STORAGE_KEY } from '../src/dispatch-record.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { Run } from '../service/poll/runs-types.ts';
+import { byText } from './support/sort.ts';
 import { NO_SESSION, SESSION_ID } from './support/panel.ts';
 import { justPast, offerFor, sessionsPerRun, startDispatchLoop } from './support/dispatch-loop.ts';
 import {
@@ -100,7 +101,6 @@ afterEach(async () => {
 /**
  * Read one stored run by its subject number.
  *
- * @param issueNumber - Issue the run is about.
  * @returns The run as the service holds it.
  * @throws {Error} When no run exists for that subject.
  */
@@ -117,7 +117,6 @@ async function runOf(issueNumber: number): Promise<Run> {
 /**
  * The stored state of one subject's run, read through {@link runOf}.
  *
- * @param issueNumber - Issue the run is about.
  * @returns The run's current state.
  */
 async function stateOf(issueNumber: number): Promise<string> {
@@ -129,8 +128,6 @@ async function stateOf(issueNumber: number): Promise<string> {
 /**
  * Reserve through one mount's bridge, then let that mount die.
  *
- * @param rt - The mount that reports intent to start a session.
- * @param run - The run it claimed.
  * @returns The single-use dispatch token the service answered with.
  * @throws {Error} When the reservation was refused or unreadable.
  */
@@ -150,7 +147,7 @@ async function reserveThenDie(rt: PanelRuntime, run: ClaimedRun): Promise<string
 
     const body = JSON.parse(answer.body) as Record<string, unknown>;
     if (typeof body.dispatchToken !== 'string') {
-        throw new Error('the reservation carried no token');
+        throw new TypeError('the reservation carried no token');
     }
 
     loop.unmount(rt);
@@ -161,7 +158,6 @@ async function reserveThenDie(rt: PanelRuntime, run: ClaimedRun): Promise<string
 /**
  * Claim and reserve one run without any panel (a second mount's own attempt).
  *
- * @param issueNumber - Issue to claim for.
  * @returns The claimed offer and the token it reserved with.
  */
 async function claimAndReserve(issueNumber: number): Promise<{ readonly run: ClaimedRun; readonly token: string }> {
@@ -181,7 +177,7 @@ async function claimAndReserve(issueNumber: number): Promise<{ readonly run: Cla
     expectStatus({ step: 'reserve', answer: reserved, status: 200 });
     const token = reserved.json.dispatchToken;
     if (typeof token !== 'string') {
-        throw new Error('the reservation carried no token');
+        throw new TypeError('the reservation carried no token');
     }
 
     return { run, token };
@@ -190,7 +186,6 @@ async function claimAndReserve(issueNumber: number): Promise<{ readonly run: Cla
 /**
  * Burn the automatic requeue budget so the run parks (FR-033).
  *
- * @param issueNumber - Issue to exhaust.
  * @throws {Error} When the budget does not park the run within eight passes.
  */
 async function exhaustRequeueBudget(issueNumber: number): Promise<void> {
@@ -237,7 +232,7 @@ function storedAttempts(): readonly Record<string, unknown>[] {
 
     const { attempts } = raw as { attempts?: unknown };
     if (!Array.isArray(attempts)) {
-        throw new Error('the dispatch record carries no attempts');
+        throw new TypeError('the dispatch record carries no attempts');
     }
 
     return attempts.map((entry) => {
@@ -733,7 +728,7 @@ describe('SC-101: two triggers, one run, one session (AC-101)', () => {
         expect(runs.filter((run) => run.referenceCount === 2)).toHaveLength(TRIALS);
 
         const kinds = new Set(runs.flatMap((run) => run.sourceReferences.map((reference) => reference.kind)));
-        expect([...kinds].sort()).toEqual(['assignment', 'mention']);
+        expect([...kinds].toSorted(byText)).toEqual(['assignment', 'mention']);
         expectAtMostOneSessionPerRun();
     }, TRIALS_BUDGET_MS);
 });

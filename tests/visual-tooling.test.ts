@@ -57,15 +57,13 @@ function fixtures(): Record<string, unknown> {
  * Read one fixture member back as the body text a reader parses.
  *
  * @param name - The fixture member, which is also the route's answer body.
- * @returns The body text.
  */
 function body(name: string): string {
     return JSON.stringify(fixtures()[name] ?? {});
 }
 
 describe('the visual capture tooling stays wired up', () => {
-    it('proves its PNG codec against a file it encoded itsel… (+5 cases)', () => {
-        // case: proves its PNG codec against a file it encoded itself
+    it('proves its PNG codec against a file it encoded itself', () => {
         {
             const report = runSelfTest();
             const failed = report.checks.filter((check) => !check.ok).map((check) => check.name);
@@ -74,13 +72,11 @@ describe('the visual capture tooling stays wired up', () => {
             expect(report.ok).toBe(true);
             expect(report.checks.length).toBeGreaterThan(2);
         }
-        // case: is reachable in one command
         {
             const manifest = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')) as ScriptsBlock;
 
             expect(manifest.scripts.shot).toBe('node tools/visual/shot.js');
         }
-        // case: keeps captures out of the repository
         {
             const ignore = readFileSync(resolve(ROOT, '.gitignore'), 'utf8');
 
@@ -88,14 +84,12 @@ describe('the visual capture tooling stays wired up', () => {
             expect(ignore).toContain('tools/visual/*.png');
             expect(ignore).toContain('/panel-*.png');
         }
-        // case: defaults captures to the repo-root screenshots folder
         {
             const tool = readFileSync(resolve(ROOT, 'tools/visual/shot.js'), 'utf8');
 
             expect(tool).toContain("'screenshots'");
             expect(tool).not.toContain('/tmp/opencode');
         }
-        // case: sizes its frames to the width the host really gives a rail panel
         {
             const tool = readFileSync(resolve(ROOT, 'tools/visual/shot.js'), 'utf8');
 
@@ -107,7 +101,6 @@ describe('the visual capture tooling stays wired up', () => {
             expect(tool).toMatch(/panel-\$\{tab\.id\}-narrow/);
             expect(tool).not.toContain('VIEWPORT_WIDTH');
         }
-        // case: is documented for the agent that comes next
         {
             const agents = readFileSync(resolve(ROOT, 'AGENTS.md'), 'utf8');
 
@@ -127,8 +120,7 @@ describe('the visual capture tooling stays wired up', () => {
  * -------------------------------------------------------------------- */
 
 describe('every fixture answer is one the panel can read', () => {
-    it('passes all six routes through the readers that render them (+1 case)', () => {
-        // case: each route's answer parses through the reader that renders it
+    it('passes all six routes through the readers that render them', () => {
         {
             // The reader, the member, and what it produces — all six, so a new
             // route the harness serves without a fixture cannot go unchecked by
@@ -170,7 +162,8 @@ describe('every fixture answer is one the panel can read', () => {
             // member is load-bearing.
             const events = fixtures().events as { readonly events?: readonly unknown[] };
             expect(Array.isArray(events.events)).toBe(true);
-            for (const row of events.events ?? []) {
+            const entries = events.events ?? [];
+            for (const row of entries) {
                 expect(Object.hasOwn(row as object, 'promptSources')).toBe(true);
             }
         }

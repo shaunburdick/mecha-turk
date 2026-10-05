@@ -37,6 +37,7 @@ import type { ConfigEnvelope } from '../src/settings-schema.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
+import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
 
@@ -47,7 +48,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -97,8 +98,11 @@ const DELETES_HISTORY = 'deletes history';
 /** The label of the non-primary restore control (006 FR-016). */
 const RESTORE_LABEL = 'Restore defaults';
 
+/** The configuration as stored, with every field at its default. */
+const STORED_CONFIG = { ...DEFAULT_CONFIG };
+
 /** One `GET /v1/config` body, assembled the way the service sends it. */
-function envelopeBody(config: Record<string, unknown> = { ...DEFAULT_CONFIG }): string {
+function envelopeBody(config: Record<string, unknown> = STORED_CONFIG): string {
     return JSON.stringify({ config, fields: configSchema(), source: 'stored', defaultsApplied: [] });
 }
 
@@ -111,7 +115,6 @@ const ACCEPTED = envelopeBody({ ...DEFAULT_CONFIG, auditRetentionDays: 30 });
 /**
  * Read an envelope from a body, failing loudly when it is not one.
  *
- * @param body - Response body text.
  * @returns The parsed envelope.
  */
 function envelopeOf(body: string): ConfigEnvelope {
@@ -126,7 +129,6 @@ function envelopeOf(body: string): ConfigEnvelope {
 /**
  * The baseline draft: every descriptor's value as the tab would start it.
  *
- * @param envelope - The parsed document.
  * @returns The draft, keyed by field.
  */
 function draftFrom(envelope: ConfigEnvelope): Record<string, string> {
@@ -171,7 +173,6 @@ function recordedStrings(): readonly string[] {
 /**
  * Build an answer for a GET of the configuration and a scripted PUT.
  *
- * @param input - The document to read, and how the write answers.
  * @returns The answer for either method.
  */
 function scriptedAnswer(input: {
@@ -196,7 +197,6 @@ function scriptedAnswer(input: {
 /**
  * Mount only the Settings body against the recording doubles.
  *
- * @param input - How the service should answer each method.
  * @returns The runtime, the disposer, and everything the requests recorded.
  */
 async function mountSettings(input: {
@@ -251,9 +251,6 @@ function buttonProps(label: string): { readonly onClick?: () => void } {
 
 /**
  * Activate one control `times` times, then let the answers land.
- *
- * @param label - The control's label.
- * @param times - How many activations to perform.
  */
 async function activate(label: string, times = 1): Promise<void> {
     const { onClick } = buttonProps(label);
@@ -273,7 +270,6 @@ async function activate(label: string, times = 1): Promise<void> {
  * Type into one field's control, as the operator would.
  *
  * @param field - Field name (the label starts with it).
- * @param value - The text to enter.
  */
 function typeInto(field: string, value: string): void {
     const entry = mounts.log.find(
@@ -290,7 +286,6 @@ function typeInto(field: string, value: string): void {
 /**
  * The writes one mount has sent, so "nothing was written" is a count.
  *
- * @param view - The mounted body.
  * @returns The `PUT /v1/config` requests, in order.
  */
 function writes(view: SettingsMount): readonly GuestRequest[] {
@@ -300,7 +295,6 @@ function writes(view: SettingsMount): readonly GuestRequest[] {
 /**
  * Mount, change one field once, and run exactly one Save activation.
  *
- * @param input - The field to change, its new text, and the document to read.
  * @returns The mounted body, after that one activation.
  */
 async function saveOnce(input: {
@@ -321,8 +315,7 @@ async function saveOnce(input: {
 }
 
 describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
-    it('AC-117: one activation of auditRetentionDays 180 → 3… (+4 cases)', async () => {
-        // case: AC-117: one activation of auditRetentionDays 180 → 30 writes nothing
+    it('AC-117: one activation of auditRetentionDays 180 → 30 writes nothing', async () => {
         {
             const view = await saveOnce({ field: 'auditRetentionDays', value: '30' });
 
@@ -331,7 +324,9 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
             expect(view.rt.state.settingsTab.edit.saveState).toBe('editing');
             view.dispose();
         }
-        // case: AC-117: the copy names the field, both limits, the governs, the removal, and the survivors
+    });
+
+    it('AC-117: the copy names the field, both limits, the governs, the removal, and the survivors', async () => {
         {
             const view = await saveOnce({ field: 'auditRetentionDays', value: '30' });
             const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
@@ -342,7 +337,9 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
             expect(copy).toContain('entries older than 30 days will be deleted at the next trim pass');
             view.dispose();
         }
-        // case: SC-108: each knob arms on a lowering and states its own removal
+    });
+
+    it('SC-108: each knob arms on a lowering and states its own removal', async () => {
         {
             for (const knot of RETENTION_KNOTS) {
                 const view = await saveOnce({ field: knot.field, value: knot.lower });
@@ -355,7 +352,9 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
                 view.dispose();
             }
         }
-        // case: SC-108: the entry cap additionally promises that nothing protected is ever removed for it
+    });
+
+    it('SC-108: the entry cap additionally promises that nothing protected is ever removed for it', async () => {
         {
             const view = await saveOnce({ field: 'auditMaxEntries', value: '5000' });
             const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
@@ -363,7 +362,9 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
             expect(copy).toContain('the oldest unprotected entries beyond 5000 entries will be removed');
             view.dispose();
         }
-        // case: SC-108: the excerpt knob says what its window governs and what is cleared
+    });
+
+    it('SC-108: the excerpt knob says what its window governs and what is cleared', async () => {
         {
             const view = await saveOnce({ field: 'excerptRetentionDays', value: '7' });
             const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
@@ -372,11 +373,11 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
             view.dispose();
         }
     });
+
 });
 
 describe('the armed control completes the write (006 T-022, AC-118, AC-119, AC-120)', () => {
-    it('AC-118: the second activation writes once and shows … (+3 cases)', async () => {
-        // case: AC-118: the second activation writes once and shows the returned document
+    it('AC-118: the second activation writes once and shows the returned document', async () => {
         {
             const view = await saveOnce({ field: 'auditRetentionDays', value: '30' });
             expect(writes(view)).toEqual([]);
@@ -390,7 +391,9 @@ describe('the armed control completes the write (006 T-022, AC-118, AC-119, AC-1
             expect(view.rt.state.settingsTab.edit.draft.auditRetentionDays).toBe('30');
             view.dispose();
         }
-        // case: AC-119: raising any retention knob writes in one activation and arms nothing
+    });
+
+    it('AC-119: raising any retention knob writes in one activation and arms nothing', async () => {
         {
             for (const knot of RETENTION_KNOTS) {
                 const view = await saveOnce({ field: knot.field, value: knot.raise });
@@ -402,7 +405,9 @@ describe('the armed control completes the write (006 T-022, AC-118, AC-119, AC-1
                 mounts.log.length = 0;
             }
         }
-        // case: AC-120: a non-retention change writes in one activation and arms nothing
+    });
+
+    it('AC-120: a non-retention change writes in one activation and arms nothing', async () => {
         {
             const view = await saveOnce({ field: 'intervalMs', value: '120000' });
 
@@ -410,7 +415,9 @@ describe('the armed control completes the write (006 T-022, AC-118, AC-119, AC-1
             expect(view.rt.state.settingsTab.edit.confirm).toBeNull();
             view.dispose();
         }
-        // case: an edit after arming retires the confirmation rather than re-pointing it
+    });
+
+    it('an edit after arming retires the confirmation rather than re-pointing it', async () => {
         {
             const view = await saveOnce({ field: 'auditRetentionDays', value: '30' });
 
@@ -421,11 +428,11 @@ describe('the armed control completes the write (006 T-022, AC-118, AC-119, AC-1
             view.dispose();
         }
     });
+
 });
 
 describe('cancel writes nothing and returns the fields (006 T-022, AC-121)', () => {
-    it('AC-121: cancelling an armed save sends no request an… (+1 cases)', async () => {
-        // case: AC-121: cancelling an armed save sends no request and restores the last-read values
+    it('AC-121: cancelling an armed save sends no request and restores the last-read values', async () => {
         {
             const view = await saveOnce({ field: 'auditRetentionDays', value: '30' });
 
@@ -437,7 +444,9 @@ describe('cancel writes nothing and returns the fields (006 T-022, AC-121)', () 
             expect(view.rt.state.settingsTab.edit.dirty).toEqual([]);
             view.dispose();
         }
-        // case: the armed copy is on screen while armed, and Cancel takes it down
+    });
+
+    it('the armed copy is on screen while armed, and Cancel takes it down', async () => {
         {
             const view = await saveOnce({ field: 'auditRetentionDays', value: '30' });
             expect(recordedStrings().join('\n')).toContain(DELETES_HISTORY);
@@ -450,6 +459,7 @@ describe('cancel writes nothing and returns the fields (006 T-022, AC-121)', () 
             view.dispose();
         }
     });
+
 });
 
 /**
@@ -464,8 +474,7 @@ function restoreMount(): Promise<SettingsMount> {
 }
 
 describe('restore defaults is a two-step whole-document write (006 T-022, FR-016)', () => {
-    it('the first activation stages the defaults, names ever… (+2 cases)', async () => {
-        // case: the first activation stages the defaults, names every field, and writes nothing
+    it('the first activation stages the defaults, names every field, and writes nothing', async () => {
         {
             const view = await restoreMount();
 
@@ -481,7 +490,9 @@ describe('restore defaults is a two-step whole-document write (006 T-022, FR-016
             expect(view.rt.state.settingsTab.edit.draft.intervalMs).toBe('60000');
             view.dispose();
         }
-        // case: the second activation on Restore defaults writes the whole document
+    });
+
+    it('the second activation on Restore defaults writes the whole document', async () => {
         {
             const view = await restoreMount();
 
@@ -490,12 +501,14 @@ describe('restore defaults is a two-step whole-document write (006 T-022, FR-016
 
             expect(writes(view)).toHaveLength(1);
             const sent = JSON.parse(writes(view)[0]?.body ?? '{}') as Record<string, unknown>;
-            expect(Object.keys(sent).sort()).toEqual(Object.keys(DEFAULT_CONFIG).sort());
+            expect(Object.keys(sent).toSorted(byText)).toEqual(Object.keys(DEFAULT_CONFIG).toSorted(byText));
             expect(sent.intervalMs).toBe(DEFAULT_CONFIG.intervalMs);
             expect(view.rt.state.settingsTab.edit.confirm).toBeNull();
             view.dispose();
         }
-        // case: AC-121: cancelling a staged restore returns every field to the last-read values
+    });
+
+    it('AC-121: cancelling a staged restore returns every field to the last-read values', async () => {
         {
             const view = await restoreMount();
 
@@ -508,6 +521,7 @@ describe('restore defaults is a two-step whole-document write (006 T-022, FR-016
             view.dispose();
         }
     });
+
 });
 
 describe('the confirmation copy obeys its contract (006 T-022, contract §2 and §4)', () => {
@@ -519,7 +533,6 @@ describe('the confirmation copy obeys its contract (006 T-022, contract §2 and 
     /**
      * Build a save confirmation by patching `patch` over the read document.
      *
-     * @param patch - Draft values to change.
      * @returns The armed copy, which is never `null` for these fixtures.
      */
     function armedCopy(patch: Readonly<Record<string, string>>): string {
@@ -532,8 +545,7 @@ describe('the confirmation copy obeys its contract (006 T-022, contract §2 and 
         return confirmation.copy;
     }
 
-    it('carries every content item the contract lists, for e… (+4 cases)', () => {
-        // case: carries every content item the contract lists, for every knob
+    it('carries every content item the contract lists, for every knob', () => {
         {
             for (const knot of RETENTION_KNOTS) {
                 const copy = armedCopy({ [knot.field]: knot.lower });
@@ -556,7 +568,6 @@ describe('the confirmation copy obeys its contract (006 T-022, contract §2 and 
                 }
             }
         }
-        // case: never claims the trim will not run, and never promises a count it has not read
         {
             const forbidden = ['no trimming runs', 'nothing is deleted now', 'no entries will be deleted'];
             for (const knot of RETENTION_KNOTS) {
@@ -569,21 +580,18 @@ describe('the confirmation copy obeys its contract (006 T-022, contract §2 and 
                 expect(copy).not.toMatch(/\brows? will be deleted\b/);
             }
         }
-        // case: a save that raises, changes nothing, or touches a non-retention field arms nothing
         {
             const baseline = draftFrom(envelope);
             expect(saveConfirmation({ envelope, draft: baseline })).toBeNull();
             expect(saveConfirmation({ envelope, draft: { ...baseline, auditRetentionDays: '365' } })).toBeNull();
             expect(saveConfirmation({ envelope, draft: { ...baseline, intervalMs: '120000' } })).toBeNull();
         }
-        // case: a restore names every changed field and omits the deletion block when nothing is lowered
         {
             const { copy } = restoreConfirmation({ envelope: restoreRead, draft: draftFrom(envelope) });
 
             expect(copy).toContain('intervalMs: 120000 → 60000');
             expect(copy).not.toContain(DELETES_HISTORY);
         }
-        // case: a restore that lowers a retention knob carries the deletion block too
         {
             const higherRetention = envelopeOf(envelopeBody({ ...DEFAULT_CONFIG, excerptRetentionDays: 90 }));
             const { copy } = restoreConfirmation({

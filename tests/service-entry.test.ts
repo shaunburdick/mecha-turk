@@ -12,10 +12,10 @@
 
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve as resolvePath } from 'node:path';
+
+import { resolve as resolvePath } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolvePath(import.meta.dirname, '..');
@@ -47,20 +47,22 @@ let entry: ChildProcess | null = null;
 /** Temporary home the current test's store lives under. */
 let home: string | null = null;
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+const resetFixture = async (): Promise<void> => {
     if (entry !== null) {
         entry.kill('SIGKILL');
         entry = null;
     }
 
-    if (home !== null) {
-        await rm(home, { recursive: true, force: true });
-        home = null;
+    if (home === null) {
+        return;
     }
+
+    await removeTempTree(home);
+    home = null;
 };
 
-afterEach(afterEachWork1);
+afterEach(resetFixture);
 
 /**
  * Build the environment the host documents for a guest service.
@@ -73,11 +75,12 @@ afterEach(afterEachWork1);
  * @returns The environment to spawn the bundle with.
  */
 function buildEnv(tempHome: string): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = {};
-    env.PATH = process.env.PATH;
-    env.HOME = tempHome;
-    env.OPENCHAMBER_SERVICE_PORT = OS_ASSIGNED_PORT;
-    env.OPENCHAMBER_SERVICE_TOKEN = TOKEN;
+    const env: NodeJS.ProcessEnv = {
+        PATH: process.env.PATH,
+        HOME: tempHome,
+        OPENCHAMBER_SERVICE_PORT: OS_ASSIGNED_PORT,
+        OPENCHAMBER_SERVICE_TOKEN: TOKEN,
+    };
 
     return env;
 }
@@ -99,10 +102,12 @@ function readListeningPort(child: ChildProcess): Promise<number> {
         const capture = (chunk: Buffer): void => {
             output += chunk.toString('utf8');
             const match = /"port":(\d+)/.exec(output);
-            if (match?.[1] !== undefined) {
-                clearTimeout(timer);
-                resolve(Number(match[1]));
+            if (match?.[1] === undefined) {
+                return;
             }
+
+            clearTimeout(timer);
+            resolve(Number(match[1]));
         };
 
         child.stdout?.on('data', capture);
@@ -121,7 +126,6 @@ function readListeningPort(child: ChildProcess): Promise<number> {
  * service is the expectation and the captured output is what proves the
  * refusal was secret-free.
  *
- * @param child - Spawned bundle.
  * @returns The exit code (`null` when killed by a signal) and combined output.
  */
 function readExitWithOutput(child: ChildProcess): Promise<{ readonly code: number | null; readonly output: string }> {
@@ -142,7 +146,6 @@ function readExitWithOutput(child: ChildProcess): Promise<{ readonly code: numbe
 /**
  * Wait for the spawned service to exit.
  *
- * @param child - Spawned bundle.
  * @returns The process exit code (`null` when killed by a signal).
  */
 function waitForExit(child: ChildProcess): Promise<number | null> {
@@ -154,10 +157,9 @@ function waitForExit(child: ChildProcess): Promise<number | null> {
 }
 
 describe('service entry (spawned bundle)', () => {
-    it('starts, answers the readiness probe, and drains on S… (+1 cases)', async () => {
-        // case: starts, answers the readiness probe, and drains on SIGTERM
+    it('starts, answers the readiness probe, and drains on SIGTERM', async () => {
         {
-            home = await mkdtemp(join(tmpdir(), 'mecha-turk-entry-'));
+            home = await makeTempTree('entry');
             entry = spawn(process.execPath, [ENTRY], { env: buildEnv(home), stdio: ['ignore', 'pipe', 'pipe'] });
             const port = await readListeningPort(entry);
 
@@ -174,11 +176,10 @@ describe('service entry (spawned bundle)', () => {
             entry.kill('SIGTERM');
             expect(await exited).toBe(0);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: refuses to start on a short service token, exit non-zero, log secret-free (SEC-02a)
+        await resetFixture();
+        await resetFixture();
         {
-            home = await mkdtemp(join(tmpdir(), 'mecha-turk-entry-'));
+            home = await makeTempTree('entry');
             const shortToken = 'f'.repeat(TOKEN_FLOOR - 1);
             const env = buildEnv(home);
             env.OPENCHAMBER_SERVICE_TOKEN = shortToken;

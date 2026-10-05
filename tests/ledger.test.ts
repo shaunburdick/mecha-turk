@@ -14,14 +14,14 @@ import {
     MAX_LEDGER_ENTRIES,
     LEDGER_SCHEMA_VERSION,
 } from '../src/ledger.ts';
-import type { LifecyclePhase, SpikeLedger } from '../src/ledger.ts';
+import type { LifecyclePhase, PanelLedger } from '../src/ledger.ts';
 import { RedactionError } from '../src/redaction.ts';
 
 /** Start timestamp for every timeline in these tests. */
 const T0 = '2026-09-26T12:00:00.000Z';
 
 /** Milliseconds in one second, used to build RFC 3339 offsets. */
-const MS_PER_SECOND = 1000;
+const MS_PER_SECOND = 1_000;
 
 /** Gap measured between the closed and reopened markers in the S6 tests. */
 const GAP_MS = 30_000;
@@ -54,7 +54,6 @@ function at(seconds: number): string {
 /**
  * Parse a serialized ledger into a JSON value for the reader under test.
  *
- * @param json - Serialized ledger.
  * @returns The parsed value.
  */
 function parseJson(json: string): JsonValue {
@@ -69,10 +68,9 @@ function parseJson(json: string): JsonValue {
 /**
  * Deep-clone a ledger as a JSON value so a test can corrupt it safely.
  *
- * @param ledger - Ledger to clone.
  * @returns The clone, shaped as JSON.
  */
-function cloneAsJson(ledger: SpikeLedger): Record<string, JsonValue> {
+function cloneAsJson(ledger: PanelLedger): Record<string, JsonValue> {
     const parsed = parseJson(serializeLedger(ledger));
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
         throw new Error('fixture ledger did not serialize to an object');
@@ -86,7 +84,7 @@ function cloneAsJson(ledger: SpikeLedger): Record<string, JsonValue> {
  *
  * @returns A ledger with one mounted phase entry.
  */
-function fixtureLedger(): SpikeLedger {
+function fixtureLedger(): PanelLedger {
     const ledger = createLedger({
         correlationId: CORRELATION,
         panelGeneration: 1,
@@ -109,8 +107,7 @@ describe('createLedger', () => {
 });
 
 describe('appendEntry', () => {
-    it('assigns monotonic sequence numbers (+5 cases)', () => {
-        // case: assigns monotonic sequence numbers
+    it('assigns monotonic sequence numbers', () => {
         {
             let ledger = fixtureLedger();
             ledger = appendEntry(ledger, { at: at(1), kind: 'poll', detail: { inspected: 3 } });
@@ -118,14 +115,12 @@ describe('appendEntry', () => {
 
             expect(ledger.entries.map((entry) => entry.seq)).toEqual([1, 2, 3]);
         }
-        // case: inherits the ledger correlation id and generation when not supplied
         {
             const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'poll', detail: { inspected: 1 } });
 
             expect(ledger.entries.at(-1)?.correlationId).toBe(CORRELATION);
             expect(ledger.entries.at(-1)?.panelGeneration).toBe(1);
         }
-        // case: caps the ledger and drops the oldest entries first
         {
             let ledger = fixtureLedger();
             const extra = MAX_LEDGER_ENTRIES * 2;
@@ -137,7 +132,6 @@ describe('appendEntry', () => {
             expect(ledger.entries[0]?.seq).toBeGreaterThan(1);
             expect(ledger.entries.at(-1)?.seq).toBe(extra + 1);
         }
-        // case: truncates over-long detail values
         {
             const long = 'x'.repeat(MAX_DETAIL_CHARS * 2);
             const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'error', detail: { error: long } });
@@ -145,7 +139,6 @@ describe('appendEntry', () => {
 
             expect(String(detail?.error)).toHaveLength(MAX_DETAIL_CHARS);
         }
-        // case: strips credential-named detail keys
         {
             const ledger = appendEntry(fixtureLedger(), {
                 at: at(1),
@@ -156,7 +149,6 @@ describe('appendEntry', () => {
 
             expect(detail).toEqual({ error: 'boom' });
         }
-        // case: redacts a secret-shaped error message as the entry is appended
         {
             const token = `ghp_${'a'.repeat(TOKEN_BODY)}`;
             const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'error', detail: {
@@ -170,8 +162,7 @@ describe('appendEntry', () => {
 });
 
 describe('recordPhase', () => {
-    it('records every lifecycle phase the experiment require… (+1 cases)', () => {
-        // case: records every lifecycle phase the experiment requires
+    it('records every lifecycle phase the experiment requires', () => {
         {
             let ledger = fixtureLedger();
 
@@ -182,7 +173,6 @@ describe('recordPhase', () => {
             const recorded = ledger.entries.filter((entry) => entry.kind === 'phase').map((entry) => entry.phase);
             expect(recorded).toEqual([MOUNTED, ...PHASES]);
         }
-        // case: round-trips every phase through serialization
         {
             let ledger = fixtureLedger();
             for (const phase of PHASES) {
@@ -196,17 +186,15 @@ describe('recordPhase', () => {
 });
 
 describe('serializeLedger', () => {
-    it('produces plain JSON that reads back unchanged (+2 cases)', () => {
-        // case: produces plain JSON that reads back unchanged
+    it('produces plain JSON that reads back unchanged', () => {
         {
             const ledger = fixtureLedger();
-            expect(readLedger(parseJson(serializeLedger(ledger)))).toEqual(ledger);
+            const roundTripped = readLedger(parseJson(serializeLedger(ledger)));
+            expect(roundTripped).toEqual(ledger);
         }
-        // case: passes the redaction assertion for clean content
         {
             expect(() => assertLedgerRedacted(fixtureLedger())).not.toThrow();
         }
-        // case: refuses to serialize secret-shaped detail content
         {
             const token = `ghp_${'a'.repeat(TOKEN_BODY)}`;
             const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'error', detail: { note: token } });
@@ -217,18 +205,15 @@ describe('serializeLedger', () => {
 });
 
 describe('readLedger', () => {
-    it('returns null for a missing value (+3 cases)', () => {
-        // case: returns null for a missing value
+    it('returns null for a missing value', () => {
         {
             expect(readLedger()).toBeNull();
         }
-        // case: returns null for a foreign schema version
         {
             const stored = cloneAsJson(fixtureLedger());
             stored.schemaVersion = 'other';
             expect(readLedger(stored)).toBeNull();
         }
-        // case: returns null when an entry carries an unknown kind
         {
             const ledger = appendEntry(fixtureLedger(), { at: at(1), kind: 'poll', detail: {} });
             const stored = cloneAsJson(ledger);
@@ -242,7 +227,6 @@ describe('readLedger', () => {
 
             expect(readLedger(stored)).toBeNull();
         }
-        // case: returns null when a detail value is not a scalar
         {
             const stored = cloneAsJson(fixtureLedger());
             const { entries } = stored;
@@ -259,8 +243,7 @@ describe('readLedger', () => {
 });
 
 describe('analyzePollingGap', () => {
-    it('reports polling-stopped when no poll ran inside the … (+3 cases)', () => {
-        // case: reports polling-stopped when no poll ran inside the gap
+    it('reports polling-stopped when no poll ran inside the gap', () => {
         {
             const ledger = fixtureLedger();
             const result = analyzePollingGap({ ledger, closedAt: at(10), reopenedAt: at(40) });
@@ -269,7 +252,6 @@ describe('analyzePollingGap', () => {
             expect(result.pollEntriesInGap).toBe(0);
             expect(result.gapMs).toBe(GAP_MS);
         }
-        // case: reports polling-continued when a poll ran inside the gap
         {
             let ledger = appendEntry(fixtureLedger(), { at: at(20), kind: 'poll', detail: { inspected: 1 } });
             ledger = recordPhase(ledger, { phase: 'closed', at: at(10) });
@@ -278,7 +260,6 @@ describe('analyzePollingGap', () => {
             expect(result.verdict).toBe('polling-continued');
             expect(result.pollEntriesInGap).toBe(1);
         }
-        // case: ignores polls outside the interval
         {
             let ledger = appendEntry(fixtureLedger(), { at: at(5), kind: 'poll', detail: { inspected: 1 } });
             ledger = appendEntry(ledger, { at: at(50), kind: 'poll', detail: { inspected: 1 } });
@@ -287,7 +268,6 @@ describe('analyzePollingGap', () => {
             expect(result.verdict).toBe('polling-stopped');
             expect(result.pollEntriesInGap).toBe(0);
         }
-        // case: reports no-gap when the interval is unusable
         {
             const ledger = fixtureLedger();
             const result = analyzePollingGap({ ledger, closedAt: at(40), reopenedAt: at(10) });
@@ -299,8 +279,7 @@ describe('analyzePollingGap', () => {
 });
 
 describe('ledgerTail', () => {
-    it('returns the newest entries first (+1 cases)', () => {
-        // case: returns the newest entries first
+    it('returns the newest entries first', () => {
         {
             let ledger = fixtureLedger();
             ledger = appendEntry(ledger, { at: at(1), kind: 'poll', detail: {} });
@@ -308,7 +287,6 @@ describe('ledgerTail', () => {
 
             expect(ledgerTail(ledger, 2).map((entry) => entry.seq)).toEqual([3, 2]);
         }
-        // case: returns everything when asked for more than exists
         {
             expect(ledgerTail(fixtureLedger(), 10)).toHaveLength(1);
         }
@@ -316,14 +294,12 @@ describe('ledgerTail', () => {
 });
 
 describe('isLifecyclePhase', () => {
-    it('accepts the five documented phases (+1 cases)', () => {
-        // case: accepts the five documented phases
+    it('accepts the five documented phases', () => {
         {
             for (const phase of ['mounted', 'closed', 'paused', 'removed', 'server-switch']) {
                 expect(isLifecyclePhase(phase)).toBe(true);
             }
         }
-        // case: rejects anything else
         {
             expect(isLifecyclePhase('booted')).toBe(false);
             expect(isLifecyclePhase(ISSUE_NO)).toBe(false);

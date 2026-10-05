@@ -60,7 +60,6 @@ interface LoopState {
  * Read the stop flag through a function, so the compiler cannot narrow it away
  * across the `await` boundaries in the cycle.
  *
- * @param state - The loop's own state.
  * @returns `true` once shutdown has landed.
  */
 function isHalted(state: LoopState): boolean {
@@ -74,7 +73,6 @@ function isHalted(state: LoopState): boolean {
  * independently of the poll interval — a 300 s poll cadence must not push the
  * lease sweep past its own bound.
  *
- * @param durations - The configured lease and result deadline.
  * @returns Milliseconds between ticks.
  */
 export function sweepIntervalMs(durations: SweepDurations): number {
@@ -88,7 +86,6 @@ export function sweepIntervalMs(durations: SweepDurations): number {
  * that pins what the loop will arm is pinning the fix, not an implementation
  * detail of a timer.
  *
- * @param input - Open store and structured logger.
  * @returns The configured durations, or the documented defaults.
  */
 export async function readSweepDurations(input: SweepLoopInput): Promise<SweepDurations> {
@@ -107,7 +104,6 @@ export async function readSweepDurations(input: SweepLoopInput): Promise<SweepDu
 /**
  * Schedule the next tick on an unref'd timer.
  *
- * @param input - The loop's state and the callback its next tick runs.
  * @param durations - The cadence the next tick waits.
  */
 function arm(
@@ -132,8 +128,6 @@ function arm(
  * A tick still running when the next fires is skipped rather than overlapped:
  * the sweep is a chain task, and two passes would only contend for the same
  * lock. A shutdown that landed mid-pass must not re-arm.
- *
- * @param input - Store, logger, the loop's state, and its tick callback.
  */
 async function runPass(input: {
     /** Open store and structured logger. */
@@ -190,10 +184,12 @@ export function startSweep(input: SweepLoopInput): SweepLoop {
     return {
         stop: (): void => {
             state.stopped = true;
-            if (state.timer !== null) {
-                clearTimeout(state.timer);
-                state.timer = null;
+            if (state.timer === null) {
+                return;
             }
+
+            clearTimeout(state.timer);
+            state.timer = null;
         },
     };
 }

@@ -1,5 +1,5 @@
 /**
- * The selected account's chip row (2026-09-30 visual redesign).
+ * The selected account's chip row.
  *
  * An account row already prints its connection and its scope inside the
  * subtitle the operator reads as prose, and the detail line under it restates
@@ -31,6 +31,9 @@ export interface DetailChips {
     dispose(): void;
 }
 
+/** The connection phrases the panel reads as an amber warning rather than a pass. */
+const WARNING_PHRASES: ReadonlySet<string> = new Set(['auth-failed', 'rate-limited', 'offline']);
+
 /**
  * The tone for one reported connection.
  *
@@ -39,7 +42,6 @@ export interface DetailChips {
  * this build does not name, or none reported at all — stays neutral rather
  * than being read as either a pass or a fault.
  *
- * @param phrase - The connection phrase the row prints.
  * @returns The badge tone for that phrase.
  */
 function connectionTone(phrase: string): Tone {
@@ -47,7 +49,7 @@ function connectionTone(phrase: string): Tone {
         return 'success';
     }
 
-    if (phrase === 'auth-failed' || phrase === 'rate-limited' || phrase === 'offline') {
+    if (WARNING_PHRASES.has(phrase)) {
         return 'warning';
     }
 
@@ -57,7 +59,6 @@ function connectionTone(phrase: string): Tone {
 /**
  * The tone for the recorded scope verdict.
  *
- * @param account - The account whose matrix decides it.
  * @returns The badge tone, neutral while there is no evidence either way.
  */
 function scopeTone(account: PanelAccount): Tone {
@@ -74,7 +75,6 @@ function scopeTone(account: PanelAccount): Tone {
  * They describe the *selected* account, which is exactly the one the display
  * name, rotation, and removal controls underneath them act on.
  *
- * @param detailBox - The wrapper the detail line lives in.
  * @returns The chip row, repainted and disposed as one unit.
  */
 export function mountDetailChips(detailBox: HTMLElement): DetailChips {

@@ -77,7 +77,7 @@ export const STATUS = {
  * Fields of the error envelope every failure uses (contract §1).
  *
  * The optional members are the ratified supersets the §1 grammar names:
- * `issues` for `422 validation` (Wave 1, T-002) and `reasonClass` for
+ * `issues` for `422 validation` (Wave 1) and `reasonClass` for
  * `422 credential-rejected` (SEC-03, ratified by T-009m). Every builder in
  * this module goes through {@link errorBody}, so the wire shape and the type
  * cannot drift apart (review L13).
@@ -141,7 +141,6 @@ export interface FieldIssue {
  * types and the JSON wire shape agree: an absent `correlationId`, `issues`, or
  * `reasonClass` is omitted from the body rather than written as `null`.
  *
- * @param details - Code, message, and the optional ratified members.
  * @returns The envelope body.
  */
 export function errorBody(details: ErrorDetails): ErrorBody {
@@ -149,19 +148,15 @@ export function errorBody(details: ErrorDetails): ErrorBody {
         error: {
             code: details.code,
             message: details.message,
-            ...(details.correlationId === undefined ? {} : { correlationId: details.correlationId }),
-            ...(details.issues === undefined ? {} : { issues: details.issues }),
-            ...(details.reasonClass === undefined ? {} : { reasonClass: details.reasonClass }),
+            ...(details.correlationId !== undefined && { correlationId: details.correlationId }),
+            ...(details.issues !== undefined && { issues: details.issues }),
+            ...(details.reasonClass !== undefined && { reasonClass: details.reasonClass }),
         },
     };
 }
 
 /**
  * Build an error response.
- *
- * @param status - HTTP status code.
- * @param details - Code, message, and the optional ratified envelope members.
- * @returns The response to write.
  */
 export function errorResponse(status: number, details: ErrorDetails): HttpResponse {
     return { status, body: errorBody(details) };
@@ -175,7 +170,6 @@ export function errorResponse(status: number, details: ErrorDetails): HttpRespon
  * render it verbatim, while `issues` carries the structured list. No submitted
  * value appears anywhere in either form.
  *
- * @param issues - Every rejected field with its remediation.
  * @returns The `validation` error response (contract §4).
  */
 export function validationResponse(issues: readonly FieldIssue[]): HttpResponse {
@@ -208,12 +202,10 @@ export interface ThrottleOptions {
  * copy from a code rather than from prose (contract §4 `rate-limited` /
  * `verify-busy`), and the wait travels in the documented `retry-after` header.
  *
- * @param options - Status, code, message, and wait time.
  * @returns The response carrying the `retry-after` header.
  */
 export function throttleResponse(options: ThrottleOptions): HttpResponse {
-    const headers: Record<string, string> = {};
-    headers[RETRY_AFTER_HEADER] = String(options.retryAfterSeconds);
+    const headers: Record<string, string> = { [RETRY_AFTER_HEADER]: String(options.retryAfterSeconds) };
 
     return {
         status: options.status,

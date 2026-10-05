@@ -44,12 +44,12 @@ export interface RouteContext {
     readonly log: ServiceLogger;
     /** Schema version this build declares (contract §1 versioning). */
     readonly schemaVersion: number;
-    /** GitHub identity verifier used by the credential routes (T-007). */
+    /** GitHub identity verifier used by the credential routes. */
     readonly github: GitHubVerifier;
     /** Verify throttle shared by the credential routes (SEC-04). */
     readonly throttle: VerifyThrottle;
     /**
-     * Read-only view of the live poll scheduler (005 FR-031).
+     * Read-only view of the live poll scheduler.
      *
      * The status route reports the loop's own state through it instead of a
      * literal the running process would contradict.

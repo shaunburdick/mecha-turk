@@ -53,9 +53,8 @@ export interface BindingsPane {
     readonly note: TextHandle;
     /** Bindings list with per-binding scan lines. */
     readonly bindingsList: ListHandle;
-    /** Bindings refresh button. */
     readonly refreshBindings: ButtonHandle;
-    /** Opens the editor on an empty draft (2026-10-01 review). */
+    /** Opens the editor on an empty draft. */
     readonly newBinding: ButtonHandle;
     /** Enable/disable toggle for the selected row; a list-level control. */
     readonly toggleSelected: ButtonHandle;
@@ -69,9 +68,9 @@ export interface BindingsPane {
     readonly repoField: TextFieldHandle;
     /** Account select: fixed to the binding in edit mode, a picker in add mode. */
     readonly accountSelect: SelectHandle;
-    /** The mention token in force, marked when it differs (005 FR-057). */
+    /** The mention token in force, marked when it differs. */
     readonly mentionToken: TextHandle;
-    /** The actor allow-list field — the only element holding its logins (FR-090). */
+    /** The actor allow-list field — the only element holding its logins. */
     readonly actors: BindingActorControls;
     /** Project select (from the host's project list). */
     readonly projectSelect: SelectHandle;
@@ -120,11 +119,11 @@ export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingP
     /** Operators picked a project. */
     readonly selectProject: (id: string) => void;
     /** Operators set the assignment trigger checkbox. */
-    readonly setAssignment: (checked: boolean) => void;
+    readonly setAssignment: (isChecked: boolean) => void;
     /** Operators set the mention trigger checkbox. */
-    readonly setMention: (checked: boolean) => void;
+    readonly setMention: (isChecked: boolean) => void;
     /** Operators set the review-request trigger checkbox. */
-    readonly setReviewRequest: (checked: boolean) => void;
+    readonly setReviewRequest: (isChecked: boolean) => void;
     /** Operators picked a worktree option. */
     readonly setWorktree: (id: 'none' | 'generated') => void;
     /** Operators clicked a binding row — which loads it into the editor. */
@@ -157,7 +156,6 @@ export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingP
  * Exported because [`bindings-body.ts`](./bindings-body.ts) paints it at
  * mount and this module repaints it: one copy of the count, two moments.
  *
- * @param bindings - The Bindings tab's state.
  * @returns The summary text the status line shows.
  */
 export function composeStatus(bindings: BindingsTabState): string {
@@ -168,9 +166,6 @@ export function composeStatus(bindings: BindingsTabState): string {
 
 /**
  * Repaint the pane from state.
- *
- * @param rt - Panel runtime.
- * @param view - The mounted pane.
  */
 export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void {
     const { bindings } = rt.state;

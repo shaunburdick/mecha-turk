@@ -3,9 +3,9 @@
  * file operations every service module shares.
  *
  * The store is the authoritative home for configuration, checkpoints, runs,
- * and audit history (data-model.md storage tier 1): it lives under the
+ * and audit history: it lives under the
  * operator's own data directory, outside `host.storage`, so it survives an
- * extension uninstall by construction (FR-033/FR-034). Paths handed to the
+ * extension uninstall by construction. Paths handed to the
  * store are relative names inside that directory — anything absolute or
  * climbing out with `..` is refused, so no caller can write outside the store
  * even if a value arrives from the panel.
@@ -50,7 +50,6 @@ export interface ServiceStore {
     /**
      * Read one JSON document.
      *
-     * @param relativePath - Path inside the data directory.
      * @param validate - Shape check; `null` quarantines the file.
      * @returns The stored value, absence, or the quarantine path.
      */
@@ -58,14 +57,12 @@ export interface ServiceStore {
     /**
      * Write one JSON document atomically.
      *
-     * @param relativePath - Path inside the data directory.
      * @param value - Any JSON-serialisable value.
      */
     writeJson(relativePath: string, value: unknown): Promise<void>;
     /**
      * Append one NDJSON line.
      *
-     * @param relativePath - Path inside the data directory.
      * @param entry - Any JSON-serialisable entry.
      */
     appendLine(relativePath: string, entry: unknown): Promise<void>;
@@ -73,33 +70,26 @@ export interface ServiceStore {
      * Replace a whole NDJSON file atomically (temp `0600` → fsync → rename).
      *
      * The line-file sibling of {@link writeJson}, for the rewriting passes
-     * (006's retention trim): the file becomes the new set of entries in one
+     * (the retention trim): the file becomes the new set of entries in one
      * rename, so a crash leaves either the old file or the new one and never a
      * torn half-write.
      *
-     * @param relativePath - Path inside the data directory.
      * @param entries - JSON-serialisable entries, written one per line in order.
      */
     writeLines(relativePath: string, entries: readonly unknown[]): Promise<void>;
     /**
      * Read every usable line of an NDJSON file.
      *
-     * @param relativePath - Path inside the data directory.
      * @param parse - Shape check; `null` counts the line as malformed.
      * @returns The entries plus the malformed-line count.
      */
     readLines<T>(relativePath: string, parse: (raw: unknown) => T | null): Promise<NdjsonReadResult<T>>;
     /**
      * List the entries of a directory inside the data directory.
-     *
-     * @param relativePath - Directory path inside the data directory.
-     * @returns Entry names; a missing directory is an empty list.
      */
     listDir(relativePath: string): Promise<readonly string[]>;
     /**
      * Remove one file inside the data directory; absence is not an error.
-     *
-     * @param relativePath - Path inside the data directory.
      */
     removeFile(relativePath: string): Promise<void>;
 }
@@ -107,7 +97,6 @@ export interface ServiceStore {
 /**
  * Validate a parsed `state.json` document.
  *
- * @param raw - Parsed document.
  * @returns The state, or `null` when the schema marker is missing or invalid.
  */
 function parseServiceState(raw: unknown): ServiceState | null {
@@ -116,7 +105,7 @@ function parseServiceState(raw: unknown): ServiceState | null {
     }
 
     const version = raw.schemaVersion;
-    if (typeof version !== 'number' || !Number.isInteger(version) || version < 1) {
+    if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 1) {
         return null;
     }
 
@@ -132,7 +121,6 @@ function parseServiceState(raw: unknown): ServiceState | null {
  * written by a build this one cannot understand, it is replaced rather than
  * quarantined-and-stuck — the history files beside it are untouched either way.
  *
- * @param dataDir - Absolute data directory.
  * @returns The store's schema version.
  */
 async function readOrCreateSchemaVersion(dataDir: string): Promise<number> {
@@ -151,8 +139,6 @@ async function readOrCreateSchemaVersion(dataDir: string): Promise<number> {
 /**
  * Resolve a relative store path inside the data directory, refusing escape.
  *
- * @param dataDir - Absolute data directory.
- * @param relativePath - Caller-supplied path; must be relative and stay inside.
  * @returns The absolute path.
  * @throws {Error} When the path is empty, absolute, or climbs out — a
  *   programming error, not a storage failure, so it is not disguised as one.
@@ -168,8 +154,6 @@ function resolveStorePath(dataDir: string, relativePath: string): string {
 /**
  * List the entries of a directory inside the data directory.
  *
- * @param dataDir - Absolute data directory.
- * @param relativePath - Caller-supplied directory path; escape-refused.
  * @returns Entry names, or an empty list when the directory does not exist
  *   yet (a fresh store has no `accounts/` until the first handoff).
  * @throws {StorageUnavailableError} When the directory exists but cannot be read.
@@ -190,8 +174,6 @@ async function listStoreDir(dataDir: string, relativePath: string): Promise<read
 /**
  * Remove a file inside the data directory.
  *
- * @param dataDir - Absolute data directory.
- * @param relativePath - Caller-supplied file path; escape-refused.
  * @throws {StorageUnavailableError} When the file exists but cannot be removed.
  */
 async function removeStoreFile(dataDir: string, relativePath: string): Promise<void> {
@@ -206,8 +188,6 @@ async function removeStoreFile(dataDir: string, relativePath: string): Promise<v
 /**
  * Bind store operations to one data directory.
  *
- * @param dataDir - Absolute data directory.
- * @param schemaVersion - Version read during open.
  * @returns The handle whose paths resolve inside `dataDir` only.
  */
 function createStore(dataDir: string, schemaVersion: number): ServiceStore {
@@ -229,7 +209,7 @@ function createStore(dataDir: string, schemaVersion: number): ServiceStore {
 /**
  * Open (creating if needed) the durable store at a data directory.
  *
- * Startup does the two SEC-13 housekeeping steps before anything else can
+ * Startup does the two housekeeping steps before anything else can
  * read: it verifies (and corrects) the owner-only directory mode through
  * {@link ensureDir}, and sweeps temporary debris an interrupted write left
  * behind so a crash can never leave stale partial files lying around.

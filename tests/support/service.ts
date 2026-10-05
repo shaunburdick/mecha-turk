@@ -90,17 +90,17 @@ export interface RawExchangeOptions {
 /**
  * Start the real service against a fake host environment.
  *
- * @param options - Optional data directory and environment overrides.
  * @returns The running instance and its captured log lines.
  */
 export async function startTestService(options: StartTestServiceOptions = {}): Promise<TestService> {
     const token = randomBytes(TOKEN_BYTES).toString('hex');
     const home = await mkdtemp(join(tmpdir(), TEMP_PREFIX));
-    const env: Record<string, string | undefined> = {};
-    env.HOME = home;
-    env.OPENCHAMBER_SERVICE_PORT = OS_ASSIGNED_PORT;
-    env.OPENCHAMBER_SERVICE_TOKEN = token;
-    Object.assign(env, options.env ?? {});
+    const env: Record<string, string | undefined> = {
+        HOME: home,
+        OPENCHAMBER_SERVICE_PORT: OS_ASSIGNED_PORT,
+        OPENCHAMBER_SERVICE_TOKEN: token,
+        ...options.env,
+    };
     const dataDir = options.dataDir ?? join(home, 'store');
     const logLines: string[] = [];
     const log = createLogger({
@@ -114,7 +114,7 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
         dataDir,
         log,
         github: options.github ?? offlineVerifier(),
-        ...(options.poller === undefined ? {} : { poller: options.poller }),
+        ...(options.poller !== undefined && { poller: options.poller }),
     });
     const baseUrl = `http://${HOST}:${handle.port}`;
 
@@ -127,7 +127,7 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
         call: async (path, init = {}) =>
             await fetch(`${baseUrl}${path}`, {
                 ...init,
-                headers: { authorization: `Bearer ${token}`, ...(init.headers ?? {}) },
+                headers: { authorization: `Bearer ${token}`, ...init.headers },
             }),
         shutdown: async () => {
             await handle.shutdown();
@@ -148,7 +148,6 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
  * Tests use this for anything `fetch` refuses to build: absolute-form or
  * protocol-relative targets, overlong paths, and bodies attached to `GET`.
  *
- * @param options - Port plus the complete request text.
  * @returns The raw response, terminated when the server closes the socket.
  */
 export async function rawExchange(options: RawExchangeOptions): Promise<string> {

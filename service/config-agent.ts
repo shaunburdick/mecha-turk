@@ -28,7 +28,7 @@ import type { ConfigIssue } from './config.ts';
  *
  * `format` is the service-authored prose the wire carries as a descriptor's
  * `format` member — rendered as text by the panel, never compiled into a
- * second validator (FR-023). `pattern` is the validator's own gate: one
+ * second validator. `pattern` is the validator's own gate: one
  * token of letters, digits, and `. _ - @ : /`, so a pasted credential (or
  * anything containing a space or control character) never reaches the store.
  */
@@ -59,7 +59,6 @@ export const EXPECTED_AGENT_RULE = {
  * that leaves the key out is refused while a `PUT` that sends `""` is a
  * deliberate statement that no baseline is configured.
  *
- * @param value - Candidate value as the document carried it.
  * @returns Zero or one issue.
  */
 export function expectedAgentIssue(value: unknown): readonly ConfigIssue[] {

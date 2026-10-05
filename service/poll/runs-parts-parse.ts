@@ -42,7 +42,6 @@ const ATTEMPT_OUTCOMES: ReadonlySet<string> = new Set([
 /**
  * Narrow a value to a trigger kind.
  *
- * @param value - Candidate kind.
  * @returns `true` for the three documented kinds.
  */
 function isEventKind(value: unknown): value is EventKind {
@@ -51,7 +50,6 @@ function isEventKind(value: unknown): value is EventKind {
 /**
  * Narrow a value to a reference origin.
  *
- * @param origin - Candidate origin string.
  * @returns `true` for the four documented shapes, including `comment:<id>`.
  */
 function isValidOrigin(origin: string): origin is ReferenceOrigin {
@@ -62,7 +60,6 @@ function isValidOrigin(origin: string): origin is ReferenceOrigin {
 /**
  * Narrow a value to an attempt outcome (`null` while in flight).
  *
- * @param value - Candidate outcome.
  * @returns `true` for `null` or one of the documented outcomes.
  */
 function isOutcome(value: unknown): value is DispatchAttempt['outcome'] {
@@ -77,10 +74,9 @@ function isOutcome(value: unknown): value is DispatchAttempt['outcome'] {
  * still parses, because refusing it would quarantine the whole document for
  * history that is perfectly readable. A member that *is* present must be
  * usable — an unrecognized basis refuses the reference rather than defaulting
- * to a guess (002 FR-024, NFR-011), and that refusal is what makes the run
+ * to a guess, and that refusal is what makes the run
  * unreadable rather than silently unattributed.
  *
- * @param raw - Candidate value.
  * @returns The reference, or `null` when any field is missing or malformed.
  */
 export function parseReference(raw: unknown): SourceReference | null {
@@ -93,14 +89,14 @@ export function parseReference(raw: unknown): SourceReference | null {
     const detectedAt = readStamp(raw.detectedAt);
     const { kind, origin } = raw;
     const present = readFlag(raw.presentAtAuthorization);
-    const unusable = [
+    const isUnusable = [
         deliveryId, sourceUrl, detectedAt, present,
         readActorLoginField(raw), readActorAttributionField(raw),
     ].includes(null)
         || !isEventKind(kind)
         || typeof origin !== 'string'
         || !isValidOrigin(origin);
-    if (unusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
+    if (isUnusable || deliveryId === null || sourceUrl === null || detectedAt === null || present === null) {
         return null;
     }
 
@@ -118,7 +114,6 @@ export function parseReference(raw: unknown): SourceReference | null {
 /**
  * Validate one recorded attempt.
  *
- * @param raw - Candidate value.
  * @returns The attempt record, or `null` when malformed.
  */
 export function parseAttempt(raw: unknown): DispatchAttempt | null {
@@ -157,7 +152,6 @@ export function parseAttempt(raw: unknown): DispatchAttempt | null {
  * written decide the sweep's migration-recovery accounting. A panel claim
  * mints `lse-<24 hex>`; adoption mints `migration-<correlation id>`.
  *
- * @param leaseId - Candidate identifier.
  * @returns The identifier, or `null` when it is neither legal shape.
  */
 function readLeaseId(leaseId: unknown): string | null {
@@ -172,7 +166,6 @@ function readLeaseId(leaseId: unknown): string | null {
 /**
  * Validate the lease sub-object, including its typed provenance.
  *
- * @param raw - Candidate value.
  * @returns The lease, or `null` when malformed.
  */
 export function parseLease(raw: unknown): RunLease | null {
@@ -189,7 +182,7 @@ export function parseLease(raw: unknown): RunLease | null {
         readStamp(expiresAt),
     ];
     const source = provenance === 'panel' || provenance === 'migration' ? provenance : null;
-    if (values.includes(null) || source === null) {
+    if (source === null || values.includes(null)) {
         return null;
     }
 
@@ -206,7 +199,6 @@ export function parseLease(raw: unknown): RunLease | null {
 /**
  * Validate the reservation sub-object.
  *
- * @param raw - Candidate value.
  * @returns The reservation, or `null` when malformed.
  */
 export function parseReservation(raw: unknown): RunReservation | null {
@@ -218,7 +210,7 @@ export function parseReservation(raw: unknown): RunReservation | null {
     const deadline = raw.resultDeadlineAt;
     const values = [readText(dispatchToken), readPositiveInt(attempt), readStamp(reservedAt), readStamp(deadline)];
     const flag = readFlag(consumed);
-    if (values.includes(null) || flag === null) {
+    if (flag === null || values.includes(null)) {
         return null;
     }
 
@@ -234,7 +226,6 @@ export function parseReservation(raw: unknown): RunReservation | null {
 /**
  * Validate one worktree pointer.
  *
- * @param raw - Candidate value.
  * @returns The worktree, or `null` when it carries no directory and branch.
  */
 function parseWorktree(raw: unknown): { readonly directory: string; readonly branch: string } | null {
@@ -251,7 +242,6 @@ function parseWorktree(raw: unknown): { readonly directory: string; readonly bra
 /**
  * Validate the session reference, including its optional worktree.
  *
- * @param raw - Candidate value.
  * @returns The session ref, or `null` when malformed.
  */
 export function parseSession(raw: unknown): SessionRef | null {
@@ -295,7 +285,6 @@ export function parseSession(raw: unknown): SessionRef | null {
  * an unpinned baseline records (002 FR-029 as amended), and a run document
  * must never be quarantined over it.
  *
- * @param raw - Candidate value.
  * @returns The verification, or `null` when malformed.
  */
 export function parseVerification(raw: unknown): RunVerification | null {

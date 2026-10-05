@@ -1,10 +1,9 @@
 /**
- * Lifecycle audit rows for the dispatch authorization family (003 FR-060 –
- * FR-063; data-model §4.2).
+ * Lifecycle audit rows for the dispatch authorization family.
  *
  * One module owns every row the panel- and operator-driven operations write, so
- * the two things FR-061 and T-040c demand of those rows cannot be satisfied in
- * one place and forgotten in another:
+ * the properties those rows owe cannot be satisfied in one place and forgotten in
+ * another:
  *
  * - **No row ever carries a `dispatchToken` value.** An unconsumed token is a
  *   live authorization to report a result, `audit.ndjson` is operator-facing,
@@ -14,12 +13,9 @@
  *   produce two different values and the row still answers which token was
  *   outstanding; its `tokfp-` prefix is deliberately not `dtk-` so the standing
  *   scan (and an operator grepping the trail) cannot mistake it for a leak.
- * - **Every row names the run**, in `correlationId` and in `entity` (FR-062:
- *   never a fresh identifier). That is what makes one run's chain
- *   reconstructable from `GET /v1/audit?correlationId=` alone (AC-116/117).
- *
- * Two more properties these rows owe, both about honesty under unbounded input:
- *
+ * - **Every row names the run**, in `correlationId` and in `entity` — never a
+ *   fresh identifier. That is what makes one run's chain reconstructable from
+ *   `GET /v1/audit?correlationId=` alone.
  * - **Free text from a panel or an operator is bounded with a visible marker.**
  *   `problem`, `reason`, `detail`, `guidance`, `note`, and `causeReport` are
  *   panel- or operator-authored and land in a file nothing trims; an unbounded
@@ -35,9 +31,9 @@
  *
  * {@link appendRunRow} is the one way these rows reach the disk: the durable
  * state change happens first and is never rolled back, and a failed append is
- * reported as `auditWritten: false` for the caller to surface (FR-063) rather
- * than swallowed. The sweep keeps its own appender because its row is replayed
- * from a durable intent and must be byte-identical to that intent.
+ * reported as `auditWritten: false` for the caller to surface rather than
+ * swallowed. The sweep keeps its own appender because its row is replayed from a
+ * durable intent and must be byte-identical to that intent.
  */
 
 import { appendAudit } from '../audit.ts';
@@ -50,7 +46,7 @@ import { buildDispatchTokenFingerprint } from './run-key.ts';
 import type { ActorGateRefusal, BaselineProvenance, Run, RunState, RunVerification } from './runs-types.ts';
 
 
-/** Entity kind every run-scoped lifecycle row names (FR-061). */
+/** Entity kind every run-scoped lifecycle row names. */
 const RUN_ENTITY_KIND = 'run';
 
 /** The panel declares the intent; the panel reports the outcome. */
@@ -68,18 +64,17 @@ function runRow(run: Run): Pick<AuditInput, 'entity' | 'correlationId'> {
 }
 
 /**
- * The five credential-free scalars `dispatch.reserved` and `dispatch.result`
- * gain from 004 (FR-050, FR-087; data-model §4.2).
+ * The credential-free scalars `dispatch.reserved` and `dispatch.result` gain
+ * from the layered starting prompt.
  *
  * Written **by the service from the run's snapshot**, never from a request
  * body: the panel can report what it did, but what prompt a run used — and
  * which tiers produced it — is a fact the stored run owns. The fingerprint is
  * derived from the text rather than minted per row, so every row of one prompt
- * carries the identical value (003 FR-062 reaffirmed), and `promptSources` is
- * the snapshot's own ordered tier list copied verbatim: an element the run's
- * snapshot never held can never appear on a row (FR-087).
+ * carries the identical value, and `promptSources` is the snapshot's own ordered
+ * tier list copied verbatim: an element the run's snapshot never held can never
+ * appear on a row.
  *
- * @param run - The run whose snapshot these name.
  * @returns The binding id plus the prompt's presence, fingerprint, length, and
  *   the ordered set of tiers that produced it.
  */
@@ -92,11 +87,11 @@ function promptDetails(run: Run): {
     readonly promptFingerprint: string | null;
     /** Its length, or `null` when none. */
     readonly promptLength: number | null;
-    /** Contributing tiers in FR-087's order, or `null` when none. */
+    /** Contributing tiers order, or `null` when none. */
     readonly promptSources: readonly PromptSource[] | null;
     /**
      * The **shape** of the binding's allow-list in force when the gate
-     * authorized this attempt (003 FR-079, NFR-113).
+     * authorized this attempt.
      *
      * Read from the run's own snapshot rather than re-reading the binding,
      * which is what makes this row and `dispatch.result` provably describe one
@@ -116,12 +111,7 @@ function promptDetails(run: Run): {
     };
 }
 
-/**
- * `dispatch.reserved` — the panel declared intent to start a session.
- *
- * @param input - The authorized run, the lease it was made under, and its token.
- * @returns The row to append.
- */
+/** `dispatch.reserved` — the panel declared intent to start a session. */
 export function reservedRow(input: {
     /** The run as it stands in `starting`. */
     readonly run: Run;
@@ -147,9 +137,7 @@ export function reservedRow(input: {
 /**
  * `dispatch.result` — the panel reported what the host call produced.
  *
- * @param input - The reported run, its token, and the session it created or the
- *   problem it hit. Exactly one of the last two is non-`null` (FR-040).
- * @returns The row to append.
+ * Exactly one of `sessionId` and `problem` is non-`null`.
  */
 export function resultRow(input: {
     /** The run as it now stands. */
@@ -175,12 +163,7 @@ export function resultRow(input: {
     };
 }
 
-/**
- * `dispatch.duplicate-report` — a recorded outcome was repeated unchanged.
- *
- * @param input - The run, the repeated token, and the state it repeated.
- * @returns The row to append.
- */
+/** `dispatch.duplicate-report` — a recorded outcome was repeated unchanged. */
 export function duplicateReportRow(input: {
     /** The run, byte-unchanged by the repeat. */
     readonly run: Run;
@@ -202,12 +185,7 @@ export function duplicateReportRow(input: {
     };
 }
 
-/**
- * `dispatch.abandoned` — a reserved attempt created no session.
- *
- * @param input - The failed run, its token, and the reason it was abandoned.
- * @returns The row to append.
- */
+/** `dispatch.abandoned` — a reserved attempt created no session. */
 export function abandonedRow(input: {
     /** The run as it now stands in `failed`. */
     readonly run: Run;
@@ -229,13 +207,7 @@ export function abandonedRow(input: {
     };
 }
 
-/**
- * `run.blocked` — a fail-closed guard refused before any host call (FR-042).
- *
- * @param input - The blocked run, the cause, the state it left, and the
- *   guidance the panel offered in-panel.
- * @returns The row to append.
- */
+/** `run.blocked` — a fail-closed guard refused before any host call. */
 export function blockedRow(input: {
     /** The run as it now stands in `blocked:<reason>`. */
     readonly run: Run;
@@ -262,14 +234,10 @@ export function blockedRow(input: {
 /**
  * `dispatch.retry` — the operator returned a run to waiting.
  *
- * Covers both shapes FR-041 and FR-033 require: a retry of a `failed` or
- * `blocked:*` run, and the dead-letter return-to-waiting that resets the attempt
- * count. `reset` is what makes the second legible in the trail, because it is
- * the action that starts a fresh token-consumption chain (plan D6).
- *
- * @param input - The waiting run plus what the operator reported and what the
- *   service could corroborate itself.
- * @returns The row to append.
+ * Covers both shapes a retry can take: a retry of a `failed` or `blocked:*` run,
+ * and the dead-letter return-to-waiting that resets the attempt count. `reset`
+ * is what makes the second legible in the trail, because it is the action that
+ * starts a fresh token-consumption chain.
  */
 export function retryRow(input: {
     /** The run as it now stands in `pending`. */
@@ -278,13 +246,12 @@ export function retryRow(input: {
     readonly priorState: RunState;
     /** Attempt before the operator's action. */
     readonly attemptBefore: number;
-    /** Attempt after it. */
     readonly attemptAfter: number;
     /** Whether the operator reported the cause cleared, else `null`. */
     readonly causeReportedCleared: boolean | null;
     /** Whether the service corroborated it, the panel reported it, or neither applies. */
     readonly causeClearedSource: 'corroborated' | 'reported' | null;
-    /** Whether this action reset the attempt chain (FR-033). */
+    /** Whether this action reset the attempt chain. */
     readonly reset: boolean;
     /** The operator's or panel's own words about the cause. */
     readonly causeReport: string | null;
@@ -306,13 +273,7 @@ export function retryRow(input: {
     };
 }
 
-/**
- * `dispatch.resolved` — the operator settled an `unconfirmed` run (FR-027).
- *
- * @param input - The resolved run, the prior state, the decision, and what the
- *   operator was shown and wrote.
- * @returns The row to append.
- */
+/** `dispatch.resolved` — the operator settled an `unconfirmed` run. */
 export function resolvedRow(input: {
     /** The run as it now stands. */
     readonly run: Run;
@@ -339,69 +300,63 @@ export function resolvedRow(input: {
 }
 
 /**
- * The vocabulary name and decision one agent read-back owes (003 v1.7.0).
+ * The vocabulary name and decision one agent read-back owes.
  *
  * Split out of {@link verificationRow} for the one rule it encodes: the axis
  * only exists where a comparison did. A blank baseline has no verdict to
  * record, so it answers `observed` before `ok` is ever consulted — which is
  * what keeps the usual read-back from landing under `agent.mismatch`.
- *
- * @param input - Whether a baseline existed to compare against, and whether
- *   the comparison matched (consulted only when one did).
- * @returns The row's event type and its decision.
  */
 function readBackVerdict(input: {
     /** Whether a configured baseline was there to compare against. */
-    readonly compared: boolean;
+    readonly wasCompared: boolean;
     /** Whether the comparison matched; meaningless when nothing was compared. */
-    readonly matched: boolean;
+    readonly wasMatched: boolean;
 }): { readonly eventType: string; readonly decision: string } {
-    if (!input.compared) {
+    if (!input.wasCompared) {
         return { eventType: 'agent.uncompared', decision: 'observed' };
     }
 
-    return input.matched
+    return input.wasMatched
         ? { eventType: 'agent.verified', decision: 'verified' }
         : { eventType: 'agent.mismatch', decision: 'warn' };
 }
 
 /**
  * `agent.verified` / `agent.mismatch` / `agent.uncompared` — the post-dispatch
- * agent read-back (003 v1.7.0).
+ * agent read-back.
  *
  * One builder for all three because the details are identical and only the
  * vocabulary name, the decision, and one extra member differ: the read-back is
- * warn-only (FR-043), so a mismatch is recorded and shown and then never acted
+ * warn-only, so a mismatch is recorded and shown and then never acted
  * on again.
  *
  * **Which row is chosen by whether a comparison was possible, never by whether
  * an agent was seen.** A report carrying `expectedAgent: ""` is a read-back
- * against **no configured baseline** (002 FR-029 case (ii)): nothing was
- * compared, so no verdict exists to record — `ok` cannot make one true, and
- * `agent.mismatch` is unreachable while the baseline is empty. That row is
- * `agent.uncompared`, decision `observed`, and it carries the baseline's
- * provenance (`defaulted` / `unset`) beside the empty `expectedAgent` so the
- * absence is legible in the trail months later. The panel renders that case as
- * *observed, not compared* — never as a mismatch — and no run state changes
- * either way.
- *
- * @param input - The run, the recorded outcome, and where the baseline the
- *   report judged against came from.
- * @returns The row to append.
+ * against **no configured baseline**: nothing was compared, so no verdict exists
+ * to record — `ok` cannot make one true, and `agent.mismatch` is unreachable
+ * while the baseline is empty. That row is `agent.uncompared`, decision
+ * `observed`, and it carries the baseline's provenance (`defaulted` / `unset`)
+ * beside the empty `expectedAgent` so the absence is legible in the trail months
+ * later. The panel renders that case as *observed, not compared* — never as a
+ * mismatch — and no run state changes either way.
  */
 export function verificationRow(input: {
     /** The run, whose state this row never changes. */
     readonly run: Run;
     /** The recorded read-back outcome. */
     readonly verification: RunVerification;
-    /** Where the comparison baseline came from (002 FR-029 case (ii)). */
+    /** Where the comparison baseline came from. */
     readonly baselineProvenance: BaselineProvenance;
 }): AuditInput {
     const { verification } = input;
     // A blank baseline means nothing was compared, whatever `ok` claims: the
     // verdict axis only exists where a configured baseline does.
-    const compared = verification.expectedAgent !== '';
-    const verdict = readBackVerdict({ compared, matched: compared && verification.ok });
+    const wasCompared = verification.expectedAgent !== '';
+    const verdict = readBackVerdict({
+        wasCompared,
+        wasMatched: wasCompared && verification.ok,
+    });
 
     return {
         eventType: verdict.eventType,
@@ -414,14 +369,14 @@ export function verificationRow(input: {
             expectedAgent: verification.expectedAgent,
             // Only the uncompared row records a provenance: a comparison
             // against a configured baseline already says which baseline it was.
-            ...(compared ? {} : { baselineProvenance: input.baselineProvenance }),
+            ...(!wasCompared && { baselineProvenance: input.baselineProvenance }),
             note: rowText(verification.note),
         },
     };
 }
 
 /**
- * The gate's extra detail keys, as the row spells them (003 FR-077).
+ * The gate's extra detail keys, as the row spells them.
  *
  * The two arrays are **index-parallel** rather than one combined list: a reader
  * asking "what basis did this login carry?" answers with one index, and a
@@ -434,9 +389,6 @@ export function verificationRow(input: {
  * The three window members ride on **every** gate refusal, including one made
  * without a policy: they are facts about the run, and a reader needs them to
  * know whether the decision saw the whole trigger history.
- *
- * @param actor - The gate's detail set.
- * @returns The keys to merge into the row's `details`.
  */
 function actorDetails(actor: ActorGateRefusal): Record<string, unknown> {
     return {
@@ -444,10 +396,8 @@ function actorDetails(actor: ActorGateRefusal): Record<string, unknown> {
         actorPolicy: actor.actorPolicy,
         // Omitted rather than `[]` on the policy-read failure: nothing was
         // compared, and an empty array reads as *every actor was refused*.
-        ...(actor.deniedLogins === undefined ? {} : { deniedLogins: actor.deniedLogins.map(boundText) }),
-        ...(actor.deniedAttributions === undefined
-            ? {}
-            : { deniedAttributions: [...actor.deniedAttributions] }),
+        ...(actor.deniedLogins !== undefined && { deniedLogins: actor.deniedLogins.map((login) => boundText(login)) }),
+        ...(actor.deniedAttributions !== undefined && { deniedAttributions: [...actor.deniedAttributions] }),
         unreadableReferences: actor.unreadableReferences,
         retainedReferences: actor.retainedReferences,
         referencesNotRetained: actor.referencesNotRetained,
@@ -456,15 +406,11 @@ function actorDetails(actor: ActorGateRefusal): Record<string, unknown> {
 }
 
 /**
- * `dispatch.refused` — one run-scoped operation answered `4xx` (FR-003).
+ * `dispatch.refused` — one run-scoped operation answered `4xx`.
  *
  * The only row in the family whose `reason` is written twice — once in the
  * response and once here — so it is passed in rather than composed, which is
  * what makes the two provably the same string.
- *
- * @param input - The operation refused, its code, the secret-free cause, and
- *   whatever the run's prior state, attempt, lease, and token were.
- * @returns The row to append.
  */
 export function refusedRow(input: {
     /** Run whose operation was refused; the row's entity and correlation. */
@@ -482,8 +428,8 @@ export function refusedRow(input: {
     /** Token the caller presented as its fingerprint, for a token verdict. */
     readonly dispatchTokenFingerprint?: string | undefined;
     /**
-     * The actor gate's detail set, on the one refusal that carries one
-     * (003 FR-077). Omitted for every other code, so no row gains a
+     * The actor gate's detail set, on the one refusal that carries one.
+     * Omitted for every other code, so no row gains a
      * meaningless `actorPolicy: null`.
      */
     readonly actor?: ActorGateRefusal | undefined;
@@ -499,11 +445,10 @@ export function refusedRow(input: {
             code: input.code,
             priorState: input.run.state,
             attempt: input.attempt,
-            ...(input.leaseId === undefined ? {} : { leaseId: input.leaseId }),
-            ...(input.dispatchTokenFingerprint === undefined
-                ? {}
-                : { dispatchTokenFingerprint: input.dispatchTokenFingerprint }),
-            ...(input.actor === undefined ? {} : actorDetails(input.actor)),
+            ...(input.leaseId !== undefined && { leaseId: input.leaseId }),
+            ...(input.dispatchTokenFingerprint !== undefined
+                && { dispatchTokenFingerprint: input.dispatchTokenFingerprint }),
+            ...(input.actor !== undefined && actorDetails(input.actor)),
         },
     };
 }
@@ -512,16 +457,15 @@ export function refusedRow(input: {
  * Append one run-scoped lifecycle row, reporting whether it landed.
  *
  * The row is always appended *after* the durable change it describes, and a
- * failure is never allowed to undo that change (FR-063): it is logged with the
+ * failure is never allowed to undo that change: it is logged with the
  * run named and answered as `false`, which is what the operator's panel turns
  * into a visible warning rather than implying traceability it does not have.
  *
  * The run's id is passed beside the row rather than read off it, because the
  * audit writer treats `correlationId` as optional for the rows that have no run
  * behind them — and a failure log that omitted the run would be the one place
- * FR-063's "naming the run" could not be satisfied.
+ * "naming the run" could not be satisfied.
  *
- * @param input - Store, logger, the run the row concerns, and the row itself.
  * @returns `true` when the row reached the trail, `false` when the append failed.
  */
 export async function appendRunRow(input: {

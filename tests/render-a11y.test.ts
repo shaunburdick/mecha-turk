@@ -50,7 +50,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -130,7 +130,6 @@ const SRC_DIR = 'src';
 /**
  * Collect every string inside one SDK mount's props, however deeply nested.
  *
- * @param value - Anything a mount was handed.
  * @param found - Accumulator the caller owns.
  */
 function collectStrings(value: unknown, found: string[]): void {
@@ -158,7 +157,6 @@ function collectStrings(value: unknown, found: string[]): void {
 /**
  * Every string one SDK mount was handed, at any depth.
  *
- * @param props - Whatever the primitive received.
  * @returns The strings among them, in property order.
  */
 function stringsIn(props: unknown): readonly string[] {
@@ -283,7 +281,6 @@ interface SixTabs {
 /**
  * Mount all six tabs against hostile fixtures and collect everything.
  *
- * @param input - How the service should answer, and state to arrange first.
  * @returns The strings, the requests, and the mount records.
  */
 async function renderSixTabs(input: {
@@ -326,11 +323,10 @@ async function renderSixTabs(input: {
 }
 
 describe('FR-080 / NFR-101 the six tabs render through the text path only', () => {
-    it('has no HTML sink in any module the tabs render from (+1 cases)', async () => {
-        // case: has no HTML sink in any module the tabs render from
+    it('has no HTML sink in any module the tabs render from', async () => {
         {
             const modules = readdirSync(resolve(import.meta.dirname, `../${SRC_DIR}`), { recursive: true })
-                .map((entry) => String(entry))
+                .map(String)
                 .filter((entry) => entry.endsWith('.ts'));
 
             expect(modules.length).toBeGreaterThan(40);
@@ -341,7 +337,9 @@ describe('FR-080 / NFR-101 the six tabs render through the text path only', () =
                 }
             }
         }
-        // case: hands a hostile title, login, and reason to the SDK as text
+    });
+
+    it('hands a hostile title, login, and reason to the SDK as text', async () => {
         {
             const rendered = await renderSixTabs();
             const text = rendered.strings.join('\n');
@@ -355,16 +353,16 @@ describe('FR-080 / NFR-101 the six tabs render through the text path only', () =
             }
         }
     });
+
 });
 
 describe('FR-081 every control and row action has an accessible name', () => {
-    it('gives every button, field, select, banner, and list … (+2 cases)', async () => {
-        // case: gives every button, field, select, banner, and list a name
+    it('gives every button, field, select, banner, and list a name', async () => {
         {
             const rendered = await renderSixTabs();
-            const namedKinds = ['mountButton', 'mountTextField', 'mountSelect', 'mountBanner', 'mountList'];
+            const namedKinds = new Set(['mountButton', 'mountTextField', 'mountSelect', 'mountBanner', 'mountList']);
             const named = rendered.log.filter((entry) =>
-                entry.key.startsWith('mount') && !entry.key.includes(':') && namedKinds.includes(entry.key));
+                entry.key.startsWith('mount') && !entry.key.includes(':') && namedKinds.has(entry.key));
 
             expect(named.length).toBeGreaterThan(10);
             for (const entry of named) {
@@ -376,26 +374,33 @@ describe('FR-081 every control and row action has an accessible name', () => {
                 expect(String(name).trim(), `${entry.key} mounted an empty name`).not.toBe('');
             }
         }
-        // case: names every tab in the strip and every row in a list
+    });
+
+    it('names every tab in the strip and every row in a list', async () => {
         {
             const rendered = await renderSixTabs();
             const strip = rendered.log.find((entry) => entry.key === 'mountTabs');
             const items = (strip?.props as { readonly items?: readonly { readonly label?: string }[] }).items ?? [];
 
+            const listMounts = rendered.log.filter((candidate) => candidate.key === 'mountList');
+
             expect(items.map((item) => item.label)).toEqual([...TAB_IDS].map((id) => labelOf(id)));
 
-            for (const entry of rendered.log.filter((candidate) => candidate.key === 'mountList')) {
+            for (const entry of listMounts) {
                 const props = entry.props as {
                     readonly ariaLabel?: string;
                     readonly items?: readonly { readonly title?: string }[];
                 };
                 expect(props.ariaLabel?.trim(), 'a list has no accessible name').not.toBe('');
-                for (const item of props.items ?? []) {
+                const rows = props.items ?? [];
+                for (const item of rows) {
                     expect(item.title?.trim(), 'a list row has no title').not.toBe('');
                 }
             }
         }
-        // case: names a row-level action with the row it acts on
+    });
+
+    it('names a row-level action with the row it acts on', async () => {
         {
             const row: RunRow = { ...hostileRun(), issueNumber: 412, repository: 'owner/name' };
 
@@ -404,6 +409,7 @@ describe('FR-081 every control and row action has an accessible name', () => {
             expect(sourceRevealLabel(true, row)).toContain('#412 in owner/name');
         }
     });
+
 });
 
 /** One file the SDK ships, read as the offline check of its own behavior. */
@@ -415,8 +421,7 @@ function sdkFile(name: string): string {
 }
 
 describe('FR-082 the strip is associated, keyboard-operable, and truncates', () => {
-    it('stamps the tab↔body association in the shell that ow… (+2 cases)', () => {
-        // case: stamps the tab↔body association in the shell that owns it
+    it('stamps the tab↔body association in the shell that owns it', () => {
         {
             const source = readFileSync(resolve(import.meta.dirname, '../src/tabs.ts'), 'utf8');
 
@@ -425,7 +430,6 @@ describe('FR-082 the strip is associated, keyboard-operable, and truncates', () 
             expect(source).toContain("setAttribute('role', 'tabpanel')");
             expect(source).toContain("setAttribute('aria-labelledby', ");
         }
-        // case: operates the strip from the keyboard, moves focus, and traps nothing
         {
             const strip = sdkFile('tabs.js');
             const navigation = sdkFile('navigation.js');
@@ -440,7 +444,6 @@ describe('FR-082 the strip is associated, keyboard-operable, and truncates', () 
             expect(navigation).not.toMatch(/'Tab'/);
             expect(navigation).not.toMatch(/'Escape'/);
         }
-        // case: never wraps a tab label, so the strip keeps its height (NFR-107)
         {
             const style = sdkFile('style.js');
             const at = style.indexOf('.oc-sdk-tab {');
@@ -453,8 +456,7 @@ describe('FR-082 the strip is associated, keyboard-operable, and truncates', () 
 });
 
 describe('FR-083 state is carried by text as well as colour', () => {
-    it('gives every banner a title, and every state banner a… (+1 cases)', async () => {
-        // case: gives every banner a title, and every state banner a body too
+    it('gives every banner a title, and every state banner a body too', async () => {
         {
             const rendered = await renderSixTabs();
             const banners = rendered.log.filter((entry) => entry.key === 'mountBanner');
@@ -474,7 +476,9 @@ describe('FR-083 state is carried by text as well as colour', () => {
                 }
             }
         }
-        // case: says the state in words the operator can read
+    });
+
+    it('says the state in words the operator can read', async () => {
         {
             const rendered = await renderSixTabs();
             const text = rendered.strings.join('\n');
@@ -484,11 +488,11 @@ describe('FR-083 state is carried by text as well as colour', () => {
             expect(text).toMatch(/could not be read|not checkable|unreadable|not met|waiting/);
         }
     });
+
 });
 
 describe('FR-084 irreversible actions arm first, and confirm() does not exist', () => {
-    it('arms the removal, names the cascade, and only then s… (+1 cases)', async () => {
-        // case: arms the removal, names the cascade, and only then sends (AC-126)
+    it('arms the removal, names the cascade, and only then sends', async () => {
         {
             mounts.log.length = 0;
             const requests: GuestRequest[] = [];
@@ -534,7 +538,9 @@ describe('FR-084 irreversible actions arm first, and confirm() does not exist', 
             expect(requests.map((request) => request.method)).toContain('DELETE');
             rt.shell?.dispose();
         }
-        // case: states the cascade in words on the row itself (AC-126)
+    });
+
+    it('states the cascade in words on the row itself', async () => {
         {
             const rendered = await renderSixTabs({
                 setup: (rt) => {
@@ -548,11 +554,11 @@ describe('FR-084 irreversible actions arm first, and confirm() does not exist', 
             expect(text).toContain(REMOVE_ARMED_LABEL);
         }
     });
+
 });
 
 describe('FR-085 a refusal names its cause and never echoes the value', () => {
-    it('keeps a refused credential-shaped display name out o… (+1 cases)', async () => {
-        // case: keeps a refused credential-shaped display name out of the render
+    it('keeps a refused credential-shaped display name out of the render', async () => {
         {
             const token = `ghp_${'refusald'.repeat(3)}`;
             const rendered = await renderSixTabs({
@@ -580,7 +586,9 @@ describe('FR-085 a refusal names its cause and never echoes the value', () => {
             expect(rt.state.accounts.displayNameError).not.toContain(token);
             expect(rendered.strings.join('\n')).not.toContain(token);
         }
-        // case: blocks a ledger write whose content is secret-shaped, instead of logging past it
+    });
+
+    it('blocks a ledger write whose content is secret-shaped, instead of logging past it', async () => {
         {
             const storage = createStorageDouble();
             const token = `ghp_${'ledgerxx'.repeat(3)}`;
@@ -605,4 +613,5 @@ describe('FR-085 a refusal names its cause and never echoes the value', () => {
             expect(rt.state.status.body).not.toContain(token);
         }
     });
+
 });

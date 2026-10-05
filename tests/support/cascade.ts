@@ -151,8 +151,6 @@ const EQUALS = '=';
 /**
  * Read how far an identifier runs from one position.
  *
- * @param text - The selector text.
- * @param start - Where the name begins.
  * @returns The index just past the name, or `start` when there is none.
  */
 function scanName(text: string, start: number): number {
@@ -181,10 +179,10 @@ function parseAttribute(piece: string): Token {
 
     const before = inner.slice(0, equals).trim();
     const tail = before.slice(-1);
-    const symbolic = ATTRIBUTE_OPERATORS.includes(tail);
-    const name = symbolic ? before.slice(0, -1) : before;
-    const operator = symbolic ? `${tail}${EQUALS}` : EQUALS;
-    const value = inner.slice(equals + 1).trim().replace(QUOTED, '');
+    const isSymbolic = ATTRIBUTE_OPERATORS.includes(tail);
+    const name = isSymbolic ? before.slice(0, -1) : before;
+    const operator = isSymbolic ? `${tail}${EQUALS}` : EQUALS;
+    const value = inner.slice(equals + 1).trim().replaceAll(QUOTED, '');
 
     return { kind: ATTRIBUTE_KIND, name, detail: `${operator}${value}` };
 }
@@ -192,7 +190,6 @@ function parseAttribute(piece: string): Token {
 /**
  * Read one `:pseudo` / `:pseudo(argument)` selector.
  *
- * @param piece - The colon-prefixed text.
  * @returns Its name and argument, or an empty argument.
  */
 function parsePseudo(piece: string): Token {
@@ -209,24 +206,21 @@ function parsePseudo(piece: string): Token {
 /**
  * Read one token that opens with `[` or `:` through to its closing delimiter.
  *
- * @param compound - The compound selector being read.
- * @param index - Where the delimiter sits.
  * @returns The token, and the index just past it.
  */
 function readDelimited(compound: string, index: number): Step {
-    const bracketed = compound.charAt(index) === '[';
-    const closer = bracketed ? ']' : ')';
+    const isBracketed = compound.charAt(index) === '[';
+    const closer = isBracketed ? ']' : ')';
     const close = compound.indexOf(closer, index);
     const end = close === -1 ? compound.length : close + 1;
     const text = compound.slice(index, end);
 
-    return { token: bracketed ? parseAttribute(text) : parsePseudo(text), next: end };
+    return { token: isBracketed ? parseAttribute(text) : parsePseudo(text), next: end };
 }
 
 /**
  * Read one token that opens with `#` or `.`.
  *
- * @param compound - The compound selector being read.
  * @param index - Where the token starts.
  * @returns The token, and the index just past it.
  */
@@ -240,7 +234,6 @@ function readNamed(compound: string, index: number): Step {
 /**
  * Read one token of a compound selector, whatever it opens with.
  *
- * @param compound - The compound selector being read.
  * @param index - Where the token starts.
  * @returns The token, and the index just past it.
  */
@@ -307,14 +300,12 @@ function matchesNth(argument: string, element: ProbeElement): boolean {
 
     const parsed = Number.parseInt(trimmed, 10);
 
-    return Number.isNaN(parsed) ? true : position === parsed;
+    return Number.isNaN(parsed) || position === parsed;
 }
 
 /**
  * Whether one attribute selector holds for an element.
  *
- * @param token - The parsed attribute selector.
- * @param element - The element under test.
  * @returns True when the attribute is there and any modelled test passes.
  */
 function matchesAttribute(token: Token, element: ProbeElement): boolean {
@@ -341,8 +332,6 @@ function matchesAttribute(token: Token, element: ProbeElement): boolean {
  * The positional classes are the ones this reader can disprove; everything
  * else, `:not` included, is answered optimistically (see the module header).
  *
- * @param token - The parsed pseudo-class.
- * @param element - The element under test.
  * @returns False for a positional class it can rule out, true otherwise.
  */
 function matchesPseudo(token: Token, element: ProbeElement): boolean {
@@ -365,7 +354,6 @@ function matchesPseudo(token: Token, element: ProbeElement): boolean {
  * Whether one parsed token selects an element.
  *
  * @param token - The token to test.
- * @param element - The element under test.
  * @returns True when the token holds.
  */
 function matchesToken(token: Token, element: ProbeElement): boolean {
@@ -392,7 +380,6 @@ function matchesToken(token: Token, element: ProbeElement): boolean {
  * Whether every token of one compound selector holds.
  *
  * @param compound - The compound selector text.
- * @param element - The element under test.
  * @returns True when no token rules the element out.
  */
 function matchesCompound(compound: string, element: ProbeElement): boolean {
@@ -442,12 +429,11 @@ function splitCompounds(selector: string): readonly string[] {
  * rather than walked, which is the optimism the module header describes.
  *
  * @param selector - A single selector from a rule's list.
- * @param element - The element under test.
  * @returns True when the selector applies to it.
  */
 function matchesSelector(selector: string, element: ProbeElement): boolean {
     const compounds = splitCompounds(selector);
-    const last = compounds[compounds.length - 1];
+    const last = compounds.at(-1);
 
     return last !== undefined && matchesCompound(last, element);
 }
@@ -482,7 +468,6 @@ function specificity(selector: string): number {
  * Whether one candidate out-ranks the incumbent, in cascade order.
  *
  * @param candidate - The declaration under consideration.
- * @param incumbent - The winner so far.
  * @returns True when the candidate should replace it.
  */
 function beats(candidate: Candidate, incumbent: Candidate): boolean {
@@ -500,7 +485,6 @@ function beats(candidate: Candidate, incumbent: Candidate): boolean {
 /**
  * Fold one rule's `display` declarations into the winner so far.
  *
- * @param input - The rule, the element, the media in force, and the incumbent.
  * @returns The incumbent, or the rule's declaration when it out-ranks it.
  */
 function applySelector(input: SelectorInput): Candidate | null {
@@ -536,7 +520,6 @@ function applySelector(input: SelectorInput): Candidate | null {
 /**
  * Fold one rule into the winner so far, skipping media that is not in force.
  *
- * @param input - The rule, the element, the media in force, and the incumbent.
  * @returns The incumbent, or a better declaration the rule contributes.
  */
 function applyRule(input: RuleInput): Candidate | null {
@@ -568,7 +551,6 @@ function applyRule(input: RuleInput): Candidate | null {
  * source order when importance and weight are both equal, and this candidate
  * is alone at the top of the scale.
  *
- * @param element - The element under test.
  * @returns The inline `display` candidate, or null when the attribute holds none.
  */
 function inlineCandidate(element: ProbeElement): Candidate | null {
@@ -592,14 +574,13 @@ function inlineCandidate(element: ProbeElement): Candidate | null {
 /**
  * The `display` the cascade gives one element, under one set of media.
  *
- * @param input - The parsed rules, the element, and the media in force.
  * @returns The winning value, or null when nothing declares `display`.
  */
 export function cascadedDisplay(input: CascadeInput): string | null {
-    const winner = input.rules.reduce<Candidate | null>(
-        (current, rule) => applyRule({ rule, element: input.element, media: input.media, current }),
-        inlineCandidate(input.element),
-    );
+    let winner: Candidate | null = inlineCandidate(input.element);
+    for (const rule of input.rules) {
+        winner = applyRule({ rule, element: input.element, media: input.media, current: winner });
+    }
 
     return winner === null ? null : winner.value;
 }

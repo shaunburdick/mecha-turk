@@ -59,7 +59,7 @@ const TIMEOUT_ERROR_NAME = 'TimeoutError';
 /** Capabilities of the FR-010 scope matrix, in reporting order. */
 export type ScopeCapability = 'metadata' | 'issues' | 'pull-requests' | 'contents';
 
-/** Result recorded for one capability (FR-010). */
+/** Result recorded for one capability. */
 export type ScopeResult = 'ok' | 'missing' | 'unknown';
 
 /** Scope results plus when they were taken. */
@@ -75,9 +75,9 @@ export type CredentialKind = 'fine-grained' | 'classic' | 'unknown';
 
 /** Identity recovered from `GET /user`. */
 export interface GitHubIdentity {
-    /** Numeric GitHub user id — the durable account key (FR-009). */
+    /** Numeric GitHub user id — the durable account key. */
     readonly numericUserId: string;
-    /** Display login; renames update this field only (AC-004). */
+    /** Display login; renames update this field only. */
     readonly login: string;
 }
 
@@ -161,7 +161,6 @@ const OAUTH_SCOPES_HEADER = 'x-oauth-scopes';
  * call, and the result (`classic`/`fine-grained`) is stored with the
  * credential where it belongs.
  *
- * @param token - Presented credential.
  * @returns The credential family, or `'unknown'` for an unrecognised shape.
  */
 export function credentialKindOf(token: string): CredentialKind {
@@ -175,7 +174,6 @@ export function credentialKindOf(token: string): CredentialKind {
 /**
  * Build the request headers for one upstream call.
  *
- * @param token - Credential to authenticate with.
  * @returns The documented header set, including the pinned API version.
  */
 export function requestHeaders(token: string): Record<string, string> {
@@ -194,7 +192,6 @@ export function requestHeaders(token: string): Record<string, string> {
 /**
  * Read `GET /user` into an identity, failing closed on a malformed payload.
  *
- * @param text - Response body.
  * @returns The identity, or `null` when `id`/`login` are not usable — a
  *   response the normaliser cannot trust never keys an account.
  */
@@ -205,7 +202,7 @@ function readIdentity(text: string): GitHubIdentity | null {
     }
 
     const { id, login } = parsed.value;
-    if (typeof id !== 'number' || !Number.isInteger(id) || typeof login !== 'string' || login === '') {
+    if (login === '' || typeof login !== 'string' || typeof id !== 'number' || !Number.isSafeInteger(id)) {
         return null;
     }
 
@@ -328,7 +325,7 @@ function isSsoRefusal(response: Response): boolean {
 }
 
 /**
- * Name the first capability the granted scopes are missing (FR-010).
+ * Name the first capability the granted scopes are missing.
  *
  * @param scopeCheck - Matrix derived from the response headers.
  * @returns A `scope-missing:<capability>` reason class.
@@ -348,7 +345,6 @@ function missingScopeReason(scopeCheck: ScopeCheck): RejectReason {
  *
  * @param response - Upstream response that was not 200.
  * @param scopeCheck - Matrix already derived from the response headers.
- * @returns The classified outcome.
  */
 function classifyRejection(response: Response, scopeCheck: ScopeCheck): VerifyOutcome {
     const { status } = response;
@@ -377,7 +373,6 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 /**
  * Call `GET /rate_limit` without ever letting a probe failure fail a verify.
  *
- * @param fetchImpl - Client used for the probe.
  * @param token - Credential already proven valid by `GET /user`.
  * @returns The baseline, or `null` on any transport or shape failure.
  */

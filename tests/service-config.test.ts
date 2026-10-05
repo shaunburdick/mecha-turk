@@ -14,8 +14,8 @@
  * the bindings and account save paths rather than restating it here.
  */
 
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
@@ -37,9 +37,11 @@ import { descriptorFor, parseConfigEnvelope } from '../src/settings-schema.ts';
 import type { ServiceConfig } from '../service/config.ts';
 import type { FieldDescriptor } from '../service/config-schema.ts';
 import type { ServiceStatusBody } from '../service/routes/status.ts';
+import { byText } from './support/sort.ts';
 import { offlineVerifier } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Path of the configuration resource. */
 const CONFIG_PATH = '/v1/config';
@@ -177,26 +179,25 @@ let running: TestService | null = null;
 /** Scratch directory created by a test that needs an unwritable parent. */
 let scratch: string | null = null;
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
-    if (scratch !== null) {
-        await rm(scratch, { recursive: true, force: true });
-        scratch = null;
+    if (scratch === null) {
+        return;
     }
-};
 
-afterEach(afterEachWork1);
+    await removeTempTree(scratch);
+    scratch = null;
+});
 
 /**
  * Start a service instance and register it for cleanup.
  *
  * @param options - Harness options; forwarded verbatim.
- * @returns The running harness instance.
  */
 async function startServiceForTest(
     options?: Parameters<typeof startTestService>[0],
@@ -213,7 +214,7 @@ async function startServiceForTest(
  * @returns The unwritable data directory path.
  */
 async function unwritableDataDir(): Promise<string> {
-    scratch = await mkdtemp(join(tmpdir(), 'mecha-turk-blocked-'));
+    scratch = await makeTempTree('blocked');
     const blocker = join(scratch, 'blocker');
     await writeFile(blocker, 'i am a file', 'utf8');
 
@@ -221,30 +222,31 @@ async function unwritableDataDir(): Promise<string> {
 }
 
 describe('ServiceConfig validation', () => {
-    it('accepts the shipped defaults unchanged (+5 cases)', async () => {
-        // case: accepts the shipped defaults unchanged
+    it('accepts the shipped defaults unchanged', async () => {
         {
             const result = validateConfig(DEFAULT_CONFIG);
 
             expect(result).toEqual({ ok: true, config: DEFAULT_CONFIG });
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: rejects every out-of-bounds value with a named remediation
+    });
+
+    it('rejects every out-of-bounds value with a named remediation', async () => {
         {
             for (const { field, value } of OUT_OF_BOUNDS) {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [field]: value });
 
                 expect(result.ok, `${field} = ${String(value)} must be refused`).toBe(false);
-                if (!result.ok) {
-                    const issue = result.issues.find((candidate) => candidate.field === field);
-                    expect(issue?.remediation, `${field} remediation must name the field`).toContain(field);
+                if (result.ok) {
+                    continue;
                 }
+
+                const issue = result.issues.find((candidate) => candidate.field === field);
+                expect(issue?.remediation, `${field} remediation must name the field`).toContain(field);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: reports every missing field in one pass
+    });
+
+    it('reports every missing field in one pass', async () => {
         {
             const result = validateConfig({ [INTERVAL_FIELD]: 60_000 });
 
@@ -256,9 +258,9 @@ describe('ServiceConfig validation', () => {
                 expect(fields).not.toContain(INTERVAL_FIELD);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: rejects a document that is not an object
+    });
+
+    it('rejects a document that is not an object', async () => {
         {
             const result = validateConfig('not a configuration');
 
@@ -267,17 +269,17 @@ describe('ServiceConfig validation', () => {
                 expect(result.issues[0]?.field).toBe('body');
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: rejects an unknown field with a removal instruction
+    });
+
+    it('rejects an unknown field with a removal instruction', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, [INVENTED_FIELD]: 60_000 });
 
             expect(result.ok).toBe(false);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: withholds a secret-shaped field name instead of echoing it
+    });
+
+    it('withholds a secret-shaped field name instead of echoing it', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, [TOKEN_FIELD]: 1 });
 
@@ -290,8 +292,7 @@ describe('ServiceConfig validation', () => {
         }
     });
 
-    it('rejects a retry ceiling below the retry base (+5 cases)', async () => {
-        // case: rejects a retry ceiling below the retry base
+    it('rejects a retry ceiling below the retry base', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, retryBaseMs: 60_000, retryMaxMs: 5_000 });
 
@@ -300,9 +301,9 @@ describe('ServiceConfig validation', () => {
                 expect(result.issues.map((issue) => issue.field)).toContain('retryMaxMs');
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: never echoes the submitted value in a remediation
+    });
+
+    it('never echoes the submitted value in a remediation', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, intervalMs: ABSURD_INTERVAL });
 
@@ -313,17 +314,17 @@ describe('ServiceConfig validation', () => {
                 }
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: defaults the lease and result-deadline knobs to the documented bounds (T-008)
+    });
+
+    it('defaults the lease and result-deadline knobs to the documented bounds', async () => {
         {
             expect(DEFAULT_CONFIG.leaseMs).toBe(120_000);
             expect(DEFAULT_CONFIG.resultDeadlineMs).toBe(120_000);
             expect(validateConfig(DEFAULT_CONFIG)).toEqual({ ok: true, config: DEFAULT_CONFIG });
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: never offers a requeue-budget field (003 v1.3.0 / 006 Deferred)
+    });
+
+    it('never offers a requeue-budget field (003 v1.3.0 / 006 Deferred)', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, requeueBudget: 3 });
 
@@ -332,9 +333,9 @@ describe('ServiceConfig validation', () => {
                 expect(result.issues.map((issue) => issue.field)).toContain('requeueBudget');
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: reads a configuration document written before the lease fields existed (T-008)
+    });
+
+    it('reads a configuration document written before the lease fields existed', async () => {
         {
             const result = parseStoredConfig(PRE_RUN_LAYER_CONFIG);
 
@@ -356,20 +357,20 @@ describe('ServiceConfig validation', () => {
                 defaultsApplied: [STARTING_PROMPT_FIELD, 'leaseMs', 'resultDeadlineMs', AGENT_FIELD],
             });
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: still quarantines a stored document whose own values are unusable (T-008)
+    });
+
+    it('still quarantines a stored document whose own values are unusable', async () => {
         {
             expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, leaseMs: 1 })).toBeNull();
             expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, requeueBudget: 3 })).toBeNull();
             expect(parseStoredConfig({ ...PRE_RUN_LAYER_CONFIG, logLevel: 'verbose' })).toBeNull();
         }
     });
+
 });
 
 describe('GET and PUT /v1/config', () => {
-    it('answers a fresh store with the defaults (+5 cases)', async () => {
-        // case: answers a fresh store with the defaults
+    it('answers a fresh store with the defaults', async () => {
         {
             const service = await startServiceForTest();
 
@@ -379,9 +380,9 @@ describe('GET and PUT /v1/config', () => {
             expect(response.status).toBe(200);
             expect(body.config).toEqual(DEFAULT_CONFIG);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: persists a replacement and reads it back
+    });
+
+    it('persists a replacement and reads it back', async () => {
         {
             const service = await startServiceForTest();
             const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000, logLevel: 'debug' as const };
@@ -395,9 +396,9 @@ describe('GET and PUT /v1/config', () => {
             expect(stored).toEqual(replacement);
             expect(body.config).toEqual(replacement);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: rejects a partial document with one remediation per missing field
+    });
+
+    it('rejects a partial document with one remediation per missing field', async () => {
         {
             const service = await startServiceForTest();
 
@@ -415,9 +416,9 @@ describe('GET and PUT /v1/config', () => {
             const stored = await readFile(join(service.dataDir, CONFIG_FILE), 'utf8').catch(() => null);
             expect(stored).toBeNull();
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: rejects an unknown field rather than silently ignoring it
+    });
+
+    it('rejects an unknown field rather than silently ignoring it', async () => {
         {
             const service = await startServiceForTest();
 
@@ -430,9 +431,9 @@ describe('GET and PUT /v1/config', () => {
             expect(response.status).toBe(422);
             expect(failure.error.issues.map((issue) => issue.field)).toContain(INVENTED_FIELD);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: refuses a body that is not valid JSON
+    });
+
+    it('refuses a body that is not valid JSON', async () => {
         {
             const service = await startServiceForTest();
 
@@ -440,9 +441,9 @@ describe('GET and PUT /v1/config', () => {
 
             expect(response.status).toBe(400);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: reads a pre-existing configuration document without quarantining it (T-008)
+    });
+
+    it('reads a pre-existing configuration document without quarantining it', async () => {
         {
             const service = await startServiceForTest();
             await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_RUN_LAYER_CONFIG), 'utf8');
@@ -464,8 +465,7 @@ describe('GET and PUT /v1/config', () => {
         }
     });
 
-    it('round-trips a retuned lease and result deadline (T-0… (+1 cases)', async () => {
-        // case: round-trips a retuned lease and result deadline (T-008)
+    it('round-trips a retuned lease and result deadline', async () => {
         {
             const service = await startServiceForTest();
             const replacement = { ...DEFAULT_CONFIG, leaseMs: 45_000, resultDeadlineMs: 300_000 };
@@ -477,9 +477,9 @@ describe('GET and PUT /v1/config', () => {
             expect(put.status).toBe(200);
             expect(body.config).toEqual(replacement);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: answers 503 for both routes when the data directory is unusable
+    });
+
+    it('answers 503 for both routes when the data directory is unusable', async () => {
         {
             const service = await startServiceForTest({ dataDir: await unwritableDataDir() });
 
@@ -496,11 +496,11 @@ describe('GET and PUT /v1/config', () => {
             expect(health.status).toBe(200);
         }
     });
+
 });
 
 describe('GET /v1/status', () => {
-    it('reports the documented skeleton on a healthy store (+2 cases)', async () => {
-        // case: reports the documented skeleton on a healthy store
+    it('reports the documented skeleton on a healthy store', async () => {
         {
             const service = await startServiceForTest();
 
@@ -508,7 +508,7 @@ describe('GET /v1/status', () => {
             const body: ServiceStatusBody = await response.json();
 
             expect(response.status).toBe(200);
-            const sections = Object.keys(body).sort();
+            const sections = Object.keys(body).toSorted(byText);
             expect(sections).toEqual(['accounts', 'agentPin', 'polling', 'repositories', 'service', 'surface']);
             expect(body.service.status).toBe('ok');
             expect(body.service.dataDir).toBe(service.dataDir);
@@ -523,9 +523,9 @@ describe('GET /v1/status', () => {
             expect(Date.parse(body.polling.nextPollAt ?? '')).toBeGreaterThan(Date.now());
             expect(body.surface.supported).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: reflects a persisted interval in the polling state
+    });
+
+    it('reflects a persisted interval in the polling state', async () => {
         {
             const service = await startServiceForTest();
             const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000 };
@@ -536,9 +536,9 @@ describe('GET /v1/status', () => {
 
             expect(body.polling.intervalMs).toBe(30_000);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: reports degraded and schema-less when the store is unavailable
+    });
+
+    it('reports degraded and schema-less when the store is unavailable', async () => {
         {
             const service = await startServiceForTest({ dataDir: await unwritableDataDir() });
 
@@ -551,6 +551,7 @@ describe('GET /v1/status', () => {
             expect(body.surface.supported).toBe(true);
         }
     });
+
 });
 
 /** The widened `GET /v1/config` envelope (006 contract §1). */
@@ -594,28 +595,29 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
         },
     ];
 
-    it('refuses each documented bad value with its own remed… (+3 cases)', async () => {
-        // case: refuses each documented bad value with its own remediation and no echo
+    it('refuses each documented bad value with its own remediation and no echo', async () => {
         {
             for (const { case: shape, value, remediation } of REFUSALS) {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: value });
 
                 expect(result.ok, `${shape} must be refused`).toBe(false);
-                if (!result.ok) {
-                    const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
-                    expect(issue?.remediation, `${shape} remediation`).toBe(remediation);
-                    expect(issue?.remediation, `${shape} must not echo whitespace`).not.toContain('    ');
-                    const submitted = value.trim();
-                    if (submitted !== '') {
-                        expect(JSON.stringify(result.issues), `${shape} must not echo the value`)
-                            .not.toContain(submitted);
-                    }
+                if (result.ok) {
+                    continue;
+                }
+
+                const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
+                expect(issue?.remediation, `${shape} remediation`).toBe(remediation);
+                expect(issue?.remediation, `${shape} must not echo whitespace`).not.toContain(' '.repeat(4));
+                const submitted = value.trim();
+                if (submitted !== '') {
+                    expect(JSON.stringify(result.issues), `${shape} must not echo the value`)
+                        .not.toContain(submitted);
                 }
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: stores the trimmed value so a save/load round trip is stable
+    });
+
+    it('stores the trimmed value so a save/load round trip is stable', async () => {
         {
             const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: PADDED_AGENT });
 
@@ -624,12 +626,12 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
                 expect(result.config[AGENT_FIELD]).toBe(ACCEPTED_AGENT);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: accepts a blank baseline (006 FR-100(c) as amended) and still
+    });
+
+    it('accepts a blank baseline (006 FR-100(c) as amended) and still', async () => {
         // refuses an absent or non-string member (FR-100(b), whole-document)
         {
-            for (const blank of ['', '   ', '\t']) {
+            for (const blank of ['', ' '.repeat(3), '\t']) {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: blank });
 
                 expect(result.ok, `${JSON.stringify(blank)} must be a valid baseline`).toBe(true);
@@ -642,12 +644,14 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
                 const result = validateConfig({ ...DEFAULT_CONFIG, [AGENT_FIELD]: absent });
 
                 expect(result.ok, `${typeof absent} must be refused`).toBe(false);
-                if (!result.ok) {
-                    const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
-                    expect(issue?.remediation).toBe(
-                        'set expectedAgent to a string; leave it empty for no baseline',
-                    );
+                if (result.ok) {
+                    continue;
                 }
+
+                const issue = result.issues.find((candidate) => candidate.field === AGENT_FIELD);
+                expect(issue?.remediation).toBe(
+                    'set expectedAgent to a string; leave it empty for no baseline',
+                );
             }
 
             // The whole-document rule refuses an omitted key (FR-100(b)), even
@@ -659,9 +663,9 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
                 expect(result.issues.map((issue) => issue.field)).toContain(AGENT_FIELD);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: an explicitly blank baseline round-trips, and the read-side
+    });
+
+    it('an explicitly blank baseline round-trips, and the read-side', async () => {
         // backfill never resurrects a name over it (absent vs present-but-empty)
         {
             const service = await startServiceForTest();
@@ -692,9 +696,9 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
             expect(backfilled.defaultsApplied).toEqual([AGENT_FIELD]);
             expect(backfilled.config[AGENT_FIELD]).toBe('');
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: refuses a PUT that omits the field while the read fills it (FR-100(b), data-model §2)
+    });
+
+    it('refuses a PUT that omits the field while the read fills it (FR-100(b), data-model §2)', async () => {
         {
             const service = await startServiceForTest();
             await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
@@ -718,9 +722,9 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
             expect(failure.error.issues.map((issue) => issue.field)).toContain(AGENT_FIELD);
             expect(await readFile(join(service.dataDir, CONFIG_FILE), 'utf8')).toBe(JSON.stringify(PRE_AGENT_CONFIG));
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: leaves the stored value in force when a credential-shaped save is refused (AC-154)
+    });
+
+    it('leaves the stored value in force when a credential-shaped save is refused', async () => {
         {
             const service = await startServiceForTest();
             const accepted = { ...DEFAULT_CONFIG, [AGENT_FIELD]: ACCEPTED_AGENT };
@@ -740,6 +744,7 @@ describe('expectedAgent — the eleventh field (006 FR-100, AC-154)', () => {
             expect(after).toBe(before);
         }
     });
+
 });
 
 describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', () => {
@@ -766,7 +771,7 @@ describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', 
         // The ceiling this rule applies is the specification's own figure.
         expect(CAP).toBe(2_000);
 
-        for (const blank of ['', '   ', '\t\n']) {
+        for (const blank of ['', ' '.repeat(3), '\t\n']) {
             const result = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: blank });
 
             expect(result.ok, `${JSON.stringify(blank)} must mean unset`).toBe(true);
@@ -794,16 +799,18 @@ describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', 
         const refused = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: OVER_CAP_PROMPT });
 
         expect(refused.ok, 'one code point past the cap must be refused').toBe(false);
-        if (!refused.ok) {
-            const issue = refused.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
-
-            expect(issue, 'the refusal must name the field').toBeDefined();
-            expect(issue?.remediation).toContain(String(CAP));
-            // No echo — neither the value nor any run of it appears anywhere
-            // in the additive issue list (004 FR-003, AC-133).
-            expect(JSON.stringify(refused.issues)).not.toContain(OVER_CAP_PROMPT);
-            expect(JSON.stringify(refused.issues)).not.toContain('a'.repeat(64));
+        if (refused.ok) {
+            return;
         }
+
+        const issue = refused.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
+
+        expect(issue, 'the refusal must name the field').toBeDefined();
+        expect(issue?.remediation).toContain(String(CAP));
+        // No echo — neither the value nor any run of it appears anywhere
+        // in the additive issue list (004 FR-003, AC-133).
+        expect(JSON.stringify(refused.issues)).not.toContain(OVER_CAP_PROMPT);
+        expect(JSON.stringify(refused.issues)).not.toContain('a'.repeat(64));
     });
 
     it('refuses a credential-shaped value with the shipped shape label, over the model and the wire', async () => {
@@ -848,11 +855,13 @@ describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', 
             const result = validateConfig({ ...DEFAULT_CONFIG, [STARTING_PROMPT_FIELD]: wrong });
 
             expect(result.ok, `${JSON.stringify(wrong)} must be refused`).toBe(false);
-            if (!result.ok) {
-                const issue = result.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
-
-                expect(issue?.remediation).toContain(STARTING_PROMPT_FIELD);
+            if (result.ok) {
+                continue;
             }
+
+            const issue = result.issues.find((candidate) => candidate.field === STARTING_PROMPT_FIELD);
+
+            expect(issue?.remediation).toContain(STARTING_PROMPT_FIELD);
         }
 
         // …and a PUT that omits the member entirely is the same 422: a member
@@ -908,8 +917,7 @@ describe('startingPrompt — the global tier (004 FR-081, FR-083; 006 FR-041)', 
 });
 
 describe('GET /v1/config widens without changing what it already said (006 FR-020, contract §1)', () => {
-    it('reports source fidelity for all three reads, and [] … (+1 cases)', async () => {
-        // case: reports source fidelity for all three reads, and [] whenever source is not stored
+    it('reports source fidelity for all three reads, and [] whenever source is not stored', async () => {
         {
             const service = await startServiceForTest();
 
@@ -939,9 +947,9 @@ describe('GET /v1/config widens without changing what it already said (006 FR-02
             const entries = await readdir(service.dataDir);
             expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toHaveLength(1);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: carries one descriptor per documented field, in the validator\'s own order (AC-107)
+    });
+
+    it('carries one descriptor per documented field, in the validator\'s own order', async () => {
         {
             const service = await startServiceForTest();
             const response = await service.call(CONFIG_PATH);
@@ -954,12 +962,13 @@ describe('GET /v1/config widens without changing what it already said (006 FR-02
             }
         }
     });
+
 });
 
 describe('a lost quarantine rename still answers quarantined (006 contract §3 rule 9)', () => {
     it('maps a pathless quarantine to source quarantined, and keeps real absence at default', () => {
         const logLines: string[] = [];
-        const log = createLogger({ level: 'warn', sink: (line) => logLines.push(line) });
+        const log = createLogger({ level: 'warn', sink: (line) => void logLines.push(line) });
 
         // The per-cycle config reader and an operator's request can both
         // reject the same stored document; the loser's rename finds the file
@@ -984,7 +993,6 @@ describe('a lost quarantine rename still answers quarantined (006 contract §3 r
 /**
  * Find one projected descriptor.
  *
- * @param name - Documented field name.
  * @returns Its descriptor, or `undefined` when the field is undocumented.
  */
 function descriptorOf(name: string): FieldDescriptor | undefined {
@@ -1008,12 +1016,12 @@ const STRING_REFUSALS: Readonly<Record<string, unknown>> = {
 /**
  * Build a value that each descriptor's own kind refuses.
  *
- * @param descriptor - The projected field to fail.
  * @returns A value outside that field's rule, for the ordering assertion.
  * @throws {Error} When a string field has no refusal fixture — a new string
  *   field must declare what fails it rather than inheriting another field's
  *   rule by default.
  */
+// eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
 function refusedValueFor(descriptor: FieldDescriptor): unknown {
     if (descriptor.kind === 'integer') {
         return descriptor.min - 1;
@@ -1032,8 +1040,7 @@ function refusedValueFor(descriptor: FieldDescriptor): unknown {
 }
 
 describe('the projection is the validator\'s own declaration (006 SC-101, SC-106)', () => {
-    it('moves together when a bound moves, and returns when … (+3 cases)', async () => {
-        // case: moves together when a bound moves, and returns when it is reverted (SC-101)
+    it('moves together when a bound moves, and returns when it is reverted', async () => {
         {
             expect(descriptorOf('intervalMs')).toMatchObject({ min: 15_000, max: 300_000 });
             expect(validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 }).ok).toBe(true);
@@ -1054,14 +1061,13 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
             expect(descriptorOf('intervalMs')).toMatchObject({ min: 15_000 });
             expect(validateConfig({ ...DEFAULT_CONFIG, intervalMs: 15_001 }).ok).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: emits descriptors in exactly the order a full refusal reports issues
+    });
+
+    it('emits descriptors in exactly the order a full refusal reports issues', async () => {
         {
-            const candidate: Record<string, unknown> = {};
-            for (const descriptor of configSchema()) {
-                candidate[descriptor.name] = refusedValueFor(descriptor);
-            }
+            const candidate = Object.fromEntries(
+                configSchema().map((descriptor) => [descriptor.name, refusedValueFor(descriptor)]),
+            );
 
             const result = validateConfig(candidate);
 
@@ -1071,9 +1077,9 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
                 expect(result.issues.map((issue) => issue.field)).toEqual(reportedOrder);
             }
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: declares ten next-cycle, one immediate, and one next-dispatch over 006\'s twelve (SC-106)
+    });
+
+    it('declares ten next-cycle, one immediate, and one next-dispatch over 006\'s twelve', async () => {
         {
             const declared = configSchema()
                 .filter((descriptor) => SPEC_FIELDS.includes(descriptor.name))
@@ -1090,9 +1096,9 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
             expect(declared.filter((takeEffect) => takeEffect === 'next-dispatch')).toHaveLength(1);
             expect(declared.filter((takeEffect) => takeEffect === 'restart' || takeEffect === 'none')).toHaveLength(0);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: gives the string field no unit and no numeric bound, and the enum field the four levels
+    });
+
+    it('gives the string field no unit and no numeric bound, and the enum field the four levels', async () => {
         {
             const agent = descriptorOf(AGENT_FIELD);
             expect(agent).toMatchObject({
@@ -1189,7 +1195,7 @@ describe('logLevel is immediate (006 FR-033, FR-037, AC-103, SC-105)', () => {
                 lines.push(line);
             },
         });
-        const home = await mkdtemp(join(tmpdir(), 'mecha-turk-loglevel-'));
+        const home = await makeTempTree('loglevel');
         const dataDir = join(home, 'store');
         await mkdir(dataDir, { recursive: true });
         await writeFile(
@@ -1198,10 +1204,11 @@ describe('logLevel is immediate (006 FR-033, FR-037, AC-103, SC-105)', () => {
             'utf8',
         );
 
-        const hostEnv: Record<string, string | undefined> = {};
-        hostEnv.HOME = home;
-        hostEnv.OPENCHAMBER_SERVICE_PORT = '0';
-        hostEnv.OPENCHAMBER_SERVICE_TOKEN = BEARER_TOKEN;
+        const hostEnv: Record<string, string | undefined> = {
+            HOME: home,
+            OPENCHAMBER_SERVICE_PORT: '0',
+            OPENCHAMBER_SERVICE_TOKEN: BEARER_TOKEN,
+        };
         const handle = await startService({
             env: readServiceEnv(hostEnv),
             dataDir,
@@ -1257,7 +1264,7 @@ describe('logLevel is immediate (006 FR-033, FR-037, AC-103, SC-105)', () => {
             expect(setAsideCount()).toBe(1);
         } finally {
             await handle.shutdown();
-            await rm(home, { recursive: true, force: true });
+            await removeTempTree(home);
         }
     });
 });

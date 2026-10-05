@@ -15,19 +15,19 @@
 
 import { GUEST_STORAGE_VALUE_BYTES } from '@openchamber/sdk';
 import { utf8ByteLength } from './json.ts';
-import type { LedgerDetail, LedgerEntry, SpikeLedger } from './ledger.ts';
+import type { LedgerDetail, LedgerEntry, PanelLedger } from './ledger.ts';
 import { findSecretLeak, redact, RedactionError } from './redaction.ts';
 
 /** Detail recorded in place of an entry whose payload still trips the redaction gate. */
 const QUARANTINED_DETAIL = 'secret-shaped detail removed before the ledger could be written';
 
 /** Working byte budget the ledger is evicted down to, below the host's hard limit. */
-export const LEDGER_BYTE_BUDGET = 60 * 1024;
+export const LEDGER_BYTE_BUDGET = 60 * 1_024;
 
 /** Result of a repair: the writable ledger plus what the repair changed. */
 export interface LedgerRepair {
     /** Ledger that can be serialized again. */
-    readonly ledger: SpikeLedger;
+    readonly ledger: PanelLedger;
     /** Number of entries whose detail was neutralized. */
     readonly quarantined: number;
     /** Number of entries dropped to fit the byte budget. */
@@ -42,16 +42,16 @@ export interface LedgerRepair {
  * @param detail - Detail payload that failed the redaction gate.
  * @returns The redacted detail plus whether any value changed.
  */
-function redactDetailValues(detail: LedgerDetail): { readonly detail: LedgerDetail; readonly changed: boolean } {
-    let changed = false;
+function redactDetailValues(detail: LedgerDetail): { readonly detail: LedgerDetail; readonly didChange: boolean } {
+    let didChange = false;
     const result: LedgerDetail = {};
     for (const [key, value] of Object.entries(detail)) {
         const safe = typeof value === 'string' ? redact(value) : value;
-        changed ||= safe !== value;
+        didChange ||= safe !== value;
         result[key] = safe;
     }
 
-    return { detail: result, changed };
+    return { detail: result, didChange };
 }
 
 /**
@@ -64,14 +64,14 @@ function redactDetailValues(detail: LedgerDetail): { readonly detail: LedgerDeta
  * @param entry - Entry whose detail failed the redaction gate.
  * @returns The repaired entry plus whether it changed.
  */
-function repairEntry(entry: LedgerEntry): { readonly entry: LedgerEntry; readonly changed: boolean } {
+function repairEntry(entry: LedgerEntry): { readonly entry: LedgerEntry; readonly didChange: boolean } {
     const redacted = redactDetailValues(entry.detail);
     const candidate: LedgerEntry = { ...entry, detail: redacted.detail };
     if (findSecretLeak(JSON.stringify(candidate)) === null) {
-        return { entry: candidate, changed: redacted.changed };
+        return { entry: candidate, didChange: redacted.didChange };
     }
 
-    return { entry: { ...entry, detail: { quarantined: QUARANTINED_DETAIL } }, changed: true };
+    return { entry: { ...entry, detail: { quarantined: QUARANTINED_DETAIL } }, didChange: true };
 }
 
 /**
@@ -80,18 +80,18 @@ function repairEntry(entry: LedgerEntry): { readonly entry: LedgerEntry; readonl
  * @param ledger - Ledger whose serialization failed with a `RedactionError`.
  * @returns The repaired ledger, or `null` when the leak is not inside an entry.
  */
-function quarantineSecretMaterial(ledger: SpikeLedger): LedgerRepair | null {
+function quarantineSecretMaterial(ledger: PanelLedger): LedgerRepair | null {
     let quarantined = 0;
     const entries = ledger.entries.map((entry) => {
         const repaired = repairEntry(entry);
-        if (repaired.changed) {
+        if (repaired.didChange) {
             quarantined += 1;
         }
 
         return repaired.entry;
     });
 
-    const repaired: SpikeLedger = { ...ledger, entries };
+    const repaired: PanelLedger = { ...ledger, entries };
     if (findSecretLeak(JSON.stringify(repaired)) !== null) {
         return null;
     }
@@ -115,7 +115,7 @@ function quarantineSecretMaterial(ledger: SpikeLedger): LedgerRepair | null {
  * @param ledger - Ledger that exceeded the host's value limit.
  * @returns The shrunken ledger plus how many entries were dropped.
  */
-export function fitLedgerToByteBudget(ledger: SpikeLedger): LedgerRepair {
+export function fitLedgerToByteBudget(ledger: PanelLedger): LedgerRepair {
     const entries = [...ledger.entries];
     let evicted = 0;
     while (entries.length > 0 && utf8ByteLength(JSON.stringify({ ...ledger, entries })) > LEDGER_BYTE_BUDGET) {
@@ -134,11 +134,10 @@ export function fitLedgerToByteBudget(ledger: SpikeLedger): LedgerRepair {
 /**
  * Repair a ledger after a failed persist, chosen by the failure cause.
  *
- * @param input - Ledger about to be written plus the error the write failed with.
  * @returns The repair to apply before the single retry, or `null` when the
  * failure is not one this module can repair and the caller must report it.
  */
-export function repairLedger(input: { readonly ledger: SpikeLedger; readonly cause: unknown }): LedgerRepair | null {
+export function repairLedger(input: { readonly ledger: PanelLedger; readonly cause: unknown }): LedgerRepair | null {
     const { ledger, cause } = input;
     if (cause instanceof RedactionError) {
         return quarantineSecretMaterial(ledger);

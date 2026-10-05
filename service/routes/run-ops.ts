@@ -69,18 +69,17 @@ export const VERIFICATION_PATH = `${RUN_SCOPE_PREFIX}/verification`;
 /** The two explicit resolutions; anything else is refused as unknown. */
 const RESOLVE_DECISIONS: ReadonlySet<string> = new Set<ResolveDecision>(['session-created', 'no-session']);
 
-/** The decision whose proof is a session the operator names (FR-027). */
+/** The decision whose proof is a session the operator names. */
 const SESSION_CREATED = 'session-created';
 
 /**
- * Narrow a body member to one of the two explicit resolutions (FR-027).
+ * Narrow a body member to one of the two explicit resolutions.
  *
  * `Set.has` cannot narrow a `string` to the set's element type on its own, and
  * widening the decision back to `string` would push an unchecked value into
  * `resolveDispatch` — the one operation whose `decision` decides whether a run
  * may be re-dispatched. The guard is where the union is enforced.
  *
- * @param value - The member as read from the body.
  * @returns `true` for `session-created` and `no-session`.
  */
 function isResolveDecision(value: string): value is ResolveDecision {
@@ -111,7 +110,6 @@ type ResolutionRead =
  */
 function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRead {
     const decision = textMember(fields.decision);
-    const sessionId = textMember(fields.sessionId);
     if (decision === null || !isResolveDecision(decision)) {
         return {
             ok: false,
@@ -122,6 +120,7 @@ function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRe
         };
     }
 
+    const sessionId = textMember(fields.sessionId);
     if (decision === SESSION_CREATED && sessionId === null) {
         return {
             ok: false,
@@ -163,11 +162,9 @@ function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRe
  *
  * Returns a `failed` or `blocked:*` run to waiting under the **same run key**,
  * incrementing the attempt exactly once and preserving the source references and
- * every prior attempt's record (FR-041). It does not create a new run, so the
+ * every prior attempt's record. It does not create a new run, so the
  * ordinal counter is untouched.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state }`, or a distinct refusal.
  */
 async function handleRetry(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -216,12 +213,10 @@ async function handleRetry(context: RouteContext, request: RouteRequest): Promis
  * Answer `POST /v1/events/:correlationId/requeue`.
  *
  * The single control that resolves a `dead-lettered` run, and the one that
- * resets the attempt count (FR-033). `confirm` is required: the reset discards
+ * resets the attempt count. `confirm` is required: the reset discards
  * the budget accounting that dead-lettering produced, so it is taken only when the
  * caller says so rather than inferred from the request's existence.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state }`, or the refusal.
  */
 async function handleRequeue(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -242,7 +237,7 @@ async function handleRequeue(context: RouteContext, request: RouteRequest): Prom
         return await refuseRunRequest({ context, operation: 'requeue', correlationId, response: body });
     }
 
-    if (flagMember(body.fields.confirm, false) !== true) {
+    if (!flagMember(body.fields.confirm, false)) {
         return await refuseRunRequest({
             context,
             operation: 'requeue',
@@ -267,7 +262,7 @@ async function handleRequeue(context: RouteContext, request: RouteRequest): Prom
 /**
  * Answer `POST /v1/events/:correlationId/resolve`.
  *
- * The operator's two explicit resolutions of an `unconfirmed` run (FR-027).
+ * The operator's two explicit resolutions of an `unconfirmed` run.
  * `session-created` requires the session id, and `no-session` is the **only** path
  * that re-dispatches an `unconfirmed` run — the one place in the service where a
  * second `host.startSession()` can be authorized for a run that may already have
@@ -276,8 +271,6 @@ async function handleRequeue(context: RouteContext, request: RouteRequest): Prom
  * naming `sessionId` rather than silently dropped: the request would otherwise
  * obtain a fresh authorization for a run whose session it just reported.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state }`, or the refusal.
  */
 async function handleResolve(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -382,7 +375,6 @@ interface ReportMembers {
  * (contract §5 as 003 v1.7.0 widens it; 002 FR-029 case (ii)), and an
  * unbounded observed agent or note would land uncut in a durable row (T-043e).
  *
- * @param fields - The body's members.
  * @param expectedAgent - The baseline the same body carried.
  * @returns The members, or the `422` naming whichever of them failed.
  */
@@ -416,7 +408,6 @@ function readReportMembers(
  * the *run identity*, and a body missing the read-back itself is a `422` about
  * the *report*.
  *
- * @param request - Routed request; the path captures `:correlationId`.
  * @param correlationId - The run the path named.
  * @returns The parsed read-back, or the `422` that names what was wrong.
  */
@@ -466,13 +457,11 @@ function readReadBack(request: RouteRequest, correlationId: string): ReadBack | 
 /**
  * Answer `POST /v1/events/:correlationId/verification`.
  *
- * Records the post-dispatch agent read-back and **changes no state** (FR-043):
+ * Records the post-dispatch agent read-back and **changes no state**:
  * a mismatch is shown as a warning and audited, never acted on again. The session
  * id must be the one the run recorded, so a read-back of some other session
  * cannot be filed against this run.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state, verification }`, or the refusal.
  */
 async function handleVerification(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {

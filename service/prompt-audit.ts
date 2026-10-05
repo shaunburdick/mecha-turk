@@ -41,7 +41,7 @@ import type { ServiceStore } from './store/index.ts';
  */
 export const PROMPT_UPDATED_EVENT = 'binding.prompt-updated';
 
-/** Who caused the change: `operator` through the panel, `service` otherwise (004 FR-051). */
+/** Who caused the change: `operator` through the panel, `service` otherwise. */
 export type PromptChangeActor = 'operator' | 'service';
 
 /** The binding members an observation reads. */
@@ -68,7 +68,6 @@ const observationStates = new WeakMap<ServiceStore, PromptObservationState>();
 /**
  * Get (or create) the observation state for one store handle.
  *
- * @param store - Open store.
  * @returns The handle's baseline and chain.
  */
 function stateFor(store: ServiceStore): PromptObservationState {
@@ -84,7 +83,6 @@ function stateFor(store: ServiceStore): PromptObservationState {
 /**
  * Seed the baseline from the audit trail: highest-`seq` row per binding.
  *
- * @param store - Open store holding `audit.ndjson`.
  * @param baseline - The map to fill (empty on first use for this handle).
  * @throws {StorageUnavailableError} When the trail cannot be read — a chain
  *   that cannot establish its baseline must not start guessing at diffs.
@@ -111,8 +109,8 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
         // FR-053's never-the-text rule in force on the **read** side too.
         const recorded = entry.details.promptFingerprint;
         const fingerprint =
-            entry.details.promptPresent === true &&
             typeof recorded === 'string' &&
+            entry.details.promptPresent === true &&
             PROMPT_FINGERPRINT_PATTERN.test(recorded)
                 ? recorded
                 : null;
@@ -134,7 +132,6 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
  * rejects for its own caller without wedging the next one — the same shape the
  * audit writer's write chain uses.
  *
- * @param store - Open store.
  * @param task - The read/write/diff work to serialise.
  * @returns The task's result or rejection, exactly as the task produced it.
  * @throws {StorageUnavailableError} When the baseline cannot be seeded.
@@ -151,6 +148,7 @@ export async function runPromptChain<T>(store: ServiceStore, task: () => Promise
     };
     // Both handlers are the same continuation, exactly as the audit writer's
     // write chain does it: a rejected predecessor must not stop the next task.
+    // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs start on its own rejection; this runs once.
     const run = state.chain.then(start, start);
     state.chain = run;
 
@@ -178,12 +176,11 @@ export interface PromptChange {
  * the vocabulary (`set` | `changed` | `cleared`) cannot drift from what the
  * baseline says happened.
  *
- * @param input - The binding, both fingerprints, and the actor.
  * @throws {StorageUnavailableError} When the append fails; the caller decides
  *   whether that rolls anything back (it never does — see the module header).
  */
 export async function appendPromptChange(input: PromptChange): Promise<void> {
-    const present = input.current !== null;
+    const isPresent = input.current !== null;
     let decision: string;
     if (input.current === null) {
         decision = 'cleared';
@@ -200,7 +197,7 @@ export async function appendPromptChange(input: PromptChange): Promise<void> {
         reason: null,
         details: {
             bindingId: input.bindingId,
-            promptPresent: present,
+            promptPresent: isPresent,
             promptFingerprint: input.current?.fingerprint ?? null,
             // Data-model §4.1 types this `number`: an absent prompt is zero
             // characters of instruction, which is a length rather than a hole.
@@ -229,7 +226,6 @@ interface PromptObservation {
  * the baseline means re-adding it later reads as a fresh `set` rather than
  * inheriting a fingerprint nobody holds any more.
  *
- * @param state - The store's observation state.
  * @param observed - The binding ids this document carried.
  */
 function dropUnobserved(state: PromptObservationState, observed: ReadonlySet<string>): void {
@@ -243,8 +239,6 @@ function dropUnobserved(state: PromptObservationState, observed: ReadonlySet<str
 /**
  * Append one difference's row, or log its failure and count nothing.
  *
- * @param context - The observation, the binding, its snapshot, and both
- *   fingerprints.
  * @returns `1` when the row reached the trail, `0` when the append failed.
  */
 async function recordOneChange(context: {
@@ -287,7 +281,6 @@ async function recordOneChange(context: {
  * **Must run inside {@link runPromptChain}** — the baseline it reads and
  * writes is only safe while no other observation can interleave with it.
  *
- * @param input - The document, the actor to attribute it to, and the logger.
  * @returns How many rows this observation appended.
  */
 export async function recordPromptChanges(input: PromptObservation): Promise<number> {
@@ -320,9 +313,8 @@ export async function recordPromptChanges(input: PromptObservation): Promise<num
  *
  * This is the entry point `readBindings` funnels through with actor `service`,
  * so a prompt edited outside the panel is recorded by whoever the service
- * could actually attribute the change to (004 FR-051).
+ * could actually attribute the change to.
  *
- * @param input - The document, the actor, the store, and the logger.
  * @returns How many rows this observation appended.
  */
 export async function observePromptChanges(input: PromptObservation): Promise<number> {

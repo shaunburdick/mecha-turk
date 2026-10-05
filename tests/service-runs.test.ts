@@ -21,8 +21,8 @@
  * fixture that expects rows on disk plants them before the service starts.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EVENTS_FILE, createEvent, enqueueEvents } from '../service/poll/events.ts';
@@ -41,6 +41,7 @@ import type { RouteContext } from '../service/routes/types.ts';
 import { fakeGitHub, offlineVerifier, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Credential registered with this suite; never appears in any answer. */
 const REGISTERED_TOKEN = `runs-history-credential-${'q'.repeat(32)}`;
@@ -116,8 +117,8 @@ const plantedRoots: string[] = [];
 /** Log lines the direct store calls in this suite keep out of the test output. */
 const SEED_LOG_LINES: string[] = [];
 
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork1 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     SEED_LOG_LINES.length = 0;
 
     while (running.length > 0) {
@@ -128,18 +129,14 @@ const afterEachWork1 = async (): Promise<void> => {
     while (plantedRoots.length > 0) {
         const root = plantedRoots.pop();
         if (root !== undefined) {
-            await rm(root, { recursive: true, force: true });
+            await removeTempTree(root);
         }
     }
-};
-
-afterEach(afterEachWork1);
+});
 
 /**
  * Start the service and register the fixture account, so a real credential
  * sits in the same store the projection reads.
- *
- * @returns The running harness instance.
  */
 async function startWithAccount(): Promise<TestService> {
     const github = fakeGitHub({
@@ -164,8 +161,6 @@ async function startWithAccount(): Promise<TestService> {
 
 /**
  * Start the service with no account registered (the projection needs none).
- *
- * @returns The running harness instance.
  */
 async function startEmpty(): Promise<TestService> {
     const service = await startTestService();
@@ -177,9 +172,6 @@ async function startEmpty(): Promise<TestService> {
 
 /**
  * Build the snapshot one fixture event is assembled from.
- *
- * @param input - Issue number, detection stamp, and trigger kind.
- * @returns A complete event snapshot.
  */
 function snapshotOf(input: {
     readonly issueNumber: number;
@@ -217,7 +209,7 @@ function snapshotOf(input: {
     }
 
     if (input.kind === 'mention') {
-        return { ...base, kind: 'mention', actorAttribution: 'direct', origin: 'comment', commentId: 4242 };
+        return { ...base, kind: 'mention', actorAttribution: 'direct', origin: 'comment', commentId: 4_242 };
     }
 
     return { ...base, kind: 'assignment', actorAttribution: 'subject-author' };
@@ -232,7 +224,6 @@ function snapshotOf(input: {
  * rows and the legacy claim still answers them (FR-005), so the suite seeds
  * the shape those paths were written against.
  *
- * @param input - Issue number, detection stamp, and trigger kind.
  * @returns The queued event.
  */
 function fixtureEvent(input: {
@@ -252,7 +243,6 @@ function fixtureEvent(input: {
 /**
  * Build a strictly increasing detection stamp for one cap-fixture event.
  *
- * @param issueNumber - Issue number, which the stamp orders by.
  * @returns An RFC 3339 stamp, one minute apart from its neighbours.
  */
 function detectionStamp(issueNumber: number): string {
@@ -266,7 +256,6 @@ function detectionStamp(issueNumber: number): string {
  * Write the queue document straight into the service's data directory.
  *
  * @param service - Harness instance owning the data directory.
- * @param rows - Rows to plant as the `events.json` array.
  */
 async function plantQueue(service: TestService, rows: readonly QueuedEvent[]): Promise<void> {
     await writeFile(join(service.dataDir, EVENTS_FILE), JSON.stringify(rows), 'utf8');
@@ -293,11 +282,10 @@ async function storedQueue(service: TestService): Promise<readonly Record<string
  * starts. That is also the real upgrade shape: the operator's existing queue is
  * there when the new build first runs (FR-005, AC-126).
  *
- * @param rows - Queue rows to plant as `events.json`.
  * @returns The running harness instance, registered for cleanup with its root.
  */
 async function startWithQueue(rows: readonly QueuedEvent[]): Promise<TestService> {
-    const root = await mkdtemp(join(tmpdir(), 'mecha-turk-history-'));
+    const root = await makeTempTree('history');
     plantedRoots.push(root);
     const dataDir = join(root, 'store');
     await mkdir(dataDir, { recursive: true });
@@ -312,7 +300,6 @@ async function startWithQueue(rows: readonly QueuedEvent[]): Promise<TestService
 /**
  * The harness's open store, which the seeding helpers need non-null.
  *
- * @param service - Harness instance serving the store.
  * @returns The handle every direct store call in this suite uses.
  */
 function storeOf(service: TestService): ServiceStore {
@@ -329,13 +316,12 @@ function storeOf(service: TestService): ServiceStore {
  * @returns A logger that keeps its lines out of the test output.
  */
 function suiteLogger(): ServiceLogger {
-    return createLogger({ level: 'error', sink: (line) => SEED_LOG_LINES.push(line) });
+    return createLogger({ level: 'error', sink: (line) => void SEED_LOG_LINES.push(line) });
 }
 
 /**
  * The runs as the service's own document holds them, for read-side assertions.
  *
- * @param service - Harness instance serving the store.
  * @returns Every retained run, in creation order.
  * @throws {StorageUnavailableError} When the run document cannot be read.
  */
@@ -367,8 +353,7 @@ interface HistoryAnswer {
 }
 
 describe('GET /v1/events (runs history)', () => {
-    it('projects every run newest-detected-first, field set … (+3 cases)', async () => {
-        // case: projects every run newest-detected-first, field set exactly as documented
+    it('projects every run newest-detected-first, field set exactly as documented', async () => {
         {
             const service = await startWithQueue([
                 fixtureEvent({ issueNumber: 1, detectedAt: '2026-09-27T00:01:00.000Z', kind: 'assignment' }),
@@ -404,9 +389,9 @@ describe('GET /v1/events (runs history)', () => {
             expect(stored.every((run) => run.state === 'pending')).toBe(true);
             expect(stored.every((run) => run.lease === null)).toBe(true);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: pages the history: 25 by default, 100 at most, and the oldest still reachable
+    });
+
+    it('pages the history: 25 by default, 100 at most, and the oldest still reachable', async () => {
         {
             const rows: QueuedEvent[] = [];
             for (let issueNumber = 1; issueNumber <= 105; issueNumber += 1) {
@@ -456,9 +441,9 @@ describe('GET /v1/events (runs history)', () => {
             ]);
             expect(seen.size).toBe(105);
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: keeps the claim route reachable beside the new literal route
+    });
+
+    it('keeps the claim route reachable beside the new literal route', async () => {
         {
             // A legacy row has to be in the store *before* the service adopts it,
             // because adoption is one-shot per store handle by design (FR-005), so
@@ -479,9 +464,9 @@ describe('GET /v1/events (runs history)', () => {
             expect(body.events[0]?.issueNumber).toBe(8);
             expect(body.events[0]?.lease).toMatchObject({ holder: 'unknown' });
         }
-        await afterEachWork1();
-        await afterEachWork1();
-        // case: keeps the registered credential and the account login out of the answer
+    });
+
+    it('keeps the registered credential and the account login out of the answer', async () => {
         {
             const service = await startWithAccount();
             // A run of this suite's own making, so the answer is non-empty and the
@@ -510,6 +495,7 @@ describe('GET /v1/events (runs history)', () => {
             expect(text).not.toMatch(/dtk-[0-9a-f]{8,}/);
         }
     });
+
 });
 
 describe('POST /v1/events/:correlationId/retry (wire delta from 003)', () => {
@@ -530,11 +516,11 @@ describe('POST /v1/events/:correlationId/retry (wire delta from 003)', () => {
         expect(response.status).toBe(404);
         expect(body.error.code).toBe('unknown-run');
         // The delivery row is byte-identical: a refusal moves nothing.
-        expect(await storedQueue(service)).toEqual([fixtureEvent({
+        expect(await storedQueue(service)).toEqual([{ ...fixtureEvent({
             issueNumber: 4,
             detectedAt: STAMP,
             kind: 'assignment',
-        }) as unknown as Record<string, unknown>]);
+        }) }]);
     });
 });
 

@@ -35,7 +35,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -115,7 +115,6 @@ function statusView(): NonNullable<ReturnType<typeof parseStatusView>> {
  * and rejoined with the separator the split took out, or whole when it is a
  * note.
  *
- * @param line - One line of tab copy.
  * @returns The text an operator reads across the row, in reading order.
  */
 function asRead(line: string): string {
@@ -139,18 +138,15 @@ function statusLines(): readonly string[] {
 }
 
 describe('splitLine keeps every line byte-identical across its two cells', () => {
-    it('reads the fixture document rather than an empty one (+5 cases)', () => {
-        // case: reads the fixture document rather than an empty one
+    it('reads the fixture document rather than an empty one', () => {
         {
             expect(statusLines().length).toBeGreaterThan(10);
         }
-        // case: rejoins every Status line to the exact string the copy module returned
         {
             for (const line of statusLines()) {
                 expect(asRead(line), line).toBe(line);
             }
         }
-        // case: splits both the label form and the subject form, so neither is dead code
         {
             const lines = statusLines();
             const labelForm = lines.find((line) => splitLine(line)?.separator === ': ');
@@ -160,7 +156,6 @@ describe('splitLine keeps every line byte-identical across its two cells', () =>
             expect(subjectForm).toBeDefined();
             expect(splitLine(subjectForm ?? '')?.key).not.toContain('—');
         }
-        // case: leaves a sentence alone rather than burying it under a label column
         {
             const prose =
                 'The effective and configured intervals differ: the scheduler is running 60,000 ms, '
@@ -169,11 +164,9 @@ describe('splitLine keeps every line byte-identical across its two cells', () =>
             expect(splitLine(prose)).toBeNull();
             expect(asRead(prose)).toBe(prose);
         }
-        // case: refuses a line with no separator, so a whole line stays whole
         {
             expect(splitLine(WHOLE_LINE)).toBeNull();
         }
-        // case: keeps every prerequisite field intact when the line itself is reassembled
         {
             const { state } = createTestRuntime(fakeHost());
 
@@ -188,8 +181,7 @@ describe('splitLine keeps every line byte-identical across its two cells', () =>
 });
 
 describe('a mounted row is the two cells the stylesheet lays out', () => {
-    it('mounts a label cell and a value cell for a split lin… (+3 cases)', () => {
-        // case: mounts a label cell and a value cell for a split line
+    it('mounts a label cell and a value cell for a split line', () => {
         {
             mounts.log.length = 0;
             const dom = fakeDom();
@@ -206,7 +198,6 @@ describe('a mounted row is the two cells the stylesheet lays out', () => {
             expect(classes).toContain('mt-key');
             expect(classes).toContain('mt-val');
         }
-        // case: mounts one cell spanning the row for a line that is prose
         {
             mounts.log.length = 0;
             const dom = fakeDom();
@@ -220,7 +211,6 @@ describe('a mounted row is the two cells the stylesheet lays out', () => {
             expect(dom.created.find((node) => node.className === 'mt-key')).toBeUndefined();
             expect(dom.created.some((node) => node.className.includes('mt-def--note'))).toBe(true);
         }
-        // case: gives a block a real heading element, whose text still reaches the SDK
         {
             mounts.log.length = 0;
             const dom = fakeDom();
@@ -235,7 +225,6 @@ describe('a mounted row is the two cells the stylesheet lays out', () => {
             expect(block.body.className).toBe('mt-block');
             expect(dom.created.some((node) => node.className === 'mt-block')).toBe(true);
         }
-        // case: releases a row and its cells on dispose
         {
             mounts.log.length = 0;
             const dom = fakeDom();

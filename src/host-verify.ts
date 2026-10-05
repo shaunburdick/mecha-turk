@@ -1,7 +1,7 @@
 /**
  * Host-owned project, worktree, and session verification (T007).
  *
- * The spike asks OpenChamber for its own state and records what comes back:
+ * The panel asks OpenChamber for its own state and records what comes back:
  * three documented list calls, four documented subscriptions, the session
  * lifecycle phases observed during the probe, and every partial failure as a
  * problem. Nothing here creates or mutates a project, worktree, or session.
@@ -10,7 +10,7 @@
 import type { GuestProjectsSnapshot, GuestSessionsSnapshot, GuestWorktreesSnapshot } from '@openchamber/sdk';
 import type { LedgerDetail } from './ledger.ts';
 import { describeError } from './session.ts';
-import type { SpikeHost } from './session.ts';
+import type { PanelHost } from './session.ts';
 
 /** Result of probing one host subscription. */
 export interface SubscriptionProbe {
@@ -44,7 +44,7 @@ const DEFAULT_PROBE_WAIT_MS = 75;
 /** Inputs for {@link verifyHostState}. */
 interface VerifyHostInput {
     /** Documented host client. */
-    readonly host: SpikeHost;
+    readonly host: PanelHost;
     /** Resolved project id. */
     readonly projectId: string;
     /** Optional probe window override. */
@@ -53,7 +53,7 @@ interface VerifyHostInput {
 
 /** Evidence collected from the host about project, worktree, and session state. */
 export interface HostVerification {
-    /** Project id the spike asked about. */
+    /** Project id the panel asked about. */
     readonly projectId: string;
     /** Whether the configured project id exists in `listProjects()`. */
     readonly projectFound: boolean;
@@ -80,7 +80,6 @@ export interface HostVerification {
 /**
  * Wait for a short, bounded interval.
  *
- * @param ms - Milliseconds to wait.
  * @returns A promise resolved after the interval.
  */
 function delay(ms: number): Promise<void> {
@@ -99,9 +98,8 @@ function noop(): void {
  *
  * The documented subscriptions replay their current state on registration, so
  * a short listen is enough to prove the subscription works without holding one
- * of the host's 32 per-frame slots for the rest of the spike.
+ * of the host's 32 per-frame slots for the rest of the panel's life.
  *
- * @param subscribe - Registration function from the host client.
  * @param waitMs - How long to listen for the replayed snapshot.
  * @returns The captured snapshot (or `null`), any registration error, and a teardown.
  */
@@ -145,9 +143,6 @@ interface ProbeState {
 
 /**
  * Attach one probe to the shared collector.
- *
- * @param input - Surface name, subscribe function, and listen window.
- * @param state - Collector to update.
  */
 async function addProbe<T>(input: ProbeInput<T>, state: ProbeState): Promise<void> {
     const probe = await probeSubscription(input.subscribe, input.waitMs);
@@ -167,12 +162,10 @@ async function addProbe<T>(input: ProbeInput<T>, state: ProbeState): Promise<voi
 /**
  * Register the lifecycle listener, recording the probe when registration fails.
  *
- * @param host - Host client.
- * @param state - Collector to update.
  * @returns The teardown for the registered listener, or `null` on refusal.
  */
 function registerLifecycleListener(
-    host: Pick<SpikeHost, 'onSessionLifecycle'>,
+    host: Pick<PanelHost, 'onSessionLifecycle'>,
     state: ProbeState,
 ): (() => void) | null {
     try {
@@ -200,12 +193,10 @@ function registerLifecycleListener(
  * fresh host stays silent for the whole window. Registration is therefore the
  * only guarantee this surface makes (`replayExpected: false`); the probe still
  * records whether an event arrived while it listened.
- *
- * @param input - Host client, collector, and probe window.
  */
 async function probeLifecycle(input: {
     /** Host client. */
-    readonly host: Pick<SpikeHost, 'onSessionLifecycle'>;
+    readonly host: Pick<PanelHost, 'onSessionLifecycle'>;
     /** Collector to update. */
     readonly state: ProbeState;
     /** How long to observe for a lifecycle event. */
@@ -231,10 +222,9 @@ async function probeLifecycle(input: {
 /**
  * Register every documented subscription, capture replays, then release them.
  *
- * @param input - Host client, project id, and listen window.
  * @returns Probes, teardowns, problems, and observed lifecycle phases.
  */
-async function probeSubscriptions(input: { host: SpikeHost; projectId: string; waitMs: number }): Promise<ProbeState> {
+async function probeSubscriptions(input: { host: PanelHost; projectId: string; waitMs: number }): Promise<ProbeState> {
     const state: ProbeState = { probes: [], teardowns: [], problems: [], lifecyclePhases: [] };
     const { host, projectId, waitMs } = input;
 
@@ -281,12 +271,11 @@ interface HostLists {
 /**
  * Read the three documented list APIs, recording partial failures.
  *
- * @param input - Host client and project id.
  * @returns List snapshots plus every problem encountered.
  */
-async function readLists(input: { host: SpikeHost; projectId: string }): Promise<HostLists> {
+async function readLists(input: { host: PanelHost; projectId: string }): Promise<HostLists> {
     const problems: string[] = [];
-    let projectFound = false;
+    let isProjectFound = false;
     let projectDirectory: string | null = null;
     let projectCount = 0;
     let worktreeCount = 0;
@@ -297,7 +286,7 @@ async function readLists(input: { host: SpikeHost; projectId: string }): Promise
     try {
         const projects = await input.host.listProjects();
         const match = projects.projects.find((project) => project.id === input.projectId);
-        projectFound = match !== undefined;
+        isProjectFound = match !== undefined;
         projectDirectory = match?.directory ?? null;
         projectCount = projects.projects.length;
     } catch (cause) {
@@ -321,7 +310,7 @@ async function readLists(input: { host: SpikeHost; projectId: string }): Promise
     }
 
     return {
-        projectFound,
+        projectFound: isProjectFound,
         projectDirectory,
         projectCount,
         worktreeCount,
@@ -340,7 +329,6 @@ async function readLists(input: { host: SpikeHost; projectId: string }): Promise
  * a short window, and never mutates local state. Failures are recorded as
  * problems instead of being retried through an undocumented path.
  *
- * @param input - Host client, resolved project id, and optional probe window.
  * @returns The verification evidence for the ledger.
  */
 export async function verifyHostState(input: VerifyHostInput): Promise<HostVerification> {
@@ -367,7 +355,6 @@ export async function verifyHostState(input: VerifyHostInput): Promise<HostVerif
 /**
  * Flatten a verification result into ledger detail values.
  *
- * @param verification - Verification result.
  * @returns Scalar detail for one `host-verify` ledger entry.
  */
 export function summarizeHostVerification(verification: HostVerification): LedgerDetail {

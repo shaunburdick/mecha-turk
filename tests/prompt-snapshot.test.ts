@@ -73,26 +73,22 @@ const ACCOUNT_TEXT = 'Account context.';
 
 /** Log sink shared by every reader this suite drives. */
 const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 let tempRoot = '';
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
     tempRoot = await mkdtemp(join(tmpdir(), 'prompt-snapshot-'));
     store = await openStore({ dataDir: join(tempRoot, 'store') });
     LOG_LINES.length = 0;
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+});
 
 /** A binding-shaped record carrying one prompt, as the poll loop holds it. */
 function bindingWith(prompt: string): { readonly bindingId: string; readonly startingPrompt: string } {
@@ -104,7 +100,6 @@ function bindingWith(prompt: string): { readonly bindingId: string; readonly sta
  * same three-tier entry point `service/poll/loop.ts` calls, with only the
  * binding tier set (004 FR-080, FR-086).
  *
- * @param prompt - The binding tier's text.
  * @returns The composed snapshot; `null` only if the validator refuses it.
  */
 function bindingSnapshot(prompt: string): PromptSnapshot | null {
@@ -147,15 +142,14 @@ interface EnqueueCall {
 /**
  * Enqueue snapshots through the production path, optionally with a prompt.
  *
- * @param call - The store, the detections, and the snapshot to carry.
  * @returns The `events.json` and `runs.json` texts this store now holds.
  */
 async function enqueueInto(call: EnqueueCall): Promise<{ readonly events: string; readonly runs: string }> {
     await enqueueEvents({
         store: call.store,
         log: LOGGER,
-        incoming: call.snapshots.map(createEvent),
-        ...(call.prompt === undefined ? {} : { prompt: call.prompt }),
+        incoming: call.snapshots.map((snapshot) => createEvent(snapshot)),
+        ...(call.prompt !== undefined && { prompt: call.prompt }),
     });
 
     return {
@@ -171,19 +165,20 @@ function rawRuns(raw: unknown): Record<string, unknown>[] {
 }
 
 /** A valid stored document with one run whose `prompt` member is replaced. */
-function storedDocumentWith(prompt: unknown, present: boolean): unknown {
+// eslint-disable-next-line llm-core/no-unknown-returns -- fixture shape; naming the type is the assertion.
+function storedDocumentWith(prompt: unknown, isPresent: boolean): unknown {
     const planned = applyEnqueue({
         document: emptyRunsDocument(),
         deliveries: [createEvent(assignment(1))],
         now: STAMP,
     });
-    const raw = JSON.parse(JSON.stringify(planned.document)) as Record<string, unknown>;
+    const raw = structuredClone(planned.document);
     const [row] = rawRuns(raw);
     if (row === undefined) {
         throw new Error('the fixture produced no run');
     }
 
-    if (present) {
+    if (isPresent) {
         row.prompt = prompt;
     } else {
         delete row.prompt;
@@ -193,8 +188,7 @@ function storedDocumentWith(prompt: unknown, present: boolean): unknown {
 }
 
 describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC-138)', () => {
-    it('snapshots the body, fingerprint, length, and sources… (+3 cases)', async () => {
-        // case: snapshots the body, fingerprint, length, and sources of the binding in hand
+    it('snapshots the body, fingerprint, length, and sources of the binding in hand', async () => {
         {
             const snapshot = bindingSnapshot(PROMPT_A);
             expect(snapshot).toEqual({
@@ -208,11 +202,9 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
             const unset: { readonly startingPrompt?: string } = {};
             expect(resolvePromptSnapshot({ global: null, account: null, binding: unset })).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: keeps a queued run on the text it was queued with after an edit (AC-138)
+    });
+
+    it('keeps a queued run on the text it was queued with after an edit', async () => {
         {
             const first = await enqueueInto({
                 store,
@@ -248,11 +240,9 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
                 sources: ['binding'],
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: never lets a coalescing delivery replace the run’s own snapshot
+    });
+
+    it('never lets a coalescing delivery replace the run’s own snapshot', async () => {
         {
             await enqueueInto({ store, snapshots: [assignment(12)], prompt: bindingSnapshot(PROMPT_A) });
             const afterJoin = await enqueueInto({
@@ -278,11 +268,9 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
             });
             expect(runs[0]?.referenceCount).toBe(2);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: adds no field to the delivery rows: the bytes are the pre-004 bytes
+    });
+
+    it('adds no field to the delivery rows: the bytes are the pre-004 bytes', async () => {
         {
             const withPrompt = await mkdtemp(join(tmpdir(), 'prompt-events-with-'));
             const withoutPrompt = await mkdtemp(join(tmpdir(), 'prompt-events-without-'));
@@ -311,31 +299,27 @@ describe('T-006 the snapshot is taken at detection and never re-read (FR-015, AC
             }
         }
     });
+
 });
 
 describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)', () => {
-    it('parses a row written before this feature, with no pr… (+6 cases)', async () => {
-        // case: parses a row written before this feature, with no prompt member (AC-142)
+    it('parses a row written before this feature, with no prompt member', async () => {
         {
             const document = parseRunsDocument(storedDocumentWith(undefined, false));
             expect(document).not.toBeNull();
             expect(document?.runs[0]?.prompt).toBeNull();
             expect(document?.schemaVersion).toBe(RUNS_SCHEMA_VERSION);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: parses an explicit null as unset
+    });
+
+    it('parses an explicit null as unset', async () => {
         {
             const document = parseRunsDocument(storedDocumentWith(null, true));
             expect(document?.runs[0]?.prompt).toBeNull();
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: parses a well-formed snapshot, and a stacked body up to its own bound
+    });
+
+    it('parses a well-formed snapshot, and a stacked body up to its own bound', async () => {
         {
             const document = parseRunsDocument(storedDocumentWith({
                 text: PROMPT_A,
@@ -366,21 +350,17 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
                 sources: ['global', 'account', 'binding'],
             });
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses the whole document for a present value that is not a snapshot
+    });
+
+    it('refuses the whole document for a present value that is not a snapshot', async () => {
         {
             for (const unusable of [42, true, 'text', [], { text: PROMPT_A }]) {
                 expect(parseRunsDocument(storedDocumentWith(unusable, true)), JSON.stringify(unusable)).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a malformed fingerprint, an over-cap text, a wrong length, and a credential
+    });
+
+    it('refuses a malformed fingerprint, an over-cap text, a wrong length, and a credential', async () => {
         {
             // Every case carries a valid `sources` list so the refusal comes
             // from the rule it names, never from the missing-member rule.
@@ -422,11 +402,9 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
                 expect(parseRunsDocument(storedDocumentWith(snapshot, true)), JSON.stringify(snapshot)).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses `sources` that are absent, empty, unknown, out of order, or over the bound
+    });
+
+    it('refuses `sources` that are absent, empty, unknown, out of order, or over the bound', async () => {
         {
             const base = {
                 text: PROMPT_A,
@@ -458,11 +436,9 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
                 expect(parseRunsDocument(storedDocumentWith(snapshot, true)), JSON.stringify(snapshot)).toBeNull();
             }
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: quarantines the stored document through the store’s own funnel
+    });
+
+    it('quarantines the stored document through the store’s own funnel', async () => {
         {
             await store.writeJson(RUNS_FILE, storedDocumentWith({ text: PROMPT_A }, true));
             const read = await store.readJson(RUNS_FILE, parseRunsDocument);
@@ -473,11 +449,11 @@ describe('T-006 the run parser validates the snapshot (FR-019, FR-028, AC-142)',
             }
         }
     });
+
 });
 
 describe('T-018 the resolver stacks the set tiers once (FR-080, FR-086, FR-087)', () => {
-    it('resolves the set tiers in order, or answers null (+5 cases)', () => {
-        // case: the resolution matrix — all three, global-only, account+binding, binding-only, none
+    it('resolves the set tiers in order, or answers null', () => {
         {
             const global = { startingPrompt: GLOBAL_TEXT };
             const account = { startingPrompt: ACCOUNT_TEXT };
@@ -500,7 +476,6 @@ describe('T-018 the resolver stacks the set tiers once (FR-080, FR-086, FR-087)'
             expect(resolvePromptSnapshot({ global: null, account: null, binding: null })).toBeNull();
             expect(resolvePromptSnapshot({ global: {}, account: {}, binding: {} })).toBeNull();
         }
-        // case: one fingerprint over the body; binding-only equals the shipped single-tier value
         {
             const body = `${GLOBAL_TEXT}\n\n${PROMPT_A}`;
             const stacked = resolvePromptSnapshot({
@@ -517,7 +492,6 @@ describe('T-018 the resolver stacks the set tiers once (FR-080, FR-086, FR-087)'
             expect(bindingOnly?.fingerprint).toBe(promptFingerprint(PROMPT_A));
             expect(bindingOnly?.fingerprint).toBe(promptTierOf(bindingWith(PROMPT_A))?.fingerprint);
         }
-        // case: sources follow the order by construction — ordered, duplicate-free, all known
         {
             const snapshot = resolvePromptSnapshot({
                 global: { startingPrompt: GLOBAL_TEXT },
@@ -527,20 +501,17 @@ describe('T-018 the resolver stacks the set tiers once (FR-080, FR-086, FR-087)'
             expect(snapshot?.sources).toEqual([...PROMPT_SOURCE_ORDER]);
             expect(snapshot === null ? null : isPromptSourceList(snapshot.sources)).toBe(true);
         }
-        // case: composePromptBody joins set tiers with exactly one blank line, or answers ''
         {
             expect(composePromptBody({ global: 'g', account: 'a', binding: 'b' })).toBe('g\n\na\n\nb');
             expect(composePromptBody({ global: null, account: null, binding: 'b' })).toBe('b');
             expect(composePromptBody({ global: 'g', account: null, binding: 'b' })).toBe('g\n\nb');
             expect(composePromptBody({ global: null, account: null, binding: null })).toBe('');
         }
-        // case: the stack bound is n × cap + 2 × (n − 1) — 6,004 for three tiers (FR-085, R-1)
         {
             expect(promptStackMaxCodePoints(1)).toBe(STARTING_PROMPT_MAX_CODE_POINTS);
             expect(promptStackMaxCodePoints(2)).toBe(2 * STARTING_PROMPT_MAX_CODE_POINTS + 2);
             expect(promptStackMaxCodePoints(3)).toBe(6_004);
         }
-        // case: a tier the validator refuses composes nothing at all — never a partial body (FR-028)
         {
             expect(resolvePromptSnapshot({
                 global: { startingPrompt: GLOBAL_TEXT },

@@ -1,6 +1,14 @@
+/* eslint-disable llm-core/no-floating-promise --
+ * `Repaint` is declared `(rt: PanelRuntime) => void`, so `repaint(rt)` discards
+ * nothing. The rule fires on that call *inside an `async` function* and not on
+ * the identical call in a sync one: there are 15 call sites, all the same
+ * expression, and precisely the 8 that sit in an async body are reported.
+ * `void repaint(rt)` would satisfy it and is what the rule's own message
+ * suggests, but that reads as a claim the callback is asynchronous, which is
+ * the opposite of the truth. The honest fix is in the rule, not here. */
 /**
  * The Settings tab's actions: the read, the write, and the two draft
- * mutations (006 T-019, T-020; FR-015, FR-016, FR-040 – FR-049).
+ * mutations.
  *
  * Split from [`settings-tab.ts`](./settings-tab.ts) so the view keeps the
  * mount/repaint/dispose and this module keeps the effects: each action takes
@@ -10,19 +18,18 @@
  * through the one wrapper set, then record what came back as fact:
  *
  * - **A read adopts the document and re-evaluates the markers** — a failure
- *   keeps the last document, marks it stale, and *blocks* any save (FR-019,
- *   FR-042), because a save with no current baseline sends a document the
+ *   keeps the last document, marks it stale, and *blocks* any save,
+ *   because a save with no current baseline sends a document the
  *   panel cannot stand behind.
- * - **A save is one activation, one whole-document write** (FR-046): the busy
+ * - **A save is one activation, one whole-document write**: the busy
  *   gate refuses a second activation instead of queueing it, the refusal path
- *   keeps the service's issues in the service's order (FR-024), and the
- *   success path adopts the configuration the **service returned** (FR-044).
- * - **A destructive save arms before it writes** (FR-051, T-022): lowering a
+ *   keeps the service's issues in the service's order, and the
+ *   success path adopts the configuration the **service returned**.
+ * - **A destructive save arms before it writes**: lowering a
  *   retention knob, and restoring defaults, raise the confirmation built by
  *   `settings-confirm.ts` on the first activation and perform exactly one
  *   write on the second — the first activation issues **no** request at all.
- * - **Discard and cancel touch the draft only** — no write, ever (FR-015,
- *   FR-049, FR-054).
+ * - **Discard and cancel touch the draft only** — no write, ever.
  */
 
 import { nowIso } from './ids.ts';
@@ -61,7 +68,6 @@ const UNREADABLE_REREAD = 'the configuration could not be re-read after the refu
  * check as unreachable, while the frame really can go away between two awaits
  * (the same shape the Status tab's read has).
  *
- * @param rt - Panel runtime.
  * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
@@ -69,14 +75,12 @@ function tornDown(rt: PanelRuntime): boolean {
 }
 
 /**
- * Retire the pending markers a landed read has caught up with (FR-038).
+ * Retire the pending markers a landed read has caught up with.
  *
  * This tab reads no status projection, so it has no effective value to compare
  * against: a marker survives the save that created it and is retired by this
  * read rather than by an optimistic claim — which is the whole of "not cleared
- * on save" (AC-105).
- *
- * @param rt - Panel runtime, whose edit state is updated in place.
+ * on save".
  */
 function retirePending(rt: PanelRuntime): void {
     const slice = rt.state.settingsTab;
@@ -96,10 +100,8 @@ function retirePending(rt: PanelRuntime): void {
 }
 
 /**
- * Read `GET /v1/config` once and record what it answered (FR-014, FR-049).
+ * Read `GET /v1/config` once and record what it answered.
  *
- * @param rt - Panel runtime.
- * @param repaint - What repaints the tab after the state moves.
  * @returns Resolves once the answer has been applied.
  */
 export async function applyConfigRead(rt: PanelRuntime, repaint: Repaint): Promise<void> {
@@ -141,10 +143,7 @@ export async function applyConfigRead(rt: PanelRuntime, repaint: Repaint): Promi
 }
 
 /**
- * Apply one field edit to the draft (FR-012: this is not a write).
- *
- * @param input - The runtime, the repaint to trigger, and the field/text the
- *   operator entered.
+ * Apply one field edit to the draft. This is not a write.
  */
 export function applyFieldEdit(input: {
     /** Panel runtime whose state moves. */
@@ -168,10 +167,7 @@ export function applyFieldEdit(input: {
 
 /**
  * Record an accepted write: the document the service returned, and the audit
- * outcome it reported with it (FR-044, FR-070; AC-125, AC-139).
- *
- * @param input - The runtime, the repaint, the answer body, and the fields
- *   the write changed.
+ * outcome it reported with it.
  */
 function recordAcceptedWrite(input: {
     /** Panel runtime whose state moves. */
@@ -209,14 +205,12 @@ function recordAcceptedWrite(input: {
 
 /**
  * Apply one write's answer to the state: the document it returned, the
- * refusal it issued, or the cause it failed with (FR-044, FR-061 – FR-064).
+ * refusal it issued, or the cause it failed with.
  *
  * Split out of {@link performWrite} so each answer path stays small enough to
  * read on its own — the three are genuinely different kinds of fact, and
  * conflating the last two is exactly how a `503` comes to look like a refusal
  * of the operator's values.
- *
- * @param input - The runtime, the repaint, the answer, and the changed fields.
  */
 function applyWriteAnswer(input: {
     /** Panel runtime whose state moves. */
@@ -229,14 +223,13 @@ function applyWriteAnswer(input: {
     readonly changed: readonly string[];
 }): void {
     const { rt, repaint, answer, changed } = input;
-    const slice = rt.state.settingsTab;
-
     if (answer.ok) {
         recordAcceptedWrite({ rt, repaint, body: answer.body, changed });
 
         return;
     }
 
+    const slice = rt.state.settingsTab;
     if (answer.code === 'validation') {
         const current = slice.doc;
         slice.edit = current === null
@@ -254,7 +247,7 @@ function applyWriteAnswer(input: {
     // Not a refusal of these values: a store the service cannot write, a
     // missing grant, a transport failure, or something it did not document —
     // each reaches the operator as its own cause, never as "the service
-    // refused your values" (FR-061, FR-063).
+    // refused your values".
     slice.edit = recordFailed(slice.edit, writeFailure({
         code: answer.code,
         problem: redact(answer.problem),
@@ -265,14 +258,12 @@ function applyWriteAnswer(input: {
 
 /**
  * Send the one write a save activation authorises: one `PUT`, the whole
- * document (FR-040), issued only after every gate has passed.
+ * document, issued only after every gate has passed.
  *
  * Extracted from {@link applySave} so the two arming actions — a save that
  * lowered a retention knob, and a confirmed restore — perform **exactly** the
  * same write from the same place, rather than each growing a copy of it.
  *
- * @param rt - Panel runtime.
- * @param repaint - What repaints the tab after the state moves.
  * @returns Resolves once the answer has been applied.
  */
 async function performWrite(rt: PanelRuntime, repaint: Repaint): Promise<void> {
@@ -312,24 +303,22 @@ async function performWrite(rt: PanelRuntime, repaint: Repaint): Promise<void> {
 /**
  * Save the draft: one activation, one whole-document write — unless the write
  * would delete history, in which case the first activation arms the
- * confirmation and sends nothing (FR-040, FR-046, FR-051; AC-117, AC-118).
+ * confirmation and sends nothing.
  *
- * @param rt - Panel runtime.
- * @param repaint - What repaints the tab after the state moves.
  * @returns Resolves once the answer has been applied.
  */
 export async function applySave(rt: PanelRuntime, repaint: Repaint): Promise<void> {
-    const slice = rt.state.settingsTab;
     if (rt.disposed) {
         return;
     }
 
+    const slice = rt.state.settingsTab;
     const armed = slice.edit.confirm;
     if (armed !== null) {
         // A restore is armed: only its own control confirms it, so Save
         // neither arms nor writes while that confirmation stands — a
         // confirmation the wrong button could complete would not be one
-        // (FR-051's two steps are two activations of *the* control).
+        // (the two steps are two activations of *the* control).
         if (armed.action !== 'save') {
             repaint(rt);
 
@@ -349,10 +338,7 @@ export async function applySave(rt: PanelRuntime, repaint: Repaint): Promise<voi
 }
 
 /**
- * Discard the unsaved edits, naming what reverted (FR-015, AC-122).
- *
- * @param rt - Panel runtime.
- * @param repaint - What repaints the tab after the state moves.
+ * Discard the unsaved edits, naming what reverted.
  */
 export function applyDiscard(rt: PanelRuntime, repaint: Repaint): void {
     const slice = rt.state.settingsTab;
@@ -366,16 +352,14 @@ export function applyDiscard(rt: PanelRuntime, repaint: Repaint): void {
 
 /**
  * Restore the declared defaults — two steps, no write without the
- * confirmation (FR-016, FR-049, FR-051).
+ * confirmation.
  *
  * The first activation stages the service's own defaults into the draft and
  * arms a confirmation that names **every** field the write will change, with
  * its current → default value; the second one writes the whole document.
  * Nothing is written by staging alone, so an operator who changes their mind
- * at the armed step cancels back to the last-read values (AC-121).
+ * at the armed step cancels back to the last-read values.
  *
- * @param rt - Panel runtime.
- * @param repaint - What repaints the tab after the state moves.
  * @returns Resolves once a confirmed write has been applied.
  */
 export async function applyStageDefaults(rt: PanelRuntime, repaint: Repaint): Promise<void> {
@@ -409,10 +393,7 @@ export async function applyStageDefaults(rt: PanelRuntime, repaint: Repaint): Pr
 
 /**
  * Disarm the confirmation: nothing is written, and every field returns to the
- * last-read value (FR-054, AC-121).
- *
- * @param rt - Panel runtime.
- * @param repaint - What repaints the tab after the state moves.
+ * last-read value.
  */
 export function applyConfirmCancel(rt: PanelRuntime, repaint: Repaint): void {
     const slice = rt.state.settingsTab;
@@ -426,3 +407,6 @@ export function applyConfirmCancel(rt: PanelRuntime, repaint: Repaint): void {
     slice.edit = discard(slice.edit, slice.doc);
     repaint(rt);
 }
+
+/* eslint-enable llm-core/no-floating-promise --
+ * Last of the `void`-typed `repaint(rt)` calls; see the disable at the top. */

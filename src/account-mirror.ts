@@ -24,7 +24,7 @@ const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] a
 /** One FR-010 capability name (contract §2 step ⑥). */
 export type ScopeCapability = (typeof SCOPE_CAPABILITIES)[number];
 
-/** Result recorded for one capability: `ok`, `missing`, or `unknown` (FR-010). */
+/** Result recorded for one capability: `ok`, `missing`, or `unknown`. */
 export type ScopeResult = 'ok' | 'missing' | 'unknown';
 
 /** FR-010 scope matrix as the account mirror records it (contract §3, review M1). */
@@ -41,7 +41,6 @@ export interface ScopeMirror {
  * Every FR-010 capability must carry a legal verdict; anything else is not a
  * matrix this panel can record.
  *
- * @param raw - The `results` field, or anything else.
  * @returns The matrix, or `null` when any capability is missing or illegal.
  */
 function readScopeResults(raw: unknown): Readonly<Record<ScopeCapability, ScopeResult>> | null {
@@ -111,7 +110,6 @@ export interface AccountMirror {
 /**
  * Narrow a stored entry to an account mirror.
  *
- * @param value - One entry from the `accounts` storage key.
  * @returns `true` only for a mirror this panel wrote itself (contract §3's
  *   four fields; a pre-M1 entry without `scopeCheck` is not one).
  */
@@ -138,7 +136,6 @@ function isAccountMirror(value: unknown): value is AccountMirror {
 /**
  * Read the account mirror list this panel wrote earlier.
  *
- * @param rt - Panel runtime.
  * @returns The mirrors; anything unreadable is treated as an empty list.
  */
 export async function readStoredAccounts(rt: PanelRuntime): Promise<readonly AccountMirror[]> {
@@ -157,10 +154,6 @@ export async function readStoredAccounts(rt: PanelRuntime): Promise<readonly Acc
  *
  * The list is rewritten whole with this identity replacing any earlier entry
  * for the same account.
- *
- * @param rt - Panel runtime.
- * @param identity - Identity and FR-010 matrix the service answered with
- *   (`scopeCheck: null` for the F4 status re-read, which reports no scopes).
  */
 export async function writeAccountMirror(
     rt: PanelRuntime,
@@ -188,9 +181,6 @@ export async function writeAccountMirror(
  * has already forgotten the account, and the next adoption pass (or the next
  * handoff) repairs the mirror. The removal path reports the service outcome
  * on its own note line; this only keeps the panel copy from outliving it.
- *
- * @param rt - Panel runtime.
- * @param numericUserId - Account whose mirror entry is removed.
  */
 export async function removeAccountMirror(rt: PanelRuntime, numericUserId: string): Promise<void> {
     const stored = await readStoredAccounts(rt);
@@ -203,7 +193,6 @@ export async function removeAccountMirror(rt: PanelRuntime, numericUserId: strin
  *
  * Exported for callers that render an identity they read back from storage.
  *
- * @param value - One entry from the `accounts` storage key.
  * @returns The mirror, or `null` when the entry is not one of this panel's.
  */
 export function parseAccountMirror(value: unknown): AccountMirror | null {

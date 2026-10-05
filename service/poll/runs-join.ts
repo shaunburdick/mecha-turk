@@ -78,7 +78,7 @@ function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
 
     const marker = '~mention~';
     const at = delivery.id.lastIndexOf(marker);
-    if (at < 0) {
+    if (at === -1) {
         return null;
     }
 
@@ -93,7 +93,7 @@ function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
 }
 
 /**
- * Build the source reference one delivery contributes (FR-013).
+ * Build the source reference one delivery contributes.
  *
  * The delivery's **actor members ride the reference verbatim** (002 FR-043,
  * FR-044): the gate later judges one of them, and a run that recorded the
@@ -103,11 +103,11 @@ function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
  * with neither member rather than an empty login.
  *
  * @param delivery - The delivery joining the run.
- * @param presentAtAuthorization - `false` when the run already held a
+ * @param isPresentAtAuthorization - `false` when the run already held a
  *   reservation when this delivery arrived.
  * @returns The reference, or `null` when the delivery's origin is unusable.
  */
-export function referenceOf(delivery: QueuedEvent, presentAtAuthorization: boolean): SourceReference | null {
+export function referenceOf(delivery: QueuedEvent, isPresentAtAuthorization: boolean): SourceReference | null {
     const origin = originOf(delivery);
     if (origin === null) {
         return null;
@@ -119,7 +119,7 @@ export function referenceOf(delivery: QueuedEvent, presentAtAuthorization: boole
         origin,
         sourceUrl: delivery.issueUrl,
         detectedAt: delivery.detectedAt,
-        presentAtAuthorization,
+        presentAtAuthorization: isPresentAtAuthorization,
         ...actorFieldsOf({
             actorLogin: delivery.actorLogin,
             actorAttribution: delivery.actorAttribution,
@@ -128,7 +128,7 @@ export function referenceOf(delivery: QueuedEvent, presentAtAuthorization: boole
 }
 
 /**
- * One reference's fold into a run, with the retention verdict (T-038).
+ * One reference's fold into a run, with the retention verdict.
  */
 export interface JoinResult {
     /** The run with its reference list and counters updated. */
@@ -137,7 +137,7 @@ export interface JoinResult {
      * Whether the reference is on the run's list.
      *
      * `false` only when the cap was already full — the delivery still joined
-     * (FR-011) and still earns its audit row (FR-016); it is the list entry
+     * and still earns its audit row; it is the list entry
      * that the cap refused, and `run.referencesNotRetained` counts it.
      */
     readonly retained: boolean;
@@ -154,11 +154,8 @@ export interface JoinResult {
  * list is capped at {@link MAX_SOURCE_REFERENCES} retained references; past
  * the cap the run keeps counting (`referenceCount`), counts what it could not
  * keep (`referencesNotRetained`), and says so (`referencesTruncated`), while
- * every overflow delivery still earns its own audit row (NFR-107, T-038).
+ * every overflow delivery still earns its own audit row.
  *
- * @param run - The run being joined.
- * @param reference - The joining delivery's reference.
- * @param now - Mutation stamp.
  * @returns The run plus whether this reference is on its list.
  */
 export function joinReference(input: {
@@ -218,8 +215,6 @@ interface RunCreationInput {
 /**
  * Mint the run one delivery creates, at the subject's next ordinal.
  *
- * @param input - The delivery, its subject, ordinal, reference, stamp, and the
- *   binding's prompt snapshot (004 FR-015).
  * @returns A fresh `pending` run with the FR-050 identity derived.
  */
 function runForDelivery(input: RunCreationInput): Run {
@@ -246,7 +241,7 @@ function runForDelivery(input: RunCreationInput): Run {
         projectId: delivery.projectId,
         worktreeOption: delivery.worktreeOption,
         prompt,
-        // The policy in force is decided at **authorization** (003 FR-076), not
+        // The policy in force is decided at **authorization**, not
         // here: an enqueue pass reads no binding, and a run that predated the
         // gate would otherwise carry a policy no gate ever judged.
         actorPolicy: null,
@@ -271,7 +266,6 @@ function runForDelivery(input: RunCreationInput): Run {
 /**
  * Read the ordinal-free subject key a run belongs to.
  *
- * @param run - The run.
  * @returns `github|<account>|<repository>|<subjectType>|<subjectNumber>`.
  */
 function subjectKeyOfRun(run: Run): string {
@@ -284,14 +278,14 @@ function subjectKeyOfRun(run: Run): string {
     });
 }
 
-/** One delivery joining an existing run (FR-016). */
+/** One delivery joining an existing run. */
 export interface EnqueueJoin {
     /** The run it joined. */
     readonly run: Run;
     /** The reference recorded for it. */
     readonly reference: SourceReference;
     /**
-     * Whether the reference is on the run's list (T-038).
+     * Whether the reference is on the run's list.
      *
      * `false` means the cap was full: the delivery joined the run and still
      * earns this row, but its detail is counted in `referencesNotRetained`
@@ -307,9 +301,9 @@ export interface EnqueueOutcome {
     readonly document: RunsDocument;
     /** Delivery id → run correlation id, for the rows the caller links. */
     readonly links: ReadonlyMap<string, string>;
-    /** Runs created this pass: one `run.created` row each (FR-017). */
+    /** Runs created this pass: one `run.created` row each. */
     readonly created: readonly Run[];
-    /** Joins this pass made: one `run.coalesced` row each (FR-016). */
+    /** Joins this pass made: one `run.coalesced` row each. */
     readonly joins: readonly EnqueueJoin[];
 }
 
@@ -323,7 +317,7 @@ export interface EnqueueInput {
     readonly now: string;
     /**
      * The scanning binding's prompt snapshot, snapshotted with the same
-     * binding object that produced `projectId`/`worktreeOption` (004 FR-015).
+     * binding object that produced `projectId`/`worktreeOption`.
      *
      * Absent reads as `null`: a run opened with no prompt, which is also how
      * every caller outside the poll loop behaves.
@@ -333,11 +327,9 @@ export interface EnqueueInput {
 
 /**
  * Fold fresh deliveries into runs: join the subject's open run, else create
- * the next ordinal (FR-011). Pure — the caller owns the chain, the two
+ * the next ordinal. Pure — the caller owns the chain, the two
  * writes, and the audit rows, in that order.
  *
- * @param input - The stored document, the deduped deliveries, the stamp, and
- *   the binding's prompt snapshot.
  * @returns The document to persist plus the effects to audit and link.
  */
 export function applyEnqueue(input: EnqueueInput): EnqueueOutcome {
@@ -356,7 +348,7 @@ export function applyEnqueue(input: EnqueueInput): EnqueueOutcome {
         }
 
         const index = runs.findIndex((run) => !isTerminalRun(run) && subjectKeyOfRun(run) === shape.subjectKey);
-        const open = index < 0 ? undefined : runs[index];
+        const open = index === -1 ? undefined : runs[index];
         if (open !== undefined) {
             const authorizedReference = { ...reference, presentAtAuthorization: open.reservation === null };
             const folded = joinReference({ run: open, reference: authorizedReference, now: input.now });

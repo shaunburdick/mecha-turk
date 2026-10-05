@@ -48,16 +48,16 @@ import type { PanelRuntime } from './panel-state.ts';
 /** Heading above the projection's service block. */
 const SERVICE_HEADING = 'Service';
 
-/** Heading above the polling block; the effective interval lives here (FR-039). */
+/** Heading above the polling block; the effective interval lives here. */
 const POLLING_HEADING = 'Polling';
 
-/** Heading above the per-account rows (FR-030). */
+/** Heading above the per-account rows. */
 const ACCOUNTS_HEADING = 'Accounts';
 
-/** Heading above the per-binding rows — the wire says `repositories` (FR-026). */
+/** Heading above the per-binding rows — the wire says `repositories`. */
 const BINDINGS_HEADING = 'Bindings';
 
-/** Heading above the agent-pin block (FR-033). */
+/** Heading above the agent-pin block. */
 const AGENT_PIN_HEADING = 'Agent pin';
 
 /**
@@ -76,7 +76,7 @@ const SUBJECT_KEY_CLASS = 'mt-key--mono';
 interface NoticeInput {
     /** Element to append into. */
     readonly parent: HTMLElement;
-    /** Banner tone; the copy carries the state as well (FR-083). */
+    /** Banner tone; the copy carries the state as well. */
     readonly tone: 'warning' | 'error';
     /** Banner title. */
     readonly title: string;
@@ -102,7 +102,7 @@ export interface StatusRowGroup {
 export interface StatusNotice {
     /** Wrapper whose `hidden` flag is "there is nothing to report here". */
     readonly box: HTMLElement;
-    /** The banner inside the wrapper (FR-035, FR-036). */
+    /** The banner inside the wrapper. */
     readonly banner: BannerHandle;
 }
 
@@ -110,9 +110,9 @@ export interface StatusNotice {
 export interface StatusTabUi {
     /** The first block: the tab title over the two notices and the controls. */
     readonly overview: Block;
-    /** Unsupported-surface notice, hidden while the surface supports a service (FR-036). */
+    /** Unsupported-surface notice, hidden while the surface supports a service. */
     readonly unsupported: StatusNotice;
-    /** Blocking storage notice, hidden while the data directory is writable (FR-035). */
+    /** Blocking storage notice, hidden while the data directory is writable. */
     readonly storageBlocked: StatusNotice;
     /** Explicit refresh — the tab's one way to re-read (FR-014). */
     readonly refreshButton: ButtonHandle;
@@ -137,7 +137,6 @@ export interface StatusTabUi {
  * that property across the first `await` and then reports a later direct
  * check as unreachable, while the frame really can go away between two awaits.
  *
- * @param rt - Panel runtime.
  * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
@@ -147,7 +146,6 @@ function tornDown(rt: PanelRuntime): boolean {
 /**
  * Create a notice banner inside a wrapper the tab can hide.
  *
- * @param input - Where it mounts, its tone and copy, and its initial state.
  * @returns The wrapped notice.
  */
 function mountNotice(input: NoticeInput): StatusNotice {
@@ -159,29 +157,27 @@ function mountNotice(input: NoticeInput): StatusNotice {
 }
 
 /**
- * Rows whose *value* is machine-shaped — a path, a stamp — and so reads best
+ * Rows whose *value* is isMachine-shaped — a path, a stamp — and so reads best
  * in the mono stack. Matched against the label the split produced, so a
  * service that reorders its block cannot quietly turn a path into
  * proportional text.
  */
-const MONO_VALUE_LABELS: readonly string[] = ['Data directory', 'Next poll'];
+const MONO_VALUE_LABELS: ReadonlySet<string> = new Set(['Data directory', 'Next poll']);
 
 /**
  * Build one row's inputs from the line the copy module produced.
  *
- * @param group - The group the row belongs to, for its label treatment.
- * @param line - One line of this group's copy.
  * @returns The line, plus the cell classes this row takes.
  */
 function rowInput(group: StatusRowGroup, line: string): LineInput {
     const split = splitLine(line);
-    const machine = split !== null && MONO_VALUE_LABELS.includes(split.key);
-    const subject = split !== null && split.separator === EM_DASH_SEPARATOR;
+    const isMachine = split !== null && MONO_VALUE_LABELS.has(split.key);
+    const isSubject = split !== null && split.separator === EM_DASH_SEPARATOR;
 
     return {
         line,
-        ...(machine ? { valueClass: 'mt-val--mono' } : {}),
-        ...(subject && group.keyClass !== null ? { keyClass: group.keyClass } : {}),
+        ...(isMachine && { valueClass: 'mt-val--mono' }),
+        ...(isSubject && group.keyClass !== null && { keyClass: group.keyClass }),
     };
 }
 
@@ -192,8 +188,6 @@ function rowInput(group: StatusRowGroup, line: string): LineInput {
  * what gives each group a place in the tab's heading hierarchy and its own
  * surface to sit on.
  *
- * @param parent - Element to append into.
- * @param input - The section heading, and the label treatment its rows take.
  * @returns The group, with no rows yet.
  */
 function mountRowGroup(
@@ -217,9 +211,6 @@ function mountRowGroup(
  * fact about the line — so repainting in place would leave a row showing a
  * label it no longer has. Rebuilding keeps exactly one row per line, and the
  * handles are released as they go.
- *
- * @param group - The group to repaint.
- * @param lines - The lines to show, one per row.
  */
 function paintRowGroup(group: StatusRowGroup, lines: readonly string[]): void {
     for (const row of group.rows) {
@@ -231,8 +222,6 @@ function paintRowGroup(group: StatusRowGroup, lines: readonly string[]): void {
 
 /**
  * Remove one group's nodes and handles.
- *
- * @param group - The group to dispose.
  */
 function disposeRowGroup(group: StatusRowGroup): void {
     for (const row of group.rows) {
@@ -248,7 +237,6 @@ function disposeRowGroup(group: StatusRowGroup): void {
  * `null` is load-bearing: the guidance line claims a project is *not
  * registered*, and it may only claim that from a list that actually arrived.
  *
- * @param rt - Panel runtime whose picker state the answer comes from.
  * @returns The registered ids, or `null` when they are not known yet.
  */
 function registeredProjects(rt: PanelRuntime): readonly string[] | null {
@@ -258,12 +246,10 @@ function registeredProjects(rt: PanelRuntime): readonly string[] | null {
 }
 
 /**
- * Repaint the Status body from the current read (FR-019, FR-030).
+ * Repaint the Status body from the current read.
  *
  * Nothing runs when the tab has never been activated: the state still
- * updates, and the first activation repaints from it (FR-013).
- *
- * @param rt - Panel runtime.
+ * updates, and the first activation repaints from it.
  */
 export function repaintStatusTab(rt: PanelRuntime): void {
     const ui = rt.statusUi;
@@ -273,9 +259,9 @@ export function repaintStatusTab(rt: PanelRuntime): void {
 
     const slice = rt.state.statusTab;
     const view = slice.doc;
-    const loading = slice.phase === 'loading';
+    const isLoading = slice.phase === 'loading';
 
-    ui.refreshButton.update({ disabled: loading, loading });
+    ui.refreshButton.update({ disabled: isLoading, loading: isLoading });
     ui.readLine.update(readStateLine(slice));
 
     // The two blocking notices are facts about the *last* document the panel
@@ -292,7 +278,7 @@ export function repaintStatusTab(rt: PanelRuntime): void {
         // The one exception to "nothing claimed with nothing read": the
         // allow-list roll-up states *not available* rather than vanishing,
         // because an operator who cannot see it cannot tell a missing warning
-        // from a panel that did not check (005 FR-093, NFR-113).
+        // from a panel that did not check.
         paintRowGroup(ui.bindings, actorPolicyLines(view));
 
         return;
@@ -311,8 +297,6 @@ export function repaintStatusTab(rt: PanelRuntime): void {
 
 /**
  * Repaint the shared framing and then this tab, after one step of a read.
- *
- * @param rt - Panel runtime.
  */
 function repaintAfterRead(rt: PanelRuntime): void {
     refresh(rt);
@@ -325,9 +309,7 @@ function repaintAfterRead(rt: PanelRuntime): void {
  * The status read is the tab's own: if it fails, the tab says so and keeps
  * whatever it last rendered marked stale. The configuration read is
  * supplementary — its failure renders as *not read* on one line rather than
- * failing a tab whose primary document arrived (FR-039, FR-019).
- *
- * @param rt - Panel runtime.
+ * failing a tab whose primary document arrived.
  */
 export async function loadStatus(rt: PanelRuntime): Promise<void> {
     const slice = rt.state.statusTab;
@@ -371,10 +353,8 @@ export async function loadStatus(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Mount the refresh control and the read-state line (FR-014, FR-019).
+ * Mount the refresh control and the read-state line.
  *
- * @param rt - Panel runtime whose read state the line reports.
- * @param parent - Element to append into.
  * @returns The two handles.
  */
 function mountControls(rt: PanelRuntime, parent: HTMLElement): {
@@ -399,9 +379,8 @@ function mountControls(rt: PanelRuntime, parent: HTMLElement): {
 }
 
 /**
- * Mount the Status body above the prerequisites section (FR-030, FR-037).
+ * Mount the Status body above the prerequisites section.
  *
- * @param input - Runtime and the Status body container the shell created.
  * @returns The handles a repaint updates.
  */
 export function mountStatusTab(input: {
@@ -411,9 +390,9 @@ export function mountStatusTab(input: {
     readonly parent: HTMLElement;
 }): StatusTabUi {
     const { rt, parent } = input;
-    // One rule across the six tabs (2026-10-01 review): the tab title is the
+    // One rule across the six tabs: the tab title is the
     // first block's heading, and the tab's controls live inside that block.
-    // The two blocking notices go in with them, in FR-036's own order — the
+    // The two blocking notices go in with them own order — the
     // blocking facts still come before anything that could read as healthy.
     const overview = createBlock(parent, { heading: OVERVIEW_HEADING, title: true });
     const unsupported = mountNotice({
@@ -450,9 +429,7 @@ export function mountStatusTab(input: {
 }
 
 /**
- * Dispose the Status body's handles (FR-017).
- *
- * @param rt - Panel runtime being torn down.
+ * Dispose the Status body's handles.
  */
 export function disposeStatusTab(rt: PanelRuntime): void {
     const ui = rt.statusUi;

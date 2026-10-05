@@ -25,34 +25,33 @@ export type { PollLoop };
  * shutdown path cancels it through {@link PollLoop.stop}. A cycle still
  * running when the next timer fires is skipped rather than overlapped.
  *
- * @param deps - Store, logger, and poller.
  * @returns A handle that stops the loop.
  */
 export function startPollLoop(deps: ScanDeps): PollLoop {
     let timer: NodeJS.Timeout | null = null;
-    let stopped = false;
-    let inFlight = false;
+    let isStopped = false;
+    let isInFlight = false;
     // Epoch stamp of the armed timer, published read-only through `state()`
     // so the status projection reports the scheduler's own schedule instead of
-    // a second one it could drift from (005 FR-031).
+    // a second one it could drift from.
     let nextAtMs: number | null = null;
 
     const cycle = async (): Promise<void> => {
-        if (stopped || inFlight) {
+        if (isStopped || isInFlight) {
             return;
         }
 
-        inFlight = true;
+        isInFlight = true;
         try {
             await runScanCycle(deps);
         } catch (cause) {
             deps.log.warn('poll cycle failed', { errorKind: describeKind(cause) });
         } finally {
-            inFlight = false;
+            isInFlight = false;
         }
 
         await currentIntervalMs(deps.store, deps.log).then((interval) => {
-            if (stopped) {
+            if (isStopped) {
                 return null;
             }
 
@@ -72,14 +71,16 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
 
     return {
         stop: (): void => {
-            stopped = true;
+            isStopped = true;
             nextAtMs = null;
-            if (timer !== null) {
-                clearTimeout(timer);
-                timer = null;
+            if (timer === null) {
+                return;
             }
+
+            clearTimeout(timer);
+            timer = null;
         },
-        state: (): PollLoopState => ({ stopped, nextPollAtMs: nextAtMs }),
+        state: (): PollLoopState => ({ stopped: isStopped, nextPollAtMs: nextAtMs }),
     };
 }
 
@@ -87,7 +88,7 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
  * Build the poller production uses: the shared logger, a real timer, and the
  * process' own jitter source.
  *
- * @param log - Logger every poll-request wait is reported through (FR-058).
+ * @param log - Logger every poll-request wait is reported through.
  * @returns The poller bound to those injectables.
  */
 export function createDefaultPoller(log: ServiceLogger): GitHubIssuePoller {

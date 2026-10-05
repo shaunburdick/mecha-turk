@@ -34,7 +34,7 @@
 
 import { asRecord, parseJsonObject } from './json.ts';
 
-/** Take-effect classes the projection may carry (006 FR-030). */
+/** Take-effect classes the projection may carry. */
 export type TakeEffectClass = 'immediate' | 'next-cycle' | 'next-dispatch' | 'restart' | 'none';
 
 /** Where a resolved configuration came from (006 contract §3). */
@@ -79,7 +79,7 @@ export interface EnumDescriptor {
     readonly name: string;
     /** Kind discriminator. */
     readonly kind: 'enum';
-    /** An enum has no unit; none may be fabricated (FR-014). */
+    /** An enum has no unit; none may be fabricated. */
     readonly unit: null;
     /** Accepted values, verbatim — unknown ones are kept, never mapped. */
     readonly values: readonly string[];
@@ -95,7 +95,7 @@ export interface StringDescriptor {
     readonly name: string;
     /** Kind discriminator. */
     readonly kind: 'string';
-    /** A string has no unit; none may be fabricated (FR-014). */
+    /** A string has no unit; none may be fabricated. */
     readonly unit: null;
     /** Service-authored prose about the allowed characters, rendered as text. */
     readonly format: string;
@@ -114,7 +114,7 @@ export interface StringDescriptor {
      * The reader accepts it in exactly the one shape the projection emits
      * (`true`) or not at all; every other value **refuses the envelope**
      * rather than being dropped, because a declaration this build half-reads
-     * is a row it would render wrong (invariant 8, 006 FR-021).
+     * is a row it would render wrong (invariant 8).
      */
     readonly multiline?: true;
 }
@@ -141,7 +141,6 @@ export interface ConfigEnvelope {
 /**
  * Read a string member, refusing anything else.
  *
- * @param value - Candidate value.
  * @returns The string, or `null` when it is not one.
  */
 function textOrNull(value: unknown): string | null {
@@ -151,7 +150,6 @@ function textOrNull(value: unknown): string | null {
 /**
  * Read a finite-number member, refusing anything else.
  *
- * @param value - Candidate value.
  * @returns The number, or `null` when it is not a finite one.
  */
 function numberOrNull(value: unknown): number | null {
@@ -161,7 +159,6 @@ function numberOrNull(value: unknown): number | null {
 /**
  * Read a string list, refusing anything else.
  *
- * @param value - Candidate value.
  * @returns The list, or `null` when it is not an array of strings.
  */
 function textListOrNull(value: unknown): readonly string[] | null {
@@ -193,8 +190,6 @@ interface DescriptorHead {
 /**
  * Read the `integer` half of a descriptor.
  *
- * @param record - Descriptor as received.
- * @param head - Already-validated name and class.
  * @returns The descriptor, or `null` when a required member is missing or mistyped.
  */
 function integerDescriptor(record: Record<string, unknown>, head: DescriptorHead): IntegerDescriptor | null {
@@ -212,14 +207,12 @@ function integerDescriptor(record: Record<string, unknown>, head: DescriptorHead
 /**
  * Read the `enum` half of a descriptor.
  *
- * @param record - Descriptor as received.
- * @param head - Already-validated name and class.
  * @returns The descriptor, or `null` when a required member is missing or mistyped.
  */
 function enumDescriptor(record: Record<string, unknown>, head: DescriptorHead): EnumDescriptor | null {
     const values = textListOrNull(record.values);
     const fallback = textOrNull(record.default);
-    if (record.unit !== null || values === null || fallback === null) {
+    if (values === null || fallback === null || record.unit !== null) {
         return null;
     }
 
@@ -229,8 +222,6 @@ function enumDescriptor(record: Record<string, unknown>, head: DescriptorHead): 
 /**
  * Read the `string` half of a descriptor.
  *
- * @param record - Descriptor as received.
- * @param head - Already-validated name and class.
  * @returns The descriptor, or `null` when a required member is missing or mistyped,
  *   or when the optional `multiline` member carries anything but `true`.
  */
@@ -238,7 +229,7 @@ function stringDescriptor(record: Record<string, unknown>, head: DescriptorHead)
     const format = textOrNull(record.format);
     const maxLength = numberOrNull(record.maxLength);
     const fallback = textOrNull(record.default);
-    if (record.unit !== null || format === null || maxLength === null || fallback === null) {
+    if (format === null || maxLength === null || fallback === null || record.unit !== null) {
         return null;
     }
 
@@ -247,7 +238,7 @@ function stringDescriptor(record: Record<string, unknown>, head: DescriptorHead)
     // and anything else — a `false`, a string, a `null` — refuses the whole
     // envelope rather than being silently dropped, because a row that reads
     // its affordance from the wire must not invent the half it did not get
-    // (invariant 8, 006 FR-021).
+    // (invariant 8).
     const { multiline } = record;
     if (multiline !== undefined && multiline !== true) {
         return null;
@@ -261,14 +252,13 @@ function stringDescriptor(record: Record<string, unknown>, head: DescriptorHead)
         maxLength,
         default: fallback,
         takesEffect: head.takesEffect,
-        ...(multiline === undefined ? {} : { multiline: true }),
+        ...(multiline !== undefined && { multiline: true }),
     };
 }
 
 /**
  * Read one descriptor, refusing anything outside the closed union.
  *
- * @param raw - One element of the envelope's `fields` array.
  * @returns The descriptor, or `null` for an unknown kind, an unknown class,
  *   or a descriptor missing a member its kind requires.
  */
@@ -312,10 +302,8 @@ function readDescriptor(raw: unknown): FieldDescriptor | null {
  * render *as configured* (AC-116, 005's own rule for a mismatched row). A
  * member with **no** descriptor is judged on its own shape only — it will be
  * rendered as *field this version does not show*, which needs a value to show
- * and makes no claim about which kind it should have been (FR-027).
+ * and makes no claim about which kind it should have been.
  *
- * @param descriptor - The governing descriptor, or `null` when there is none.
- * @param value - The document's value.
  * @returns `true` when the value may be rendered as configured.
  */
 function fitsDescriptor(descriptor: FieldDescriptor | null, value: unknown): value is ConfigValue {
@@ -336,10 +324,8 @@ function fitsDescriptor(descriptor: FieldDescriptor | null, value: unknown): val
 
 /**
  * Split the `config` members into the ones this build can render as
- * configured and the ones it cannot (AC-116).
+ * configured and the ones it cannot.
  *
- * @param config - The document's members.
- * @param descriptors - The projection, which is what decides the fit.
  * @returns The readable members, and the names of the unreadable ones.
  */
 function partitionConfig(
@@ -373,7 +359,6 @@ function partitionConfig(
  * wording is a promise to the operator — so an unrecognised one is refused
  * rather than rendered as though it were `stored`.
  *
- * @param value - Candidate source.
  * @returns `true` for a documented source.
  */
 function isConfigSource(value: string): value is ConfigSource {
@@ -381,9 +366,8 @@ function isConfigSource(value: string): value is ConfigSource {
 }
 
 /**
- * Read a `GET /v1/config` body fail closed (006 FR-003, FR-021).
+ * Read a `GET /v1/config` body fail closed.
  *
- * @param body - Response body text.
  * @returns The envelope, or `null` when any part of it cannot be trusted.
  */
 export function parseConfigEnvelope(body: string): ConfigEnvelope | null {
@@ -428,9 +412,7 @@ export function parseConfigEnvelope(body: string): ConfigEnvelope | null {
 /**
  * Find the descriptor for one document member.
  *
- * @param envelope - The parsed answer.
- * @param name - Document member to look up.
- * @returns Its descriptor, or `null` when the service declared none (AC-115).
+ * @returns Its descriptor, or `null` when the service declared none.
  */
 export function descriptorFor(envelope: ConfigEnvelope, name: string): FieldDescriptor | null {
     return envelope.fields.find((descriptor) => descriptor.name === name) ?? null;
@@ -441,7 +423,7 @@ export interface ConfigWriteAnswer {
     /** The configuration the service says it stored, as a full envelope. */
     readonly returned: ConfigEnvelope;
     /**
-     * Whether the `config.changed` row reached disk (FR-070, AC-139), or
+     * Whether the `config.changed` row reached disk, or
      * `null` when the answer carried no such member — which is *not* a claim
      * that it did: the panel never implies traceability it does not have.
      */
@@ -449,7 +431,7 @@ export interface ConfigWriteAnswer {
 }
 
 /**
- * Read a `PUT /v1/config` answer fail closed (006 T-024; FR-044, FR-070).
+ * Read a `PUT /v1/config` answer fail closed.
  *
  * The contract's write answer is `{ config, auditWritten }` (§4) — **not** the
  * read envelope, because a write has no `source` or `defaultsApplied` to
@@ -468,7 +450,6 @@ export interface ConfigWriteAnswer {
  * than half-applying, and the caller reports a document the panel could not
  * read (invariant 8).
  *
- * @param input - The response body, and the last document this tab read.
  * @returns The answer, or `null` when neither shape can be trusted.
  */
 export function parseConfigWriteAnswer(input: {

@@ -10,15 +10,14 @@
  * first enabled binding becomes the authoritative dispatch context for
  * `rt.state.config`, which the project picker and the message framing read.
  *
- * There is no legacy poll loop left to stop — the spike's loop and its
- * manual dispatch path were deleted with the install-time GitHub credential
- * (product-owner order, 2026-09-30). The service's poll loop and the
- * root-owned relay are the only loops in the product, and neither is armed
- * from here.
+ * There is no legacy poll loop left to stop — the panel's own loop and its
+ * manual dispatch path went with the install-time GitHub credential. The
+ * service's poll loop and the root-owned relay are the only loops in the
+ * product, and neither is armed from here.
  */
 
 import { DEFAULT_POLL_INTERVAL_MS, parseRepository, parseWorktreeOption } from './config.ts';
-import type { SpikeConfig } from './config.ts';
+import type { BindingContext } from './config.ts';
 import { refresh } from './panel-ui.ts';
 import { setStatus } from './panel-state.ts';
 import type { PanelRuntime, PanelStatus } from './panel-state.ts';
@@ -32,7 +31,6 @@ import type { PanelBinding } from './bindings-service.ts';
  * The list order is the service's stored order, so "first" is stable across
  * repaints and the operator can control it with the enable toggle.
  *
- * @param bindings - Bindings as the panel last read them from the service.
  * @returns The first binding whose state is `active`, or `null` when none is.
  */
 export function firstEnabledBinding(bindings: readonly PanelBinding[]): PanelBinding | null {
@@ -40,19 +38,18 @@ export function firstEnabledBinding(bindings: readonly PanelBinding[]): PanelBin
 }
 
 /**
- * Derive the spike dispatch context from one enabled binding.
+ * Derive the dispatch context from one enabled binding.
  *
  * The binding's repository, project, and worktree option are authoritative;
  * `expectedLogin` stays `null` because the panel's own connected token is a
- * legacy-spike concern the relay never consults, and an inherited login would
+ * legacy concern the relay never consults, and an inherited login would
  * fail the identity check whenever the panel token differs from the bound
  * account. The poll interval defaults: the relay polls on its own cadence.
  *
- * @param binding - The binding to derive from.
  * @returns The configuration, or `null` when the binding row does not parse
  *   (the service validates these fields, so this is a defensive fallback).
  */
-export function bindingContext(binding: PanelBinding): SpikeConfig | null {
+export function bindingContext(binding: PanelBinding): BindingContext | null {
     const repository = parseRepository(binding.repository);
     if (repository === null) {
         return null;
@@ -70,7 +67,6 @@ export function bindingContext(binding: PanelBinding): SpikeConfig | null {
 /**
  * Build the info banner for bindings-authoritative mode.
  *
- * @param count - How many bindings are enabled.
  * @returns The banner content.
  */
 export function bindingsActiveStatus(count: number): PanelStatus {
@@ -86,8 +82,6 @@ export function bindingsActiveStatus(count: number): PanelStatus {
  *
  * Derives the dispatch context from the first enabled binding and shows the
  * bindings banner instead of any legacy configuration verdict.
- *
- * @param rt - Panel runtime.
  */
 export function applyBindingsMode(rt: PanelRuntime): void {
     const binding = firstEnabledBinding(rt.state.bindings.bindings);
@@ -109,8 +103,6 @@ export function applyBindingsMode(rt: PanelRuntime): void {
  * that lands an enabled binding, which covers the mount-time 503 and the
  * first binding added in-session (both arm idempotently through
  * `startRelayPolling`).
- *
- * @param rt - Panel runtime.
  */
 export async function loadInitialBindings(rt: PanelRuntime): Promise<void> {
     await loadBindings(rt);

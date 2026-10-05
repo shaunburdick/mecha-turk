@@ -28,8 +28,8 @@
  * Offline: temp directories, a fake host environment, no GitHub, no network.
  */
 
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, appendAudit, readAuditEntries } from '../service/audit.ts';
@@ -44,6 +44,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Path of the configuration resource. */
 const CONFIG_PATH = '/v1/config';
@@ -93,25 +94,20 @@ let dataDir = '';
 /** Services started by a case, shut down with the fixture. */
 const running: TestService[] = [];
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-config-audit-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('config-audit'));
     await mkdir(dataDir, { recursive: true });
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     for (const service of running.splice(0)) {
         await service.shutdown();
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+    await removeTempTree(tempRoot);
+});
 
 /** One `PUT /v1/config` answer. */
 interface PutAnswer {
@@ -136,7 +132,6 @@ async function startService(): Promise<TestService> {
 /**
  * The service's open store, asserted present.
  *
- * @param service - The running instance.
  * @returns Its store handle.
  */
 function storeOf(service: TestService): NonNullable<TestService['handle']['store']> {
@@ -151,7 +146,6 @@ function storeOf(service: TestService): NonNullable<TestService['handle']['store
 /**
  * Read every row the trail holds.
  *
- * @param service - The running instance.
  * @returns The rows, oldest first.
  */
 async function trailOf(service: TestService): Promise<readonly AuditEntry[]> {
@@ -161,8 +155,6 @@ async function trailOf(service: TestService): Promise<readonly AuditEntry[]> {
 /**
  * Send one whole-document replacement.
  *
- * @param service - The running instance.
- * @param body - The complete document to write.
  * @returns The parsed answer plus its status.
  */
 async function putConfig(
@@ -177,7 +169,6 @@ async function putConfig(
 /**
  * The rows that record a configuration write.
  *
- * @param trail - The trail to filter.
  * @returns The `config.changed` rows, oldest first.
  */
 function configRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {
@@ -207,7 +198,6 @@ function isChangeTriple(value: unknown): value is ChangeTriple {
 /**
  * Read a row's `changes` as triples, without casting anything through `any`.
  *
- * @param row - One stored row, or `undefined`.
  * @returns Every entry that already has the triple's three members.
  */
 function changesOf(row: AuditEntry | undefined): readonly ChangeTriple[] {
@@ -229,8 +219,6 @@ async function rawTrail(): Promise<string> {
 
 /**
  * Build a logger that records every line it is asked to write.
- *
- * @returns The logger plus the lines it captured.
  */
 function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
     const lines: string[] = [];
@@ -270,8 +258,7 @@ function idlePoller(): GitHubIssuePoller {
 }
 
 describe('an accepted write records exactly one applied row (006 T-015, AC-135, SC-109)', () => {
-    it('records one triple per changed field, ordered by nam… (+1 cases)', async () => {
-        // case: records one triple per changed field, ordered by name, with each class
+    it('records one triple per changed field, ordered by name, with each class', async () => {
         {
             const service = await startService();
 
@@ -298,11 +285,9 @@ describe('an accepted write records exactly one applied row (006 T-015, AC-135, 
             // Its own identifier: a configuration change belongs to no run.
             expect(row?.correlationId).not.toMatch(RUN_ID_PATTERN);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: records nothing for a write that changed nothing (006 T-015, AC-127, FR-048)
+    });
+
+    it('records nothing for a write that changed nothing (006 T-015, AC-127, FR-048)', async () => {
         {
             const service = await startService();
             const replacement = { ...DEFAULT_CONFIG, intervalMs: 30_000 };
@@ -319,6 +304,7 @@ describe('an accepted write records exactly one applied row (006 T-015, AC-135, 
             expect(configRows(await trailOf(service))).toHaveLength(1);
         }
     });
+
 });
 
 describe('a refused write records one value-free row (006 T-015, AC-136, AC-113, FR-072)', () => {
@@ -366,7 +352,7 @@ describe('a refused write records one value-free row (006 T-015, AC-136, AC-113,
         expect(serialized).not.toContain(BAD_AGENT);
         expect(serialized).not.toContain(FOREIGN_KEY);
         expect(serialized).not.toContain(FOREIGN_VALUE);
-        expect(serialized).not.toContain('   ');
+        expect(serialized).not.toContain(' '.repeat(3));
     });
 });
 
@@ -457,7 +443,7 @@ describe("the global tier's row is fingerprints, never the text (004 FR-088, 006
         expect(row?.actorSource).toBe('operator');
         expect(row?.decision).toBe('applied');
         expect(row?.redaction.redacted).toBe(false);
-        const [change] = changesOf(row).filter((entry) => entry.field === 'startingPrompt');
+        const change = changesOf(row).find((entry) => entry.field === 'startingPrompt');
         // Unset before the write, set after it — and both sides only ever
         // `mtp-…` or `null` (004 FR-088's pair, 006 FR-071 as amended).
         expect(change?.from).toBeNull();

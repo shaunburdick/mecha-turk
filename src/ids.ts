@@ -1,7 +1,7 @@
 /**
  * Correlation and clock helpers shared by the panel and its tests.
  *
- * Correlation identifiers are the spine of the spike's evidence: every ledger
+ * Correlation identifiers are the spine of the product's evidence: every ledger
  * entry and evidence record carries one so a poll, a dispatch, and a lifecycle
  * phase can be tied back to a single observation (NFR-007).
  */
@@ -10,7 +10,7 @@
  * Create a new correlation identifier.
  *
  * Uses `crypto.randomUUID()`, which the sandboxed iframe provides in secure
- * contexts (localhost or https). The spike fails closed when it is missing
+ * contexts (localhost or https). The panel fails closed when it is missing
  * rather than inventing an identifier from weaker entropy.
  *
  * @returns A RFC 4122 version 4 identifier.
@@ -36,7 +36,6 @@ export function nowIso(): string {
 /**
  * Zero-pad one `Date` getter to two characters.
  *
- * @param part - UTC field from a `Date`.
  * @returns The field as two digits.
  */
 function padTwoDigits(part: number): string {
@@ -49,10 +48,8 @@ function padTwoDigits(part: number): string {
  * Absolute rather than relative: two references detected minutes apart must
  * not collapse into the same "2m ago" when the operator is reconstructing
  * which reason fired first, an audit row's timestamp is the same kind of
- * fact, and a binding's created/updated stamps are read the same way
- * (FR-048, FR-053).
+ * fact, and a binding's created/updated stamps are read the same way.
  *
- * @param iso - RFC 3339 stamp from a reference, an audit row, or a binding.
  * @returns The compact stamp, or the stored text when it is not a time.
  */
 export function utcStamp(iso: string): string {

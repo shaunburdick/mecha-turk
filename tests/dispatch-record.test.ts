@@ -51,9 +51,6 @@ const RECORDED_AT = '2026-09-29T10:00:00.000Z';
 
 /**
  * Build one stored attempt.
- *
- * @param overrides - Fields the test changes.
- * @returns A complete, parseable record.
  */
 function attempt(overrides: Partial<DispatchAttemptRecord> = {}): DispatchAttemptRecord {
     return {
@@ -83,11 +80,24 @@ function document(attempts: readonly DispatchAttemptRecord[]): DispatchRecordDoc
 /**
  * Serialize a document exactly as the host stores it.
  *
- * @param doc - Document to place in storage.
  * @returns The stored JSON value.
  */
 function stored(doc: DispatchRecordDocument): JsonValue {
     return parseJsonValue(JSON.stringify(doc));
+}
+
+/**
+ * The stored form of a document holding exactly these attempts.
+ *
+ * Three combinators of nesting — `stored(document([attempt(…)]))` — is one step
+ * of setup, so it is written once here rather than at each of the twelve places
+ * that need it.
+ *
+ * @param records - The attempts the document holds.
+ * @returns The stored JSON value.
+ */
+function storedAttempts(...records: readonly DispatchAttemptRecord[]): JsonValue {
+    return stored(document(records));
 }
 
 /**
@@ -108,8 +118,7 @@ function runtimeWith(initial: Readonly<Record<string, JsonValue>> = {}): {
 }
 
 describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
-    it('reads a wiped or never-written key as an empty recor… (+3 cases)', async () => {
-        // case: reads a wiped or never-written key as an empty record
+    it('reads a wiped or never-written key as an empty record', async () => {
         {
             const { rt } = runtimeWith();
 
@@ -121,7 +130,9 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
                 expect(unacknowledgedAttempts(read.document)).toEqual([]);
             }
         }
-        // case: refuses a present document this build must not half-apply
+    });
+
+    it('refuses a present document this build must not half-apply', async () => {
         {
             const { rt } = runtimeWith({
                 [DISPATCH_STORAGE_KEY]: { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts: [{ attempt: 1 }] },
@@ -129,11 +140,15 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
 
             expect(await loadDispatchRecord(rt)).toEqual({ ok: false });
         }
-        // case: refuses an unknown schema version rather than guessing at it
+    });
+
+    it('refuses an unknown schema version rather than guessing at it', async () => {
         {
             expect(readDispatchRecord({ schemaVersion: 'dispatch-attempts-99', attempts: [] })).toBeNull();
         }
-        // case: reports a storage failure as unreadable rather than as "nothing to reconcile"
+    });
+
+    it('reports a storage failure as unreadable rather than as "nothing to reconcile"', async () => {
         {
             const rt = createTestRuntime(
                 fakeHost({
@@ -147,15 +162,15 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
             expect(await loadDispatchRecord(rt)).toEqual({ ok: false });
         }
     });
+
 });
 
 describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
-    it('stores the outcome with acknowledged false, before a… (+3 cases)', async () => {
-        // case: stores the outcome with acknowledged false, before any report
+    it('stores the outcome with acknowledged false, before any report', async () => {
         {
             const { rt, storage } = runtimeWith();
 
-            const written = await recordDispatchOutcome(rt, {
+            const isWritten = await recordDispatchOutcome(rt, {
                 correlationId: CORRELATION,
                 runKey: RUN_KEY,
                 attempt: 1,
@@ -163,7 +178,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 outcome: { kind: 'dispatched', sessionId: 'ses_1' },
             });
 
-            expect(written).toBe(true);
+            expect(isWritten).toBe(true);
             expect(storage.operations).toEqual([`get:${DISPATCH_STORAGE_KEY}`, `set:${DISPATCH_STORAGE_KEY}`]);
             const read = await loadDispatchRecord(rt);
             expect(read.ok).toBe(true);
@@ -179,7 +194,9 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 });
             }
         }
-        // case: stores a failure reason with no session id
+    });
+
+    it('stores a failure reason with no session id', async () => {
         {
             const { rt } = runtimeWith();
 
@@ -201,11 +218,13 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 });
             }
         }
-        // case: refuses to persist a record its own parser would reject
+    });
+
+    it('refuses to persist a record its own parser would reject', async () => {
         {
             const { rt, storage } = runtimeWith();
 
-            const written = await recordDispatchOutcome(rt, {
+            const isWritten = await recordDispatchOutcome(rt, {
                 correlationId: CORRELATION,
                 runKey: RUN_KEY,
                 attempt: 1,
@@ -213,13 +232,15 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 outcome: { kind: 'dispatched', sessionId: 'ses_1' },
             });
 
-            expect(written).toBe(false);
+            expect(isWritten).toBe(false);
             expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
         }
-        // case: appends newest last so a remount replays attempts in order
+    });
+
+    it('appends newest last so a remount replays attempts in order', async () => {
         {
             const { rt } = runtimeWith();
-            const record = async (attemptNumber: number): Promise<boolean> =>
+            const isRecorded = async (attemptNumber: number): Promise<boolean> =>
                 await recordDispatchOutcome(rt, {
                     correlationId: CORRELATION,
                     runKey: RUN_KEY,
@@ -228,8 +249,8 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                     outcome: { kind: 'failed', reason: 'no-session' },
                 });
 
-            expect(await record(1)).toBe(true);
-            expect(await record(2)).toBe(true);
+            expect(await isRecorded(1)).toBe(true);
+            expect(await isRecorded(2)).toBe(true);
 
             const read = await loadDispatchRecord(rt);
             expect(read.ok).toBe(true);
@@ -238,18 +259,18 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
             }
         }
     });
+
 });
 
 describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
-    it('flips the named attempt and leaves every other recor… (+1 cases)', async () => {
-        // case: flips the named attempt and leaves every other record alone
+    it('flips the named attempt and leaves every other record alone', async () => {
         {
             const { rt } = runtimeWith({
-                [DISPATCH_STORAGE_KEY]: stored(document([
+                [DISPATCH_STORAGE_KEY]: storedAttempts(
                     attempt({ attempt: 1, acknowledged: false }),
                     attempt({ correlationId: OTHER_CORRELATION, attempt: 1, acknowledged: false }),
                     attempt({ attempt: 2, acknowledged: false }),
-                ])),
+                ),
             });
 
             expect(await acknowledgeDispatch({ rt, correlationId: CORRELATION, attempt: 1 })).toBe(true);
@@ -260,21 +281,23 @@ describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
                 expect(read.document.attempts.map((entry) => entry.acknowledged)).toEqual([true, false, false]);
             }
         }
-        // case: changes nothing — and writes nothing — for an attempt it never recorded
+    });
+
+    it('changes nothing — and writes nothing — for an attempt it never recorded', async () => {
         {
             const { rt, storage } = runtimeWith({
-                [DISPATCH_STORAGE_KEY]: stored(document([attempt({ attempt: 3, acknowledged: false })])),
+                [DISPATCH_STORAGE_KEY]: storedAttempts(attempt({ attempt: 3, acknowledged: false })),
             });
 
             expect(await acknowledgeDispatch({ rt, correlationId: CORRELATION, attempt: 4 })).toBe(false);
             expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
         }
     });
+
 });
 
 describe('cap and eviction (NFR-107, FR-024 durability)', () => {
-    it('holds at 50 by evicting the oldest acknowledged reco… (+2 cases)', () => {
-        // case: holds at 50 by evicting the oldest acknowledged record first
+    it('holds at 50 by evicting the oldest acknowledged record first', () => {
         {
             const full = document(
                 Array.from({ length: MAX_RECORDED_ATTEMPTS }, (_unused, index) =>
@@ -288,7 +311,6 @@ describe('cap and eviction (NFR-107, FR-024 durability)', () => {
             expect(capped.attempts.at(-1)?.attempt).toBe(99);
             expect(capped.attempts.at(-1)?.acknowledged).toBe(false);
         }
-        // case: never takes an unacknowledged record to make room
         {
             const mixed = document([
                 attempt({ attempt: 1, acknowledged: false }),
@@ -302,7 +324,6 @@ describe('cap and eviction (NFR-107, FR-024 durability)', () => {
             expect(capped.attempts[0]).toMatchObject({ attempt: 1, acknowledged: false });
             expect(capped.attempts.at(-1)?.attempt).toBe(99);
         }
-        // case: prefers the durability of an unacknowledged record over the count
         {
             // Nothing is acknowledged, so there is no victim the contract permits;
             // dropping one would destroy the only evidence a session exists.
@@ -320,28 +341,31 @@ describe('cap and eviction (NFR-107, FR-024 durability)', () => {
 });
 
 describe('redaction posture (T-019, research §R3)', () => {
-    it('passes a stored dispatch token byte-identically (+2 cases)', async () => {
-        // case: passes a stored dispatch token byte-identically
+    it('passes a stored dispatch token byte-identically', async () => {
         {
             const json = JSON.stringify(document([attempt()]));
 
             expect(() => assertRedacted(DISPATCH_STORAGE_KEY, json)).not.toThrow();
             expect(json).toContain(TOKEN);
         }
-        // case: still refuses a credential-shaped value sitting beside the token
+    });
+
+    it('still refuses a credential-shaped value sitting beside the token', async () => {
         {
             const json = JSON.stringify(document([attempt({ reason: PAT })]));
 
             expect(() => assertRedacted(DISPATCH_STORAGE_KEY, json)).toThrow(RedactionError);
         }
-        // case: refuses to write a document the guard rejects
+    });
+
+    it('refuses to write a document the guard rejects', async () => {
         {
             const { rt, storage } = runtimeWith({
                 // Hand-edited storage carrying a credential: the record still parses
                 // (a reason is a reason), and the redaction guard is what stops it
                 // from being written back out.
-                [DISPATCH_STORAGE_KEY]: stored(document([attempt({
-                    outcome: 'failed', sessionId: null, reason: PAT })])),
+                [DISPATCH_STORAGE_KEY]: storedAttempts(attempt({
+                    outcome: 'failed', sessionId: null, reason: PAT })),
             });
 
             expect(await recordDispatchOutcome(rt, {
@@ -354,6 +378,7 @@ describe('redaction posture (T-019, research §R3)', () => {
             expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
         }
     });
+
 });
 
 describe('acknowledgeAttempt (pure flip)', () => {

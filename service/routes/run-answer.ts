@@ -35,10 +35,10 @@ const REFUSAL_STATUS = new Map<RunRefusal['code'], number>([
     ['already-reserved', STATUS.conflict],
     ['already-dispatched', STATUS.conflict],
     ['invalid-transition', STATUS.conflict],
-    // The actor-policy gate (003 FR-077). A `409` like every other state verdict
+    // The actor-policy gate. A `409` like every other state verdict
     // on this path: the run exists, the request was well-formed, and the service
     // answered "not authorized" — which the panel then reports as
-    // `blocked:actor-not-allowed` through the existing block report (FR-078).
+    // `blocked:actor-not-allowed` through the existing block report.
     ['actor-not-allowed', STATUS.conflict],
     ['cause-not-cleared', STATUS.conflict],
     // Mapped for completeness: a `422` is refused by this module through
@@ -72,12 +72,8 @@ export function unknownRunResponse(): HttpResponse {
  * "must not be swallowed" obligation is the same obligation for all eight
  * operations and one log line is what makes it observable in the service log.
  *
- * @param context - Route context, for the log a degraded trail leaves.
- * @param operation - The operation name, for that log line.
- * @param outcome - Whatever the operation returned.
  * @param success - Builds the `200` body from the run; a duplicate gets the same
  *   body, because a repeat changed nothing and must look like it.
- * @returns The response to write.
  */
 export function runOutcomeResponse(input: {
     /** Route context, for the log a degraded trail leaves. */
@@ -87,7 +83,7 @@ export function runOutcomeResponse(input: {
     /** Whatever the operation returned. */
     readonly outcome: RunResult;
     /** Builds the `200` body from the run; a duplicate gets the same body. */
-    readonly success: (run: Run, auditWritten: boolean) => Record<string, unknown>;
+    readonly success: (run: Run, wasAppended: boolean) => Record<string, unknown>;
 }): HttpResponse {
     const { context, operation, outcome, success } = input;
     if (outcome.status === 'not-found') {
@@ -120,7 +116,7 @@ export function runOutcomeResponse(input: {
         return errorResponse(REFUSAL_STATUS.get(code) ?? STATUS.conflict, {
             code,
             message,
-            ...(referenceWindow === undefined ? {} : { referenceWindow }),
+            ...(referenceWindow !== undefined && { referenceWindow }),
         });
     }
 
@@ -133,7 +129,7 @@ export function runAnswer(input: {
     readonly correlationId: string;
     /** The run as it stands; a duplicate repeats it byte-stably. */
     readonly run: Run;
-    /** Whether the lifecycle row reached the trail (FR-063). */
+    /** Whether the lifecycle row reached the trail. */
     readonly auditWritten: boolean;
 }): Record<string, unknown> {
     return {
@@ -164,7 +160,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * `message`, and the free-prose `errorResponse` — and both put their cause in
  * `error.message`, which is all this reads.
  *
- * @param response - The `422` about to be answered with.
  * @returns The cause, or a fixed one when the envelope carries none.
  */
 function refusalReason(response: HttpResponse): string {
@@ -183,7 +178,7 @@ function refusalReason(response: HttpResponse): string {
  * is owed first.
  *
  * Contract §9 promises a `dispatch.refused` row for every `4xx` an operation in
- * this directory answers — narrowed by T-044 to the state verdicts **plus** a
+ * this directory answers — narrowed to the state verdicts **plus** a
  * `422` on a run that exists, because a state verdict is refused inside its
  * operation module while a malformed body never reaches one. The run is read
  * inside the chain the operation modules use, so the row's `priorState` and
@@ -195,7 +190,6 @@ function refusalReason(response: HttpResponse): string {
  * the event type, so FR-063's surfacing holds here too even though a `422`
  * envelope has nowhere to carry `auditWritten`.
  *
- * @param context - Route context, carrying the open store and logger.
  * @param operation - The operation name the row records (`reserve`, `result`, …).
  * @param correlationId - The run the path named.
  * @param response - The `422` to answer with; its message is the row's reason.

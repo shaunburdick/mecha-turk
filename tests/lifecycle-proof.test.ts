@@ -42,7 +42,7 @@ const mounts = vi.hoisted(() => ({
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     const actual = await importOriginal<Record<string, unknown>>();
-    const stubbed: Record<string, unknown> = { ...actual };
+    const stubbed = { ...actual };
     for (const key of Object.keys(stubbed)) {
         if (key.startsWith('mount')) {
             stubbed[key] = (_root: unknown, props: unknown): {
@@ -113,11 +113,11 @@ async function visitAllTabs(): Promise<LifecycleRun> {
     mounts.log.length = 0;
     mounts.disposed.length = 0;
     const requests: string[] = [];
-    let failing = false;
+    let isFailing = false;
     const host = fakeHost({
         serviceRequest: async (request) => {
             requests.push(`${request.method} ${request.path}`);
-            if (failing) {
+            if (isFailing) {
                 throw new Error('connection refused');
             }
 
@@ -146,14 +146,13 @@ async function visitAllTabs(): Promise<LifecycleRun> {
         root: dom.root,
         requests,
         fail: (): void => {
-            failing = true;
+            isFailing = true;
         },
     };
 }
 
 describe('AC-137 a teardown returns the panel to its pre-mount counts', () => {
-    it('removes every node, timer, and registry entry after … (+1 cases)', async () => {
-        // case: removes every node, timer, and registry entry after visiting all six
+    it('removes every node, timer, and registry entry after visiting all six', async () => {
         {
             const run = await visitAllTabs();
             const { rt, root } = run;
@@ -178,7 +177,9 @@ describe('AC-137 a teardown returns the panel to its pre-mount counts', () => {
             expect(rt.accountsUi).toBeNull();
             expect(rt.dispatchesUi).toBeNull();
         }
-        // case: disposes no handle twice, and a second teardown disposes nothing new (NFR-108)
+    });
+
+    it('disposes no handle twice, and a second teardown disposes nothing new', async () => {
         {
             const run = await visitAllTabs();
             run.rt.shell?.dispose();
@@ -191,11 +192,11 @@ describe('AC-137 a teardown returns the panel to its pre-mount counts', () => {
             expect(mounts.disposed).toHaveLength(first);
         }
     });
+
 });
 
 describe('FR-014 activating the shown tab reads nothing and changes nothing (NFR-104)', () => {
-    it('performs zero service reads when the operator clicks… (+1 cases)', async () => {
-        // case: performs zero service reads when the operator clicks the active tab
+    it('performs zero service reads when the operator clicks the active tab', async () => {
         {
             const run = await visitAllTabs();
             const before = run.requests.length;
@@ -208,7 +209,9 @@ describe('FR-014 activating the shown tab reads nothing and changes nothing (NFR
             expect(run.requests).toHaveLength(before);
             expect(JSON.stringify(run.rt.state)).toBe(state);
         }
-        // case: changes nothing but the activation field when a new tab opens
+    });
+
+    it('changes nothing but the activation field when a new tab opens', async () => {
         {
             const run = await visitAllTabs();
             const { rt } = run;
@@ -221,6 +224,7 @@ describe('FR-014 activating the shown tab reads nothing and changes nothing (NFR
             expect(JSON.stringify(rt.state)).toBe(state);
         }
     });
+
 });
 
 describe('AC-136 / SC-108 one loop and one session across a mid-flight switch', () => {
@@ -278,8 +282,7 @@ describe('AC-136 / SC-108 one loop and one session across a mid-flight switch', 
 });
 
 describe('FR-019 / NFR-111 a failed read keeps what it had, marked stale', () => {
-    it('keeps the Settings document and marks it stale on a … (+2 cases)', async () => {
-        // case: keeps the Settings document and marks it stale on a failed re-read
+    it('keeps the Settings document and marks it stale on a failed re-read', async () => {
         {
             const run = await visitAllTabs();
             const { rt } = run;
@@ -293,7 +296,9 @@ describe('FR-019 / NFR-111 a failed read keeps what it had, marked stale', () =>
             expect(rt.state.settingsTab.stale).toBe(true);
             expect(rt.state.settingsTab.doc).not.toBeNull();
         }
-        // case: keeps the About version and marks it stale on a failed re-read
+    });
+
+    it('keeps the About version and marks it stale on a failed re-read', async () => {
         {
             const run = await visitAllTabs();
             const { rt } = run;
@@ -306,7 +311,9 @@ describe('FR-019 / NFR-111 a failed read keeps what it had, marked stale', () =>
             expect(rt.state.aboutTab.version).not.toBeNull();
             expect(rt.state.aboutTab.problem).not.toBeNull();
         }
-        // case: says plainly that there is nothing to keep when nothing ever landed
+    });
+
+    it('says plainly that there is nothing to keep when nothing ever landed', async () => {
         {
             const rt = createTestRuntime(fakeHost({
                 serviceRequest: async () => {
@@ -322,4 +329,5 @@ describe('FR-019 / NFR-111 a failed read keeps what it had, marked stale', () =>
             expect(rt.state.aboutTab.version).toBeNull();
         }
     });
+
 });

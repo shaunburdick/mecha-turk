@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
-import type { Tone } from '@openchamber/sdk/ui';
+import type { ListItem, Tone } from '@openchamber/sdk/ui';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
 import { initialDispatches } from '../src/panel-state.ts';
 import { PLAIN_RUN_STATES } from '../src/run-state.ts';
@@ -127,7 +127,6 @@ const RUNS_GET = `GET ${EVENTS_PATH}?limit=25`;
 /**
  * The `page` member a paged answer carries (005 contract §2).
  *
- * @param total - Size of the set the fixture models.
  * @returns The member, ready to be spread into an answer body.
  */
 function pageMember(total: number): Record<string, unknown> {
@@ -155,9 +154,22 @@ type RouteTable = Readonly<Record<string, RouteAnswer>>;
 /**
  * Build one runs row the way the service projects it.
  *
- * @param overrides - Fields the test changes.
  * @returns A complete, valid row.
  */
+/** Hostile markup for the tests that prove the list primitive never evaluates it. */
+const HOSTILE_MARKER = '<img src=x onerror="steal()"> <script>alert(1)</script>';
+
+/**
+ * A `promptSources` slot holding markup, which the tier union forbids.
+ *
+ * The hostile-render test needs the value the type refuses, because the point
+ * of the test is that the slot is treated as untrusted text: the list primitive
+ * writes the subtitle through `textContent`, so the marker arrives verbatim and
+ * nothing evaluates it.
+ */
+// eslint-disable-next-line llm-core/no-type-system-bypass, llm-core/no-chained-type-assertions -- not a tier
+const untrustedTierText = [HOSTILE_MARKER] as unknown as readonly PromptSource[];
+
 function runFixture(overrides: Partial<RunRow> = {}): RunRow {
     return {
         id: RUN_ID,
@@ -204,7 +216,6 @@ function runFixture(overrides: Partial<RunRow> = {}): RunRow {
 /**
  * Build one source reference the way the service projects it (FR-013).
  *
- * @param overrides - Fields the test changes.
  * @returns A complete, valid reference.
  */
 function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {
@@ -221,9 +232,6 @@ function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {
 
 /**
  * Build a Dispatches-section state around the given rows.
- *
- * @param overrides - Fields the test changes.
- * @returns A complete state object.
  */
 function runsState(overrides: Partial<DispatchesState> = {}): DispatchesState {
     return { ...initialDispatches(), ...overrides };
@@ -232,6 +240,18 @@ function runsState(overrides: Partial<DispatchesState> = {}): DispatchesState {
 /** Body the service answers `GET /v1/events` with for the given rows. */
 function runsBody(rows: readonly RunRow[]): string {
     return JSON.stringify({ events: rows, page: pageMember(rows.length) });
+}
+
+/**
+ * The rendered rows for a single ready run.
+ *
+ * Every reference assertion here spells out the same four-deep fixture chain,
+ * so it is named once and each test reads as one line of arrangement.
+ *
+ * @returns The rows the panel renders.
+ */
+function rowsForRun(overrides: Partial<RunRow> = {}): ListItem[] {
+    return dispatchRows(runsState({ rows: [runFixture(overrides)], status: 'ready' }));
 }
 
 /** A service double: recorded `METHOD path` calls plus a swappable table. */
@@ -277,8 +297,6 @@ function serviceDouble(table: RouteTable): ServiceDouble {
 /**
  * Build a runtime whose selected run is `row`, against the given routes.
  *
- * @param row - The run the section holds and has selected.
- * @param table - Route table the service answers with.
  * @returns The runtime and its service double.
  */
 function retryRuntime(row: RunRow, table: RouteTable): { readonly rt: PanelRuntime; readonly service: ServiceDouble } {
@@ -290,8 +308,7 @@ function retryRuntime(row: RunRow, table: RouteTable): { readonly rt: PanelRunti
 }
 
 describe('parseDispatchesBody (the service projection, round-tripped)', () => {
-    it('reads every field the runs row renders from (+5 cases)', () => {
-        // case: reads every field the runs row renders from
+    it('reads every field the runs row renders from', () => {
         {
             const sent = runFixture({ state: 'claimed', claimedAt: '2026-09-27T10:00:00.000Z' });
             const parsed = parseDispatchesBody(runsBody([sent]));
@@ -299,7 +316,6 @@ describe('parseDispatchesBody (the service projection, round-tripped)', () => {
             expect(parsed).toHaveLength(1);
             expect(parsed?.[0]).toEqual(sent);
         }
-        // case: keeps the optional pull-request coordinates when the service sends them
         {
             const fixture = runFixture({ kind: 'review', headSha: 'abc123', baseRef: 'main' });
             const parsed = parseDispatchesBody(runsBody([fixture]));
@@ -308,7 +324,6 @@ describe('parseDispatchesBody (the service projection, round-tripped)', () => {
             expect(parsed?.[0]?.headSha).toBe('abc123');
             expect(parsed?.[0]?.baseRef).toBe('main');
         }
-        // case: reads rows from a future build leniently on kind, strictly elsewhere
         {
             const unknownKind = JSON.stringify({ events: [{ ...runFixture(), kind: 'telepathy' }] });
             expect(parseDispatchesBody(unknownKind)?.[0]?.kind).toBe('assignment');
@@ -320,7 +335,6 @@ describe('parseDispatchesBody (the service projection, round-tripped)', () => {
             expect(parseDispatchesBody('{"runs":[]}')).toBeNull();
             expect(parseDispatchesBody(runsBody([]))).toEqual([]);
         }
-        // case: accepts all eight states, including the open blocked family
         {
             const states: readonly RunRow['state'][] = [
                 'pending',
@@ -337,18 +351,18 @@ describe('parseDispatchesBody (the service projection, round-tripped)', () => {
             ];
 
             for (const state of states) {
-                expect(parseDispatchesBody(runsBody([runFixture({ state })]))?.[0]?.state).toBe(state);
+                const parsed = parseDispatchesBody(runsBody([runFixture({ state })]));
+                expect(parsed?.[0]?.state).toBe(state);
             }
         }
-        // case: refuses the retired vocabulary and a malformed blocked reason
         {
             const refused = ['in-flight', 'blocked:', 'blocked:Project-Missing', 'blocked:a b', 'telepathy'];
 
             for (const state of refused) {
-                expect(parseDispatchesBody(JSON.stringify({ events: [{ ...runFixture(), state }] }))).toBeNull();
+                const body = JSON.stringify({ events: [{ ...runFixture(), state }] });
+                expect(parseDispatchesBody(body)).toBeNull();
             }
         }
-        // case: round-trips a full history body with references, a session, and a read-back
         {
             const sent = runFixture({
                 state: 'dispatched',
@@ -399,8 +413,7 @@ describe('parseDispatchesBody (the service projection, round-tripped)', () => {
 });
 
 describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () => {
-    it('renders rows with kind, issue, state badge, relative… (+5 cases)', () => {
-        // case: renders rows with kind, issue, state badge, relative age, reason, and result
+    it('renders rows with kind, issue, state badge, relative age, reason, and result', () => {
         {
             const rows = dispatchRows(runsState({ rows: [runFixture()], status: 'ready' }));
 
@@ -414,7 +427,6 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
                 badge: { label: 'waiting', tone: 'neutral' },
             });
         }
-        // case: shows the dispatch result beside a dispatched row
         {
             const rows = dispatchRows(
                 runsState({ rows: [runFixture({
@@ -424,7 +436,6 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
             expect(rows[0]?.badge).toEqual({ label: 'dispatched', tone: 'success' });
             expect(rows[0]?.subtitle).toContain(SESSION_RESULT);
         }
-        // case: redacts secret-shaped text before it reaches the row
         {
             const rows = dispatchRows(
                 runsState({
@@ -436,17 +447,16 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
             expect(rows[0]?.subtitle).not.toContain('ghp_abcdefghijklmnopqrstuvwx');
             expect(rows[0]?.subtitle).toContain('[redacted:github-token-classic]');
         }
-        // case: offers retry only where the service accepts one (T-024’s affordance table)
         {
-            const retries = (state: RunRow['state']): boolean =>
+            const canRetry = (state: RunRow['state']): boolean =>
                 runAffordance(runFixture({ state })).action === 'retry';
-            expect(retries(FAILED_STATE)).toBe(true);
-            expect(retries(BLOCKED_PROJECT_STATE)).toBe(true);
-            expect(retries(BLOCKED_BINDING_STATE)).toBe(true);
+            expect(canRetry(FAILED_STATE)).toBe(true);
+            expect(canRetry(BLOCKED_PROJECT_STATE)).toBe(true);
+            expect(canRetry(BLOCKED_BINDING_STATE)).toBe(true);
             // The fifth declared cause retries on exactly the same terms (FR-078):
             // the service re-checks the live policy and refuses with its own
             // reason until it clears, which is what every other cause does.
-            expect(retries(BLOCKED_ACTOR_STATE)).toBe(true);
+            expect(canRetry(BLOCKED_ACTOR_STATE)).toBe(true);
 
             const notRetryable: readonly RunRow['state'][] = [
                 'pending',
@@ -457,10 +467,9 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
                 DEAD_LETTERED_STATE,
             ];
             for (const state of notRetryable) {
-                expect(retries(state), state).toBe(false);
+                expect(canRetry(state), state).toBe(false);
             }
         }
-        // case: labels every state in operator vocabulary and never success-tones a failure
         {
             // Every state that means "an operator must decide" — a failure, a
             // wedge, and the whole blocked family — reads as one warning tone,
@@ -483,10 +492,10 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
                 expect(rows[0]?.badge, state).toEqual({ label, tone });
             }
         }
-        // case: phrases every list lifecycle state honestly
         {
             expect(dispatchesStatusText(runsState({ status: 'ready' }))).toBe(DISPATCHES_EMPTY_STATUS);
-            expect(dispatchesStatusText(runsState({ status: 'ready', rows: [runFixture()] }))).toBe(
+            const oneRow = runsState({ status: 'ready', rows: [runFixture()] });
+            expect(dispatchesStatusText(oneRow)).toBe(
                 // The count is the range line's to state (FR-042); this lede
                 // carries the order and the selection hint only.
                 'newest first · select a row to open or retry',
@@ -496,8 +505,7 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
 });
 
 describe('T-024 honest rows (reason line, references, verification)', () => {
-    it('carries a reason line for every state the model can … (+6 cases)', () => {
-        // case: carries a reason line for every state the model can reach (FR-074)
+    it('carries a reason line for every state the model can reach', () => {
         {
             const states: readonly RunRow['state'][] = [
                 'pending',
@@ -518,7 +526,6 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
                 expect(rows[0]?.subtitle, state).toContain(`why the run is ${state}`);
             }
         }
-        // case: renders a hostile state reason as inert text (NFR-109)
         {
             const hostile = '<img src=x onerror="steal()"> <script>alert(1)</script>';
             const rows = dispatchRows(runsState({
@@ -531,12 +538,8 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
             // reason from the operator, and no path that could evaluate it.
             expect(rows[0]?.subtitle).toBe(`acme/widget · ${hostile} · not dispatched yet · prompt not set`);
         }
-        // case: shows one reference alone, with no "+N more" affordance (FR-015)
         {
-            const rows = dispatchRows(runsState({
-                rows: [runFixture({ sourceReferences: [referenceFixture()], referenceCount: 1 })],
-                status: 'ready',
-            }));
+            const rows = rowsForRun({ sourceReferences: [referenceFixture()], referenceCount: 1 });
 
             // 005 FR-094: the reference names its actor, and a run stored before
             // attribution says *actor not recorded* rather than naming nobody.
@@ -545,7 +548,6 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
                     + ' · waiting for a panel · not dispatched yet · prompt not set',
             );
         }
-        // case: shows prompt presence, tier sources, fingerprint, and length — never the text (004 FR-052, AC-139)
         {
             const fingerprint = 'mtp-0123456789abcdef0123456789abcdef';
             const set = dispatchRows(runsState({
@@ -565,7 +567,6 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
             expect('promptText' in row).toBe(false);
             expect(JSON.stringify(set)).not.toContain('promptText');
         }
-        // case: renders a hostile fingerprint as plain text through the non-HTML path (NFR-127)
         {
             // The parser refuses a fingerprint outside the `mtp-` format, so this
             // is the renderer's own posture with a value it was handed anyway.
@@ -582,24 +583,20 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
 
             expect(rows[0]?.subtitle).toContain(hostile);
         }
-        // case: lists every reference with kind, origin, and detection time, marking late ones (AC-101)
         {
-            const rows = dispatchRows(runsState({
-                rows: [runFixture({
-                    sourceReferences: [
-                        referenceFixture(),
-                        referenceFixture({
-                            deliveryId: 'evt-acme~widget~7~comment',
-                            kind: 'mention',
-                            origin: 'comment:4242',
-                            detectedAt: RIDER_DETECTED_AT,
-                            presentAtAuthorization: false,
-                        }),
-                    ],
-                    referenceCount: 2,
-                })],
-                status: 'ready',
-            }));
+            const rows = rowsForRun({
+                sourceReferences: [
+                    referenceFixture(),
+                    referenceFixture({
+                        deliveryId: 'evt-acme~widget~7~comment',
+                        kind: 'mention',
+                        origin: 'comment:4242',
+                        detectedAt: RIDER_DETECTED_AT,
+                        presentAtAuthorization: false,
+                    }),
+                ],
+                referenceCount: 2,
+            });
             const subtitle = rows[0]?.subtitle ?? '';
 
             expect(subtitle).toContain('2 reasons · assignment 2026-09-28 09:00');
@@ -608,23 +605,18 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
         }
     });
 
-    it('states the reasons the reference cap kept off the li… (+1 cases)', () => {
-        // case: states the reasons the reference cap kept off the list (T-038)
+    it('states the reasons the reference cap kept off the list', () => {
         {
-            const rows = dispatchRows(runsState({
-                rows: [runFixture({
-                    sourceReferences: [referenceFixture()],
-                    referenceCount: 3,
-                    referencesNotRetained: 2,
-                    referencesTruncated: true,
-                })],
-                status: 'ready',
-            }));
+            const rows = rowsForRun({
+                sourceReferences: [referenceFixture()],
+                referenceCount: 3,
+                referencesNotRetained: 2,
+                referencesTruncated: true,
+            });
 
             expect(rows[0]?.subtitle).toContain('3 reasons · assignment 2026-09-28 09:00 · actor not recorded');
             expect(rows[0]?.subtitle).toContain('+2 more reasons not listed');
         }
-        // case: shows the read-back verdict and never success-tones a mismatch (FR-043, AC-125)
         {
             const matched = dispatchRows(runsState({
                 rows: [runFixture({
@@ -665,7 +657,6 @@ describe('T-024 honest rows (reason line, references, verification)', () => {
             }))[0];
             expect(unreadable?.badge?.tone).toBe('warning');
         }
-        // case: reports a read-back against no baseline as observed, never as a mismatch (002 FR-029)
         {
             // `expectedAgent: ''` is the documented *no baseline configured*: the
             // row still names the observed agent, and neither the phrase nor the
@@ -697,8 +688,7 @@ describe('T-028 the row’s prompt line (sources, fingerprint, length — never 
     /** Fingerprint every set-reference case in this block carries. */
     const FINGERPRINT = 'mtp-0123456789abcdef0123456789abcdef';
 
-    it('names the contributing tiers beside the fingerprint (+4 cases)', () => {
-        // case: joins every set tier in stacking order, between "prompt set" and the fingerprint (FR-072, FR-087)
+    it('names the contributing tiers beside the fingerprint', () => {
         {
             const set = dispatchRows(runsState({
                 rows: [runFixture({
@@ -714,7 +704,6 @@ describe('T-028 the row’s prompt line (sources, fingerprint, length — never 
                 `prompt set · global+account+binding · ${FINGERPRINT} · 512 chars`,
             );
         }
-        // case: joins a partial list in the order the reader accepted it, most general first (FR-087)
         {
             const partial = dispatchRows(runsState({
                 rows: [runFixture({
@@ -728,7 +717,6 @@ describe('T-028 the row’s prompt line (sources, fingerprint, length — never 
 
             expect(partial[0]?.subtitle).toContain(`prompt set · global+binding · ${FINGERPRINT} · 64 chars`);
         }
-        // case: renders an unknown source string as inert text through the non-HTML path (FR-087, NFR-127)
         {
             // The closed reader refuses an unknown tier before a row can parse
             // (T-027), so this is the renderer's own posture with a value it was
@@ -736,7 +724,7 @@ describe('T-028 the row’s prompt line (sources, fingerprint, length — never 
             // takes. The list primitive writes the subtitle through `textContent`,
             // so the marker arrives verbatim: no escaping hides it from the
             // operator, and no path could evaluate it.
-            const marker = '<img src=x onerror="steal()"> <script>alert(1)</script>';
+            const marker = HOSTILE_MARKER;
             const rows = dispatchRows(runsState({
                 rows: [{
                     ...runFixture({
@@ -744,7 +732,7 @@ describe('T-028 the row’s prompt line (sources, fingerprint, length — never 
                         promptFingerprint: FINGERPRINT,
                         promptLength: 12,
                     }),
-                    promptSources: [marker] as unknown as readonly PromptSource[],
+                    promptSources: untrustedTierText,
                 }],
                 status: 'ready',
             }));
@@ -753,7 +741,6 @@ describe('T-028 the row’s prompt line (sources, fingerprint, length — never 
             expect(subtitle).toContain(`prompt set · ${marker} · ${FINGERPRINT} · 12 chars`);
             expect(subtitle).not.toContain('&lt;');
         }
-        // case: a run with no tier renders `prompt not set` and never a "set" line (FR-087's iff)
         {
             const untiered = dispatchRows(runsState({
                 rows: [runFixture({
@@ -788,8 +775,7 @@ describe('T-028 the row’s prompt line (sources, fingerprint, length — never 
 });
 
 describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)', () => {
-    it('names the control and its reason for the three actio… (+2 cases)', () => {
-        // case: names the control and its reason for the three actionable states
+    it('names the control and its reason for the three actionable states', () => {
         {
             const failed = runAffordance(runFixture({ state: FAILED_STATE }));
             expect(failed.action).toBe('retry');
@@ -807,7 +793,6 @@ describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)
                 label: 'Return to waiting',
             });
         }
-        // case: offers nothing — with the state’s own reason — where the service would refuse
         {
             const refused: readonly RunRow['state'][] = ['pending', 'claimed', 'starting', 'dispatched'];
             for (const state of refused) {
@@ -820,7 +805,6 @@ describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)
 
             expect(runAffordance(runFixture({ state: 'pending' })).reason).toContain(WAITING_REASON);
         }
-        // case: renders an unrecognised state raw and offers nothing
         {
             expect(runAffordance({ state: 'archived' })).toEqual({
                 action: 'none',
@@ -851,7 +835,6 @@ describe('runAffordance (003’s state→affordance table, FR-041/FR-033/FR-027)
  */
 describe('003 v1.8.0 the blocked actor-not-allowed row (FR-078)', () => {
     it('names the denied login, the field, and still refuses an unknown cause', async () => {
-        // case: the row renders the service's own reason, which names the denial
         {
             const rows = dispatchRows(runsState({
                 rows: [runFixture({
@@ -865,7 +848,6 @@ describe('003 v1.8.0 the blocked actor-not-allowed row (FR-078)', () => {
             expect(rows[0]?.subtitle).toContain('bob');
             expect(rows[0]?.badge?.label).toBe(ACTOR_BLOCKED_LABEL);
         }
-        // case: the affordance's reason names the field, not a generic guard
         {
             const affordance = runAffordance(runFixture({ state: BLOCKED_ACTOR_STATE }));
 
@@ -875,11 +857,9 @@ describe('003 v1.8.0 the blocked actor-not-allowed row (FR-078)', () => {
             // The permitted set is configuration; the reason names the field only.
             expect(affordance.reason).not.toMatch(/@|permitted:/);
         }
-        // case: an undeclared cause still renders, and still offers nothing false
         {
-            // The generic clause is honest about a cause this build does not
-            // produce, and the table keeps answering for a state from a future
-            // build (FR-074) rather than guessing a control.
+            // The generic clause keeps answering for a state a future build may produce
+            // (FR-074) rather than guessing a control for one it does not.
             const unknown = runAffordance({ state: 'blocked:not-yet-produced' });
             expect(unknown.action).toBe('retry');
             expect(unknown.reason).toContain('not-yet-produced');
@@ -911,8 +891,7 @@ describe('SC-104 one fixture per state of the dispatch state model', () => {
         { state: BLOCKED_ACTOR_STATE, label: ACTOR_BLOCKED_LABEL, action: 'retry' },
     ];
 
-    it('names a label, a reason, and a control for every dec… (+2 cases)', () => {
-        // case: names a label, a reason, and a control for every declared state
+    it('names a label, a reason, and a control for every declared state', () => {
         {
             for (const row of TABLE) {
                 expect(stateLabel(row.state), row.state).toBe(row.label);
@@ -924,14 +903,12 @@ describe('SC-104 one fixture per state of the dispatch state model', () => {
                 expect(affordance.label === null, row.state).toBe(row.action === 'none');
             }
         }
-        // case: covers every plain state the parser accepts, so a new one fails here first
         {
             const named = new Set(TABLE.map((row) => row.state));
             for (const state of PLAIN_RUN_STATES) {
                 expect(named.has(state), `003 declared ${state} and SC-104 has no row for it`).toBe(true);
             }
         }
-        // case: offers Retry on exactly failed and the blocked family, and Resolve only on unconfirmed
         {
             const retried = TABLE.filter((row) => row.action === 'retry').map((row) => row.state);
             expect(retried).toEqual([FAILED_STATE, BLOCKED_PROJECT_STATE, BLOCKED_BINDING_STATE, BLOCKED_ACTOR_STATE]);
@@ -948,8 +925,7 @@ describe('SC-104 one fixture per state of the dispatch state model', () => {
 });
 
 describe('loadDispatches (read the history without lying about failures)', () => {
-    it('lands a readable list in state and marks the section… (+4 cases)', async () => {
-        // case: lands a readable list in state and marks the section ready
+    it('lands a readable list in state and marks the section ready', async () => {
         {
             const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) } });
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -960,7 +936,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
             expect(rt.state.dispatches.rows).toHaveLength(1);
             expect(rt.state.dispatches.note).toBe('');
         }
-        // case: keeps the rows it holds and explains a refused refresh
+    });
+
+    it('keeps the rows it holds and explains a refused refresh', async () => {
         {
             const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) } });
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -976,7 +954,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
             // The rows the operator was reading survive a failed refresh.
             expect(rt.state.dispatches.rows).toHaveLength(1);
         }
-        // case: reports an unreadable body as unreadable instead of half-trusting it
+    });
+
+    it('reports an unreadable body as unreadable instead of half-trusting it', async () => {
         {
             const service = serviceDouble({
                 [RUNS_GET]: { status: 200, body: JSON.stringify({ events: [{ id: 'half' }], page: pageMember(1) }) },
@@ -988,7 +968,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
             expect(rt.state.dispatches.status).toBe('error');
             expect(rt.state.dispatches.rows).toEqual([]);
         }
-        // case: shows the empty state when the service has no events at all
+    });
+
+    it('shows the empty state when the service has no events at all', async () => {
         {
             const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([]) } });
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -1000,7 +982,9 @@ describe('loadDispatches (read the history without lying about failures)', () =>
             expect(dispatchesStatusText(rt.state.dispatches)).toBe(DISPATCHES_EMPTY_STATUS);
             expect(dispatchRows(rt.state.dispatches)).toEqual([]);
         }
-        // case: drops a selection whose row disappeared
+    });
+
+    it('drops a selection whose row disappeared', async () => {
         {
             const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([]) } });
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -1011,11 +995,11 @@ describe('loadDispatches (read the history without lying about failures)', () =>
             expect(rt.state.dispatches.selectedRun).toBeNull();
         }
     });
+
 });
 
 describe('retryRun (POST, refresh, honest copy)', () => {
-    it('requeues the selected run, then re-reads the list (+3 cases)', async () => {
-        // case: requeues the selected run, then re-reads the list
+    it('requeues the selected run, then re-reads the list', async () => {
         {
             // A failed run is where the service accepts a retry (T-024's table);
             // the list re-read answers with the run back in waiting.
@@ -1031,7 +1015,9 @@ describe('retryRun (POST, refresh, honest copy)', () => {
             expect(rt.state.dispatches.note).toContain('Requeued #7');
             expect(rt.state.dispatches.rows[0]?.state).toBe('pending');
         }
-        // case: explains a 409 invalid-transition from the service envelope
+    });
+
+    it('explains a 409 invalid-transition from the service envelope', async () => {
         {
             // The panel's row is stale (it still looks retryable, so the POST is
             // genuinely sent); the service knows better and answers 409.
@@ -1053,7 +1039,9 @@ describe('retryRun (POST, refresh, honest copy)', () => {
             // The refresh after the refusal shows the state the service actually holds.
             expect(rt.state.dispatches.rows[0]?.state).toBe('dispatched');
         }
-        // case: refuses locally — without a POST — when the selected run already dispatched
+    });
+
+    it('refuses locally — without a POST — when the selected run already dispatched', async () => {
         {
             const dispatched = runFixture({ state: 'dispatched', dispatchResult: SESSION_RESULT });
             const { rt, service } = retryRuntime(dispatched, {
@@ -1064,7 +1052,9 @@ describe('retryRun (POST, refresh, honest copy)', () => {
 
             expect(service.calls).toEqual([]);
         }
-        // case: does nothing when nothing is selected
+    });
+
+    it('does nothing when nothing is selected', async () => {
         {
             const service = serviceDouble({});
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -1076,6 +1066,7 @@ describe('retryRun (POST, refresh, honest copy)', () => {
             expect(rt.state.dispatches.note).toBe('');
         }
     });
+
 });
 
 describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
@@ -1098,8 +1089,7 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
         };
     }
 
-    it('states the attempt reset before it sends a return-to… (+5 cases)', async () => {
-        // case: states the attempt reset before it sends a return-to-waiting (FR-033)
+    it('states the attempt reset before it sends a return-to-waiting', async () => {
         {
             const parked = runFixture({ state: DEAD_LETTERED_STATE });
             const { rt, service } = retryRuntime(parked, acceptedRoutes());
@@ -1117,7 +1107,9 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
             expect(JSON.parse(String(service.bodies[0]))).toEqual({ correlationId: RUN_ID, confirm: true });
             expect(rt.state.dispatches.pendingAction).toBeNull();
         }
-        // case: reaches the two resolutions only from unconfirmed (FR-027)
+    });
+
+    it('reaches the two resolutions only from unconfirmed', async () => {
         {
             const waiting = runFixture({ state: 'pending' });
             const { rt, service } = retryRuntime(waiting, acceptedRoutes());
@@ -1129,7 +1121,9 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
             expect(rt.state.dispatches.pendingAction).toBeNull();
             expect(rt.state.dispatches.note).toContain(WAITING_REASON);
         }
-        // case: states what to verify, warns, and shows the coordinates before resolving
+    });
+
+    it('states what to verify, warns, and shows the coordinates before resolving', async () => {
         {
             const wedge = runFixture({ state: UNCONFIRMED_STATE });
             const { rt, service } = retryRuntime(wedge, acceptedRoutes());
@@ -1157,7 +1151,9 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
                 sessionId: 'ses_operator_found',
             });
         }
-        // case: sends no-session with no session id and the guidance it showed
+    });
+
+    it('sends no-session with no session id and the guidance it showed', async () => {
         {
             const wedge = runFixture({ state: UNCONFIRMED_STATE });
             const { rt, service } = retryRuntime(wedge, acceptedRoutes());
@@ -1171,7 +1167,9 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
             expect(body.decision).toBe('no-session');
             expect('sessionId' in body).toBe(false);
         }
-        // case: echoes the run identity and the cause report a retry carries (contract §6)
+    });
+
+    it('echoes the run identity and the cause report a retry carries (contract §6)', async () => {
         {
             const failed = runFixture({ state: FAILED_STATE });
             const { rt, service } = retryRuntime(failed, acceptedRoutes());
@@ -1203,7 +1201,9 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
                 causeReport: expect.stringContaining('operator confirmed'),
             });
         }
-        // case: renders the service verdict verbatim when an operation is refused
+    });
+
+    it('renders the service verdict verbatim when an operation is refused', async () => {
         {
             const parked = runFixture({ state: DEAD_LETTERED_STATE });
             const verdict = 'this run is not dead-lettered; it is already waiting';
@@ -1222,6 +1222,7 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
             expect(rt.state.dispatches.note).toBe(verdict);
         }
     });
+
 
     it('gates every run operation behind one busy flag (T-025)', async () => {
         // The double holds every answer until the test releases it, so the
@@ -1267,9 +1268,6 @@ describe('T-025 operator actions (confirmations, bodies, verdicts)', () => {
 
 /**
  * Build one audit entry the way the trail stores it (contract §2).
- *
- * @param overrides - Fields the test changes.
- * @returns A complete, valid entry.
  */
 function auditEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
@@ -1301,8 +1299,7 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
     /** The one request the view is allowed to make: rows for this run. */
     const AUDIT_GET = `GET ${auditPath(RUN_ID)}`;
 
-    it('fetches by the selected row correlation id and nothi… (+5 cases)', async () => {
-        // case: fetches by the selected row correlation id and nothing else (AC-117)
+    it('fetches by the selected row correlation id and nothing else', async () => {
         {
             const service = serviceDouble({
                 [AUDIT_GET]: {
@@ -1332,7 +1329,9 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
                 meta: '2026-09-28 09:00',
             });
         }
-        // case: starts idle, says so, and resets with the selection (FR-053)
+    });
+
+    it('starts idle, says so, and resets with the selection', async () => {
         {
             expect(auditStatusText(initialAuditHistory())).toBe(AUDIT_IDLE_STATUS);
             // The control is disabled while nothing is selected, so the idle line
@@ -1357,7 +1356,9 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             expect(rt.state.dispatches.audit.status).toBe('idle');
             expect(rt.state.dispatches.audit.rows).toEqual([]);
         }
-        // case: refuses an unreadable body instead of half-showing it (fail closed)
+    });
+
+    it('refuses an unreadable body instead of half-showing it (fail closed)', async () => {
         {
             const service = serviceDouble({
                 [AUDIT_GET]: { status: 200, body: '{"entries":[{"seq":"one"}]}' },
@@ -1372,7 +1373,9 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             expect(parseAuditBody('{"entries":[]}')).toEqual([]);
             expect(parseAuditBody('{"nope":[]}')).toBeNull();
         }
-        // case: renders hostile reason and details as inert text (NFR-109)
+    });
+
+    it('renders hostile reason and details as inert text', async () => {
         {
             const hostile = auditEntry({
                 reason: '<img src=x onerror="steal()">',
@@ -1384,7 +1387,9 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             const items = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: rows ?? [] }));
             expect(items[0]?.subtitle).toBe('<img src=x onerror="steal()"> · {"note":"<script>alert(1)</script>"}');
         }
-        // case: bounds the list and marks every cut (NFR-107)
+    });
+
+    it('bounds the list and marks every cut', async () => {
         {
             const many = Array.from({ length: AUDIT_ROW_LIMIT + 50 }, (_value, index) => auditEntry({
                 seq: index + 1 }));
@@ -1394,13 +1399,16 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             const items = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: rows ?? [] }));
             expect(items).toHaveLength(AUDIT_ROW_LIMIT);
 
-            const loud = parseAuditBody(auditBody([auditEntry({ reason: null, details: { blob: 'x'.repeat(500) } })]));
+            const blob = 'x'.repeat(500);
+            const loud = parseAuditBody(auditBody([auditEntry({ reason: null, details: { blob } })]));
             const subtitle = auditItems(auditState({ status: 'ready', correlationId: RUN_ID, rows: loud ?? [] }))[0]
                 ?.subtitle ?? '';
             expect(subtitle.endsWith('…')).toBe(true);
             expect(subtitle.length).toBeLessThanOrEqual(161);
         }
-        // case: warns when the service cannot be reached, and keeps nothing
+    });
+
+    it('warns when the service cannot be reached, and keeps nothing', async () => {
         {
             const rt = createTestRuntime(fakeHost({
                 serviceRequest: async () => {
@@ -1416,11 +1424,11 @@ describe('T-026 audit history (keyed by the selected run, plain text)', () => {
             expect(rt.state.dispatches.audit.note).toContain('unreachable');
         }
     });
+
 });
 
 describe('selection, open, and the pane handler table', () => {
-    it('selects a known row and ignores an unknown id (+3 cases)', async () => {
-        // case: selects a known row and ignores an unknown id
+    it('selects a known row and ignores an unknown id', async () => {
         {
             const rt = createTestRuntime(fakeHost());
             rt.state.dispatches = runsState({ rows: [runFixture()], status: 'ready' });
@@ -1432,7 +1440,9 @@ describe('selection, open, and the pane handler table', () => {
             expect(rt.state.dispatches.selectedRun).toBe(RUN_ID);
             expect(selectedRun(rt.state.dispatches)?.issueUrl).toBe(ISSUE_URL);
         }
-        // case: opens the selected run’s issue through the documented host call
+    });
+
+    it('opens the selected run’s issue through the documented host call', async () => {
         {
             const opened: string[] = [];
             const host = fakeHost({
@@ -1448,7 +1458,9 @@ describe('selection, open, and the pane handler table', () => {
             expect(opened).toEqual([ISSUE_URL]);
             expect(rt.state.dispatches.note).toBe('');
         }
-        // case: lands an openUrl failure on the note instead of throwing
+    });
+
+    it('lands an openUrl failure on the note instead of throwing', async () => {
         {
             const host = fakeHost({ openUrl: () => Promise.reject(new Error('HOST_REJECTED')) });
             const rt = createTestRuntime(host);
@@ -1458,7 +1470,9 @@ describe('selection, open, and the pane handler table', () => {
 
             expect(rt.state.dispatches.note).toContain('HOST_REJECTED');
         }
-        // case: wires Refresh dispatches through the pane handler table to a real read
+    });
+
+    it('wires Refresh dispatches through the pane handler table to a real read', async () => {
         {
             const service = serviceDouble({ [RUNS_GET]: { status: 200, body: runsBody([runFixture()]) } });
             const rt = createTestRuntime(fakeHost({ serviceRequest: service.serviceRequest }));
@@ -1471,6 +1485,7 @@ describe('selection, open, and the pane handler table', () => {
             expect(rt.state.dispatches.rows).toHaveLength(1);
         }
     });
+
 });
 
 /* -------------------------------------------------------------------- *
@@ -1503,18 +1518,14 @@ const LEGACY_BASIS = 'subject-author';
 
 
 describe('005 AC-145 the row names the actor, its basis, and the denied login', () => {
-    it('states each reference\'s own actor, and a legacy basis as its provenance (+4 cases)', () => {
-        // case: a direct attribution names the login and **no basis clause at
+    it('states each reference\'s own actor, and a legacy basis as its provenance', () => {
         // all** — GitHub named the identity that performed the act, so there is
         // nothing to qualify (005 FR-094 as re-cut at v1.13.0)
         {
-            const rows = dispatchRows(runsState({
-                rows: [runFixture({
-                    sourceReferences: [referenceFixture({ actorLogin: ALLOWED_LOGIN, actorAttribution: 'direct' })],
-                    referenceCount: 1,
-                })],
-                status: 'ready',
-            }));
+            const rows = rowsForRun({
+                sourceReferences: [referenceFixture({ actorLogin: ALLOWED_LOGIN, actorAttribution: 'direct' })],
+                referenceCount: 1,
+            });
 
             expect(rows[0]?.subtitle).toContain(`actor ${ALLOWED_LOGIN}`);
             expect(rows[0]?.subtitle).not.toContain(SUBJECT_AUTHOR_BASIS);
@@ -1524,19 +1535,15 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
             expect(rows[0]?.subtitle).not.toContain('basis');
         }
 
-        // case: a legacy `subject-author` row states its **provenance** — the rule
         // in force when it was written — and claims nothing about GitHub
         {
-            const rows = dispatchRows(runsState({
-                rows: [runFixture({
-                    sourceReferences: [referenceFixture({
-                        actorLogin: LEGACY_ACTOR_LOGIN,
-                        actorAttribution: LEGACY_BASIS,
-                    })],
-                    referenceCount: 1,
+            const rows = rowsForRun({
+                sourceReferences: [referenceFixture({
+                    actorLogin: LEGACY_ACTOR_LOGIN,
+                    actorAttribution: LEGACY_BASIS,
                 })],
-                status: 'ready',
-            }));
+                referenceCount: 1,
+            });
             const subtitle = rows[0]?.subtitle ?? '';
 
             expect(subtitle).toContain(`actor ${LEGACY_ACTOR_LOGIN}`);
@@ -1550,7 +1557,6 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
             expect(subtitle).not.toContain('is a proxy');
         }
 
-        // case: a coalesced run shows every reference\'s own actor, so an
         // outside rider is visible rather than silent (003 FR-011, FR-077)
         {
             const row = runFixture({
@@ -1585,12 +1591,8 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
             expect(revealed[1]).toContain('arrived after authorization');
         }
 
-        // case: an unattributed reference says so rather than naming nobody
         {
-            const [rendered] = dispatchRows(runsState({
-                rows: [runFixture({ sourceReferences: [referenceFixture()], referenceCount: 1 })],
-                status: 'ready',
-            }));
+            const [rendered] = rowsForRun({ sourceReferences: [referenceFixture()], referenceCount: 1 });
 
             // Absence is named, never filled in: printing a plausible login
             // would record an inference as a fact (002 FR-024).
@@ -1598,8 +1600,7 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
         }
     });
 
-    it('names the denied login and 003\'s reason on the refused run, and offers Retry (+2 cases)', () => {
-        // case: the row carries the service's own refusal, naming who was denied
+    it('names the denied login and 003\'s reason on the refused run, and offers Retry', () => {
         {
             const reason = "no source reference on this run names an actor the binding's allowedUsers permits: "
                 + `${LEGACY_ACTOR_LOGIN} (the issue or pull-request author, attributed under the rule `
@@ -1617,7 +1618,6 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
             expect(row?.subtitle).toContain(reason);
         }
 
-        // case: Retry stays offered, and the row does not change until the
         // service answers (005 AC-145, 003 FR-041)
         {
             const row = runFixture({ state: BLOCKED_ACTOR_STATE, stateReason: 'bob is not on the allow-list' });
@@ -1631,7 +1631,6 @@ describe('005 AC-145 the row names the actor, its basis, and the denied login', 
             expect(dispatchRows(runsState({ rows: [row], status: 'ready' }))).toEqual(before);
         }
 
-        // case: **the copy scan**, asserted over what the panel composes and
         // proved non-vacuous by a fixture that still renders the legacy basis
         // (005 AC-145 as re-cut at v1.13.0)
         {

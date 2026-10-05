@@ -77,24 +77,19 @@ const CAUSE_NOT_CLEARED = 'the cause has not cleared';
 /** The loop under test. */
 let loop: DispatchLoop;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
     loop = await startDispatchLoop();
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     await loop.shutdown();
-};
-
-afterEach(afterEachWork2);
+});
 
 /**
  * Read the one run a fixture issue produced.
  *
- * @param issueNumber - Issue the run is about.
  * @returns The run as the service holds it.
  * @throws {Error} When no run exists for that subject.
  */
@@ -111,7 +106,6 @@ async function runFor(issueNumber: number): Promise<Run> {
 /**
  * Read one subject's run state straight from the service.
  *
- * @param issueNumber - Issue the run is about.
  * @returns The state the service holds for it.
  */
 async function stateOf(issueNumber: number): Promise<string> {
@@ -123,7 +117,6 @@ async function stateOf(issueNumber: number): Promise<string> {
 /**
  * Read the single row the tab is showing.
  *
- * @param rt - The mounted panel.
  * @returns The one row the fixture put on screen.
  * @throws {Error} When the list held no row.
  */
@@ -148,7 +141,6 @@ function retryPosts(): number {
 /**
  * Claim and reserve one run through a mount's own service bridge.
  *
- * @param issueNumber - Issue to claim for.
  * @returns The claim and the single-use token the reservation issued.
  * @throws {Error} When the claim offered nothing or the reservation refused.
  */
@@ -180,7 +172,7 @@ async function claimAndReserve(issueNumber: number): Promise<{
 
     const parsed = JSON.parse(answer.body) as Record<string, unknown>;
     if (typeof parsed.dispatchToken !== 'string') {
-        throw new Error('the reservation carried no token');
+        throw new TypeError('the reservation carried no token');
     }
 
     return { run: claim, token: parsed.dispatchToken };
@@ -192,8 +184,6 @@ async function claimAndReserve(issueNumber: number): Promise<{
  * Every state below is reached through the real routes or the real sweep —
  * nothing writes `runs.json` by hand — because a fixture that forged a state
  * would only prove the fixture can forge it.
- *
- * @param input - The issue to move and the state it should reach.
  */
 async function driveTo(input: {
     /** Issue whose run moves. */
@@ -358,8 +348,7 @@ describe('AC-118 a refused retry renders the service verdict and changes no row'
 });
 
 describe('FR-049 one action dispatch path and one correlation id per row', () => {
-    it('runs exactly one action when the same row is activat… (+2 cases)', async () => {
-        // case: runs exactly one action when the same row is activated twice
+    it('runs exactly one action when the same row is activated twice', async () => {
         {
             await loop.enqueue({ issueNumber: FAILED_ISSUE });
             await driveTo({ issueNumber: FAILED_ISSUE, state: 'failed' });
@@ -375,11 +364,9 @@ describe('FR-049 one action dispatch path and one correlation id per row', () =>
             expect(onlyRow(rt).state).toBe('pending');
             expect(rt.state.dispatches.busy).toBe(false);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: copies the correlation id from the selected row
+    });
+
+    it('copies the correlation id from the selected row', async () => {
         {
             await loop.enqueue({ issueNumber: FAILED_ISSUE });
             const rt = loop.mount();
@@ -393,11 +380,9 @@ describe('FR-049 one action dispatch path and one correlation id per row', () =>
 
             expect(rt.state.dispatches.note).toBe(`Correlation id ${row.correlationId} copied.`);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: says why the correlation id could not be copied
+    });
+
+    it('says why the correlation id could not be copied', async () => {
         {
             const clipboard = createTestRuntime(
                 fakeHost({ writeClipboard: () => Promise.reject(new Error(CLIPBOARD_FAILURE)) }),
@@ -413,4 +398,5 @@ describe('FR-049 one action dispatch path and one correlation id per row', () =>
             expect(clipboard.state.dispatches.note).toContain(CLIPBOARD_FAILURE);
         }
     });
+
 });

@@ -96,7 +96,6 @@ export interface TrimExcerptsInput {
  *   eligible; the legacy `state === 'dispatched'` rows keep their own answer
  *   from their own field, which needs no run document at all.
  *
- * @param input - Open store and logger.
  * @returns correlation id → run state, or an empty map when unknown.
  */
 async function readRunStates(input: {
@@ -123,7 +122,6 @@ async function readRunStates(input: {
  * Decide whether one row's dispatch is finished, on the authority its schema
  * gives it.
  *
- * @param event - One stored queue row.
  * @param runStates - correlation id → run state, as {@link readRunStates}
  *   read them (empty when unknown).
  * @returns `true` for a legacy row in the terminal `dispatched` state, or a
@@ -144,7 +142,6 @@ function dispatchFinished(event: QueuedEvent, runStates: ReadonlyMap<string, str
 /**
  * Decide whether one row's payload text is this pass's to clear.
  *
- * @param input - The row, the run states, and the window's cutoff.
  * @returns `true` for an untouched, eligible row older than the window that
  *   still carries text to clear.
  */
@@ -169,7 +166,6 @@ function clearable(input: {
 /**
  * One pass: clear the eligible excerpts, then record what was cleared.
  *
- * @param input - Store, logger, the effective configuration, and the clock.
  * @returns How many rows this pass cleared; `0` means nothing was touched.
  * @throws {StorageUnavailableError} When the queue cannot be rewritten; the
  *   caller (store open, cycle boundary) logs the failure and moves on, and the
@@ -196,7 +192,7 @@ export async function trimExcerpts(input: TrimExcerptsInput): Promise<TrimExcerp
                 ? { ...event, issueBodyExcerpt: '', excerptTrimmedAt: clearedAt }
                 : event,);
         await input.store.writeJson(EVENTS_FILE, next);
-        // The row follows the removal, never precedes it (FR-053): a rewrite
+        // The row follows the removal, never precedes it: a rewrite
         // that failed has already returned, and the trail says nothing about a
         // clearing that did not happen.
         await appendAudit(input.store, {
@@ -208,7 +204,7 @@ export async function trimExcerpts(input: TrimExcerptsInput): Promise<TrimExcerp
             details: {
                 // The rows whose text went. No audit `seq` is removed here,
                 // which is why this row carries no seq range — that range
-                // describes trail removals (FR-073), and inventing one for a
+                // describes trail removals, and inventing one for a
                 // queue that has no `seq` would be worse than omitting it.
                 entriesRemoved: eligible.length,
                 limitReached: 'excerpt-days',

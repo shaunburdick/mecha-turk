@@ -98,9 +98,9 @@ function parseIntentBase(value: Record<string, unknown>): {
     const deliveryIds = parseTextList(value.deliveryIds);
     if (
         correlationId === null
-        || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)
         || deliveryIds === null
         || deliveryIds.length === 0
+        || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)
     ) {
         return null;
     }
@@ -154,7 +154,6 @@ function parseIntent(value: unknown): RunAuditIntent | null {
  * turn the recovery mechanism into a credential store, which is the one thing
  * the outbox must never be (FR-061, T-040c).
  *
- * @param raw - Candidate details record.
  * @returns The details, or `null` when any member is malformed or forbidden.
  */
 function parseSweepDetails(raw: unknown): Record<string, string | number | boolean | null> | null {
@@ -169,9 +168,11 @@ function parseSweepDetails(raw: unknown): Record<string, string | number | boole
                 return null;
             }
             details[key] = value;
-        } else if (typeof value === 'number' && Number.isFinite(value)) {
-            details[key] = value;
-        } else if (typeof value === 'boolean' || value === null) {
+        } else if (
+            typeof value === 'boolean'
+            || value === null
+            || (typeof value === 'number' && Number.isFinite(value))
+        ) {
             details[key] = value;
         } else {
             return null;
@@ -198,11 +199,11 @@ function parseSweepIntent(value: Record<string, unknown>): RunAuditIntent | null
     const decision = readText(rawDecision);
     if (
         correlationId === null
-        || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)
         || reason === null
         || sequence === null
         || details === null
         || decision !== SWEEP_DECISIONS.get(eventType)
+        || !/^mt-run-[0-9a-f]{24}$/.test(correlationId)
     ) {
         return null;
     }
@@ -218,6 +219,7 @@ function parseEntry(value: unknown): RunAuditIntent | null {
 }
 
 /** Parse the run document's optional outbox as a wholly valid list. */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function parseRunAuditIntents(raw: unknown): readonly RunAuditIntent[] | null {
     if (raw === undefined) {
         return [];

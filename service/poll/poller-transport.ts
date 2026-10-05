@@ -57,7 +57,7 @@ const STATUS_TOO_MANY_REQUESTS = 429;
 export const MAX_LIST_PAGES = 2;
 
 /**
- * Page size and retry ladder one call runs under (006 FR-058, FR-059).
+ * Page size and retry ladder one call runs under.
  *
  * Both values are read from the stored configuration **once per cycle** and
  * carried on every query, which is what makes `perPage` and the three retry
@@ -66,7 +66,7 @@ export const MAX_LIST_PAGES = 2;
 export interface ListPace {
     /** `per_page` this call asks for — the validated `perPage`, never above 30. */
     readonly perPage: number;
-    /** The poll-*request* ladder this call may run; never a run retry (FR-058). */
+    /** The poll-*request* ladder this call may run; never a run retry. */
     readonly retry: RetryPolicy;
 }
 
@@ -85,15 +85,15 @@ export type PollFailure =
  * What a paged read answers with before the public method renames its
  * payload: the normalized items, or the classified failure.
  */
-export type PagedList<T> = { readonly kind: 'ok'; readonly items: readonly T[] } | PollFailure;
+export type PagedList<T> = PollFailure | { readonly kind: 'ok'; readonly items: readonly T[] };
 
 /**
- * The poller's own injectables (plan D7): where waits are reported, slept, and
+ * The poller's own injectables: where waits are reported, slept, and
  * jittered. Production gets the shared logger, `setTimeout`, and `Math.random`;
  * a test passes a capturing sink and never sleeps at all.
  */
 export interface PollerDeps {
-    /** Structured logger; every wait is reported through it (FR-058). */
+    /** Structured logger; every wait is reported through it. */
     readonly log: ServiceLogger;
     /** Injected sleep; production waits, tests record instead. */
     readonly sleep?: SleepFn;
@@ -105,7 +105,7 @@ export interface PollerDeps {
 export interface PollerRuntime {
     /** Injectable `fetch`. */
     readonly fetchImpl: FetchLike;
-    /** Logger every wait is reported through (FR-058). */
+    /** Logger every wait is reported through. */
     readonly log: ServiceLogger;
     /** Injected sleep; the production default waits on a real timer. */
     readonly sleep: SleepFn;
@@ -119,7 +119,6 @@ export interface PollerRuntime {
  * Tests pass a recorder instead, so a ladder of waits costs them no time
  * at all (SC-116's "injected clock, no real sleeps").
  *
- * @param milliseconds - How long to wait.
  * @returns A promise that settles after the delay.
  */
 const systemSleep: SleepFn = async (milliseconds) => {
@@ -153,8 +152,6 @@ export function pollerRuntime(deps: PollerDeps, fetchImpl: FetchLike): PollerRun
  * helper at all, because it takes no `since` and must not be able to (002
  * FR-051).
  *
- * @param input - Repository coordinates, the path after the repo, the query
- *   parameters the method always sends, and its optional `since` window.
  * @returns The request URL with those query parameters set.
  */
 export function listUrl(input: {
@@ -184,9 +181,6 @@ export function listUrl(input: {
 /**
  * Parse one list page body, skipping entries the shape check refuses.
  *
- * @param input - The body text, the error text when it is not an array
- *   (never upstream text), and the per-entry reader (`null` drops one
- *   malformed entry).
  * @returns The normalized entries.
  * @throws {Error} When the body is not a JSON array.
  */
@@ -211,9 +205,6 @@ function parseListPage<T>(input: {
 
 /**
  * Classify a non-200 answer.
- *
- * @param response - Upstream response.
- * @returns The classified failure.
  */
 async function classifyOutcome(response: Response): Promise<PollFailure> {
     if (response.status === STATUS_UNAUTHORIZED || response.status === STATUS_NOT_FOUND) {
@@ -248,7 +239,6 @@ interface WaitContext {
  * and it carries the path, the attempt, the length, and the source — never a
  * header value and never a credential (FR-058's log requirement; 002 FR-007).
  *
- * @param context - The request context the wait belongs to.
  * @param wait - The attempt the wait precedes (the first is never waited for)
  *   and the rate-limit guidance in seconds, or `null`.
  */
@@ -275,7 +265,7 @@ async function waitBeforeNextAttempt(
 }
 
 /**
- * Issue one page request, retrying under the configured ladder (FR-058).
+ * Issue one page request, retrying under the configured ladder.
  *
  * `auth-failed` returns immediately — a credential GitHub refuses is a stop
  * condition, not a transient error (constitution II) — and every other class
@@ -283,7 +273,6 @@ async function waitBeforeNextAttempt(
  * Each wait is reported before it starts, naming its length and its source,
  * with no header value and no credential in the line.
  *
- * @param input - Transport, poller injectables, credential, URL, and pace.
  * @returns The response, or the failure the last attempt produced.
  */
 async function requestPage(input: {
@@ -303,7 +292,7 @@ async function requestPage(input: {
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
         let response: Response;
         try {
-            response = await input.runtime.fetchImpl(input.url.toString(), {
+            response = await input.runtime.fetchImpl(input.url.href, {
                 method: 'GET',
                 headers: requestHeaders(input.token),
                 signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS),
@@ -341,11 +330,9 @@ async function requestPage(input: {
  * Split out of {@link listPages} so both walks over this transport share one
  * request-and-parse path, and one failure classification: the list feeds stop
  * when a page under-fills their cap, while the item-events walk stops when a
- * page falls entirely outside the scan window (002 FR-051). Two callers, one
+ * page falls entirely outside the scan window. Two callers, one
  * page reader.
  *
- * @param input - Transport, poller injectables, the URL for this page, the
- *   pace, and the page reader.
  * @returns The normalized entries, or the page failure's class.
  */
 export async function readOnePage<T>(input: {
@@ -393,8 +380,6 @@ export async function readOnePage<T>(input: {
  * never sees a burst; a page that keeps failing under the ladder stops the
  * paging and reports its class alone.
  *
- * @param input - Transport, poller injectables, the URL to page through, the
- *   pace, and the page reader.
  * @returns The normalized items, or the page failure's class.
  */
 export async function listPages<T>(input: {

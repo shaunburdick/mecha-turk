@@ -17,7 +17,7 @@ import process from 'node:process';
 const HOST = '127.0.0.1';
 
 /** Port for the standalone server; `shot.js` always asks for an ephemeral one. */
-const DEFAULT_PORT = 8792;
+const DEFAULT_PORT = 8_792;
 
 /** Port the standalone server reads from the environment. */
 const PORT_ENV = 'MT_SHOT_PORT';
@@ -38,18 +38,18 @@ const STATUS_NOT_FOUND = 404;
 const STATUS_BAD_REQUEST = 400;
 
 /** Extensions the panel and its harness need, and how to label them. */
-const MIME_TYPES = {
-    '.css': 'text/css; charset=utf-8',
-    '.html': 'text/html; charset=utf-8',
-    '.ico': 'image/x-icon',
-    '.js': 'text/javascript; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.map': 'application/json; charset=utf-8',
-    '.png': 'image/png',
-    '.svg': 'image/svg+xml',
-    '.txt': 'text/plain; charset=utf-8',
-    '.woff2': 'font/woff2',
-};
+const MIME_TYPES = new Map([
+    ['.css', 'text/css; charset=utf-8'],
+    ['.html', 'text/html; charset=utf-8'],
+    ['.ico', 'image/x-icon'],
+    ['.js', 'text/javascript; charset=utf-8'],
+    ['.json', 'application/json; charset=utf-8'],
+    ['.map', 'application/json; charset=utf-8'],
+    ['.png', 'image/png'],
+    ['.svg', 'image/svg+xml'],
+    ['.txt', 'text/plain; charset=utf-8'],
+    ['.woff2', 'font/woff2'],
+]);
 
 /** Methods this server answers; everything else is refused. */
 const ALLOWED_METHODS = ['GET', 'HEAD'];
@@ -77,13 +77,12 @@ function resolveFile(root, pathname) {
 
 /** Label a file the way the browser should read it. */
 function contentType(pathname) {
-    return MIME_TYPES[extname(pathname).toLowerCase()] ?? 'application/octet-stream';
+    return MIME_TYPES.get(extname(pathname).toLowerCase()) ?? 'application/octet-stream';
 }
 
 /**
  * Write one response, with the headers that keep captures reproducible.
  *
- * @param response - Node response the answer goes out on.
  * @param answer - `{ status, headers, body }`; `body` may be undefined.
  */
 function send(response, answer) {
@@ -144,6 +143,7 @@ function createHandler(root) {
  * @param options - `{ root, port }`; port 0 asks the OS for a free one.
  * @returns `{ url, port, close }` — `close` drops live connections first.
  */
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function startServer(options = {}) {
     const root = options.root ?? REPO_ROOT;
     const port = options.port ?? DEFAULT_PORT;
@@ -186,14 +186,15 @@ function portFromEnv() {
     return Number.isNaN(configured) ? DEFAULT_PORT : configured;
 }
 
-const invokedDirectly =
+const isInvokedDirectly =
     process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 
-if (invokedDirectly) {
-    startServer({ port: portFromEnv() })
-        .then((server) => writeLine(`harness: ${server.url}/tools/visual/index.html`))
-        .catch((error) => {
-            const detail = error instanceof Error ? error.message : String(error);
-            writeError(`harness could not start: ${detail}`);
-        });
+if (isInvokedDirectly) {
+    try {
+        const server = await startServer({ port: portFromEnv() });
+        writeLine(`harness: ${server.url}/tools/visual/index.html`);
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        writeError(`harness could not start: ${detail}`);
+    }
 }

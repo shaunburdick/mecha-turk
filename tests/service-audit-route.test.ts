@@ -24,8 +24,8 @@
  * audit writer, no network, no host, no sleeping.
  */
 
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir } from 'node:fs/promises';
+
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { newCorrelationId } from '../src/ids.ts';
@@ -39,6 +39,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** A well-formed run id the route must answer for even with no run behind it. */
 const SEEDED_RUN_ID = `mt-run-${'a'.repeat(24)}`;
@@ -79,7 +80,7 @@ const WRONG_METHOD = 'PATCH';
 const LOG_LINES: string[] = [];
 
 /** Logger every direct store call in this suite reports through. */
-const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => LOG_LINES.push(line) });
+const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
 
 /** One answer, with its status and parsed body. */
 interface AuditAnswer {
@@ -103,32 +104,26 @@ let dataDir = '';
 let running: TestService | null = null;
 let store: ServiceStore;
 
-/** Per-test setup the merged cases re-run by name. */
-const beforeEachWork1 = async (): Promise<void> => {
-    tempRoot = await mkdtemp(join(tmpdir(), 'mecha-turk-audit-route-'));
-    dataDir = join(tempRoot, 'store');
+/** Per-test setup: a fresh temp store and an empty log. */
+beforeEach(async (): Promise<void> => {
+    ({ root: tempRoot, dataDir } = await makeStoreTree('audit-route'));
     LOG_LINES.length = 0;
     running = null;
-};
+});
 
-beforeEach(beforeEachWork1);
-
-/** Per-test teardown the merged cases re-run by name. */
-const afterEachWork2 = async (): Promise<void> => {
+/** Per-test teardown: drop the temp root. */
+afterEach(async (): Promise<void> => {
     if (running !== null) {
         await running.shutdown();
         running = null;
     }
 
-    await rm(tempRoot, { recursive: true, force: true });
-};
-
-afterEach(afterEachWork2);
+    await removeTempTree(tempRoot);
+});
 
 /**
  * Start a service against this fixture's data directory.
  *
- * @param options - Pass `unreadableTrail` to plant a trail the store cannot read.
  * @returns The running instance, with its store handle open for seeding.
  */
 async function startServiceForTest(options: { readonly unreadableTrail?: boolean } = {}): Promise<TestService> {
@@ -154,7 +149,6 @@ async function startServiceForTest(options: { readonly unreadableTrail?: boolean
 /**
  * Read `GET /v1/audit` with whatever query the caller names.
  *
- * @param service - The running instance to call.
  * @param query - Query string without the leading `?`; `''` for none.
  * @returns The status, parsed body, and raw text.
  */
@@ -203,8 +197,8 @@ async function seedRows(input: {
             entity: { kind: 'run', id: input.correlationId },
             correlationId: input.correlationId,
             reason: `fixture row ${index}`,
-            ...(input.row ?? {}),
-            details: { ...(input.details ?? {}), fixture: index },
+            ...input.row,
+            details: { ...input.details, fixture: index },
         }));
     }
 
@@ -213,8 +207,6 @@ async function seedRows(input: {
 
 /**
  * The one detection this suite's real run is enqueued from.
- *
- * @returns A complete assignment snapshot.
  */
 function detection(): EventSnapshot {
     return {
@@ -257,8 +249,7 @@ async function seededRunId(): Promise<string> {
 }
 
 describe('T-017 the correlation filter is a byte-exact string equality', () => {
-    it('returns every run row, includes the detection rows, … (+1 cases)', async () => {
-        // case: returns every run row, includes the detection rows, and never a non-run row (FR-052, AC-118)
+    it('returns every run row, includes the detection rows, and never a non-run row', async () => {
         {
             const service = await startServiceForTest();
             const correlationId = await seededRunId();
@@ -296,11 +287,9 @@ describe('T-017 the correlation filter is a byte-exact string equality', () => {
             expect(nonRun?.entity.kind).toBe('account');
             expect(nonRun?.details.deliveryIds).toEqual(['evt-acme~audit-route~9~77331']);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers an unknown id with 200 and zero entries, and never widens a near-miss
+    });
+
+    it('answers an unknown id with 200 and zero entries, and never widens a near-miss', async () => {
         {
             const service = await startServiceForTest();
             await seedRows({ correlationId: SEEDED_RUN_ID, count: 3 });
@@ -330,6 +319,7 @@ describe('T-017 the correlation filter is a byte-exact string equality', () => {
             expect(padded.json.entries).toEqual([]);
         }
     });
+
 });
 
 describe('T-017 pagination chains with no duplicate and no gap', () => {
@@ -363,15 +353,14 @@ describe('T-017 pagination chains with no duplicate and no gap', () => {
         const paged = [...first.json.entries, ...second.json.entries, ...third.json.entries];
         const seqs = paged.map((entry) => entry.seq);
         expect(new Set(seqs).size).toBe(FILTERED_ROWS);
-        expect([...seqs].sort((left, right) => left - right)).toEqual(seqs);
+        expect([...seqs].toSorted((left, right) => left - right)).toEqual(seqs);
         expect(paged.map((entry) => entry.seq)).toEqual(seeded.map((entry) => entry.seq));
         expect(paged.every((entry) => entry.correlationId === SEEDED_RUN_ID)).toBe(true);
     });
 });
 
 describe('T-017 limit is clamped, never refused', () => {
-    it('takes the default, clamps both bounds, and treats a … (+1 cases)', async () => {
-        // case: takes the default, clamps both bounds, and treats a word as the default
+    it('takes the default, clamps both bounds, and treats a word as the default', async () => {
         {
             const service = await startServiceForTest();
             await seedRows({ correlationId: SEEDED_RUN_ID, count: CLAMP_ROWS });
@@ -392,11 +381,9 @@ describe('T-017 limit is clamped, never refused', () => {
             expect(nonsense.status).toBe(200);
             expect(nonsense.json.count).toBe(100);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: refuses a cursor that is no sequence number, naming the field and not its value
+    });
+
+    it('refuses a cursor that is no sequence number, naming the field and not its value', async () => {
         {
             const service = await startServiceForTest();
             await seedRows({ correlationId: SEEDED_RUN_ID, count: 3 });
@@ -414,11 +401,11 @@ describe('T-017 limit is clamped, never refused', () => {
             expect(refused.text).not.toContain('not-a-seq');
         }
     });
+
 });
 
 describe('T-017 the transport rules hold on the audit path', () => {
-    it('answers a page that cannot fit the response cap with… (+3 cases)', async () => {
-        // case: answers a page that cannot fit the response cap with response-too-large, never a truncation
+    it('answers a page that cannot fit the response cap with response-too-large, never a truncation', async () => {
         {
             const service = await startServiceForTest();
             await seedRows({
@@ -439,11 +426,9 @@ describe('T-017 the transport rules hold on the audit path', () => {
             expect(small.status).toBe(200);
             expect(small.json.count).toBe(1);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: requires the bearer token before routing, with no route oracle
+    });
+
+    it('requires the bearer token before routing, with no route oracle', async () => {
         {
             const service = await startServiceForTest();
 
@@ -460,11 +445,9 @@ describe('T-017 the transport rules hold on the audit path', () => {
             expect(await wrong.text()).toBe(missingText);
             expect(await invented.text()).toBe(missingText);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers a wrong verb with 405 and an Allow header naming GET
+    });
+
+    it('answers a wrong verb with 405 and an Allow header naming GET', async () => {
         {
             const service = await startServiceForTest();
 
@@ -475,11 +458,9 @@ describe('T-017 the transport rules hold on the audit path', () => {
             const body = (await response.json()) as { error?: { code?: string } };
             expect(body.error?.code).toBe('method-not-allowed');
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: answers an unreadable trail with 503 storage-unavailable, not a 500
+    });
+
+    it('answers an unreadable trail with 503 storage-unavailable, not a 500', async () => {
         {
             const service = await startServiceForTest({ unreadableTrail: true });
 
@@ -490,11 +471,11 @@ describe('T-017 the transport rules hold on the audit path', () => {
             expect(body.error?.code).toBe('storage-unavailable');
         }
     });
+
 });
 
 describe('T-017 entries come back as stored, projected by nothing', () => {
-    it('returns the stored row verbatim, with the whole docu… (+1 cases)', async () => {
-        // case: returns the stored row verbatim, with the whole documented member set
+    it('returns the stored row verbatim, with the whole documented member set', async () => {
         {
             const service = await startServiceForTest();
             const [seeded] = await seedRows({
@@ -526,11 +507,9 @@ describe('T-017 entries come back as stored, projected by nothing', () => {
             expect(answer.json.entries[0]?.redaction).toEqual({ redacted: false, fields: [] });
             expect(answer.json.entries[0]?.details.fixture).toBe(0);
         }
-        await afterEachWork2();
-        await beforeEachWork1();
-        await afterEachWork2();
-        await beforeEachWork1();
-        // case: sees a row appended after the last answer, with no repair step in between
+    });
+
+    it('sees a row appended after the last answer, with no repair step in between', async () => {
         {
             // The trail this route reads is the same file the writer appends to —
             // no second copy, no derived index — so a row appended after the last
@@ -547,4 +526,5 @@ describe('T-017 entries come back as stored, projected by nothing', () => {
             expect(after.json.entries[0]?.seq).toBe(before.json.entries[0]?.seq);
         }
     });
+
 });

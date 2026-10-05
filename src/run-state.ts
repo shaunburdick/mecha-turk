@@ -51,7 +51,7 @@ export function isBlockedReason(reason: string): boolean {
  * Narrow one raw state to the eight the service can answer with.
  *
  * An unknown state refuses the row, which refuses the body: the list must
- * never render a state it would then have to guess the tone of (FR-074).
+ * never render a state it would then have to guess the tone of.
  *
  * @param value - Candidate state from a stored row or a served answer.
  * @returns The state, or `null` when the value is unusable.

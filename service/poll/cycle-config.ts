@@ -34,7 +34,6 @@ export function describeKind(cause: unknown): string {
 /**
  * Read the effective interval for the next cycle.
  *
- * @param store - Open store, or `null` when unusable.
  * @param log - Logger used when the config file cannot be read.
  * @returns Milliseconds until the next cycle.
  */
@@ -56,7 +55,7 @@ export async function currentIntervalMs(store: ServiceStore | null, log: Service
 
 /**
  * Read the configuration this cycle runs on — **once**, at the boundary
- * (006 FR-055, FR-057–FR-059) — and observe the global tier while holding it.
+ * — and observe the global tier while holding it.
  *
  * The read and the observation run as **one task on the configuration prompt
  * chain** (research R-3: the same cadence the bindings observer gets), so the
@@ -87,7 +86,7 @@ export async function readCycleConfig(input: {
             );
             // Actor `service`: no panel asked for this change, so the row
             // names whoever the service could actually attribute it to — a
-            // hand edit of `config.json` (004 FR-088, 006 FR-070).
+            // hand edit of `config.json`.
             await recordConfigPromptChanges({
                 store: input.store,
                 log: input.log,

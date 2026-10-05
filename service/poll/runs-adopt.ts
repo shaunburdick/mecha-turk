@@ -55,7 +55,6 @@ const MIGRATION_HOLDER = 'migration';
  * the typed {@link RunLease} member beside it rather than as this prefix, so
  * `parseLease` can enforce the two legal shapes.
  *
- * @param correlationId - The adopted run's correlation id.
  * @returns `migration-<correlationId>` — one path-safe segment.
  */
 export function buildMigrationLeaseId(correlationId: string): string {
@@ -202,7 +201,6 @@ function classifyReserved(input: { readonly runKey: string; readonly now: string
  * whose stamp predated the mint read a lease that was not yet expired and
  * skipped the one-shot migration recovery).
  *
- * @param input - The legacy claim's issue stamp and the adopting stamp.
  * @returns An RFC 3339 stamp strictly before both inputs.
  * @throws {Error} When the adopting stamp is not a time: refusing to mint is
  *   the fail-closed answer, because a lease that is not expired could strand
@@ -211,7 +209,7 @@ function classifyReserved(input: { readonly runKey: string; readonly now: string
 function expiredAtMint(input: { readonly issuedAt: string; readonly now: string }): string {
     const mint = Date.parse(input.now) - 1;
     if (!Number.isFinite(mint)) {
-        throw new Error('migration lease cannot be minted without a service-clock stamp');
+        throw new TypeError('migration lease cannot be minted without a service-clock stamp');
     }
 
     const issued = Date.parse(input.issuedAt);
@@ -357,7 +355,7 @@ function migratedRun(input: {
             projectId: event.projectId,
             worktreeOption: event.worktreeOption,
             prompt: null,
-            // The allow-list shape is decided at authorization (003 FR-076).
+            // The allow-list shape is decided at authorization.
             actorPolicy: null,
             state: classification.state,
             stateReason: classification.stateReason,
@@ -498,7 +496,7 @@ export async function planAdoption(input: AdoptionPlanInput): Promise<AdoptionPl
         const key = subjectKeyOf(record.event);
         const openIndex = runs.findIndex((run) => run.state !== 'dispatched'
             && run.state !== 'dead-lettered' && subjectKeyOfRun(run) === key);
-        if (openIndex >= 0 && !isTerminalLegacyOutcome(record.event)) {
+        if (openIndex !== -1 && !isTerminalLegacyOutcome(record.event)) {
             mergeLegacyRow({ runs, openIndex, record, now, branches });
         } else {
             addMigratedRun({ runs, record, now, subjects, branches, key });

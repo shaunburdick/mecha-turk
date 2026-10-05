@@ -92,8 +92,6 @@ type DraftOrigin =
 /**
  * Decide which row a draft is being read for.
  *
- * @param bindings - Panel state to read.
- * @param edit - The row being edited, or absent for the add form.
  * @returns The origin, or `null` when the named row no longer exists — the
  *   note then says so, because editing a row the service no longer holds is
  *   a stale selection, not a permission to mint one.
@@ -126,7 +124,7 @@ function draftAccount(
     origin: DraftOrigin,
 ): { readonly accountNumericUserId: string; readonly accountLogin: string } | null {
     if (origin.kind === 'edit') {
-        // Edit mode's account field is fixed to this row (FR-053), so the
+        // Edit mode's account field is fixed to this row, so the
         // account it displays *is* the account it saves — even when that
         // account has since been removed and no longer lists.
         const { accountNumericUserId, accountLogin } = origin.binding;
@@ -148,9 +146,8 @@ function draftAccount(
 /**
  * Read the repository label, refusing a bad shape or a second binding of it.
  *
- * @param bindings - Panel state to read.
  * @param origin - Where the draft is being read from; only the edited row is
- *   exempt from the duplicate check, because that row already owns the name.
+ *   exempt from the isDuplicate check, because that row already owns the name.
  * @returns The canonical `owner/name`, or `null` (the note then says why).
  */
 function draftRepository(bindings: BindingsTabState, origin: DraftOrigin): string | null {
@@ -163,12 +160,12 @@ function draftRepository(bindings: BindingsTabState, origin: DraftOrigin): strin
 
     const label = repositoryLabel(repository);
     const ownId = origin.kind === 'edit' ? origin.binding.bindingId : null;
-    const duplicate = bindings.bindings.some(
+    const isDuplicate = bindings.bindings.some(
         (candidate) =>
             candidate.bindingId !== ownId &&
             candidate.repository.toLowerCase() === label.toLowerCase(),
     );
-    if (duplicate) {
+    if (isDuplicate) {
         bindings.note = DUPLICATE_NOTE;
 
         return null;
@@ -180,9 +177,8 @@ function draftRepository(bindings: BindingsTabState, origin: DraftOrigin): strin
 /**
  * Read the project the draft dispatches into.
  *
- * @param bindings - Panel state to read.
  * @returns The project id, or `null` when the operator has not picked one —
- *   a binding with no project is recoverable, not savable (FR-056).
+ *   a binding with no project is recoverable, not savable.
  */
 function draftProject(bindings: BindingsTabState): string | null {
     if (bindings.repoProjectSelection === null) {
@@ -198,12 +194,12 @@ function draftProject(bindings: BindingsTabState): string | null {
  * Read the allow-list a saved row keeps, which the draft must not lose.
  *
  * A brand-new row has none — absent is the complete "no policy configured"
- * state (002 FR-047) — while an edit carries the row's stored list through, so
+ * state — while an edit carries the row's stored list through, so
  * changing an unrelated field cannot take a restricted binding back to open
  * (contract §2). The grant's patch then overrides this one row from the field
  * the operator actually edited.
  *
- * @param origin - Where the draft is being read for.
+ * @param origin - Where the draft is being read from.
  * @returns The list to carry, or `undefined` for the add form.
  */
 function draftActors(origin: DraftOrigin): readonly string[] | undefined {
@@ -242,8 +238,6 @@ function draftIdentity(
  * both modes, which is what makes a loaded draft and the row it saves the
  * same values (005 FR-050: one whole-file write, no second write path).
  *
- * @param bindings - Panel state to read the draft from.
- * @param edit - The row being edited, or absent for the add form.
  * @returns The binding, or `null` (the note then says why).
  */
 export function readDraft(bindings: BindingsTabState, edit?: DraftEditTarget): PreparedBinding | null {
