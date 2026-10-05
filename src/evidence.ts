@@ -274,8 +274,6 @@ export function readEvidence(value?: JsonValue): PanelEvidence | null {
  *
  * The record's home is the operator's own `host.storage`; when the frame
  * cannot read it, the panel says so instead of silently showing no record.
- *
- * @param cause - The caught storage failure.
  */
 function describeStorageFailure(rt: PanelRuntime, cause: unknown): void {
     setStatus(rt, { tone: 'error', title: 'Storage unavailable', body: describeError(cause) });

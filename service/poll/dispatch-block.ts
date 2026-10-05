@@ -167,7 +167,6 @@ function blockedRun(input: {
 /**
  * Write the `run.blocked` row a guard refusal owes.
  *
- * @param input - The block report, the blocked run, and the state it left.
  * @returns `true` when the row reached the trail.
  */
 async function appendBlockRow(input: {

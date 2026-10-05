@@ -252,7 +252,6 @@ export function accountConsequencePhrase(
 /**
  * Compose one binding row.
  *
- * @param binding - The binding to render.
  * @returns The list row.
  */
 export function bindingRow(bindings: BindingsTabState, binding: BindingView): ListItem {

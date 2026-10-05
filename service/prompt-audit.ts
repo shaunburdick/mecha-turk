@@ -176,7 +176,6 @@ export interface PromptChange {
  * the vocabulary (`set` | `changed` | `cleared`) cannot drift from what the
  * baseline says happened.
  *
- * @param input - The binding, both fingerprints, and the actor.
  * @throws {StorageUnavailableError} When the append fails; the caller decides
  *   whether that rolls anything back (it never does — see the module header).
  */

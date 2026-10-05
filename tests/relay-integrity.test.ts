@@ -1383,7 +1383,6 @@ const MAXIMAL_THREE_TIERS = [MAXIMAL_TIER, MAXIMAL_TIER, MAXIMAL_TIER].join('\n\
 /**
  * The co-operative service answering with one prompt-carrying run.
  *
- * @param promptText - The instruction body the run snapshot carries.
  * @param sources - Tiers that contributed it; defaults to all three.
  * @returns The route table, with the claim answer swapped for that run.
  */

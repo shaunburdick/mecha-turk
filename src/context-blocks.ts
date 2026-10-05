@@ -133,7 +133,6 @@ function rollUpLine(skipped: number): string {
  * block is rendered, which is what makes "never silent" a guarantee instead of
  * a hope: the reserved space cannot be spent by the blocks in front of it.
  *
- * @param input - The blocks and the character budget their lines may occupy.
  * @returns The lines to place between the delimiters, in order.
  */
 export function renderBlocks(input: {

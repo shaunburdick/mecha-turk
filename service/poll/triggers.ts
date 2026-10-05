@@ -147,8 +147,6 @@ function subjectShapeOf(isPullRequest: boolean): SubjectType {
  * past the page cap) still gets an honest fallback: the issue number the
  * comment reports and a URL assembled from the bound repository.
  *
- * @param input - The binding, the matched comment, the issue its number
- *   resolved to (or `null`), and the detection stamp.
  * @returns The event, in `pending` state.
  */
 function mentionEvent(input: {

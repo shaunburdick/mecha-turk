@@ -185,8 +185,6 @@ async function claimAndReserve(issueNumber: number): Promise<{
  * Every state below is reached through the real routes or the real sweep —
  * nothing writes `runs.json` by hand — because a fixture that forged a state
  * would only prove the fixture can forge it.
- *
- * @param input - The issue to move and the state it should reach.
  */
 async function driveTo(input: {
     /** Issue whose run moves. */

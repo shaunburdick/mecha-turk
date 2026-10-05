@@ -83,7 +83,6 @@ export const PROMPT_NOT_SET = 'not set';
  * where it already has a home. It is read by the binding editor's one save,
  * so the form and the field always classify the same envelope the same way.
  *
- * @param answer - The grant's answer.
  * @returns The field-level copy to render, or `null` when it is not the prompt's.
  */
 export function promptRefusal(answer: ServiceErrorResult): string | null {
@@ -169,8 +168,6 @@ export function repaintBindingPrompt(rt: PanelRuntime, controls: BindingPromptCo
 
 /**
  * Release the handle the prompt mounted.
- *
- * @param controls - The field the pane carries.
  */
 export function disposeBindingPrompt(controls: BindingPromptControls): void {
     controls.field.dispose();

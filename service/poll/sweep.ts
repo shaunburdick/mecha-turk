@@ -147,7 +147,6 @@ const MIGRATION_RECOVERY_REASON = 'lease expired on migration recovery after upg
  * attempt and the budget counters keep the values that explain the park — the
  * operator's return-to-waiting is the thing that resets them.
  *
- * @param input - The expired run, its lease, and the service-clock stamp.
  * @returns The recovery, or `null` when the run must not be parked.
  */
 function parkExhaustedRun(input: {
@@ -208,7 +207,6 @@ function parkExhaustedRun(input: {
  * migration table): the budget bounds a crashed-panel loop, and a one-shot
  * adoption cannot loop.
  *
- * @param input - The expired run and the service-clock stamp.
  * @returns The recovery, or `null` when the run is not an expired claim.
  */
 function recoverExpiredLease(input: { readonly run: Run; readonly now: string }): PlannedRecovery | null {

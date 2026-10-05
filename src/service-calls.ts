@@ -114,7 +114,6 @@ const ACCOUNT_ID_SEGMENT = ':numericUserId';
 /**
  * Run one GET through `host.serviceRequest`.
  *
- * @param input - The host surface and the path to fetch.
  * @returns The wrapper's result.
  */
 export async function serviceGet(input: {
@@ -140,7 +139,6 @@ export async function serviceGet(input: {
  * service's own field-level remediation next to the field it belongs to
  * instead of behind a generic "the service refused".
  *
- * @param input - The host surface, path, and the JSON body text.
  * @returns The wrapper's result, carrying the envelope when it sent one.
  */
 export async function servicePut(input: {

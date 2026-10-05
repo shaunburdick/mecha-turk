@@ -223,7 +223,6 @@ function withoutNarrowDefault(rules: readonly StyleRule[]): readonly StyleRule[]
  * route answers is a tab that has not been tested against a service that is
  * still spawning (FR-003).
  *
- * @param request - The call the panel made.
  * @returns The answer for that path.
  */
 async function answer(request: GuestRequest): Promise<GuestRequestResult> {
@@ -508,7 +507,6 @@ describe('exactly one tab body is in the layout', () => {
     /**
      * Resolve one body's `display` under one set of media.
      *
-     * @param input - The body id, whether it is hidden, and the media in force.
      * @returns The winning `display`, or null when no rule declares one.
      */
     function displayOf(input: {

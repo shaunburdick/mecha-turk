@@ -157,8 +157,6 @@ function panelRow(): PanelBinding {
 
 /**
  * Write the fixture row through the real `PUT /v1/bindings`.
- *
- * @param row - The binding to store.
  */
 async function seedRow(service: TestService, row: PanelBinding): Promise<void> {
     const response = await service.call(BINDINGS_PATH, {

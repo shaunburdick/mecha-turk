@@ -176,7 +176,6 @@ function skipOf(outcome: PollFailure): ScanSkip {
 /**
  * The outcome a binding's scan starts from, before anything is observed.
  *
- * @param binding - The binding the blank belongs to.
  * @returns The all-clear baseline.
  */
 function blankScan(binding: BindingRecord): BindingScan {
@@ -301,7 +300,6 @@ async function scanBinding(input: {
  * otherwise.
  *
  * @param deps - Narrowed store/logger for this cycle.
- * @param scan - The binding's outcome.
  */
 async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promise<void> {
     await serializeScan(async () => {

@@ -202,7 +202,6 @@ function classifyReserved(input: { readonly runKey: string; readonly now: string
  * whose stamp predated the mint read a lease that was not yet expired and
  * skipped the one-shot migration recovery).
  *
- * @param input - The legacy claim's issue stamp and the adopting stamp.
  * @returns An RFC 3339 stamp strictly before both inputs.
  * @throws {Error} When the adopting stamp is not a time: refusing to mint is
  *   the fail-closed answer, because a lease that is not expired could strand

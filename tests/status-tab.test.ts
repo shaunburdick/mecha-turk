@@ -288,7 +288,6 @@ function guidanceBindings(): readonly StatusBindingView[] {
 /**
  * Build the inputs {@link projectGuidanceLines} takes.
  *
- * @param bindings - The binding rows to check.
  * @param registeredProjectIds - Registered ids, or `null` when not loaded.
  * @returns The inputs.
  */

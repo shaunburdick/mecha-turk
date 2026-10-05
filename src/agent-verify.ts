@@ -138,7 +138,6 @@ function baselineFromConfig(body: string): VerificationBaseline {
  * answer, and an unparseable document all answer the documented (blank)
  * default with `provenance: 'defaulted'`; this function never rejects.
  *
- * @param serviceRequest - The host's service bridge.
  * @returns The baseline to judge this dispatch against, and its provenance.
  */
 export async function readVerificationBaseline(serviceRequest: ServiceRequester): Promise<VerificationBaseline> {

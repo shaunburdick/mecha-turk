@@ -59,7 +59,6 @@ function parseStatus(result: GuestRequestResult): StatusSnapshot | null {
 /**
  * Map a thrown host failure onto its documented copy (panel-service §1).
  *
- * @param error - The caught failure.
  * @returns Its code, or `null` when the failure carries no known code.
  */
 export function hostErrorCode(error: unknown): string | null {

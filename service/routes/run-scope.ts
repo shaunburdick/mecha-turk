@@ -139,7 +139,6 @@ function echoIssue(record: Readonly<Record<string, unknown>>, correlationId: str
 /**
  * Read one optional member, refusing anything that is not the shape minted.
  *
- * @param pattern - The exact shape this build mints for it.
  * @returns The member, or `null` when absent or malformed.
  */
 function readMember(value: unknown, pattern: RegExp): string | null {

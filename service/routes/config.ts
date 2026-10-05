@@ -133,7 +133,6 @@ async function runConfigWrite(input: {
  * with **no** row at all, and a change writes its row **after** the
  * durable write — never before it, never as a reason to roll it back.
  *
- * @param request - The full replacement document.
  * @returns The stored configuration and its audit outcome, or the field-level
  *   422.
  */

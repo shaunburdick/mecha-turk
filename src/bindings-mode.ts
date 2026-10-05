@@ -47,7 +47,6 @@ export function firstEnabledBinding(bindings: readonly PanelBinding[]): PanelBin
  * fail the identity check whenever the panel token differs from the bound
  * account. The poll interval defaults: the relay polls on its own cadence.
  *
- * @param binding - The binding to derive from.
  * @returns The configuration, or `null` when the binding row does not parse
  *   (the service validates these fields, so this is a defensive fallback).
  */

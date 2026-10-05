@@ -125,7 +125,6 @@ export const AUDIT_MISSING_LINE =
  * call that never reached the service. Anything else is *undocumented* rather
  * than guessed at.
  *
- * @param input - The envelope's machine code, and the wrapper's problem.
  * @returns The cause whose copy the tab shows.
  */
 export function causeOf(input: {

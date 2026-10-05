@@ -297,7 +297,6 @@ function writes(view: SettingsMount): readonly GuestRequest[] {
 /**
  * Mount, change one field once, and run exactly one Save activation.
  *
- * @param input - The field to change, its new text, and the document to read.
  * @returns The mounted body, after that one activation.
  */
 async function saveOnce(input: {

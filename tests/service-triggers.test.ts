@@ -366,7 +366,6 @@ function itemEvents(...rows: readonly PollItemEvent[]): Readonly<Record<number, 
  * evidence for this candidate (002 FR-050) — and the actor is whoever assigned
  * it, which is what the row now records.
  *
- * @param input - The item, the assigner the event names, and any overrides.
  * @returns One in-window naming event.
  */
 function assignedEvent(input: {

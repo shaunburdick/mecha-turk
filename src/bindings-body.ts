@@ -338,8 +338,6 @@ function mountSelectedDetail(parent: HTMLElement): SelectedDetail {
  * Teardown releases what the tab mounted rather than merely hiding it — the
  * SDK handles carry listeners that would otherwise outlive the panel — and
  * both block headings go with their blocks.
- *
- * @param input - The body's elements, halves, and control rows.
  */
 function disposeBindingsBody(input: BodyParts): void {
     const { pane, listBlock, editorBlock, board, form, actions, actors, prompt, detail } = input;

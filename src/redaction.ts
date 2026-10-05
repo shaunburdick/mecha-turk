@@ -86,7 +86,6 @@ export function findSecretLeak(text: string): string | null {
  * Assert that a value contains no secret-shaped material.
  *
  * @param subject - Name used in the error message, e.g. `ledger`.
- * @param text - The exact text that will be persisted or reported.
  * @throws {RedactionError} When secret-shaped material is present.
  */
 export function assertRedacted(subject: string, text: string): void {

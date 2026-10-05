@@ -51,8 +51,6 @@ export type { DraftEditTarget, PreparedBinding } from './bindings-draft.ts';
 
 /**
  * Record one draft-field change the add form just made.
- *
- * @param patch - The fields to update.
  */
 export function editBindings(rt: PanelRuntime, patch: Partial<BindingsTabState>): void {
     if (rt.disposed) {

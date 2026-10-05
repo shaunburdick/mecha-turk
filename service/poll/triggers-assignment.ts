@@ -63,7 +63,6 @@ export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boole
  * union and stays readable for rows written before this correction; **nothing
  * here writes it**, and no fallback path below reaches for it.
  *
- * @param input - The binding, the matched issue, the actor, and the stamp.
  * @returns The event, with the event-named attribution.
  */
 function assignmentEvent(input: {

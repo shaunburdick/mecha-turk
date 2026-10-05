@@ -115,7 +115,6 @@ export type PromptValidation =
 /**
  * Refuse a candidate prompt with a field-level remediation.
  *
- * @param remediation - The fixed remediation for this refusal class.
  * @returns The refusal verdict.
  */
 function refuse(remediation: string): PromptValidation {

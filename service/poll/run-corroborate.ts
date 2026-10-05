@@ -61,7 +61,6 @@ export const CORROBORATED_BLOCKED_REASONS: ReadonlySet<string> = new Set([
  * none of this run's attributed actors" then sends the operator to make an edit
  * that cannot help (constitution IV).
  *
- * @param input - The blocked run, and the live binding table.
  * @returns The refusal naming the binding, or `'corroborated'` when the gate
  *   would now admit it.
  */

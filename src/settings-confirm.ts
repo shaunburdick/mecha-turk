@@ -133,7 +133,6 @@ const RESTORE_HEADLINE = 'Restore defaults writes the documented defaults for th
  * restated here rather than imported so that the confirmation module and the
  * state machine stay independent of each other.
  *
- * @param descriptor - The field's projection entry.
  * @returns The value in force, as text.
  */
 function currentValueOf(envelope: ConfigEnvelope, descriptor: FieldDescriptor): string {
@@ -150,7 +149,6 @@ function currentValueOf(envelope: ConfigEnvelope, descriptor: FieldDescriptor): 
  * deletes nothing would be the noise FR-051 exists to prevent.
  *
  * @param current - The limit in force.
- * @param proposed - The limit being proposed.
  * @returns `true` only for a numeric lowering.
  */
 function lowers(current: string, proposed: string): boolean {

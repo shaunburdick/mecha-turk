@@ -157,7 +157,6 @@ function boundedExcerpt(excerpt: string): string {
  * references on the answer — is {@link MAX_SOURCE_REFERENCES} and the parser,
  * not this budget.
  *
- * @param excerpt - The excerpt this reference will carry.
  * @returns Characters added to the run's excerpt total.
  */
 function excerptCost(excerpt: string): number {

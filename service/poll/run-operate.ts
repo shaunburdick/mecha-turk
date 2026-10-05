@@ -203,7 +203,6 @@ function judgeRetry(input: {
 /**
  * Build the waiting run a retry produces.
  *
- * @param input - The failed or blocked run and the stamp.
  * @returns The `pending` run, with the attempt incremented exactly once.
  */
 function waitingRun(input: { readonly run: Run; readonly now: string }): Run {

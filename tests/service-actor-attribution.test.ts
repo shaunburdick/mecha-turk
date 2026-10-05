@@ -329,7 +329,6 @@ function fixtureAccount(): Account {
 /**
  * Build one normalized event row.
  *
- * @param input - The kind word, its subjects and actors, and its stamp.
  * @returns The row the reader would have produced from that wire body.
  */
 function event(input: {
@@ -457,7 +456,6 @@ function wireActor(login: string, type = 'User'): string {
  * reader cannot mistake `assigner` for `actor`, which is the substitution FR-049
  * exists to make unreachable (002 FR-052).
  *
- * @param input - The kind word, each member as JSON text, and the row's stamp.
  * @returns The row as wire JSON text, ready to join into a page.
  */
 function wireRow(input: {
@@ -691,7 +689,6 @@ let tempRoot = '';
  * nothing waits at all — the values are otherwise the defaults, because
  * `retryBaseMs` is bounded at 1 000 ms and a fixture cannot simply write 1 ms.
  *
- * @param input - The binding's trigger switches, and the window to arm.
  * @returns The open store, the cycle's logger, and the lines it wrote.
  */
 async function seed(input: {
@@ -721,7 +718,6 @@ async function seed(input: {
 /**
  * Build a poller over one fake GitHub.
  *
- * @param github - The fake to build on.
  * @param log - Logger the poller's waits are reported through.
  * @returns The production poller, bound to the fake.
  */

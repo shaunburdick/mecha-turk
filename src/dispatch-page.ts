@@ -162,8 +162,6 @@ export function retreatDispatchPage(page: DispatchListPage): DispatchListPage {
 /**
  * Record what the last answer said about the set.
  *
- * @param meta - The boundary for the next page, whether one exists, the set's
- *   size (or `null` when the service withheld it), and the answer's stamp.
  * @returns The annotated position.
  */
 export function recordDispatchPageMeta(

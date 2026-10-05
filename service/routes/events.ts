@@ -126,7 +126,6 @@ export interface BindingStatusRow {
  * A present member is a non-empty list by the same rule that
  * refuses `[]`, so it is always `'restricted'`.
  *
- * @param binding - The binding this row is keyed by.
  * @returns `'open'` when the binding carries no list, `'restricted'` when it does.
  */
 function actorPolicyOf(binding: BindingRecord): ActorPolicy {

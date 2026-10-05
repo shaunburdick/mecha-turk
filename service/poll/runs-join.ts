@@ -157,7 +157,6 @@ export interface JoinResult {
  * every overflow delivery still earns its own audit row.
  *
  * @param run - The run being joined.
- * @param reference - The joining delivery's reference.
  * @param now - Mutation stamp.
  * @returns The run plus whether this reference is on its list.
  */

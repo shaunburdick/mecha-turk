@@ -60,7 +60,6 @@ export function isReviewRequestPull(pull: PollPull, bindingLogin: string): boole
  * to disclose. The legacy `subject-author` basis remains
  * readable for rows written before this correction and is written by nothing here.
  *
- * @param input - The binding, the matched pull request, the actor, and the stamp.
  * @returns The event, with the event-named attribution.
  */
 function reviewEvent(input: {

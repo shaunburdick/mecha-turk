@@ -536,7 +536,6 @@ function grantedRows(requests: readonly GuestRequest[]): readonly Record<string,
  * `initialBindings()` is the real empty state, so a case states only what it is
  * about and the patch is judged against the type the actions actually use.
  *
- * @param input - The field's text, and whether the operator changed it.
  * @returns A Bindings-tab state with the field loaded.
  */
 function listDraft(input: {

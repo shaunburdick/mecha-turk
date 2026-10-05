@@ -197,7 +197,6 @@ async function leaseExpiryRows(store: NonNullable<TestService['handle']['store']
  * Everything a failed precondition should print: the boot's own sweep outcome,
  * what it answered the claim, and every line it logged.
  *
- * @param input - The first boot under assertion.
  * @returns A diagnostic string for the assertion message.
  */
 function bootDiagnostics(input: {

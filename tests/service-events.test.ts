@@ -269,7 +269,6 @@ interface RecordedPoller {
  * in-window exactly when the listing let the candidate through (002 FR-051) —
  * a fixture cannot accidentally produce an event the window would have refused.
  *
- * @param issue - The candidate the read was issued for.
  * @returns The one naming event, and the bound's own subject match.
  */
 function namingEventFor(issue: PollIssue): readonly PollItemEvent[] {
