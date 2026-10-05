@@ -60,7 +60,7 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { Run } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 const DETECTED_AT = '2026-09-28T12:00:00.000Z';
 const ONE_HOUR_LATER = '2026-09-28T13:00:00.000Z';
@@ -91,8 +91,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('honesty');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('honesty'));
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
 });

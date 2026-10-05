@@ -58,7 +58,7 @@ import { scopeResults } from './support/handoff.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const NOW = '2026-09-28T12:30:00.000Z';
@@ -117,8 +117,7 @@ let running: TestService | null = null;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('migration');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('migration'));
     store = await openStore({ dataDir });
     running = null;
 });

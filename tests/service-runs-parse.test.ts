@@ -16,7 +16,6 @@
  *    `blocked:` with an empty reason refuses, an unproduced reason parses.
  */
 
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
     MAX_ATTEMPT_RECORDS,
@@ -31,7 +30,7 @@ import { openStore } from '../service/store/index.ts';
 import type { JsonReadResult } from '../service/store/index.ts';
 import type { DispatchAttempt, Run, RunsDocument, SourceReference } from '../service/poll/runs-types.ts';
 import { runHistoryIndicatesSession } from '../service/poll/runs-document.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Store file this suite round-trips through, named as the run store names it. */
 const RUNS_FILE = 'runs.json';
@@ -53,8 +52,7 @@ let dataDir = '';
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('runs-parse');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('runs-parse'));
 });
 
 /** Per-test teardown: drop the temp root. */

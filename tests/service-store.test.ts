@@ -23,7 +23,7 @@ import {
     SERVICE_SCHEMA_VERSION,
     StorageUnavailableError,
 } from '../service/store/index.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Filesystem mask covering the low nine mode bits (`rwx` for owner/group/other). */
 const PERMISSION_BASE = 0o1000;
@@ -63,8 +63,7 @@ let dataDir = '';
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('store');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('store'));
     await mkdir(dataDir, { recursive: true });
 });
 

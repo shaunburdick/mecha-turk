@@ -38,7 +38,7 @@ import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 import { byText, byTextLoose } from './support/sort.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every fixture uses, so no test ever waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -62,8 +62,7 @@ const LEASE_MS = 45_000;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('claim');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('claim'));
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
 });

@@ -44,7 +44,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Path of the configuration resource. */
 const CONFIG_PATH = '/v1/config';
@@ -96,8 +96,7 @@ const running: TestService[] = [];
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('config-audit');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('config-audit'));
     await mkdir(dataDir, { recursive: true });
 });
 

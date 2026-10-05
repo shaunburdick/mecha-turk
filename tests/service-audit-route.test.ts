@@ -39,7 +39,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** A well-formed run id the route must answer for even with no run behind it. */
 const SEEDED_RUN_ID = `mt-run-${'a'.repeat(24)}`;
@@ -106,8 +106,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('audit-route');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('audit-route'));
     LOG_LINES.length = 0;
     running = null;
 });

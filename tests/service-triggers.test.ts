@@ -27,7 +27,6 @@
  * comments.
  */
 
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -62,7 +61,7 @@ import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { byText } from './support/sort.ts';
 import { scopeResults } from './support/verify.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Binding id the mention fixtures bind. */
 const MENTION_BINDING = 'bnd-mention';
@@ -155,8 +154,7 @@ let logLines: string[];
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('triggers');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('triggers'));
     store = await openStore({ dataDir });
     logLines = [];
     log = createLogger({

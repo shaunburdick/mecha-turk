@@ -67,7 +67,7 @@ import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/handoff.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every seeded row carries, so nothing here waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -121,8 +121,7 @@ let running: TestService | null = null;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('prompt-upgrade');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('prompt-upgrade'));
     store = await openStore({ dataDir });
     running = null;
     LOG_LINES.length = 0;

@@ -28,7 +28,7 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { ScanState } from '../service/poll/scan.ts';
 import type { ServiceStore } from '../service/store/index.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Binding id used by every fixture slot. */
 const BINDING_ID = 'bnd-quarantine';
@@ -59,8 +59,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('scan');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('scan'));
     store = await openStore({ dataDir });
 });
 

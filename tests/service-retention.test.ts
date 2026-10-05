@@ -22,7 +22,6 @@
 
 import { mkdir } from 'node:fs/promises';
 
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
@@ -36,7 +35,7 @@ import type { GitHubIssuePoller, PollIssue } from '../service/poll/poller-github
 import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Path of the configuration resource. */
 const CONFIG_PATH = '/v1/config';
@@ -76,8 +75,7 @@ const running: TestService[] = [];
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('retention');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('retention'));
     await mkdir(dataDir, { recursive: true });
 });
 

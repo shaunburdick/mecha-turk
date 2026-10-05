@@ -34,3 +34,28 @@ export async function makeTempTree(prefix: string): Promise<string> {
 export async function removeTempTree(root: string): Promise<void> {
     await rm(root, { recursive: true, force: true });
 }
+
+/** A temp tree and the `store/` child a service resolves its data directory from. */
+export interface StoreTree {
+    /** The temp root, to hand to {@link removeTempTree}. */
+    readonly root: string;
+    /** The child directory the store writes into. */
+    readonly dataDir: string;
+}
+
+/**
+ * A temp tree with the `store/` child every service suite needs inside it.
+ *
+ * Twenty suites wrote the same two lines and then spelled the child's name
+ * themselves. The name is not cosmetic: it is what a hand-rolled path in a test
+ * has to match, and what `openStore({ dataDir })` is then pointed at — so a suite
+ * that spelled it differently from its neighbour would fail in a way that reads
+ * like a service bug.
+ *
+ * @param prefix - Suite-identifying fragment for the directory name.
+ * @returns The root and its `store/` child.
+ */
+export async function makeStoreTree(prefix: string): Promise<StoreTree> {
+    const root = await makeTempTree(prefix);
+    return { root, dataDir: join(root, 'store') };
+}

@@ -28,7 +28,6 @@
  * no network, and no sleeping on a timer.
  */
 
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
@@ -51,7 +50,7 @@ import { openStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { byText } from './support/sort.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Stamp every fixture uses, so no test ever waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -109,8 +108,7 @@ let store: ServiceStore;
  * sequence calls this again between them.
  */
 const openFixture = async (): Promise<void> => {
-    tempRoot = await makeTempTree('bounds');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('bounds'));
     store = await openStore({ dataDir });
     LOG_LINES.length = 0;
     await store.writeJson('config.json', { ...DEFAULT_CONFIG, leaseMs: 45_000, resultDeadlineMs: 45_000 });

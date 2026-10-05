@@ -1,6 +1,5 @@
 /** Durable run allocation, transitions, and coalescing (003 T-003/T-006). */
 
-import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
 import { createLogger } from '../service/log.ts';
@@ -28,7 +27,7 @@ import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const HOLDER = 'panel-mount-1';
@@ -53,8 +52,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('run-enqueue');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('run-enqueue'));
     store = await openStore({ dataDir });
     // The gate reads `bindings.json` at authorization and denies when it cannot
     // (003 FR-076); this suite's single reserve needs the open policy so the

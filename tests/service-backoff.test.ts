@@ -46,7 +46,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, ListPace } from '../service/poll/poller-github.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/verify.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Fixture credential — never a real one, and never expected in a log line. */
 const FIXTURE_TOKEN = 'fixture-token-not-a-real-credential';
@@ -96,8 +96,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('backoff');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('backoff'));
     store = await openStore({ dataDir });
 });
 

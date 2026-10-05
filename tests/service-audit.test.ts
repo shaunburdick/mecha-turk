@@ -21,7 +21,7 @@ import { openStore } from '../service/store/index.ts';
 import type { AuditEntry, AuditInput } from '../service/audit.ts';
 import type { NdjsonReadResult } from '../service/store/ndjson.ts';
 import type { ServiceStore } from '../service/store/index.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** Store file the audit trail lives in. */
 const AUDIT_FILE = 'audit.ndjson';
@@ -40,8 +40,7 @@ let dataDir = '';
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('audit');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('audit'));
     await mkdir(dataDir, { recursive: true });
 });
 

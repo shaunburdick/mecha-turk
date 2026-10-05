@@ -48,7 +48,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, ListPace, PollIssue } from '../service/poll/poller-github.ts';
 import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import { scopeResults } from './support/verify.ts';
-import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 
 /** First fixture binding. */
 const BINDING_A = 'bnd-cycle-a';
@@ -97,8 +97,7 @@ let store: ServiceStore;
 
 /** Per-test setup: a fresh temp store and an empty log. */
 beforeEach(async (): Promise<void> => {
-    tempRoot = await makeTempTree('cycle-config');
-    dataDir = join(tempRoot, 'store');
+    ({ root: tempRoot, dataDir } = await makeStoreTree('cycle-config'));
     store = await openStore({ dataDir });
 });
 
