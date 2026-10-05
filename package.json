@@ -17,7 +17,7 @@
             "panel": {
                 "id": "mecha-turk",
                 "name": "Mecha Turk",
-                "icon": "github",
+                "icon": "robot-3-line",
                 "entry": "panel/index.html"
             },
             "capabilities": [
