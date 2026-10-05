@@ -172,7 +172,6 @@ function claimedRun(overrides: Partial<ClaimedRun> = {}): ClaimedRun {
  * Serialize one claim answer.
  *
  * @param isAuditWritten - What FR-063's member reports.
- * @returns The body.
  */
 function claimBody(runs: readonly ClaimedRun[], isAuditWritten = true): string {
     return JSON.stringify({ events: runs, status: [], auditWritten: isAuditWritten });

@@ -166,8 +166,6 @@ function recordedStrings(): readonly string[] {
 /**
  * The banner bodies this mount painted, newest last — the last one is the
  * failure notice whenever a read failed (FR-078).
- *
- * @returns The bodies.
  */
 function bannerBodies(): readonly string[] {
     return mounts.log

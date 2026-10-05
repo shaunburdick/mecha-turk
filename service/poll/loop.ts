@@ -240,8 +240,6 @@ async function collectScanEvents(input: {
  *
  * The first list failure ends the scan with that failure's skip reason —
  * one cycle reports one honest reason per binding.
- *
- * @returns The binding's outcome.
  */
 async function scanBinding(input: {
     /** Narrowed store/logger/poller. */

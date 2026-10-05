@@ -216,8 +216,6 @@ type HandoffButtonVariant = 'default' | 'outline';
  * the variant rule landed (product-owner review 2026-10-01). The attribute is
  * written through `dataset`, which records the same `data-variant` the sheet's
  * selector matches.
- *
- * @returns The button.
  */
 function makeButton(spec: {
     readonly doc: Document;

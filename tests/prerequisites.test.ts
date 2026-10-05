@@ -172,8 +172,6 @@ function freshState(): PanelState {
 /**
  * One binding, under the project it resolves to (or an empty id for a binding
  * the service would hold in its recoverable `project_missing` state).
- *
- * @returns The binding record the section reads.
  */
 function bindingWith(projectId: string): PanelBinding {
     return {

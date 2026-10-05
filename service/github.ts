@@ -345,7 +345,6 @@ function missingScopeReason(scopeCheck: ScopeCheck): RejectReason {
  *
  * @param response - Upstream response that was not 200.
  * @param scopeCheck - Matrix already derived from the response headers.
- * @returns The classified outcome.
  */
 function classifyRejection(response: Response, scopeCheck: ScopeCheck): VerifyOutcome {
     const { status } = response;

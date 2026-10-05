@@ -205,8 +205,6 @@ function parseListPage<T>(input: {
 
 /**
  * Classify a non-200 answer.
- *
- * @returns The classified failure.
  */
 async function classifyOutcome(response: Response): Promise<PollFailure> {
     if (response.status === STATUS_UNAUTHORIZED || response.status === STATUS_NOT_FOUND) {

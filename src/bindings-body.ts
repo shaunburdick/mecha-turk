@@ -177,8 +177,6 @@ function createToolbar(into: HTMLElement): HTMLElement {
  * The note sits directly under the status rather than under the form, because
  * a note reports what an action *did* — a refused write, a removal, a failed
  * read — and the editor being closed must not hide that answer.
- *
- * @returns The board handles.
  */
 function mountBindingsBoard(input: MountInputs): Board {
     const { pane, rt, handlers } = input;
