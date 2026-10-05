@@ -154,8 +154,6 @@ async function enqueueThroughQueue(input: {
 /**
  * Bind the fixture queue writers to whichever service instance is running.
  *
- * @param input - Reads the open store of the running instance, and the logger
- *   the loop keeps out of the test output.
  * @returns The single-subject and scan-sized writers, ready to spread onto a
  *   {@link import('./dispatch-loop.ts').DispatchLoop}.
  */

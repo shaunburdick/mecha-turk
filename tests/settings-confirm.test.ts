@@ -251,8 +251,6 @@ function buttonProps(label: string): { readonly onClick?: () => void } {
 
 /**
  * Activate one control `times` times, then let the answers land.
- *
- * @param label - The control's label.
  */
 async function activate(label: string, times = 1): Promise<void> {
     const { onClick } = buttonProps(label);

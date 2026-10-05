@@ -264,7 +264,6 @@ function accountFixture(overrides: Partial<PanelAccount> = {}): PanelAccount {
 /**
  * Build the tab state the row functions read.
  *
- * @param input - The accounts to render and any bindings they back.
  * @returns A ready Bindings-tab state carrying them.
  */
 function accountsState(input: {

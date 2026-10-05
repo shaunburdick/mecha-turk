@@ -134,7 +134,6 @@ function judgeBlock(input: {
  * guard refusal consumes neither an attempt nor any of the automatic requeue
  * budget (gate Q3), so a blocked run waits for the operator, not for the sweep.
  *
- * @param input - The claimed run, the cause, the detail, and the stamp.
  * @returns The `blocked:<reason>` run.
  */
 function blockedRun(input: {

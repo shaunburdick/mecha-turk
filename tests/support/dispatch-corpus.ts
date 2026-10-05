@@ -394,8 +394,6 @@ export async function readTrail(store: ServiceStore): Promise<readonly AuditEntr
 
 /**
  * Drain the corpus's service and remove every temp root it planted.
- *
- * @param corpus - The corpus the drive produced.
  */
 export async function shutdownDispatchCorpus(corpus: DispatchCorpus): Promise<void> {
     await corpus.service.shutdown();

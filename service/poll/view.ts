@@ -29,7 +29,6 @@ export type PausedReason = (typeof PAUSED_REASONS)[number];
 /**
  * Whether a string is a member of the closed vocabulary.
  *
- * @param value - The candidate reason.
  * @returns `true` when the service itself would emit it.
  */
 export function isPausedReason(value: string): value is PausedReason {
@@ -119,7 +118,6 @@ export function nextPollAtOf(view: PollingView, intervalMs: number): string | nu
  * function never maps an unknown code to a friendly guess because it never
  * receives one.
  *
- * @param input - Store usability, scheduler state, and the active-binding count.
  * @returns `''` while polling runs, else the closed-vocabulary reason.
  */
 export function pausedReasonOf(input: {

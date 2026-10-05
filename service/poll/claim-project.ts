@@ -256,7 +256,6 @@ function promptViewOf(run: Run): {
  * bounded by [`claim-bounds.ts`](./claim-bounds.ts) so one run's sources cannot
  * crowd out the rest of the answer.
  *
- * @param input - The claimed run, its lease, and the delivery rows.
  * @returns The claim answer row; every member is credential-free.
  */
 export function projectClaimedRun(input: {

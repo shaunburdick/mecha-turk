@@ -380,7 +380,6 @@ function measure(name) {
  * still runs because a body that outgrows the region (a `--full` capture, a
  * viewport left short by an earlier tab) has to be brought up by hand.
  *
- * @param name - Tab id to bring to the top of the region.
  * @returns The measurement after the scroll, or null if the body is missing.
  */
 function align(name) {

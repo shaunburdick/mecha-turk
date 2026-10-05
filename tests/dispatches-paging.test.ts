@@ -550,7 +550,6 @@ function referenceFixture(overrides: Partial<RunReference> = {}): RunReference {
  * A `serviceRequest` that pages a fixed set exactly the way the contract does.
  *
  * @param rows - The whole set, in the retained order.
- * @param calls - Recorder of every path the panel asked for.
  * @returns The double {@link fakeHost} answers with.
  */
 function pagedSource(

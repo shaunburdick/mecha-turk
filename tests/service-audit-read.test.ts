@@ -137,7 +137,6 @@ afterEach(async (): Promise<void> => {
 /**
  * Read one correlation identifier's rows through the product's own route.
  *
- * @param correlationId - Run identifier to filter on.
  * @returns Every row the answer carried, in the order it arrived.
  * @throws {Error} When the route answers anything but `200`.
  */

@@ -129,7 +129,6 @@ function cursorIssue(): HttpResponse {
  * than truncated, because shipping half a row would falsify the record the
  * operator is reading (contract §2; 002 contract §1).
  *
- * @param request - Routed request; the query may carry the three parameters.
  * @returns `200 { entries, nextCursor, count }`, or the documented
  *   `422`/`401`/`503`.
  */

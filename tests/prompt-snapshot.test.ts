@@ -100,7 +100,6 @@ function bindingWith(prompt: string): { readonly bindingId: string; readonly sta
  * same three-tier entry point `service/poll/loop.ts` calls, with only the
  * binding tier set (004 FR-080, FR-086).
  *
- * @param prompt - The binding tier's text.
  * @returns The composed snapshot; `null` only if the validator refuses it.
  */
 function bindingSnapshot(prompt: string): PromptSnapshot | null {

@@ -534,7 +534,6 @@ describe('the copy each cause gets is its own (006 SC-111, FR-061 – FR-063)', 
 /**
  * Mount a tab and complete one save against the given write answer.
  *
- * @param body - The body the configuration write answers with.
  * @returns The mounted body, after that save.
  */
 async function savedWith(body: string): Promise<SettingsMount> {

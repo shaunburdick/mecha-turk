@@ -166,7 +166,6 @@ async function registerAccount(service: TestService): Promise<void> {
  * Build one stored binding row, keyed by a distinct repository.
  *
  * @param suffix - Distinguishes the binding id and the repository.
- * @param state - The binding's lifecycle state.
  * @returns The row as `bindings.json` stores it.
  */
 function bindingRow(suffix: string, state = 'active'): Record<string, unknown> {

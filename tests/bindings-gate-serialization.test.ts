@@ -456,7 +456,6 @@ async function grant(target: ServiceStore, allowedUsers: readonly string[]): Pro
 /**
  * One reserve through the **real** module, as the panel's relay calls it.
  *
- * @param claim - The claim coordinates the reserve presents.
  * @returns Whatever the reserve answered.
  */
 async function reserve(target: ServiceStore, claim: {

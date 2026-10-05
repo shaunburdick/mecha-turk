@@ -190,7 +190,6 @@ function parseAttribute(piece: string): Token {
 /**
  * Read one `:pseudo` / `:pseudo(argument)` selector.
  *
- * @param piece - The colon-prefixed text.
  * @returns Its name and argument, or an empty argument.
  */
 function parsePseudo(piece: string): Token {

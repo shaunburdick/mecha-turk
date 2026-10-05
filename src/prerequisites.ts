@@ -220,7 +220,6 @@ export function mountPrerequisiteNotice(input: {
  * the single-line format used to print between them, and changes no word
  * inside any of them.
  *
- * @param parent - The block body to append the card into.
  * @returns The card, repainted and disposed as one unit.
  */
 function mountPrereqCard(parent: HTMLElement, item: Prerequisite): PrereqCard {

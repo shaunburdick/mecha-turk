@@ -150,7 +150,6 @@ export type EventSnapshot =
  * panel ledgers, audit rows, and the run history. The actor therefore
  * **rides the record and never its identity**.
  *
- * @param input - Repository, issue, account, and discriminator for the id.
  * @returns A `[A-Za-z0-9._~]`-only id of one path segment.
  */
 export function buildEventId(input: {

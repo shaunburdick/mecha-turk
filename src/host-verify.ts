@@ -100,7 +100,6 @@ function noop(): void {
  * a short listen is enough to prove the subscription works without holding one
  * of the host's 32 per-frame slots for the rest of the panel's life.
  *
- * @param subscribe - Registration function from the host client.
  * @param waitMs - How long to listen for the replayed snapshot.
  * @returns The captured snapshot (or `null`), any registration error, and a teardown.
  */

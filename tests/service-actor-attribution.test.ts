@@ -408,7 +408,6 @@ function candidate(overrides: Partial<Parameters<typeof namingEventOf>[1]> = {})
 /**
  * A normalized `simple-user` member with an explicit type.
  *
- * @param type - The account's type.
  * @returns The member.
  */
 function actorOf(login: string, type: string): ItemEventActor {
@@ -543,7 +542,6 @@ function wireRequested(requester: string, issueNumber?: number): string {
  * layers to parse is a step they will get wrong.
  *
  * @param assigner - Login the row records as its assigner.
- * @param createdAt - Row timestamp.
  * @returns The page body.
  */
 function assignedPage(assigner: string, createdAt?: string): string {

@@ -207,8 +207,6 @@ function judgeReserve(input: {
  * `dispatch.result` provably describe the same policy even though the result
  * report happens after an operator may have changed the list.
  *
- * @param input - The claimed run, the token, the deadline, the policy shape the
- *   gate decided on, and the stamp.
  * @returns The `starting` run.
  */
 function reservedRun(input: {

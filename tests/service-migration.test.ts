@@ -528,7 +528,6 @@ function textOf(row: Record<string, unknown>, key: string): string {
 /**
  * The row whose subject is one issue number.
  *
- * @param rows - Run-history or claim rows.
  * @returns The row for that subject.
  * @throws {Error} When no row names that subject.
  */
@@ -693,7 +692,6 @@ async function fileBytes(name: string): Promise<Buffer> {
  * The message a dispatch of one adopted run would compose, built exactly the
  * way the relay builds it: the run's own snapshot, the delivery's own text.
  *
- * @param run - The adopted run to compose for.
  * @returns The complete first message.
  * @throws {Error} When the store is missing or the run lost its delivery.
  */

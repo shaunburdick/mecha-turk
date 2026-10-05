@@ -407,7 +407,6 @@ function judgeResolve(input: { readonly run: Run }): RunRefusal | null {
  * the attempt incremented and is **the only path that re-dispatches an
  * `unconfirmed` run**, ever.
  *
- * @param input - The `unconfirmed` run, the session id or `null`, and the stamp.
  * @returns The resolved run.
  */
 function resolvedRun(input: {

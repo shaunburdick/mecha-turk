@@ -381,7 +381,6 @@ const HISTORY_PAGE = {
 /**
  * The `GET /v1/config` answer a configured baseline arrives in.
  *
- * @param expectedAgent - The baseline the document carries.
  * @returns The response body, shaped the way the service sends it.
  */
 function baselineBody(expectedAgent: string): string {

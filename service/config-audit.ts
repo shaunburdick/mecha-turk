@@ -171,7 +171,6 @@ export function configChanges(previous: ServiceConfig, next: ServiceConfig): rea
 /**
  * The take-effect class each changed field declares.
  *
- * @param changes - The changes the row is about to record.
  * @returns A field → class map, empty for a no-op.
  */
 function takeEffectOf(changes: readonly ConfigChange[]): Record<string, TakeEffect> {

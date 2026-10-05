@@ -128,7 +128,6 @@ function failureReason(summary: LedgerDetail): string {
  * path (research R-2's default): no new `blocked:` reason — 003 owns that
  * closed set — no new state, and no vocabulary beyond the words below.
  *
- * @param input - The composed message, and the tiers that contributed it.
  * @returns `null` when the message fits; otherwise the bounded remediation
  *   naming every contributing tier, ready for the failed attempt's `problem`.
  */

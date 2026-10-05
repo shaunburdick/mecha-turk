@@ -220,7 +220,6 @@ async function pullsList(runtime: PollerRuntime, query: RepoListQuery): Promise<
  * for the two list feeds that genuinely accept one. The scan window is therefore
  * a **client-side comparison on `created_at`**, made by `poller-events.ts`.
  *
- * @param input - Repository coordinates and the item's number.
  * @returns The request URL, before paging parameters are set.
  */
 function itemEventsUrl(input: { readonly owner: string; readonly name: string; readonly issueNumber: number }): URL {

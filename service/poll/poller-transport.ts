@@ -152,8 +152,6 @@ export function pollerRuntime(deps: PollerDeps, fetchImpl: FetchLike): PollerRun
  * helper at all, because it takes no `since` and must not be able to (002
  * FR-051).
  *
- * @param input - Repository coordinates, the path after the repo, the query
- *   parameters the method always sends, and its optional `since` window.
  * @returns The request URL with those query parameters set.
  */
 export function listUrl(input: {
@@ -183,9 +181,6 @@ export function listUrl(input: {
 /**
  * Parse one list page body, skipping entries the shape check refuses.
  *
- * @param input - The body text, the error text when it is not an array
- *   (never upstream text), and the per-entry reader (`null` drops one
- *   malformed entry).
  * @returns The normalized entries.
  * @throws {Error} When the body is not a JSON array.
  */

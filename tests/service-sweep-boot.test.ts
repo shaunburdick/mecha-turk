@@ -184,7 +184,6 @@ function openHarnessStore(instance: TestService): NonNullable<TestService['handl
 /**
  * Every lease-expiry row the store holds, in the order they were written.
  *
- * @param store - Store to read the trail from.
  * @returns The `dispatch.lease-expired` rows.
  */
 async function leaseExpiryRows(store: NonNullable<TestService['handle']['store']>): Promise<readonly unknown[]> {

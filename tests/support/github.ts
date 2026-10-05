@@ -180,7 +180,6 @@ export function fakeGitHub(script: GitHubScript): FakeGitHub {
  * never settles proves the `429 verify-busy` slot, and one that throws proves
  * the sanitized `500` path (SEC-11).
  *
- * @param handler - Receives the credential and answers with an outcome.
  * @returns The verifier plus the credentials it saw.
  */
 export function scriptedVerifier(

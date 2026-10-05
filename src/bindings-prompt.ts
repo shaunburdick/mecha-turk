@@ -109,7 +109,6 @@ export interface BindingPromptControls {
  * Mount the field into the editor, between the other fields and the form's
  * own action row.
  *
- * @param input - Runtime, editor root, and the handler the field invokes.
  * @returns The handle the pane carries.
  */
 export function mountBindingPrompt(input: {

@@ -36,7 +36,6 @@ export interface TabSpec {
     /**
      * Mount this body's contents into `body`, exactly once.
      *
-     * @param body - The container the shell created for this tab.
      * @returns A disposer for teardown, or `null` when it owns nothing.
      */
     readonly mount: (body: HTMLElement) => TabDisposer | null;
@@ -110,8 +109,6 @@ function createBodyRegion(
  * The SDK emits `role="tab"`, `aria-selected`, and the roving `tabIndex`, but
  * no `id`/`aria-controls` pair — so the shell owns the association and
  * re-stamps it whenever the strip repaints (FR-016, D4).
- *
- * @param bodies - The containers keyed by tab id.
  */
 function associate(input: {
     /** Panel root the strip lives in. */
@@ -139,8 +136,6 @@ function associate(input: {
 
 /**
  * Mount one body the first time it is shown.
- *
- * @param input - Runtime, specs, containers, and the disposer registry.
  */
 function mountOnce(input: {
     /** Runtime whose mount registry records the body. */
@@ -173,7 +168,6 @@ function mountOnce(input: {
 /**
  * Build the pair that shows exactly one body at a time.
  *
- * @param input - Runtime, specs, containers, disposers, and the strip handle.
  * @returns `activate` for the strip's callback and `paint` for the shell.
  */
 function createActivation(input: {
@@ -229,8 +223,6 @@ function createActivation(input: {
  *
  * The order is fixed and never depends on which tab was showing — `TabId` is
  * the closed union, so `TAB_IDS` reaches every body a spec could have mounted.
- *
- * @param input - Runtime, disposers, strip handle, region, and containers.
  */
 function disposeShell(input: {
     /** Runtime whose registries are cleared. */
@@ -264,7 +256,6 @@ function disposeShell(input: {
 /**
  * Mount the six-tab strip and its body region under the panel root.
  *
- * @param input - Runtime, root element, and the six specs in strip order.
  * @returns The shell; it is also stored on `rt.shell`.
  */
 export function mountTabShell(input: {

@@ -616,7 +616,6 @@ function firstIssueOf(body: string): AcRefusalIssue {
 /**
  * The account record the three paths act on, with its own tier set.
  *
- * @param prompt - The account tier to store.
  * @returns One `accounts/<id>.json` document.
  */
 function acAccount(prompt: string): Record<string, unknown> {
@@ -634,7 +633,6 @@ function acAccount(prompt: string): Record<string, unknown> {
 /**
  * The binding record the three paths act on, with its own tier set.
  *
- * @param prompt - The binding tier to store.
  * @returns One `bindings.json` element.
  */
 function acBinding(prompt: string): Record<string, unknown> {

@@ -107,7 +107,6 @@ const PROJECT_ID_MAX = 128;
 /**
  * Parse an `owner/name` repository string.
  *
- * @param value - Raw repository string.
  * @returns The repository reference, or `null` when the value is not `owner/name`.
  */
 export function parseRepository(value: string): RepositoryRef | null {
@@ -205,7 +204,6 @@ export function formatWorktreeOption(selection: WorktreeSelection): string {
 /**
  * Render a repository reference as `owner/name`.
  *
- * @param repository - Repository to render.
  * @returns The `owner/name` label used by GitHub paths and evidence records.
  */
 export function repositoryLabel(repository: RepositoryRef): string {

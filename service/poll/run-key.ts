@@ -90,7 +90,6 @@ export interface RunKeyInput {
  * key (constitution II: ambiguity is a stop condition, never a guess), and a
  * non-integer number or ordinal would make the key impossible to round-trip.
  *
- * @param input - The coordinates being assembled.
  * @returns The five segments, provider first and ordinal last.
  * @throws {Error} When a segment is empty or carries the `|` separator, or
  *   when the subject number or ordinal is not the integer its field names.
@@ -122,7 +121,6 @@ function keySegments(input: RunKeyInput): readonly string[] {
 /**
  * Build the run key: FR-010's deterministic tuple.
  *
- * @param input - Subject coordinates plus this run's ordinal.
  * @returns `github|<account>|<owner/name>|<subjectType>|<number>|<ordinal>`.
  * @throws {Error} When a segment would make the tuple ambiguous.
  */

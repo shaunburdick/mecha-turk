@@ -93,7 +93,6 @@ function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; r
  * body, because that is where the operator is when a project is what is
  * missing.
  *
- * @param input - Runtime, body element, and the callbacks the picker invokes.
  * @returns The picker handles used for later repaints.
  */
 export function mountProjectPicker(input: {

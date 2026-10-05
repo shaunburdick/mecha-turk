@@ -153,7 +153,6 @@ export function postVerify(service: TestService, body: string): Promise<Response
 /**
  * Read the `error` envelope of a failure response.
  *
- * @param response - Response whose body should be decoded.
  * @returns The error code, message, and any reason class.
  */
 export async function errorOf(response: Response): Promise<{

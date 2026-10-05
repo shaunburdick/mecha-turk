@@ -155,7 +155,6 @@ async function trailOf(service: TestService): Promise<readonly AuditEntry[]> {
 /**
  * Send one whole-document replacement.
  *
- * @param body - The complete document to write.
  * @returns The parsed answer plus its status.
  */
 async function putConfig(

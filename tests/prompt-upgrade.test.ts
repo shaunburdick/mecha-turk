@@ -534,7 +534,6 @@ async function seedPrePromptConfig(): Promise<Buffer> {
  * One wire answer read as an untrusted record (never a typed shortcut).
  *
  * @typeParam T - The envelope shape the caller asserts on.
- * @param path - Route to fetch.
  * @returns The parsed body, as the caller's envelope.
  * @throws {Error} When the route answers anything but `200`.
  */

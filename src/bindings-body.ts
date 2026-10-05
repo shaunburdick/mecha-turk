@@ -274,7 +274,6 @@ function mountTriggerChecks(input: MountInputs): {
  * everything above it, so it reads as part of the binding rather than as a
  * section of its own.
  *
- * @param input - Runtime, editor root, and handlers.
  * @returns The form handles.
  */
 function mountAddForm(input: MountInputs): Form {
@@ -317,7 +316,6 @@ function mountAddForm(input: MountInputs): Form {
 /**
  * Mount the selected row's own facts: its wrapper, its chips, its line.
  *
- * @param parent - The block body these facts describe rows of.
  * @returns The wrapper, the chip row, and the detail line.
  */
 function mountSelectedDetail(parent: HTMLElement): SelectedDetail {

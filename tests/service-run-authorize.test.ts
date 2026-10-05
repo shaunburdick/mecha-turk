@@ -185,7 +185,6 @@ afterEach(closeFixture);
  * readable actor is only reachable by hand-editing the store, and the FR-080
  * cases model it that way rather than forging an impossible detection.
  *
- * @param attribution - The actor and basis to record.
  * @returns A complete event snapshot.
  */
 function assignment(issueNumber: number, attribution: AttributionOverrides = {}): EventSnapshot {
@@ -311,7 +310,6 @@ async function rowsOf(eventType: string): Promise<readonly Record<string, unknow
  * would make every lease look expired the moment the suite's date differs from
  * the fixture's, which is a flaky test rather than a real failure.
  *
- * @param input - The claim coordinates and the stamp to judge them at.
  * @returns Whatever the reserve answered.
  */
 async function reserve(input: {
@@ -523,7 +521,6 @@ async function firstRowOf(eventType: string): Promise<Record<string, unknown>> {
 /**
  * Block one run through the real route module.
  *
- * @param input - The claim coordinates, cause, and detail.
  * @returns Whatever the block answered.
  */
 async function block(input: {

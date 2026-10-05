@@ -39,8 +39,6 @@ import type { ScanState } from './scan.ts';
  * both replays duplicate-free. A stamp the clock cannot read is treated the
  * same way: an unbounded window is honest, a malformed `since` is not.
  *
- * @param input - The binding being scanned, the scan state read at cycle
- *   start, and the configured overlap.
  * @returns The widened stamp, or `null` for an unbounded (replay) window.
  */
 export function windowFor(input: {

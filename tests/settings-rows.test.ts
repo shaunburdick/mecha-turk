@@ -342,7 +342,6 @@ function descriptorOf(name: string, envelope: ConfigEnvelope): FieldDescriptor {
  * no field in this feature declares them; if one ever did, this is the line
  * that would have to grow with it.
  *
- * @param takesEffect - The class the service declared.
  * @returns The phrase the row must contain.
  */
 function classWords(takesEffect: TakeEffectClass): string {

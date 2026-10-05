@@ -73,7 +73,6 @@ function isHalted(state: LoopState): boolean {
  * independently of the poll interval — a 300 s poll cadence must not push the
  * lease sweep past its own bound.
  *
- * @param durations - The configured lease and result deadline.
  * @returns Milliseconds between ticks.
  */
 export function sweepIntervalMs(durations: SweepDurations): number {

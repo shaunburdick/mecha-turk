@@ -412,8 +412,6 @@ export function mountRowDetail(input: DispatchControlsInput): RowDetail {
  *
  * The wrapper elements go with their body's node; the handles themselves
  * carry listeners the host would otherwise outlive the teardown with.
- *
- * @param controls - The controls the Dispatches body mounted.
  */
 function disposeControls(controls: PagingControls & RowDetail): void {
     const handles = [

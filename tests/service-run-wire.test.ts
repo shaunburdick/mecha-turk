@@ -269,7 +269,6 @@ async function authorize(run: Run): Promise<Run> {
 /**
  * Spend one authorization through the real result report.
  *
- * @param run - The `starting` run.
  * @param sessionId - The session the fixture says it created, else `null`.
  * @returns The run as it stands afterwards.
  */

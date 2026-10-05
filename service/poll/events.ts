@@ -151,7 +151,6 @@ const recoveredQuarantines = new WeakMap<ServiceStore, Set<string>>();
 /**
  * Claim one quarantine observation for recovery.
  *
- * @param store - Store handle that observed the loss.
  * @param quarantinePath - Path (or store-relative name) of the quarantined file.
  * @returns `true` when this caller owns the recovery.
  */

@@ -55,7 +55,6 @@ const MIGRATION_HOLDER = 'migration';
  * the typed {@link RunLease} member beside it rather than as this prefix, so
  * `parseLease` can enforce the two legal shapes.
  *
- * @param correlationId - The adopted run's correlation id.
  * @returns `migration-<correlationId>` — one path-safe segment.
  */
 export function buildMigrationLeaseId(correlationId: string): string {

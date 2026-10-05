@@ -42,7 +42,6 @@ const WARNING_PHRASES: ReadonlySet<string> = new Set(['auth-failed', 'rate-limit
  * this build does not name, or none reported at all — stays neutral rather
  * than being read as either a pass or a fault.
  *
- * @param phrase - The connection phrase the row prints.
  * @returns The badge tone for that phrase.
  */
 function connectionTone(phrase: string): Tone {
@@ -60,7 +59,6 @@ function connectionTone(phrase: string): Tone {
 /**
  * The tone for the recorded scope verdict.
  *
- * @param account - The account whose matrix decides it.
  * @returns The badge tone, neutral while there is no evidence either way.
  */
 function scopeTone(account: PanelAccount): Tone {

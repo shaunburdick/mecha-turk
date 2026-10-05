@@ -54,7 +54,6 @@ function paintsOf(handle: Parameters<typeof stubPaints>[0]): number {
  * The shell owns visibility now, so what a test needs from the mount is the
  * pair of views `refresh()` repaints: the pane and the picker.
  *
- * @param rt - Runtime to attach the stub views to.
  * @returns The pane stub and its body element.
  */
 function attachStubBody(rt: PanelRuntime): {
