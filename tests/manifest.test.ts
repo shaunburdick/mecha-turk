@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { hostMeetsOpenChamberEngine, requestedGuestCapabilities } from '@openchamber/sdk';
 import { parseManifestJson } from '@openchamber/sdk/schemas';
+import { compare, minVersion, satisfies, validRange } from 'semver';
 import { byText } from './support/sort.ts';
 
 /** Repository root, derived from this file's location. */
@@ -20,6 +21,7 @@ interface PackageJson {
     readonly version?: string;
     readonly dependencies?: Record<string, string>;
     readonly devDependencies?: Record<string, string>;
+    readonly engines?: { readonly node?: string };
     readonly openchamber?: OpenChamberBlock;
 }
 
@@ -352,5 +354,139 @@ describe('002 AC-021 — no reader takes a card id from ctx.settings', () => {
                 expect(indexed.test(source), `${path} indexes a settings record`).toBe(false);
             }
         }
+    });
+});
+
+/** Repository-relative path of the npm lockfile: the only record of what the tree admits. */
+const LOCKFILE_PATH = 'package-lock.json';
+
+/**
+ * Node floor `engines.node` must declare, pinned so that raising it is a
+ * deliberate edit in two places rather than a silent one in the manifest.
+ */
+const NODE_ENGINE_FLOOR = '>=24.15.0';
+
+/**
+ * Distance between sampled majors. Node promotes a major to LTS only on an
+ * even number, and never promotes an odd one at all.
+ */
+const LTS_MAJOR_INTERVAL = 2;
+
+/**
+ * How far past the floor's own major the grid keeps walking. Three LTS lines
+ * of headroom is enough to notice a dependency that stops admitting a later
+ * major, which is the failure mode a floor alone cannot see: the manifest
+ * promises a version nobody can install.
+ */
+const SAMPLED_MAJOR_SPAN = 6;
+
+/** Highest minor the grid samples; well past every minor Node has shipped. */
+const SAMPLED_MAX_MINOR = 20;
+
+/** Highest patch the grid samples; well past every patch Node has shipped. */
+const SAMPLED_MAX_PATCH = 40;
+
+/** The fields of one lockfile entry that the floor guard reads. */
+interface LockEntry {
+    readonly engines?: { readonly node?: string };
+}
+
+/** The shape of a lockfileVersion 3 npm lockfile, as this suite reads it. */
+interface Lockfile {
+    readonly lockfileVersion?: number;
+    readonly packages?: Readonly<Record<string, LockEntry>>;
+}
+
+/**
+ * Every Node version the floor admits, ascending.
+ *
+ * The grid is sampled on the LTS interval for a reason, and the reason is the
+ * dependency ranges rather than taste: `vitest` declares `^22.12.0 ||
+ * ^24.0.0 || >=26.0.0`, which covers 24 and everything from 26 up but leaves
+ * 25 to nobody, so a strict subset over all of semver would go red on an odd
+ * major that this project neither targets nor tests. That is a deliberate
+ * scope limit — the claim is "no version on a supported line is rejected",
+ * not "no version anywhere in semver is rejected".
+ *
+ * The grid is dense (every minor and patch within the ceilings above, on each
+ * sampled major) so that it straddles an exact boundary like `^22.22.2`
+ * instead of stepping over it between two samples, and it starts from the
+ * floor's own minimum rather than a hardcoded major, so raising the floor
+ * moves the grid with it. The floor's own minimum joins the grid explicitly
+ * so a floor set to a Current-only (odd) major is still checked against
+ * itself rather than passing on an empty sample.
+ *
+ * @param floor - The `engines.node` range under test.
+ * @returns Admitted versions, ascending.
+ */
+function admittedVersions(floor: string): readonly string[] {
+    const lowest = minVersion(floor);
+    if (lowest === null) {
+        throw new Error(`engines.node "${floor}" is not a range semver can resolve`);
+    }
+
+    const firstMajor = Math.floor(lowest.major / LTS_MAJOR_INTERVAL) * LTS_MAJOR_INTERVAL;
+    const versions: string[] = [];
+    for (let major = firstMajor; major <= firstMajor + SAMPLED_MAJOR_SPAN; major += LTS_MAJOR_INTERVAL) {
+        for (let minor = 0; minor <= SAMPLED_MAX_MINOR; minor += 1) {
+            for (let patch = 0; patch <= SAMPLED_MAX_PATCH; patch += 1) {
+                versions.push(`${major}.${minor}.${patch}`);
+            }
+        }
+    }
+
+    versions.push(lowest.version);
+    return versions.filter((version) => satisfies(version, floor)).toSorted((left, right) => compare(left, right));
+}
+
+describe('Node engine floor', () => {
+    const lock = JSON.parse(readFileSync(resolve(ROOT, LOCKFILE_PATH), 'utf8')) as Lockfile;
+    const floor = EXTENSION_MANIFEST.engines?.node ?? '';
+    const admitted = admittedVersions(floor);
+
+    it('declares the floor, read from the lockfile package map', () => {
+        {
+            expect(floor).toBe(NODE_ENGINE_FLOOR);
+        }
+        {
+            // v3 is the shape this suite reads: `packages` carries every entry's
+            // `engines` block, while the v1/v2 `dependencies` map does not have
+            // them at all, so a downgrade would empty the sweep below.
+            expect(lock.lockfileVersion).toBe(3);
+            expect(Object.keys(lock.packages ?? {}).length).toBeGreaterThan(0);
+        }
+    });
+
+    it('admits no version that any dependency in the lockfile rejects', () => {
+        const entries = Object.entries(lock.packages ?? {});
+        const conflicts: string[] = [];
+        for (const [path, entry] of entries) {
+            // The root entry mirrors the floor under test, and a package that
+            // declares no range cannot reject anything.
+            if (path === '' || typeof entry.engines?.node !== 'string') {
+                continue;
+            }
+
+            const range = entry.engines.node;
+            if (validRange(range) === null) {
+                throw new Error(`${path} declares engines.node "${range}", which semver cannot parse`);
+            }
+
+            // The lowest rejection is the actionable one: it is the closest
+            // version to the floor that this package refuses, so it names the
+            // release the floor has to move to.
+            const rejected = admitted.find((version) => !satisfies(version, range));
+            if (rejected !== undefined) {
+                conflicts.push(
+                    `${path} declares engines.node "${range}", which rejects ${rejected} — admitted by "${floor}"`,
+                );
+            }
+        }
+
+        expect(
+            conflicts,
+            `engines.node "${floor}" admits a version the tree cannot install. Raise the floor above the lowest ` +
+                'rejection above, or pin a dependency whose floor moved.',
+        ).toEqual([]);
     });
 });

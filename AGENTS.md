@@ -37,13 +37,23 @@ walkthrough is `specs/002-agent-event-extension/quickstart.md`.
 ## Commands
 
 ```sh
-npm ci            # toolchain install (Node >= 20.19; bun for the bundler)
+npm ci            # toolchain install (Node >= 24.15; bun for the bundler)
 npm run verify    # build -> lint -> typecheck -> test — THE gate, run before every commit
 npm run build     # bundles panel/main.js (IIFE) + service/main.js (ESM)
-npm test          # vitest, offline (1302 tests)
+npm test          # vitest, offline (1305 tests)
 npm run format    # eslint --fix
 npm run shot      # screenshot all six panel tabs at 720px and 560px into screenshots/
 ```
+
+`engines.node` is the *toolchain* floor, not a support statement: the host
+never reads it (`parseManifestJson` accepts any value there, including a
+nonsensical one — only `openchamber.engines.openchamber`, per invariant 6, is
+validated), so raising it removes nobody from the install path. The shipped
+`service/main.js` needs only the Node-20-era API surface it was written against
+(global `fetch`, `node:http`, `crypto.timingSafeEqual`, `fs.promises`,
+`AbortSignal.timeout`); that surface is guaranteed by
+`openchamber.engines.openchamber >= 1.24.0` and by the Node the host bundles,
+not by `engines.node`.
 
 ### Visual verification
 
