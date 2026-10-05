@@ -22,8 +22,7 @@ import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
  *    here instead of surprising the typechecker later;
  * 3. the L4 terms FR-022 retains must still be present, so the L2 guard cannot
  *    be satisfied by over-renaming the domain vocabulary away;
- * 4. `AGENTS.md`'s panel module map must list every file `src/` actually holds;
- * 5. **the L1 half (T-029)**: the six tabs' rendered output and `README.md`
+ * 4. **the L1 half (T-029)**: the six tabs' rendered output and `README.md`
  *    carry neither retired noun *as a noun*, with **no exempt source at all**
  *    — the short mapping list the About tab used to render was removed with
  *    the rest of that page by the 2026-10-01 product-owner scrub (005
