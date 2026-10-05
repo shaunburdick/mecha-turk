@@ -81,7 +81,7 @@ A **closed discriminated union** on `kind`. The panel's parser refuses anything 
 | Value | When | Panel wording |
 | --- | --- | --- |
 | `stored` | `config.json` read and validated | values are configured; rows named in `defaultsApplied` read **default** |
-| `default` | no `config.json` (fresh store) | every row reads **default** |
+| `default` | no `config.json` (fresh store) and no evidence one was set aside | every row reads **default** |
 | `quarantined` | present but unusable; renamed aside | *the stored configuration was unusable and set aside* — **never** "your values are current" |
 
 `quarantined` is the wire half of the spec's edge case *a hand-edited `config.json` that fails validation*; the quarantine log line already exists and is unchanged.
