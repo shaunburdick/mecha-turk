@@ -175,7 +175,6 @@ export function credentialKindOf(token: string): CredentialKind {
 /**
  * Build the request headers for one upstream call.
  *
- * @param token - Credential to authenticate with.
  * @returns The documented header set, including the pinned API version.
  */
 export function requestHeaders(token: string): Record<string, string> {
@@ -376,7 +375,6 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 /**
  * Call `GET /rate_limit` without ever letting a probe failure fail a verify.
  *
- * @param fetchImpl - Client used for the probe.
  * @param token - Credential already proven valid by `GET /user`.
  * @returns The baseline, or `null` on any transport or shape failure.
  */

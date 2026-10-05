@@ -195,7 +195,6 @@ function takeEffectOf(changes: readonly ConfigChange[]): Record<string, TakeEffe
  * Duplicates collapse too: `issueCount` carries the count, `fields` the set of
  * names.
  *
- * @param issues - Every issue the refusal answered with.
  * @returns The field names the row records.
  */
 function refusedFields(issues: readonly ConfigIssue[]): readonly string[] {

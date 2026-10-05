@@ -71,8 +71,6 @@ type AcceptedAttempt = Omit<VerifyAttempt, 'outcome'> & {
 
 /**
  * Append an `account.rejected` audit row carrying only a reason class.
- *
- * @param input - Deps, reason, optional identity, and correlation id.
  */
 async function recordRejection(input: {
     /** Store and logger. */
@@ -129,8 +127,6 @@ async function refusalFor(attempt: VerifyAttempt): Promise<HttpResponse> {
 
 /**
  * Log the free rate-limit baseline; numbers only, never credential material.
- *
- * @param input - Deps, identity, and the baseline read from `/rate_limit`.
  */
 function reportRateBaseline(input: {
     /** Store and logger. */
@@ -162,8 +158,6 @@ function reportRateBaseline(input: {
  * credential never reaches it (§2 step ⑩). A failed append is logged rather
  * than turned into a response failure: the account is already persisted, and
  * answering "failed" now would only send the panel into a `409` on retry.
- *
- * @param input - Deps, the persisted account, and the correlation id.
  */
 async function recordVerified(input: {
     /** Store and logger. */

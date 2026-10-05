@@ -315,7 +315,6 @@ function disposeRegions(input: {
  * — including the rows, which are rebuilt whenever the field list
  * changes and disposed with everything else when the body goes.
  *
- * @param input - Every region the tab mounted.
  * @returns The view, ready to hand to the runtime.
  */
 export function buildTabUi(input: {

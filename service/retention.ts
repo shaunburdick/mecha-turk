@@ -52,8 +52,6 @@ export interface RetentionInput {
 
 /**
  * Run one pass without letting its failure stop the boundary.
- *
- * @param input - A static, secret-free log line, the pass, and the logger.
  */
 async function runGuarded(input: {
     /** Message the failure is reported under; never carries upstream text. */

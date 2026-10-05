@@ -124,7 +124,6 @@ async function errorOf(response: Response): Promise<{ readonly code: string; rea
 /**
  * Sleep for a fixed interval.
  *
- * @param milliseconds - Delay before resolving.
  * @returns A promise that resolves after the delay.
  */
 function delay(milliseconds: number): Promise<void> {

@@ -190,8 +190,6 @@ async function commentsList(runtime: PollerRuntime, query: WindowedListQuery): P
  * Run the M7 pulls list and answer it under its promised field.
  *
  * @param runtime - Transport plus the poller's injectables.
- * @param query - Credential, repository, and pace (no `since` window: the review
- *   request is matched against the PR's own `updated_at` in the scan).
  * @returns The classified outcome; upstream detail never escapes as text.
  */
 async function pullsList(runtime: PollerRuntime, query: RepoListQuery): Promise<PullListOutcome> {
@@ -244,7 +242,6 @@ function itemEventsUrl(input: { readonly owner: string; readonly name: string; r
  * event rather than one attributed from a partial list.
  *
  * @param runtime - Transport plus the poller's injectables.
- * @param query - Credential, repository, item number, window, and pace.
  * @returns The events the walk saw, whether it exhausted its bound, or the class.
  */
 async function itemEventsList(runtime: PollerRuntime, query: ItemEventsQuery): Promise<ItemEventsOutcome> {

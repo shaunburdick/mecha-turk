@@ -161,7 +161,6 @@ interface BodyParts {
 /**
  * Create the toolbar row a block's controls share.
  *
- * @param into - Element the row mounts into.
  * @returns The row element.
  */
 function createToolbar(into: HTMLElement): HTMLElement {
@@ -402,7 +401,6 @@ function createBlocks(pane: HTMLElement): {
 /**
  * Assemble the pane the disposer and the repaint share.
  *
- * @param input - Everything the mount produced.
  * @returns The pane handle, with its one disposer attached.
  */
 function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): BindingsPane {

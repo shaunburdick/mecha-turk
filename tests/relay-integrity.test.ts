@@ -1270,7 +1270,6 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
  * Used by the secret-surface scan: an instruction copy could only hide in a
  * string, so walking every nested string is the whole search.
  *
- * @param value - Anything JSON-shaped.
  * @returns The value itself when it is a string, else every string beneath it.
  */
 function stringsIn(value: unknown): readonly string[] {

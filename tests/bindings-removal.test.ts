@@ -46,7 +46,6 @@ const STAMP = '2026-09-27T00:00:00.000Z';
 /**
  * Build a fixture binding row with every field the parser requires.
  *
- * @param input - Distinguishing fields.
  * @returns One complete binding row.
  */
 function bindingFixture(input: {

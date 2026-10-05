@@ -128,7 +128,6 @@ export interface BoundedReference {
  * excerpt from genuinely empty source text without re-deriving the constants,
  * and so the round-trip test can assert a marker survives serialization.
  *
- * @param excerpt - An answer's `excerpt` member.
  * @returns `true` for either marker this module writes.
  */
 export function isExcerptMarker(excerpt: string): boolean {

@@ -348,7 +348,6 @@ function stubShell(rt: PanelRuntime): { readonly calls: string[] } {
  * Build a runtime whose service refuses every read with one status code.
  *
  * @param status - HTTP status to answer with.
- * @param body - Body to answer with.
  * @returns The runtime.
  */
 function refusingRuntime(status: number, body: string): PanelRuntime {

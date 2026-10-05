@@ -94,7 +94,6 @@ async function compositionSection(): Promise<string> {
 /**
  * Validate a candidate and return the refusal, failing loudly when it is accepted.
  *
- * @param raw - Candidate prompt value.
  * @returns The issue the validator answered with.
  */
 function refusalOf(raw: unknown): { readonly field: string; readonly remediation: string } {

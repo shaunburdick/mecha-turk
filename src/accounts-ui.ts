@@ -283,7 +283,6 @@ function mountExpectedLoginField(doc: Document): {
  * expected-login field sits in the same row so the two hide together once an
  * account is connected (the paste row is then pointless for both).
  *
- * @param doc - Document to create in.
  * @returns The row's container, both inputs, and the note node.
  */
 function mountCredentialField(doc: Document): CredentialField {

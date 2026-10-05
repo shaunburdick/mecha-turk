@@ -70,8 +70,6 @@ export async function persistLedger(rt: PanelRuntime): Promise<void> {
 
 /**
  * Append a ledger entry, persist it, and let the caller repaint.
- *
- * @param input - Entry to append.
  */
 export function appendEntryAndPersist(rt: PanelRuntime, input: LedgerEntryInput): void {
     rt.state.ledger = appendEntry(rt.state.ledger, input);

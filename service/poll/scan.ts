@@ -52,7 +52,6 @@ export function emptyScanState(): ScanState {
  * string here would refuse every file the loop itself just wrote and set the
  * whole document aside on each cycle.
  *
- * @param value - Candidate slot.
  * @returns The slot, or `null` when the shape is unusable.
  */
 function parseBindingSlot(value: unknown): BindingScanState | null {
@@ -160,7 +159,6 @@ export async function writeScanState(input: {
 /**
  * Set one binding's slot in the scan state.
  *
- * @param input - Current state and the slot to write.
  * @returns The next state.
  */
 export function withBindingScanState(input: {

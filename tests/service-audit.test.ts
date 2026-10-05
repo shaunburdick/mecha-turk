@@ -194,7 +194,6 @@ const SECOND_RUN = 'second:run';
 /**
  * Compare two entries without the wall-clock stamp each one records.
  *
- * @param entry - Entry to normalise.
  * @returns The entry with its timestamp replaced by a fixed marker.
  */
 function stampless(entry: AuditEntry): AuditEntry {

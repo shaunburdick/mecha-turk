@@ -163,7 +163,6 @@ function parseRunObjects(raw: Record<string, unknown>): RunObjects | null {
 /**
  * Parse a bounded list of sub-objects.
  *
- * @param raw - Candidate array as stored.
  * @returns The parsed rows, or `null` when the value is not an array, holds
  *   an unusable row, or exceeds the cap.
  */
@@ -353,7 +352,6 @@ export function parseRun(raw: unknown): Run | null {
 /**
  * Validate the ordinal counters map.
  *
- * @param raw - Candidate `subjects` value.
  * @returns The counters, or `null` when any value is not a non-negative
  *   integer (an empty key is unusable too — it is what the run key is
  *   re-derived from).

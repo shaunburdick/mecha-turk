@@ -176,7 +176,6 @@ async function storedQueue(): Promise<readonly QueuedEvent[]> {
 /**
  * Read one row out of the stored queue by id.
  *
- * @param id - Event id to find.
  * @returns The row, or `undefined` when the queue has no such event.
  */
 async function storedRow(id: string): Promise<QueuedEvent | undefined> {

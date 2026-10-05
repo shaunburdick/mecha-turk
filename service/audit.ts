@@ -152,7 +152,6 @@ function redactDeep(input: { readonly value: unknown; readonly path: string; rea
 /**
  * Apply the redaction pass to an audit input.
  *
- * @param input - Caller-supplied entry.
  * @returns The entry with redacted details/reason and the changed field list.
  */
 function redactInput(input: AuditInput): RedactedFields {

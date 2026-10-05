@@ -65,7 +65,6 @@ export interface ProjectPickerUi {
  * action: a control row for the select and its buttons, with the status and
  * selection lines underneath.
  *
- * @param root - Body element the picker mounts into.
  * @returns The group element and the control row inside it.
  */
 function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; readonly row: HTMLElement } {

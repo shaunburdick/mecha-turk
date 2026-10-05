@@ -864,7 +864,6 @@ const MAXIMAL_BODY = MAXIMAL_STACK?.text ?? '';
  * The quoted excerpt region of one composed message: everything between the
  * block's two delimiters (002 FR-026's untrusted region), exclusive.
  *
- * @param message - A composed message.
  * @returns The text between `BEGIN_UNTRUSTED` and `END_UNTRUSTED`.
  * @throws When the message carries no untrusted block at all.
  */

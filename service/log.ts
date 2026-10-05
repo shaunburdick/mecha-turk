@@ -73,7 +73,6 @@ export interface LoggerOptions {
 /**
  * Turn a caught value into a log-safe one-line description.
  *
- * @param error - Any caught value.
  * @returns The error's message, or a stringified fallback for non-errors.
  */
 export function describeError(error: unknown): string {

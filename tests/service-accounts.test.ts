@@ -230,7 +230,6 @@ function rotateToken(options: {
 /**
  * Read the stored account document as raw JSON.
  *
- * @param dataDir - Data directory owning the store.
  * @returns The parsed document.
  */
 async function readStoredAccount(dataDir: string): Promise<Record<string, unknown>> {

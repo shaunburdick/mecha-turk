@@ -433,7 +433,6 @@ function realPoller(body: string): {
 /**
  * The pace a cycle of this configuration would carry.
  *
- * @param perPage - Configured page size.
  * @returns The pace the loop builds from a stored document.
  */
 function paceFor(perPage: number): ListPace {
@@ -547,7 +546,6 @@ function isChangeTriple(value: unknown): value is ChangeTriple {
 /**
  * The `config.changed` rows of one trail read, oldest first.
  *
- * @param trail - Every row the trail held.
  * @returns The configuration rows alone.
  */
 function configRows(trail: readonly AuditEntry[]): readonly AuditEntry[] {

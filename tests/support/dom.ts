@@ -92,7 +92,6 @@ export class FakeElement {
 
     /**
      * @param tagName - Lower-case tag name the element was created with.
-     * @param ownerDocument - Document performing the creation.
      */
     public constructor(tagName: string, ownerDocument: FakeDocument) {
         this.tagName = tagName;
@@ -196,7 +195,6 @@ export class FakeElement {
      * Register a listener for one event type.
      *
      * @param type - Event type, e.g. `click`.
-     * @param listener - Callback invoked when the event fires.
      */
     public addEventListener(type: string, listener: ElementListener): void {
         this.listeners.set(type, listener);

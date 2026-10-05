@@ -107,7 +107,6 @@ interface MountedDispatches {
 /**
  * Build one runs row the way the service projects it.
  *
- * @param state - Dispatch state the row should carry.
  * @returns A complete, valid row (003 contract §2's projection).
  */
 function runRow(state: RunRow['state']): RunRow {
@@ -233,7 +232,6 @@ function isOutOfLayout(parents: Map<HidableNode, HidableNode>, node: HidableNode
  * answer is a heading the panel never mounted at all — a failure that says so
  * rather than an `undefined` assertion downstream.
  *
- * @param text - Exact text to find.
  * @returns The first node carrying it.
  * @throws {Error} When no node carries the text.
  */

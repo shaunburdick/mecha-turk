@@ -185,8 +185,6 @@ export async function writeAccountMirror(
  * has already forgotten the account, and the next adoption pass (or the next
  * handoff) repairs the mirror. The removal path reports the service outcome
  * on its own note line; this only keeps the panel copy from outliving it.
- *
- * @param numericUserId - Account whose mirror entry is removed.
  */
 export async function removeAccountMirror(rt: PanelRuntime, numericUserId: string): Promise<void> {
     const stored = await readStoredAccounts(rt);
