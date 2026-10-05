@@ -81,11 +81,52 @@ function refreshRelativeTimes(data) {
 }
 
 /**
- * Fetch the fixture document and build the bridge's route table.
+ * The scene named on the harness URL, or `null` for the base document.
+ *
+ * Read from the query string rather than handed in, because this module runs in
+ * the *browser* and `shot.js` only controls the URL — so `?scene=no-accounts` is
+ * the whole channel, and it keeps the harness one page with no build step.
+ *
+ * @returns The requested scene's name, or `null` when none was asked for.
+ */
+function requestedScene() {
+    const query = String(globalThis.location.search ?? '').replace(/^\?/u, '');
+    const named = query
+        .split('&')
+        .filter((pair) => pair.startsWith('scene='))
+        .map((pair) => decodeURIComponent(pair.slice('scene='.length)));
+
+    return named[0] === undefined || named[0] === '' ? null : named[0];
+}
+
+/**
+ * Merge a scene's partial document **over** the base one.
+ *
+ * A merge per route, never a replacement of the document: a scene that names one
+ * route leaves the other five answering, which is what stops a scene from
+ * silently dropping the answers the Accounts and Status captures read.
+ *
+ * @param data - The parsed fixture document, mutated in place.
+ * @param delta - The scene's partial document.
+ * @returns The same document, for chaining.
+ */
+function applyScene(data, delta) {
+    for (const [route, body] of Object.entries(delta)) {
+        data[route] = body;
+    }
+
+    return data;
+}
+
+/**
+ * Fetch the fixture document, merge the requested scene over it, and build the
+ * bridge's route table.
  *
  * A failed read is *not* thrown: the bridge reports it on
  * `globalThis.__MT_HARNESS_ERROR__` so `shot.js` can print why the panel
- * never booted instead of timing out on a blank frame.
+ * never booted instead of timing out on a blank frame. An unknown scene is
+ * refused the same way, because a capture that quietly fell back to the base
+ * document would publish a picture of the wrong frame.
  *
  * @returns `{ routes, projects, error }` — `error` is null after a good read.
  */
@@ -97,9 +138,21 @@ export async function loadFixtures() {
             return { routes: {}, projects: null, error: `fixtures.json answered HTTP ${response.status}` };
         }
 
-        const data = refreshRelativeTimes(await response.json());
+        const scene = requestedScene();
+        const data = await response.json();
 
-        return { routes: buildRoutes(data), projects: data.projects, error: null };
+        if (scene !== null) {
+            const named = (data.scenes ?? {})[scene];
+            if (named === undefined) {
+                const known = Object.keys(data.scenes ?? {}).join(', ') || 'none defined';
+
+                return { routes: {}, projects: null, error: `unknown scene "${scene}" — try: ${known}` };
+            }
+
+            applyScene(data, named.delta);
+        }
+
+        return { routes: buildRoutes(refreshRelativeTimes(data)), projects: data.projects, error: null };
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
 

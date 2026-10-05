@@ -70,6 +70,15 @@ particular size). The widths come from the host's own arithmetic, not a
 guess: extension panels are `plugin:<id>` context surfaces, whose
 `defaultWidthFraction` is `0.45` of the available content region, clamped
 between `320px` and `region − 400px` — ≈500px at 1440 and ≈715px at 1920.
+
+**`--scene NAME`** runs the capture against a fixture delta merged over the base
+document (`scenes` in `tools/visual/fixtures.json`), writing
+`panel-<tab>-<scene>.png`. It exists because the default fixture holds **both**
+accounts and a binding, so a state the default capture cannot reach — an account
+list that is empty, an empty binding list — has no frame at all. A scene reuses
+its tab's own sentinel colours, so every proof below still runs unchanged.
+`npm run shot -- --help` lists the scenes.
+
 It runs offline, needs
 `agent-browser` on PATH, takes about a minute, and never touches `panel/`,
 `src/`, or `service/`. Every image is decoded and proven current before it is

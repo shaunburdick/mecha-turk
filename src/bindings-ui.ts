@@ -36,6 +36,8 @@ import type { PanelRuntime, BindingsTabState } from './panel-state.ts';
 import type { DispatchControlsHandlers } from './dispatches-controls.ts';
 import { repaintBindingPrompt } from './bindings-prompt.ts';
 import type { BindingPromptControls, BindingPromptHandlers } from './bindings-prompt.ts';
+import { emptyBindingsText, repaintAccountReason } from './bindings-accounts.ts';
+import type { AccountReasonControls } from './bindings-accounts.ts';
 import { repaintBindingActors } from './bindings-actors.ts';
 import type { BindingActorControls, BindingActorHandlers } from './bindings-actors.ts';
 import { accountFieldView, editorStateLine, repaintBindingActions, repaintBindingMention } from './bindings-editor.ts';
@@ -54,7 +56,14 @@ export interface BindingsPane {
     /** Bindings list with per-binding scan lines. */
     readonly bindingsList: ListHandle;
     readonly refreshBindings: ButtonHandle;
-    /** Opens the editor on an empty draft. */
+    /**
+     * FR-101's reason line, under the list's toolbar.
+     *
+     * Hidden outright whenever the gate does not hold — and its text empty then
+     * too, so "absent" survives a DOM reading as well as a visual one.
+     */
+    readonly newBindingReason: AccountReasonControls;
+    /** Opens the editor on an empty draft — disabled while zero accounts exist. */
     readonly newBinding: ButtonHandle;
     /** Enable/disable toggle for the selected row; a list-level control. */
     readonly toggleSelected: ButtonHandle;
@@ -172,7 +181,8 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
 
     view.status.update({ text: composeStatus(bindings) });
     view.note.update({ text: bindings.note });
-    view.bindingsList.update({ items: bindingRows(bindings) });
+    view.bindingsList.update({ items: bindingRows(bindings), emptyText: emptyBindingsText(bindings) });
+    repaintAccountReason(bindings, view.newBindingReason);
     view.refreshBindings.update({ disabled: bindings.status === 'loading' });
     view.editorBox.hidden = !bindings.editorOpen;
     view.editorState.update({ text: editorStateLine(bindings) });

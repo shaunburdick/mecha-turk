@@ -8,6 +8,7 @@ import { parseDispatchesBody } from '../src/dispatches-service.ts';
 import { parseAccountsBody } from '../src/accounts-service.ts';
 import { parseConfigEnvelope } from '../src/settings-schema.ts';
 import { parseAuditBody } from '../src/audit-view.ts';
+import { byText } from './support/sort.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
@@ -28,6 +29,33 @@ interface SelfTestReport {
 interface ScriptsBlock {
     readonly scripts: Readonly<Record<string, string>>;
 }
+
+/** One fixture route's delta under a `scenes` member, as `fixtures.js` reads it. */
+interface SceneRecord {
+    /** What the frame shows, for the run's own report. */
+    readonly summary?: string;
+    /** The partial document merged **over** the base one. */
+    readonly delta?: Record<string, unknown>;
+}
+
+/** The scene table `fixtures.json` carries, named by scene. */
+interface SceneTable {
+    /** Scene name to its fixture delta. */
+    readonly scenes?: Readonly<Record<string, SceneRecord>>;
+}
+
+/** The scene 005 AC-150 needs a frame of: the Bindings tab with no accounts. */
+const NO_ACCOUNTS = 'no-accounts';
+
+/**
+ * The scene in which an empty-text row renders at all.
+ *
+ * The base fixture carries **bindings** as well as accounts, so `no-accounts`
+ * alone shows the reason line with a full list under it and leaves every one of
+ * 005 FR-102's three rows invisible. Emptying the bindings list too is what puts
+ * the gate and the *add an account* row on screen together.
+ */
+const NO_ACCOUNTS_NO_BINDINGS = 'no-accounts-no-bindings';
 
 /**
  * Run the visual tooling's own proof — offline, deterministic, no browser.
@@ -60,6 +88,17 @@ function fixtures(): Record<string, unknown> {
  */
 function body(name: string): string {
     return JSON.stringify(fixtures()[name] ?? {});
+}
+
+/**
+ * Merge one scene's delta over the fixture document, exactly as `fixtures.js`
+ * does — per route, never as a replacement of the document.
+ *
+ * @param delta - The scene's partial fixture document.
+ * @returns The base document with the delta's routes merged over it.
+ */
+function withScene(delta: Record<string, unknown>): Record<string, unknown> {
+    return { ...fixtures(), ...delta };
 }
 
 describe('the visual capture tooling stays wired up', () => {
@@ -97,8 +136,10 @@ describe('the visual capture tooling stays wired up', () => {
             // on a 1440–1920 desktop. See DEFAULT_WIDTH's evidence block.
             expect(tool).toContain('const DEFAULT_WIDTH = 720;');
             expect(tool).toContain('const NARROW_WIDTH = 560;');
-            // Every tab keeps a second frame at the tight end of that band.
-            expect(tool).toMatch(/panel-\$\{tab\.id\}-narrow/);
+            // Every tab keeps a second frame at the tight end of that band. The stem is a
+            // The stem is a variable now (a scene run suffixes it), so the narrow
+            // frame is named from that stem rather than from the template itself.
+            expect(tool).toMatch(/name: .*-narrow./u);
             expect(tool).not.toContain('VIEWPORT_WIDTH');
         }
         {
@@ -112,6 +153,126 @@ describe('the visual capture tooling stays wired up', () => {
             expect(agents).toContain('560px');
             expect(agents).not.toContain('1400px');
         }
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * D26 — `--scene`: a fixture delta merged over the base document
+ *
+ * The shipped fixture holds two accounts **and** a binding, so none of 005
+ * FR-102's three empty-text rows renders and FR-101's reason line is correctly
+ * absent: under it, the copy 005 AC-150 governs is invisible. `no-accounts` is
+ * the frame in which the third row appears at all, and these four checks are
+ * what keep it a *frame* rather than a filename.
+ * ------------------------------------------------------------------------- */
+
+describe('a capture can run under a fixture scene', () => {
+    it('advertises the flag, names its scenes, and refuses an unknown one', () => {
+        const tool = readFileSync(resolve(ROOT, 'tools/visual/shot.js'), 'utf8');
+        const table = fixtures() as SceneTable;
+        const scenes = Object.keys(table.scenes ?? {});
+
+        expect(scenes).toContain(NO_ACCOUNTS);
+        // The usage line names every scene the fixture table defines, so a scene
+        // added to the JSON is discoverable without reading this file — and one
+        // that cannot be named cannot be reached. The scene names are read out
+        // of `fixtures.json` rather than declared here, so the usage line and
+        // the harness's own table cannot drift apart.
+        expect(tool).toContain("'--scene'");
+        expect(tool).toContain('SCENES = readScenes();');
+        expect(tool).toContain('scenes: ');
+        expect(tool).toContain('Object.keys(SCENES).join');
+        for (const scene of scenes) {
+            expect(table.scenes?.[scene]?.summary, scene).toBeDefined();
+        }
+        // Refused at the command line rather than reaching the browser, where an
+        // unknown name would either boot the base document (publishing a picture
+        // of the wrong frame) or fail with a message that names no scene.
+        expect(tool).toMatch(/unknown scene .*name.*/u);
+        expect(tool).toContain('function selectScene(');
+    });
+
+    it('writes scene frames under their own names, at both widths', () => {
+        const tool = readFileSync(resolve(ROOT, 'tools/visual/shot.js'), 'utf8');
+
+        // `panel-<tab>-<scene>.png` and its `-narrow` sibling, so a scene run never
+        // overwrites the default captures it is meant to be read beside. The
+        // stem is built from the tab id and the scene, and both frames are
+        // named from it.
+        expect(tool).toContain('const stem = ');
+        expect(tool).toMatch(/name: stem,/u);
+        expect(tool).toMatch(/name: .*-narrow./u);
+        // …and it reuses each tab's **own** sentinel colours, so no probe colour,
+        // index arithmetic, or diff rule changed — which is what keeps
+        // AGENTS.md's "every image is proven current" machinery intact.
+        expect(tool).toContain('PROBE_COLORS[WIDE_COLOR + TABS.indexOf(tab)]');
+        expect(tool).toContain('PROBE_COLORS[NARROW_COLOR + TABS.indexOf(tab)]');
+        // A scene is its own process, so `panel-full.png` — the base document's
+        // whole-height frame — is never written under a scene's name.
+        expect(tool).toContain('options.full && scene === null');
+    });
+
+    it('merges the delta over the base document, so untouched routes still answer', () => {
+        const table = fixtures() as SceneTable;
+        const delta = table.scenes?.[NO_ACCOUNTS]?.delta ?? {};
+
+        // The delta names **one** route: a scene that replaced the whole document
+        // could silently drop the answers the other five captures read.
+        expect(Object.keys(delta)).toEqual(['accounts']);
+        const merged = withScene(delta);
+
+        // The base document's own member set is untouched by the merge — the
+        // delta adds routes, it does not remove or rename any.
+        const members = (document_: Record<string, unknown>): readonly string[] =>
+            Object.keys(document_).toSorted(byText);
+
+        expect(members(merged)).toEqual(members(fixtures()));
+        // The named route changed …
+        const accounts = merged.accounts as { readonly accounts: readonly unknown[] };
+
+        expect(accounts.accounts).toEqual([]);
+        // … and every other one is byte-identical to the base document.
+        for (const route of ['status', 'bindings', 'events', 'audit', 'projects']) {
+            expect(JSON.stringify(merged[route]), route).toBe(JSON.stringify(fixtures()[route]));
+        }
+    });
+
+    it('puts an empty-text row on screen, which no-accounts alone cannot', () => {
+        const table = fixtures() as SceneTable;
+        const base = fixtures().bindings as { readonly bindings: readonly unknown[] };
+        const accountsOnly = withScene(table.scenes?.[NO_ACCOUNTS]?.delta ?? {});
+        const both = withScene(table.scenes?.[NO_ACCOUNTS_NO_BINDINGS]?.delta ?? {});
+
+        // The reason alone: the list still holds the fixture's rows, so no
+        // empty-text row renders and the scene photographs the gate only.
+        expect((accountsOnly.bindings as { readonly bindings: readonly unknown[] }).bindings)
+            .toHaveLength(base.bindings.length);
+        // Gate **and** row together: this is the frame 005 FR-102's second row
+        // exists to be read in.
+        const emptied = both.bindings as { readonly bindings: readonly unknown[]; readonly status: readonly unknown[] };
+
+        expect(emptied.bindings).toEqual([]);
+        expect(emptied.status).toEqual([]);
+        // …and both routes the panel's own readers would have to accept.
+        expect(parseBindingsBody(JSON.stringify(both.bindings))).not.toBeNull();
+        expect(parseAccountsBody(JSON.stringify(both.accounts))).toEqual([]);
+    });
+
+    it('yields empty account and binding lists the panel\'s own readers accept', () => {
+        const table = fixtures() as SceneTable;
+        const merged = withScene(table.scenes?.[NO_ACCOUNTS_NO_BINDINGS]?.delta ?? {});
+        const read = parseAccountsBody(JSON.stringify(merged.accounts));
+
+        // Not `null`: an empty list is a **readable** answer, and a scene whose
+        // route the reader refused would render an error banner rather than the
+        // frame this scene exists to photograph. Not the base document's two
+        // accounts either — that is the frame the default run already covers.
+        expect(read).not.toBeNull();
+        expect(read).toEqual([]);
+        expect(parseBindingsBody(JSON.stringify(merged.bindings))).toEqual({
+            bindings: [],
+            status: [],
+        });
     });
 });
 

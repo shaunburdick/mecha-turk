@@ -106,6 +106,34 @@ describe('built panel bundle', () => {
             expect(bundle).not.toContain('Repositories: ');
         }
         {
+            // 005 FR-103, over the **shipped bytes** rather than the source: the
+            // picker names the state the product actually has, and the withdrawn
+            // *verified* placeholder — a state `AccountState` does not carry —
+            // ships nowhere. Asserted on the artifact because the host never
+            // compiles TypeScript, so a fix that reached only `src/` would leave
+            // the installed panel still asking for one.
+            const bundle = readFileSync(BUNDLE, UTF8);
+
+            expect(bundle).toContain('Select an active account');
+            expect(bundle).not.toContain('Select a verified account');
+        }
+        {
+            // FR-101 and FR-102's second row, over the shipped bytes as well: the
+            // reason line and the zero-account empty text are copy the operator
+            // reads, so their absence from the bundle would be a source-only fix.
+            const bundle = readFileSync(BUNDLE, UTF8);
+
+            expect(bundle).toContain('Add an account on the Accounts tab before binding a repository.');
+            expect(bundle).toContain('No binding yet — add an account on the Accounts tab first.');
+        }
+        {
+            // FR-102's third row ships too — the pre-read sentence, which is the
+            // frame the `no-accounts` visual scene exists to photograph.
+            const bundle = readFileSync(BUNDLE, UTF8);
+
+            expect(bundle).toContain('No binding yet — the account list is not known. Refresh to read it.');
+        }
+        {
             const bundle = readFileSync(BUNDLE, UTF8);
 
             // FR-011: the spike surface is deleted, not hidden — so what ships

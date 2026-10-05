@@ -901,5 +901,27 @@
                 "name": "internal-cli"
             }
         ]
+    },
+    "scenes": {
+        "no-accounts": {
+            "summary": "the Bindings tab with no accounts at all, over the fixture's bindings",
+            "delta": {
+                "accounts": {
+                    "accounts": []
+                }
+            }
+        },
+        "no-accounts-no-bindings": {
+            "summary": "no accounts and no bindings: the empty-list row under the reason line",
+            "delta": {
+                "accounts": {
+                    "accounts": []
+                },
+                "bindings": {
+                    "bindings": [],
+                    "status": []
+                }
+            }
+        }
     }
 }

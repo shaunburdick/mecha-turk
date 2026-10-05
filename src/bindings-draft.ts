@@ -28,6 +28,7 @@
  */
 
 import { parseRepository, repositoryLabel } from './config.ts';
+import { accountSelectionRefusal } from './bindings-accounts.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import type { PanelBinding, PanelTriggers } from './bindings-service.ts';
 import type { BindingsTabState } from './panel-state.ts';
@@ -69,9 +70,6 @@ export interface DraftEditTarget {
 
 /** Note the draft refuses with when there is no row to edit. */
 export const SELECT_TO_EDIT_NOTE = 'Select a binding to edit.';
-
-/** Note the draft refuses with when add mode has no account picked. */
-const ACCOUNT_NOTE = 'Pick the account this repository polls under.';
 
 /** Note the draft refuses with when the repository is not `owner/name`. */
 const REPOSITORY_NOTE = 'repository must be `owner/name`';
@@ -135,7 +133,10 @@ function draftAccount(
     const account =
         bindings.accounts.find((candidate) => candidate.numericUserId === bindings.accountSelection) ?? null;
     if (account === null) {
-        bindings.note = ACCOUNT_NOTE;
+        // FR-103's total dispatch: *no accounts*, *no `active` one*, or something
+        // to pick. The strings live with the gate, so the toolbar reason and this
+        // refusal cannot become two spellings of one reason.
+        bindings.note = accountSelectionRefusal(bindings);
 
         return null;
     }
