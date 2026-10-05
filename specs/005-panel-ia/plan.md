@@ -592,11 +592,28 @@ store, and the cadence reads the same credential-free projection the tab already
    AC-151's literal reading**, the parser's `polling` block needs the same treatment and the
    spec's `### Wire Surface Delta` row amended to say so.
 2. **The cadence sentence is new operator-facing copy.** Its exact wording is a product decision the
-   specification deliberately left open ("for example *re-reads every 60 seconds*"). **Chosen:** *This
-   tab re-reads itself every 60,000 ms.* / *This tab is not refreshing itself — no interval has been
-   read, so it refreshes only when you ask. Use Refresh status.* Recorded here so a copy review can
-   change it without re-reading the implementation, and so `tests/status-refresh.test.ts` is where the
-   assertion moves.
+   specification deliberately left open ("for example *re-reads every 60 seconds*"). **Chosen, after
+   `npm run shot` caught the first attempt on the same tab:** *This tab re-reads itself every 60
+   seconds.* / *This tab is not refreshing itself — no interval has been read, so it refreshes only
+   when you ask. Use Refresh status.* Recorded here so a copy review can change it without re-reading
+   the implementation, and so `tests/status-refresh.test.ts` is where the assertion moves.
+
+   The first attempt rendered the armed branch as ***This tab re-reads itself every 60,000 ms*** and
+   is superseded by the wording above. Visual verification caught it for three reasons, all of which
+   are properties of *where* a number appears rather than of the number: `intervalText()`'s `en-US`
+   grouping exists because the Polling block's `Effective interval 60,000 ms` is a **data row** whose
+   `ms` declares the unit, and the same tab was therefore showing one duration two ways (`8h 2m 13s`
+   from `formatUptime` in a row, `60,000 ms` in a sentence); FR-101 names *re-reads every 60 seconds*
+   as its example; and it degraded worst at the top of the range, where an operator at the validated
+   maximum read *every 300,000 ms* where the human form is *every 5 minutes*. The period is now
+   rendered in words by a **period-shaped** formatter in `status-lines.ts` — whole minutes at or above
+   two minutes, whole seconds below, and the machine form only for a period too short to say in
+   seconds, because rounding that into prose would invent a duration. **`formatUptime()` was not
+   reused**: its shape is uptime's (it always emits at least a seconds part, and always emits minutes
+   once hours are present), so it answers `1m 0s` for 60 000 and `5m 0s` for 300 000 — trailing `0s`
+   inside a sentence, and no better than the digits it replaces. **The Polling block's own
+   `Effective interval` / `Configured interval` rows are unchanged and out of scope**: their `ms`
+   declares a unit on a data row, which is exactly what that rendering is for.
 
 ## D.6 Risks and mitigations (this amendment only)
 

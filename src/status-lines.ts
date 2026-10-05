@@ -36,6 +36,18 @@ const SECONDS_PER_HOUR = 3_600;
 
 const SECONDS_PER_MINUTE = 60;
 
+/** Milliseconds in one minute — the cadence statement's coarser unit. */
+const MS_PER_MINUTE = MS_PER_SECOND * SECONDS_PER_MINUTE;
+
+/**
+ * Where the cadence statement starts naming minutes rather than seconds.
+ *
+ * English convention rather than a round number: *every 90 seconds* is what a
+ * person says, *every 2 minutes* is what they say next. It also leaves 60 000
+ * rendering as *60 seconds*, which is the form 005 FR-101 names.
+ */
+const MINUTE_WORD_AFTER_MS = 2 * MS_PER_MINUTE;
+
 /** Copy for a rate budget nothing has measured yet. */
 const RATE_UNMEASURED = 'not measured yet';
 
@@ -464,6 +476,43 @@ export function readStateLine(slice: StatusTabState): string {
     return `Status could not be re-read: ${cause}. Showing the read from ${slice.at}, which may be stale.`;
 }
 
+/**
+ * Render a period as the words an operator reads, not as a machine string.
+ *
+ * **Not** {@link formatUptime}, which is uptime's shape: it always emits at
+ * least a seconds part and always emits minutes once hours are present, so
+ * 60 000 would read `1m 0s` and 300 000 `5m 0s` — trailing `0s` noise inside a
+ * sentence, and no better than the digits it replaces. Its `0s` for a
+ * non-positive input is right for an uptime counting up from zero and wrong
+ * for a period, where it would claim a duration the service never reported.
+ *
+ * The range this has to cover is the one `service/config.ts` validates, 15 000
+ * – 300 000 ms, and the panel arms whatever period the document carries rather
+ * than re-validating it (005 `### Edge Cases`), so anything outside that range
+ * still has to render honestly: a whole minute at or above
+ * {@link MINUTE_WORD_AFTER_MS} as minutes, a whole second below it as seconds,
+ * and anything shorter or non-numeric back in the machine form the Polling
+ * block uses, because rounding it into prose would be inventing a period.
+ *
+ * @param ms - The period to render.
+ * @returns e.g. `15 seconds`, `60 seconds`, `5 minutes`.
+ */
+function periodText(ms: number): string {
+    if (!Number.isFinite(ms) || ms < MS_PER_SECOND) {
+        return `${intervalText(ms)} ms`;
+    }
+
+    if (ms >= MINUTE_WORD_AFTER_MS && ms % MS_PER_MINUTE === 0) {
+        const minutes = ms / MS_PER_MINUTE;
+
+        return `${minutes} minutes`;
+    }
+
+    const seconds = ms / MS_PER_SECOND;
+
+    return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
+}
+
 /** Inputs for {@link cadenceLine}; one value, which is the whole statement. */
 export interface CadenceLineInput {
     /**
@@ -496,5 +545,5 @@ export function cadenceLine(input: CadenceLineInput): string {
             + 'refreshes only when you ask. Use Refresh status.';
     }
 
-    return `This tab re-reads itself every ${intervalText(input.refreshMs)} ms.`;
+    return `This tab re-reads itself every ${periodText(input.refreshMs)}.`;
 }

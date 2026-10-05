@@ -88,10 +88,11 @@ const PERIOD_MS = 60_000;
 const SHORT_PERIOD_MS = 30_000;
 
 /**
- * How the copy renders {@link PERIOD_MS}, which groups its digits the way the
- * Polling block already does (005 `FR-030`).
+ * How the cadence statement names {@link PERIOD_MS} — in words, which is the
+ * form 005 FR-101 names (*"for example re-reads every 60 seconds"*) and the
+ * one `npm run shot` caught the machine string violating.
  */
-const PERIOD_TEXT = '60,000';
+const PERIOD_TEXT = '60 seconds';
 
 /** Path the projection is read from. */
 const STATUS_PATH = '/v1/status';
@@ -207,6 +208,22 @@ function landedView(rt: PanelRuntime): StatusView {
     const view = rt.state.statusTab.doc;
     if (view === null) {
         throw new Error('the Status tab holds no document');
+    }
+
+    return view;
+}
+
+/**
+ * The parsed view of one fixture document, failing loudly when it will not
+ * parse.
+ *
+ * @param document - The serialized status document.
+ * @returns The parsed view.
+ */
+function parsedView(document: string): StatusView {
+    const view = parseStatusView(document);
+    if (view === null) {
+        throw new Error('the fixture document did not parse');
     }
 
     return view;
@@ -408,6 +425,44 @@ describe('SC-114 (a) the tab re-reads on the reported period, and only on it', (
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    /* ---------------------------------------------------------------- *
+     * FR-101's sentence names the period in words — the copy defect
+     * `npm run shot` caught on the same tab, at 300 000 worst.
+     * ---------------------------------------------------------------- */
+
+    it('names the period in words at both ends of the configurable range', () => {
+        // The validated range is `service/config.ts`'s `NUMERIC_BOUNDS.interMs`,
+        // so these are the two values an operator can actually be looking at.
+        expect(cadenceLine({ refreshMs: 15_000 })).toBe('This tab re-reads itself every 15 seconds.');
+        expect(cadenceLine({ refreshMs: 300_000 })).toBe('This tab re-reads itself every 5 minutes.');
+
+        // FR-101's own example, verbatim, at the service's default.
+        expect(cadenceLine({ refreshMs: PERIOD_MS })).toBe('This tab re-reads itself every 60 seconds.');
+
+        // No millisecond digits anywhere in the sentence, at any of them — the
+        // 300 000 case is the regression: `300,000 ms` where `5 minutes` is
+        // what the operator would have said.
+        for (const reported of [15_000, 30_000, 60_000, 120_000, 300_000]) {
+            const line = cadenceLine({ refreshMs: reported });
+            expect(line, String(reported)).not.toContain('ms');
+            expect(line, String(reported)).not.toMatch(/\d,\d/gu);
+        }
+
+        // …and it renders beside the Polling row's own machine form, which is
+        // pre-existing and correct there because its `ms` declares the unit.
+        const view = parsedView(statusBody({ polling: pollingAt(300_000) }));
+        expect(pollingLines({ view, configured: null, nowMs: 0 })).toContain('Effective interval: 300,000 ms');
+        expect(cadenceLine({ refreshMs: 300_000 })).toContain('5 minutes');
+    });
+
+    it('stays honest about a period too short to say in seconds', () => {
+        // `formatUptime` would answer `0s` here, which claims a duration the
+        // service never reported; the machine form is the honest fallback.
+        expect(cadenceLine({ refreshMs: 500 })).toBe('This tab re-reads itself every 500 ms.');
+        expect(cadenceLine({ refreshMs: 1 })).toBe('This tab re-reads itself every 1 ms.');
+        expect(cadenceLine({ refreshMs: 0 })).toBe('This tab re-reads itself every 0 ms.');
     });
 });
 
@@ -619,8 +674,11 @@ describe('SC-114 (f, AC-151) no interval means no tick and no invented number', 
             // hard-coded one, not a configured one. The last two are the
             // documented bounds, so a panel that substituted either of them
             // would be caught here rather than only in the interval case.
+            // `every 60` is now the **armed** sentence's own opening, so this
+            // also pins that the word-form period appears only when a tick is
+            // armed — the armed branch did not leak into the interval-less one.
             const rendered = renderedStrings().join('\n');
-            for (const invented of [PERIOD_TEXT, '60000', 'every 60', '1 minute', '30,000', '15,000']) {
+            for (const invented of ['60,000', '60000', 'every 60', PERIOD_TEXT, '1 minute', '30,000', '15,000']) {
                 expect(rendered, invented).not.toContain(invented);
             }
 
