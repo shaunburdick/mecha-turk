@@ -230,7 +230,6 @@ export async function servicePost(input: {
  * removal affordance needs that code to tell the operator to remove the
  * binding first — so this wrapper surfaces the code next to the problem.
  *
- * @param input - Host surface and the path to delete.
  * @returns The wrapper's error-aware result.
  */
 export async function serviceDelete(input: {

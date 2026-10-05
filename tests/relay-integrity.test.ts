@@ -355,7 +355,6 @@ function harness(
  * it is filtered out: it is a display read, not part of what the contract
  * orders, and asserting it would couple these tests to the Dispatches section.
  *
- * @param timeline - Everything the double observed.
  * @returns The dispatch-contract entries, in order.
  */
 function dispatchTimeline(timeline: readonly string[]): string[] {

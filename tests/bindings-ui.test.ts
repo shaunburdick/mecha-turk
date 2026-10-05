@@ -206,7 +206,6 @@ function mountBindingsTab(options: {
  * Every call to one primitive whose props match, oldest first.
  *
  * @param key - The primitive's name, e.g. `mountSelect`.
- * @param isMatch - Filters the calls, by their own props.
  * @returns The matching props, in call order.
  */
 function propsLog(

@@ -511,8 +511,6 @@ describe('the wait delays the schedule instead of being caught up (002 FR-022)',
              * finish while time stays exactly where the test put it. The cap
              * is wall-clock, not a turn count, because a loaded worker pool
              * needs more turns to finish the same handful of reads.
-             *
-             * @param isDone - Condition worth waiting for.
              */
             const flush = async (isDone: () => boolean): Promise<void> => {
                 const deadline = performance.now() + 5_000;

@@ -193,7 +193,6 @@ const RUN_CORRELATION_ID = /^mt-run-[0-9a-f]{24}$/;
 /**
  * Validate the event fields that must carry usable text.
  *
- * @param fields - Field names to check.
  * @returns `true` when every field is usable text.
  */
 function isUsableTextFieldSet(record: Record<string, unknown>, fields: readonly string[]): boolean {

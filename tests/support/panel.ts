@@ -227,7 +227,6 @@ export function testEvidence(overrides: Partial<PanelEvidence> = {}): PanelEvide
  * no-op until a UI is mounted. No evidence is set — a fresh runtime has not
  * matched anything yet.
  *
- * @param host - Host double for the runtime.
  * @param panelWindow - Frame window; defaults to {@link fakeWindow}.
  * @returns A runtime with the fixture dispatch context.
  */

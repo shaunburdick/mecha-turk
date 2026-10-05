@@ -245,7 +245,6 @@ export async function accountFileExists(service: TestService): Promise<boolean> 
  * is loaded enough to starve the timer, and every caller asserts this return
  * value, so a slow run should not read as the behaviour being broken.
  *
- * @param isDone - Condition to poll for.
  * @returns Whether the condition held before the deadline.
  */
 export async function waitFor(isDone: () => boolean): Promise<boolean> {

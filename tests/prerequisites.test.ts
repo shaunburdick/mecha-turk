@@ -228,7 +228,6 @@ function matrix(contents: string): unknown {
  * Find one prerequisite by id, failing loudly when the id is unknown.
  *
  * @param state - State to derive from.
- * @param id - Identifier of the prerequisite to return.
  * @returns The derived prerequisite with that id.
  */
 function prerequisiteOf(state: PanelState, id: PrerequisiteId): Prerequisite {

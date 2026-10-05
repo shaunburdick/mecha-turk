@@ -114,7 +114,6 @@ function isAcknowledged(value: JsonValue): boolean {
 /**
  * Build a recorded double for one mounted panel.
  *
- * @param routes - Initial route table.
  * @param options - `failAcknowledge` makes the acknowledgement write throw, so
  *   a landed report still leaves the record unacknowledged (the case that
  *   proves a repeat is byte-identical rather than a fresh report).

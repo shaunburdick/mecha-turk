@@ -71,7 +71,6 @@ let scratch: string | null = null;
  * keeps them out of object literals where a naming rule would read them as
  * identifiers rather than as protocol vocabulary.
  *
- * @param pairs - Header name and value pairs.
  * @returns The header record.
  */
 function headers(pairs: readonly (readonly [string, string])[]): Record<string, string> {

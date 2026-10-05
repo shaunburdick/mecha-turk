@@ -99,7 +99,6 @@ function attemptRecord(): DispatchAttempt {
 /**
  * Build one complete run row, overridable per assertion.
  *
- * @param overrides - Fields the case under test changes.
  * @returns A row the writer could have persisted.
  */
 function fixtureRun(overrides: Partial<Run> = {}): Run {
@@ -197,7 +196,6 @@ function poisonedState(value: unknown): Record<string, unknown> {
  * Build a fixture row with some fields dropped, as a truncated file would
  * hold it.
  *
- * @param fields - Fields to remove.
  * @returns The row, missing those fields.
  */
 function without(...fields: readonly string[]): Record<string, unknown> {

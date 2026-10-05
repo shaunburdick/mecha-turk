@@ -557,7 +557,6 @@ function listDraft(input: {
 /**
  * Build one runs row for the dispatch-row scan.
  *
- * @param overrides - Fields the case changes.
  * @returns A complete, valid row.
  */
 function runRow(overrides: Partial<RunRow> = {}): RunRow {

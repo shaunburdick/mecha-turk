@@ -155,9 +155,6 @@ export async function readStoredAccounts(rt: PanelRuntime): Promise<readonly Acc
  *
  * The list is rewritten whole with this identity replacing any earlier entry
  * for the same account.
- *
- * @param identity - Identity and FR-010 matrix the service answered with
- *   (`scopeCheck: null` for the F4 status re-read, which reports no scopes).
  */
 export async function writeAccountMirror(
     rt: PanelRuntime,

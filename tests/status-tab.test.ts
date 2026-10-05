@@ -249,8 +249,6 @@ function parseMember(member: string, value: unknown): StatusView | null {
 /**
  * Build a host whose service answers the two reads the tab makes.
  *
- * @param statusBody - Body `GET /v1/status` answers with.
- * @param configBody - Body `GET /v1/config` answers with.
  * @returns A runtime whose host answers both paths with 200.
  */
 function runtimeAnswering(statusBody: string, configBody: string): PanelRuntime {
@@ -347,7 +345,6 @@ function stubShell(rt: PanelRuntime): { readonly calls: string[] } {
 /**
  * Build a runtime whose service refuses every read with one status code.
  *
- * @param status - HTTP status to answer with.
  * @returns The runtime.
  */
 function refusingRuntime(status: number, body: string): PanelRuntime {

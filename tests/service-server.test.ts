@@ -141,7 +141,6 @@ function delay(milliseconds: number): Promise<void> {
  * modes — the service never logged, and the machine was too slow — are
  * different bugs and should not look the same.
  *
- * @param isDone - Condition to poll for (log lines, counters).
  * @throws {Error} When the condition has not held by the deadline.
  */
 async function waitFor(isDone: () => boolean): Promise<void> {

@@ -139,8 +139,6 @@ export class FakeElement {
 
     /**
      * Record an attribute, as `Element.setAttribute` does.
-     *
-     * @param value - Attribute value.
      */
     public setAttribute(name: string, value: string): void {
         this.attributes.set(name, value);

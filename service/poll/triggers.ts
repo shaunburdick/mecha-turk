@@ -200,7 +200,6 @@ function mentionEvent(input: {
 /**
  * Build one `mention` event per matching comment.
  *
- * @param input - Binding, matches, the issue list, and the detection stamp.
  * @returns The mention events, in comment order.
  */
 function mentionEvents(input: {
@@ -246,7 +245,6 @@ function mentionEvents(input: {
  * account, ever — while staying distinct from the assignment id and from every
  * `~mention~<commentId>` row.
  *
- * @param input - Binding, the bound login, the issues, and the stamps.
  * @returns The mention events, in issue order.
  */
 function bodyMentionEvents(input: {

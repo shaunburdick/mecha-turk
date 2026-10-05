@@ -198,7 +198,6 @@ interface CredentialField {
 /**
  * Create one element with the SDK's own class names.
  *
- * @param spec - Document, tag name, and class attribute.
  * @returns The element.
  */
 function makeElement(spec: { readonly doc: Document; readonly tag: string; readonly className: string }): HTMLElement {
@@ -222,7 +221,6 @@ type HandoffButtonVariant = 'default' | 'outline';
  * written through `dataset`, which records the same `data-variant` the sheet's
  * selector matches.
  *
- * @param spec - Document, label, variant, and click handler.
  * @returns The button.
  */
 function makeButton(spec: {
@@ -314,7 +312,6 @@ function mountCredentialField(doc: Document): CredentialField {
  * one account would be submitted with the next one (FR-006: absent or empty
  * means no constraint).
  *
- * @param spec - Document, both inputs to read, and the callbacks.
  * @returns The wired submit button.
  */
 function mountSubmitButton(spec: {

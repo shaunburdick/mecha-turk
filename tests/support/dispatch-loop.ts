@@ -396,8 +396,6 @@ function currentStoreOf(service: TestService): ServiceStore {
 /**
  * Mount one panel on a loop and collect it for teardown.
  *
- * @param input - Instance, mount options, counters, storage, and the list to
- *   collect the mount on.
  * @returns The mounted runtime, configured with the loop's active binding.
  */
 function mountPanel(input: {

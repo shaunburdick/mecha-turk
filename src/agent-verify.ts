@@ -247,7 +247,6 @@ function judgeSnapshot(input: {
  * including the `openSession` leg — is bounded by the same budget, so a host
  * that never answers cannot hold the relay's dispatch slot indefinitely.
  *
- * @param inputs - Host surface, session id, expected agent, and timeout.
  * @returns The verification outcome; never throws.
  */
 export async function verifySessionAgent(inputs: VerifyAgentInputs): Promise<AgentVerification> {

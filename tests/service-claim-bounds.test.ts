@@ -132,7 +132,6 @@ afterEach(closeFixture);
  * The excerpt length matters here: the run's identity fields are fixed, so the
  * excerpt is the member that decides how large a run projects.
  *
- * @param issueNumber - Issue the detection is for.
  * @param excerptChars - Length of the body excerpt to carry.
  * @returns The detection snapshot.
  */

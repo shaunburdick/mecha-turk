@@ -276,7 +276,6 @@ const TIER_GAP = '\n\n';
  * Inputs must already be validated and normalised — that is
  * {@link resolvePromptSnapshot}'s job; this function only stacks.
  *
- * @param tiers - Each tier's validated text, or `null` when unset.
  * @returns The composed body; `''` when no tier is set.
  */
 export function composePromptBody(tiers: {

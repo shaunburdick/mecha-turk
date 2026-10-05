@@ -536,7 +536,6 @@ describe('the confirmation copy obeys its contract (006 T-022, contract §2 and 
     /**
      * Build a save confirmation by patching `patch` over the read document.
      *
-     * @param patch - Draft values to change.
      * @returns The armed copy, which is never `null` for these fixtures.
      */
     function armedCopy(patch: Readonly<Record<string, string>>): string {

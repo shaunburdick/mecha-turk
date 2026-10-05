@@ -160,7 +160,6 @@ const LEGACY_BASIS = 'subject-author';
 /**
  * Build the writer's inputs for one assignment detection.
  *
- * @param issueNumber - Issue number the detection carries.
  * @param excerpt - Issue body excerpt (`''` is a legal stored value).
  * @returns A complete event snapshot.
  */

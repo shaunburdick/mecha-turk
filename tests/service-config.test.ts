@@ -995,7 +995,6 @@ describe('a lost quarantine rename still answers quarantined (006 contract §3 r
 /**
  * Find one projected descriptor.
  *
- * @param name - Documented field name.
  * @returns Its descriptor, or `undefined` when the field is undocumented.
  */
 function descriptorOf(name: string): FieldDescriptor | undefined {

@@ -143,8 +143,6 @@ export function nextWait(input: {
  * start, and it carries the length and the source only — never a header
  * value, never a credential (FR-058's log requirement; 002 FR-007).
  *
- * @param input - Everything `nextWait` takes, plus the injected sleep and the
- *   observer that receives the chosen wait.
  * @returns The wait that was performed.
  */
 export async function waitForRetry(input: {

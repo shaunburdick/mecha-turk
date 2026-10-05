@@ -44,7 +44,6 @@ interface RefusalNote {
  * Record the first refusal as the `field: remediation` line the log carries.
  *
  * @param note - Sink to fill once; later refusals do not overwrite the first.
- * @param issues - Every problem the parser found on that binding.
  */
 function noteFirstRefusal(note: RefusalNote, issues: readonly BindingIssue[]): void {
     const first = issues[0];

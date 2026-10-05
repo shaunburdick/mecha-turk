@@ -92,7 +92,6 @@ export function fixtureBindingRow(
  * this twice (across a restart, say) wants the same single fixture binding
  * rather than an accumulation.
  *
- * @param bindings - Each binding's id and overrides.
  * @returns A promise that settles once the document is durable.
  */
 export async function writeFixtureBindings(

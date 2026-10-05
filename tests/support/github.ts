@@ -88,7 +88,6 @@ const BEARER_PREFIX = 'Bearer ';
  * Read one header from a `fetch` init, case-insensitively.
  *
  * @param headers - Headers as the client passed them.
- * @param name - Header name to find.
  * @returns The value, or `''` when the header is absent.
  */
 function headerValue(headers: RequestInit['headers'], name: string): string {

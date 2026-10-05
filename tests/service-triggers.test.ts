@@ -220,7 +220,6 @@ function fixtureAccount(): Account {
 /**
  * Build one open issue the mention scan resolves titles against.
  *
- * @param overrides - Fields to change from the default fixture issue.
  * @returns The normalized issue.
  */
 function fixtureIssue(overrides: Partial<PollIssue> = {}): PollIssue {
@@ -242,7 +241,6 @@ function fixtureIssue(overrides: Partial<PollIssue> = {}): PollIssue {
 /**
  * Build one issue comment.
  *
- * @param input - Comment id, body, and author identity.
  * @returns The normalized comment.
  */
 function fixtureComment(input: {

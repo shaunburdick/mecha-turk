@@ -623,7 +623,6 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
      * 002 FR-029 case (ii): the field (or the document) is simply not there.
      *
      * @param agent - Agent the session reports; omit to report none.
-     * @param configBody - Body `GET /v1/config` should answer with.
      * @returns The runtime plus the report the service received.
      */
     async function reported(agent?: string, configBody?: string): Promise<ReadBackReport> {

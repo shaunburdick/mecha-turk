@@ -222,9 +222,6 @@ async function startSeededService(options: { readonly registered?: boolean } = {
 /**
  * Build the detection one fixture delivery is assembled from.
  *
- * @param input - Issue number, title, trigger kind, detection stamp, and the
- *   comment a mention matched on (which is what makes two mentions two
- *   deliveries — the id is a function of the observation).
  * @returns A complete event snapshot of the kind asked for.
  */
 function detection(input: {

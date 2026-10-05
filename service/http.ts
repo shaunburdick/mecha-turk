@@ -141,7 +141,6 @@ export interface FieldIssue {
  * types and the JSON wire shape agree: an absent `correlationId`, `issues`, or
  * `reasonClass` is omitted from the body rather than written as `null`.
  *
- * @param details - Code, message, and the optional ratified members.
  * @returns The envelope body.
  */
 export function errorBody(details: ErrorDetails): ErrorBody {
@@ -159,8 +158,6 @@ export function errorBody(details: ErrorDetails): ErrorBody {
 /**
  * Build an error response.
  *
- * @param status - HTTP status code.
- * @param details - Code, message, and the optional ratified envelope members.
  * @returns The response to write.
  */
 export function errorResponse(status: number, details: ErrorDetails): HttpResponse {

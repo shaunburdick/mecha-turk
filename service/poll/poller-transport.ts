@@ -119,7 +119,6 @@ export interface PollerRuntime {
  * Tests pass a recorder instead, so a ladder of waits costs them no time
  * at all (SC-116's "injected clock, no real sleeps").
  *
- * @param milliseconds - How long to wait.
  * @returns A promise that settles after the delay.
  */
 const systemSleep: SleepFn = async (milliseconds) => {

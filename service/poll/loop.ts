@@ -142,7 +142,6 @@ export interface PollLoop {
  * A binding whose switches are all off is walked but never scanned, so the
  * scan state stays honest (and no rate budget is spent on a silent binding).
  *
- * @param binding - Binding the cycle is about to walk.
  * @returns `true` when at least one trigger is on.
  */
 function watchesAnything(binding: BindingRecord): boolean {
@@ -244,7 +243,6 @@ async function collectScanEvents(input: {
  * The first list failure ends the scan with that failure's skip reason —
  * one cycle reports one honest reason per binding.
  *
- * @param input - Binding, scan state, and the stamp pinned at cycle start.
  * @returns The binding's outcome.
  */
 async function scanBinding(input: {

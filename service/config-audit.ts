@@ -131,7 +131,6 @@ export function recordedConfigPromptFingerprint(value: unknown): string | null {
  * The value this field's row entry records; every other field records itself
  * (FR-071 as amended for `startingPrompt`).
  *
- * @param field - Documented field being recorded.
  * @param value - The field's value as the document carried it.
  * @returns The fingerprint pair side for the global tier, the value otherwise.
  */

@@ -151,7 +151,6 @@ function inGroup(cursor: Cursor, grouping: Grouping): boolean {
  *
  * The stop is consumed, so a caller can scan again from where this left off.
  *
- * @param cursor - Cursor to advance past the stop it found.
  * @param stops - Characters that end the scan when they sit at depth zero.
  * @returns The text before the stop, and the stop itself.
  */

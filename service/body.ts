@@ -39,7 +39,6 @@ export interface BodyReadResult {
 /**
  * Drain the request stream into memory, bounded by the byte ceiling.
  *
- * @param request - Incoming message whose body should be read.
  * @returns The collected chunks, or why collection stopped.
  */
 function readBytes(request: IncomingMessage): Promise<BufferOutcome> {

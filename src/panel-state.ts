@@ -378,7 +378,6 @@ function initialState(createdAt: string): PanelState {
 /**
  * Create the runtime with a fresh, unmounted state.
  *
- * @param host - Documented host client.
  * @param panelWindow - Frame window for the unload hook.
  * @returns The shared panel runtime.
  */
