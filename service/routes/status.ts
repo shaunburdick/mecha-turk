@@ -81,7 +81,6 @@ export interface StatusAccount {
  * two surfaces cannot disagree about a binding. `readable` is the addition: a
  * row whose scan projection could not be read appears with `readable: false`
  * and is **never omitted**, because an omitted binding reads as a deleted one.
- *
  */
 export interface StatusRepositoryRow {
     /** Binding the row describes. */

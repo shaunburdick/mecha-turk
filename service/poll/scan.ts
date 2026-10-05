@@ -116,7 +116,6 @@ export function serializeScan<T>(task: () => Promise<T>): Promise<T> {
 /**
  * Read the scan state, best-effort.
  *
- * @param deps - Open store and logger.
  * @returns The state, or a fresh one when the file is absent/unusable.
  */
 export async function readScanState(deps: {

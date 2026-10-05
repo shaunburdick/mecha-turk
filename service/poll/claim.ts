@@ -283,7 +283,6 @@ export function planClaim(input: ClaimPlanInput): ClaimOutcome {
  * cannot read cannot fail a claim: the default lease is a safe answer, and the
  * sweep reads the same field.
  *
- * @param store - Open store.
  * @param log - Logger used when the config file cannot be read.
  * @returns Milliseconds a claim's lease is valid for.
  */

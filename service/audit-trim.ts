@@ -165,7 +165,6 @@ function bindingIdsOf(probe: JsonReadResult<unknown>): ReadonlySet<string> | nul
 /**
  * List the accounts the floor rule protects while they still exist.
  *
- * @param input - Open store and logger.
  * @returns Their numeric ids, or `null` when the custody directory cannot be
  *   listed — unknown keeps the rows, because a reference is only removable
  *   once the subject is provably gone.
@@ -196,7 +195,6 @@ async function existingAccountIds(input: {
 /**
  * List the bindings the floor rule protects while they still exist.
  *
- * @param input - Open store and logger.
  * @returns Their ids, `[]` when there is no document, or `null` when the
  *   document could not be read.
  */

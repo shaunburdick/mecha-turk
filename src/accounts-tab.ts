@@ -103,7 +103,6 @@ const LIST_COLUMNS: readonly string[] = ['Lifecycle', 'Account', 'Bindings'];
 /**
  * Repaint the open row: its words, both members' fields, and the two
  * confirmations.
- *
  */
 function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
     const { bindings, accounts } = rt.state;
@@ -156,7 +155,6 @@ function repaintDetail(rt: PanelRuntime, view: AccountsBody): void {
 
 /**
  * Repaint the Accounts body from state.
- *
  */
 export function repaintAccountsBody(rt: PanelRuntime, view: AccountsBody): void {
     const { bindings } = rt.state;
@@ -176,7 +174,6 @@ export function repaintAccountsBody(rt: PanelRuntime, view: AccountsBody): void 
  * static disclaimer beneath it and no Accept/Decline step (002 FR-060 as
  * re-cut — the substance the consent copy carried is that
  * disclaimer).
- *
  */
 function mountHandoffGroup(rt: PanelRuntime, pane: HTMLElement): void {
     rt.handoffView = mountHandoffDom({
@@ -342,7 +339,6 @@ export function mountAccountsBody(input: {
  * members' drafts and both armed controls belong to a row, and carrying them
  * across would let a confirm step — or a save — fire against the wrong
  * account.
- *
  */
 export function selectAccountRow(rt: PanelRuntime, id: string): void {
     if (rt.disposed) {

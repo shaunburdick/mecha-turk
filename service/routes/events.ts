@@ -234,7 +234,6 @@ export async function readStatusRows(input: {
  * leases are durable and the `dispatch.claimed` rows are not, and the panel
  * warns rather than implying traceability it does not have.
  *
- * @param context - Route context carrying the open store.
  * @param request - Routed request; the query may carry `holder` and `limit`.
  * @returns `200 { events, status, auditWritten }`, or the documented 422/503.
  */
@@ -279,7 +278,6 @@ async function handlePendingEvents(context: RouteContext, request: RouteRequest)
  * empty history a constitution-II reading would forbid.
  *
  * @param context - Route context carrying the structured logger.
- * @param store - Open store.
  * @returns Every retained run's row, newest detected first with the tiebreak.
  */
 async function projectHistory(
@@ -305,7 +303,6 @@ async function projectHistory(
  * validated before any document is read, the order is the retained one, and
  * the answer carries the `page` member beside the rows.
  *
- * @param context - Route context carrying the open store.
  * @param request - Routed request; the query may carry `limit`, `cursor`,
  *   `bindingId`, and `state`.
  * @returns `200 { events, page }`, or the documented 422/503.

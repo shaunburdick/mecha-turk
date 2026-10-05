@@ -112,7 +112,6 @@ async function tempStore(): Promise<ServiceStore> {
 /**
  * Every `binding.prompt-updated` row in the store's trail, oldest first.
  *
- * @param store - Open store.
  * @returns The rows this feature writes.
  */
 async function promptRows(store: ServiceStore): Promise<readonly AuditEntry[]> {
@@ -404,7 +403,6 @@ function observeAccounts(input: {
 /**
  * Every `account.prompt-updated` row in the store's trail, oldest first.
  *
- * @param store - Open store.
  * @returns The rows the account lane writes.
  */
 async function accountRows(store: ServiceStore): Promise<readonly AuditEntry[]> {

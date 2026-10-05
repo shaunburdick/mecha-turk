@@ -49,7 +49,6 @@ export const CONFIG_PATH = '/v1/config';
  * A fresh store has no `config.json`, so the defaults answer — the same
  * document `PUT` would persist if the operator chose to edit it.
  *
- * @param context - Route context carrying the open store.
  * @returns The envelope above, or the 503 when the store is unusable.
  */
 async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
@@ -135,7 +134,6 @@ async function runConfigWrite(input: {
  * with **no** row at all, and a change writes its row **after** the
  * durable write — never before it, never as a reason to roll it back.
  *
- * @param context - Route context carrying the open store.
  * @param request - The full replacement document.
  * @returns The stored configuration and its audit outcome, or the field-level
  *   422.

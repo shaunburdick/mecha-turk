@@ -185,7 +185,6 @@ interface RotationSubject {
 
 /**
  * Audit a rotation refusal with a reason class only (contract §3).
- *
  */
 async function recordRotationRejection(subject: RotationSubject, reason: string): Promise<void> {
     await appendAudit(subject.store, {
@@ -238,7 +237,6 @@ async function rotationRefusal(subject: RotationSubject, outcome: VerifyOutcome)
 
 /**
  * Audit the completed rotation; the credential never reaches the writer.
- *
  */
 async function recordRotation(input: {
     /** Open store. */
@@ -390,7 +388,6 @@ async function handleRotateToken(context: RouteContext, request: RouteRequest): 
 
 /**
  * Audit every binding a isForced delete disabled (contract §2.2, §4 rule 7).
- *
  */
 async function recordDisabledBindings(store: ServiceStore, bindings: readonly BindingRecord[]): Promise<void> {
     for (const binding of bindings) {
@@ -407,7 +404,6 @@ async function recordDisabledBindings(store: ServiceStore, bindings: readonly Bi
 
 /**
  * Audit the removal of an account (FR-035 terminal outcome).
- *
  */
 async function recordAccountDeleted(store: ServiceStore, numericUserId: string): Promise<void> {
     await appendAudit(store, {

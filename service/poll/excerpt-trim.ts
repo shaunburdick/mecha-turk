@@ -96,7 +96,6 @@ export interface TrimExcerptsInput {
  *   eligible; the legacy `state === 'dispatched'` rows keep their own answer
  *   from their own field, which needs no run document at all.
  *
- * @param input - Open store and logger.
  * @returns correlation id → run state, or an empty map when unknown.
  */
 async function readRunStates(input: {

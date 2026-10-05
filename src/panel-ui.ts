@@ -185,7 +185,6 @@ function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
  * Nothing runs on a disposed runtime, and each body repaints only while it is
  * mounted: a tab the operator has never opened owns no handles yet, and the
  * registry on `rt` is what says so.
- *
  */
 export function refresh(rt: PanelRuntime): void {
     if (rt.disposed) {

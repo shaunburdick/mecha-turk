@@ -81,7 +81,6 @@ function tornDown(rt: PanelRuntime): boolean {
  * against: a marker survives the save that created it and is retired by this
  * read rather than by an optimistic claim — which is the whole of "not cleared
  * on save".
- *
  */
 function retirePending(rt: PanelRuntime): void {
     const slice = rt.state.settingsTab;
@@ -340,7 +339,6 @@ export async function applySave(rt: PanelRuntime, repaint: Repaint): Promise<voi
 
 /**
  * Discard the unsaved edits, naming what reverted.
- *
  */
 export function applyDiscard(rt: PanelRuntime, repaint: Repaint): void {
     const slice = rt.state.settingsTab;
@@ -396,7 +394,6 @@ export async function applyStageDefaults(rt: PanelRuntime, repaint: Repaint): Pr
 /**
  * Disarm the confirmation: nothing is written, and every field returns to the
  * last-read value.
- *
  */
 export function applyConfirmCancel(rt: PanelRuntime, repaint: Repaint): void {
     const slice = rt.state.settingsTab;

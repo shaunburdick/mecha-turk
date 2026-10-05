@@ -166,8 +166,6 @@ function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRe
  * every prior attempt's record. It does not create a new run, so the
  * ordinal counter is untouched.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state }`, or a distinct refusal.
  */
 async function handleRetry(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -220,8 +218,6 @@ async function handleRetry(context: RouteContext, request: RouteRequest): Promis
  * the budget accounting that dead-lettering produced, so it is taken only when the
  * caller says so rather than inferred from the request's existence.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state }`, or the refusal.
  */
 async function handleRequeue(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -276,8 +272,6 @@ async function handleRequeue(context: RouteContext, request: RouteRequest): Prom
  * naming `sessionId` rather than silently dropped: the request would otherwise
  * obtain a fresh authorization for a run whose session it just reported.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state }`, or the refusal.
  */
 async function handleResolve(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -416,7 +410,6 @@ function readReportMembers(
  * the *run identity*, and a body missing the read-back itself is a `422` about
  * the *report*.
  *
- * @param request - Routed request; the path captures `:correlationId`.
  * @param correlationId - The run the path named.
  * @returns The parsed read-back, or the `422` that names what was wrong.
  */
@@ -471,8 +464,6 @@ function readReadBack(request: RouteRequest, correlationId: string): ReadBack | 
  * id must be the one the run recorded, so a read-back of some other session
  * cannot be filed against this run.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state, verification }`, or the refusal.
  */
 async function handleVerification(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {

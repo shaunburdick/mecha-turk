@@ -287,8 +287,6 @@ const QUARANTINE_EVIDENCE_PREFIX = `${EVENTS_FILE}.corrupt-`;
  * claim set holds that to one reset and one audit row per loss per process.
  * The reset is idempotent, and deterministic event ids keep the re-detection
  * duplicate-free even when a later process repeats it.
- *
- * @param input - Open store and logger.
  */
 async function recoverFromEvidence(input: {
     /** Open store. */
@@ -313,7 +311,6 @@ async function recoverFromEvidence(input: {
  * be quarantined right now, or the evidence an earlier process left behind
  * when the file is already gone.
  *
- * @param input - Open store and logger.
  * @returns Any stored events, `[]` when absent or quarantined.
  */
 async function readQueue(input: {
@@ -355,7 +352,6 @@ async function readQueue(input: {
  * an empty list with a log line (never fail-stuck), and a quarantined read
  * has already run the scan-window recovery before it answers.
  *
- * @param input - Open store and logger.
  * @returns The queue, or `[]`.
  */
 export async function readEvents(input: {

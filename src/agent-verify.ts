@@ -482,7 +482,6 @@ export async function verifyAgentAfterDispatch(inputs: {
  *
  * The relay never awaits these, so a test that asserts what a
  * verification wrote drains them instead of racing the host.
- *
  */
 export async function drainVerifications(rt: PanelRuntime): Promise<void> {
     while (rt.pendingVerifications.length > 0) {

@@ -56,8 +56,6 @@ export const BLOCKED_PATH = `${RUN_SCOPE_PREFIX}/blocked`;
  * `claimed` and therefore never invisible to the sweep. Every refusal writes one
  * `dispatch.refused` row and mints nothing.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, dispatchToken, tokenExpiresAt,
  *   resultDeadlineAt, state, auditWritten }`, or the documented
  *   `404`/`409`/`422`/`503`.
@@ -151,8 +149,6 @@ function readResultOutcome(fields: Readonly<Record<string, unknown>>): ResultOut
  * repeat of an outcome already recorded answers `200` unchanged with one
  * `dispatch.duplicate-report` row.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state, auditWritten }`, or a refusal.
  */
 async function handleDispatched(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -203,8 +199,6 @@ async function handleDispatched(context: RouteContext, request: RouteRequest): P
  * distinguished from Result's `problem` shape by *when* it is true, not by the
  * state it ends in: both are honest, and both are `failed`.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state, auditWritten }`, or a refusal.
  */
 async function handleAbandon(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -301,8 +295,6 @@ function readBlockReport(fields: Readonly<Record<string, unknown>>): BlockReport
  * budget are untouched — a guard refusal consumes nothing, and the sweep never
  * touches a blocked run.
  *
- * @param context - Route context carrying the open store.
- * @param request - Routed request; the path captures `:correlationId`.
  * @returns `200 { correlationId, attempt, state, auditWritten }`, or a refusal.
  */
 async function handleBlocked(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {

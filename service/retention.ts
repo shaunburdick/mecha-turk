@@ -97,7 +97,6 @@ export async function runRetentionPasses(input: RetentionInput): Promise<void> {
  * the operator one pass at default limits rather than a service that never
  * trims at all (invariant 8).
  *
- * @param store - Open store.
  * @param log - Logger used when the document cannot be read.
  * @returns The effective configuration for this boundary.
  */

@@ -119,7 +119,6 @@ export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string
  * panel fails closed until a valid id is resolved.
  *
  * Exported for the orchestration tests, which drive the picker without a DOM.
- *
  */
 export async function selectProject(rt: PanelRuntime, id: string): Promise<void> {
     const candidate = parseProjectId(id);
@@ -149,7 +148,6 @@ export async function selectProject(rt: PanelRuntime, id: string): Promise<void>
  * yields no ledger, and that is recorded rather than papered over. Exported so
  * the remount path — including restoring the evidence a reopened panel needs to
  * dispatch — can be driven directly by the orchestration tests.
- *
  */
 export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<void> {
     let stored: JsonValue | undefined;
@@ -198,7 +196,6 @@ export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<v
  * Exported for the orchestration tests, which assert that every subscription
  * collected on the runtime is released; the panel reaches it through the
  * `pagehide` hook and the `dispose()` handed back from {@link createPanelApp}.
- *
  */
 export function teardown(rt: PanelRuntime): void {
     if (rt.disposed) {
@@ -259,7 +256,6 @@ export function teardown(rt: PanelRuntime): void {
  * still detects the gap from its last stored entry. The persist call happens
  * before `disposed` is set, so the write is never skipped by the runtime's own
  * guard.
- *
  */
 export function handlePagehide(rt: PanelRuntime): void {
     if (rt.disposed) {

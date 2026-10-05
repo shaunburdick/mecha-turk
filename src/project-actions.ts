@@ -106,7 +106,6 @@ export async function storeProjectSelection(
  *
  * Called once per mount, ahead of the first `applySettings`, so a panel that
  * was closed and reopened still dispatches to the project the operator picked.
- *
  */
 export async function restoreProjectSelection(rt: PanelRuntime): Promise<void> {
     const read = await readStoredSelection(rt.host);
@@ -131,7 +130,6 @@ export async function restoreProjectSelection(rt: PanelRuntime): Promise<void> {
  * Never rejects: an unreachable host, a refused request, or an error snapshot
  * all land in the picker's own status line with the panel otherwise untouched,
  * and dispatch stays blocked exactly as it was — fail closed, never fail open.
- *
  */
 export async function loadProjects(rt: PanelRuntime): Promise<void> {
     const { projects } = rt.state;
@@ -163,7 +161,6 @@ export async function loadProjects(rt: PanelRuntime): Promise<void> {
  *
  * The panel has no settings write API, so this is how an operator takes the
  * id over to a binding's project field when they would rather paste it.
- *
  */
 export async function copyProjectId(rt: PanelRuntime): Promise<void> {
     const selected = selectedProjectId(rt.state);

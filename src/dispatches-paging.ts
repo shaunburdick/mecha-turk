@@ -30,7 +30,6 @@ import type { PanelRuntime } from './panel-state.ts';
  * The position is rolled back when the read fails, so a refused page leaves
  * the operator exactly where the last successful read put them rather than
  * stranding them on a page the panel cannot show.
- *
  */
 export async function nextPage(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -51,7 +50,6 @@ export async function nextPage(rt: PanelRuntime): Promise<void> {
 
 /**
  * Step one page back and read it.
- *
  */
 export async function previousPage(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -72,7 +70,6 @@ export async function previousPage(rt: PanelRuntime): Promise<void> {
 
 /**
  * Change the page size, taking the operator to page one of the same set.
- *
  */
 export function setPageLimit(rt: PanelRuntime, limit: number): void {
     const { dispatches: runs } = rt.state;
@@ -82,7 +79,6 @@ export function setPageLimit(rt: PanelRuntime, limit: number): void {
 
 /**
  * Filter the set by binding, server-side.
- *
  */
 export function setBindingFilter(rt: PanelRuntime, bindingId: string | null): void {
     const { dispatches: runs } = rt.state;
@@ -93,7 +89,6 @@ export function setBindingFilter(rt: PanelRuntime, bindingId: string | null): vo
 
 /**
  * Filter the set by state, server-side.
- *
  */
 export function setStateFilter(rt: PanelRuntime, state: string | null): void {
     const { dispatches: runs } = rt.state;
@@ -104,7 +99,6 @@ export function setStateFilter(rt: PanelRuntime, state: string | null): void {
 
 /**
  * Clear both filters and return to the first page of the whole set.
- *
  */
 export function clearFilters(rt: PanelRuntime): void {
     const { dispatches: runs } = rt.state;

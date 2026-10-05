@@ -137,7 +137,6 @@ export function mountBindingActions(input: {
  * activating it writes is always what its own words say; the list controls
  * follow the selection and the read state, and **Cancel** exists only while
  * the editor is open.
- *
  */
 export function repaintBindingActions(input: {
     /** State the rows repaint from. */
@@ -388,7 +387,6 @@ export function mountBindingMention(input: {
 
 /**
  * Repaint the mention-token line from state.
- *
  */
 export function repaintBindingMention(rt: PanelRuntime, line: TextHandle): void {
     line.update({ text: mentionTokenView(rt.state.bindings).line });

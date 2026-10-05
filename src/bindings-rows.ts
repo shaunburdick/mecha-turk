@@ -69,7 +69,6 @@ export interface BindingView {
      * Held as **one clause rather than the list** so a login can never reach a
      * row even by accident: the count and the absent-policy warning are computed
      * once, in `bindings-actors.ts`, and the row only decides where they go.
-     *
      */
     readonly actorsClause: string | null;
 }

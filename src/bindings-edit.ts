@@ -26,8 +26,7 @@ import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 import type { ServiceErrorResult } from './service-calls.ts';
 
 /**
- * Open the editor on an empty draft — the list's **New binding** control
- *.
+ * Open the editor on an empty draft — the list's **New binding** control.
  *
  * Opening a new row and editing an existing one are mutually exclusive
  * states of one editor, so this does exactly what a row click does in
@@ -35,7 +34,6 @@ import type { ServiceErrorResult } from './service-calls.ts';
  * account picker lists, the prompt field waits), every draft field returns to
  * its default, and the stale note from the last action is cleared so the form
  * opens saying nothing rather than repeating an old refusal.
- *
  */
 export function startNewBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
@@ -69,7 +67,6 @@ export function startNewBinding(rt: PanelRuntime): void {
  * edit does not open) — and the editor **closes with a clean draft**, because
  * a form that stays open showing one row's values while another row is
  * selected is exactly how a save writes one binding's values into another.
- *
  */
 export function startEditingBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
@@ -161,7 +158,6 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
  * holds. A refusal leaves the stored list byte-identical
  * and keeps the draft on screen with the remediation — on the
  * prompt field when it belongs there, on the tab note otherwise.
- *
  */
 /**
  * Apply one save's answer to the editor's state.
@@ -223,7 +219,6 @@ function applySaveOutcome(input: {
  * and keeps the draft on screen with the remediation — on the prompt
  * field or the allow-list field when it belongs there, on the
  * tab note otherwise.
- *
  */
 export async function saveEditedBinding(rt: PanelRuntime): Promise<void> {
     const { bindings } = rt.state;

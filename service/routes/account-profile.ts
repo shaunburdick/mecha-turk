@@ -298,7 +298,6 @@ async function runProfileWrite(input: {
  * same route instead of a dedicated endpoint per field. `401` and `503` are
  * the route guard's and the store check's, unchanged.
  *
- * @param context - Route context carrying the open store.
  * @param request - The routed profile request.
  * @returns `200 { account }`, or the documented 404/422/503.
  */

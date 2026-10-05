@@ -43,7 +43,6 @@ async function writeLedger(rt: PanelRuntime): Promise<void> {
  * so one bad entry cannot poison every later write. Whatever is left is
  * reported through the banner so the panel never claims durable progress it
  * does not have.
- *
  */
 export async function persistLedger(rt: PanelRuntime): Promise<void> {
     if (rt.disposed) {

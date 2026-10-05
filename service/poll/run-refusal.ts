@@ -91,7 +91,6 @@ export type RunRefusalCode =
  *
  * **Value-free by construction** — two words about a list, never a login — so
  * it can ride the envelope without becoming a second copy of the access policy.
- *
  */
 export type ReferenceWindow = 'complete' | 'truncated';
 

@@ -93,7 +93,6 @@ const observationStates = new WeakMap<ServiceStore, ConfigPromptObservationState
 /**
  * Get (or create) the observation state for one store handle.
  *
- * @param store - Open store.
  * @returns The handle's baseline and chain.
  */
 function stateFor(store: ServiceStore): ConfigPromptObservationState {
@@ -215,7 +214,6 @@ async function ensureSeeded(input: {
  * rejects for its own caller without wedging the next one — the same shape the
  * other two lanes' chains use, deliberately: three chains, one discipline.
  *
- * @param store - Open store.
  * @param task - The read/diff/write work to serialise.
  * @returns The task's result or rejection, exactly as the task produced it.
  */

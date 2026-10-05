@@ -72,7 +72,6 @@ export function handledKey(run: Pick<ClaimedRun, 'correlationId' | 'attempt'>): 
  * Each gate ends the attempt on its own refusal, and every one of them ends it
  * **before** `host.startSession()` is reachable — which is the panel half of
  * FR-028's impossibility requirement.
- *
  */
 async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: ClaimedRun }): Promise<void> {
     const { rt, run } = input;

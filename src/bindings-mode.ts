@@ -85,7 +85,6 @@ export function bindingsActiveStatus(count: number): PanelStatus {
  *
  * Derives the dispatch context from the first enabled binding and shows the
  * bindings banner instead of any legacy configuration verdict.
- *
  */
 export function applyBindingsMode(rt: PanelRuntime): void {
     const binding = firstEnabledBinding(rt.state.bindings.bindings);
@@ -107,7 +106,6 @@ export function applyBindingsMode(rt: PanelRuntime): void {
  * that lands an enabled binding, which covers the mount-time 503 and the
  * first binding added in-session (both arm idempotently through
  * `startRelayPolling`).
- *
  */
 export async function loadInitialBindings(rt: PanelRuntime): Promise<void> {
     await loadBindings(rt);

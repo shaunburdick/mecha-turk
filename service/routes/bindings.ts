@@ -47,7 +47,6 @@ export const BINDINGS_PATH = '/v1/bindings';
  * credential, a scan that never ran) visible on the binding rows instead of
  * only in the service log.
  *
- * @param context - Route context carrying the open store.
  * @returns `200 { bindings, status }`, or the documented 503.
  */
 async function handleGetBindings(context: RouteContext): Promise<HttpResponse> {
@@ -228,7 +227,6 @@ async function writeGrant(input: {
  * chain is what keeps an operator's allow-list edit and the authorization gate's
  * read-and-mint from interleaving.
  *
- * @param context - Route context carrying the open store.
  * @param request - The routed request carrying the full replacement body.
  * @returns `200 { bindings, status }` after the write, or the field-level 422.
  */

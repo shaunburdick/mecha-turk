@@ -86,7 +86,6 @@ function parseBindingsFile(raw: unknown, note: RefusalNote): BindingRecord[] | n
  *
  * This is the reader the chain-holding write path uses.
  *
- * @param input - Open store and logger.
  * @returns The bindings, or `[]` when the file is absent/unusable.
  */
 export async function readBindingsUnobserved(input: {
@@ -130,7 +129,6 @@ export async function readBindingsUnobserved(input: {
  * panel — it runs inside the per-store prompt chain, so a hand edit is
  * recorded exactly once, by whoever actually made it.
  *
- * @param input - Open store and logger.
  * @returns The bindings, or `[]` when the file is absent/unusable.
  */
 export async function readBindings(input: {
@@ -183,7 +181,6 @@ export type AuthorizationBindings =
  * only by `writeBindings` would never see a hand edit — and a gate reading a
  * stale policy is worse than no gate.
  *
- * @param input - Open store and logger.
  * @returns The parsed bindings, or the `unreadable` verdict that denies.
  */
 export async function readBindingsForAuthorization(input: {

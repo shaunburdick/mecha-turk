@@ -68,7 +68,6 @@ const observationStates = new WeakMap<ServiceStore, PromptObservationState>();
 /**
  * Get (or create) the observation state for one store handle.
  *
- * @param store - Open store.
  * @returns The handle's baseline and chain.
  */
 function stateFor(store: ServiceStore): PromptObservationState {
@@ -134,7 +133,6 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
  * rejects for its own caller without wedging the next one — the same shape the
  * audit writer's write chain uses.
  *
- * @param store - Open store.
  * @param task - The read/write/diff work to serialise.
  * @returns The task's result or rejection, exactly as the task produced it.
  * @throws {StorageUnavailableError} When the baseline cannot be seeded.

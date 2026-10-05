@@ -211,7 +211,6 @@ function mountRowGroup(
  * fact about the line — so repainting in place would leave a row showing a
  * label it no longer has. Rebuilding keeps exactly one row per line, and the
  * handles are released as they go.
- *
  */
 function paintRowGroup(group: StatusRowGroup, lines: readonly string[]): void {
     for (const row of group.rows) {
@@ -223,7 +222,6 @@ function paintRowGroup(group: StatusRowGroup, lines: readonly string[]): void {
 
 /**
  * Remove one group's nodes and handles.
- *
  */
 function disposeRowGroup(group: StatusRowGroup): void {
     for (const row of group.rows) {
@@ -252,7 +250,6 @@ function registeredProjects(rt: PanelRuntime): readonly string[] | null {
  *
  * Nothing runs when the tab has never been activated: the state still
  * updates, and the first activation repaints from it.
- *
  */
 export function repaintStatusTab(rt: PanelRuntime): void {
     const ui = rt.statusUi;
@@ -300,7 +297,6 @@ export function repaintStatusTab(rt: PanelRuntime): void {
 
 /**
  * Repaint the shared framing and then this tab, after one step of a read.
- *
  */
 function repaintAfterRead(rt: PanelRuntime): void {
     refresh(rt);
@@ -314,7 +310,6 @@ function repaintAfterRead(rt: PanelRuntime): void {
  * whatever it last rendered marked stale. The configuration read is
  * supplementary — its failure renders as *not read* on one line rather than
  * failing a tab whose primary document arrived.
- *
  */
 export async function loadStatus(rt: PanelRuntime): Promise<void> {
     const slice = rt.state.statusTab;
@@ -435,7 +430,6 @@ export function mountStatusTab(input: {
 
 /**
  * Dispose the Status body's handles.
- *
  */
 export function disposeStatusTab(rt: PanelRuntime): void {
     const ui = rt.statusUi;

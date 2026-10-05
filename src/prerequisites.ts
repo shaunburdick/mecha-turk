@@ -166,7 +166,6 @@ function surfaceFor(rt: PanelRuntime): PrerequisitesSurface {
  * Nothing happens on a runtime with no mounted surface, which is what lets
  * every state change route through `refresh` without knowing what is on
  * screen (headless tests, and the window before the first mount).
- *
  */
 export function repaintPrerequisites(rt: PanelRuntime): void {
     const surface = surfaces.get(rt);

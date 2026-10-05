@@ -282,7 +282,6 @@ const ALLOW_LIST_GUIDANCE = 'add the GitHub logins that may trigger this reposit
  *
  * Names no login — neither a denied one (the service's `detail` carries those,
  * verbatim) nor a permitted one, which never leaves the service at all.
- *
  */
 const TRUNCATED_WINDOW_GUIDANCE = 'this run collected more triggers than the service retains, so the allow-list was '
     + 'judged against an incomplete list: adding a login to allowedUsers cannot clear it, and a retry is refused '

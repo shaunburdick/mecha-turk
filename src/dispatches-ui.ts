@@ -337,7 +337,6 @@ function mountAgentNotice(
  *
  * The wrapper elements go with their body's node; the handles themselves carry
  * listeners the host would otherwise outlive the teardown with.
- *
  */
 export function disposeDispatchesBoard(board: DispatchesBoard): void {
     const handles = [
@@ -371,7 +370,6 @@ export function disposeDispatchesBoard(board: DispatchesBoard): void {
  * Split out of {@link repaintDispatchesBoard} because the two armed labels are the
  * two branches an operator reads as "this click will send". Each label names
  * the row it will act on.
- *
  */
 function repaintResolutions(input: {
     /** The runs section's state. */

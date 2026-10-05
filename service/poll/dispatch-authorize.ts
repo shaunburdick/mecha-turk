@@ -247,7 +247,6 @@ function reservedRun(input: {
  * configuration the operator cannot read must not fail an authorization, and the
  * default is the documented safe window.
  *
- * @param store - Open store.
  * @param log - Logger used when the configuration cannot be read.
  * @returns Milliseconds a reservation's result deadline sits ahead.
  */
