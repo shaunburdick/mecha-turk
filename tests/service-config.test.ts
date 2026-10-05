@@ -157,6 +157,25 @@ const PADDED_AGENT = `  ${ACCEPTED_AGENT}  `;
  */
 const CREDENTIAL_SHAPED_VALUE = `ghp_${'a'.repeat(36)}`;
 
+/**
+ * How many reads race for one unusable document.
+ *
+ * More readers than the service ever has in flight on purpose: the claim under
+ * test is that *every* reader reports the same thing, so the test must not
+ * depend on how many happen to arrive together.
+ */
+const CONCURRENT_READS = 8;
+
+/**
+ * A stored document the validator refuses: one key the service never
+ * documented — the operator hand-edit the quarantine exists for.
+ *
+ * @returns Its JSON text, as the store finds it on disk.
+ */
+function unusableConfig(): string {
+    return JSON.stringify({ ...PRE_AGENT_CONFIG, surprise: 1 });
+}
+
 /** 006's own twelve fields — the histogram's criterion of record (SC-106). */
 const SPEC_FIELDS: readonly string[] = [
     'intervalMs',
@@ -206,6 +225,17 @@ async function startServiceForTest(
     running = service;
 
     return service;
+}
+
+/**
+ * Read the configuration envelope over the loopback API.
+ *
+ * @returns The parsed envelope (006 contract §1).
+ */
+async function readConfigEnvelope(service: TestService): Promise<ConfigEnvelope> {
+    const response = await service.call(CONFIG_PATH);
+
+    return (await response.json()) as ConfigEnvelope;
 }
 
 /**
@@ -937,8 +967,7 @@ describe('GET /v1/config widens without changing what it already said (006 FR-02
             expect(stored.config[AGENT_FIELD]).toBe(AGENT_DEFAULT);
 
             // Quarantined: defaults serve, no key is claimed as filled, no value as configured.
-            const unusable = JSON.stringify({ ...PRE_AGENT_CONFIG, surprise: 1 });
-            await writeFile(join(service.dataDir, CONFIG_FILE), unusable, 'utf8');
+            await writeFile(join(service.dataDir, CONFIG_FILE), unusableConfig(), 'utf8');
             const quarantinedResponse = await service.call(CONFIG_PATH);
             const quarantined: ConfigEnvelope = await quarantinedResponse.json();
             expect(quarantined.source).toBe('quarantined');
@@ -987,6 +1016,61 @@ describe('a lost quarantine rename still answers quarantined (006 contract §3 r
         // it earns no warning either.
         expect(configFromStore({ status: 'absent' }, log).source).toBe('default');
         expect(logLines).toHaveLength(1);
+    });
+});
+
+describe('the set-aside document is a fact every read reports (006 contract §3)', () => {
+    it('answers quarantined to every one of eight concurrent reads, and sets the document aside once', async () => {
+        const service = await startServiceForTest();
+        await writeFile(join(service.dataDir, CONFIG_FILE), unusableConfig(), 'utf8');
+
+        // Whichever reader reaches the unusable bytes first renames them aside,
+        // so the others arrive to find no `config.json` at all. Every one of
+        // them has to give the same answer: the evidence beside the target says
+        // what happened, and the operator is shown it whichever read got there.
+        const responses = await Promise.all(
+            Array.from({ length: CONCURRENT_READS }, async () => await readConfigEnvelope(service)),
+        );
+
+        for (const envelope of responses) {
+            expect(envelope.source).toBe('quarantined');
+            expect(envelope.defaultsApplied).toEqual([]);
+            expect(envelope.config).toEqual(DEFAULT_CONFIG);
+        }
+
+        // The quarantine itself still happens exactly once, however many
+        // readers raced for it — a set aside twice would be two documents gone.
+        const entries = await readdir(service.dataDir);
+        expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toHaveLength(1);
+    });
+
+    it('keeps answering quarantined after the document is gone, until a valid one replaces it', async () => {
+        const service = await startServiceForTest();
+        await writeFile(join(service.dataDir, CONFIG_FILE), unusableConfig(), 'utf8');
+
+        const first = await readConfigEnvelope(service);
+        expect(first.source).toBe('quarantined');
+
+        // A read arriving after the winning rename used to answer `default` —
+        // the one account that says nothing was ever wrong — which is what
+        // made this a defect the operator saw and not only a flaky assertion.
+        const afterwards = await readConfigEnvelope(service);
+        expect(afterwards.source).toBe('quarantined');
+        expect(afterwards.defaultsApplied).toEqual([]);
+        expect(afterwards.config).toEqual(DEFAULT_CONFIG);
+
+        const entries = await readdir(service.dataDir);
+        expect(entries.filter((entry) => entry.startsWith(CONFIG_QUARANTINE_PREFIX))).toHaveLength(1);
+
+        // A document that exists is `stored` whatever evidence sits beside it,
+        // so an operator who fixes their configuration needs no cleanup step.
+        await writeFile(join(service.dataDir, CONFIG_FILE), JSON.stringify(PRE_AGENT_CONFIG), 'utf8');
+        const repaired = await readConfigEnvelope(service);
+        expect(repaired.source).toBe('stored');
+        // The fill it reports is the file's own missing key, which is only
+        // knowable by reading the file — never by looking at the evidence.
+        expect(repaired.defaultsApplied).toEqual([AGENT_FIELD]);
+        expect(repaired.config[AGENT_FIELD]).toBe(AGENT_DEFAULT);
     });
 });
 
