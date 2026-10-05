@@ -488,7 +488,8 @@ describe('FR-028: a test is named for the layer its subject is in', () => {
 
     it('titles no test with a retired capital noun', () => {
         const titles: string[] = [];
-        for (const entry of readdirSync(resolve(ROOT, 'tests'))) {
+        const entries = readdirSync(resolve(ROOT, 'tests'));
+        for (const entry of entries) {
             if (!entry.endsWith('.ts')) {
                 continue;
             }

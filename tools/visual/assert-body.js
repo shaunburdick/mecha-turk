@@ -24,7 +24,7 @@ function listBodies(bodies) {
         return 'none';
     }
 
-    return bodies.map(describeBody).join('; ');
+    return bodies.map((body) => describeBody(body)).join('; ');
 }
 
 /** `body` or `bodies`, so a count reads as English. */
@@ -95,7 +95,7 @@ function describePainted(entry) {
 
 /** Several painted hidden elements, named the same way. */
 function listPainted(painted) {
-    return painted.map(describePainted).join('; ');
+    return painted.map((box) => describePainted(box)).join('; ');
 }
 
 /** Refuse an element the panel hid that the cascade still gives a box. */

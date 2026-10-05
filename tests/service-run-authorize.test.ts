@@ -259,7 +259,7 @@ function liveLease(): Run['lease'] {
 
 /** Enqueue detections, one per issue. */
 async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
-    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map(createEvent) });
+    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map((snapshot) => createEvent(snapshot)) });
 }
 
 /** Claim the run waiting for one issue, as the panel would. */
@@ -295,7 +295,8 @@ async function trail(): Promise<ReturnType<typeof readAuditEntries>> {
 async function rowsOf(eventType: string): Promise<readonly Record<string, unknown>[]> {
     const rows: Record<string, unknown>[] = [];
 
-    for (const entry of await trail()) {
+    const audited = await trail();
+    for (const entry of audited) {
         if (entry.eventType === eventType) {
             rows.push(entry.details);
         }
@@ -450,14 +451,25 @@ function strippedReference(reference: Run['sourceReferences'][number]): Record<s
  * @param correlationId - The run to rewrite.
  * @returns A promise that settles once the document is durable.
  */
+/**
+ * One run as a hand edit of the store would leave it: no readable actor.
+ *
+ * The cast through `unknown` is the point of this helper rather than a slip.
+ * 002 FR-045 makes attribution mandatory at detection, so no value this build
+ * produces can carry this shape — which is exactly the row FR-080 names and the
+ * reason the gate must refuse it rather than default it.
+ *
+ * @param run - The run to rewrite.
+ * @returns The same run, with its references' actor members removed.
+ */
+function runWithoutAttribution(run: Run): Run {
+    // eslint-disable-next-line llm-core/no-type-system-bypass, llm-core/no-chained-type-assertions -- 002 FR-045
+    return { ...run, sourceReferences: run.sourceReferences.map(strippedReference) } as unknown as Run;
+}
+
 async function stripAttribution(correlationId: string): Promise<void> {
     const document = await readRunsDocument({ store, log: LOGGER });
-    // Cast through `unknown` deliberately: the whole point is to write a row the
-    // *store's* validator accepts as "no attribution recorded", while no value
-    // this build's own code produces could carry that shape (002 FR-045).
-    const runs = document.runs.map((run) => run.correlationId === correlationId
-        ? ({ ...run, sourceReferences: run.sourceReferences.map(strippedReference) } as unknown as Run)
-        : run);
+    const runs = document.runs.map((run) => run.correlationId === correlationId ? runWithoutAttribution(run) : run);
     await writeRunsDocument({ store, log: LOGGER, document: { ...document, runs } });
 }
 

@@ -48,7 +48,8 @@ function contractParagraphs(): string[] {
 
     const paragraphs: string[] = [];
     let current: string | null = null;
-    for (const line of lines.slice(heading + 1)) {
+    const after = lines.slice(heading + 1);
+    for (const line of after) {
         if (line === RULES_HEADING) {
             break;
         }

@@ -286,7 +286,8 @@ function panelSources(): ReadonlyMap<string, string> {
     const found = new Map<string, string>();
     for (const dir of ['src', 'panel']) {
         const root = resolve(ROOT, dir);
-        for (const name of readdirSync(root, { recursive: true })) {
+        const names = readdirSync(root, { recursive: true });
+        for (const name of names) {
             if (typeof name !== 'string' || !name.endsWith('.ts')) {
                 continue;
             }

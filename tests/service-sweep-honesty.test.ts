@@ -126,7 +126,7 @@ function assignment(issueNumber: number, bindingId = BINDING_ID): EventSnapshot 
 
 /** Enqueue detections, one per issue. */
 async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
-    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map(createEvent) });
+    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map((snapshot) => createEvent(snapshot)) });
 }
 
 /** One stored binding record for the status-row reader. */

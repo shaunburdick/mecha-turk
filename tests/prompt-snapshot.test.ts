@@ -150,7 +150,7 @@ async function enqueueInto(call: EnqueueCall): Promise<{ readonly events: string
     await enqueueEvents({
         store: call.store,
         log: LOGGER,
-        incoming: call.snapshots.map(createEvent),
+        incoming: call.snapshots.map((snapshot) => createEvent(snapshot)),
         ...(call.prompt !== undefined && { prompt: call.prompt }),
     });
 

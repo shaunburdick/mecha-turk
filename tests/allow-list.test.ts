@@ -229,7 +229,8 @@ async function storedRows(service: TestService): Promise<readonly Record<string,
 async function storeFiles(service: TestService): Promise<readonly string[]> {
     const found: string[] = [];
     const walk = async (dir: string): Promise<void> => {
-        for (const entry of await readdir(dir, { withFileTypes: true })) {
+        const children = await readdir(dir, { withFileTypes: true });
+        for (const entry of children) {
             const path = join(dir, entry.name);
             if (entry.isDirectory()) {
                 await walk(path);
@@ -251,7 +252,8 @@ async function storeFiles(service: TestService): Promise<readonly string[]> {
  */
 async function storeTextWithoutBindings(service: TestService): Promise<string> {
     const parts: string[] = [];
-    for (const path of await storeFiles(service)) {
+    const files = await storeFiles(service);
+    for (const path of files) {
         if (path.endsWith(BINDINGS_FILE)) {
             continue;
         }
@@ -277,7 +279,8 @@ function committedBundles(): string {
  */
 function sourceFiles(dir: string): ReadonlyMap<string, string> {
     const files = new Map<string, string>();
-    for (const entry of readdirSync(resolvePath(ROOT, dir), { recursive: true })) {
+    const names = readdirSync(resolvePath(ROOT, dir), { recursive: true });
+    for (const entry of names) {
         const relative = String(entry);
         if (relative.endsWith('.ts')) {
             files.set(`${dir}/${relative}`, readFileSync(resolvePath(ROOT, dir, relative), 'utf8'));

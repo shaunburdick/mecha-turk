@@ -121,7 +121,7 @@ async function enqueue(snapshots: readonly EventSnapshot[]) {
     return await enqueueEvents({
         store,
         log: LOGGER,
-        incoming: snapshots.map(createEvent),
+        incoming: snapshots.map((snapshot) => createEvent(snapshot)),
     });
 }
 

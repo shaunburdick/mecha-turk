@@ -192,7 +192,7 @@ function answerStorage(message) {
 function answerServiceRequest(message) {
     const path = String(message.payload.path).split('?', 1)[0];
     const key = `${message.payload.method} ${path}`;
-    const route = routes[key];
+    const route = routes.get(key);
 
     if (route === undefined) {
         const body = { error: { code: 'not-found', message: `harness: no fixture for ${key}` } };
@@ -479,7 +479,7 @@ function strip() {
     const active = panel.querySelector(SELECTED_TAB);
 
     return {
-        tabs: [...panel.querySelectorAll('[role="tab"]')].map(stripBox),
+        tabs: [...panel.querySelectorAll('[role="tab"]')].map((tab) => stripBox(tab)),
         activeColor: active === null ? null : panel.defaultView.getComputedStyle(active).backgroundColor,
     };
 }

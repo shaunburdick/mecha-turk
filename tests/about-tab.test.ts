@@ -320,7 +320,8 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
                     // in prose; a *literal* the panel could render never does.
                     .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
                     .join('\n');
-                for (const match of text.matchAll(new RegExp(VERSION_SHAPED, 'g'))) {
+                const shaped = text.matchAll(new RegExp(VERSION_SHAPED, 'g'));
+                for (const match of shaped) {
                     offenders.push(`${path}: ${match[0]}`);
                 }
             }

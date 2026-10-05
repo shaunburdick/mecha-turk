@@ -87,6 +87,39 @@ export default [
             // places and in every other spread of an iterator: `[...]`. This one
             // goes, and `prefer-spread` stays as the rule that owns the shape.
             'unicorn/prefer-iterator-to-array': 'off',
+            // The inherited `default` selector is `camelCase`, and it was reaching object
+            // literal keys — which in this repo are not names. They are protocol
+            // tokens: `HOME`, `PATH` and `OPENCHAMBER_SERVICE_PORT` in the test
+            // harness's environment maps, the lowercase-dashed HTTP header names
+            // `tools/visual/serve.js` sends, and every DTO member the service and
+            // panel agree on, whose spelling is the wire's decision rather than
+            // this linter's. None of the rule's six predefined formats matches
+            // `'cache-control'` or `'GET /v1/status'` at all, so there was no way
+            // to express this except by turning the selector off for keys.
+            //
+            // This restates the inherited selectors because naming the rule here
+            // replaces its option list wholesale, and gives
+            // `objectLiteralProperty` an empty format list — no constraint on
+            // keys, while variables, parameters, types and enum members keep the
+            // naming rules they had.
+            '@typescript-eslint/naming-convention': [
+                'error',
+                { selector: 'default', format: ['camelCase'], leadingUnderscore: 'allow', trailingUnderscore: 'allow' },
+                {
+                    selector: 'variable',
+                    format: ['camelCase', 'UPPER_CASE'],
+                    leadingUnderscore: 'allow',
+                    trailingUnderscore: 'allow',
+                },
+                { selector: 'typeLike', format: ['PascalCase'] },
+                { selector: 'enumMember', format: ['PascalCase'] },
+                {
+                    selector: 'objectLiteralProperty',
+                    format: [],
+                    leadingUnderscore: 'allow',
+                    trailingUnderscore: 'allow',
+                },
+            ],
         },
     },
 ];

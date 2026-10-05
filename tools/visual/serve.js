@@ -38,18 +38,18 @@ const STATUS_NOT_FOUND = 404;
 const STATUS_BAD_REQUEST = 400;
 
 /** Extensions the panel and its harness need, and how to label them. */
-const MIME_TYPES = {
-    '.css': 'text/css; charset=utf-8',
-    '.html': 'text/html; charset=utf-8',
-    '.ico': 'image/x-icon',
-    '.js': 'text/javascript; charset=utf-8',
-    '.json': 'application/json; charset=utf-8',
-    '.map': 'application/json; charset=utf-8',
-    '.png': 'image/png',
-    '.svg': 'image/svg+xml',
-    '.txt': 'text/plain; charset=utf-8',
-    '.woff2': 'font/woff2',
-};
+const MIME_TYPES = new Map([
+    ['.css', 'text/css; charset=utf-8'],
+    ['.html', 'text/html; charset=utf-8'],
+    ['.ico', 'image/x-icon'],
+    ['.js', 'text/javascript; charset=utf-8'],
+    ['.json', 'application/json; charset=utf-8'],
+    ['.map', 'application/json; charset=utf-8'],
+    ['.png', 'image/png'],
+    ['.svg', 'image/svg+xml'],
+    ['.txt', 'text/plain; charset=utf-8'],
+    ['.woff2', 'font/woff2'],
+]);
 
 /** Methods this server answers; everything else is refused. */
 const ALLOWED_METHODS = ['GET', 'HEAD'];
@@ -77,7 +77,7 @@ function resolveFile(root, pathname) {
 
 /** Label a file the way the browser should read it. */
 function contentType(pathname) {
-    return MIME_TYPES[extname(pathname).toLowerCase()] ?? 'application/octet-stream';
+    return MIME_TYPES.get(extname(pathname).toLowerCase()) ?? 'application/octet-stream';
 }
 
 /**

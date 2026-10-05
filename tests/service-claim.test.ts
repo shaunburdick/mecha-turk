@@ -97,7 +97,7 @@ function assignment(issueNumber: number): EventSnapshot {
 
 /** Enqueue one detection, creating its run. */
 async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
-    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map(createEvent) });
+    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map((snapshot) => createEvent(snapshot)) });
 }
 
 /**
@@ -115,7 +115,7 @@ async function seedPrompted(
     prompt: PromptSnapshot | null,
     ...snapshots: readonly EventSnapshot[]
 ): Promise<void> {
-    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map(createEvent), prompt });
+    await enqueueEvents({ store, log: LOGGER, incoming: snapshots.map((snapshot) => createEvent(snapshot)), prompt });
 }
 
 /** Persist the configured lease duration the claim reads. */

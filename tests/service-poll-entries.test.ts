@@ -170,12 +170,13 @@ function wireEventRow(input: {
     if (input.omit !== 'created_at') {
         members.created_at = JSON.stringify(stamp);
     }
-    for (const [key, value] of Object.entries({
+    const named = {
         actor: input.actor,
         assigner: input.assigner,
         assignee: input.assignee,
         issue: input.issue,
-    })) {
+    };
+    for (const [key, value] of Object.entries(named)) {
         if (value !== undefined) {
             members[key] = value;
         }

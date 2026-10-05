@@ -185,8 +185,10 @@ function rawBodyRequest(options: {
  * @returns The address, or `null` when only loopback interfaces exist.
  */
 function nonLoopbackAddress(): string | null {
-    for (const interfaces of Object.values(networkInterfaces())) {
-        for (const iface of interfaces ?? []) {
+    const all = Object.values(networkInterfaces());
+    for (const interfaces of all) {
+        const addresses = interfaces ?? [];
+        for (const iface of addresses) {
             if (!iface.internal && iface.family === 'IPv4') {
                 return iface.address;
             }

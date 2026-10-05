@@ -163,7 +163,8 @@ describe('every fixture answer is one the panel can read', () => {
             // member is load-bearing.
             const events = fixtures().events as { readonly events?: readonly unknown[] };
             expect(Array.isArray(events.events)).toBe(true);
-            for (const row of events.events ?? []) {
+            const entries = events.events ?? [];
+            for (const row of entries) {
                 expect(Object.hasOwn(row as object, 'promptSources')).toBe(true);
             }
         }
