@@ -2,11 +2,12 @@
  * The About tab (005 T-028 as re-cut by the 2026-10-01 product-owner scrub;
  * FR-074–FR-077, AC-132, AC-133, AC-134, SC-109).
  *
- * The tab is now **name, version, description, repository link**, with the
- * read-only Diagnostics record behind a disclosure — the vocabulary mapping,
- * the cleanup posture, the release posture, and the data-directory line left
- * the page (and `src/vocabulary.ts` left the tree with them), so the suite
- * asserts their absence as well as the four things that stayed.
+ * The tab is now **name, version, description, documentation link, repository
+ * link**, with the read-only Diagnostics record behind a disclosure — the
+ * vocabulary mapping, the cleanup posture, the release posture, and the
+ * data-directory line left the page (and `src/vocabulary.ts` left the tree
+ * with them), so the suite asserts their absence as well as the five things
+ * that stayed.
  *
  * The tab has one hard rule with two halves, so the suite leads with both:
  *
@@ -17,6 +18,12 @@
  * 2. **An honest unknown.** Unreachable ⇒ the exact copy *unknown (service
  *    unreachable)*, with no digit anywhere on the version line, while the
  *    static identity content stays on screen (AC-132, AC-134).
+ *
+ * The documentation link (007) adds a third rule with the same shape as the
+ * second: it is a **text handle** on the SDK's `onOpenUrl` path, the very path
+ * the repository link uses, so a click on it reaches `host.openUrl` and a
+ * refusal lands on the link's own line with the address still readable — and
+ * the tab gains no control to carry it (FR-059 – FR-061, AC-026).
  *
  * The path the panel reads is pinned to the route the service registers, so
  * the shipped `/health` route and the prose that names it (005 T-036's
@@ -85,6 +92,16 @@ const STAMP = '2026-09-30T12:00:00.000Z';
 
 /** Time slice the ledger lines print for that stamp. */
 const STAMP_TIME = '12:00:00';
+
+/**
+ * The published documentation address the About tab links to (007 FR-005,
+ * FR-059). The trailing slash is part of the address — the site is served from
+ * a subpath, and this is the site landing page, not a redirect to it.
+ */
+const DOCUMENTATION_URL = 'https://shaunburdick.github.io/mecha-turk/';
+
+/** The documentation link line as the tab renders it. */
+const DOCUMENTATION_LINE = `Documentation: [${DOCUMENTATION_URL}](${DOCUMENTATION_URL})`;
 
 /** The exact copy an unreachable service must produce (AC-134). */
 const UNREACHABLE = 'Version: unknown (service unreachable)';
@@ -359,9 +376,10 @@ describe('an unreachable service keeps the static content (AC-132, AC-134, FR-07
             });
             const text = view.strings.join('\n');
 
-            // Name, version, description, repository link — the whole page after
-            // the 2026-10-01 scrub.
+            // Name, version, description, documentation link, repository link —
+            // the whole page as shipped.
             expect(text).toContain('About');
+            expect(text).toContain(`Documentation: [${DOCUMENTATION_URL}]`);
             expect(text).toContain('Repository: [https://github.com/shaunburdick/mecha-turk]');
             // The four statements the scrub removed, gone from every paint.
             expect(text).not.toContain('Vocabulary (what the renames mean)');
@@ -498,6 +516,94 @@ describe('the repository link opens through the host (2026-10-01 scrub)', () => 
             view.dispose();
 
             expect(note).toContain('HOST_REJECTED');
+        }
+    });
+
+});
+
+/**
+ * Click the documentation link the way the SDK does: through the `onOpenUrl`
+ * the mounted text handle carries, not by calling the exported action. A click
+ * the panel cannot route is the failure this path exists to make impossible, so
+ * the test has to travel it rather than skip to the function behind it.
+ *
+ * Reads the mounts the most recent {@link mountAbout} recorded, so it belongs
+ * to a test that clicks before mounting anything else.
+ *
+ * @throws {TypeError} When the mounted link wired no `onOpenUrl` at all.
+ */
+async function clickDocumentationLink(): Promise<void> {
+    const link = lastProps(
+        'mountText',
+        (props) => typeof props.text === 'string' && props.text.startsWith('Documentation: '),
+    );
+    if (typeof link?.onOpenUrl !== 'function') {
+        throw new TypeError('the documentation link wired no onOpenUrl, so a click has nowhere to go');
+    }
+
+    // The handler is fire-and-forget (`void openDocumentation(...)`), so the
+    // host call settles a macrotask after the click returns.
+    (link.onOpenUrl as (url: string) => void)(DOCUMENTATION_URL);
+    await tick();
+}
+
+describe('the documentation link opens through the host (007 FR-059, FR-060, FR-061, AC-026)', () => {
+    it('renders the published address as a link wired to the SDK text path', async () => {
+        {
+            const view = await mountAbout({ answer: healthyService });
+            const link = lastProps(
+                'mountText',
+                (props) => typeof props.text === 'string' && props.text.startsWith('Documentation: '),
+            );
+
+            expect(link?.text).toBe(DOCUMENTATION_LINE);
+            expect(typeof link?.onOpenUrl).toBe('function');
+            view.dispose();
+        }
+    });
+
+    it('carries a click on that handle to host.openUrl, the path the repository link uses', async () => {
+        {
+            const view = await mountAbout({ answer: healthyService });
+
+            await clickDocumentationLink();
+            view.dispose();
+
+            expect(view.opened).toEqual([DOCUMENTATION_URL]);
+            expect(view.rt.state.aboutTab.docsProblem).toBeNull();
+        }
+    });
+
+    it('lands a host refusal on its own line, address still readable', async () => {
+        {
+            const view = await mountAbout({
+                answer: healthyService,
+                openUrl: () => Promise.reject(new Error('HOST_REJECTED')),
+            });
+
+            await clickDocumentationLink();
+            const note = view.rt.state.aboutTab.docsProblem;
+            const screen = view.strings.join('\n');
+            view.dispose();
+
+            expect(note).toContain('The documentation link could not be opened');
+            expect(note).toContain('HOST_REJECTED');
+            // The refusal is a line *beside* the address, not a replacement for
+            // it, and it belongs to this link alone.
+            expect(screen).toContain(DOCUMENTATION_LINE);
+            expect(view.rt.state.aboutTab.repoProblem).toBeNull();
+        }
+    });
+
+    it('is a text handle, not a control the tab did not have', async () => {
+        {
+            const view = await mountAbout({ answer: healthyService });
+            const keys = mounts.log.map((entry) => entry.key);
+
+            expect(keys.filter((key) => key === 'mountButton')).toHaveLength(2);
+            expect(keys).not.toContain('mountList');
+            expect(keys).not.toContain('mountSelect');
+            view.dispose();
         }
     });
 
