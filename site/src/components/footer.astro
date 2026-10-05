@@ -1,0 +1,26 @@
+---
+/**
+ * The footer every page carries (FR-076): the repository, and the licence file
+ * inside it.
+ *
+ * Both are absolute links into the repository rather than into the site. The
+ * licence is a file at the repository root (FR-074) and the site publishes no
+ * copy of it — `public/` does not exist, because a copy would be the one image-
+ * free artefact copy that has to be kept in step. A link a reader chooses to
+ * follow is not a request the page makes, which is what FR-010 and NFR-003 are
+ * about; nothing here is fetched on load.
+ *
+ * The repository address is a literal here for now. Wave 3's `data/product.ts`
+ * becomes its home (FR-053's single-source rule applied to the product's own
+ * identity), and the next change to this component should read it from there.
+ */
+const REPOSITORY_URL = 'https://github.com/shaunburdick/mecha-turk';
+const LICENSE_URL = `${REPOSITORY_URL}/blob/main/LICENSE`;
+---
+
+<footer>
+    <ul>
+        <li><a href={REPOSITORY_URL}>Source repository</a></li>
+        <li><a href={LICENSE_URL}>MIT licence</a></li>
+    </ul>
+</footer>
