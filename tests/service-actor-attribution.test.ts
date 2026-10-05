@@ -554,7 +554,6 @@ function assignedPage(assigner: string, createdAt?: string): string {
  * The events page holding exactly one review-requested row.
  *
  * @param requester - Login the row records as its requester.
- * @param issueNumber - Issue the request belongs to.
  * @returns The page body.
  */
 function requestedPage(requester: string, issueNumber?: number): string {

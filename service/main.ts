@@ -96,7 +96,6 @@ function createShutdownHandler(handle: ServiceHandle, log: ServiceLogger): (labe
  * Wire `SIGTERM` and `SIGINT` to the graceful shutdown path.
  *
  * @param handle - Running service to stop on signal.
- * @param log - Logger for the shutdown outcome.
  */
 function installSignalHandlers(handle: ServiceHandle, log: ServiceLogger): void {
     const onShutdown = createShutdownHandler(handle, log);

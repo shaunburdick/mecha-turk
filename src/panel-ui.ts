@@ -155,8 +155,6 @@ export function mountPanelFraming(root: HTMLElement): PanelUi {
 
 /**
  * Repaint the project picker from the picker state.
- *
- * @param ui - Mounted picker handles inside the Bindings body.
  */
 function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
     const picker = state.projects;

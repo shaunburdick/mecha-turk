@@ -323,7 +323,6 @@ async function driveToDeadLetter(correlationId: string): Promise<Run> {
  * route's *judge* is about, and a fixture the store merely accepts would let a
  * verdict pass against a shape the product can never produce.
  *
- * @param issueNumber - Issue to detect for this run.
  * @returns The run as it stands in that state.
  */
 async function driveTo(issueNumber: number, target: Run['state']): Promise<Run> {

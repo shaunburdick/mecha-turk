@@ -183,7 +183,6 @@ function statusFixture(overrides: Record<string, unknown> = {}): Record<string, 
 /**
  * Replace one top-level member of a fixture document.
  *
- * @param member - Member to replace.
  * @returns A new document; the fixture is never mutated in place.
  */
 function withMember(member: string, value: unknown): Record<string, unknown> {
@@ -263,7 +262,6 @@ function runtimeAnswering(statusBody: string, configBody: string): PanelRuntime 
 /**
  * Render the polling block over one overridden polling member.
  *
- * @param overrides - Members of the polling block to replace.
  * @param configured - Configured interval the tab read beside it.
  * @returns The lines.
  */

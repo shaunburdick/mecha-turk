@@ -412,7 +412,6 @@ describe('the window is widened by the saved overlap (006 T-008, FR-059(a), AC-1
 /**
  * Build the real poller over a fake transport that records its URLs.
  *
- * @param body - Body every request answers with.
  * @returns The poller and the URLs it was asked to fetch.
  */
 function realPoller(body: string): {

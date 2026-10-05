@@ -109,7 +109,6 @@ function assertViewportWidth(measurement, width) {
 /**
  * Resize the viewport until the region holds exactly one tab body.
  *
- * @param input - Browser, the tab, the width to hold, and the height ceiling.
  * @returns The measurement the last resize produced, or null when the tab has
  *   no body to fit — so the caller reports that instead of a stale number.
  */

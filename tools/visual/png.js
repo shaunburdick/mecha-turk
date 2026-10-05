@@ -430,7 +430,6 @@ function readPng(path) {
 /**
  * Fraction of pixels whose colour is within `DEFAULT_TOLERANCE` of `rgb`.
  *
- * @param image - Image to scan.
  * @param rgb - `[red, green, blue]` to look for.
  * @returns Matched fraction of all pixels, 0–1.
  */
@@ -449,7 +448,6 @@ function colorFraction(image, rgb) {
 /**
  * Mean colour of a rectangle of the image — how the strip pill is read back.
  *
- * @param image - Image to sample.
  * @param box - `{ x, y, width, height }` in image pixels.
  * @returns The `[red, green, blue]` mean, or black for an empty box.
  */

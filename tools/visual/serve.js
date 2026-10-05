@@ -83,7 +83,6 @@ function contentType(pathname) {
 /**
  * Write one response, with the headers that keep captures reproducible.
  *
- * @param response - Node response the answer goes out on.
  * @param answer - `{ status, headers, body }`; `body` may be undefined.
  */
 function send(response, answer) {

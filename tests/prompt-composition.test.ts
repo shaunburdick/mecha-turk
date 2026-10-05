@@ -296,7 +296,6 @@ const LEASE = {
 /**
  * Build one claim entry, with or without a prompt.
  *
- * @param overrides - Members the case under test changes.
  * @returns A complete, otherwise valid offer.
  */
 function claimEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {

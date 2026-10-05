@@ -82,7 +82,6 @@ function document(attempts: readonly DispatchAttemptRecord[]): DispatchRecordDoc
 /**
  * Serialize a document exactly as the host stores it.
  *
- * @param doc - Document to place in storage.
  * @returns The stored JSON value.
  */
 function stored(doc: DispatchRecordDocument): JsonValue {

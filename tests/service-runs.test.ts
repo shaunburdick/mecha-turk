@@ -248,7 +248,6 @@ function fixtureEvent(input: {
 /**
  * Build a strictly increasing detection stamp for one cap-fixture event.
  *
- * @param issueNumber - Issue number, which the stamp orders by.
  * @returns An RFC 3339 stamp, one minute apart from its neighbours.
  */
 function detectionStamp(issueNumber: number): string {

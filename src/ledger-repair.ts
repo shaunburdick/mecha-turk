@@ -134,7 +134,6 @@ export function fitLedgerToByteBudget(ledger: PanelLedger): LedgerRepair {
 /**
  * Repair a ledger after a failed persist, chosen by the failure cause.
  *
- * @param input - Ledger about to be written plus the error the write failed with.
  * @returns The repair to apply before the single retry, or `null` when the
  * failure is not one this module can repair and the caller must report it.
  */

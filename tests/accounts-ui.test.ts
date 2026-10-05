@@ -337,7 +337,6 @@ function mountAccountsTab(setup?: (rt: PanelRuntime) => void): {
  * Whether the Accounts disclaimer is **mounted** on the Accounts body, and
  * what its text says (002 FR-008 as re-cut at v1.9.0).
  *
- * @param created - Every element the mount created.
  * @returns The disclaimer container, or `undefined` when nothing mounted one.
  */
 function mountedDisclaimer(created: readonly FakeElement[]): FakeElement | undefined {

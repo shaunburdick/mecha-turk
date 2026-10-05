@@ -31,7 +31,6 @@ import type { PanelBinding } from './bindings-service.ts';
  * The list order is the service's stored order, so "first" is stable across
  * repaints and the operator can control it with the enable toggle.
  *
- * @param bindings - Bindings as the panel last read them from the service.
  * @returns The first binding whose state is `active`, or `null` when none is.
  */
 export function firstEnabledBinding(bindings: readonly PanelBinding[]): PanelBinding | null {

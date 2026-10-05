@@ -172,7 +172,6 @@ export function errorResponse(status: number, details: ErrorDetails): HttpRespon
  * render it verbatim, while `issues` carries the structured list. No submitted
  * value appears anywhere in either form.
  *
- * @param issues - Every rejected field with its remediation.
  * @returns The `validation` error response (contract §4).
  */
 export function validationResponse(issues: readonly FieldIssue[]): HttpResponse {

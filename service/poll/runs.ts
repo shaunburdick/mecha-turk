@@ -126,7 +126,6 @@ async function changeRun(
 /**
  * Claim one waiting run for one panel: lease issued, attempt opened.
  *
- * @param input - Lease coordinates plus the run being claimed.
  * @returns The claimed run, or why it was not claimable.
  */
 export async function claimRun(input: ClaimInput): Promise<RunChange> {

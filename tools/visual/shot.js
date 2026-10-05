@@ -316,8 +316,6 @@ async function probe(input) {
  * survive, and a frame delivered at the wrong width fails on its own read-back
  * instead.
  *
- * @param input - Browser, run context, the tab, the width to fit to, the
- *   sentinel colour, and the output file's name without its `.png`.
  * @returns The report's figures for this frame.
  */
 async function captureFrame(input) {
@@ -366,7 +364,6 @@ async function captureFrame(input) {
  * narrow frame beside it, so the tight end of the panel's real width band is
  * always on disk next to the comfortable one.
  *
- * @param input - Browser, run context, the tab, and both sentinel colours.
  * @returns One result per frame captured, in capture order.
  */
 async function captureTab(input) {

@@ -80,7 +80,6 @@ export interface HostVerification {
 /**
  * Wait for a short, bounded interval.
  *
- * @param ms - Milliseconds to wait.
  * @returns A promise resolved after the interval.
  */
 function delay(ms: number): Promise<void> {

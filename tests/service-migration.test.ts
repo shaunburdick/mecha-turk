@@ -492,7 +492,6 @@ async function answer(input: {
 /**
  * The `events` (or `bindings`) member of an answer, as records.
  *
- * @param member - Member name to read.
  * @returns Every entry, each read without trusting its shape.
  * @throws {Error} When the member is missing or holds a non-record entry.
  */
@@ -514,7 +513,6 @@ function rowsOf(body: Record<string, unknown>, member: string): readonly Record<
 /**
  * One string member of a wire row, demanded rather than defaulted.
  *
- * @param key - Member to read.
  * @returns The value as a string.
  * @throws {Error} When the member is absent or not a string.
  */

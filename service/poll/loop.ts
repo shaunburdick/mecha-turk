@@ -298,8 +298,6 @@ async function scanBinding(input: {
 /**
  * Persist per-binding scan state: the stamp on completion, the skip reason
  * otherwise.
- *
- * @param deps - Narrowed store/logger for this cycle.
  */
 async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promise<void> {
     await serializeScan(async () => {

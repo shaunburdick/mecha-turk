@@ -42,7 +42,6 @@ const REPOSITORY = 'acme/widget';
  * Import-adapter so the test bodies read naturally while the typing stays on
  * the support module: a single narrow parameter type instead of per-cast.
  *
- * @param handle - Handle mounted by one of the stub builders.
  * @returns Recorded `update` count.
  */
 function paintsOf(handle: Parameters<typeof stubPaints>[0]): number {

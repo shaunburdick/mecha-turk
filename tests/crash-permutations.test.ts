@@ -187,7 +187,6 @@ async function claimAndReserve(issueNumber: number): Promise<{ readonly run: Cla
 /**
  * Burn the automatic requeue budget so the run parks (FR-033).
  *
- * @param issueNumber - Issue to exhaust.
  * @throws {Error} When the budget does not park the run within eight passes.
  */
 async function exhaustRequeueBudget(issueNumber: number): Promise<void> {

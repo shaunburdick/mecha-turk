@@ -68,7 +68,6 @@ function parseJson(json: string): JsonValue {
 /**
  * Deep-clone a ledger as a JSON value so a test can corrupt it safely.
  *
- * @param ledger - Ledger to clone.
  * @returns The clone, shaped as JSON.
  */
 function cloneAsJson(ledger: PanelLedger): Record<string, JsonValue> {

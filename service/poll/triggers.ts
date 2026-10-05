@@ -99,7 +99,6 @@ export function mentionsLogin(body: string, login: string): boolean {
 /**
  * Decide whether one comment is a mention the binding should react to.
  *
- * @param comment - Normalized comment.
  * @returns `true` when a human commented `@<login>` on this issue.
  */
 export function isMentionComment(comment: PollComment, bindingLogin: string): boolean {

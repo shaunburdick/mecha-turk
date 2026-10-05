@@ -1862,7 +1862,6 @@ async function setPolicy(users: readonly string[] | null): Promise<void> {
 /**
  * Reserve one run whose only reference is attributed to `login`.
  *
- * @param issueNumber - Issue to seed.
  * @param login - The actor the delivery is attributed to, or `null` to store no
  *   attribution at all (a reference written before 002 v1.11.0).
  * @param basis - The attribution basis to record.

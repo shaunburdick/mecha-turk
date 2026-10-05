@@ -54,7 +54,6 @@ function parseOutput(input) {
 /**
  * Build the one function that spawns a command in a session.
  *
- * @param bin - Executable to run.
  * @param session - `--session` name every command is bound to.
  * @returns `run(args)` resolving with the command's parsed `data`.
  */

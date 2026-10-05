@@ -274,7 +274,6 @@ function tokenScopes(accounts: readonly PanelAccount[]): Prerequisite {
  * bindings is nothing to satisfy, so a fresh install reads met rather than
  * nagging with nothing actionable).
  *
- * @param bindings - Bindings as the last read reported them.
  * @returns The prerequisite for the bound set.
  */
 function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequisite {

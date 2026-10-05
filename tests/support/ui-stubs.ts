@@ -19,8 +19,6 @@ import type { BindingsPane } from '../../src/bindings-ui.ts';
  * handle type the pane stores it as; this is the typed read the tests use so
  * no test-side casts appear.
  *
- * @param handle - A handle mounted by {@link stubBindingsPane} or
- *   {@link stubPanelUi}.
  * @returns How often `update` ran on it so far.
  */
 export function stubPaints(handle: Handle<never>): number {
