@@ -408,6 +408,17 @@ const VERIFY_WORKFLOW_PATH = '.github/workflows/verify.yml';
 /** Repository-relative path of the publish workflow Wave 7 writes. */
 const PUBLISH_WORKFLOW_PATH = '.github/workflows/site.yml';
 
+/**
+ * The Node floor `astro@7.3.5` declares for itself, as `npm view astro@latest engines`
+ * reported it on 2026-10-05 — `{ npm: '>=9.6.5', node: '>=22.12.0' }`.
+ *
+ * Recorded rather than read from `site/node_modules`, because the root gate cannot
+ * assume the subproject has been installed (FR-070 keeps the site out of the root's
+ * toolchain scope), and asserted so a future Astro bump that raises its own floor
+ * fails here instead of passing unnoticed under a site floor that happens to be higher.
+ */
+const ASTRO_NODE_FLOOR = '>=22.12.0';
+
 /** What one run of a repository tool reported. */
 interface ToolRun {
     readonly status: number | null;
@@ -511,11 +522,12 @@ function siteFiles(sub: string): readonly string[] {
 /**
  * A `>=x.y.z` Node floor as one comparable number.
  *
- * Compared rather than restated, because FR-008 asks for the site's floor to be
- * *higher* than the root's and writing the root's own value into this suite would
- * turn the next legitimate change to it — issue #17, filed separately — into a
- * failure here. `1_000_000` is the weight of a major and `1_000` of a minor, which
- * orders any two releases this repository could declare.
+ * The root's floor is read from the manifest and **never written into this suite** —
+ * issue #17 raised it once already, and a suite that named it would turn the next
+ * legitimate change into a failure here rather than in the pull request that made it.
+ * That is why the comparison below is an ordering against a value read at run time
+ * and not an equality against a recorded literal. `1_000_000` is the weight of a major
+ * and `1_000` of a minor, which orders any two releases this repository could declare.
  *
  * @param range - A `>=x.y.z` range, or whatever the manifest wrote.
  * @returns The floor, or `0` for a range that does not parse.
@@ -595,12 +607,38 @@ describe('007 FR-006 / FR-007 / FR-008 — the site is its own pinned package', 
         }
     });
 
-    it('declares a Node floor above the root\'s', () => {
+    it('declares a Node floor that satisfies Astro and is not below the root\'s', () => {
         {
-            expect(SITE_MANIFEST.engines?.node).toBe('>=22.12.0');
+            // The site's floor is pinned here on purpose: raising it is a reviewed
+            // diff rather than a silent edit. It is *not* Astro's requirement
+            // (`>=22.12.0`, measured via `npm view astro@latest engines` and
+            // recorded in specs/007-homepage-docs/research.md §1.4) — issue #17
+            // raised the repository's floor above that, and the product owner had
+            // the site's follow it, so the floor here is the repository's, with
+            // Astro's requirement satisfied underneath it and asserted below.
+            expect(SITE_MANIFEST.engines?.node).toBe('>=24.15.0');
         }
         {
-            expect(nodeFloor(SITE_MANIFEST.engines?.node)).toBeGreaterThan(nodeFloor(EXTENSION_MANIFEST.engines?.node));
+            // FR-008 as re-cut at 007 v1.3.0: **not lower than** the root's, not
+            // higher. The two manifests legitimately declare the same number, so
+            // `>` would assert a difference the product has decided against. What
+            // the comparison still forbids is the direction that would be a real
+            // defect — a subproject claiming a Node older than the repository
+            // itself refuses to install on — and it is a comparison of the two
+            // values **read at run time**, so it is not weakened by equality: a
+            // floor dropped below the root's, or raised without a reviewed edit to
+            // the pin above, each fail here.
+            expect(nodeFloor(SITE_MANIFEST.engines?.node)).toBeGreaterThanOrEqual(
+                nodeFloor(EXTENSION_MANIFEST.engines?.node),
+            );
+        }
+        {
+            // And the floor really does satisfy the build tool, so the number is
+            // not merely inherited. Astro's own requirement is *recorded* rather
+            // than read from `site/node_modules` — the root gate must not depend
+            // on the subproject's install having happened — which is why it is a
+            // constant here and why a future Astro bump has to update it.
+            expect(nodeFloor(SITE_MANIFEST.engines?.node)).toBeGreaterThanOrEqual(nodeFloor(ASTRO_NODE_FLOOR));
         }
     });
 });

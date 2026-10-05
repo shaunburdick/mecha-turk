@@ -2,7 +2,7 @@
 
 How to build, preview, and check the documentation site locally, and what CI will do with the same commands. Every command below is one a contributor can run on a clean clone with no further setup.
 
-> **The site is a separate subproject.** It has its own `package.json`, its own lockfile, and its own Node floor. Nothing you install for the site touches the repository's own toolchain, and `npm run verify` at the repository root neither builds nor checks the site. The evidence is in [research.md](research.md) §2.
+> **The site is a separate subproject.** It has its own `package.json`, its own lockfile, and its own `engines` declaration. Nothing you install for the site touches the repository's own toolchain, and `npm run verify` at the repository root neither builds nor checks the site. The evidence is in [research.md](research.md) §2; the current floor is in §9.
 
 > **On the directory name — settled by the plan.** Every path below writes the site directory as `site/`, and `site/` **is** the decided name: [plan.md](./plan.md) §Project structure adopts it against the five constraints `research.md` §4 records. Nothing else in this document changes.
 
@@ -10,13 +10,14 @@ How to build, preview, and check the documentation site locally, and what CI wil
 
 | You need | Version | Why |
 | --- | --- | --- |
-| **Node** | **≥ 22.12.0** for the site | `astro@7.3.5` declares it in its own `engines` — measured, not assumed ([research.md](research.md) §1.4). |
-| Node | ≥ 20.19.0 for the repository root | The root `package.json` declares this floor. |
+| **Node** | **≥ 24.15.0**, for the site and the repository root alike | The root `package.json` declares this floor (raised from `>=20.19.0` by **issue #17**, merged 2026-10-05), and `site/package.json` declares the same one. |
 | npm | ≥ 9.6.5 | The same `engines` block: the site's build tool declares this floor. |
 
-**Two different floors, on purpose** (FR-008). The repository's root floor is `>=20.19.0` because that is what the OpenChamber installable manifest advertises, and **raising it is issue #17 — this feature does not change it**. The site's floor is higher because its build tool requires it: `npm view astro@latest engines` answers `{ npm: '>=9.6.5', node: '>=22.12.0' }`, and one root manifest cannot advertise `>=20.19.0` and hold a dependency that refuses to install below `>=22.12.0` ([research.md](research.md) §1.4, §2). If you are on Node 20, you can still run the repository's own gate; you just cannot build the site until you move to Node 22.12 or newer. CI uses Node 24 for both.
+**One floor, and the site matches it** (FR-008). The repository's root floor is `>=24.15.0`, and the site's is the same number. That is a change from when this feature was specified: the root used to advertise `>=20.19.0` and the site `>=22.12.0`, because `astro@7.3.5` requires the newer one — measured, not assumed, via `npm view astro@latest engines`, which answers `{ npm: '>=9.6.5', node: '>=22.12.0' }` ([research.md](research.md) §1.4, §2). **Issue #17 raised the root floor**, so the constraint that forced two different floors no longer exists and the site's floor moved up to match the repository's, by product-owner decision. Astro's own `>=22.12.0` requirement is satisfied with room to spare. CI runs Node 24 for both, and the root gate's matrix runs the floor release `24.15.0` as well as the newest 24.x.
 
-> Verify: `node --version`. If it is below `v22.12.0`, use a version manager (`nvm`, `mise`, `asdf`, `volta`) to select a newer release before continuing.
+**The site is still a self-contained subproject**, and that is unaffected by the floors agreeing: it has its own `package.json`, its own committed lockfile, and its own `engines` block, installed and built from its own directory. The reason is `AGENTS.md` invariant 2 — the root `package.json` is the installable OpenChamber manifest and may not gain `workspaces` ([research.md](research.md) §1.4, option 3; §9).
+
+> Verify: `node --version`. If it is below `v24.15.0`, use a version manager (`nvm`, `mise`, `asdf`, `volta`) to select a newer release before continuing.
 
 ## 1. Install the site's dependencies
 
@@ -27,7 +28,7 @@ npm ci
 
 - **Expected**: no output beyond npm's own progress lines, exit code 0.
 - `npm ci` (not `npm install`) so your tree matches the committed lockfile exactly — that is what the build job does too, and a tree that drifts from the lockfile is not what will be published.
-- If npm reports an engine error naming a version below 22.12.0, you are on the wrong Node release. Go back to step 0.
+- If npm reports an engine error naming a version below 24.15.0, you are on the wrong Node release. Go back to step 0.
 
 > Verify: `site/node_modules/` exists, and `git status --porcelain` from the repository root reports nothing new. The site's dependency directory is already covered by the repository's existing `node_modules/` ignore rule.
 
@@ -122,7 +123,7 @@ npm test           # the site's own assertions (node --test)
 cd .. && npm run verify   # the repository's own gate
 ```
 
-  - `npm run verify` at the root is **unchanged by this feature** and still means: build → lint → typecheck → test. It runs on Node ≥ 20.19 and takes a Node ≥ 22.12 for the site's own commands above.
+  - `npm run verify` at the root is **unchanged by this feature** and still means: build → lint → typecheck → test. It runs on Node ≥ 24.15, the same floor the site's own commands above take.
   - Run the root gate **always**, because the site's build is not part of it.
   - `npm test` runs the site's `*.assertions.mjs` suites — the base-path join, the four generated tables, the build-output contract, and the prose-wrapping guard that walks every `.astro` template. It is a **local loop step today**: the build job runs `check` and `build`, not `test`. **That is a known gap**: a regression in any of these suites reaches a maintainer only when someone runs `npm test` locally, so until the build job also runs it, treat a green `check` and `build` as necessary and not sufficient for the site.
 
@@ -146,11 +147,11 @@ The permissions, the pinned action SHAs, and the address the deployment publishe
 | Symptom | Cause | What to do |
 | --- | --- | --- |
 | The dev server prints a URL with no `/mecha-turk/` | The base path is not applied in the site's configuration | Restore it. Every published asset depends on it, and the failure is invisible locally except as a missing path. |
-| `npm ci` refuses to install, naming an engine version | Node is below the site's floor (≥ 22.12.0) | Move to Node 22.12 or newer. The repository root's lower floor does not apply to this directory. |
+| `npm ci` refuses to install, naming an engine version | Node is below the site's floor (≥ 24.15.0) | Move to Node 24.15.0 or newer. The repository root declares the same floor, so the root install would refuse too. |
 | A page 404s in the built output but not in `npm run dev` | A hand-written root-absolute `src`/`href` | Route it through the site's link helper — step 3a explains why a hand-joined link can drop the base silently, and the build's assertion step catches it. |
 | A link is `/mecha-turkinstall/` — base and path run together | `trailingSlash` was changed away from `'always'`, so the base path has no trailing slash to join against | Restore it, and keep using the helper rather than a hand-written join. Step 3a has the measured table. |
 | `npm run check` passes but seems to have done nothing | `@astrojs/check` or `typescript` is missing, so `astro check` prompts to install and **exits 0** | Both are exact devDependencies of the site. Restore them; a check that silently checks nothing is worse than no check (research.md §7.2). |
-| The root `npm run verify` does not mention the site | Correct, and intended | The root gate cannot reach the site: it is a separate subproject with a separate Node floor. The site's build job is its gate. |
+| The root `npm run verify` does not mention the site | Correct, and intended | The root gate cannot reach the site: it is a separate subproject with its own manifest and lockfile (`AGENTS.md` invariant 2 forbids a workspace link), not a separate Node floor — the two now declare the same one. The site's build job is its gate. |
 | `git status` shows `dist/` or `.astro/` after a build | They are not ignored | They must be ignored (FR-071). Fix the ignore entries rather than committing them. |
 | Root lint or typecheck reports a file under the site directory | The site directory is not excluded from that tool | Exclude the **directory**. Do **not** disable a lint rule to make it fit (FR-070, FR-072). |
 | Root lint starts reporting a file under `.agents/` | The installed skill directory is not excluded — and `eslint .` walks into dot-directories even though `eslint .agents` does not | Add the directory to `ignores` alongside `site/`. Same shape, same reason (research.md §7.8). |

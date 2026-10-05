@@ -461,3 +461,25 @@ A fifth measurement is recorded in the same style and is the one with a home: **
 ### 8.3 One stale cross-reference in this file, noted rather than edited
 
 The header line above reads *"**and §6, added in Phase 4**"*, but §6 is *"What was deliberately **not** researched"* (phases 1–3) and the Phase-4 section is **§7**. The pointer is one section short. It is left as written — this file is append-only above this line, and the target is unmistakable from the section heading — but a reader arriving from that header should go to §7.
+
+---
+
+## 9. The Node floors are one number now (added 2026-10-05, product-owner decision)
+
+Everything above is retained as written. §1.4 and §2 recorded a **conflict** and chose branch 3 of three ways out of it; that conflict is **resolved**, and this section records what dissolved it and which parts of the old record are now history.
+
+**What moved.** The repository's root floor was `>=20.19.0` for as long as this file's phases 1–4 ran. **Issue #17 raised it to `>=24.15.0`**, merged to `main` as `51d3773` on 2026-10-05, and the product owner then decided that **the site's floor rises to match**. So `site/package.json`'s `engines.node` is now `>=24.15.0` rather than the `>=22.12.0` §1.4 measured.
+
+**The three-way choice §1.4 set out, and which branch is historical.**
+
+| Branch | What it was | Status now |
+| --- | --- | --- |
+| **1. Raise the root floor** | *"Rejected: AGENTS.md invariant 2 makes the root `package.json` the OpenChamber installable manifest, and changing the floor it advertises is a change to what the product declares it supports. Tracked separately as issue #17 and explicitly out of scope here."* | **This is what happened** — and the rejection's reasoning did not survive it. Issue #17's own commit found that the host never reads root `engines.node` (`parseManifestJson` validates only `openchamber.engines.openchamber`), so raising it removes nobody from the install path and is not a support-matrix change. The prohibition §1.4 read into invariant 2 was an inference about what a floor advertises, not the invariant's text |
+| **2. Root `workspaces` member** | Rejected: invariant 2 says *"Do not reintroduce npm `workspaces`"*, and a workspace would hoist Astro's tree into the root install | **Still rejected, still correct.** Invariant 2 is unchanged and this feature still gains the site no workspace entry |
+| **3. Self-contained subproject** | Chosen: own manifest, own committed lockfile, own `engines.node` | **Still chosen, and now the only reason it exists.** With branch 1 taken, branch 3's justification is no longer *"the root floor is lower"* — it is that the root manifest is the OpenChamber installable manifest and cannot gain a workspace |
+
+**Why the measurement in §1.4 was not wasted.** The `npm view astro@latest engines` output above — `{ npm: '>=9.6.5', node: '>=22.12.0' }` — is still what sets the site's floor from below. `>=24.15.0` satisfies it with two minor lines of headroom, and the reason the pin on `astro@7.3.5` is exact (R-2) is unchanged: a range could move that floor. What changed is only which number satisfies it.
+
+**The consequence §2 stated as unavoidable, and what happened to it.** §2's second consequence was *"**Two Node floors now exist in one repository.** They are different floors for different subtrees, and `quickstart.md` states both so a contributor on Node 20 is not left to discover it."* **There is one floor now.** The two-`engines`-blocks arrangement survives, so the site is still installed and built from its own directory and the root `npm run verify` still cannot reach it — §2's *first* consequence, that the site's pull-request job is its only gate, is **unchanged and still the price of branch 3**. But the contributor on Node 20 no longer exists as a distinct case, and `quickstart.md` §0 has been rewritten to say so rather than to teach a distinction that has stopped being true.
+
+**What is recorded rather than rewritten.** `tests/manifest.test.ts` deliberately **never writes the root's floor into the suite**, so that the next legitimate change to it is not a failure here — that property is preserved, and the digest of `package.json` (§'s `ROOT_MANIFEST_SHA256`) is the mechanism that catches an unintended change instead. The site's own floor *is* named there, as a deliberate pin: raising it is a reviewed diff rather than a silent edit. FR-008's assertion is therefore about **the relationship between two manifests read at run time**, not about two recorded numbers — which is why it survives equality, and the comment in the test says so.
