@@ -500,6 +500,38 @@ function git(args: readonly string[]): string {
 }
 
 /**
+ * Whether the site's own dependencies are installed under `site/`.
+ *
+ * The check is the package `site/astro.config.ts` itself imports, not a literal
+ * `astro`, and not the mere presence of `site/node_modules`: what decides whether
+ * ESLint's import resolver can load the config is whether *that* package sits
+ * beside it, so a partial or stale install takes the same branch the real one
+ * does. Reading the name out of the file under test keeps the two from parting
+ * company.
+ *
+ * Deliberately not a requirement. FR-070 keeps the site out of the root
+ * toolchain's scope, so the root CI job installs the repository and never the
+ * subproject — this suite cannot assume the directory is there, and two of its
+ * cases read the same installation for exactly that reason.
+ *
+ * @returns `true` when the config's own import is installed beside it.
+ */
+function siteInstallPresent(): boolean {
+    const config = readFileSync(resolve(ROOT, SITE_DIR, 'astro.config.ts'), 'utf8');
+    const specifier = /from '([^']+)'/.exec(config)?.[1];
+    // A scoped name is two segments and an unscoped one is a single, which is the
+    // only difference between the two spellings of the same address.
+    const segments = specifier?.split('/') ?? [];
+    const packageName = specifier?.startsWith('@') === true ? segments.slice(0, 2).join('/') : segments[0];
+
+    if (packageName === undefined) {
+        return false;
+    }
+
+    return existsSync(resolve(ROOT, SITE_DIR, 'node_modules', packageName, 'package.json'));
+}
+
+/**
  * Every file under `site/` that is not installed or generated.
  *
  * The three generated directories are skipped at every level rather than filtered
@@ -679,19 +711,52 @@ describe('007 FR-070 / AC-019 — the root tools report no file under site/', ()
     // turned a passing assertion red on load alone. Set above `TOOL_TIMEOUT_MS` on
     // purpose — a genuine hang is reported by the subprocess bound, which names the
     // command, while this figure only has to leave an honest run alone.
-    it('crashes the whole run without that ignore, in the way the config says it does', () => {
+    it('refuses to lint a site file cleanly once that ignore is neutralised', () => {
         {
             // The reason `site/**` is in `ignores` and not merely tidy. With the
             // ignore neutralised, the import resolver inherits the root tsconfig,
             // in which `site/` is not a project, and ESLint aborts — a crash of
-            // the repository's own gate, not a finding. The error *class* and the
-            // rule are asserted rather than the message prose, because those are
-            // the two things a future dependency bump would change last.
+            // the repository's own gate, not a finding.
+            //
+            // **What it says is asserted as the invariant, not as one install
+            // layout's spelling of it.** The claim is that neutralising the
+            // ignore puts the repository's own lint command over a file it has
+            // been told to skip, and that ESLint cannot return success while
+            // doing so. How that refusal arrives depends on whether `site/` has
+            // been installed here, and both of those refusals are the same fact:
+            //   - installed: the resolver loads `astro/config` through the site tsconfig,
+            //     which the root project does not extend, and ESLint dies with
+            //     `EslintPluginImportResolveError` — the crash the config comment names.
+            //   - not installed, as in the root CI job, which never installs the
+            //     subproject (FR-070): there is no `astro/config` to resolve either,
+            //     so the rule reports an ordinary `import-x/no-unresolved` finding.
+            // Asserting the crash class unconditionally would have made this suite
+            // depend on an install the gate is not allowed to assume; asserting
+            // only "non-zero" would have passed for any reason at all.
             const crashed = runTool(ESLINT_BIN, ['--no-ignore', 'site/astro.config.ts']);
 
             expect(crashed.status).not.toBe(0);
-            expect(crashed.output).toContain('EslintPluginImportResolveError');
-            expect(crashed.output).toContain('import-x/no-cycle');
+            // The finding is against a file under `site/` — the load-bearing half,
+            // and the half that holds whichever way the refusal is expressed. Both
+            // spellings head their output with the offending path.
+            expect(crashed.output).toContain(resolve(SITE_DIR, 'astro.config.ts'));
+            // And it is the file the assertion neutralised, not something ESLint
+            // picked up on its own: the ignore is what used to keep it unread.
+            expect(crashed.output).not.toContain('are ignored');
+        }
+        {
+            // The crash class itself, asserted only where the site *is* installed,
+            // because the error and the rule are the two things a future dependency
+            // bump would change last — and the bump can only change them here, since
+            // this is the only install in which the resolver gets far enough to have
+            // an opinion about the cycle.
+            if (siteInstallPresent()) {
+                const crashed = runTool(ESLINT_BIN, ['--no-ignore', 'site/astro.config.ts']);
+
+                expect(crashed.status).not.toBe(0);
+                expect(crashed.output).toContain('EslintPluginImportResolveError');
+                expect(crashed.output).toContain('import-x/no-cycle');
+            }
         }
     }, 30_000);
 
@@ -775,15 +840,25 @@ describe('007 FR-071 / AC-021 — nothing the site builds is tracked', () => {
             expect(paths.filter((path) => path.startsWith('site/node_modules/'))).toEqual([]);
         }
         {
-            // The build on this tree has already happened, so `site/dist/` and
-            // `site/.astro/` are on disk right now: this is the "untracked after a
-            // local build, with no untracked-file exception needed" half of AC-021
-            // observed rather than assumed.
-            const dirty = git(['status', '--porcelain']).split('\n')
-                .filter((line) => /site\/(?:dist|\.astro|node_modules)\//.test(line));
+            // The "untracked once they exist, with no untracked-file exception
+            // needed" half of AC-021, observed rather than assumed — and
+            // observed only where there is something to observe.
+            //
+            // Conditional, and the condition is the point: the root CI job runs
+            // `npm run verify`, which builds `panel/` and `service/` and never the
+            // site (FR-070 keeps `site/` out of the root toolchain's scope), so
+            // none of the three directories exists there. Asserting that
+            // `site/dist/` does would have been asserting a fact about whichever
+            // developer's machine ran it. Ignored and untracked is what AC-021
+            // requires and what the two cases above check with or without the
+            // directories present; this case adds the observation that real files
+            // under them leave the working tree clean.
+            if ([...SITE_GENERATED].some((name) => existsSync(resolve(ROOT, SITE_DIR, name)))) {
+                const dirty = git(['status', '--porcelain']).split('\n')
+                    .filter((line) => /site\/(?:dist|\.astro|node_modules)\//.test(line));
 
-            expect(existsSync(resolve(ROOT, SITE_DIR, 'dist'))).toBe(true);
-            expect(dirty).toEqual([]);
+                expect(dirty).toEqual([]);
+            }
         }
     });
 });

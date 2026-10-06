@@ -32,7 +32,6 @@ import { describe, test } from 'node:test';
 import manifest from '../../package.json' with { type: 'json' };
 import { DEFAULT_CONFIG } from '../../service/config.ts';
 import { REASON_COPY } from '../../src/handoff-copy.ts';
-import { TAB_IDS } from '../../src/panel-state.ts';
 import { PRODUCT_ID } from '../src/data/product.ts';
 import { PAGES, underBase } from '../src/data/site.ts';
 
@@ -109,6 +108,48 @@ function template() {
  */
 function shippedTabLabels() {
     return [...productFile('src/tab-bodies.ts').matchAll(/label: '([^']+)'/g)].map((match) => match[1]);
+}
+
+/**
+ * The six tab ids, in strip order, read out of `src/panel-state.ts`'s text.
+ *
+ * **Read rather than imported, because that module cannot be imported here.**
+ * `src/panel-state.ts` re-exports the state constructor of most of the panel, and
+ * twenty of the modules behind those value-import `@openchamber/sdk` — a root-only
+ * dependency the site's own install never provides (FR-007's self-contained
+ * subproject). So the import is not a failure here that fails *some* assertion: it
+ * throws `ERR_MODULE_NOT_FOUND` before a single one runs, which is what the site's
+ * CI job saw on a tree where `site/node_modules` existed and the repository's did
+ * not. `src/data/declarations.ts` makes the same call about `src/session.ts`, and
+ * `declarations.assertions.mjs` reads that module's text for the same reason.
+ *
+ * @returns {string[]} One tab id per tab, in strip order.
+ */
+function shippedTabIds() {
+    const body = /export const TAB_IDS[^=]*=\s*\[([^\]]*)\]/.exec(productFile('src/panel-state.ts'))?.[1];
+
+    assert.ok(body, 'src/panel-state.ts no longer declares TAB_IDS as an array literal');
+
+    return [...body.matchAll(/'([^']+)'/g)].map((match) => match[1]);
+}
+
+/**
+ * The members of the `TabId` union, read beside {@link shippedTabIds}.
+ *
+ * The second half of the same declaration, and what makes the read above worth
+ * trusting: a text parse that matched an empty array would compare equal to
+ * another empty array and pass, whereas the union says the six ids are a closed
+ * set — so a parse that lost the list, and an array and a union that have parted
+ * company, both fail here instead of agreeing with each other about nothing.
+ *
+ * @returns {string[]} Every member the union declares, in declaration order.
+ */
+function tabIdUnion() {
+    const body = /export type TabId\s*=\s*([^\n;]+)/.exec(productFile('src/panel-state.ts'))?.[1];
+
+    assert.ok(body, 'src/panel-state.ts no longer declares the TabId union');
+
+    return [...body.matchAll(/'([^']+)'/g)].map((match) => match[1]);
 }
 
 /**
@@ -215,11 +256,13 @@ describe('every internal link resolves under the base path', () => {
 describe('the facts the page names are the facts the product ships', () => {
     test('the six tabs are named in shipped order, one line each', () => {
         const labels = shippedTabLabels();
+        const ids = shippedTabIds();
 
         assert.deepEqual(labels, ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About']);
+        assert.deepEqual(ids, tabIdUnion(), 'the strip order and the closed union have parted company');
         assert.deepEqual(
             [...productFile('src/tab-bodies.ts').matchAll(/id: '([^']+)'/g)].map((match) => match[1]),
-            [...TAB_IDS],
+            ids,
             'the spec list and the id union disagree, so a tab would be documented that the panel does not show',
         );
 
