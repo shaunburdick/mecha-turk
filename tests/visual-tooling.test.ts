@@ -8,6 +8,7 @@ import { parseDispatchesBody } from '../src/dispatches-service.ts';
 import { parseAccountsBody } from '../src/accounts-service.ts';
 import { parseConfigEnvelope } from '../src/settings-schema.ts';
 import { parseAuditBody } from '../src/audit-view.ts';
+import hostFixtures from '../tools/visual/theme-fixtures.json';
 import { byText } from './support/sort.ts';
 
 /** Repository root, derived from this file's location. */
@@ -281,6 +282,107 @@ describe('a capture can run under a fixture scene', () => {
 /* -------------------------------------------------------------------- *
  * The fixture answers the panel's own fail-closed readers accept
  * -------------------------------------------------------------------- */
+
+/* -------------------------------------------------------------------- *
+ * The three host fixtures (005 NFR-107, M-002)
+ *
+ * `tools/visual/theme-fixtures.js` is where the host light/dark token payloads
+ * and the alias table now live, because the offline accessibility suite and the
+ * browser harness have to read the *same* ones. These assertions are about the
+ * wiring: that the table matches the pinned SDK, that the fallback fixture is
+ * built by removal after `ready`, and that the capture tool refuses to
+ * photograph the fallback rather than weakening its freshness proof.
+ * -------------------------------------------------------------------- */
+
+describe('the host-theme fixtures the accessibility suite measures are the harness\'s own', () => {
+    it('lists the two complete host modes and the alias-unavailable frame', () => {
+        expect(hostFixtures.aliases.length).toBeGreaterThan(0);
+
+        for (const mode of ['light', 'dark'] as const) {
+            const tokens = hostFixtures[mode];
+
+            // "Complete" is the requirement, not a nicety: a payload with a member missing is
+            // neither a supported host theme nor the alias-unavailable case.
+            expect(Object.keys(tokens).length, mode).toBe(27);
+            expect(tokens.background, mode).toMatch(/^#[\da-f]{6}$/u);
+            expect(tokens.foreground, mode).toMatch(/^#[\da-f]{6}$/u);
+            expect(tokens.font, mode).toContain('system-ui');
+        }
+        // And the two modes are genuinely different, so a suite that measured one twice would be
+        // caught here rather than reported as two passing cases.
+        expect(hostFixtures.dark.background).not.toBe(hostFixtures.light.background);
+    });
+
+    it('removes every alias the SDK writes, and the inherited declarations with them', () => {
+        const host = readFileSync(resolve(ROOT, 'tools', 'visual', 'host.js'), 'utf8');
+
+        // The reset is a *removal*: `applyHostTheme` writes every alias on every `ready`, so no
+        // thinner payload reaches the fallback branch. Asserted against the source because the
+        // behaviour only exists in a browser — the rendered proof is M-003's review.
+        expect(host).toContain('function stripHostTheme()');
+        expect(host).toContain('for (const alias of HOST_THEME_ALIASES)');
+        expect(host).toContain('for (const property of HOST_INHERITED_PROPERTIES)');
+        // …and it keeps the one declaration the frame legitimately has.
+        expect(host).toContain('retainedColorScheme');
+        expect(host).toContain('root.style.removeProperty(property)');
+    });
+
+    it('sends no second `ready` after the fallback reset', () => {
+        const host = readFileSync(resolve(ROOT, 'tools', 'visual', 'host.js'), 'utf8');
+        const fallback = /if \(name === FALLBACK\) \{[\s\S]*?\n {4}\}/.exec(host)?.[0] ?? '';
+
+        // A second `ready` would write every alias straight back and make the fixture a no-op
+        // that still reported success — the failure mode the whole design exists to prevent. Only
+        // the fallback branch is checked: switching *to* a host mode is exactly a `ready`.
+        expect(fallback).not.toBe('');
+        expect(fallback).toContain('stripHostTheme()');
+        expect(fallback).not.toContain('sendReady');
+        // The guard that stops it being applied before any `ready` reached the guest.
+        expect(fallback).toContain('the fallback fixture needs a `ready`');
+    });
+
+    it('paints the harness canvas from the fixture, so the reserved gutter is not a light seam', () => {
+        const host = readFileSync(resolve(ROOT, 'tools', 'visual', 'host.js'), 'utf8');
+
+        /*
+         * The SDK reserves a scrollbar gutter on the guest document, and the guest paints only
+         * its own box — those few pixels show the *harness* canvas, which `tools/visual/index.html`
+         * paints at a fixed light `#f6f7f9`. Left that way, every dark-fixture capture carries a
+         * light stripe down its right edge: a harness artefact a reader would take for a panel
+         * one. The gutter is host canvas, so the fixture paints it with the fixture's own
+         * background, and the fallback frame — whose canvas is the browser default — restores the
+         * stylesheet's value.
+         */
+        expect(host).toContain('frame.style.background = hostTokens(');
+        expect(host).toContain("frame.style.background = '';");
+    });
+
+    it('publishes a theme report a caller can judge the frame from', () => {
+        const host = readFileSync(resolve(ROOT, 'tools', 'visual', 'host.js'), 'utf8');
+
+        // Absent **and** computed, because an alias that survived in a stylesheet the harness
+        // does not own would still resolve — reading only the inline style would miss it.
+        expect(host).toContain('inlineAliases');
+        expect(host).toContain('computedAliases');
+        expect(host).toContain('getComputedStyle(root)');
+        expect(host).toContain('applyFixture,');
+        expect(host).toContain('hostThemeReport,');
+    });
+
+    it('refuses to photograph the fallback, and says which half of the evidence covers it', () => {
+        const tool = readFileSync(resolve(ROOT, 'tools', 'visual', 'shot.js'), 'utf8');
+
+        // The strip read-back samples the selected tab's fill; in the fallback frame there is no
+        // host-painted fill to sample, so capturing it would mean weakening a freshness check.
+        expect(tool).toContain('function selectFixture(');
+        expect(tool).toMatch(/measured, not photographed/u);
+        expect(tool).toContain('const PHOTOGRAPHABLE = [LIGHT, DARK];');
+        expect(tool).toContain("['--fixture', (options, value) => {");
+        // The two host themes still go through the ordinary capture path, freshness chain intact.
+        expect(tool).toContain('__MT__.applyFixture(');
+        expect(tool).toContain('host alias(es) inline');
+    });
+});
 
 describe('every fixture answer is one the panel can read', () => {
     it('passes all six routes through the readers that render them', () => {

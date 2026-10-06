@@ -30,7 +30,8 @@
 
             #root {
                 /*
-                 * Design tokens (2026-09-30 visual redesign).
+                 * Design tokens (2026-09-30 visual redesign; field-manual
+                 * treatment 2026-10-06).
                  *
                  * Every value is an alias of a token the host theme paints
                  * onto `<html>` through `applyHostTheme` (the SDK writes both
@@ -39,6 +40,15 @@
                  * without this file knowing either palette. The right-hand
                  * fallbacks only ever run in a frame the host never readied,
                  * and each one is chosen to stay legible in both modes.
+                 *
+                 * `--mt-dim`'s fallback is the one that had to change when the
+                 * three host fixtures were measured (005 NFR-107): `gray` is
+                 * 3.95:1 on a white canvas, so every muted role in an
+                 * alias-unavailable frame failed the 4.5:1 normal-text floor.
+                 * `#767676` is measured, not guessed: 4.54:1 on white and
+                 * 4.62:1 on black, which is what a fallback must clear in
+                 * *either* mode — no darker neutral clears 4.5:1 on both. It
+                 * is a last resort, never shown beside a host that has readied.
                  */
                 --mt-gap: 12px;
                 --mt-pad: 14px;
@@ -50,13 +60,19 @@
                 --mt-surface: var(--oc-elevated, var(--surface-elevated, transparent));
                 --mt-sunken: var(--oc-subtle, var(--surface-subtle, transparent));
                 --mt-ink: var(--oc-fg, var(--surface-foreground, inherit));
-                --mt-dim: var(--oc-muted, var(--surface-muted-foreground, gray));
+                --mt-dim: var(--oc-muted, var(--surface-muted-foreground, #767676));
                 --mt-line: var(--oc-border, var(--interactive-border, currentColor));
                 --mt-accent: var(--oc-primary, var(--primary, currentColor));
                 --mt-font: var(--oc-font, var(--font-sans, inherit));
                 --mt-mono: var(--oc-mono, var(--font-mono, monospace));
                 --mt-hover: var(--oc-hover, var(--interactive-hover, transparent));
                 --mt-key-width: 13rem;
+                /* Two shares of `--mt-line`, for the static decoration at the
+                 * end of this sheet: a rule you can read and a hairline you
+                 * read past. Both are derived from the host's own border token
+                 * rather than from a colour of their own. */
+                --mt-hairline: color-mix(in srgb, var(--mt-line) 55%, transparent);
+                --mt-faint: color-mix(in srgb, var(--mt-line) 26%, transparent);
 
                 height: 100%;
                 padding: 12px;
@@ -701,6 +717,230 @@
                 max-width: 74ch;
             }
 
+            /* ---------------------------------------------------------------- *
+             * Field manual: the rail's visual language (005 FR-130).
+             *
+             * The panel is a document, not a dashboard: a technical field
+             * manual rendered at rail width. Everything below is
+             * **presentation** — no rule here changes a control, a label, a
+             * state cue, or what the accessibility tree reports.
+             *
+             * Four devices carry it, each deliberately restrained because the
+             * rail is narrow:
+             *
+             * 1. **A drafting grid** behind the whole pane, drawn once on the
+             *    root's own background rather than on any content box. It sits
+             *    under everything (`z-index: -1`), takes no pointer events, and
+             *    carries no colour of its own — only a share of `--mt-line`.
+             * 2. **Compact technical labels.** Block headings become monospace,
+             *    uppercase and tracked out, which reads as a field label at
+             *    10px in a way the host's own sans at that size does not.
+             * 3. **A signal edge on the first block of a tab**, and on a card
+             *    that carries its own emphasis. This is the *selective* part:
+             *    most content stays open on the pane, so the rail is not a
+             *    stack of identically weighted cards.
+             * 4. **A corner tick** on every block — a static drafting mark
+             *    drawn from the block's own accent, not a glyph, so it adds
+             *    nothing to the accessibility tree and nothing an operator has
+             *    to read.
+             *
+             * ## Why this block is last
+             *
+             * It is placed at the end of the sheet rather than beside the rules
+             * it amends because several of them *are* amendments: `.mt-heading`
+             * and `.mt-head` are declared above with the host's own type, and
+             * a rule of equal specificity placed earlier loses to them on
+             * source order alone. The first draft of this block sat next to the
+             * rules it described and was silently overridden — the heading
+             * labels rendered in the host's sans, at the host's size, and every
+             * screenshot looked exactly as it had before this file changed.
+             *
+             * No device animates: there is no `transition`, no `animation`, and
+             * no `@keyframes` anywhere in this file, and the field-manual
+             * decoration must stay still (005 AC-160).
+             * ---------------------------------------------------------------- */
+
+            /*
+             * The drafting grid. `position: fixed` with a `z-index` below the
+             * content and `pointer-events: none`, so it never scrolls with the
+             * content, never eats a click, and never sits between an operator
+             * and a control. `background-image` rather than `background` is
+             * deliberate: the rule paints no colour of its own, so the pane
+             * behind it is still whatever the host chose.
+             */
+            #root {
+                position: relative;
+                isolation: isolate;
+            }
+
+            #root::before {
+                position: fixed;
+                z-index: -1;
+                pointer-events: none;
+                inset: 0;
+                background-image:
+                    linear-gradient(to right, var(--mt-faint) 1px, transparent 1px),
+                    linear-gradient(to bottom, var(--mt-faint) 1px, transparent 1px);
+                background-size: 28px 28px;
+                content: '';
+            }
+
+            /* A block: an open surface with a hairline and a corner tick. */
+            .mt-block {
+                position: relative;
+            }
+
+            /*
+             * The corner tick: two borders of a 9px square clipped to a corner,
+             * drawn in the block's own accent colour — no glyph, no text, and no
+             * colour the host does not already own.
+             */
+            .mt-block::after {
+                position: absolute;
+                top: 0;
+                right: 0;
+                width: 9px;
+                height: 9px;
+                border-top: 1px solid var(--mt-accent);
+                border-right: 1px solid var(--mt-accent);
+                opacity: 0.5;
+                content: '';
+                pointer-events: none;
+            }
+
+            /* Compact technical labels: the block heading is a field label. */
+            .mt-heading {
+                font-family: var(--mt-mono);
+                font-size: 0.625rem;
+                letter-spacing: 0.12em;
+                text-transform: uppercase;
+            }
+
+            .mt-heading--title {
+                font-family: var(--mt-font);
+                font-size: 0.9375rem;
+                letter-spacing: -0.01em;
+                text-transform: none;
+            }
+
+            /*
+             * Selective emphasis: the **first** block in each tab carries the
+             * signal edge. `:first-of-type` rather than `:first-child`, so a
+             * banner above it does not change which block is emphasised.
+             */
+            [data-body] > .mt-block:first-of-type {
+                border-inline-start: 2px solid var(--mt-accent);
+                padding-inline-start: calc(var(--mt-pad) - 2px);
+            }
+
+            /* A card is the second kind of emphasis, so it is marked as one. */
+            .mt-card {
+                border-inline-start: 2px solid color-mix(in srgb, var(--mt-accent) 55%, transparent);
+            }
+
+            /*
+             * Dense lists get a technical header: a monospace label row over a
+             * rule that reads as a table head. `.mt-head` is `display: grid` by
+             * default and only becomes one at the wide breakpoints, so this
+             * changes colour, family and tracking only — never which layout is
+             * in force.
+             */
+            .mt-head {
+                font-family: var(--mt-mono);
+                letter-spacing: 0.09em;
+                text-transform: uppercase;
+            }
+
+            /*
+             * Chips carry the dispatch state. The border is what makes a chip
+             * readable when the state colour sits close to the surface; the
+             * label inside it is what makes the state legible at all (005
+             * FR-083). Nothing here replaces either.
+             */
+            .oc-sdk-badge {
+                font-family: var(--mt-mono);
+                letter-spacing: 0.06em;
+                text-transform: uppercase;
+            }
+
+            /*
+             * Definition rows read as a specification, so the key keeps its
+             * monospace family and each row keeps a hairline. An interactive
+             * row is marked at its left edge when it is hovered or holds focus,
+             * which is a shape rather than a colour change alone.
+             */
+            .mt-def {
+                border-top-color: var(--mt-faint);
+            }
+
+            .mt-def--interactive {
+                border-inline-start: 2px solid transparent;
+                padding-left: calc(var(--mt-space-2) - 2px);
+            }
+
+            .mt-def--interactive:hover,
+            .mt-def--interactive:focus-within {
+                border-inline-start-color: var(--mt-accent);
+            }
+
+            /*
+             * Keyboard focus stays unmistakable. The disclosure summary keeps
+             * its own outline, and every other focusable the panel draws gets
+             * the same one, so focus is never carried by a colour change alone
+             * (005 FR-082).
+             */
+            .mt-block :focus-visible,
+            .mt-card :focus-visible,
+            [data-body] > * :focus-visible {
+                outline: 2px solid var(--mt-accent);
+                outline-offset: 2px;
+                border-radius: 3px;
+            }
+
+            /*
+             * The Settings save bar wraps instead of overflowing.
+             *
+             * Measured at 320px, the narrowest frame the host gives an extension panel: the three
+             * buttons plus the "No unsaved changes." line laid out on one 455px row inside a 290px
+             * region, so the region scrolled sideways and `Restore defaults` sat 148px past the
+             * frame's edge — a primary action a reader could not see without scrolling the panel
+             * sideways. 005 FR-082 asks that no primary action require horizontal scrolling.
+             *
+             * The selector names the row by its shape rather than by a class the panel does not
+             * control: a flex row holding three sibling buttons. The save bar is built in
+             * `src/settings-mount.ts` with inline styles and this stylesheet is where presentation
+             * lives, so a rule here is what can answer it without a source change — and it changes
+             * nothing at any width where the row already fit.
+             */
+            .mt-block div:has(> button + button + button) {
+                flex-wrap: wrap;
+                row-gap: var(--mt-space-2);
+            }
+
+            /*
+             * The six tabs fit at 320px, the narrowest frame the host gives an extension panel.
+             *
+             * Measured: the strip is a horizontal scroller whose six labels, laid out at the SDK's
+             * 11.4px on 10px padding, take 413px of a 314px strip — so the last two tabs were only
+             * reachable by scrolling the strip sideways, and they did not truncate on the way, since
+             * the SDK leaves text-overflow at clip with no max-width. 005 FR-082 asks that no primary
+             * action require horizontal scrolling and that tab labels truncate rather than wrap, so
+             * the labels are given room instead of a scrollbar: below 380px the strip's type and
+             * padding come down together and the six fit. Nothing above 380px moves, so the 560px and
+             * 720px captures are unaffected.
+             *
+             * The selector is rooted at #root because it has to out-specify the SDK's own
+             * `.oc-sdk-tab { padding: 0 10px; font-size: 0.8125rem }` — measured, not assumed: at
+             * equal specificity the SDK's sheet wins on source order and the rule below changes
+             * nothing at all.
+             */
+            @media (max-width: 380px) {
+                #root .oc-sdk-tab {
+                    padding-inline: 0.25rem;
+                    font-size: 0.625rem;
+                    letter-spacing: -0.01em;
+                }
+            }
         </style>
 
         <!--

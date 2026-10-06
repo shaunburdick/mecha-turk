@@ -58,6 +58,7 @@ import { createBrowser } from './browser.js';
 import { align, assertLayout, bodyView, fitViewport, measure, MIN_VIEWPORT_HEIGHT, ROOT_PAD } from './layout.js';
 import { selfTest } from './png-selftest.js';
 import { startServer } from './serve.js';
+import { DARK, FALLBACK, FIXTURES, LIGHT } from './theme-fixtures.js';
 import { percent, verifyDelivered, verifyProbe } from './verify.js';
 
 /** The six tabs, in the strip's own order (FR-010). */
@@ -172,6 +173,26 @@ const NARROW_WIDTH = 560;
 /** Short viewport used before the full-height capture stretches the page. */
 const SANITY_HEIGHT = 1_000;
 
+/**
+ * Which host fixture the run paints from.
+ *
+ * `light` and `dark` are the two supported host themes, each a complete token payload;
+ * `fallback` is the post-`ready` state where the SDK's aliases are removed again and the
+ * panel's own fallbacks resolve. It is read once, right after boot, so a run photographs one
+ * fixture rather than switching halfway through its own freshness chain — the sentinel colours,
+ * the strip read-back, and the per-width diff all assume a single painted document per run.
+ */
+const DEFAULT_FIXTURE = 'light';
+
+/**
+ * The fixtures a capture run may paint from: the two supported host themes.
+ *
+ * The alias-unavailable fixture is deliberately absent — see `selectFixture`, which refuses it
+ * by name and says why rather than quietly photographing a frame whose selection it cannot
+ * verify.
+ */
+const PHOTOGRAPHABLE = [LIGHT, DARK];
+
 /** Tallest viewport the run will ask for before it gives up on a tab. */
 const DEFAULT_MAX_HEIGHT = 6_000;
 
@@ -186,6 +207,9 @@ const USAGE = [
     'usage: node tools/visual/shot.js [tab …] [--out DIR] [--width PX] [--max-height PX]',
     `       tabs: ${TABS.map((entry) => entry.id).join(', ')} (default: all six)`,
     `       scenes: ${Object.keys(SCENES).join(', ') || 'none'} (--scene NAME; default: the base fixture)`,
+    `       fixtures: ${PHOTOGRAPHABLE.join(', ')} (--fixture NAME; default: ${DEFAULT_FIXTURE})`,
+    `                 ${FALLBACK} is measured through the harness, never photographed: its selected`,
+    '                 tab has no host-painted fill for the strip read-back to sample',
     '       flags: --no-full (skip panel-full.png), --session NAME, --help',
     `       every tab is captured at ${DEFAULT_WIDTH}px (or --width) and again at ${NARROW_WIDTH}px`,
     `       as panel-<tab>-narrow.png; --width ${NARROW_WIDTH} or narrower skips the second frame`,
@@ -212,6 +236,44 @@ function optionValue(argv, index) {
     }
 
     return value;
+}
+
+/**
+ * Resolve a requested fixture, refusing anything unknown, and refusing the fallback.
+ *
+ * `light` and `dark` are photographable; **`fallback` is not**, and the reason is a property of
+ * the fixture rather than a gap in this tool. The strip read-back samples the fill of the
+ * *selected* tab and compares it with the colour the cascade reports — that is what proves a
+ * frame is not the previous tab's. In the fallback frame the SDK's selected-tab fill resolves
+ * through an alias that has been removed on purpose, so there is no fill to sample and no proof
+ * to make. The alternative would be to weaken or skip that check for one fixture, which is the
+ * one thing this run's machinery exists to prevent; so the fallback is measured (`__MT__.
+ * applyFixture('fallback')` and `hostThemeReport()`, driven from the accessibility suite and
+ * from M-003's review) rather than photographed.
+ *
+ * Refused at the command line for the same reason a scene is: an unknown name would otherwise
+ * boot the base light fixture and write its frames under the name asked for — a picture of the
+ * wrong document published as the requested one.
+ *
+ * @param name - The fixture asked for.
+ * @returns The fixture's name.
+ * @throws {Error} On an unknown name, or on `fallback`.
+ */
+function selectFixture(name) {
+    if (!FIXTURES.includes(name)) {
+        throw new Error(`unknown fixture "${name}" — try: ${FIXTURES.join(', ')}`);
+    }
+    if (name === FALLBACK) {
+        throw new Error(
+            'the alias-unavailable fixture is measured, not photographed: its selected tab has no ' +
+                'host-painted fill, so the strip read-back has nothing to sample and capturing it ' +
+                `would mean weakening that check. Apply it through __MT__.applyFixture("${
+                    FALLBACK
+                }") and read __MT__.hostThemeReport() instead.`,
+        );
+    }
+
+    return name;
 }
 
 /**
@@ -264,6 +326,9 @@ const VALUE_OPTIONS = new Map([
     ['--scene', (options, value) => {
         options.scene = selectScene(value);
     }],
+    ['--fixture', (options, value) => {
+        options.fixture = selectFixture(value);
+    }],
 ]);
 
 /** The options that are switches, and what each one sets. */
@@ -280,7 +345,7 @@ const FLAG_OPTIONS = new Map([
  * Read the command line.
  *
  * @param argv - Arguments after the script name.
- * @returns `{ tabs, outDir, width, maxHeight, session, scene, full, help }`.
+ * @returns `{ tabs, outDir, width, maxHeight, session, scene, fixture, full, help }`.
  */
 function parseArgs(argv) {
     const options = {
@@ -290,6 +355,7 @@ function parseArgs(argv) {
         maxHeight: DEFAULT_MAX_HEIGHT,
         session: undefined,
         scene: null,
+        fixture: DEFAULT_FIXTURE,
         full: true,
         help: false,
     };
@@ -547,6 +613,20 @@ async function runCapture(input) {
     await browser.setViewport({ width: context.width, height: SANITY_HEIGHT });
     await waitForBoot(browser);
 
+    /*
+     * The fixture is applied once, after boot and before the first probe, because the run's
+     * whole freshness chain assumes one painted document: applying it per capture would let a
+     * later frame differ from the previous one purely because the theme changed, and the
+     * same-width diff could no longer tell a stale bitmap from a real edit.
+     */
+    const fixture = String(await browser.evaluate(`__MT__.applyFixture('${context.fixture}')`));
+    const theme = JSON.parse(String(await browser.evaluate('JSON.stringify(__MT__.hostThemeReport())')));
+
+    writeLine(
+        `fixture ${fixture}: ${theme.inlineAliases.length} host alias(es) inline, ` +
+            `${theme.computedAliases.length} computed, color-scheme ${theme.colorScheme || 'none'}`,
+    );
+
     const bootFraction = await probe({
         browser,
         path: join(context.outDir, '.probe-boot.png'),
@@ -622,6 +702,7 @@ async function main() {
         maxHeight: options.maxHeight,
         probeColors: PROBE_COLORS,
         url: `${server.url}/tools/visual/index.html${query}`,
+        fixture: options.fixture,
         refs: {},
         previousByWidth: new Map(),
     };

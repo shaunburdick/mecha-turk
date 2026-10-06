@@ -504,3 +504,33 @@ The correction reached identifiers too: `site/scripts/assert-build.mjs`'s `asser
 **What was never at risk.** `LICENSE` is the file's name rather than prose, `package.json`'s `"license": "MIT"` key is a manifest field, and the MIT template's body contains **neither** spelling — it says *"Permission is hereby granted"* and *"the Software"*. So no verbatim upstream text was edited, and no requirement changed meaning: every corrected site said *license* or *licence* for the same artefact, the same file, or the same link.
 
 **The reader-visible half, and what the build contract actually checks.** `site/src/components/footer.astro` rendered `MIT licence` on all five published pages, so this was not only a records question. But `assertTheFooterLicenseLink` reads the footer's **targets** — `readLinkTargets` matches `href` and nothing else — and asks whether one is an absolute off-origin path ending in `/LICENSE`. **The link's label is not part of that assertion**, so correcting the footer's wording alone would not have failed the contract. Measured rather than assumed: with `footer.astro` put back to `MIT licence` and the fixture left at `MIT license`, `assert-build` still reported 251 assertions holding; **removing the `<li>` outright is what fails it**, and it fails on all five pages at once. The literal in `site/tests/assert-build.assertions.mjs` is a synthetic page the script is tested against, not a copy of the shipped footer — so the two had to be corrected together by eye, and nothing would have said otherwise.
+
+---
+
+## 11. Phase-4 findings — v1.5.0 accessibility and visual acceptance (added 2026-10-06)
+
+This section records research for the approved amendment only; the previous phase records remain unchanged.
+
+### 11.1 Applicable evidence standard
+
+The approved 007 v1.5.0 NFR-004 and AC-032–AC-036 already specify the measurable floors: WCAG 2.2 contrast thresholds (4.5:1 normal text, 3:1 large text, 3:1 meaningful non-text/focus), both CSS preference palettes, focus/keyboard evidence, 320 CSS-pixel reflow, and static decoration. The local accessibility skill corroborates the evidence method: inspect rendered output/accessibility tree, exercise keyboard flow, and treat automated scores as partial evidence rather than conformance. No new WCAG interpretation or requirement is introduced by this plan.
+
+### 11.2 Existing verification surfaces and limits
+
+- The site owns a separate `site/` toolchain (`npm run check`, `npm run build`, `npm test`); root `npm run verify` does not cover it (FR-070). The existing assertion runner reads built `site/dist/` pages. Its current worktree changes already begin evaluating separate preference cascades and additional painted surfaces, but the implementation must still prove the full v1.5.0 scope: large text, focus/non-text boundaries and threshold-specific negative cases, plus the browser checks.
+- `tools/visual/` is the repository's offline, no-cache panel harness. `tools/visual/shot.js` captures every tab at 720px and 560px; the host bridge currently provides light and dark semantic tokens. The planned panel work must add a deterministic alias-unavailable fixture rather than pretending the current two theme payloads prove fallback behavior.
+- No external browser, Lighthouse service, or dependency installation is assumed. Use a local browser/accessibility-tree interface if available; if Lighthouse is already installed, it may add a report, but absence is recorded rather than repaired by installing tools or weakening the required evidence.
+
+### 11.3 Matrix sizing and decision
+
+AC-033 requires five pages × desktop/narrow viewports × light/dark = 20 evaluated combinations. AC-036 additionally checks all five pages at 320 CSS px in both modes, so the full combined matrix is 30 combinations. Task T-048 records every combination; T-049 records keyboard order/focus and 320px reflow evidence. Site checks remain site-only and are not coupled to the OpenChamber panel's host palette.
+
+No library or framework version decision follows: Astro, TypeScript, and the subproject boundary do not change. No data model or contract change is indicated.
+
+### 11.4 Gate 2 finding — which contrast checks the built-output parser can own
+
+Inspection of the current `site/scripts/assert-build.mjs` confirms it is deliberately bounded: `readPalette` tokenizes simple rule blocks, `paintBackground` matches only the named bare-element surfaces in `SURFACE_CHAINS`, and `unresolvableBackgrounds` rejects painted backgrounds it cannot place. It does not evaluate selector specificity or a focused `:focus-visible` state. The stylesheet has a real pseudo-state focus rule and a gradient-backed lead surface, so extending this parser to claim it measured rendered focus/gradient contrast would be a false claim.
+
+Decision: keep T-047's no-dependency built-output parser for the static surface/text pairs it can resolve and make its pair-specific 4.5:1 / 3:1 floor explicit. T-048 uses the existing `tools/visual/browser.js` wrapper (`agent-browser eval`, `press`, `screenshot`) on the local built pages to obtain the actual active element's `getComputedStyle` after keyboard focus, its text size/weight, and the actual adjacent rendered color. Solid backgrounds come from the computed background chain; the current gradient cases are checked against sampled rendered pixels using the existing `tools/visual/png.js` decoder. Test-only low-contrast overrides separately prove the normal-text, large-text, and focus/non-text assertions fail. This stays offline and adds no package dependency or hosted browser.
+
+The large-text classification uses WCAG 2.2's own point-size definition, not a rounded pixel heuristic: 18pt (24 CSS px) normal or 14pt (~18.67 CSS px) bold receives the 3:1 text threshold. Source: [W3C Understanding SC 1.4.3, updated 2026-09-06](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html). The browser check records observed sizes and weights so that a future CSS change cannot silently reclassify display text.

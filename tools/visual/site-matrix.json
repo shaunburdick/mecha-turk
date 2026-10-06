@@ -1,0 +1,93 @@
+{
+    "$comment": [
+        "The rendered matrix T-048 measures: five pages x three viewports x two",
+        "preference cascades = 30 cases. Read by tools/visual/site-matrix.js (which",
+        "imports it, so the browser and this file cannot disagree) and by",
+        "tests/site-rendered-evidence.test.ts (which imports it as a typed literal).",
+        "It is JSON rather than a module for the same reason",
+        "tools/visual/theme-fixtures.json is: two consumers in two languages, and a",
+        "plain .js outside the root tsconfig's include resolves to `any`."
+    ],
+    "floors": {
+        "normalText": 4.5,
+        "largeText": 3,
+        "nonText": 3
+    },
+    "largeText": {
+        "px": 24,
+        "boldPx": 18.67,
+        "boldWeight": 700
+    },
+    "pages": [
+        { "id": "landing", "path": "/" },
+        { "id": "install", "path": "/install/" },
+        { "id": "configure", "path": "/configure/" },
+        { "id": "use", "path": "/use/" },
+        { "id": "debug", "path": "/debug/" }
+    ],
+    "viewports": [
+        { "name": "desktop", "width": 1280, "height": 900 },
+        { "name": "narrow", "width": 720, "height": 900 },
+        { "name": "narrowest", "width": 320, "height": 900 }
+    ],
+    "schemes": ["light", "dark"],
+    "subjects": [
+        { "label": "body prose", "selector": "main p", "kind": "text" },
+        { "label": "a link in the content", "selector": "main a", "kind": "text" },
+        { "label": "the lead paragraph", "selector": "h1 + p, h2 + p", "kind": "text" },
+        { "label": "the page title", "selector": "h1", "kind": "text" },
+        { "label": "a section heading", "selector": "h2", "kind": "text" },
+        { "label": "a subsection heading", "selector": "h3", "kind": "text" },
+        { "label": "a list item", "selector": "main li", "kind": "text" },
+        { "label": "a definition term", "selector": "dt", "kind": "text" },
+        { "label": "a definition", "selector": "dd", "kind": "text" },
+        { "label": "inline code", "selector": "code", "kind": "text" },
+        { "label": "a navigation link", "selector": "nav li:not(:first-child) a", "kind": "text" },
+        { "label": "the current page in the navigation", "selector": "nav a[aria-current='page']", "kind": "text" },
+        { "label": "the navigation wordmark", "selector": "nav li:first-child a", "kind": "text" },
+        { "label": "a footer link", "selector": "footer a", "kind": "text" },
+        { "label": "the footer's reference label", "selector": "footer", "kind": "text", "pseudo": "::before" },
+        { "label": "the title's field-manual eyebrow", "selector": "h1", "kind": "text", "pseudo": "::before" },
+        { "label": "a generated section index", "selector": "h2", "kind": "text", "pseudo": "::before" },
+        { "label": "a generated list index", "selector": "main > section:nth-of-type(2) li", "kind": "text", "pseudo": "::before" },
+        { "label": "a list marker", "selector": "main li", "kind": "text", "pseudo": "::before" },
+        { "label": "the lead surface's body text", "selector": "main > h1 + section p", "kind": "text" },
+        { "label": "the lead surface's link", "selector": "main > h1 + section a", "kind": "text" },
+        { "label": "the lead surface's index", "selector": "main > h1 + section h2", "kind": "text", "pseudo": "::before" },
+        { "label": "a table caption", "selector": "caption", "kind": "text" },
+        { "label": "a table header", "selector": "thead th", "kind": "text" },
+        { "label": "a row term", "selector": "tbody th[scope='row']", "kind": "text" },
+        { "label": "a table cell", "selector": "td", "kind": "text" }
+    ],
+    "focusSubjects": [
+        { "label": "the first navigation link", "selector": "nav a" },
+        { "label": "the first link in the content", "selector": "main a" },
+        { "label": "the first footer link", "selector": "footer a" }
+    ],
+    "injections": [
+        {
+            "id": "normal-text",
+            "kind": "text",
+            "subject": "main p",
+            "property": "color",
+            "targetRatio": 3.4,
+            "note": "between the 3:1 large-text floor and the 4.5:1 normal-text floor, so it can only fail the normal-text assertion"
+        },
+        {
+            "id": "large-text",
+            "kind": "text",
+            "subject": "h1",
+            "property": "color",
+            "targetRatio": 2.2,
+            "note": "below both text floors, so it fails whichever one the title is classified under"
+        },
+        {
+            "id": "focus",
+            "kind": "focus",
+            "subject": "nav li:not(:first-child) a",
+            "property": "outline-color",
+            "targetRatio": 1.8,
+            "note": "below the 3:1 non-text floor a focus indicator carries"
+        }
+    ]
+}

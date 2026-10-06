@@ -625,3 +625,22 @@ This document is **not** amended. Its requirements keep their numbers and their 
 | **FR-016**, **FR-018** — keyboard operability and accessible names | **Applied** to the new control (002 FR-094). Both options must be reachable without a pointer | **Applied** |
 
 Also arriving here from 002 FR-036: the per-repository **health** surface gains the window's lower bound and whether a recovery replay is in force (002 FR-092), so an operator can answer *"why did this older assignment never start work?"* from the panel. **Version**: unchanged (no requirement text of this document changed).
+
+
+### v1.19.0 — 2026-10-06 (extension visual-language and accessibility amendment)
+
+- **Rationale**: After approving the live editorial field-manual concept on the documentation site, the product owner asked to adapt its visual personality to the actual OpenChamber extension rail panel, complete accessibility review/fixes for both surfaces, and accurately document the separate systems in root `DESIGN.md`. The panel already has explicit authority for its six-tab shell, rendering, accessibility, host behavior, and narrow-width constraints, so this is an amendment to 005 rather than a new feature. It is visual-only and does not change the host integration.
+- **Requirement-by-requirement record**:
+
+  | Requirement | Effect in v1.19.0 | Status after this amendment |
+  | --- | --- | --- |
+  | **FR-082** | Extended in place: preserves keyboard operation, visible focus, tab/body association, and narrow-rail behavior, and explicitly requires that the new styling not reduce focus contrast or reachability. | Extended; prior behavior unchanged |
+  | **User Story 6, acceptance scenario 5** | Re-cut in place on 2026-10-06 to say the identifier-mapping table lives on the published documentation site, aligning the current normative story with 005 FR-029 and 007 FR-051; no product decision or scope changes. | Corrected |
+  | **FR-130** | New block-M contract adapts editorial hierarchy, compact technical labels, selective indices/accents, static drafting/signal decoration, and varied surfaces to the six-tab rail. It requires host semantic aliases/fallbacks, forbids copying the site's palette, keeps style-only work in `panel/index.html`, and bars runtime/control/wire/storage changes and animated decoration. | Added |
+  | **NFR-107** | Extended with measurable normal-text (4.5:1), large-text (3:1), and meaningful control/focus (3:1) contrast floors in deterministic host light/dark and alias-unavailable fallback fixtures, without claiming blanket WCAG conformance. | Extended |
+  | **005 AC-158–AC-160** | New criteria cover six-tab visual review at 720/560px under both host theme fixtures, contrast and keyboard focus at 320/560px including host-alias-unavailable fallbacks, and decorative-only/non-animated treatment with shell/control association preserved. | Added; open pending implementation |
+  | **Numbering convention** | Allocates block M (`FR-130`–`FR-139`) and `005 AC-158`–`005 AC-160`, continuing the explicit `005` prefix for cross-spec acceptance references. | Updated |
+
+- **Requirements explicitly unchanged**: the six tabs and their order, existing content and copy, all runtime/service behavior, controls, host functionality, keyboard/tab semantics, focus requirements, state-as-text requirements, 320px narrow-rail usability, and every data, storage, capability, service, and wire contract. Styling remains in the host-themed panel and uses its semantic aliases/fallbacks; the site palette is not a shared contract. `src/style.ts` remains structural and need not change for CSS decoration.
+- **Migration impact**: none. No storage key, persisted data, manifest, capability, permission, service, route, DTO, audit row, or wire contract changes. The target is pre-1.0.0, `package.json` remains unchanged, and no migration is required. The specified CSS-only implementation boundary is `panel/index.html`; a `src/` change is not assumed. The matching site/design-guide amendment is 007 v1.5.0. Constitution v1.3.0 remains unchanged; this amendment applies its specification and verification principles and does not weaken any principle or invariant.
+- **Approval status**: **Approved by the product owner 2026-10-06 after Gate 1 PASS.** Implemented on this branch, 2026-10-06, with published-address checks (007 T-039–T-045) remaining open post-merge. No product question remains unresolved.

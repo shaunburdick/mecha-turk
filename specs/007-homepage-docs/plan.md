@@ -303,3 +303,50 @@ Plus, at the repository root: `site/`, `LICENSE`, `.github/workflows/site.yml`, 
 A `data-model.md` earns its place when a feature introduces entities, a schema, state machines, storage tiers, or a wire contract. This feature introduces **five static documents**. A page has a path, a title, a heading, a body, and a footer link; the "entities" are a navigation list and four tables, and the tables are not modelled — they are **generated from declarations the product already owns** (D7), which is the whole point of FR-048. There is no schema to describe, no state to enumerate, no storage to lay out, and no migration to reason about. Manufacturing an entity model for five Markdown files would be a document that costs a reader time and can never disagree with the code, because it says nothing the code does not.
 
 What the feature *does* have — the published address, the build output's shape, and the workflow's permissions — is contract material, and it lives in [`contracts/`](./contracts/): `pages-workflow.md` for the permissions and trigger contract, `site-build-output.md` for the shape of the artefact Pages serves. The content model, such as it is, is five rows in §Content ownership above and needs no file of its own.
+
+---
+
+## Amendment plan — v1.5.0 field-manual accessibility and polish (2026-10-06)
+
+This is a dated Phase-4 plan for the product-owner-approved v1.5.0 amendment only. The original site implementation plan above remains a historical record. The Gate 1 approval and its re-evaluation are in [`challenge-ledger.md`](./challenge-ledger.md); no Gate 2/3 challenge is being opened here.
+
+### Scope and architecture
+
+The existing site keeps the accepted dark editorial field-manual design, five routes, content, navigation, CSS-only `prefers-color-scheme`, site-owned palettes, and its zero-script/image/remote-request contract. Phase 6 is a review-and-fix pass over the current CSS and built-output checks, followed by evidence-based browser verification. The current worktree already contains candidate changes in `site/src/layout.astro`, `site/scripts/assert-build.mjs`, and `site/tests/assert-build.assertions.mjs`; these are inputs to review, not authorization to assume AC-035/036 are satisfied. Preserve them where correct and extend/fix them where the approved criteria require.
+
+| Acceptance surface | Implementation / evidence boundary | New tasks |
+| --- | --- | --- |
+| Static normal-text color assertions and red-first fixtures in both palettes | `site/scripts/assert-build.mjs`, `site/tests/assert-build.assertions.mjs`; establish the bounded, static surface/text checks at 4.5:1 before changing site CSS | T-047 |
+| Approved field-manual direction and accessible site CSS | `site/src/layout.astro`; presentation only, no page/content, route, or client-script expansion; only after T-047's checks exist | T-046 |
+| Rendered large-text, focus/non-text contrast, and style invariance | Existing `tools/visual/browser.js` agent-browser wrapper against local built pages; use browser `getComputedStyle` after real keyboard focus and sampled screenshot pixels where gradients paint the backdrop. Evaluate all five pages under both preferences at desktop/narrow widths (20 combinations), plus 320 CSS px (30 total) | T-048 |
+| Keyboard and reflow evidence | Browser keyboard traversal and accessibility-tree review at 320 CSS px and a narrow viewport; page-level overflow is disallowed except a table's own scroller | T-049 |
+| Accurate shared design reference | Root `DESIGN.md`, finalized only after site evidence and 005 M-004's verified panel facts/evidence handoff | T-050 |
+| Final local gates | Site check/build/assertion suite and the existing root verification gate; do not conflate with the post-merge Pages tasks | T-051 |
+
+### Phase-6 dependency order
+
+```text
+T-047 [P] ─▶ T-046 [P] ─▶ T-048 ─▶ T-049 ─┐
+                                             ├─▶ T-050 ─▶ T-051
+005 M-002 [P] ─▶ M-001 [P] ─▶ M-003 ─▶ M-004 ┘
+```
+
+T-047 and 005 M-002 are parallel-safe red-first checks: the first owns only `site/scripts/assert-build.mjs` and its site assertion fixtures; the second owns only `tools/visual/` and panel tests. Their file sets do not overlap. T-046 and 005 M-001 may then proceed in parallel after their respective checks exist, because their CSS files are separate. T-050 consumes the explicit verified-facts handoff from 005 M-004; T-051 follows the shared guide update and also names M-004 as a prerequisite. The existing post-merge T-039–T-045 follow-ups remain separate.
+
+The browser matrix records page × preference × viewport. AC-033's desktop/narrow × two-theme matrix is 20 page combinations; AC-036 adds 320px for each page and preference, bringing the combined review to 30. The browser pass obtains computed `color`, `font-size`, and `font-weight` for text and focused links, then classifies large text at WCAG 2.2's 18pt (24 CSS px) or 14pt bold (~18.67 CSS px) boundary. For focus indicators and text on gradient surfaces, the script reads the actual rendered frame with the existing stdlib PNG decoder rather than treating a `linear-gradient(...)` declaration as one flat color. Test-only low-contrast overrides prove the 4.5:1 normal, 3:1 large, and 3:1 focus/non-text checks fail. The browser is local and offline; `agent-browser` is already the repo's visual-harness tool, so this adds no dependency. Lighthouse is supplementary only if already available; no install or score-based conformance claim.
+
+### Verification and bounded change set
+
+- The built-output parser proves the statically addressable normal-text/surface pairs at 4.5:1 and keeps its fail-closed behavior when a background selector is outside its bounded model. It is **not** treated as a browser CSS engine: its selector matcher handles the enumerated surfaces, not full specificity, computed responsive font size, or pseudo-state cascade. Large-text classification and `:focus-visible`/non-text indicator presentation are measured by the rendered browser check in T-048.
+- In T-048, browser `getComputedStyle` reports actual text color/size/weight and focus outline/border properties after keyboard focus. Solid painted backgrounds come from the computed ancestor chain; gradient backgrounds/focus adjacencies are sampled from a screenshot with the existing decoder. Negative browser fixtures lower normal, large, and focus/non-text pairs independently and require each threshold assertion to fail with page, preference, colors, and ratio. AC-032's existing built-output body/footer checks remain covered.
+- Browser evidence checks keyboard order and visible, unobscured focus; 320px reflow with no page-level horizontal scroll, title collision/clipping, overlap, or unreachable control; and table-local scrolling where needed. Preserve textual state/warning cues and static decoration.
+- The change adds no site page, dependency, data, route, client JavaScript, image, remote request, root verification scope, or workflow contract. Existing `contracts/` describe publishing and output shape; this amendment changes neither.
+- Keep the originally planned T-039–T-045 external/post-merge follow-ups in their existing state. T-046–T-051 are v1.5.0 implementation tasks; none takes ownership of, satisfies, or reopens T-039–T-045.
+
+### Constitution alignment — v1.3.0
+
+No constitutional amendment or exception is needed. Principles I and III are untouched (no provider, wire, or durable state change); II and IV are served by preserving truthful text/state cues and by measuring accessible presentation; V is honored through no added infrastructure or dependency; VI is followed through the approved criteria and recorded verification before implementation acceptance; VII is untouched (no host integration). All ten `AGENTS.md` invariants remain in force: especially site isolation/static output, five pages, no external requests, no product capability/storage/wire change, and no suppression or `any`.
+
+### No data model or contract amendment
+
+This work changes only CSS, checks over the already-built static output, and the descriptive `DESIGN.md`. It creates no entity, state, persistence, route, API, event, or publishing-workflow change. Therefore `data-model.md` and `contracts/` need no new or empty amendment artifact; the existing site-build contract remains applicable.

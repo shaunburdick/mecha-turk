@@ -71,21 +71,184 @@ function readDeclaredSite() {
 const LITERAL_MARKER = '<p><code data-literal-marker="true">{number}</code> arrives as those characters.</p>';
 
 /**
+ * The roles a conforming page declares, per preference.
+ *
+ * Every role the audit reads is here rather than only the four an earlier version
+ * needed: `assert-build.mjs` asserts each one is *declared* before it measures
+ * against it, so a fixture that carried four would make that presence check
+ * untestable — the fixture is what proves the palette is found, and a page missing
+ * `--muted` is a page whose muted text nobody measured.
+ *
+ * The values are the ones the site shipped when this fixture was written, so a
+ * negative case perturbs the palette a reader actually gets. `--rule` is never
+ * measured, because it is a border colour and NFR-004 bounds text.
+ */
+const LIGHT_ROLES = [
+    '--text:#111111',
+    '--muted:#595f68',
+    '--link:#0a4a8f',
+    '--signal:#b4492c',
+    '--hero-text:#f5f6ef',
+    '--hero-link:#a8f0e7',
+    '--rule:#d4d4d4',
+    '--page:#ffffff',
+    '--surface:#f6f6f6',
+    '--elevated:#ffffff',
+    '--code:#f0f0f0',
+    '--hero:#08263b',
+    '--table-head:#102f43',
+].join(';');
+const DARK_ROLES = [
+    '--text:#f1f3f5',
+    '--muted:#b9c0c8',
+    '--link:#8fc5ff',
+    '--signal:#ff9b75',
+    '--hero-text:#f4f6ef',
+    '--hero-link:#a8f0e7',
+    '--rule:#59616c',
+    '--page:#17191c',
+    '--surface:#25292e',
+    '--elevated:#2b313a',
+    '--code:#20242b',
+    '--hero:#061b2a',
+    '--table-head:#061c2a',
+].join(';');
+
+/**
+ * The painted surfaces a conforming page declares, in the form the audit can read.
+ *
+ * Two properties of this stylesheet are load-bearing rather than incidental:
+ *
+ * - **Colour is declared as `background-color`.** The audit resolves the colour a surface
+ *   paints and refuses an image layer rather than approximating the colour under it, so a
+ *   conforming fixture writes `background-color` and keeps any decoration in
+ *   `background-image` — the same form `site/src/layout.astro` is held to.
+ * - **Every surface the pairs name is painted.** The audit walks a surface's own selector
+ *   and then its ancestor chain, and a walk that ends on nothing is itself an assertion.
+ *   A fixture missing one of these would prove nothing about the pairs that read it.
+ */
+const PAINTED_SURFACES = [
+    'body{background-color:var(--page);color:var(--text)}',
+    'nav{background-color:var(--elevated)}',
+    'footer{background-color:var(--elevated)}',
+    'h1 + p{background-color:var(--surface);color:var(--muted)}',
+    'main > h1 + section{background-color:var(--hero);color:var(--hero-text)}',
+    'main > h1 + section a{color:var(--hero-link)}',
+    'table{background-color:var(--elevated)}',
+    'caption{background-color:var(--surface);color:var(--signal)}',
+    'thead th{background-color:var(--table-head);color:var(--hero-text)}',
+    'tbody tr:nth-child(even){background-color:var(--surface)}',
+    'code{background-color:var(--code)}',
+    'pre{background-color:var(--code)}',
+    'a{color:var(--link)}',
+].join('');
+
+/**
+ * WCAG 2.2's contrast ratio, computed here so the expected figures below are an
+ * independent evaluation rather than a transcription of whatever the script last printed.
+ *
+ * @param {string} foreground The text colour, `#rgb` or `#rrggbb`.
+ * @param {string} background What it is drawn on, in the same form.
+ * @returns {number} Their ratio, from 1 to 21.
+ */
+function contrastRatio(foreground, background) {
+    const luminance = (colour) => {
+        const digits = colour.replace('#', '');
+        const full = digits.length === 3 ? [...digits].map((digit) => digit + digit).join('') : digits;
+        const channels = [0, 2, 4].map((at) => Number.parseInt(full.slice(at, at + 2), 16));
+
+        return channels
+            .map((channel) => channel / 255)
+            .map((proportion) =>
+                proportion <= 0.039_28 ? proportion / 12.92 : ((proportion + 0.055) / 1.055) ** 2.4,
+            )
+            .reduce((total, value, at) => total + value * [0.2126, 0.7152, 0.0722][at], 0);
+    };
+    const lighter = Math.max(luminance(foreground), luminance(background));
+    const darker = Math.min(luminance(foreground), luminance(background));
+
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * The one piece of prose the negative cases rewrite.
+ *
+ * Every "break this page" case needs a *body-copy* anchor rather than any one of the
+ * sentences below: the markers, the trace tokens, and the heading shapes are all written
+ * against a phrase that is ordinary prose, so a fixture that spread its copy over several
+ * sentences would make each of those cases name a string of its own.
+ */
+const BODY_COPY = 'The dispatch is recorded on the service.';
+
+/**
+ * The heading the empty-heading cases rewrite.
+ *
+ * Named as a constant for the same reason {@link BODY_COPY} is: an empty `<h2>` is only
+ * findable if the fixture carries a heading with text in it, and a case that spelled the
+ * heading out would break the moment the fixture's prose changed.
+ */
+const LEAD_HEADING = '<h2>Lead surface</h2>';
+
+/**
+ * The markup a conforming page carries for the surfaces above to exist in.
+ *
+ * The lead surface, the lead paragraph, and the table all sit in `<main>` in the shape the
+ * selectors above name, so a fixture that dropped the markup would stop exercising the
+ * placement those selectors depend on.
+ */
+const PAINTED_MARKUP = [
+    '<h1>Field manual</h1>',
+    '<p>The lead paragraph.</p>',
+    `<section><h2>Lead surface</h2><p>${BODY_COPY}</p>`,
+    `<p><a href="${base}/use/">A link</a></p>`,
+    '<table><caption>Terms</caption><thead><tr><th scope="col">A</th></tr></thead>',
+    '<tbody><tr><th scope="row">term</th><td><code>value</code></td></tr>',
+    '<tr><th scope="row">term two</th><td>text</td></tr></tbody></table>',
+].join('');
+
+/**
+ * Overlay declarations onto a role set, so a negative case names only the token it
+ * perturbs.
+ *
+ * Reading the whole palette out of the call site meant every case repeated the six
+ * tokens it did not care about, and one case did repeat five of six with a seventh
+ * missing — which the presence check would then have reported as the reason the
+ * page failed, rather than the contrast case it was written to prove.
+ *
+ * @param {string} roles The full role set.
+ * @param {string} [overrides] `name:value` pairs separated by `;`.
+ * @returns {string} The merged `name:value` list.
+ */
+function withRoles(roles, overrides = '') {
+    const declared = new Map(
+        roles.split(';').filter((entry) => entry !== '').map((entry) => {
+            const [name, ...rest] = entry.split(':');
+            return [name.trim(), rest.join(':').trim()];
+        }),
+    );
+    for (const entry of overrides.split(';').filter((candidate) => candidate.trim() !== '')) {
+        const [name, ...rest] = entry.split(':');
+        declared.set(name.trim(), rest.join(':').trim());
+    }
+
+    return [...declared].map(([name, value]) => `${name}:${value}`).join(';');
+}
+
+/**
  * A page that satisfies every clause of the contract: one `h1`, a labelled
  * navigation region carrying all five addresses, an inlined stylesheet that
  * fetches nothing and whose palette clears NFR-004's contrast floor, one content
  * section, and a footer linking the license file in the repository.
  *
- * The palette is the shipped one rather than an arbitrary pair, so the fixture a
- * negative case perturbs is the palette a reader actually gets. `--rule` is here
- * and is never measured, because it is a border colour and NFR-004 bounds text.
- *
  * @param {{ address: string, title: string }} page The page to render.
  * @param {string} [extra] Markup appended inside `<main>`.
- * @param {string} [palette] The `:root` block's declarations, for a contrast case.
+ * @param {string} [roles] `:root` declarations to override in the light preference.
+ * @param {string} [darkRoles] The same, for the dark preference.
  * @returns {string} The page's markup.
  */
-function conformingPage(page, extra = '', palette = '--text:#111111;--link:#0a4a8f;--rule:#d4d4d4;--surface:#f6f6f6') {
+function conformingPage(page, extra = '', roles = '', darkRoles = '') {
+    const palette = withRoles(LIGHT_ROLES, roles);
+    const darkPalette = withRoles(DARK_ROLES, darkRoles);
     const links = FIXTURE_PAGES.map((target) => {
         const href = `${base}${target.address}`;
         const current = href === `${base}${page.address}` ? ' aria-current="page"' : '';
@@ -94,11 +257,12 @@ function conformingPage(page, extra = '', palette = '--text:#111111;--link:#0a4a
     return (
         '<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">' +
         `<title>${page.title} · Mecha Turk</title>` +
-        `<style>:root{${palette}}body{color:var(--text);background:#ffffff}` +
-        'nav,footer{background:var(--surface)}a{color:var(--link)}</style>' +
+        `<style>:root{color-scheme:light;${palette}}` +
+        `@media (prefers-color-scheme: dark){:root{color-scheme:dark;${darkPalette}}}` +
+        `${PAINTED_SURFACES}</style>` +
         '</head><body>' +
         `<nav aria-label="Documentation pages"><ul>${links}</ul></nav>` +
-        `<main><h1>${page.title}</h1><h2>Section</h2><p>Body copy.</p>${LITERAL_MARKER}${extra}</main>` +
+        `<main>${PAINTED_MARKUP}${LITERAL_MARKER}${extra}</main>` +
         '<footer><ul>' +
         `<li><a href="${REPOSITORY_URL}">Source repository</a></li>` +
         `<li><a href="${REPOSITORY_URL}/blob/main/LICENSE">MIT license</a></li>` +
@@ -264,6 +428,11 @@ const VIOLATIONS = [
         break: (files) => replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('</body>', `<script>${base};</script></body>`)),
     },
     {
+        name: 'a manual dark-theme toggle',
+        assertion: 'AC-032 no manual theme toggle',
+        break: (files) => replacePage(files, 'index.html', pageOf(files, 'index.html').replace('</main>', '<button aria-label="Toggle dark theme">Dark mode</button></main>')),
+    },
+    {
         name: 'an event-handler attribute',
         assertion: 'NFR-002 no event-handler attribute',
         break: (files) => replacePage(files, 'debug/index.html', pageOf(files, 'debug/index.html').replace('<body>', '<body onload="boot()">')),
@@ -306,53 +475,93 @@ const VIOLATIONS = [
     {
         name: 'a page left unfinished',
         assertion: 'AC-006 no placeholder or unfinished marker',
-        break: (files) => replacePage(files, 'configure/index.html', pageOf(files, 'configure/index.html').replace('<p>Body copy.</p>', '<p>Coming soon.</p>')),
+        break: (files) => replacePage(files, 'configure/index.html', pageOf(files, 'configure/index.html').replace(`<p>${BODY_COPY}</p>`, '<p>Coming soon.</p>')),
     },
     {
         name: 'a template marker',
         assertion: 'AC-006 no placeholder or unfinished marker',
-        break: (files) => replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('<p>Body copy.</p>', '<p>{{ notFilled }}</p>')),
+        break: (files) => replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace(`<p>${BODY_COPY}</p>`, '<p>{{ notFilled }}</p>')),
     },
     {
         name: 'an expression that reached the output instead of being evaluated',
         assertion: 'AC-006 no placeholder or unfinished marker',
-        break: (files) => replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('<p>Body copy.</p>', '<p>{pageTitle}</p>')),
+        break: (files) => replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace(`<p>${BODY_COPY}</p>`, '<p>{pageTitle}</p>')),
     },
     {
         name: 'an empty section heading',
         assertion: 'AC-006 no placeholder or unfinished marker',
-        break: (files) => replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('<h2>Section</h2>', '<h2></h2>')),
+        break: (files) => replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace(LEAD_HEADING, '<h2></h2>')),
     },
     {
         name: 'a section heading whose only content rendered nothing',
         assertion: 'AC-006 no placeholder or unfinished marker',
-        break: (files) => replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('<h2>Section</h2>', '<h2 class="x">\n    </h2>')),
+        break: (files) => replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace(LEAD_HEADING, '<h2 class="x">\n    </h2>')),
     },
     {
         name: 'a body colour that fails the contrast floor',
         assertion: 'NFR-004 the declared text colours clear 4.5:1',
-        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--text:#bbbbbb;--link:#0a4a8f;--surface:#f6f6f6')),
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--text:#bbbbbb')),
     },
     {
         name: 'a link colour that fails on the page background',
         assertion: 'NFR-004 the declared text colours clear 4.5:1',
-        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--text:#111111;--link:#c8c8c8;--surface:#f6f6f6')),
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--link:#c8c8c8')),
     },
     {
         name: 'a body colour that fails on the surface the footer sits on',
-        // `#747474` is the *isolating* choice, and it was measured rather than guessed: at
-        // 4.67:1 on `#ffffff` it passes the page pair and at 4.32:1 on `#f6f6f6` it fails
-        // the surface one, so this case fails on the footer pair alone. A colour that failed
-        // both would pass this test while proving nothing about which pair was measured —
-        // the defect this whole case list exists to catch is an audit that measures the
-        // wrong surface.
+        // The footer's surface is `--elevated`, and `#767676` on `#e4e4e4` is the
+        // *isolating* choice, measured rather than guessed: at 4.72:1 on the fixture's
+        // `#ffffff` page it passes the page pair and fails the footer pair alone. A colour
+        // that failed both would pass this test while proving nothing about which surface
+        // was measured — the defect this whole case list exists to catch is an audit that
+        // measures the wrong surface.
         assertion: 'NFR-004 the declared text colours clear 4.5:1',
-        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--text:#747474;--link:#0a4a8f;--surface:#f6f6f6')),
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--text:#767676;--elevated:#e4e4e4')),
     },
     {
         name: 'a link colour that fails on the surface the footer sits on',
         assertion: 'NFR-004 the declared text colours clear 4.5:1',
-        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--text:#111111;--link:#9a9a9a;--surface:#f6f6f6')),
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--link:#9a9a9a;--elevated:#e4e4e4')),
+    },
+    {
+        name: 'a muted colour that fails on the lead paragraph it opens',
+        assertion: 'NFR-004 the declared text colours clear 4.5:1',
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--muted:#8f8f8f')),
+    },
+    {
+        name: 'a signal colour that fails on a table caption band',
+        assertion: 'NFR-004 the declared text colours clear 4.5:1',
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--signal:#a8a8a8')),
+    },
+    {
+        name: 'a muted colour that fails on the navigation it opens',
+        assertion: 'NFR-004 the declared text colours clear 4.5:1',
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--muted:#949494')),
+    },
+    {
+        name: 'a lead-surface colour that fails against the ink it sits on',
+        assertion: 'NFR-004 the declared text colours clear 4.5:1',
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--hero-text:#3d5a6b')),
+    },
+    {
+        name: 'a lead-surface link colour that fails against the ink it sits on',
+        assertion: 'NFR-004 the declared text colours clear 4.5:1',
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--hero-link:#3f6470')),
+    },
+    {
+        name: 'a dark-palette table header that fails against its own band',
+        assertion: 'NFR-004 the declared text colours clear 4.5:1',
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '', '--hero-text:#3c4750')),
+    },
+    {
+        name: 'a missing dark preference palette',
+        assertion: 'AC-032 both preference palettes are declared',
+        break: (files) => replacePage(files, 'index.html', pageOf(files, 'index.html').replace(/@media \(prefers-color-scheme: dark\)\{:root\{[^}]*\}\}/, '')),
+    },
+    {
+        name: 'a dark preference that selects the light color scheme',
+        assertion: 'AC-032 each preference selects its matching color scheme',
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '', '--page:#17191c').replace('@media (prefers-color-scheme: dark){:root{color-scheme:dark;', '@media (prefers-color-scheme: dark){:root{color-scheme:light;')),
     },
     {
         name: 'a stylesheet that declares no palette for the audit to read',
@@ -363,14 +572,59 @@ const VIOLATIONS = [
         break: (files) => replacePage(files, 'index.html', pageOf(files, 'index.html').replace(/:root\{[^}]*\}/, '')),
     },
     {
+        // The presence check is per role, not per palette: a stylesheet that still declares
+        // `--text` has a palette, so only removing the *one role a pair reads* can show that
+        // the audit names it rather than merely counting tokens.
+        name: 'a palette missing one role the pairs read',
+        assertion: 'NFR-004 the declared text colours are audited',
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0]).replace('--muted:#595f68;', '')),
+    },
+    {
         name: 'a body with no background for the floor to measure against',
         assertion: 'NFR-004 the declared text colours are audited',
-        break: (files) => replacePage(files, 'index.html', pageOf(files, 'index.html').replace('background:#ffffff', '')),
+        break: (files) => replacePage(files, 'index.html', pageOf(files, 'index.html').replace('background-color:var(--page);', '')),
+    },
+    {
+        // The chain non-vacuity check, per surface rather than once: `body` is where every
+        // other surface's walk ends, so an audit that only checked `body` would report
+        // nothing here. `caption`'s own band is removed **and** the canvas it falls through
+        // to, because a walk that resolves to an ancestor is the cascade working — the
+        // finding is a walk that ends on nothing.
+        name: 'a measured surface whose whole walk paints no colour',
+        assertion: 'NFR-004 the declared text colours are audited',
+        break: (files) =>
+            replacePage(
+                files,
+                'index.html',
+                pageOf(files, 'index.html')
+                    .replace('caption{background-color:var(--surface);', 'caption{')
+                    .replace('body{background-color:var(--page);', 'body{'),
+            ),
+    },
+    {
+        name: 'a surface painted with an image layer the audit cannot read',
+        assertion: 'NFR-004 the declared text colours clear 4.5:1',
+        break: (files) => replacePage(files, 'index.html', pageOf(files, 'index.html').replace('caption{background-color:var(--surface);', 'caption{background:linear-gradient(90deg,var(--surface),transparent);')),
+    },
+    {
+        name: 'a layered background shorthand on a measured surface',
+        assertion: 'NFR-004 the declared text colours clear 4.5:1',
+        break: (files) => replacePage(files, 'index.html', pageOf(files, 'index.html').replace('table{background-color:var(--elevated)}', 'table{background:var(--elevated) url(none.png)}')),
+    },
+    {
+        name: 'a background behind a selector the audit cannot place',
+        assertion: 'NFR-004 the declared text colours are audited',
+        break: (files) => replacePage(files, 'index.html', pageOf(files, 'index.html').replace('</style>', 'main .card{background-color:#eeeeee}</style>')),
+    },
+    {
+        name: 'a background painted only inside a viewport-dependent at-rule',
+        assertion: 'NFR-004 the declared text colours are audited',
+        break: (files) => replacePage(files, 'index.html', pageOf(files, 'index.html').replace('</style>', '@media (min-width: 40rem){nav{background-color:#eeeeee}}</style>')),
     },
     {
         name: 'a colour written in a form the audit cannot read',
         assertion: 'NFR-004 the declared text colours clear 4.5:1',
-        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--text:rgb(17,17,17);--link:#0a4a8f;--surface:#f6f6f6')),
+        break: (files) => replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--text:rgb(17,17,17)')),
     },
 ];
 
@@ -472,6 +726,45 @@ describe('assert-build', () => {
         assert.match(run.output, /assertions hold over 5 files and 5 pages/);
     });
 
+    // Both preference cascades are read independently, so "it measured the dark palette"
+    // has to be shown rather than implied: the only failure reported must be the dark one,
+    // naming the dark page colours and the dark pair — and the light cascade must be
+    // silent, or the audit would be reading one cascade twice.
+    test('red-first: refuses a dark body palette below the contrast floor', () => {
+        const files = conformingOutput();
+        replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '', '--text:#555555'));
+        const run = assertBuild(writeOutput(files));
+
+        assert.notEqual(run.status, 0, 'the script accepted dark body text below 4.5:1');
+        assert.match(
+            run.output,
+            new RegExp(
+                `dark preference\\): body text on the page is \`#555555\` on \`#17191c\`, a contrast ratio of ` +
+                    `${contrastRatio('#555555', '#17191c').toFixed(2)}:1`,
+            ),
+        );
+        assert.doesNotMatch(run.output, /light preference\):/);
+    });
+
+    // The counterpart: a page whose *light* palette fails while its dark one passes is the
+    // case a single-cascade audit would miss entirely, so it is a separate test rather than
+    // the same fixture read twice.
+    test('red-first: refuses a light body palette below the contrast floor', () => {
+        const files = conformingOutput();
+        replacePage(files, 'index.html', conformingPage(FIXTURE_PAGES[0], '', '--text:#808080'));
+        const run = assertBuild(writeOutput(files));
+
+        assert.notEqual(run.status, 0, 'the script accepted light body text below 4.5:1');
+        assert.match(
+            run.output,
+            new RegExp(
+                `light preference\\): body text on the page is \`#808080\` on \`#ffffff\`, a contrast ratio of ` +
+                    `${contrastRatio('#808080', '#ffffff').toFixed(2)}:1`,
+            ),
+        );
+        assert.doesNotMatch(run.output, /dark preference\): body text on the page/);
+    });
+
     test('refuses an output that was never built, rather than passing on an empty directory', () => {
         const missing = mkdtempSync(join(tmpdir(), 'assert-build-none-'));
         temporaryDirectories.push(missing);
@@ -499,7 +792,7 @@ describe('assert-build', () => {
             // of these is measured rather than argued: the gate must exit non-zero and
             // name the token, not merely fail on something.
             const files = conformingOutput();
-            replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('<p>Body copy.</p>', marker.markup));
+            replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace(`<p>${BODY_COPY}</p>`, marker.markup));
             const run = assertBuild(writeOutput(files));
 
             assert.notEqual(run.status, 0, `the script accepted ${marker.markup}`);
@@ -513,7 +806,7 @@ describe('assert-build', () => {
     for (const word of WORDS_THAT_MUST_PASS) {
         test(`accepts ${word.name}`, () => {
             const files = conformingOutput();
-            replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('<p>Body copy.</p>', word.markup));
+            replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace(`<p>${BODY_COPY}</p>`, word.markup));
             const run = assertBuild(writeOutput(files));
 
             assert.equal(run.status, 0, `the script refused ${word.markup}:\n${run.output}`);
@@ -523,7 +816,7 @@ describe('assert-build', () => {
     for (const shape of SHAPES_THAT_MUST_FAIL) {
         test(`refuses ${shape.name}`, () => {
             const files = conformingOutput();
-            replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('<p>Body copy.</p>', shape.markup));
+            replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace(`<p>${BODY_COPY}</p>`, shape.markup));
             const run = assertBuild(writeOutput(files));
 
             assert.notEqual(run.status, 0, `the script accepted ${shape.markup}`);
@@ -537,7 +830,7 @@ describe('assert-build', () => {
     for (const shape of SHAPES_THAT_MUST_PASS) {
         test(`accepts ${shape.name}`, () => {
             const files = conformingOutput();
-            replacePage(files, 'configure/index.html', pageOf(files, 'configure/index.html').replace('<p>Body copy.</p>', shape.markup));
+            replacePage(files, 'configure/index.html', pageOf(files, 'configure/index.html').replace(`<p>${BODY_COPY}</p>`, shape.markup));
             const run = assertBuild(writeOutput(files));
 
             assert.equal(run.status, 0, `the script refused ${shape.markup}:\n${run.output}`);
@@ -553,65 +846,115 @@ describe('assert-build', () => {
         //    computing something else and still passing — a check that reports a ratio
         //    nobody verified is a check that has stopped measuring.
         // 2. **The footer is measured on the surface it is painted, not on the page.** The
-        //    pair names the colour the `footer { background: var(--surface) }` rule resolves
+        //    pair names the colour the footer background rule resolves
         //    to. This is the assertion that would have failed had the footer been resolved
         //    by token lookup and come back empty, and the assertion that keeps it honest
         //    now that it resolves.
         const files = conformingOutput();
         const run = assertBuild(writeOutput(files));
 
+        // The expected ratios are **computed here**, from WCAG 2.2's own definition of relative
+        // luminance, rather than transcribed from a run of the script. A transcribed figure
+        // would only prove the two strings agree with whatever the script last printed; a
+        // computed one is an independent evaluation of the same two colours, which is what
+        // makes this an assertion about the arithmetic rather than about a string. The two
+        // agree to the two decimals the audit prints.
         assert.equal(run.status, 0, run.output);
-        for (const [where, figures] of [
-            ['body text on the page', '#111111 on #ffffff, 18.88:1'],
-            ['a link on the page', '#0a4a8f on #ffffff, 8.79:1'],
-            ['body text in the footer', '#111111 on #f6f6f6, 17.47:1'],
-            ['a link in the footer', '#0a4a8f on #f6f6f6, 8.13:1'],
+        for (const [where, foreground, background] of [
+            ['light body text on the page', '#111111', '#ffffff'],
+            ['light a link on the page', '#0a4a8f', '#ffffff'],
+            ['light muted text on the page', '#595f68', '#ffffff'],
+            ['light a generated index on the page', '#b4492c', '#ffffff'],
+            ['light the lead paragraph', '#595f68', '#f6f6f6'],
+            ['light body text in a section', '#111111', '#ffffff'],
+            ['light a link in a section', '#0a4a8f', '#ffffff'],
+            ['light body text in the lead surface', '#f5f6ef', '#08263b'],
+            ['light a link in the lead surface', '#a8f0e7', '#08263b'],
+            ['light a navigation link', '#595f68', '#ffffff'],
+            ['light the current page in the navigation', '#b4492c', '#ffffff'],
+            ['light body text in the footer', '#111111', '#ffffff'],
+            ['light a link in the footer', '#0a4a8f', '#ffffff'],
+            ['light a table caption on its band', '#b4492c', '#f6f6f6'],
+            ['light a table header', '#f5f6ef', '#102f43'],
+            ['light body text in a table', '#111111', '#ffffff'],
+            ['light a link in a table', '#0a4a8f', '#ffffff'],
+            ['light body text in a banded table row', '#111111', '#f6f6f6'],
+            ['light inline code on its chip', '#111111', '#f0f0f0'],
+            ['light a code block', '#111111', '#f0f0f0'],
+            ['dark body text on the page', '#f1f3f5', '#17191c'],
+            ['dark a link on the page', '#8fc5ff', '#17191c'],
+            ['dark muted text on the page', '#b9c0c8', '#17191c'],
+            ['dark a generated index on the page', '#ff9b75', '#17191c'],
+            ['dark the lead paragraph', '#b9c0c8', '#25292e'],
+            ['dark body text in a section', '#f1f3f5', '#17191c'],
+            ['dark a link in a section', '#8fc5ff', '#17191c'],
+            ['dark body text in the lead surface', '#f4f6ef', '#061b2a'],
+            ['dark a link in the lead surface', '#a8f0e7', '#061b2a'],
+            ['dark a navigation link', '#b9c0c8', '#2b313a'],
+            ['dark the current page in the navigation', '#ff9b75', '#2b313a'],
+            ['dark body text in the footer', '#f1f3f5', '#2b313a'],
+            ['dark a link in the footer', '#8fc5ff', '#2b313a'],
+            ['dark a table caption on its band', '#ff9b75', '#25292e'],
+            ['dark a table header', '#f4f6ef', '#061c2a'],
+            ['dark body text in a table', '#f1f3f5', '#2b313a'],
+            ['dark a link in a table', '#8fc5ff', '#2b313a'],
+            ['dark body text in a banded table row', '#f1f3f5', '#25292e'],
+            ['dark inline code on its chip', '#f1f3f5', '#20242b'],
+            ['dark a code block', '#f1f3f5', '#20242b'],
         ]) {
             assert.ok(
-                run.output.includes(`NFR-004 contrast — ${where}: ${figures}`),
-                `expected the audit to report \`${where}\` as \`${figures}\`, got:\n${run.output}`,
+                run.output.includes(
+                    `NFR-004 contrast — ${where}: ${foreground} on ${background}, ` +
+                        `${contrastRatio(foreground, background).toFixed(2)}:1`,
+                ),
+                `expected the audit to report \`${where}\` as \`${foreground} on ${background}, ` +
+                    `${contrastRatio(foreground, background).toFixed(2)}:1\`, got:\n${run.output}`,
             );
         }
     });
 
     test('reads the surface a background rule paints, not the token behind it', () => {
         // The cascade, as a behaviour rather than as a comment. The footer's background is
-        // repainted with a literal that no custom property holds, so an audit resolving the
-        // pair by token name would measure `--surface` and get 8.13:1 where the page now
-        // draws 8.49:1. Only reading the rule gets the right answer.
+        // repainted with a literal no custom property holds, so an audit resolving the pair
+        // by token name would measure `--elevated` and report a ratio for a colour the page
+        // no longer draws. Only reading the rule gets the right answer.
         const files = new Map(conformingOutput());
         replacePage(
             files,
             'index.html',
-            pageOf(files, 'index.html').replace('nav,footer{background:var(--surface)}', 'footer{background:#fbfbfb}'),
+            pageOf(files, 'index.html').replace(
+                '</style>',
+                '@media (prefers-color-scheme: light){footer{background-color:#fbfbfb}}</style>',
+            ),
         );
         const run = assertBuild(writeOutput(files));
 
         assert.equal(run.status, 0, `a literal footer background failed the audit:\n${run.output}`);
         assert.ok(
-            run.output.includes('a link in the footer: #0a4a8f on #fbfbfb, 8.49:1'),
+            run.output.includes(`light a link in the footer: #0a4a8f on #fbfbfb, ${contrastRatio('#0a4a8f', '#fbfbfb').toFixed(2)}:1`),
             `the audit measured the custom property rather than the background the footer paints:\n${run.output}`,
+        );
+        // And the *dark* cascade is unaffected by a light-only repaint, which is what makes
+        // this a test of two independent reads rather than of one rule.
+        assert.ok(
+            run.output.includes('dark a link in the footer: #8fc5ff on #2b313a'),
+            `a light-only background leaked into the dark cascade:\n${run.output}`,
         );
     });
 
     test('inherits the surface up the chain when an element declares none', () => {
-        // The other half of the cascade, and the shape the reported defect actually had: the
-        // footer's background deleted. `background` is transparent by default, so the footer
-        // shows `body`'s `#ffffff` — and the ratio must move from 8.13:1 to 8.79:1 rather
-        // than the audit reporting the surface as unreadable. A chain that resolves to
-        // nothing is a finding (`refuses a body with no background…` covers that case); a
-        // chain that resolves to an ancestor is the cascade working.
+        // The other half of the cascade: the footer's background deleted. `background` is
+        // transparent by default, so the footer shows `body`'s `--page` — and the ratio must
+        // move to the page pair's rather than the audit reporting the surface as unreadable.
+        // A walk that resolves to *nothing* is a separate finding (the body case covers it);
+        // a walk that resolves to an ancestor is the cascade working.
         const files = new Map(conformingOutput());
-        replacePage(
-            files,
-            'index.html',
-            pageOf(files, 'index.html').replace('nav,footer{background:var(--surface)}', 'nav{}'),
-        );
+        replacePage(files, 'index.html', pageOf(files, 'index.html').replace('footer{background-color:var(--elevated)}', ''));
         const run = assertBuild(writeOutput(files));
 
         assert.equal(run.status, 0, `a footer inheriting its surface failed the audit:\n${run.output}`);
         assert.ok(
-            run.output.includes('a link in the footer: #0a4a8f on #ffffff, 8.79:1'),
+            run.output.includes('light a link in the footer: #0a4a8f on #ffffff, 8.79:1'),
             `the footer did not inherit \`body\`'s background:\n${run.output}`,
         );
     });
@@ -624,19 +967,19 @@ describe('assert-build', () => {
         replacePage(
             files,
             'index.html',
-            pageOf(files, 'index.html').replace('nav,footer{background:var(--surface)}', 'nav{background:transparent}'),
+            pageOf(files, 'index.html').replace('footer{background-color:var(--elevated)}', 'footer{background-color:transparent}'),
         );
         const run = assertBuild(writeOutput(files));
 
         assert.equal(run.status, 0, run.output);
         assert.ok(
-            run.output.includes('a link in the footer: #0a4a8f on #ffffff, 8.79:1'),
+            run.output.includes('light a link in the footer: #0a4a8f on #ffffff, 8.79:1'),
             `\`transparent\` was read as a colour to measure text against:\n${run.output}`,
         );
     });
 
     test('refuses a background it cannot place, rather than measuring the inherited surface', () => {
-        // The non-vacuity case for the placement check: `main p` paints a background the
+        // The non-vacuity case for the placement check: `main .card` paints a background the
         // audit cannot resolve to a box, and skipping the rule would report the inherited
         // `#ffffff` for text that is not drawn on it — a green check that measured a
         // surface nobody chose.
@@ -644,14 +987,114 @@ describe('assert-build', () => {
         replacePage(
             files,
             'index.html',
-            pageOf(files, 'index.html').replace('</style>', 'main p{background:#eeeeee}</style>'),
+            pageOf(files, 'index.html').replace('</style>', 'main .card{background-color:#eeeeee}</style>'),
         );
         const run = assertBuild(writeOutput(files));
 
         assert.notEqual(run.status, 0, 'the script accepted a background behind an unresolvable selector');
         assert.ok(
-            run.output.includes('NFR-004 the declared text colours are audited') && run.output.includes('`main p`'),
+            run.output.includes('NFR-004 the declared text colours are audited') && run.output.includes('`main .card`'),
             `expected the unplaceable background to be reported, got:\n${run.output}`,
+        );
+    });
+
+    test('leaves a pseudo-state background alone, and says so in the report', () => {
+        // The model is bounded on purpose: `:hover` and `:focus-visible` paint nothing in the
+        // resting state this audit measures, so refusing them would fail a build over a
+        // surface no reader sees at rest. What must not happen is *silence* — the assertion
+        // below checks the fixture's hover background is accepted, and the rendered-browser
+        // pass is named in the script's own comment as the half that measures focus and
+        // hover for real.
+        const files = new Map(conformingOutput());
+        replacePage(
+            files,
+            'index.html',
+            pageOf(files, 'index.html').replace('</style>', 'nav a:hover,nav a:focus-visible{background-color:#eeeeee}</style>'),
+        );
+        const run = assertBuild(writeOutput(files));
+
+        assert.equal(run.status, 0, `a pseudo-state background failed the audit:\n${run.output}`);
+        assert.ok(
+            run.output.includes('light a navigation link: #595f68 on #ffffff'),
+            `the resting navigation surface was not measured as painted:\n${run.output}`,
+        );
+        // The boundary is also written down where the model is defined, so the next reader
+        // learns it from the code rather than from this test. Matched on the phrase the
+        // comment actually uses; the behaviour above is the part that can fail.
+        const script = readFileSync(SCRIPT, 'utf8');
+
+        assert.match(script, /state- or pseudo-element-scoped/);
+        assert.match(script, /what exercises a hover or focus surface/);
+    });
+
+    // A pseudo-class is only exempt when the state it names is *not* the resting one. The first
+    // item of a list is the first item all the time, so `li:first-child` paints on every reader's
+    // screen — a check that exempted any selector containing a `:` would skip that surface and
+    // report the inherited one instead. Red-first: the old `/::|[^:]:[\w-]+/` exemption matched
+    // `first-child` and this fixture passed before it was narrowed.
+    test('refuses a background behind a pseudo-class that paints at rest', () => {
+        const files = new Map(conformingOutput());
+        replacePage(
+            files,
+            'index.html',
+            pageOf(files, 'index.html').replace('</style>', 'li:first-child{background-color:#eeeeee}</style>'),
+        );
+        const run = assertBuild(writeOutput(files));
+
+        assert.notEqual(run.status, 0, 'the script accepted a background behind a resting-state pseudo-class');
+        assert.ok(
+            run.output.includes('NFR-004 the declared text colours are audited') && run.output.includes('`li:first-child`'),
+            `expected the resting-state background to be reported by name, got:\n${run.output}`,
+        );
+    });
+
+    // The minifier rewrites `nth-child(even)` as `nth-child(2n)`, and a surface named in the
+    // keyword spelling that silently stopped matching would fall through to the next ancestor —
+    // reporting a *lighter* colour than the one painted and therefore an inflated ratio. The
+    // fixture is written the way the build writes it, so this fails if the normalisation is
+    // ever removed.
+    test('resolves a minified `nth-child(2n)` to the banded row it paints', () => {
+        const files = new Map(conformingOutput());
+        replacePage(
+            files,
+            'index.html',
+            pageOf(files, 'index.html').replace('tbody tr:nth-child(even){', 'tbody tr:nth-child(2n){'),
+        );
+        const run = assertBuild(writeOutput(files));
+
+        assert.equal(run.status, 0, run.output);
+        // `#f6f6f6` is the band's own colour and `#ffffff` the table it would fall through to,
+        // so the two spellings of the assertion cannot both hold: a dropped normalisation
+        // reports the white, which is the inflated answer this case exists to catch.
+        assert.ok(
+            run.output.includes('light body text in a banded table row: #111111 on #f6f6f6'),
+            `the banded row fell through to the table's own colour:\n${run.output}`,
+        );
+        assert.ok(
+            !run.output.includes('light body text in a banded table row: #111111 on #ffffff'),
+            `the banded row was measured against the table rather than against itself:\n${run.output}`,
+        );
+    });
+
+    test('refuses a surface painted with a gradient rather than reading the colour under it', () => {
+        // The boundary written down in the script's own header, asserted rather than trusted:
+        // a gradient is pixels, and the colour under it is not the colour a reader sees. The
+        // audit must refuse and point at the declaration form it can read.
+        const files = new Map(conformingOutput());
+        replacePage(
+            files,
+            'index.html',
+            pageOf(files, 'index.html').replace(
+                'caption{background-color:var(--surface);',
+                'caption{background:linear-gradient(90deg,var(--surface),transparent);',
+            ),
+        );
+        const run = assertBuild(writeOutput(files));
+
+        assert.notEqual(run.status, 0, 'the script accepted a gradient-painted measured surface');
+        assert.ok(
+            run.output.includes('`background-color` and any decoration as `background-image`'),
+            `expected the refusal to name the declaration form it can read, got:\n${run.output}`,
         );
     });
 
@@ -684,7 +1127,7 @@ describe('assert-build', () => {
         replacePage(
             files,
             'index.html',
-            conformingPage(FIXTURE_PAGES[0], '', '--text:#111111;--link:#0a4a8f;--rule:#f0f0f0;--surface:#f6f6f6'),
+            conformingPage(FIXTURE_PAGES[0], '', '--text:#111111;--link:#0a4a8f;--rule:#f0f0f0;--page:#ffffff;--surface:#f6f6f6'),
         );
         const run = assertBuild(writeOutput(files));
 
@@ -696,7 +1139,7 @@ describe('assert-build', () => {
         // The other half of the exemption, and the reason the scan cannot be satisfied by
         // deleting the documentation: the marker itself is a finding.
         const files = conformingOutput();
-        replacePage(files, 'configure/index.html', pageOf(files, 'configure/index.html').replace('<p>Body copy.</p>', '<p><code>{number}</code></p>'));
+        replacePage(files, 'configure/index.html', pageOf(files, 'configure/index.html').replace(`<p>${BODY_COPY}</p>`, '<p><code>{number}</code></p>'));
         const run = assertBuild(writeOutput(files));
 
         assert.notEqual(run.status, 0, 'the script accepted an unmarked literal marker');
@@ -707,7 +1150,7 @@ describe('assert-build', () => {
         // And the same output with the attribute is accepted, so the refusal above is the
         // exemption being declared rather than the marker being read as forbidden outright.
         const marked = conformingOutput();
-        replacePage(marked, 'configure/index.html', pageOf(marked, 'configure/index.html').replace('<p>Body copy.</p>', '<p><code data-literal-marker="true">{number}</code></p>'));
+        replacePage(marked, 'configure/index.html', pageOf(marked, 'configure/index.html').replace(`<p>${BODY_COPY}</p>`, '<p><code data-literal-marker="true">{number}</code></p>'));
 
         assert.equal(assertBuild(writeOutput(marked)).status, 0);
     });
@@ -736,7 +1179,7 @@ describe('assert-build', () => {
             files,
             'configure/index.html',
             pageOf(files, 'configure/index.html').replace(
-                '<p>Body copy.</p>',
+                `<p>${BODY_COPY}</p>`,
                 '<p>text sent to the agent verbatim, with no placeholders; at most 2,000 code points</p>',
             ),
         );

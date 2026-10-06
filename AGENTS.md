@@ -91,6 +91,22 @@ tab's strip fill measured in the pixels, and a diff against the frame before
 it. A run that does not verify exits non-zero instead of leaving a stale
 picture behind.
 
+**`--fixture NAME`** picks the host theme a frame is captured in (`light` or
+`dark`; default `light`). `fallback` is refused for capture rather than
+measured badly: with the SDK's aliases gone the selected tab has no host-painted
+fill for the strip read-back to sample, so it is *measured* — never
+photographed — by `node tools/visual/panel-a11y.js`, which walks every tab with
+Tab in all three fixtures and writes `screenshots/panel-a11y/report.json`.
+
+Two more evidence tools cover the site, and all three share `--out` and
+`--session` (`--help` on any of them lists the rest): `site-matrix.js` judges
+the built pages' 30 cases against NFR-004's floors, proves each threshold bites,
+and checks the colour-only, site-owned-colour, hierarchy, decoration, surface
+and table clauses; `site-keyboard.js` walks the same pages one Tab at a time
+against the accessibility tree. Both refuse to run without a build
+(`cd site && npm run build`), and both write `screenshots/site-*/report.json`,
+exiting non-zero on any finding.
+
 ## Non-negotiable invariants
 
 1. **Committed bundles ship.** OpenChamber never compiles TypeScript and
