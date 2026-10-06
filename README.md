@@ -293,6 +293,49 @@ places: that tier's own record and the dispatch's snapshot taken when the
 event was detected, so a retry composes a byte-identical message and an edit
 never changes queued work.
 
+## When a binding starts watching
+
+By default a binding watches **from now on**: its window's lower bound is the
+binding's own creation boundary, so a binding you add today will not open
+dispatches for last month's assignments.
+
+The binding editor has one field for it — *When this binding starts watching* —
+with two options:
+
+| Option | What it does |
+| --- | --- |
+| **From now on (default)** | Scans from the binding's creation boundary onward, and from each completed scan's window after that. |
+| **From now on, and look back over the last seven days once** | Also sweeps the last seven days, **once**, then moves on to the ordinary window. |
+
+- **The look-back is bounded and is not a setting.** The seven days is a
+  service-side constant; there is no "all history" option, and nothing in the
+  panel or the store file can ask for an unlimited window. It is also not on the
+  **Settings** tab, because nobody chooses it.
+- **It may offer a batch.** On a new binding, or on an existing one you switch
+  into the look-back, every matching item inside that window is offered at once —
+  which on a quiet repository may mean several sessions.
+- **A recovery replay ignores this setting.** If the delivery queue is lost and
+  quarantined, the service clears the scan checkpoints and re-offers each binding's
+  in-window work **in both modes**. A burst of older events appearing together is
+  that recovery, not a look-back you didn't ask for.
+- **Saves preserve it.** Like the starting prompt, a whole-file save leaves a
+  binding you didn't change alone; only an explicit choice changes its mode, and
+  choosing the default clears it.
+
+**If you upgraded:** a binding that existed before this field and **has not
+completed its first scan yet** behaves exactly as it always has — it starts at
+its creation boundary and skips its backlog. Selecting the look-back on it is the
+supported way to ask for that window. The upgrade itself changes nothing on disk.
+
+The low-level path is the optional `historyScope` member of a binding record in
+`bindings.json`: `"new-only"` or `"recent-history"`, with an absent member and
+`null` both meaning `new-only`. Any other value is refused, and a hand-edited file
+carrying one is quarantined with the field named in the log (never the value), so
+every binding stops scanning until you repair it. Each change writes exactly one
+`binding.history-scope-updated` audit row naming the previous mode, the new one,
+and who made it; resubmitting the mode already in force writes nothing, and there
+is no row per observation.
+
 ## First dispatch
 
 1. Assign an issue to the bound account's identity (or request a review /

@@ -141,6 +141,60 @@ the text. The instruction lives in exactly two places: that tier's own record
 and the snapshot taken when the event was detected, so an edit never changes
 queued work and a retry composes a byte-identical message.
 
+### When a binding starts watching (002 v1.13.0)
+
+A binding scans **from now on** by default: its window's lower bound is its own
+creation boundary, widened by the configured overlap. It never re-reads anything
+older, so a binding you add today will not open dispatches for last month's
+assignments.
+
+- **The one other option** is a **seven-day look-back**, on the binding editor's
+  *When this binding starts watching* field. It is offered in words, not as a
+  stored name: *From now on (default)*, or *From now on, and look back over the
+  last seven days once*.
+- **The look-back happens once.** After that first sweep the binding's window
+  moves on to the ordinary incremental one, and the look-back is not repeated on
+  its own. Choosing it again re-arms one more bounded catch-up — the same thing
+  the panel's save does when you switch an existing binding into that mode.
+- **The window is always bounded, and there is no "all history" option.** The
+  look-back is a fixed service-side length that no setting changes; nothing in the
+  panel or the store can ask for an unlimited window.
+- **On a new binding** the look-back reaches back from before the binding
+  existed, so it may offer a batch of older work at once. On an **existing**
+  binding it does the same thing and may offer **many sessions** — that is the
+  trade the option makes, and it is why the field says so.
+- **A recovery replay after data loss re-offers work regardless of this setting.**
+  If the delivery queue is lost and has to be quarantined, the service clears the
+  scan checkpoints and re-offers each binding's in-window work in **both** modes.
+  A burst of older events appearing together is that, not a look-back you did not
+  ask for.
+- **Omission preserves on a whole-file save**, like the starting prompt: a binding
+  submitted without the member keeps whatever the store holds. Clear it by
+  choosing the default.
+
+**Upgrade consequence, stated plainly.** A binding that existed **before** this
+field did and has **not yet completed its first scan** keeps the same
+behaviour it always had — it starts at its creation boundary and skips its
+backlog. Choosing the look-back on it afterwards is the supported way to ask for
+that window. The upgrade itself writes nothing: a pre-existing `bindings.json` and
+`scan-state.json` are byte-identical after it.
+
+**Audit.** Each change writes exactly one `binding.history-scope-updated` row
+naming the previous mode, the new one, and who made it (`operator` for a panel
+save, `service` for an edit you made to `bindings.json` yourself). Resubmitting
+the mode already in force writes nothing, and there is no row per observation.
+
+#### The low-level path
+
+The value is the optional `historyScope` member of a binding record in
+`bindings.json`: `"new-only"` or `"recent-history"`. Leaving the member out, or
+writing `null`, means *from now on*. Any other value — a number, a boolean, an
+object, an array, `""`, or an unrecognized name — is **refused**, and a
+hand-edited file carrying one is quarantined with the field and the two accepted
+names logged (never the value), so every binding stops scanning until you repair
+it. **There is no member to set the look-back length**: the seven days is a
+service constant, not something the document stores.
+
 ### Configuration (the Settings tab)
 
 The **Settings** tab is the **single configuration input** for the whole
