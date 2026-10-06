@@ -1020,12 +1020,11 @@ describe('the release workflow — one write grant, and a tag the manifest agree
             // The whole-file list is the assertion, for the reason the one above
             // gives: `contents: write` is granted to the publish job alone, so
             // the release action can create the Release object and nothing else
-            // in the file can move a ref. The gate job reads Actions runs and
-            // the tagged commit, and says so — a job-level block *replaces* the
-            // workflow-level set, which is why `contents: read` appears twice
-            // and why a fifth grant, or one the gate does not need, is the
+            // in the file can move a ref. The gate job reads the checkout and
+            // inherits the workflow's `contents: read` — it states no block of
+            // its own — so a third grant, or one it does not need, is the
             // failure this catches.
-            expect(granted).toEqual(['contents: read', 'actions: read', 'contents: read', 'contents: write']);
+            expect(granted).toEqual(['contents: read', 'contents: write']);
         }
     });
 
@@ -1039,15 +1038,19 @@ describe('the release workflow — one write grant, and a tag the manifest agree
                 .filter((line) => !line.trimStart().startsWith('#'))
                 .join('\n');
 
-            // The link, and the two strings that would undo it. A commit is
+            // The link, and the three strings that would undo it. A commit is
             // content-addressed, so CI's pass on this SHA is a statement about
             // these bytes: a second install here would add a copy of the gate
-            // to keep in step, not a fact. Re-introducing the duplicate is a
-            // deliberate change, and it fails here first.
-            expect(executed).toContain('--workflow verify.yml');
+            // to keep in step, not a fact — and polling the Actions API would
+            // add a second system to disagree with the first. Ancestry is read
+            // from the checkout, and the branch's required checks are what make
+            // ancestry mean the bytes were green. Re-introducing either
+            // mechanism is a deliberate change, and it fails here first.
+            expect(executed).toContain('--is-ancestor');
             expect(executed).toContain('needs: gate');
             expect(executed).not.toContain('npm ci');
             expect(executed).not.toContain('npm run verify');
+            expect(executed).not.toContain('gh run list');
         }
     });
 

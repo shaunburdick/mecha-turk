@@ -2,27 +2,33 @@
 #
 # The tag is cut by hand — `git tag v0.1.0 && git push origin v0.1.0` after the
 # version bump of AGENTS.md invariant 2 — and this workflow is what the push
-# earns: it refuses a tag the manifest disagrees with, requires the CI run the
-# tagged commit already has to have passed, and publishes the GitHub Release
-# from that tag with generated notes.
+# earns: it refuses a tag the manifest disagrees with, refuses a tag `main` has
+# not taken, and publishes the GitHub Release from what is left, with generated
+# notes.
 #
-# Why link rather than re-run: a commit is content-addressed, so the `npm run
-# verify` that passed on `<sha>` is a statement about *these bytes* — running it
-# again against the same SHA cannot learn anything the first run did not, and a
-# second copy of the gate in a second file is a second place for the two to
-# drift apart. What is kept is the posture: a tag whose SHA has no successful
-# CI run is refused, and the committed-bundle assertion `verify.yml` makes
-# after its rebuild travels with that result.
+# Why no install and no second `npm run verify`: a commit is content-addressed,
+# so the run that passed on `<sha>` is a statement about *these bytes* — paying
+# for it again adds a second copy of the gate to keep in step, not a fact the
+# first run lacked. Ancestry does the work instead, and ancestry is only worth
+# what the branch's rules are worth:
+#
+#   `main` admits commits through a pull request (the `Main` ruleset), and that
+#   ruleset requires `verify (node 24)`, `verify (node 24.15.0)` and `build` to
+#   have passed before one lands. So "main contains this SHA" implies "these
+#   bytes were green when main took them" — and the implication is the
+#   ruleset's, not this file's. Remove those required checks and this gate's
+#   proof goes with them; that is the dependency to know about, stated here
+#   rather than left to be rediscovered.
 #
 # A tag push starts this file and nothing else: `verify.yml` and `site.yml` are
 # filtered to `branches: main`, so neither answers a tag.
 #
-# It never pushes a ref. `contents: write` is granted to one job so the release
-# action can create the Release object, and nothing below can move a branch or a
-# tag. The gate job asks only to read the Actions runs it is checking. That
-# action is the workflow's only third-party code, SHA-pinned with its version
-# in a comment — the convention `verify.yml` and `site.yml` both hold to, and
-# the supply-chain posture a pinned ref buys.
+# It never pushes a ref, and it talks to no API: the whole gate is read from
+# the checkout, on the workflow-level `contents: read`. `contents: write` is
+# granted to the one job that needs it, so the release action can create the
+# Release object and nothing below can move a branch or a tag. That action is
+# the workflow's only third-party code, SHA-pinned with its version in a
+# comment — the convention `verify.yml` and `site.yml` both hold to.
 name: Release
 
 on:
@@ -30,38 +36,33 @@ on:
     tags:
       - 'v*'
 
-# Read-only at the workflow level, which is what the gate job inherits the shape
-# of. Both jobs state their own grant instead: a job-level `permissions` block
-# replaces this set rather than adding to it.
+# Read-only, and inherited by the gate job, which reads the repository and
+# nothing else. Only the publish job asks for more, by name.
 permissions:
   contents: read
 
 jobs:
   gate:
-    # No `npm ci`, no second `npm run verify`: this job reads the result the
-    # commit already has. It is the only job that decides whether a release may
-    # exist, and it holds a read-only token while it decides.
-    name: the tagged commit already passed CI
+    # No `npm ci`, no second `npm run verify`, no polling: the tag is checked
+    # against the branch that its own rules already gate.
+    name: the tagged commit is one main has taken
     runs-on: ubuntu-latest
-    # Above the 900 s it may spend waiting: the refusal message must be the
-    # thing that ends the run, not the job timeout cutting it off first.
-    timeout-minutes: 20
-    permissions:
-      actions: read
-      contents: read
+    timeout-minutes: 10
     steps:
-      - name: Check out the repository at the tagged commit
+      - name: Check out the repository with its history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # Nothing here talks to git over the network, so the token is never
-          # written into the workspace's git configuration. Matches `verify.yml`.
+          # Ancestry needs the history, not just the tagged commit. Nothing
+          # here talks to git over the network beyond that fetch, so the token
+          # is never written into the workspace's configuration.
+          fetch-depth: 0
           persist-credentials: false
 
       # Fail closed, and first: a tag is a claim about the manifest, and the
       # manifest is what OpenChamber reads for its git-URL update notifications
       # (invariant 2). A tag of `v0.2.0` over a `0.1.0` manifest would publish a
       # release the extension never reports, so the run stops here before it
-      # waits for anything.
+      # looks at anything else.
       - name: Refuse a tag that does not name the shipped version
         run: |
           version="$(node -p "require('./package.json').version")"
@@ -70,46 +71,19 @@ jobs:
             exit 1
           fi
 
-      # The link itself: find the CI workflow's runs for this SHA and take the
-      # answer from them. An unfinished run is waited for, never assumed — a tag
-      # pushed seconds after the merge can arrive before CI has started, and a
-      # green run that has already finished must not stand in for one still
-      # going — and a completed run that was not a success, or nothing finished
-      # by the deadline, refuses the release rather than publishing past the gate.
-      - name: Require the CI run this commit already has to have passed
-        env:
-          GH_TOKEN: ${{ github.token }}
+      # The link to the gate, stated as one git question. A tag on a branch
+      # commit, or on history main never took, is refused here — the release
+      # exists for what main has accepted, not for any SHA someone can name.
+      - name: Refuse a tag main has not taken
         run: |
           set -euo pipefail
 
-          deadline=$((SECONDS + 900))
-          while :; do
-            runs="$(gh run list \
-              --repo "${GITHUB_REPOSITORY}" \
-              --workflow verify.yml \
-              --commit "${GITHUB_SHA}" \
-              --json status,conclusion \
-              --limit 20)"
-            total="$(jq 'length' <<<"${runs}")"
-            finished="$(jq '[.[] | select(.status == "completed")] | length' <<<"${runs}")"
-
-            if [ "${total}" -gt 0 ] && [ "${finished}" -eq "${total}" ]; then
-              not_passed="$(jq '[.[] | select(.conclusion != "success")] | length' <<<"${runs}")"
-              if [ "${not_passed}" -gt 0 ]; then
-                echo "::error title=CI did not pass on ${GITHUB_REF_NAME}::${GITHUB_SHA} has a CI run that completed without success; a release is published from a commit that passed the gate, not from one that did not."
-                exit 1
-              fi
-              echo "CI passed on ${GITHUB_SHA} (${total} run(s)); the release publishes from that result."
-              exit 0
-            fi
-
-            if [ "${SECONDS}" -ge "${deadline}" ]; then
-              echo "::error title=No finished CI run for ${GITHUB_REF_NAME}::No CI run has finished for ${GITHUB_SHA}. Tag a commit the gate has run against, or let CI finish first."
-              exit 1
-            fi
-
-            sleep 10
-          done
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error title=Tag is not on main::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which main does not contain. A release is published from a commit main has taken."
+            exit 1
+          fi
+          echo "${GITHUB_SHA} is on main; the branch's own rules are what let it land."
 
   publish:
     needs: gate
