@@ -128,7 +128,7 @@ Whichever is used, T-039 is verified by re-reading `gh api repos/shaunburdick/me
 ## 7. What this workflow deliberately cannot do
 
 - **It does not build the panel or the service, and does not run the repository's gate.** `verify.yml` runs `npm run verify` on the same two triggers and does that job. Duplicating it here would double the longest job in the repository to re-prove the same thing; the site workflow exists for the `site/` directory precisely because the root gate does not reach it (FR-070).
-- **It does not lint.** Neither `astro check` nor `astro build` is ESLint, and the site's own gate is `astro check` + `npm run build` + the artefact assertion. A page with a style violation this repository's root ESLint config would flag is not caught here.
+- **It does not lint.** Neither `astro check` nor `astro build` is ESLint, and the site's own gate is `npm test` + `astro check` + `npm run build` + the artefact assertion. A page with a style violation this repository's root ESLint config would flag is not caught here.
 - **It does not read `src/`, `panel/`, `service/`, or `tests/`.** It checks the repository out only because the site lives inside it.
 - **It does not deploy on a pull request, ever.** Not as a preview, not behind a flag, not under `pull_request_target`. The artefact upload is push-gated for the same reason the deploy job is: a pull request, including a fork's, must not leave a deployable artefact behind.
 - **It carries no credential of any kind.** No PAT, no API token, no `ASTRO_KEY`. `configure-pages` runs with `enablement: false` precisely so it never reaches the create path, which is the one that would need one.

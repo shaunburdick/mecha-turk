@@ -71,7 +71,7 @@ jobs:
         run: npm run check
         working-directory: site
 
-      # The site's own 140 assertions, which no other job in this repository
+      # The site's own 175 assertions, which no other job in this repository
       # runs: the root vitest glob cannot collect them (FR-070), and they read
       # fixtures rather than the working tree, so they are safe to run before
       # the build.

@@ -125,14 +125,14 @@ cd .. && npm run verify   # the repository's own gate
 
   - `npm run verify` at the root is **unchanged by this feature** and still means: build → lint → typecheck → test. It runs on Node ≥ 24.15, the same floor the site's own commands above take.
   - Run the root gate **always**, because the site's build is not part of it.
-  - `npm test` runs the site's `*.assertions.mjs` suites — the base-path join, the four generated tables, the build-output contract, and the prose-wrapping guard that walks every `.astro` template. It is a **local loop step today**: the build job runs `check` and `build`, not `test`. **That is a known gap**: a regression in any of these suites reaches a maintainer only when someone runs `npm test` locally, so until the build job also runs it, treat a green `check` and `build` as necessary and not sufficient for the site.
+  - `npm test` runs the site's `*.assertions.mjs` suites — the base-path join, the four generated tables, the build-output contract, and the prose-wrapping guard that walks every `.astro` template. **The build job runs it too**, before `build`, so these suites are a pull-request gate rather than a local habit: a regression in any of them fails the pull request.
 
 ## 5. What happens when you open a pull request
 
 | Check | What it does | Fails the pull request if |
 | --- | --- | --- |
 | **The repository gate** (`CI`) | `npm ci`, then `npm run verify`: build → lint → typecheck → test, then `git diff --exit-code` to assert the committed bundles match their sources | Anything in the panel, the service, or the tests regresses, or a source change did not bring its rebuilt bundle with it |
-| **The site's build job** | Installs the site from **its own** lockfile, runs `astro check` **and** `astro build` (which ends with the build-output assertion) | The site does not type-check, does not build, or builds the wrong output — an extra page, a script file, an image, an off-origin reference, or an internal link that does not resolve under the base path |
+| **The site's build job** | Installs the site from **its own** lockfile, runs the site's own `npm test` assertions, `astro check` **and** `astro build` (which ends with the build-output assertion) | The site's assertions fail, the site does not type-check, does not build, or builds the wrong output — an extra page, a script file, an image, an off-origin reference, or an internal link that does not resolve under the base path |
 
 **The site's build job is the site's only gate, not a second opinion.** The site is a self-contained subproject, and the root `npm run verify` cannot reach it: it lints and type-checks `src/`, `panel/`, `service/`, and `tests/`, and the site directory is deliberately excluded from both scopes. That is why the job runs `astro check` and not only `astro build` — `astro build` does not type-check, so a build alone would let a type error through (research.md §7.3, FR-069).
 
