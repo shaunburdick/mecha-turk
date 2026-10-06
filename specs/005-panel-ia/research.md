@@ -97,3 +97,27 @@ no requirement and needs not block Phase 5: if the answer comes back the other w
 affordance inside `src/bindings-actors.ts` and one test.
 
 Everything else this feature touches — the tab primitive's capabilities, `host.storage`'s limits, the list component's row-action model, the dispatch state machine, the prompt field, the wire paths — was already settled by 001/002/003/004's research and contracts, and is **cited in the table above, not re-researched here**.
+
+---
+
+## Phase-4 findings — v1.19.0 panel visual and accessibility review (added 2026-10-06)
+
+This append-only section records implementation-planning evidence for the approved visual-only amendment.
+
+### Existing color ownership and test seam
+
+`panel/index.html` currently maps panel styling through `--mt-*` aliases to the OpenChamber semantic theme variables and defines fallback values. `src/style.ts` explicitly owns structure, not color; it should remain unchanged for decoration. The offline host in `tools/visual/host.js` currently supplies two complete semantic-token payloads (light and dark) and exposes the fixture bridge used by the shipped panel. It does not yet provide an alias-unavailable fixture. The test/capture work therefore needs a bounded extension to this existing bridge so that missing host tokens exercise the actual stylesheet fallback chain; the existing fallback itself must not be replaced with site values.
+
+### Accessibility evidence method and limits
+
+005 NFR-107 and 005 AC-158–AC-160 already define the acceptance floor, including all thresholds, text state cues, no animation, and narrow-width operation. The local accessibility skill recommends rendered-node/accessibility-tree inspection and keyboard traversal, while cautioning that automated tooling does not establish conformance. Plan for both: deterministic contrast/focus tests against rendered computed styles in each of the three host fixtures, plus browser keyboard/accessibility-tree evidence where available. No additional WCAG conformance assertion or product behavior is added.
+
+`npm run shot` is the existing offline proof of the shipped panel at the host's rail widths: every one of the six tabs is captured at 720px and 560px, with per-capture freshness checks. It should run after the CSS adaptation. The review also exercises 320px and 560px keyboard use; screenshots are not a substitute for focus-order or accessibility-tree checks. No site hex palette values, browser downloads, live OpenChamber, or new dependencies are needed.
+
+The adapter/panel stylesheet and deterministic test harness are the only technical surfaces. There is no current external API, library, or framework premise to verify and no re-pin decision.
+
+### Gate 2 follow-up — prove the fallback branch, not just a missing input (2026-10-06)
+
+The pinned SDK implementation was checked at `node_modules/@openchamber/sdk/dist/ui/theme.js` (`@openchamber/sdk` 1.24.2). `applyHostTheme` iterates `TOKEN_VARS` and calls `root.style.setProperty(name, theme.tokens[key])` for each alias on every `ready`. Consequently, omitting token members from a synthetic `ready` payload does **not** prove the aliases are absent; the SDK still performs writes for those names.
+
+M-002 therefore defines the fallback fixture as a post-ready condition: let the real guest SDK process `ready`, remove the injected host alias properties **and the SDK's inherited `color`, `font-family`, `font-size`, and `line-height` declarations** from the guest `documentElement`, retain only the selected `color-scheme`, and do not send another `ready`. Assert all target alias names are absent from both the inline style and computed root style. Then assert representative computed panel variables and actual elements resolve to the fallback declarations in the shipped `panel/index.html` (for example the transparent block surface and fallback text/border roles), and differ from the host fixture's token values. The fixture/test manipulates only the offline host harness; the alias/fallback declarations remain unchanged. No browser dependency, live host, or network is introduced.

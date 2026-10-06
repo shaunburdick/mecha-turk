@@ -6,16 +6,34 @@
  * bundle to boot without a real OpenChamber: `hello` → `ready` with a complete
  * host theme, storage reads and writes, and the service-request fixtures.
  *
+ * It serves **three** fixtures. Two are host modes — light and dark, each a complete token
+ * payload. The third is `fallback`: a *post-`ready` state* in which every alias the pinned
+ * SDK wrote has been taken off the guest document root again, so the panel's own fallbacks in
+ * `panel/index.html` are what actually resolve. It has to be built that way round, because
+ * `applyHostTheme` writes its whole alias table on every `ready` regardless of which tokens a
+ * payload carries — so no thinner payload reaches the branch the fallback fixture is testing.
+ * See `stripHostTheme` for the sequence and `theme-fixtures.js` for the alias list.
+ *
  * It also publishes `globalThis.__MT__`, the control surface `shot.js` drives:
- * readiness, per-tab measurements, the freshness sentinel, and the stretch
- * used by the full-height capture. The panel itself is never touched — this
- * file lives entirely in the harness's top document.
+ * readiness, per-tab measurements, the freshness sentinel, the stretch used by the full-height
+ * capture, and the fixture/theme report. The panel itself is never touched — this file lives
+ * entirely in the harness's top document.
  *
  * The frame's `src` is set from here *after* the fixtures land, so the guest's
  * `hello` can never outrun the parent's `message` listener (module scripts are
  * deferred, an iframe is not).
  */
 import { loadFixtures } from './fixtures.js';
+import {
+    DARK,
+    FALLBACK,
+    FIXTURES,
+    HOST_INHERITED_PROPERTIES,
+    HOST_THEME_ALIASES,
+    LIGHT,
+    PANEL_ALIASES,
+    hostTokens,
+} from './theme-fixtures.js';
 
 /** postMessage channel the SDK's guest/host bridge speaks on. */
 const CHANNEL = 'openchamber.sdk';
@@ -25,10 +43,6 @@ const PROTOCOL_VERSION = 1;
 
 /** Storage key the panel's dispatch ledger lives under. */
 const LEDGER_KEY = 'mecha-turk:dispatches';
-
-/** Theme mode names the harness offers. */
-const LIGHT = 'light';
-const DARK = 'dark';
 
 /** Frame the settle helper waits for, so a capture sees a painted change. */
 const PAINT_FRAMES = 2;
@@ -44,66 +58,6 @@ const SELECTED_TAB = '[role="tab"][aria-selected="true"]';
 
 /** The wire name the protocol version travels under. */
 const VERSION_KEY = 'v';
-
-const LIGHT_THEME = {
-    background: '#f6f7f9',
-    elevated: '#ffffff',
-    foreground: '#14171c',
-    muted: '#5c6470',
-    subtle: '#eceef2',
-    border: '#d6dae1',
-    hover: '#eceef2',
-    selection: '#d9e6fb',
-    focus: '#2f6feb',
-    primary: '#2f6feb',
-    mutedSurface: '#eceef2',
-    elevatedForeground: '#14171c',
-    active: '#e2e5ea',
-    selectionForeground: '#0d1117',
-    primaryForeground: '#ffffff',
-    primaryText: '#1d4fd7',
-    successText: '#12734a',
-    warningText: '#8a5a06',
-    errorText: '#b3261e',
-    infoText: '#1d4fd7',
-    success: '#12734a',
-    warning: '#b8860b',
-    error: '#b3261e',
-    info: '#2f6feb',
-    font: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-    mono: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
-    radius: '8px',
-};
-
-const DARK_THEME = {
-    background: '#0f1115',
-    elevated: '#171a20',
-    foreground: '#e6e8ec',
-    muted: '#99a1ad',
-    subtle: '#1d2128',
-    border: '#2b303a',
-    hover: '#1f242c',
-    selection: '#1d3a6b',
-    focus: '#5b9bff',
-    primary: '#5b9bff',
-    mutedSurface: '#1d2128',
-    elevatedForeground: '#e6e8ec',
-    active: '#262b34',
-    selectionForeground: '#eaf1ff',
-    primaryForeground: '#0b1220',
-    primaryText: '#8ab4ff',
-    successText: '#5fd39b',
-    warningText: '#e3b341',
-    errorText: '#ff8a80',
-    infoText: '#8ab4ff',
-    success: '#2ea86f',
-    warning: '#c9971f',
-    error: '#e5534b',
-    info: '#5b9bff',
-    font: "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
-    mono: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace",
-    radius: '8px',
-};
 
 /**
  * The body container the shell made for one tab.
@@ -159,7 +113,7 @@ function refuse(id, problem) {
 /** The `ready` payload: a complete host theme plus the surface description. */
 function readyPayload() {
     return {
-        theme: { mode: state.themeMode, tokens: state.themeMode === LIGHT ? LIGHT_THEME : DARK_THEME },
+        theme: { mode: state.themeMode, tokens: hostTokens(state.themeMode) },
         locale: 'en-US',
         directory: null,
         session: null,
@@ -564,6 +518,160 @@ function setTheme(mode) {
     return state.themeMode;
 }
 
+/**
+ * Every host alias the SDK has written onto the guest root, as the harness can see it.
+ *
+ * Read from the **live document** rather than from this module's own table: the point of the
+ * report is what the browser holds, and a table that merely repeats what the harness believes
+ * it wrote would agree with itself whatever the SDK did.
+ */
+function presentAliases() {
+    const root = panelDoc()?.documentElement;
+    if (root === undefined || root === null) {
+        return [];
+    }
+
+    return [...root.style]
+        .map((property) => property.trim())
+        .filter((property) => property.startsWith('--'))
+        .filter((property) => HOST_THEME_ALIASES.includes(property));
+}
+
+/**
+ * The host-alias-unavailable fixture, applied *after* the SDK has handled `ready`.
+ *
+ * ## Why it is a removal and not a thinner payload
+ *
+ * `applyHostTheme` in `@openchamber/sdk` 1.24.2 iterates its whole `TOKEN_VARS` table and
+ * calls `root.style.setProperty(name, theme.tokens[key])` for every entry on every `ready` —
+ * so a synthetic payload with a token omitted still leaves the alias **written**, with an
+ * undefined value. No payload shape proves the stylesheet's fallback branch runs; only a state
+ * in which the declarations are gone again does. Hence: a real `ready` first, then the removal,
+ * and **no further `ready`** afterwards — a second one would put every alias straight back and
+ * make the whole fixture a no-op that still reported success.
+ *
+ * What survives is `color-scheme`, which the SDK also wrote and which the fallback frame
+ * legitimately keeps: it is what makes the canvas the host's own mode rather than the browser
+ * default, so it is part of the state under test rather than part of the theme.
+ *
+ * @returns {{ removed: string[], retainedColorScheme: string, remaining: string[] }} What was
+ *   taken off the root, the scheme that stayed, and any alias still present afterwards — the
+ *   last of which is what the caller's assertion reads, and is empty on success.
+ */
+function stripHostTheme() {
+    const root = panelDoc()?.documentElement;
+    if (root === undefined || root === null) {
+        throw new Error('the fallback fixture needs the panel document, and there is none');
+    }
+
+    const removed = [];
+    for (const alias of HOST_THEME_ALIASES) {
+        if (root.style.getPropertyValue(alias) !== '') {
+            removed.push(alias);
+        }
+        root.style.removeProperty(alias);
+    }
+    for (const property of HOST_INHERITED_PROPERTIES) {
+        root.style.removeProperty(property);
+    }
+
+    return {
+        removed,
+        retainedColorScheme: root.style.getPropertyValue('color-scheme'),
+        remaining: presentAliases(),
+    };
+}
+
+/**
+ * The report the fallback frame is judged on: what the root still carries, inline and computed,
+ * beside the panel aliases the stylesheet resolved.
+ *
+ * Both halves are read from the live document. `inlineAliases` is every custom property the
+ * root's own `style` attribute holds, which is empty on a correct reset; `computedAliases` is
+ * what `getComputedStyle` reports for each host alias, which catches a value that survived in
+ * a stylesheet the harness does not own. `panelAliases` is each `--mt-*` the panel resolves,
+ * so a failure names which role drifted rather than only that something did.
+ */
+function hostThemeReport() {
+    const panel = panelDoc();
+    const root = panel?.documentElement;
+    if (panel === null || panel === undefined || root === null || root === undefined) {
+        throw new Error('the theme report needs the panel document, and there is none');
+    }
+
+    const view = panel.defaultView;
+    const computed = view.getComputedStyle(root);
+    const panelRoot = panel.querySelector('#root');
+
+    return {
+        mode: state.themeMode,
+        colorScheme: root.style.getPropertyValue('color-scheme'),
+        inlineProperties: [...root.style].map((property) => property.trim()),
+        inlineAliases: [...root.style]
+            .map((property) => property.trim())
+            .filter((name) => name.startsWith('--')),
+        computedAliases: HOST_THEME_ALIASES.filter((alias) => computed.getPropertyValue(alias) !== ''),
+        inherited: Object.fromEntries(
+            HOST_INHERITED_PROPERTIES.map((property) => [property, root.style.getPropertyValue(property)]),
+        ),
+        panelAliases:
+            panelRoot === null
+                ? {}
+                : Object.fromEntries(
+                    Object.keys(PANEL_ALIASES).map((name) => [
+                        name,
+                        view.getComputedStyle(panelRoot).getPropertyValue(name).trim(),
+                    ]),
+                ),
+    };
+}
+
+/**
+ * Put the panel into one of the three fixtures and report what the root now holds.
+ *
+ * The two host modes re-send `ready`, which is what switching a host theme means. The fallback
+ * fixture does the opposite — it strips, and sends nothing — so switching *back* to a host mode
+ * after it requires a real `ready` again rather than a second strip.
+ *
+ * @param {string} name One of `FIXTURES`.
+ * @returns The fixture name applied.
+ * @throws {Error} On an unknown name, or when the fallback is asked for before any `ready`
+ *   reached the guest — stripping a root the SDK never wrote would report a clean frame that
+ *   proved nothing.
+ */
+function applyFixture(name) {
+    if (!FIXTURES.includes(name)) {
+        throw new Error(`unknown fixture "${name}" — try: ${FIXTURES.join(', ')}`);
+    }
+    if (name === FALLBACK) {
+        const seen = presentAliases();
+        if (seen.length === 0) {
+            throw new Error(
+                'the fallback fixture needs a `ready` the SDK has already handled — ' +
+                    'boot the panel first, and do not send another `ready` afterwards',
+            );
+        }
+        state.themeMode = LIGHT;
+        stripHostTheme();
+        // The fallback frame's canvas is the browser default: restore the stylesheet's own value
+        // rather than leaving a host-mode colour painted behind a frame that has no host tokens.
+        frame.style.background = '';
+
+        return FALLBACK;
+    }
+    state.themeMode = name === DARK ? DARK : LIGHT;
+    /*
+     * The guest paints its own box, and the SDK reserves a scrollbar gutter beside it — those few
+     * pixels are *harness* canvas, which `index.html` paints at a fixed light value. Without this,
+     * every dark-fixture capture carries a light stripe down its right edge, which reads as a panel
+     * defect rather than the scaffolding it is.
+     */
+    frame.style.background = hostTokens(state.themeMode).background;
+    sendReady();
+
+    return state.themeMode;
+}
+
 /** Boot the bridge: load fixtures, then let the frame load the panel. */
 async function boot() {
     const { routes: table, projects: list, error } = await loadFixtures();
@@ -592,4 +700,6 @@ globalThis.__MT__ = {
     sentinel,
     stretch,
     setTheme,
+    applyFixture,
+    hostThemeReport,
 };

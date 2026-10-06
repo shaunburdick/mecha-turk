@@ -44,176 +44,663 @@ const documentTitle = title === undefined ? 'Mecha Turk' : `${title} · Mecha Tu
 </html>
 
 <style is:global>
-    /* One light theme, declared rather than inherited: NFR-004's contrast floor
-       is a measurable property of this block, and a reader's OS dark-mode
-       preference must not be what decides whether it holds. Body text is
-       #111111 on #ffffff (18.88:1) and links are #0a4a8f (8.79:1 on #ffffff,
-       8.13:1 on the #f6f6f6 the footer paints) — every pair clears 4.5:1.
-       Those three figures are the record, and the audit in
-       `scripts/assert-build.mjs` recomputes them from the built page on
-       every build and prints what it found: it resolves the background
-       through the cascade rather than by token name, so the figure above is
-       the one it measures rather than the one a comment asserts. */
+    /*
+     * Two site-owned palettes, and the property that makes them two palettes rather than one
+     * colour scheme: **only colour values differ between them.** Every role below has the same
+     * name, meaning, and use in both blocks, and nothing outside this pair of blocks carries a
+     * hex literal at all — so switching `prefers-color-scheme` cannot move a heading, change a
+     * space, or restyle a table (007 FR-079).
+     *
+     * The roles are named for the *surface* they paint rather than for a hue, because a hue
+     * name would invite a second meaning: `--page` is the canvas behind open prose,
+     * `--elevated` is what a table and the navigation sit on, `--surface` is the sunken band
+     * under a caption or a banded row, and `--hero`/`--hero-end` are the one ink surface on the
+     * landing page, which needs its own light-on-dark text roles.
+     *
+     * Every pair the built-output audit measures is listed here in its measured form, and the
+     * audit recomputes the ratios from the built pages on every build rather than trusting the
+     * ones in this comment. NFR-004's floor is 4.5:1 for normal text.
+     *
+     * **`--signal` is the colour the rendered pass moved, and the reason is a surface this
+     * palette cannot declare.** The built-output audit reads declared pairs, so it sees
+     * `--signal` on `--page` and calls it 5.05:1. The rendered pass
+     * (`tools/visual/site-matrix.js`) reads the pixels the eyebrow is actually painted on, and the
+     * page's own radial `--glow` washes the top-right of the canvas: where that wash reaches the
+     * title's 11px field-manual eyebrow, the brick measured 4.13:1 — under the floor. Darkening
+     * the light brick from `#ad4226` to `#8f341c` clears the wash as well as the declared surfaces
+     * (6.39:1 on `--surface`, 6.76:1 on `--page`, 7.51:1 on `--elevated`) and is the same colour
+     * family, so the accent reads the same and the eyebrow reads. The dark palette was already
+     * clear of it and did not move.
+     */
     :root {
         color-scheme: light;
-        --text: #111111;
-        --link: #0a4a8f;
-        --rule: #d4d4d4;
-        --surface: #f6f6f6;
+        --page: #f1eee5;
+        --surface: #e4e9e6;
+        --elevated: #fbfaf6;
+        --text: #102b3d;
+        --muted: #496270;
+        --link: #075c78;
+        --signal: #8f341c;
+        --rule: #a9bdba;
+        --hero: #08263b;
+        --hero-end: #105465;
+        --hero-text: #f5f6ef;
+        --hero-link: #a8f0e7;
+        --hero-index: #ffad83;
+        --glow: rgba(10, 127, 145, 0.15);
+        --trace: rgba(211, 113, 67, 0.26);
+        --code: #e3edeb;
+        --table-head: #102f43;
     }
 
+    @media (prefers-color-scheme: dark) {
+        :root {
+            color-scheme: dark;
+            --page: #071722;
+            --surface: #102732;
+            --elevated: #122d39;
+            --text: #edf3ed;
+            --muted: #b0c4c5;
+            --link: #89e5dc;
+            --signal: #ff9b75;
+            --rule: #35535c;
+            --hero: #061b2a;
+            --hero-end: #0b4652;
+            --hero-text: #f4f6ef;
+            --hero-link: #a8f0e7;
+            --hero-index: #ffad83;
+            --glow: rgba(19, 150, 162, 0.18);
+            --trace: rgba(255, 143, 104, 0.22);
+            --code: #0b222d;
+            --table-head: #061c2a;
+        }
+    }
+
+    /*
+     * The canvas is declared as `background-color` and its decoration as `background-image`,
+     * rather than as one `background` shorthand with two layers.
+     *
+     * That is not a style preference: the built-output audit resolves the **colour** each
+     * measured surface paints, and it refuses a layered shorthand rather than reading the
+     * bottom layer as the background — the colour under a translucent wash is not the colour a
+     * reader sees. Splitting the two is what lets the audit measure the page's text contrast
+     * at all, and the rendered gradient itself is measured against its real pixels by the
+     * browser pass over the built pages.
+     */
     body {
-        background: #ffffff;
+        position: relative;
+        isolation: isolate;
+        max-width: 68rem;
+        padding: 1.5rem clamp(1.25rem, 4vw, 3rem) 3.5rem;
+        background-color: var(--page);
+        background-image: radial-gradient(ellipse at 91% 4%, var(--glow), transparent 34rem);
         color: var(--text);
         font-family: system-ui, -apple-system, 'Segoe UI', roboto, arial, sans-serif;
-        font-size: 1rem;
-        line-height: 1.6;
-        margin: 0 auto;
-        max-width: 46rem;
-        padding: 1.5rem 1.25rem 3rem;
+        font-size: 1.025rem;
+        line-height: 1.72;
+    }
+
+    body::before {
+        position: fixed;
+        z-index: -1;
+        pointer-events: none;
+        inset: 0;
+        background-image:
+            linear-gradient(to right, var(--rule) 1px, transparent 1px),
+            linear-gradient(to bottom, var(--rule) 1px, transparent 1px);
+        background-size: 42px 42px;
+        content: '';
+        opacity: 0.12;
+        mask-image: radial-gradient(ellipse at 52% 8%, #000 0%, transparent 78%);
     }
 
     a {
         color: var(--link);
+        text-decoration-thickness: 0.07em;
+        text-underline-offset: 0.18em;
     }
 
-    /* Visible on keyboard focus without relying on the browser default, which
-       is removed on some surfaces once a colour is set on `a`. */
     a:focus-visible {
-        outline: 2px solid var(--text);
+        border-radius: 0.2rem;
+        outline: 3px solid var(--signal);
         outline-offset: 2px;
     }
 
-    nav,
-    footer {
-        border-bottom: 1px solid var(--rule);
-        padding-block: 0.5rem;
-    }
-
-    footer {
-        background: var(--surface);
-        border-bottom: 0;
-        border-top: 1px solid var(--rule);
-        margin-top: 3rem;
+    /*
+     * The navigation is a raised band, so its links are read against `--elevated` rather than
+     * against the page. The band fades out at both ends through `background-image` for the
+     * reason `body` does: the audit measures the colour, and a `background` shorthand with
+     * layers would leave it unable to measure the surface the links sit on.
+     */
+    nav {
+        margin: 0 -0.5rem 4.5rem;
+        padding: 0.7rem 0.2rem;
+        border-block: 1px solid var(--rule);
+        background-color: var(--elevated);
+        background-image: linear-gradient(100deg, var(--page), transparent 18%, transparent 82%, var(--page));
     }
 
     nav ul,
     footer ul {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.25rem 1.25rem;
         list-style: none;
         margin: 0;
         padding: 0;
     }
 
-    nav a[aria-current='page'] {
-        font-weight: 700;
+    nav ul {
+        align-items: center;
+        gap: 0.25rem clamp(0.4rem, 1.5vw, 1.25rem);
     }
 
-    /* Five of the pages carry real tables — the permission list, the settings
-       fields, the dispatch states, the symptom codes, and the identifier
-       mapping — and they are the densest thing on the site. These rules give
-       them the same furniture `nav` and `footer` already have, from the same
-       two custom properties, so a table reads as part of this page rather than
-       as markup that arrived without a stylesheet.
+    nav li,
+    footer li {
+        margin: 0;
+    }
 
-       The browser centres a `<th>`, which is right for a numeric column and
-       wrong for a page of sentences, so every header here is aligned the way
-       the text under it runs. `border-collapse` with a rule per row is used in
-       preference to a box around each cell: nine tables of four columns would
-       otherwise be a grid, and the reader wants rows. */
-    table {
-        border-collapse: collapse;
+    nav a {
+        position: relative;
         display: block;
-        margin-block: 1rem 1.5rem;
-        max-width: 100%;
-        overflow-x: auto;
-        width: 100%;
+        padding: 0.55rem 0.75rem;
+        color: var(--muted);
+        font-size: 0.94rem;
+        font-weight: 650;
+        letter-spacing: 0.015em;
+        text-decoration: none;
     }
 
-    caption {
+    nav li:first-child a {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.65rem;
+        margin-inline-end: clamp(0.4rem, 2vw, 1.5rem);
         color: var(--text);
+        font-size: 1rem;
+        font-weight: 850;
+        letter-spacing: -0.02em;
+    }
+
+    nav li:first-child a::before {
+        display: grid;
+        width: 2rem;
+        height: 2rem;
+        place-items: center;
+        border: 1px solid var(--signal);
+        color: var(--signal);
+        content: 'MT';
+        font-family: ui-monospace, 'SFMono-Regular', consolas, monospace;
+        font-size: 0.68rem;
+        letter-spacing: -0.08em;
+    }
+
+    nav a:hover {
+        background: var(--surface);
+        color: var(--text);
+    }
+
+    nav a[aria-current='page'] {
+        color: var(--signal);
+        font-weight: 800;
+    }
+
+    nav a[aria-current='page']::after {
+        position: absolute;
+        right: 0.7rem;
+        bottom: 0.12rem;
+        left: 0.7rem;
+        height: 2px;
+        background: var(--signal);
+        content: '';
+    }
+
+    nav li:first-child a[aria-current='page']::after {
+        left: 3.35rem;
+    }
+
+    main {
+        counter-reset: section-index;
+    }
+
+    h1 {
+        position: relative;
+        isolation: isolate;
+        margin: 0.5rem 0 2.25rem;
+        padding: 0 0 1.4rem;
+        border-bottom: 1px solid var(--rule);
+        color: var(--text);
+        font-size: clamp(4rem, 10vw, 7.6rem);
+        font-weight: 850;
+        letter-spacing: -0.02em;
+        line-height: 0.98;
+        text-wrap: balance;
+    }
+
+    h1::before {
+        display: block;
+        margin-bottom: 1rem;
+        color: var(--signal);
+        content: 'MECHA TURK   /   FIELD MANUAL';
+        font-family: ui-monospace, 'SFMono-Regular', consolas, monospace;
+        font-size: 0.7rem;
         font-weight: 700;
-        padding-block: 0 0.4rem;
+        letter-spacing: 0.22em;
+        line-height: 1.4;
+    }
+
+    h1::after {
+        position: absolute;
+        z-index: -1;
+        top: 20%;
+        right: 0.5rem;
+        width: min(23vw, 15rem);
+        height: 70%;
+        background:
+            radial-gradient(circle at 72% 48%, var(--trace) 0 2px, transparent 3px),
+            repeating-linear-gradient(0deg, transparent 0 15px, var(--rule) 16px, transparent 17px),
+            repeating-linear-gradient(135deg, transparent 0 23px, var(--signal) 24px, transparent 25px);
+        content: '';
+        opacity: 0.42;
+        mask-image: linear-gradient(90deg, transparent, #000 42%);
+        pointer-events: none;
+    }
+
+    /*
+     * The two selective callouts: the lead paragraph under the title and the first paragraph
+     * of a section. Both are the same treatment, so they are one rule and the audit measures
+     * one surface — the sunken `--surface` band, with the page fading in over its right edge
+     * so the band has no hard stop.
+     */
+    h1 + p,
+    h2 + p {
+        max-width: 53rem;
+        margin-block: 0.75rem 1.35rem;
+        padding: 0.6rem 0 0.6rem 1.25rem;
+        border-inline-start: 3px solid var(--signal);
+        background-color: var(--surface);
+        background-image: linear-gradient(90deg, transparent, var(--page) 88%);
+        color: var(--muted);
+        font-size: 1.13rem;
+        line-height: 1.65;
+    }
+
+    h1 + p {
+        margin: -0.7rem 0 3.5rem;
+    }
+
+    h2 {
+        display: grid;
+        grid-template-columns: 3.4rem minmax(0, 1fr);
+        align-items: start;
+        gap: 0.9rem;
+        counter-increment: section-index;
+        margin: 0 0 1.15rem;
+        padding: 1.2rem 0 0.2rem;
+        border-top: 1px solid var(--rule);
+        font-size: clamp(1.45rem, 2.7vw, 1.9rem);
+        font-weight: 780;
+        letter-spacing: -0.025em;
+        line-height: 1.18;
+        text-wrap: balance;
+    }
+
+    h2::before {
+        padding-top: 0.12rem;
+        color: var(--signal);
+        content: counter(section-index, decimal-leading-zero);
+        font-family: ui-monospace, 'SFMono-Regular', consolas, monospace;
+        font-size: 1.05rem;
+        font-weight: 700;
+    }
+
+    h3 {
+        margin: 2.3rem 0 0.75rem;
+        padding-inline-start: 0.85rem;
+        border-inline-start: 2px solid var(--signal);
+        font-size: 1.12rem;
+        letter-spacing: -0.015em;
+    }
+
+    section {
+        margin: 3.75rem 0;
+        padding: 2rem 0 0;
+        border-top: 1px solid var(--rule);
+    }
+
+    section > :first-child {
+        margin-top: 0;
+    }
+
+    section > p,
+    main > p,
+    main > ul,
+    main > ol {
+        max-width: 53rem;
+    }
+
+    section > p,
+    main > p {
+        margin-block: 0 1.1rem;
+    }
+
+    /*
+     * The one ink surface, on the landing page. `--hero` is declared as the background
+     * **colour** and the ramp is an image over it, so the audit can measure the light-on-dark
+     * text against the darker end of the ramp; `--hero-end` is the lighter end, and every text
+     * role here clears the floor against both (the tightest, `--hero-index` on `--hero-end`, is
+     * 4.66:1 light and 5.74:1 dark), so the ramp is a range inside the floor rather than a
+     * gradient that crosses it.
+     */
+    main > h1 + section {
+        position: relative;
+        overflow: hidden;
+        margin-top: 3.6rem;
+        padding: clamp(2rem, 5vw, 4rem);
+        border: 1px solid var(--hero-end);
+        border-inline-start: 6px solid var(--signal);
+        background-color: var(--hero);
+        background-image:
+            radial-gradient(ellipse at 92% 8%, var(--trace), transparent 17rem),
+            repeating-linear-gradient(135deg, transparent 0 34px, rgba(255, 255, 255, 0.035) 35px 36px),
+            linear-gradient(115deg, var(--hero), var(--hero-end));
+        color: var(--hero-text);
+        box-shadow: 0 28px 70px rgba(4, 28, 42, 0.2);
+    }
+
+    main > h1 + section h2 {
+        border-top-color: rgba(244, 246, 239, 0.4);
+        color: var(--hero-text);
+        font-size: clamp(1.7rem, 3vw, 2.35rem);
+    }
+
+    main > h1 + section h2::before {
+        color: var(--hero-index);
+    }
+
+    main > h1 + section a {
+        color: var(--hero-link);
+    }
+
+    main > section:nth-of-type(2) ul {
+        counter-reset: boundary-index;
+    }
+
+    main > section:nth-of-type(2) li {
+        counter-increment: boundary-index;
+        padding-inline-start: 2.4rem;
+    }
+
+    /*
+     * The generated index for a list item is `--muted` rather than `--signal`: at `0.8rem` it
+     * is small text a reader actually reads, and `--signal` is a brick that clears 4.5:1 on
+     * `--page` (5.05:1) but not on the raised `--elevated` a list can sit on. `--muted` clears
+     * both in either palette, which is why the accent stays on the larger section indices
+     * where the size carries it.
+     */
+    main > section:nth-of-type(2) li::before {
+        color: var(--muted);
+        content: counter(boundary-index, decimal-leading-zero);
+        font-size: 0.8rem;
+    }
+
+    main > section:nth-of-type(4) dt {
+        color: var(--link);
+    }
+
+    p + p {
+        margin-top: 1rem;
+    }
+
+    ul,
+    ol {
+        margin-block: 1.25rem 1.8rem;
+        padding-inline-start: 1.5rem;
+    }
+
+    main ul {
+        list-style: none;
+        padding-inline-start: 0;
+    }
+
+    main li {
+        position: relative;
+        display: block;
+        padding: 0.75rem 0 0.75rem 1.95rem;
+        border-bottom: 1px solid var(--rule);
+    }
+
+    main li:last-child {
+        border-bottom: 0;
+    }
+
+    main li + li {
+        margin-top: 0;
+    }
+
+    main li::before {
+        position: absolute;
+        top: 0.75rem;
+        left: 0;
+        color: var(--signal);
+        content: '↳';
+        font-family: ui-monospace, 'SFMono-Regular', consolas, monospace;
+        font-weight: 800;
+    }
+
+    main ol li {
+        display: list-item;
+        padding-inline-start: 0;
+    }
+
+    main ol li::before {
+        content: none;
+    }
+
+    dl {
+        display: grid;
+        grid-template-columns: minmax(10rem, 0.28fr) minmax(0, 1fr);
+        gap: 1.05rem 1.7rem;
+        margin-block: 1.7rem;
+    }
+
+    dt {
+        align-self: start;
+        margin: 0;
+        padding: 0.2rem 0 0.2rem 0.75rem;
+        border-inline-start: 2px solid var(--signal);
+        color: var(--text);
+        font-family: ui-monospace, 'SFMono-Regular', consolas, monospace;
+        font-size: 0.92rem;
+        letter-spacing: -0.025em;
+    }
+
+    dd {
+        margin: 0;
+        padding: 0.15rem 0 1rem;
+        border-bottom: 1px solid var(--rule);
+        color: var(--muted);
+    }
+
+    table {
+        display: block;
+        width: 100%;
+        max-width: 100%;
+        margin-block: 1.4rem 2rem;
+        overflow-x: auto;
+        border: 1px solid var(--rule);
+        border-collapse: separate;
+        border-spacing: 0;
+        border-radius: 0.2rem;
+        background: var(--elevated);
+        box-shadow: 0 18px 42px rgba(4, 28, 42, 0.1);
+        font-size: 0.94rem;
+        line-height: 1.55;
+    }
+
+    table:has(thead th:nth-child(4)) {
+        table-layout: fixed;
+    }
+
+    table:has(thead th:nth-child(4)) tr > :nth-child(1) { width: 23%; }
+    table:has(thead th:nth-child(4)) tr > :nth-child(2) { width: 14%; }
+    table:has(thead th:nth-child(4)) tr > :nth-child(3) { width: 40%; }
+    table:has(thead th:nth-child(4)) tr > :nth-child(4) { width: 23%; }
+
+    /*
+     * The caption is a monospace label on the sunken band, in `--signal` at `0.78rem` — small
+     * text, so it needs the full 4.5:1, which the light palette's darker `--signal` clears
+     * here at 4.77:1 and the dark one at 7.51:1.
+     */
+    caption {
+        padding: 0.75rem 0.9rem;
+        border-bottom: 1px solid var(--rule);
+        background-color: var(--surface);
+        color: var(--signal);
+        font-family: ui-monospace, 'SFMono-Regular', consolas, monospace;
+        font-size: 0.78rem;
+        font-weight: 800;
+        letter-spacing: 0.06em;
         text-align: left;
     }
 
     th,
     td {
+        padding: 0.7rem 0.85rem;
         border-bottom: 1px solid var(--rule);
-        padding: 0.4rem 0.75rem 0.4rem 0;
         text-align: left;
         vertical-align: top;
+        overflow-wrap: break-word;
     }
 
     thead th {
-        border-bottom: 2px solid var(--rule);
+        border-bottom: 3px solid var(--signal);
+        background: var(--table-head);
+        color: var(--hero-text);
+        font-family: ui-monospace, 'SFMono-Regular', consolas, monospace;
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
         white-space: nowrap;
     }
 
-    /* The last row's rule would otherwise sit under the table as a stray line. */
+    /*
+     * A row's term is one token — `unconfirmed`, `dispatched` — and `nowrap` is what keeps it
+     * whole. Measured at 320px: without it, `overflow-wrap: break-word` above gives the cell a
+ * one-character minimum width, the auto table layout picks that, and the token breaks as
+     * `unco / nfirm / ed` in a 59px column while the prose beside it has room to spare. The
+     * table scrolls in its own container, which is the behaviour the field manual wants: the
+     * token reads as an identifier, and the reader scrolls for the sentence.
+     */
+    tbody th[scope='row'] {
+        color: var(--link);
+        font-family: ui-monospace, 'SFMono-Regular', consolas, monospace;
+        font-size: 0.86rem;
+        font-weight: 700;
+        white-space: nowrap;
+    }
+
+    tbody tr:nth-child(even) {
+        background: var(--surface);
+    }
+
     tbody tr:last-child th,
     tbody tr:last-child td {
         border-bottom: 0;
     }
 
-    /* A cell is prose — the dispatch-state and symptom tables carry whole
-       sentences — so a long token breaks rather than forcing the table wider
-       than the column. `anywhere` rather than `break-word` because the
-       difference is that this one also breaks *inside* a word when that word
-       alone would overflow, which is the case here. */
-    th,
-    td,
-    caption {
+    code {
+        padding: 0.12em 0.35em;
+        border: 1px solid var(--rule);
+        border-radius: 0.18rem;
+        background-color: var(--code);
+        color: var(--text);
+        font-family: ui-monospace, 'SFMono-Regular', consolas, monospace;
+        font-size: 0.88em;
         overflow-wrap: anywhere;
     }
 
-    /* At the width the rail gives a panel and the width a phone gives a page,
-       four columns leave no room for the padding. */
-    @media (max-width: 30rem) {
-        th,
-        td {
-            padding-right: 0.5rem;
-        }
-
-        table {
-            font-size: 0.95rem;
-        }
+    pre {
+        max-width: 100%;
+        overflow-x: auto;
+        padding: 1.2rem 1.35rem;
+        border-inline-start: 3px solid var(--signal);
+        background-color: var(--code);
+        color: var(--text);
     }
 
-    /* A definition list is the landing page's shape for "term, then what it
-       means" — the six tabs, and the two places state lives — and the browser's
-       default 40px indent on a `<dd>` reads as an accident beside a table that
-       now has rules. Kept as a list rather than converted: it is a glossary
-       here, not a table, and FR-015's "six tabs in this order, one line each"
-       is a list of terms. */
-    dl {
-        margin-block: 0 1rem;
+    /*
+     * A code block already has the chip's colour behind it, so its inner `code` paints nothing.
+     * Written `transparent`, it ships as `#0000`, which the audit's see-through set
+     * (`transparent`, `none`) does not recognise — so `readPaintedBackground` reads this rule as
+     * painting. What resolves the pair anyway is the selector walk: `pre` is the first selector
+     * of the code-block surface to declare a background, so the block's `--code` is measured and
+     * this rule behind it is never asked.
+     */
+    pre code {
+        padding: 0;
+        border: 0;
+        background-color: transparent;
     }
 
-    dt {
+    footer {
+        margin: 5rem -0.5rem 0;
+        padding: 1.1rem 0.5rem 0;
+        border-top: 1px solid var(--rule);
+    }
+
+    footer::before {
+        display: block;
+        margin-bottom: 0.7rem;
+        color: var(--muted);
+        content: 'REFERENCE   /   SOURCE + LICENSE';
+        font-family: ui-monospace, 'SFMono-Regular', consolas, monospace;
+        font-size: 0.67rem;
         font-weight: 700;
-        margin-block: 0.75rem 0.1rem;
+        letter-spacing: 0.16em;
     }
 
-    dd {
-        margin: 0 0 0 1.25rem;
+    footer ul {
+        gap: 0.4rem 1.5rem;
     }
 
-    h1 {
-        font-size: 1.9rem;
-        line-height: 1.25;
-        margin-block: 1.5rem 0.5rem;
+    @media (max-width: 46rem) {
+        nav { margin-bottom: 3.5rem; }
+        nav ul { gap: 0.15rem 0.35rem; }
+        nav li:first-child a { margin-inline-end: 0.25rem; }
+        nav a { padding-inline: 0.5rem; }
+        h1 { font-size: clamp(3.4rem, 14vw, 5rem); }
+        h1::after { right: 0; width: 30vw; opacity: 0.25; }
+        h2 { grid-template-columns: 2.2rem minmax(0, 1fr); gap: 0.55rem; }
+        dl { grid-template-columns: minmax(0, 1fr); gap: 0.35rem; }
+        dt { margin-top: 1rem; }
+        dd { margin-bottom: 0.6rem; padding-inline-start: 0.75rem; }
+        main > h1 + section { margin-inline: -0.4rem; padding: 1.6rem 1.25rem; }
     }
 
-    h2 {
-        font-size: 1.3rem;
-        line-height: 1.3;
-        margin-block: 2rem 0.5rem;
-    }
-
-    h1 + p {
-        margin-top: 0;
+    @media (max-width: 30rem) {
+        nav,
+        footer,
+        section,
+        h1,
+        h1 + p { margin-inline: -0.35rem; }
+        nav li:first-child a { gap: 0.35rem; font-size: 0.88rem; }
+        nav li:first-child a::before { width: 1.6rem; height: 1.6rem; }
+        nav a { padding-inline: 0.34rem; font-size: 0.83rem; }
+        /*
+         * The title scales below 409px rather than holding 3.45rem.
+         *
+         * Measured at 320px, not estimated: "Configure" is the longest single word any of the five
+         * pages puts in its title, and at 3.45rem it needs 294px of a 275px column — the rendered
+         * pass reported the configure title as clipped at both preferences. A `clamp()` that keeps
+         * 3.45rem from 409px up and shrinks below it fits every page's longest word with room to
+         * spare, and 320px is the only width at which the display size did not fit; nothing above it
+         * changes, so the desktop and narrow captures are byte-identical to what they were.
+         */
+        h1 { font-size: clamp(2.6rem, 13.5vw, 3.45rem); letter-spacing: -0.02em; }
+        h1::before { font-size: 0.58rem; letter-spacing: 0.13em; }
+        h1 + p { padding-inline-start: 0.85rem; }
+        main > h1 + section { padding: 1.25rem 0.9rem; }
+        th,
+        td { padding: 0.55rem 0.6rem; }
     }
 </style>

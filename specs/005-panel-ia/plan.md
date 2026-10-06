@@ -935,3 +935,45 @@ test file, so every pair has a file or a fixture in common, and marking parallel
 produce merge-shaped work rather than parallelism. The **only** genuinely independent work is the
 visual tooling (`K-10`), and it is worth nothing until the panel renders the strings (`K-5` – `K-8`),
 so it is sequenced rather than parallelised.
+
+---
+
+# Amendment plan — 005 v1.19.0 panel visual-language and accessibility (2026-10-06)
+
+This is a dated Phase-4 record for the approved v1.19.0 amendment. Prior plan sections and implementation history remain unchanged. The v1.19.0 Gate 1 ledger is [`challenge-ledger.md`](./challenge-ledger.md); this plan does not reopen its decisions.
+
+## Bounded architecture and file ownership
+
+005's new work adapts the accepted field-manual personality to the actual OpenChamber rail panel. The panel stays host-theme-driven by existing semantic aliases and accessible fallback values. It does not copy the site's palette. The six-tab shell/order, copy, state labels, controls, tab/body association, keyboard behavior, and narrow-width contract are preserved. `src/style.ts` remains structural; CSS-only visual changes belong in `panel/index.html`.
+
+| Work | Owned paths | Explicit boundary |
+| --- | --- | --- |
+| Visual adaptation | `panel/index.html` | Compact technical labels/indices/accent surfaces and restrained static drafting/signal details; no control, markup/runtime, copy, or layout contract changes merely for decoration |
+| Deterministic host-theme accessibility checks | `tools/visual/host.js`, `tools/visual/shot.js` and/or existing visual test support, `tests/visual-tooling.test.ts`, a focused panel visual/accessibility test | Establish the checks first; after SDK readiness remove every injected host-token alias from the guest document root, assert the aliases remain absent, then assert computed panel custom properties/representative elements resolve through unchanged `panel/index.html` fallback declarations. Prove failures with red-first negative fixtures |
+| Rendered acceptance review | shipped panel in the offline visual harness and local browser if available | All six tabs at 720px/560px; keyboard/tree/focus/reflow review at 560px/320px; assess both host modes and fallback evidence |
+| Shared visual reference | Root `DESIGN.md` is owned by 007 T-050, after this block's verified handoff in M-004 | 005 supplies panel facts/findings, but does not edit DESIGN.md or site CSS |
+
+The current worktree's uncommitted `DESIGN.md` and site files are planning inputs from the product-owner-approved visual direction, not changes this task block may rewrite. Before this planning append, the pre-existing 005 changes were the approved spec/changelog/ledger records; no panel styling has been implemented in this worktree.
+
+### Test-first dependency order
+
+```text
+M-002 [P] ─▶ M-001 [P] ─▶ M-003 ─▶ M-004 ─▶ 007 T-050 ─▶ 007 T-051
+```
+
+M-002 establishes and proves the light/dark/fallback checks—including deliberately failing contrast/focus fixtures—before M-001 changes panel CSS. M-002 is parallel-safe with 007 T-047: the panel test/harness files and site assertion files do not overlap. M-003 captures/reviews the styled panel, and M-004 is the required verified facts/evidence handoff; 007 T-050 must not begin from an informal or unverified summary.
+
+## Verification strategy
+
+- NFR-107 / 005 AC-159's deterministic checks cover the three fixtures separately: supported host light theme, supported host dark theme, and unavailable host semantic aliases with the panel's actual fallback cascade. The unavailable case is created **after** the pinned SDK has handled `ready`: its `applyHostTheme` writes every alias from the token map, so omitting token members is not evidence that a CSS fallback ran. The harness removes all host-injected alias properties and inherited color/font declarations from the guest document root (retaining only the selected `color-scheme`) and verifies both that aliases stay absent and that representative computed `--mt-*`/element styles equal the fallback branch in the unchanged stylesheet. Normal text is at least 4.5:1, large text at least 3:1, and meaningful boundaries/focus at least 3:1 against adjacent surfaces. Deliberately failing text and focus pairs must fail with the measured element and ratio.
+- Preserve and exercise semantic tab/body associations, six labels in their existing order, keyboard navigation to all existing primary actions, text state cues, and unobscured visible focus. At 320px and 560px no primary action requires horizontal scrolling; labels keep their existing truncation behavior.
+- Run `npm run shot` for all six tabs at 720px and 560px after styling. Extend the offline host fixture as needed so visual evidence can also be inspected in light/dark and fallback states. Browser accessibility-tree/Lighthouse evidence is supplemental when locally available; no remote host, Lighthouse install, real token, or live OpenChamber is required.
+- This is panel-only presentation/verification. No behavior, service, manifest, capability, permissions, storage key, bundle source, DTO, API, or wire change. CSS remains in `panel/index.html`; no `src/` file changes are permitted solely for decoration. The normal root `npm run verify` gate remains the verification gate; as no source TypeScript is changed, invariant 1 does not require a bundle change for CSS alone.
+
+## Constitution alignment — v1.3.0
+
+No amendment or exception. Principle I and III are untouched because no contract or durable work changes. Principle II is preserved by retaining semantic state text and avoiding decorative ambiguity; IV is supported by readable state/focus cues; V is honored through no new process/dependency/capability; VI is discharged by measurable host-fixture and keyboard evidence before implementation acceptance; VII is untouched because the host boundary does not change. AGENTS.md invariants 1–10 remain binding: no capability, storage, service/wire, manifest, identity, SDK, secret, or version changes; fail-closed behavior is untouched; all decorations stay static. The accepted separate site/panel color ownership is cross-linked to 007 v1.5.0's plan and tasks.
+
+## No data-model or contract amendment
+
+The amendment changes CSS and verification fixtures only. It creates no panel state, entity, API, service DTO, storage, route, event, or wire change. No `data-model.md` or `contracts/` amendment is needed; creating one would describe a nonexistent boundary change.

@@ -2,12 +2,13 @@
 /**
  * The site's build-output contract, executable.
  *
- * Five acceptance criteria and two non-functional requirements are properties of
+ * The page/link contract, preference palettes, and contrast floor are properties of
  * what `astro build` emitted, not of what anyone wrote: AC-001 (no page beyond
  * the five), AC-002 (every internal link under the base path), AC-003 (every
  * page reaches all five), AC-004 (no remote resource, no image file), AC-005
- * (one `h1`, a named navigation region, the license link), NFR-002 (no
- * JavaScript), and NFR-003 (no third-party request). A reviewer with `src/` open
+ * (one `h1`, a named navigation region, the license link), AC-032 (both CSS
+ * preference palettes), NFR-002 (no JavaScript), NFR-003 (no third-party
+ * request), and NFR-004's contrast floor in both palettes. A reviewer with `src/` open
  * is checking the wrong artefact — the failure these exist to catch is the one
  * that builds green and 404s on the published address.
  *
@@ -313,15 +314,71 @@ const INERT_SCHEMES = new Set(['about:']);
 const INLINE_SCHEMES = new Set(['data:', 'blob:']);
 
 // ---------------------------------------------------------------------------------------------
-// NFR-004's contrast floor. The requirement names its own verification — *"the site's own check
-// plus an automated audit of the built pages"* — and this is the audit half of it: the structural
-// half (one `h1` in order, a labelled `nav`) is a fact about the markup, whereas contrast is a
-// fact about a palette, and a palette is the one thing a page edit can change without touching any
-// markup. Left to a comment, it is a claim; measured here, it is a gate.
+// NFR-004's contrast floor, over the **static** pairs the built pages state outright.
+//
+// The requirement names an automated audit of the built pages; this reads each emitted page's
+// light and dark cascades independently, because a palette edit can change contrast without
+// touching any markup. Left to a comment, it is a claim; measured here, it is a gate.
+//
+// ## What this audit does not claim
+//
+// It is a bounded reader of declarations, not a CSS engine, and three things follow from that
+// boundary — each of them refused loudly rather than skipped quietly:
+//
+// - **Responsive large-text classification.** Every pair below is normal text, and its floor
+//   is 4.5:1. The display titles are sized in `clamp()` against the viewport, so whether one
+//   of them is "large text" is a question about a rendered font size; the browser pass over
+//   the rendered pages answers it with WCAG 2.2's own 18pt/14pt-bold boundary.
+// - **`:focus-visible` and other pseudo-states.** A state-scoped rule paints nothing in the
+//   resting state measured here (`unresolvableBackgrounds` says so), and a focus indicator's
+//   contrast is a question about what the browser paints after a keystroke. The rendered pass
+//   measures the focused element.
+// - **Gradient pixels.** A surface that paints an image layer is refused, not approximated:
+//   the colour under a translucent wash is not the colour a reader sees. `background-color`
+//   plus `background-image` is the form this can read, and the rendered pass samples the
+//   pixels the two together produce.
 // ---------------------------------------------------------------------------------------------
 
 /** NFR-004's floor, as WCAG 2.2 states it: 4.5:1 for body text. */
 const CONTRAST_FLOOR = 4.5;
+
+/**
+ * Every surface the audit measures text on, as far as its bounded model can tell.
+ *
+ * `selector` is the one shape this model can place: the box the text is drawn in. A
+ * **bare element name** places itself; the four structural selectors below are the ones
+ * the layout paints behind text that a bare name cannot name, and each is listed here
+ * because the audit refuses a background it cannot place rather than resolving it by
+ * guesswork. A layout rule that paints behind a selector missing from this table fails
+ * the build — which is the point: a surface nobody measured is a surface nobody read.
+ *
+ * `chain` is where a transparent surface falls through. `background` is not inherited in
+ * CSS — the initial value is `transparent`, and a transparent box shows whatever is
+ * behind it — so "the background behind this text" is a walk up the ancestor chain until
+ * something opaque is declared, and that walk is the cascade, not a lookup. A chain that
+ * ends without an opaque declaration means the stylesheet paints nothing at all, which
+ * the audit reports rather than assumes.
+ */
+const CONTRAST_SURFACES = [
+    { name: 'page', selectors: ['body'], chain: ['html'] },
+    { name: 'the lead surface', selectors: ['main > h1 + section'], chain: ['section', 'body', 'html'] },
+    // Two selectors, one surface: the title's lead paragraph and a section's first paragraph
+    // are the same sunken band, declared by one rule. A surface is a *painted box*, and a
+    // surface painted by a selector list is still one box.
+    { name: 'the lead paragraph', selectors: ['h1 + p', 'h2 + p'], chain: ['body', 'html'] },
+    { name: 'a section', selectors: ['section'], chain: ['body', 'html'] },
+    { name: 'the navigation', selectors: ['nav'], chain: ['body', 'html'] },
+    { name: 'the footer', selectors: ['footer'], chain: ['body', 'html'] },
+    { name: 'a table caption', selectors: ['caption'], chain: ['table', 'body', 'html'] },
+    { name: 'a table', selectors: ['table'], chain: ['body', 'html'] },
+    { name: 'a table header', selectors: ['thead th'], chain: ['table', 'body', 'html'] },
+    { name: 'a banded table row', selectors: ['tbody tr:nth-child(even)'], chain: ['table', 'body', 'html'] },
+    { name: 'inline code', selectors: ['code'], chain: ['body', 'html'] },
+    // `pre code` is listed as well as `pre`: it declares `transparent`, which this audit reads
+    // as *paints nothing*, so it must be a selector the walk recognises or the inner `code`
+    // would be an unplaceable background and the block's own colour would go unmeasured.
+    { name: 'a code block', selectors: ['pre', 'pre code'], chain: ['body', 'html'] },
+];
 
 /**
  * The text/background pairs the layout can put together.
@@ -331,44 +388,68 @@ const CONTRAST_FLOOR = 4.5;
  * one. `--surface` happens to be what the footer paints today, so a pair could name the
  * token and pass — but it would then be measuring a custom property that no rule is
  * obliged to use, which is the audit telling a story about the stylesheet rather than
- * reading it. `surface` is resolved below the way a browser resolves it, so a footer
+ * reading it. The surface is resolved below the way a browser resolves it, so a footer
  * repainted with a literal, a `rgb()`, or nothing at all is measured on what it
  * actually sits on.
  *
- * The foreground stays a token: `:root`'s `--text` and `--link` are what the rules that
- * set `color` reference, so naming them is naming the site's palette rather than
- * hard-coding its values.
+ * The foreground stays a token: `:root`'s text roles are what the rules that set `color`
+ * reference, so naming them is naming the site's palette rather than hard-coding its
+ * values. **Each token named here is the one the layout actually paints that text in**,
+ * which is why `--muted` opens the navigation (`nav a` is dim, not link-blue) and
+ * `--signal` opens a table caption: a pair that named a different token would report a
+ * ratio for a colour no reader ever sees.
  *
  * `--rule` is deliberately absent: it is a border colour, and NFR-004 bounds text
- * contrast — a 1px rule is not text a reader has to read. The comment in
- * `src/layout.astro` records the same figures this audit recomputes.
+ * contrast — a 1px rule is not text a reader has to read. The audit prints its
+ * measurements for both preference cascades.
+ *
+ * Every pair is **normal text**, because that is what this parser can measure: the
+ * display titles are sized in `clamp()` against the viewport, so classifying them as
+ * large text is a question about a rendered font size rather than a declaration this
+ * audit can read. Everything below is text whose size the stylesheet states outright.
  */
 const CONTRAST_PAIRS = [
-    { where: 'body text on the page', foreground: '--text', surface: 'body' },
-    { where: 'a link on the page', foreground: '--link', surface: 'body' },
-    { where: 'body text in the footer', foreground: '--text', surface: 'footer' },
-    { where: 'a link in the footer', foreground: '--link', surface: 'footer' },
+    { where: 'body text on the page', foreground: '--text', surface: 'page' },
+    { where: 'a link on the page', foreground: '--link', surface: 'page' },
+    { where: 'muted text on the page', foreground: '--muted', surface: 'page' },
+    { where: 'a generated index on the page', foreground: '--signal', surface: 'page' },
+    { where: 'the lead paragraph', foreground: '--muted', surface: 'the lead paragraph' },
+    { where: 'body text in a section', foreground: '--text', surface: 'a section' },
+    { where: 'a link in a section', foreground: '--link', surface: 'a section' },
+    { where: 'body text in the lead surface', foreground: '--hero-text', surface: 'the lead surface' },
+    { where: 'a link in the lead surface', foreground: '--hero-link', surface: 'the lead surface' },
+    { where: 'a navigation link', foreground: '--muted', surface: 'the navigation' },
+    { where: 'the current page in the navigation', foreground: '--signal', surface: 'the navigation' },
+    { where: 'body text in the footer', foreground: '--text', surface: 'the footer' },
+    { where: 'a link in the footer', foreground: '--link', surface: 'the footer' },
+    { where: 'a table caption on its band', foreground: '--signal', surface: 'a table caption' },
+    { where: 'a table header', foreground: '--hero-text', surface: 'a table header' },
+    { where: 'body text in a table', foreground: '--text', surface: 'a table' },
+    { where: 'a link in a table', foreground: '--link', surface: 'a table' },
+    { where: 'body text in a banded table row', foreground: '--text', surface: 'a banded table row' },
+    { where: 'inline code on its chip', foreground: '--text', surface: 'inline code' },
+    { where: 'a code block', foreground: '--text', surface: 'a code block' },
 ];
-
-/**
- * The elements the pairs above name, and where each one's background comes from when it
- * declares none.
- *
- * `background` is not inherited in CSS — the initial value is `transparent`, and a
- * transparent box shows whatever is behind it. So "the background behind this text" is a
- * walk up the ancestor chain until something opaque is declared, and that walk is the
- * cascade, not a lookup. The shipped chain is `footer → body → html`, and it ends
- * without an opaque declaration only if the stylesheet paints nothing at all, which the
- * audit reports rather than assumes.
- */
-const SURFACE_CHAINS = { footer: ['footer', 'body', 'html'], nav: ['nav', 'body', 'html'], body: ['body', 'html'] };
 
 /**
  * The tokens every pair above reads. Asserted **present** rather than assumed, because an
  * audit that reports nothing about a page whose palette it failed to find is the exact shape
  * of gate this file exists to refuse: a green check that measured nothing.
  */
-const REQUIRED_PALETTE = ['--text', '--link', '--surface'];
+const REQUIRED_PALETTE = [
+    '--text',
+    '--muted',
+    '--link',
+    '--signal',
+    '--hero-text',
+    '--hero-link',
+    '--page',
+    '--surface',
+    '--elevated',
+    '--code',
+    '--hero',
+    '--table-head',
+];
 
 /**
  * How many `var(--x)` hops a declared colour may take before the audit calls it unreadable.
@@ -386,6 +467,16 @@ const MAX_COLOUR_HOPS = 4;
  * stopping on a colour nobody can see text against.
  */
 const SEE_THROUGH_BACKGROUNDS = new Set(['transparent', 'none']);
+
+/**
+ * The `background` shorthand values that paint an **image** rather than a colour.
+ *
+ * An image is pixels, and this audit reads declarations rather than pixels: it resolves the
+ * colour each measured surface paints and has no answer for a gradient between two colours.
+ * So an image layer is refused rather than approximated — the browser pass over the rendered
+ * pages measures those pixels, and this file's job is to be honest about the difference.
+ */
+const BACKGROUND_IMAGES = ['linear-gradient(', 'radial-gradient(', 'conic-gradient(', 'repeating-linear-gradient(', 'repeating-radial-gradient(', 'repeating-conic-gradient(', 'image-set(', 'cross-fade(', 'url('];
 
 // ---------------------------------------------------------------------------------------------
 // Reading the site's own configuration. The base path and the canonical origin are declared in
@@ -541,6 +632,33 @@ function locateInOutput(pathname, base) {
 }
 
 /**
+ * One selector as the audit compares it.
+ *
+ * The built stylesheet is minified, and the minifier rewrites more than whitespace:
+ *
+ * - `main > h1 + section` arrives as `main>h1+section`, so combinator spacing is removed;
+ * - `tbody tr:nth-child(even)` arrives as `tbody tr:nth-child(2n)`, because `even` is the
+ *   keyword spelling of the `2n` progression with no offset.
+ *
+ * That second rewrite is the one that could have gone quietly wrong. A surface named in the
+ * `even` spelling would simply stop matching, the walk would fall through to the next ancestor,
+ * and the pair would be reported against a **lighter** colour than the one actually painted —
+ * an inflated ratio on a real build rather than a failure. `CONTRAST_SURFACES` is written in
+ * the readable keyword form, so both spellings are normalised to it here.
+ *
+ * @param {string} selector One selector as authored or as minified.
+ * @returns {string} Its normalised spelling.
+ */
+function normaliseSelector(selector) {
+    return selector
+        .trim()
+        .toLowerCase()
+        .replace(/\s*([>+~])\s*/g, '$1')
+        .replace(/\s+/g, ' ')
+        .replace(/nth-child\(2n\)/g, 'nth-child(even)');
+}
+
+/**
  * The colours and rules one page's inlined stylesheet declares.
  *
  * Read out of the **built** page rather than out of `src/layout.astro`, because the
@@ -548,23 +666,25 @@ function locateInOutput(pathname, base) {
  * page that carried a `<style>` of its own would then be audited on its palette too, rather
  * than inheriting the layout's by assumption.
  *
- * The rules are the **innermost** blocks, so a rule nested in an at-rule is read as though
- * it were unconditional. `unconditional` records whether that read is safe: a page whose
- * conditional block paints a background is one whose contrast the audit cannot decide, and
- * `assertContrast` refuses it rather than measuring the unconditional reading.
+ * The requested `prefers-color-scheme` block is activated and other such blocks are excluded
+ * before reading. `unconditional` records whether another at-rule paints a background: a
+ * viewport-dependent surface is one whose contrast this audit cannot decide, so it is refused.
  *
  * @param {string} css Every `<style>` body on the page, concatenated.
- * @returns {{ tokens: Map<string, string>, rules: Array<{ selectors: string[], body: string }>, unconditional: boolean }}
- *   The declared custom properties by lower-cased name, every rule in source order, and
- *   whether no at-rule declares a background.
+ * @param {'light' | 'dark'} scheme The preference whose cascade is being read.
+ * @returns {{ tokens: Map<string, string>, rules: Array<{ selectors: string[], body: string }>, unconditional: boolean, hasDarkPreference: boolean }}
+ *   The active palette's custom properties and rules, whether non-scheme conditional backgrounds
+ *   are absent, and whether the stylesheet declares a dark preference.
  */
-function readPalette(css) {
+function readPalette(css, scheme) {
+    const preference = splitPreferenceRules(css, scheme);
+    const activeCss = `${preference.base}\n${preference.active.join('\n')}`;
     const tokens = new Map();
     const rules = [];
-    for (const block of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    for (const block of activeCss.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
         const selectors = (block[1] ?? '')
             .split(',')
-            .map((selector) => selector.trim().toLowerCase())
+            .map((selector) => normaliseSelector(selector))
             .filter((selector) => selector !== '');
         if (selectors.length > 0) {
             rules.push({ selectors, body: block[2] ?? '' });
@@ -578,11 +698,79 @@ function readPalette(css) {
         }
     }
 
-    return { tokens, rules, unconditional: !atRulePaintsABackground(css) };
+    return {
+        tokens,
+        rules,
+        unconditional: !atRulePaintsABackground(preference.base),
+        hasDarkPreference: preference.hasDarkPreference,
+    };
 }
 
 /**
- * Whether any at-rule block — `@media`, `@supports` — declares a background.
+ * Separate color-scheme media rules from the unconditional stylesheet and activate only the
+ * requested preference. This lets the audit resolve the browser's two cascades independently
+ * without treating a dark-only background as an unknown viewport-dependent surface.
+ *
+ * @param {string} css Every `<style>` body on the page.
+ * @param {'light' | 'dark'} scheme The preference whose cascade is being read.
+ * @returns {{ base: string, active: string[], hasDarkPreference: boolean }}
+ */
+function splitPreferenceRules(css, scheme) {
+    const source = css.replaceAll(/\/\*[\s\S]*?\*\//g, ' ');
+    const media = /@media\s*\(([^{}]*prefers-color-scheme\s*:\s*(dark|light)[^{}]*)\)\s*\{/gi;
+    const removed = [];
+    const active = [];
+    let hasDarkPreference = false;
+
+    for (const match of source.matchAll(media)) {
+        const opening = (match.index ?? 0) + match[0].length - 1;
+        const closing = matchingBrace(source, opening);
+        const preference = (match[2] ?? '').toLowerCase();
+        if (preference === 'dark') {
+            hasDarkPreference = true;
+        }
+        if (preference === scheme) {
+            active.push(source.slice(opening + 1, closing));
+        }
+        removed.push([match.index ?? 0, closing + 1]);
+    }
+
+    let cursor = 0;
+    const base = [];
+    for (const [start, end] of removed) {
+        base.push(source.slice(cursor, start));
+        cursor = end;
+    }
+    base.push(source.slice(cursor));
+
+    return { base: base.join(''), active, hasDarkPreference };
+}
+
+/**
+ * Find a block's matching closing brace, accounting for nested CSS rules.
+ *
+ * @param {string} css Stylesheet source.
+ * @param {number} opening Index of the opening brace.
+ * @returns {number} Index of the matching closing brace, or the final source character.
+ */
+function matchingBrace(css, opening) {
+    let depth = 1;
+    for (let index = opening + 1; index < css.length; index += 1) {
+        if (css[index] === '{') {
+            depth += 1;
+        } else if (css[index] === '}') {
+            depth -= 1;
+            if (depth === 0) {
+                return index;
+            }
+        }
+    }
+
+    return css.length - 1;
+}
+
+/**
+ * Whether any remaining at-rule block — `@media`, `@supports` — declares a background.
  *
  * A background that only applies inside a query is a background the audit cannot resolve:
  * whether it paints depends on a viewport it does not know, and reading the rule as though
@@ -605,7 +793,7 @@ function atRulePaintsABackground(css) {
             }
             at += 1;
         }
-        if (readBackground(css.slice(opening.index + opening[0].length, at - 1)) !== '') {
+        if (readPaintedBackground(css.slice(opening.index + opening[0].length, at - 1)).paints) {
             return true;
         }
     }
@@ -614,18 +802,97 @@ function atRulePaintsABackground(css) {
 }
 
 /**
- * The colour a rule body paints behind itself, as written, or the empty string when it
- * declares none.
+ * Split a shorthand value into its top-level layers, so a comma inside `rgba()` or inside a
+ * gradient's own arguments does not read as two layers.
  *
- * Both spellings of the property are read because `background-color` is how a rule states
- * this without the shorthand's other components, and a stylesheet that used only the
- * shorthand would otherwise read as declaring nothing.
+ * @param {string} value A shorthand value as written.
+ * @returns {string[]} Every layer, in source order.
+ */
+function splitBackgroundLayers(value) {
+    const layers = [];
+    let depth = 0;
+    let buffer = '';
+    for (const char of value) {
+        if (char === '(') {
+            depth += 1;
+        } else if (char === ')') {
+            depth = Math.max(depth - 1, 0);
+        }
+        if (char === ',' && depth === 0) {
+            layers.push(buffer.trim());
+            buffer = '';
+            continue;
+        }
+        buffer += char;
+    }
+    if (buffer.trim() !== '') {
+        layers.push(buffer.trim());
+    }
+
+    return layers;
+}
+
+/**
+ * What one rule body paints behind itself: a colour, nothing, or something this audit
+ * cannot read.
+ *
+ * Both spellings of the property are read, and the **last** of them wins, which is the
+ * cascade: a `background-color` written after a `background` shorthand overrides the
+ * shorthand's own colour component, and one written before it is reset by it.
+ *
+ * The one form refused is a shorthand carrying more than one layer. Such a rule paints
+ * images over a colour — a gradient with a colour under it — and reading the bottom layer
+ * as *the* background would be measuring a colour the reader never sees. It is reported
+ * with the declaration to write instead, because "declare the colour as
+ * `background-color` and the decoration as `background-image`" is both true CSS and a form
+ * this audit can read: an image layer paints no colour at all, so a surface that declares
+ * only one genuinely falls through to what is behind it.
  *
  * @param {string} body One rule's declarations.
- * @returns {string} The declared value, trimmed, or `''`.
+ * @returns {{ paints: boolean, value: string, problem: string }} Whether the rule paints an
+ *   opaque colour, the value it is (or `''` when it paints none), and what stopped the audit
+ *   from reading one when it paints something it cannot measure.
  */
-function readBackground(body) {
-    return /(?<![-\w])background(?:-color)?\s*:\s*([^;}]+)/i.exec(body)?.[1]?.trim() ?? '';
+function readPaintedBackground(body) {
+    const declarations = [...body.matchAll(/(?<![-\w])(background-color|background)\s*:\s*([^;}]+)/gi)]
+        .map((found) => ({
+            shorthand: (found[1] ?? '').toLowerCase() === 'background',
+            value: (found[2] ?? '').trim(),
+        }))
+        .filter((declaration) => declaration.value !== '');
+    const last = declarations.at(-1);
+    if (last === undefined) {
+        return { paints: false, value: '', problem: '' };
+    }
+    if (!last.shorthand) {
+        return {
+            paints: !SEE_THROUGH_BACKGROUNDS.has(last.value.toLowerCase()),
+            value: last.value,
+            problem: '',
+        };
+    }
+
+    const layers = splitBackgroundLayers(last.value);
+    if (layers.length > 1) {
+        return {
+            paints: true,
+            value: '',
+            problem: `\`background: ${last.value}\` declares ${layers.length} layers, so the colour a reader ` +
+                'sees is the last one seen through the first',
+        };
+    }
+    const only = layers[0] ?? '';
+    const image = BACKGROUND_IMAGES.find((candidate) => only.toLowerCase().startsWith(candidate));
+    if (image !== undefined) {
+        return {
+            paints: true,
+            value: '',
+            problem: `\`background: ${last.value}\` paints an image layer, which this audit cannot read as a ` +
+                'colour',
+        };
+    }
+
+    return { paints: !SEE_THROUGH_BACKGROUNDS.has(only.toLowerCase()), value: only, problem: '' };
 }
 
 /**
@@ -633,50 +900,87 @@ function readBackground(body) {
  * resolves it: this element's own declaration, or — when it declares none, or declares one
  * that paints nothing — the nearest ancestor's.
  *
- * Each link in the chain is a *bare element name*, because that is the only selector shape
- * this audit can resolve to "the box this text is in". A rule whose background sits behind
- * a compound selector is not skipped quietly: `unresolvableBackgrounds` names it and the
- * audit fails, because a background it cannot place is a background nobody measured.
+ * Each link in the walk is either the surface's own selector (a bare element name, or one
+ * of the structural selectors `CONTRAST_SURFACES` enumerates) or a bare ancestor name. A
+ * background behind a selector outside that set is not resolved here:
+ * `unresolvableBackgrounds` names it and the audit fails, because a background it cannot
+ * place is a background nobody measured.
  *
  * @param {Array<{ selectors: string[], body: string }>} rules Every rule, in source order.
- * @param {string} element The element the text sits in.
- * @returns {{ declared: string, from: string }} The winning declaration and the element that
- *   made it, or the empty string when nothing up the chain paints one.
+ * @param {string} surface The surface's name, as `CONTRAST_SURFACES` spells it.
+ * @returns {{ declared: string, from: string, problem: string }} The winning declaration, the
+ *   selector that made it, and what stopped the audit from reading it when it painted
+ *   something unmeasurable.
  */
-function paintBackground(rules, element) {
-    for (const candidate of SURFACE_CHAINS[element] ?? [element]) {
-        // The last matching rule wins, which is the cascade within the chain.
-        const winner = rules.filter((rule) => rule.selectors.includes(candidate)).at(-1);
-        const declared = winner === undefined ? '' : readBackground(winner.body);
-        if (declared !== '' && !SEE_THROUGH_BACKGROUNDS.has(declared.toLowerCase())) {
-            return { declared, from: candidate };
-        }
+function paintBackground(rules, surface) {
+    const definition = CONTRAST_SURFACES.find((candidate) => candidate.name === surface);
+    if (definition === undefined) {
+        return { declared: '', from: '', problem: `\`${surface}\` is not a surface this audit reads` };
     }
 
-    return { declared: '', from: '' };
+    for (const candidate of [...definition.selectors.flat(), ...definition.chain].map(normaliseSelector)) {
+        // The last rule that **declares a background** wins, which is the cascade within the
+        // walk. A later rule that only sets a padding does not reset an earlier background —
+        // that is why this filters to rules that declare one and takes the last of those, rather
+        // than taking the last matching rule and then finding nothing in it.
+        const winner = rules
+            .filter((rule) => rule.selectors.includes(candidate) && readPaintedBackground(rule.body).paints)
+            .at(-1);
+        if (winner === undefined) {
+            continue;
+        }
+        const painted = readPaintedBackground(winner.body);
+        return { declared: painted.value, from: candidate, problem: painted.problem };
+    }
+
+    return { declared: '', from: '', problem: '' };
 }
 
 /**
  * Every background declaration this audit cannot place, named.
  *
- * A rule may only paint a background behind a bare element name to be read. Anything else —
- * `main p`, `.card`, `html[dir='rtl']`, `:root` — is a background whose box the audit cannot
- * identify, and resolving it as though it were absent would report the inherited surface for
- * text that is not drawn on it.
+ * A rule may paint behind a bare element name, or behind one of the selectors
+ * `CONTRAST_SURFACES` enumerates, to be read. Two kinds of rule sit outside that model, and
+ * they are named for opposite reasons:
+ *
+ * - a selector the model does not know (`.card`, `html[dir='rtl']`, `main p`) paints behind
+ *   a box this audit cannot identify, and resolving it as absent would report the inherited
+ *   surface for text that is not drawn on it;
+ * - a **state- or pseudo-element-scoped** rule (`:hover`, `:focus-visible`, `::before`,
+ *   `::after`) paints nothing in the resting state this audit measures. It is left out of
+ *   the model deliberately and written down here, because the browser pass over the rendered
+ *   pages is what exercises a hover or focus surface and a reader should know which half of
+ *   the evidence covers them. *State* means the interaction states only: `:first-child`,
+ *   `:nth-child(…)`, `:checked` and `:disabled` all hold while the page sits still, so a
+ *   background behind one paints in the state this audit measures and is refused like any
+ *   other unplaceable selector rather than skipped.
  *
  * @param {Array<{ selectors: string[], body: string }>} rules Every rule, in source order.
- * @returns {string[]} One line per unresolvable selector, for the failure message.
+ * @returns {string[]} One line per unplaceable selector, for the failure message.
  */
 function unresolvableBackgrounds(rules) {
+    const placed = new Set(
+    CONTRAST_SURFACES.flatMap((surface) => [...surface.selectors.flat(), ...surface.chain]).map(normaliseSelector),
+);
+    /*
+     * Pseudo-elements — `::x`, and the legacy `:before`/`:after` spelling the minifier ships —
+     * generate boxes this audit does not read text out of, and the four interaction states do not
+     * hold at rest. Everything else is refused. The state name must also be outside a `:not(…)`,
+     * since `a:not(:hover)` *is* the link's resting state; a `(` in front of it is what that
+     * looks like in a selector.
+     */
+    const isScopedToAState = (selector) =>
+        /::|:(?:before|after|first-line|first-letter)\b|(?:^|[^:(]):(?:hover|focus|active|visited)\b/.test(selector);
     const unreadable = [];
     for (const rule of rules) {
-        if (readBackground(rule.body) === '') {
+        if (!readPaintedBackground(rule.body).paints) {
             continue;
         }
         for (const selector of rule.selectors) {
-            if (!/^[a-z][a-z0-9]*$/.test(selector)) {
-                unreadable.push(selector);
+            if (placed.has(selector) || isScopedToAState(selector) || /^[a-z][a-z0-9]*$/.test(selector)) {
+                continue;
             }
+            unreadable.push(selector);
         }
     }
 
@@ -773,36 +1077,56 @@ function contrastRatio(foreground, background) {
 /**
  * NFR-004's contrast floor, audited over the colours a page's stylesheet resolves to.
  *
- * Three assertions beyond the floor itself, and each of them is the one that keeps the next
- * honest: the tokens the pairs name must be readable, every background must be placeable, and
- * every chain must end on a colour. An audit that finds no palette, or cannot tell which box a
- * background paints, or walks off the end of the chain, reports no failures for a page whose
- * text colour it never looked at — and a green check that measured nothing is the exact shape
- * of gate this file exists to refuse.
+ * Five assertions beyond the floor itself, and each of them is the one that keeps the next
+ * honest: the tokens the pairs name must be declared, both preference palettes must exist and
+ * select their own `color-scheme`, every background must be placeable, every surface must
+ * resolve to a colour at all, and every colour must be one this audit can read. An audit that
+ * finds no palette, or cannot tell which box a background paints, or walks off the end of a
+ * chain, or meets a gradient it cannot resolve, reports no failures for a page whose text
+ * colour it never looked at — and a green check that measured nothing is the exact shape of
+ * gate this file exists to refuse.
  *
  * @param {string} where The emitted file, for the message.
  * @param {string} css Every `<style>` body on the page, concatenated.
+ * @param {'light' | 'dark'} scheme The preference whose contrast is being measured.
  * @returns {Array<{ where: string, foreground: string, background: string, ratio: number }>}
  *   Every pair the audit measured, for the ledger the run prints.
  */
-function assertContrast(where, css) {
-    const { tokens, rules, unconditional } = readPalette(css);
+function assertContrast(where, css, scheme) {
+    const { tokens, rules, unconditional, hasDarkPreference } = readPalette(css, scheme);
     const measured = [];
+    const here = `${where} (${scheme} preference)`;
 
     for (const required of REQUIRED_PALETTE) {
         assert(
             'NFR-004 the declared text colours are audited',
             tokens.has(required),
-            `${where}: the inlined stylesheet declares no \`${required}\`, so NFR-004's contrast floor ` +
-                'was measured against nothing. The layout declares its palette in `:root` and the audit ' +
-                'reads it from the built page; deleting a token has to fail here rather than turn the ' +
-                'audit off.',
+            `${here}: the active cascade declares no \`${required}\`, so NFR-004's contrast floor was ` +
+                'measured against nothing for the pairs that read it. The layout declares its palette in ' +
+                '`:root` and the audit reads it from the built page; deleting a token has to fail here ' +
+                'rather than turn the audit off.',
         );
     }
     assert(
+        'AC-032 both preference palettes are declared',
+        hasDarkPreference,
+        `${where}: no built \`prefers-color-scheme: dark\` rules were found, so the dark palette could not be audited. ` +
+            'Declare a site-owned dark palette in the emitted stylesheet.',
+    );
+    const rootColorSchemes = rules
+        .filter((rule) => rule.selectors.includes(':root'))
+        .map((rule) => /(?:^|;)\s*color-scheme\s*:\s*([^;}]+)/i.exec(rule.body)?.[1]?.trim())
+        .filter((value) => value !== undefined);
+    assert(
+        'AC-032 each preference selects its matching color scheme',
+        rootColorSchemes.at(-1) === scheme,
+        `${where}: the ${scheme} preference resolves root \`color-scheme\` to ` +
+            `\`${rootColorSchemes.at(-1) ?? 'nothing'}\`, not \`${scheme}\`. Declare the matching scheme in the built CSS.`,
+    );
+    assert(
         'NFR-004 the declared text colours are audited',
         unconditional,
-        `${where}: a rule inside an at-rule block declares a background, and whether it paints depends on ` +
+        `${here}: a rule inside an at-rule block declares a background, and whether it paints depends on ` +
             'a viewport this audit does not know — a background it cannot resolve is a background nobody ' +
             'measured. Paint unconditional backgrounds, or narrow the pairs this audit reads.',
     );
@@ -810,22 +1134,23 @@ function assertContrast(where, css) {
     assert(
         'NFR-004 the declared text colours are audited',
         unplaceable.length === 0,
-        `${where}: ${unplaceable.map((selector) => `\`${selector}\``).join(', ')} declare a background behind ` +
-            'something other than a bare element name, so this audit cannot tell which box the text is ' +
-            'drawn in and would measure it against the inherited surface instead. The pairs it reads are ' +
-            `\`${CONTRAST_PAIRS.map((pair) => pair.surface).join('` and `')}\`.`,
+        `${here}: ${unplaceable.map((selector) => `\`${selector}\``).join(', ')} paint a background behind a ` +
+            'selector this audit cannot place, so it cannot tell which box the text is drawn in and would ' +
+            'measure it against the inherited surface instead. Add the selector to `CONTRAST_SURFACES` if it ' +
+            `is a real surface, or paint it behind a bare element name. The surfaces read are ` +
+            `\`${[...new Set(CONTRAST_PAIRS.map((pair) => pair.surface))].join('`, `')}\`.`,
     );
-    // Non-vacuity for the cascade itself: a chain that ends on nothing means the stylesheet paints
+    // Non-vacuity for the cascade itself: a walk that ends on nothing means the stylesheet paints
     // no surface at all, and an audit that then measured nothing would still exit zero. Checked
     // once per surface rather than per pair, and reported as the stylesheet finding it is.
-    for (const surface of [...new Set(CONTRAST_PAIRS.map((pair) => pair.surface))]) {
-        const chain = SURFACE_CHAINS[surface] ?? [surface];
-        const resolved = paintBackground(rules, surface);
+    for (const name of [...new Set(CONTRAST_PAIRS.map((pair) => pair.surface))]) {
+        const definition = CONTRAST_SURFACES.find((candidate) => candidate.name === name);
+        const resolved = paintBackground(rules, name);
         assert(
             'NFR-004 the declared text colours are audited',
             resolved.declared !== '',
-            `${where}: nothing in \`${chain.join('` → `')}\` declares a background, so there is nothing for ` +
-                `NFR-004's contrast floor to measure ${surface === 'body' ? 'body text' : `the ${surface}`} ` +
+            `${here}: nothing in \`${[...(definition?.selectors.flat() ?? []), ...(definition?.chain ?? [])].join('` → `')}\` ` +
+                `declares a background, so there is nothing for NFR-004's contrast floor to measure ${name} ` +
                 'against. `background` is transparent by default, so a stylesheet that declares none paints ' +
                 'the canvas — which this audit does not read, because the canvas colour is a browser default ' +
                 'rather than something the page states.',
@@ -840,11 +1165,22 @@ function assertContrast(where, css) {
         const background = parseColour(backgroundRaw);
         const id = 'NFR-004 the declared text colours clear 4.5:1';
 
+        if (surface.problem !== '') {
+            assert(
+                id,
+                false,
+                `${here}: the background behind ${pair.where} is one this audit cannot read: ` +
+                    `${surface.problem}. Declare the colour as \`background-color\` and any decoration as ` +
+                    '`background-image`; a rendered gradient is measured against its actual pixels by the ' +
+                    "browser pass over the built pages, not by this one.",
+            );
+            continue;
+        }
         if (foreground === null) {
             assert(
                 id,
                 false,
-                `${where}: ${pair.where} is \`${foregroundRaw}\`, which this audit cannot read. NFR-004's floor ` +
+                `${here}: ${pair.where} is \`${foregroundRaw}\`, which this audit cannot read. NFR-004's floor ` +
                     'is measured over `#rgb` and `#rrggbb`, and a colour in a form the audit cannot parse is ' +
                     'a colour nobody measured — write it as a hex literal.',
             );
@@ -854,20 +1190,20 @@ function assertContrast(where, css) {
             assert(
                 id,
                 false,
-                `${where}: the background behind ${pair.where} is \`${backgroundRaw}\`, which this audit cannot ` +
+                `${here}: the background behind ${pair.where} is \`${backgroundRaw}\`, which this audit cannot ` +
                     `read. It resolved from \`${pair.surface}\`${surface.from === '' ? '' : ` through \`${surface.from}\``} ` +
-                    'and no value up that chain is a hex literal; declare one the audit can measure, or write ' +
+                    'and no value up that walk is a hex literal; declare one the audit can measure, or write ' +
                     'the colour as `#rgb`/`#rrggbb`.',
             );
             continue;
         }
         const ratio = contrastRatio(foreground, background);
-        measured.push({ where: pair.where, foreground: foregroundRaw, background: backgroundRaw, ratio });
+        measured.push({ where: `${scheme} ${pair.where}`, foreground: foregroundRaw, background: backgroundRaw, ratio });
         assert(
             id,
             ratio >= CONTRAST_FLOOR,
-            `${where}: ${pair.where} is \`${foregroundRaw}\` on \`${backgroundRaw}\`, a contrast ratio of ` +
-                `${ratio.toFixed(2)}:1 — NFR-004 requires at least ${CONTRAST_FLOOR}:1 for body text. ` +
+            `${here}: ${pair.where} is \`${foregroundRaw}\` on \`${backgroundRaw}\`, a contrast ratio of ` +
+                `${ratio.toFixed(2)}:1 — NFR-004 requires at least ${CONTRAST_FLOOR}:1 for normal text. ` +
                 'Darken the foreground or lighten the background; every other pair on the page is measured ' +
                 'the same way.',
         );
@@ -1005,6 +1341,15 @@ function assertThePage(page, html, base, origin, emitted) {
     const pageAddress = `${base}${page.address}`;
     const elements = readElements(html);
 
+    const manualThemeControl = [...html.matchAll(/<(?:button|select)\b([^>]*)>([\s\S]*?)<\/(?:button|select)\s*>|<input\b([^>]*)>/gi)].find(
+        (control) => /\b(theme|appearance|dark mode|light mode)\b/i.test(`${control[1] ?? ''} ${control[2] ?? ''} ${control[3] ?? ''}`.replace(/<[^>]*>/g, ' ')),
+    );
+    assert(
+        'AC-032 no manual theme toggle',
+        manualThemeControl === undefined,
+        `${where}: a manual theme control was emitted; FR-079 requires CSS-only preference matching with no toggle.`,
+    );
+
     // NFR-002, in the three shapes client-side scripting can take.
     for (const element of elements.filter((candidate) => candidate.name === 'script')) {
         assert(
@@ -1088,8 +1433,9 @@ function assertThePage(page, html, base, origin, emitted) {
         assertInlineStylesheet(`${where}: <style>`, block[1], origin);
     }
 
-    // NFR-004's other half: the contrast floor, over the palette this page inlined.
-    const contrast = assertContrast(where, stylesheets.map((block) => block[1]).join('\n'));
+    // NFR-004's other half: both independently selected palettes, over this built page.
+    const css = stylesheets.map((block) => block[1]).join('\n');
+    const contrast = ['light', 'dark'].flatMap((scheme) => assertContrast(where, css, scheme));
 
     // AC-002 and AC-003: every internal link resolves to a page the build actually emitted.
     const reachable = new Set();
@@ -1433,7 +1779,7 @@ if (!existsSync(distDirectory) || !statSync(distDirectory).isDirectory()) {
         );
         // NFR-004 names its verification as *"the site's own check plus an automated audit of
         // the built pages"*, so the audit's own figures are printed rather than left to be
-        // re-derived by hand. Deduplicated by *pair and colour*, not by colour alone: the
+        // re-derived by hand. Deduplicated by *preference, pair and colour*, not by colour alone: the
         // layout inlines one palette into all five pages, so five identical ledgers would be
         // five times the noise — but two different pairs can share a colour pair (a link on the
         // page and a link on the surface both measure once the surface is `body`'s), and
