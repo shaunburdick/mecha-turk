@@ -1,7 +1,7 @@
 # Research: Agent Event Extension (Production) — new findings only
 
 **Feature**: `specs/002-agent-event-extension`
-**Researched**: 2026-09-27 · **Amended**: 2026-10-03 (§R8, §R9, for the actor allow-list — GitHub issue #9)
+**Researched**: 2026-09-27 · **Amended**: 2026-10-03 (§R8, §R9, for the actor allow-list — GitHub issue #9) · **2026-10-05** (§R10, for the binding history scope — GitHub issue #22)
 **Scope**: Everything already settled in `specs/001-agent-event-orchestrator/research.md` (GitHub platform §a, OpenChamber platform §b) is **not** re-researched here — that file was the canonical record. **Historical-path note (2026-09-28, cleanup review):** the whole `specs/001-agent-event-orchestrator/` directory was removed in commit `110c0a2` when `README.md` and `AGENTS.md` shipped, so that citation is **stamped provenance, not a live link** — recover it with `git show 110c0a2^:specs/001-agent-event-orchestrator/research.md`. Where its §a/§b findings bind the production system they are restated as requirements in `spec.md` (FR-004, FR-010, FR-011, FR-029, FR-034, `## Setup Prerequisites`) and in `spec.md`'s `## Research and Platform Decisions` table; **every short-form `001 §…` reference later in this file reads against that same removed file and is covered by this note** — none is a live link. This document records only what 002's planning added, with sources and version stamps.
 
 **Sources used here** (all retrieved 2026-09-27):
@@ -283,3 +283,92 @@ GitHub itself issued.
 2. Live host build version was never recorded by the operator (001 §1 — *historical citation: the 001 record that carried it was removed in commit `110c0a2`; recover with `git show 110c0a2^:specs/001-agent-event-orchestrator/spike-evidence.md`*) — record it during T-033's live run.
 3. Whether the panel's `onSession` also fires without `openSession` (e.g. `navigation:'open'`) is *undocumented*; the plan does not depend on it, and tests pin only the documented path (R3).
 4. **002 v1.11.0 adds none.** R8 and R9 settle the two questions the allow-list raised (who the actor is, and what counts as a login) from the shipped readers and from GitHub's documented login rules. Three items the amendment raised are **not** research questions and are recorded as decisions or flags instead, each in the place that owns it: the `schemaVersion 1.2` question is plan D1, the omission-means-unset reading is plan D4, and the `[bot]`-entry reading is plan D7.
+
+---
+
+## R10. Where a scan window's lower bound comes from, and the three routes to "no window" (added 2026-10-05 for FR-053 – FR-094, GitHub issue #22)
+
+Everything below was read in the shipped code on 2026-10-05, with file and line references so each claim can be re-checked. **No external research was needed**: the question is what the product already does, not what a provider does. §R1 – §R9 are unchanged.
+
+### R10.1 The replay is real, and it has exactly three routes in
+
+`service/poll/window.ts:44-64` — `windowFor()` reads the binding's slot in scan state; a `lastScanAt` that is `null`, **or no slot at all**, returns `null`, which is *no `since` filter at all*. `service/poll/window.ts:83-96` — `stampInWindow()` with a `null` windowStart returns `true` for every stamp, so the comparison admits everything. The product decision that produced it is recorded in the code itself, dated: *"pre-binding assignments must work (product decision, 2026-09-28), so an issue assigned before the binding existed is still detected"* (`window.ts:33-40`).
+
+**Three routes reach that state today**, and each needed a separate answer: (1) a binding with no completed scan; (2) the queue-recovery reset, §R10.2; (3) `window.ts:58-61` — a recorded stamp the clock cannot parse falls back to `null`, justified in its comment as *"an unbounded window is honest, a malformed `since` is not"*. Route 3 is defensible as an argument about a query parameter and is **not** defensible as behaviour: the dateless-**observation** case is refused (`window.ts:88-90`), and an unreadable stored configuration is quarantined. It was the last remaining route to an unbounded window, and FR-072 closes it.
+
+### R10.2 The recovery reset and the first scan are one representation with two callers
+
+`service/poll/events.ts:167-204` — when the event queue is quarantined, `resetScanWindows()` walks **every** binding's slot and writes `null` over its checkpoint, on the stated reasoning that the lost queue's rows are gone and the only way to recover what they carried is to re-detect it. The comment names the intent: *"the next cycle replays every open issue — the same contract a fresh binding gets."* The write runs on the scan-state chain so it cannot interleave with the loop's own read-modify-write.
+
+`service/poll/loop.ts:300-322` — `saveBindingScanState()` keeps the retained-checkpoint rule and says so in a comment that names the reset as *"the one path that clears the stamp"*.
+
+**This is the consequential read in the exercise.** The recovery path and the creation path are one representation with two callers, so a rule distinguishing "never scanned" from "watch only new activity" cannot be implemented without either losing recovery or adding a second escape hatch only one path can reach. FR-073 and FR-074 exist because of it, and neither would have been written from the issue text.
+
+### R10.2b FR-023's rescan surface does not exist, and never has
+
+Verified 2026-10-05 by inspection: `service/routes/` carries **no rescan, replay, or rewind operation** —
+the route table is accounts, bindings, audit, config, credential, dispatch, events, health, run, status, and
+verify. FR-023 has required *"a controlled operator rescan/replay from a chosen timestamp"* since v1.0.0,
+and no surface has implemented it at any point. **This is a conformance gap against a requirement this
+document has carried for its whole life**, and it is invisible from the requirements alone: a reader of
+FR-023 would reasonably assume the surface exists.
+
+It is also a live hazard for the history-scope work specifically. "The mode change reuses FR-023's rescan
+path" is only implementable if something is being reused; with nothing there, the instruction resolves to
+*build one mechanism, and build only the caller the new requirement names*. That is what the product owner
+decided on 2026-10-05, and it is why FR-023's promise was narrowed at the same time rather than left
+standing beside a new requirement that quietly depended on it. The debt is recorded in `spec.md`
+`## Out of Scope` by name. Building it later is additive: no migration, no data-model change, no stored
+value to reconcile.
+
+### R10.3 A window start is consumed by five paths, and all five already handle a real stamp
+
+This is the finding that makes the feature small. `windowStart` reaches:
+
+| Consumer | Read | With a real start today? |
+| --- | --- | --- |
+| Issues / comments **list** calls | sent as `since` — `service/poll/poller-github.ts:77,153,178` | yes |
+| The pulls list | `service/poll/triggers.ts:363`, and `poller-github.ts:203` sends `since: null` because that endpoint takes none | yes, via the client-side comparison |
+| In-window comparison (listings) | `stampInWindow(issue.updatedAt, …)` — `triggers-assignment.ts:124`, `triggers-review.ts:126`, `triggers.ts:220,263` | yes |
+| Per-item events page walk | `pageEndsWalk(…, windowStart)` — `poller-events.ts:297` | yes |
+| Per-item events in-window test | `stampInWindow(event.createdAt, …)` — `poller-events.ts:329` | yes |
+
+The per-item endpoints carry **no** `since` and never will — that is FR-051's prohibition, unchanged. So the implementation is *"return a real start instead of `null` for a binding with no completed scan"*, and the page walk, the attribution rule, the `since` parameters, and the dateless-observation refusal all work untouched. It is also why FR-068 can forbid the mode from appearing in any per-observation comparison: the moment it did, one of five consumers would need a rule the other four do not have.
+
+### R10.4 The stored record's own conventions
+
+`service/bindings.ts` — the record is a service-owned JSON array read through one validator that collects **every** problem rather than short-circuiting (`collectBindingIssues`, and `parseBinding`'s second pass that re-runs the readers purely to collect all issues). Optional members follow one shape each: the key is **absent** when unset (never `''`, `null`, `[]`); a present non-text value is **refused** rather than coerced; the whole file is quarantined on an unreadable read. `state` is the one member whose absence means the **default** (`stateFieldOf` returns `'active'` when `undefined`); `allowedUsers` is the one whose absence is a **complete state of its own**. The difference is whether absence is a default the product would have chosen anyway or a third option — and `historyScope` belongs to the first family, which is why FR-058 gives absence exactly one reading.
+
+`stampOrKeep()` fills an unreadable `createdAt` with `nowIso()` at read time. That is why FR-066 requires the baseline to be **derived once and retained** rather than recomputed per scan: a binding whose creation stamp is unreadable *and* whose scan keeps failing would otherwise slide its baseline forward on every attempt.
+
+### R10.5 The status row is safe to extend in both directions
+
+`service/routes/events.ts:198-213` builds the per-binding status row (`lastScanAt`, `lastError`, `pendingCount`). The panel's reader, `src/bindings-service.ts:207-245`, is **lenient about members it does not know** — it reads what it needs and ignores the rest — and **fail-closed about the members it does**: `readAllowedUsers` refuses the whole entry for a non-array or an empty one. So adding derived members is backward-compatible with an older panel, while the new *configuration* member must be read fail-closed by the panel exactly as the allow-list is (FR-063).
+
+### R10.6 The audit vocabulary for "why was this observation not accepted" is reserved and unwritten
+
+`data-model.md:190` reserves `poll.observation` and `poll.checkpoint`. **Neither is written anywhere in `service/`.** The names were reserved for exactly this shape of question, and the trail currently cannot answer it at all. FR-087 answers it from two durable facts instead and leaves both names free, because a row per non-matching observation is unbounded in volume — a cycle matching nothing writes one per open item, every cycle.
+
+### R10.7 Two spellings of "the operator chose from a closed set", already in the product
+
+`state: 'active' | 'disabled'` is **required** with absence meaning the default, and `allowedUsers` is **optional** with absence meaning *anyone may trigger* — emphatically not the default. `allowedUsers: []` is a **refusal**, not a state, and there is no analogous hole in the mode because its domain has no "none of these" value.
+
+### R10.8 Versions and declaration site
+
+`service/config.ts:155-167` — `NUMERIC_BOUNDS` declares bounds for every numeric configuration field, and it is the **exported** declaration the Settings schema projection reads. Putting the look-back length there would have made it a **configuration field**: 006 FR-020's projection would render a row, and 006 FR-010's and FR-084's documented count of **twelve** would become thirteen. It is therefore declared as its own constant with its own bound, outside `ServiceConfig` (FR-059). **The validation posture is the one `overlapMs` gets; the declaration site deliberately is not.**
+
+`@openchamber/sdk` is pinned at **`1.24.2`** with `engines.openchamber >= 1.24.0`; the published latest is **`2.1.1`**, a major ahead. This amendment adds no host call, so the pin is not a gate for it; re-pinning is an invariant-6 decision requiring a check against the operator's host build, and nothing here requires it. **Observation, out of scope.**
+
+### R10.9 Alternatives considered and rejected
+
+| Alternative | Rejected because |
+| --- | --- |
+| A boolean `replayHistory` | two values need no boolean, and a boolean has no third state to grow into without a rename in a persisted value |
+| A stored `historyWindowMs` | makes the number operator-visible, which the owner declined, and puts "unbounded" one hand-edit away from being representable |
+| A per-binding `replayAt` stamp the operator sets | makes the operator a time authority on every scan rather than once at creation, and duplicates the checkpoint with two stamps that can disagree |
+| A memory flag for the recovery replay | works until any path other than the recovery cycle reads the checkpoint, at which point the flag is gone and the case degrades silently into "never scanned" |
+| A per-observation audit row | unbounded volume on exactly the cycles that produce nothing, which is most of them |
+| An edit that only affects bindings with no completed scan | does nothing at all on any binding that has ever scanned — a control that appears to work and does not |
+| A count cap on the sweep | a cap that stops part-way leaves a checkpoint recording a completed scan while in-window triggers were never offered, with nothing able to name which ones |
+| An account or global tier, as the starting prompt has | this value selects a window; the prompt's value is an instruction that composes. There is no composition story for a window, and one repository per binding is a standing rule |
+| A second replay surface for the operator's catch-up | two replay mechanisms with different rules is how a rescan silently changes meaning; FR-023 is the single path and only *whose choice* sets the bound differs |

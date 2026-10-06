@@ -56,6 +56,18 @@ Panel-side mapping of host transport errors: `NO_SERVICE` → "service not appro
 > same surface `startingPrompt` already rides (`../../004-starting-prompt/contracts/binding-prompt.md`)
 > — and is specified in full in
 > [`binding-allow-list.md`](./binding-allow-list.md). **No route, method, or error code is added;
+>
+> **Amended 2026-10-05 (002 v1.13.0) — a second additive member, still no new row below.** The
+> `historyScope` member (`'new-only' \| 'recent-history'`, default `'new-only'`) rides the same
+> `GET /v1/bindings` and the same whole-file `PUT /v1/bindings`, and is specified in full in
+> [`binding-history-scope.md`](./binding-history-scope.md). It selects where the binding's scan
+> window's lower bound comes from; it adds **no** route, method, or error code, and **no**
+> configuration field — the seven-day look-back is a service-declared constant, not a `config.json`
+> member, so §2.4's field list and 006 FR-010's count of twelve are unchanged. **The
+> `per-binding PUT`/`POST`/`DELETE` rows below remain the documented MVP-DEBT and are still not
+> reopened.** One reuse is worth naming here because it changes what this section promises:
+> **FR-023's operator rescan/replay from a chosen timestamp is now the single rescan path**, and the
+> binding-mode catch-up opens its window through it rather than through a second mechanism.
 > the per-binding `PUT`/`POST`/`DELETE` rows below remain the documented MVP-DEBT and are not
 > reopened.** §2.3's shape is the pre-2026-09 record of the intended surface; the shipped
 > implementation is `GET` + whole-file `PUT` (`service/routes/bindings.ts`, 005 FR-050), and the

@@ -12,9 +12,13 @@
  * Three properties of the input are decisions rather than conveniences:
  *
  * - **`windowStart` is the one window**, already widened by the cycle's own
- *   configured overlap (006 FR-059(a)), and every branch compares against it with
- *   the single rule in `window.ts`. A branch that computed its own window would be
- *   a second answer to "what counts as new this cycle".
+ *   configured overlap (006 FR-059(a)) or by the binding's history scope (002
+ *   FR-065 – FR-067), and every branch compares against it with the single rule
+ *   in `window.ts`. A branch that computed its own window would be a second
+ *   answer to "what counts as new this cycle". **The history scope is not passed
+ *   down with it** (002 FR-068): the mode decides a window's start and nothing
+ *   else, so no branch — and no comparison about an individual observation — can
+ *   consult it.
  * - **`login` is the account record's login when it has one** and the binding's
  *   otherwise, decided once by the cycle, so the subject fields the triggers
  *   match are matched against the same identity everywhere (002 FR-009).
@@ -51,8 +55,16 @@ export interface TriggerScanInput {
     readonly binding: BindingRecord;
     /** The bound account's login, as the account record reports it. */
     readonly login: string;
-    /** Window start; `null` opens an unbounded (replay) listing. */
-    readonly windowStart: string | null;
+    /**
+     * The window this scan opened, already widened by whatever the cycle's own
+     * configuration and the binding's history scope declared (002 FR-065).
+     *
+     * A `string`, not `string | null`: since v1.13.0 **every** scan opens at a
+     * computable lower bound, so "no window" is not a state a branch has to
+     * handle — and a branch that could receive one would have to decide whether
+     * an undated observation counts, which is the arm FR-069 retired.
+     */
+    readonly windowStart: string;
     /** RFC 3339 stamp pinned at cycle start, shared by every row of the cycle. */
     readonly detectedAt: string;
     /** Page size and retry ladder this cycle's calls run under (006 FR-058/FR-059). */

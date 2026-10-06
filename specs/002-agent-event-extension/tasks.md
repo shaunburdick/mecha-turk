@@ -243,6 +243,141 @@ one of them, a coalesced run and a refused run — render all six tabs and count
 
 ---
 
+## Wave 4 — 002 v1.13.0: the binding history scope (GitHub issue #22) — **DELIVERED**
+
+**Goal**: one optional binding member that says where a scan window's lower bound comes from, and one
+requirement that keeps data-loss recovery working while it does.
+
+**Independent test** (002 AC-032 – AC-043): drive the fixture GitHub against one binding per mode and
+read the enqueued events; clear the queue through the recovery path and read them again; drive the
+bindings document through both write paths and read the refusals.
+
+> **Delivered 2026-10-05.** Waves 1–3 delivered the v1.11.0/v1.12.0 allow-list and
+> attribution work; this wave delivered the v1.13.0 history scope. Every task below is
+> implemented, `npm run verify` is green, and the proof suites are
+> [`tests/history-scope.test.ts`](../../tests/history-scope.test.ts) (contract §5, twenty-two
+> rows) and the mode table inside `tests/service-events.test.ts` (the acceptance matrix).
+>
+> **Amended by independent review on 2026-10-05.** Four findings, all fixed here and all with
+> the test that would have caught them:
+>
+> 1. **The mode override was not per-row.** `rowForGrant` took a bare `HistoryScope`, so a
+>    whole-file grant stamped the edited row's mode onto **every** row — which the service
+>    answers by arming a catch-up for each. It is now a `HistoryScopePatch` naming its row
+>    (`D-2`, `D-9`), and the assertion is on the serialised request body.
+> 2. **FR-090's catch-up warning never reached the edit path.** The guidance was a module
+>    constant evaluated with the add-path argument. It is now a handle repainted from state
+>    (`D-9`).
+> 3. **A recovery replay could be narrower than the work it had to re-cover** (FR-073). The
+>    retained baseline is now the widest window the binding has ever scanned from, widened
+>    and never narrowed by a completing scan, and the replay flag outranks an armed
+>    `rescanFrom` (`D-4`, `D-5`, `D-6`; plan H8 corrected to match).
+> 4. **`ensureBaselines` wrote scan state outside the scan-state chain**, so an arming that
+>    landed mid-cycle could be reverted by a stale map. The read-modify-write is now one
+>    `serializeScan` task (`D-6`).
+>
+> **Second review, 2026-10-05 — one more fix, and the third leg of the review's own
+> "revert it and watch the suite" check.** Fix 3 above made a recovery replay *outrank* an
+> armed catch-up, which was right, and left the completing scan clearing the arming anyway:
+>
+> 5. **A replay consumed a catch-up request it had never served** (002 FR-076, FR-084).
+>    `rescanFrom` was cleared on completion, so the reviewer's end-to-end sequence — a
+>    scanned binding younger than the look-back moved into `recent-history`, the queue lost
+>    before the next cycle, the replay at the narrower retained baseline — discarded the
+>    operator's explicit seven-day look-back with nothing recording it. The test is now
+>    **coverage** (`openedAt ≤ armedAt`, `answersCatchUp` in `window.ts`), which is strictly
+>    weaker than the equality it replaces: never answered on a narrower window, and an
+>    answered one does not linger showing as pending. §5.14's row drives the whole sequence
+>    and fails on the old rule; plan **H7** and `data-model.md`'s `rescanFrom` row are
+>    corrected to match.
+>
+> **Known gap, found while pinning fix 5 (2026-10-05) — recorded, not closed.** An
+> **unreadable** `rescanFrom` is the one stuck state this mechanism admits, and both halves of
+> its handling are deliberate: it is never turned into a window (a stamp the clock cannot read
+> is not a bound anybody chose) and never silently cleared (`answersCatchUp` answers `false` for
+> it), so it is **permanently pending**. Pinned by `tests/history-scope.test.ts`'s §5.18 case,
+> which also pins the consequences: no other member is lost to it, the binding keeps scanning,
+> and the arming is unchanged on every later cycle. It is **not operator-observable** — no
+> projection carries the member (the health row reports `windowStart`, `historyScope` and
+> `forceReplay`, never `rescanFrom`) and no log line names it, so the operator sees look-back
+> mode over an ordinary incremental window, which is what a **served** look-back also looks
+> like. Closing that means a member on the health row, which is a wire contract the panel reads
+> (002 FR-092) and therefore a spec decision rather than a test's to make. Only the bindings
+> route writes the member, as `now − 604,800,000 ms`, so the state is reachable only from a
+> hand-edited or corrupted store.
+>
+> **FR-094 is recorded plausible-not-proven.** Keyboard operability and the accessible name
+> are inherited from the SDK's `mountSelect`; nothing in this repository proves them, and no
+> suite claims to.
+>
+> **Reconciled at Phase 4/5 on 2026-10-05.** The block was drafted in Phase 3 against the
+> pre-fold draft spec and renumbered when the feature folded into 002, so **every `FR-…` bracket
+> below was audited against the final numbering** (`FR-053 – FR-094`; `D-10`'s old
+> `[FR-032 – FR-043]` named pre-existing requirements and is corrected). Three things changed
+> substantively, all consequences of the Phase-4 representation decisions in
+> [`plan.md`](./plan.md) §B.4:
+>
+> 1. **The retained baseline is `baselineAt`, a member of the per-binding scan-state slot**
+>    (plan **H2**, gate item 1), together with `forceReplay` (**H4**) and `rescanFrom` (**H5**,
+>    gate item 3) — so `D-4` now owns all three durable facts and `D-5` derives rather than
+>    stores. Contract §5.12 is unchanged by that choice.
+> 2. **FR-084's caller is armed in the write path** (`D-2`, beside the merge that already
+>    knows what changed) and **consumed in the scan path** (`D-6`). That is what broke two
+>    `[P]` markers: `D-2` and `D-3` both touch `service/routes/bindings.ts`, so they are
+>    sequential, and the observer (`D-3`) no longer edits the route at all.
+> 3. **`windowFor` stops returning `string | null`** (**H11**), so the five downstream
+>    consumers are untouched and the branch that admitted every observation is **deleted**
+>    rather than merely unused.
+
+- [x] **D-1** [P] [002 FR-053 – FR-062] **The field and its rule set** — `service/bindings-history-scope.ts` (**new**, mirroring `service/bindings-allow-list.ts`) holds the closed union `'new-only' | 'recent-history'`, `DEFAULT_HISTORY_SCOPE`, the two-name reader `historyScopeOf(raw)` returning `{ scope } | { issue }` in the same shape as `bindingAllowedUsersOf`, and the **look-back constant with its own bound** — **604,800,000 ms, bound 3,600,000 – 2,592,000,000 — declared outside `ServiceConfig` and outside `NUMERIC_BOUNDS`** (FR-059, plan H10). `service/bindings.ts` adds `BindingRecord.historyScope?`, wires the reader into `assembleBinding` (absent → key **omitted**, so absence stays the default rather than a stored spelling) **and** into `parseBinding`'s collect-every-refusal second pass so a bad mode and a bad repository arrive in one `422`. Accept exactly the two names; treat a stored/submitted `null` as **cleared to the default** (FR-062) and **refuse** a number, boolean, object, array, `''`, and an unrecognized string with a remediation naming both accepted names and **zero** characters of the submitted value (FR-061). `service/config.ts` is **not touched** — add a test asserting the length appears in **no** configuration document, schema projection, Settings row, or route, and that `NUMERIC_BOUNDS` still carries exactly its twelve documented fields. *Tests* (`tests/service-bindings.test.ts`): both names round-trip byte-identically; absent and `null` both read as the default; each of the six bad shapes refused on **write**, and the same six refused on a hand-edited **read** with the file quarantined and a reason logged; every issue collected together; a pre-field document reads with **zero bytes rewritten** and **zero checkpoints touched**.
+
+- [x] **D-2** [002 FR-055, FR-057, FR-084, FR-085, FR-086] **`service/routes/bindings.ts` — the write path** (three concerns, one file, one task because they share one observation of the submission): (a) the **omission-preserves merge**, modelled on the existing prompt merge — read which submitted rows left `historyScope` out **from the raw submission** (by the time validation has normalised a row, "omitted" and "explicitly cleared" have collapsed to the same absent key) and attach the stored value to those rows only, so a client that does not know the member cannot erase a deliberate choice; an explicit `null` must still clear; (b) the **read path's default** — `GET /v1/bindings` returns the documented default for a binding that stores no member, so the operator's surface renders from one source of truth and does not invent one (FR-055, FR-058, plan H13); (c) **FR-084's arming** — when this submission moved a binding to `recent-history` and that binding **has completed a scan**, write `rescanFrom = now − 604,800,000 ms` through `D-4`'s scan-state helpers on `serializeScan`; **editing to `new-only` writes nothing at all** — no checkpoint cleared, no window opened, no queued or dispatched run touched (FR-085), and a binding with no completed scan is left on its own mode-derived baseline rather than armed (plan H6). Order is **document first, then the arming**, both inside the route's existing chain nesting, and a failed arming is a logged `warn` naming the binding — **never** a rollback of a choice the operator can see (plan H14). The observer's two call sites (`D-3`) go here too, beside the prompt observer's. *Needs D-1 (the member and the reader), D-3 (the observer), D-4 (the scan-state helpers). Not `[P]`: this file is shared with `D-3`'s former scope and must follow it.* *Tests*: a submission omitting the member preserves it; one sending `null` clears it; a submission mixing both across rows does neither to the other; a stored binding with no member answers the read with `'new-only'`; an edit into `recent-history` on a scanned binding arms one lower bound and touches no other binding, while the same edit on a never-scanned binding arms nothing; an edit to `new-only` clears no checkpoint and alters no queued or dispatched run; the route table gained **no** operation.
+- [x] **D-3** [P] [002 FR-086, FR-088, data-model `eventType`] **The change observer** — `service/history-scope-audit.ts` (**new**), modelled on `service/prompt-audit.ts` and **riding its per-store chain** rather than adding a second one: **one** `binding.history-scope-updated` row per change (the `binding.*` prefix `data-model.md` already reserves, so no new type leaves it), own generated correlation id, `decision: set | changed | cleared`, `details: { from, to, actor }` and **nothing else** — the two fixed names carry no free text, no length and no fingerprint, so no redaction rule and no secret-scan exemption (FR-054). **Reuse the existing observation chain and its trail-seeded baseline discipline**, seeding `from` from the highest-`seq` row per binding and accepting only a value of one of the two names or `null` (the same "trust only a shape a row should have carried" rule the prompt observer applies to a fingerprint); the baseline advances even when the append fails, and a failed append is a logged `warn` naming the binding and the two names, never a rollback. Exposes two calls for the route to make: the observation of a **stored** document with actor `service` and of a **submitted** document with actor `operator`, so a hand edit and a panel save are each recorded exactly once and a submission resending the mode in force writes **nothing**. Assert **no** dispatch-lifecycle type changed and that `poll.observation` is still unwritten. *Needs D-1 (the two names and the member it observes).*
+- [x] **D-4** [P] [002 FR-018, FR-023, FR-074, FR-076, FR-077] **The three durable facts** — `service/poll/scan.ts`: the per-binding slot in `scan-state.json` gains **`baselineAt`** (the retained first-scan baseline, `string | null`; `null` = not yet derived, plan H2), **`forceReplay`** (the recovery-replay boolean, `data-model.md`'s Phase-3 row; written by the recovery path alone, **H4**), and **`rescanFrom`** (FR-023's one rescan mechanism — a durable **chosen lower bound for one binding's next scan**, plan H5), each validated **independently** by `parseStoredScanState`, so a pre-amendment file parses, an absent `lastScanAt` is **never** read as a flag, and one unusable member does not take the other two with it. `service/poll/events.ts`: `resetScanWindows` writes **`forceReplay`** rather than producing a state no reader can distinguish from "never scanned". Writers: the poll loop (baseline, and clearing `rescanFrom` on a completing scan), the recovery reset (`forceReplay`), the bindings route (`rescanFrom` — `D-2`). One atomic write per fact change (FR-018); an incomplete scan leaves `forceReplay` set **and** leaves an armed `rescanFrom` armed (FR-076, plan H7). **A binding's slot is keyed by `bindingId` and nothing prunes it**: the panel allocates a new id per binding, so a removed-and-recreated binding gets a fresh slot and a fresh baseline (FR-077), and a slot for a binding the document no longer carries is inert because nothing reads it. `data-model.md` §Checkpoint gains rows for `baselineAt` and `rescanFrom` beside the `forceReplay` row Phase 3 added. *Independent of the field* — this task can start before `D-1` and is `[P]` with it. *Tests* (`tests/service-scan-state.test.ts`): the three facts are each distinguishable in the stored bytes; only the reset writes `forceReplay`; only the mode change writes `rescanFrom`; a pre-amendment file still parses; a scan that fails mid-replay leaves `forceReplay` set and an armed `rescanFrom` armed; a completing scan clears `rescanFrom` in the same write that advances `lastScanAt`.
+- [x] **D-5** [P] [002 FR-065 – FR-072, FR-051] **`service/poll/window.ts` — the core rule.** `windowFor()` returns a **verdict**, not `string | null` (plan H11): a tagged `{ window: <stamp> }` or `{ refused: <reason> }`, so there is no value left that means "no lower bound". Resolution order — an armed `rescanFrom` wins (FR-023, FR-084); otherwise a recorded `lastScanAt` minus `overlapMs` (006 FR-059(a)); otherwise the retained `baselineAt` (FR-066, FR-067); otherwise **`refused`** (FR-072), which is the only state in which a binding opens no window — never a widening. The refusal becomes the binding's existing skip reason on the scan slot, so the reason is recorded against that binding (FR-024) and no event, run, or work is created. Retiring the `null` source also retires the unreadable-stamp fallback at `window.ts:58-61` ("an unbounded window is honest"), which FR-065 names as the last route to one. **The baseline is derived from the stored creation stamp and retained**: an **absent** stored stamp falls back to the assembled `binding.createdAt` (a panel-created row legitimately has none), while a **present but unreadable** one refuses (plan H3) — which needs one reader of the stored rows (`service/bindings-read.ts`, read **only** in a cycle where some binding has no baseline yet, so nothing in steady state) and one exported honest-stamp reader beside `stampOrKeep`; derive it **once**, so three failed scans and then a success still open at `createdAt − overlapMs` (FR-066, AC-036). **Everything downstream is unchanged and must be proved so**: `stampInWindow` **loses** its `windowStart === null` arm (that arm is the defect), the `since` the issues/comments list calls carry, the per-item page walk, and the dateless-observation refusal (FR-069). The mode is **not** an input to any of them (FR-068). *Needs D-4 (the slot) and D-1 (the two names). `loop.ts`'s call site, which consumes the verdict, is `D-6`'s — this task touches `window.ts` only.* *Tests*: the five cases of the contract's §3 table; the same fixture in the two modes differing **only** in which observations are in-window; three failed scans then a success still opening at `createdAt − overlapMs`; a creation stamp present but unreadable producing nothing with a recorded reason; and **no input at all refusing rather than returning `null`** — the last assertion is the inversion of the draft's, and it is the wave's structural proof that no stored state opens an unbounded window.
+- [x] **D-6** [002 FR-023, FR-068, FR-070, FR-071, FR-075, FR-079 – FR-085] **`service/poll/loop.ts` + the trigger path — consumption** — the `windowFor` call site consumes the verdict: `refused` becomes the binding's skip reason and no scan runs for it; `window` is passed to the list calls and the detectors **unchanged**. Read the mode off the binding **once per binding per scan** and pass the **window**, never the mode, downward (FR-068) — the mode is not a parameter of `stampInWindow`, `pageEndsWalk`, or any detector, and that structural fact is the assertion. Honour and consume `rescanFrom`: it opens the window, and it is cleared by the first scan that **completes** — a scan that fails leaves it armed (plan H7, FR-076). Once a binding has completed a scan its mode is not consulted at all (FR-068), and the mode changes nothing else: no trigger set, no `state`, no dispatch target, no resumption (FR-070). Confirm the sweep is **enqueue-only** — every swept event enters through the ordinary enqueue and nothing starts a session outside the claim-and-lease cycle, one at a time (FR-081, FR-083) — that it is bounded by its window's contents with **no** cap, truncation or sampling (FR-079), **one-shot** by construction (FR-080), and that a repeated sweep changes nothing (FR-082, FR-075). **Build only FR-084's caller**: the mechanism exists (`rescanFrom`, written by `D-2`), and an operator-chosen-timestamp surface, an input for one, and a route for one are **out of scope** and must not be added (`spec.md` `## Out of Scope`; settled 2026-10-05) — the recovery replay, the mode's baseline, and the armed catch-up are **three** distinct facts with one writer each, and a fourth path that opens a window is the one thing this wave must not grow. *Needs D-5 and D-2 (and D-4 through both).*
+- [x] **D-7** [P] [002 FR-036, FR-063, FR-078, FR-092] **The health/status projection** — `service/routes/events.ts`'s `readStatusRows`: the per-binding row gains the **window start in force**, the **mode in force**, and the **forced-replay flag**, so both ends of the window can be read together and a burst of older events arriving together is explained from the operator's own surface while the replay is in force (FR-078). All three are **derived state the service computed**, never something the operator set. `src/bindings-service.ts`: the panel reads them leniently (unknown members ignored) and **fail-closed** about the members it knows — an unusable `historyScope` **refuses** rather than defaulting (FR-063), while an **absent** member reads as the documented default, because an older service's answer is not a fault. Assert both directions: an older panel reading a newer row loses nothing it needs, and the panel refuses an out-of-vocabulary mode. *Needs D-1 (the effective mode) and D-4 (the flag and the baseline).*
+- [x] **D-8** [P] [002 FR-078, FR-087, FR-088] **The auditability assertions** — assert **no** per-observation row is written for a non-matching item on a cycle that matches nothing, that `poll.observation` / `poll.checkpoint` are still unwritten, that a recovery replay writes **no** row of its own beyond the one the reset path already writes, and that no row exists which could be mistaken for an operator having chosen a sweep. A row per non-matching observation is unbounded in volume — a cycle matching nothing would write one per open item, every cycle — which is why the question is answered from two durable facts instead. *Needs D-3 (the observer) and D-4 (the reset).*
+- [x] **D-9** [002 FR-063, FR-089 – FR-094; 005 FR-051, FR-052, FR-053, FR-091] **The panel control** (`src/bindings-draft.ts`, `bindings-editor.ts`, `bindings-rows.ts`) — one control in the binding editor, **both** the create and edit paths, offering exactly the two names and carrying the documented default when the operator chooses nothing. It rides the existing single contextual save, and the panel **never pre-empts** the service: it must not accept input the service will refuse, nor reject input it would accept (FR-063). Its guidance states, in the operator's own words and without opening anything else: what each option does, that the default watches from now on, that the look-back covers a fixed **seven-day** period **once** at creation and does not repeat, that the window is bounded with **no "all history" option**, and that choosing it on an existing binding may offer many sessions at once (FR-090). **The mode is rendered exactly once panel-wide** — as this control (005 FR-051 applied to this value); the row summary **may** show the short label and **may not** show anything else derived from the mode (FR-091), and it is not the only place the operator can see or change it. The window in force, the mode, and the replay flag are **derived state** labelled as the scan window the service computed, not as something the operator set (FR-092). A binding storing no mode renders the **default**; one storing an **unusable** mode renders **unreadable** and says so, never an empty control implying a third choice (FR-093). Keyboard-operable with a visible focus and an accessible name carrying what it decides (FR-094) — **recorded plausible-not-proven**: both are inherited from the SDK's `mountSelect`, which this repository neither implements nor tests, so no suite here claims them (2026-10-05 review). *Needs D-7.*
+- [x] **D-10** [002 FR-053 – FR-094] **The contract-proof suite** — create `tests/history-scope.test.ts` driving the service and panel logic directly (temp-dir store, fixture provider, loopback service): **every** row of [`contracts/binding-history-scope.md`](./contracts/binding-history-scope.md) §5 as an assertion (22 rows), plus that **no permitted mode value** appears in any log line or in any stored file other than `bindings.json` (the census reads the whole directory, so a second document carrying the member fails it), while the **health row does carry it** — §5.22 proves that member, and this census proves it reaches nothing else, and that the route table gained **no** operation (`src/` contains no new bindings-route call). §5.12 (the baseline is stable) is the gate item 1 assertion and is **unchanged** by the representation chosen; §5.18 is the gate item 2 assertion — exactly one rescan mechanism in the service and no timestamp-picking surface anywhere. Needs D-1…D-9; assert-fail-first is the gate.
+- [x] **D-11** [P] [002 FR-042] **Documentation** — `quickstart.md` and `README.md` state what the history scope is and is not: that a binding watches from its creation boundary unless the operator asked otherwise, that the look-back covers a fixed seven-day period **once**, and that a recovery replay after data loss re-offers work **regardless of the setting**. State the accepted upgrade consequence plainly — a pre-existing binding whose first scan has not completed skips its backlog (FR-058) — so an operator meets it as documentation rather than as a defect. Neither may gain a Settings row for the look-back length.
+- [x] **D-12** [P] [002 FR-060, FR-082, SC-009 – SC-013, AC-032 – AC-043] **The acceptance proof** — extend the existing trigger and scan suites (`tests/service-events.test.ts`, `tests/service-triggers.test.ts`, `tests/service-run-enqueue.test.ts`) into the mode table and the duplicate matrix: creation-boundary default coverage; the sweep's exact offered set with **zero** duplicates across *five* sequences (sweep, repeated sweep, recovery replay, repeated recovery replay, restart); **100%** recovery coverage in **both** modes; the refused-baseline case producing no event, no run and no work with its reason recorded; and the **reachability sweep** — every stored-record state enumerated, asserting none yields a scan with no lower bound (FR-060, FR-065, SC-013). *Needs D-1…D-9. Owns only existing suites; `tests/history-scope.test.ts` is `D-10`'s alone.*
+
+**Wave 4 boundary**: `npm run verify` green; rebuilt `service/main.js` **and** `panel/main.js` committed with the wave (invariant 1 — D-1, D-2, D-3, D-4, D-5, D-6, D-7 and D-9 all change bundled source).
+
+**MVP slice if delivery is cut**: `D-1 + D-4 + D-5 + D-6` is the behaviour-bearing half — the field, the durable facts, the window rule, and the sweep's consumption. But it **must not ship without `D-4`**: a window rule that lets the mode govern recovery is worse than the defect this wave exists to remove, and `D-4` is what prevents it. It is also not honestly shippable without `D-9`: a control the operator cannot see or change is the defect the owner conditioned this amendment on, exactly as it was for issue #9. `D-2` is in the slice by dependency (`D-6` consumes what it arms) and `D-7` because `D-9` reads the row it extends.
+
+**Dependencies** (corrected 2026-10-05; the draft's `D-1 ∥ D-3` claim was unsound — `D-3` observes the member `D-1` adds):
+
+| Task | Needs | Why |
+| --- | --- | --- |
+| **D-1** | — | the field's vocabulary; everything else that reads the mode needs it |
+| **D-4** | — | the durable facts; independent of the field, so it can start first |
+| **D-11** | — | the approved text is the only input |
+| **D-3** | D-1 | the observer reads the stored member and the two names |
+| **D-5** | D-1, D-4 | the window rule consults the slot and the mode |
+| **D-2** | D-1, D-3, D-4 | the write path: the merge, the read projection, the observer's call sites, and the arming |
+| **D-7** | D-1, D-4 | the row reports the effective mode, the window in force, and the flag |
+| **D-8** | D-3, D-4 | the assertions are about what the observer and the reset write |
+| **D-6** | D-2, D-4, D-5 | consumption: the verdict, the armed catch-up, the sweep's enqueue-only proof |
+| **D-9** | D-7 | the control renders from the row |
+| **D-10** | D-1 … D-9 | the contract proof asserts the finished behaviour |
+| **D-12** | D-1 … D-9 | the acceptance proof likewise |
+
+**Genuinely parallel**, and only in these four bands — inside a band the tasks own disjoint files, which is the whole claim:
+
+| Band | Parallel tasks | Files they own |
+| --- | --- | --- |
+| 1 | **D-1** `[P]`, **D-4** `[P]`, **D-11** `[P]` | `bindings-history-scope.ts` (new), `bindings.ts` · `poll/scan.ts`, `poll/events.ts`, `data-model.md` · `quickstart.md`, `README.md` |
+| 2 | **D-3** `[P]`, **D-5** `[P]` | `history-scope-audit.ts` (new) · `bindings.ts` (one exported reader), `bindings-read.ts`, `poll/window.ts` |
+| 3 | **D-2**, **D-7** `[P]`, **D-8** `[P]` | `routes/bindings.ts` · `routes/events.ts`, `src/bindings-service.ts` · existing audit suites only |
+| 4 | **D-6**, **D-9** | `poll/loop.ts` + the trigger path · `src/bindings-draft/editor/rows.ts` |
+| 5 | **D-10**, **D-12** `[P]` | `tests/history-scope.test.ts` (new) · existing trigger and scan suites |
+
+Three file-ownership rules make the bands hold, and each one exists because a draft task would otherwise collide: **`D-5` touches `poll/window.ts` only** — the `loop.ts` call site that consumes the new verdict is `D-6`'s, because the two touch adjacent files and are two bands apart anyway. **`D-3` adds a module and no route edit**, which is what keeps it `[P]` against `D-5` and sequential against `D-2`. **`D-10` owns `tests/history-scope.test.ts` alone** and `D-12` extends only existing suites, so the two proofs never open the same file.
+
+---
+
 ## Wave graph, dependencies, and parallel structure
 
 ```
@@ -278,6 +413,24 @@ Wave 3  C-1 (005's parser)  ◄── A-1                          │
                    └──▶ C-6 [P]   005's proof (needs C-2…C-5)
 ```
 
+Wave 4 (corrected 2026-10-05 — five internal bands; see the dependency table above)
+
+  band 1   D-1 [P] the field and its rule set   ∥  D-4 [P]  the three durable facts  ∥  D-11 [P] the docs
+              │
+              ├──────────────▶ D-3 [P]  the change observer (a module, no route edit)
+              ├──────────────▶ D-5 [P]  the window rule ◄── D-4
+              │                  │
+  band 2   D-7 [P] the health row ◄── D-1, D-4   ∥  D-8 [P] the auditability assertions ◄── D-3, D-4
+              │
+              ├──────────────▶ D-2  the write path ◄── D-1, D-3, D-4
+              │                  │
+  band 3   D-9  the editor control ◄── D-7         D-6  consumption, through FR-023's one rescan path
+              │                                                    (◄── D-2, D-5)
+  band 4   D-10  the contract proof  ∥  D-12 [P]  the acceptance proof   (both need D-1…D-9)
+```
+
+- **Wave 4 is a separate delivery from Waves 1–3** and may run without them: it shares no task and no file with the allow-list work except `service/bindings.ts`, which `D-1` extends and `D-5` adds one exported reader to, rather than re-cutting. Its spine is `D-1 → D-5 → D-6`, and `D-4 → D-5` is a hard edge with a reason — the durable distinction must exist before the window rule can consult it, or the rule has nothing to keep recovery working. **`D-4` is not optional within the wave**: shipping `D-5` without it is the one outcome this wave exists to prevent.
+- **Wave 4's own shape, corrected**: the draft claimed `D-1 ∥ D-3 ∥ D-4 ∥ D-7 ∥ D-11` in one parallel set. That was wrong in two directions — `D-3` observes the member `D-1` adds, and `D-7` reports the mode `D-1` defines and the flag `D-4` writes, so none of the three can precede `D-1` — and it omitted that `D-2` and `D-3` shared `service/routes/bindings.ts` until the Phase-4 decision moved the observer into its own module. The five bands above are the corrected claim, and **only the bands** are parallel.
 - **Strictly serial, and why**: `A-1 → A-5 → A-6/A-7` is one chain because attribution is only
   testable once the row carries it, and the row shape must exist before the detection code compiles
   against it. `B-1 → B-2 → B-3 → B-5` is one chain because the gate reads the run's references, the
@@ -295,11 +448,14 @@ Wave 3  C-1 (005's parser)  ◄── A-1                          │
 - **Hard dependencies**: `A-4 ← A-1`; `A-5 ← A-2, A-3`; `A-6 ← A-5`; `A-7 ← A-3, A-5`;
   `B-1 ← A-3, A-5`; `B-2 ← A-1, B-1`; `B-3 ← B-2`; `B-4 ← B-2`; `B-5 ← B-3, B-4`;
   `B-6, B-7 ← B-1…B-5`; `C-1 ← A-1`; `C-2, C-3 ← C-1`; `C-4 ← B-1`; `C-5 ← B-5`; `C-6 ← C-2…C-5`.
+  Wave 4's own edges are the table above rather than a duplicate list here.
 - **MVP slice if delivery is cut**: `A-1` + `A-2` + `A-3` + `A-5` + `B-1` + `B-2` + `B-3` — the
   model plus the gate and its trail — is the security-bearing half. **But no wave boundary ships
   without `npm run verify` green and both bundles rebuilt and committed**, and the feature is not
   honestly shippable without `C-2` and `C-4`: a control the operator cannot see or change is the
   defect the owner conditioned the whole amendment on.
+
+---
 
 ## Routing recommendation for Phase 6
 
@@ -312,6 +468,48 @@ and deserves its own independent security review rather than the implementer's o
 same way 002's `token-handoff.md` was G1-gated; (b) `C-6`'s copy-and-honesty assertions are the part
 most likely to need a second pair of eyes and the least likely to be caught by a red test. The
 **PM handoff** for the dispatch is [`pm-handoff.md`](./pm-handoff.md).
+
+### Corrected routing recommendation for **Wave 4** (2026-10-05)
+
+**The recommendation above was correct for what it described and does not describe Wave 4.** It counted
+the whole issue-#9 consolidation — **20 tasks, 13 `[P]`, three features, three waves** — and cited `B-2`
+and `C-6`, which are delivered. It is left exactly as written as the record of that decision.
+
+**Wave 4 alone: 12 tasks, 4 of them `[P]`, five internal bands — architect delivery with two review
+gates. Not multi-wave orchestration, and not a single flat dispatch either.** The honest reading of the
+bands (≤5 architect solo · 6–15 architect with review gates · >15 multi-wave delivery) puts 12 tasks in
+the **middle** band, so:
+
+- **One dispatch, one implementer, sequenced by the five bands.** One feature, one spec amendment, one
+  branch, one file set, one `npm run verify` gate. Splitting it across waves would buy parallelism the
+  bands do not offer — the longest genuinely parallel set is **three** tasks (`D-1 ∥ D-4 ∥ D-11`, then
+  `D-3 ∥ D-5`) — and would cost a bundle rebuild and commit at every seam for no gain.
+- **Gate 1, after band 2** (the model, the durable facts, the window rule, the write path, and the two
+  assertion tasks are all in place; the consumption and the control are not). This gate exists because
+  the constitution-II/III risk in this wave is **not** in any single task: it is in the two
+  window-opening paths that **widen** a window, where a dedupe gap becomes duplicate *work* rather than
+  a duplicate log line. What the reviewer should read, in this order: `window.ts`'s new verdict and the
+  four states that can produce it; `resetScanWindows` writing the flag instead of implying one; the
+  write path's arming order and its no-rollback rule; and `stampInWindow` **losing** its
+  `windowStart === null` arm rather than merely not being called with one. The reviewer's question is
+  one sentence — *for each of the three paths that opens a window, what exactly deduplicates a trigger
+  observed twice?* — and the answer must be the delivery key in `enqueueEvents`, unchanged.
+- **Gate 2, at the wave boundary**, before the rebuilt `service/main.js` and `panel/main.js` are
+  committed: `npm run verify` green, `D-10`'s 22 contract rows green, `D-12`'s five-sequence
+  duplicate matrix green, and a re-read of [`plan.md`](./plan.md) §B.8's out-of-scope guard — whose
+  highest-value assertion is that the service contains **exactly one** rescan mechanism and **no**
+  timestamp-picking surface (contract §5.18).
+- **What does *not* need its own review**, said so the gate list is not padded: there is no security
+  boundary in this wave. `D-2`'s refusals are an enum with no credential-shaped value, and the
+  secrets story is the *absence* of a story (two fixed names — no free text, no fingerprint, no
+  redaction rule, invariant 9). The constitution-II analogue of `B-2`'s security gate is Gate 1 above,
+  and it is a **dedupe** review, not a permissions review.
+
+**Routing for the two flags that remain open**: items 1 and 3 are **resolved** by this phase (plan
+§B.9), so nothing in Wave 4's dispatch waits on the owner. The three residuals in
+§"Items flagged at the Phase-5 gate" below are **decisions already made for planning** with their
+rejected alternatives recorded; a reviewer who disagrees needs a **spec amendment**, not a code change,
+and none of the three gates a dispatch.
 
 ## Requirement → task coverage
 
@@ -342,6 +540,46 @@ most likely to need a second pair of eyes and the least likely to be caught by a
 | **005** NFR-113 (no implied policy anywhere) | C-2, C-4, C-6 |
 | **005** SC-113 (answer both questions from the Bindings tab and Status) | C-2, C-4, C-6 |
 
+## Requirement → task coverage (v1.13.0 block)
+
+Audited 2026-10-05 against the **final** numbering. Grouped by the spec's own sub-blocks; every one
+of the 42 new requirements has a task, and no task cites a requirement outside `FR-053 – FR-094`
+except the four pre-existing ones each genuinely touches.
+
+| 002 v1.13.0 requirements | Owning task | Also asserted by |
+| --- | --- | --- |
+| **I.1** FR-053 (the two names, the default), FR-054 (service-owned), FR-056 (the write path rides the whole-file grant), FR-058 (absence has one reading, the upgrade writes nothing), FR-059 (the constant, not a field), FR-062 (`null` is cleared) | **D-1** | D-2 (056), D-10 (054, 058, 059) |
+| **I.1** FR-055 (the read returns the documented default), FR-057 (omission preserves) | **D-2** | D-10 |
+| **I.2** FR-061 (one rule set, refused whole) | **D-1** | D-10 |
+| **I.2** FR-063 (the panel reads fail-closed and never pre-empts) | **D-7** | D-9, D-10 |
+| **I.3** FR-064 (no new surface), FR-060 (no stored state asks for an unbounded window) | **D-10**, **D-12** | — |
+| **I.3** FR-065 – FR-072 (every window has a lower bound; both baselines; the mode reaches no comparison; the mode gates and widens nothing; an unresolvable baseline refuses) | **D-5** | D-6 (068, 070, 071), D-12 (069, 072) |
+| **I.4** FR-073 (recovery replays in both modes), FR-074 (two facts, two writers), FR-075 (replay is duplicate-free and audited), FR-076 (a replay survives an incomplete scan), FR-077 (a recreated binding starts over) | **D-4** | D-5 (073), D-6 (075), D-10 |
+| **I.5** FR-078 (a replay is visible while in force) | **D-7** | D-8 |
+| **I.5** FR-079 – FR-083 (bounded, one-shot, enqueue-only, idempotent, page-bounded) | **D-6** | D-4 (080's durable half), D-12 (082), D-10 |
+| **I.5** FR-084 (the mode edit's bounded catch-up, through FR-023's one mechanism), FR-085 (the reverse edit replays nothing) | **D-2** | D-6, D-10 |
+| **I.6** FR-086 (one row per change), FR-088 (nothing else in the trail changes) | **D-3** | D-2 (086's call sites), D-8 (088) |
+| **I.6** FR-087 (no per-observation row; the answer is two durable facts) | **D-8** | D-7, D-10 |
+| **I.7** FR-089 – FR-094 (one control, its guidance, one rendering, derived state, honest absence, keyboard) | **D-9** | D-7, D-10 |
+| **Pre-existing, touched** FR-018 (the atomic write), FR-019 (dedupe), FR-023 (the one rescan mechanism), FR-024 (fail closed), FR-051 (the `since`-less comparison), FR-035 (the trail records a change), FR-036 (health carries the window), FR-042 (the two documents), 006 FR-059(a) (`overlapMs` subtraction) | spread across D-2, D-4, D-5, D-6, D-7, D-11 | D-10 asserts the *unchanged* ones |
+
+## Acceptance criterion → task coverage (v1.13.0 block)
+
+| 002 v1.13.0 criterion | Tasks |
+| --- | --- |
+| **AC-032** (no stored state yields no lower bound; the look-back is not a configuration field) | D-1, D-5, D-10 |
+| **AC-033** (absent reads as the default; omission preserves; `null` clears; no migration) | D-1, D-2, D-10 |
+| **AC-034** (write refusals whole, no echo, quarantine on read, panel reads unreadable) | D-1, D-7, D-9, D-10 |
+| **AC-035** (the creation boundary is the window; no `since` anywhere it does not exist) | D-5, D-6, D-10 |
+| **AC-036** (the baseline is stable across failed scans) | D-5, D-12 |
+| **AC-037** (the look-back sweep: exact set, one-shot, zero duplicates) | D-4, D-5, D-6, D-12 |
+| **AC-038** (an unreadable baseline yields nothing) | D-5, D-10, D-12 |
+| **AC-039** (recovery replays in both modes; the two facts differ; the replay survives a failure) | D-4, D-5, D-6, D-10 |
+| **AC-040** (the sweep is enqueue-only and page-bounded) | D-6, D-10 |
+| **AC-041** (both edits; one rescan path; the control, its guidance, and its rendering) | D-2, D-6, D-9, D-10 |
+| **AC-042** (one row per change; no per-observation row; the health row's three facts) | D-3, D-7, D-8, D-10 |
+| **AC-043** (no new route, capability, or manifest change; the mode gates nothing; the docs) | D-9, D-10, D-11 |
+
 ## Acceptance criterion → task coverage
 
 | Criterion | Tasks |
@@ -360,6 +598,42 @@ most likely to need a second pair of eyes and the least likely to be caught by a
 | **005** AC-145 (the actor and its basis on the row; a coalesced rider visible; the refused run names the denied login) | B-5, C-5, C-6 |
 | **005** AC-146 (no implied policy in any user-facing string) | C-2, C-4, C-6 |
 
+## Items flagged at the Phase-4 gate for Wave 4
+
+**All three are closed. Item 2 was settled by the product owner on 2026-10-05; items 1 and 3 were
+resolved by this phase's planning, as representation choices.** The resolutions and their rejected
+alternatives are in [`plan.md`](./plan.md) §B.4 (`H2` and `H5`) and summarised in §B.9; nothing in
+Wave 4's dispatch waits on the owner. The original questions are kept below as the record of what was
+asked.
+
+1. ~~**Where the retained baseline lives.**~~ **RESOLVED — `baselineAt`, a member of the per-binding
+   slot in `scan-state.json`, beside `lastScanAt`** (plan **H2**, §B.9). Scan state is where the
+   product keeps per-binding scan facts, it has one writer per fact, and no operator surface reaches
+   it; the binding record is the operator's own document, `writeBindings` persists records verbatim,
+   and a machine-written stamp there would need a fourth omission-preserves merge, its own refusal
+   rule, and a hand-edit hazard nobody asked for. The argument for the binding record — that it is
+   "what the operator's surface can read directly" — does not survive the requirement: FR-092 asks the
+   surface for the **window start in force**, which is derived from the baseline and is what actually
+   gets reported, so the baseline itself never needs a direct read. `data-model.md` had already put
+   Phase 3's `forceReplay` row on the scan side. **D-10's §5.12 assertion is unchanged by the choice**,
+   as flagged.
+2. ~~**The shape of "operator edited into `recent-history`"**~~ — **SETTLED 2026-10-05 by the product
+   owner: build only what FR-084 requires.** No longer a question for planning. The finding was that
+   FR-023's chosen-timestamp surface does not exist in `service/routes/` and never has (verified;
+   `research.md` §R10.2b), so "reuse FR-023" resolves to *build one rescan mechanism, and build only the
+   caller the new requirement names*. **What that means concretely**: `D-4` declares the mechanism
+   (`rescanFrom`, plan **H5**), `D-2` wires FR-084's mode-change caller to it as the **only** writer,
+   and `D-6` consumes it; **no** operator-chosen-timestamp surface, input, or route is added anywhere.
+   FR-023 was narrowed at the same time so it no longer promises that surface, and the gap is recorded
+   by name in `spec.md` `## Out of Scope`. `D-10`'s §5.18 assertion is the check: exactly one rescan
+   mechanism in the service, and no timestamp-picking surface.
+3. ~~**Where the catch-up's per-binding window is recorded.**~~ **RESOLVED — in the same per-binding
+   scan-state slot, as its own member `rescanFrom`** (plan **H5**, §B.9) — which is also the answer to
+   (1) for that caller, and deliberately **not** the retained baseline: the baseline is what a later
+   recovery replay must still cover, and overwriting it with a catch-up bound would silently change
+   that. One file, one chain (`serializeScan`), one writer per fact, and one place the window in force
+   is computed from — which is also what FR-092's health row reports.
+
 ## Items flagged at the Phase-5 gate (do not resolve them in code)
 
 Four places where the approved specifications leave a real fork. Each is recorded where it belongs,
@@ -376,3 +650,35 @@ owner before `B-2` and `C-2` are implemented. See [`pm-handoff.md`](./pm-handoff
    reason and AC-025 describe.
 4. **The retry verdict for an unreadable bindings document** — whether it is `cause-not-cleared`
    (chosen) or a new code (rejected: a second wire code the specifications do not ask for).
+
+### Wave 4 additions (2026-10-05) — three points where a disagreement needs a **spec amendment**
+
+None of the three gates a dispatch: each is **decided for planning**, with the rejected alternative
+named, so an implementer following this file cannot get it wrong. They are recorded here because a
+reviewer who disagrees cannot resolve them in code.
+
+1. **Where the baseline's source stamp comes from** (plan **H3**). `assembleBinding` runs
+   `stampOrKeep(raw.createdAt, nowIso())`, so the assembled `createdAt` is `now` both when the panel
+   submitted no stamp (legitimate on create) and when a hand edit left a corrupt one. Deriving the
+   baseline from the assembled value makes FR-072 and AC-038 unreachable — a corrupt stamp would
+   silently become a window of `now − overlapMs`. The plan therefore reads the **stored** row through
+   one purpose-built reader (003's `readBindingsForAuthorization` is the precedent), used only in a
+   cycle where some binding has no baseline yet. **If the owner prefers the cheap reading**, then
+   FR-072's "creation stamp the clock cannot read" clause and AC-038 must be narrowed to the
+   **recorded-stamp** half, and the edge case in `spec.md` re-worded with them. Rejected alternative:
+   refusing an unusable `createdAt` outright — a new refusal on a field this amendment does not
+   otherwise touch, which quarantines the whole document where FR-072 asks one binding to stop.
+2. **An armed catch-up that meets a failing scan** (plan **H7**). FR-076 says the **forced replay**
+   survives an incomplete scan; it says nothing about the **catch-up**. The plan extends the same
+   durability to it, because a single transient credential failure on the cycle after the edit would
+   otherwise discard an explicit operator request with nothing left to show that it existed.
+   **If the owner disagrees**, FR-076's sentence has to widen to name both one-shots, because
+   "consume on the first attempt" is not an implementation detail — it is a different behaviour.
+3. **A hand-edited same-`bindingId` re-creation** (plan **B.4 `H2`**, `D-4`). FR-077 says a recreated
+   binding is a new record with a new baseline, and a **panel** re-creation always allocates a new
+   `bindingId`, so the requirement holds for every supported flow. A *hand-edited* document that
+   removes a binding and later re-adds it under the **same** id would inherit the old baseline and any
+   armed catch-up, because nothing prunes a slot. The plan accepts that and prunes nothing, because the
+   only flow that produces it is unsupported and a pruning write on every document read would be worse.
+   **If the owner disagrees**, pruning belongs in `D-2` (the route's grant write, where document
+   membership is authoritative) — not in a read path.

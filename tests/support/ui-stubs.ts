@@ -27,23 +27,58 @@ export function stubPaints(handle: Handle<never>): number {
 }
 
 /**
- * Build a `Handle` double that records how often it repainted.
+ * What a recording stub learned from the calls it received.
+ *
+ * Both readers exist because a repaint assertion is two different questions: did
+ * the repaint **reach** this control (a count), and what did it **say** (the last
+ * props). A derived line that is painted with different text depending on state —
+ * the history-scope guidance is one — cannot be proven by a count alone.
+ */
+export interface StubReads {
+    /** How many times `update` has run. */
+    readonly paints: () => number;
+    /** The props the most recent `update` received, or `null` before the first. */
+    readonly lastProps: () => Record<string, unknown> | null;
+}
+
+/**
+ * Read the props a stubbed handle was last painted with.
+ *
+ * Import-adapter, like {@link stubPaints}: the readers live on the concrete stub
+ * but not on the SDK handle type the pane stores it as, so this is the typed read
+ * the tests use and no test-side cast appears.
+ *
+ * @param handle - The stubbed handle.
+ * @returns The last props, or `null` when it has never been painted.
+ */
+export function stubLastProps(handle: Handle<never>): Record<string, unknown> | null {
+    const reads = (handle as { readonly lastProps?: () => Record<string, unknown> | null }).lastProps;
+
+    return reads === undefined ? null : reads();
+}
+
+/**
+ * Build a `Handle` double that records how often it repainted, and with what.
  *
  * `Handle<P>` needs only `update` and `dispose`, so a recording stub type
  * checks against every SDK handle the panel's UI interfaces hold, and the
- * count turns "the repaint reached this control" into an assertion.
+ * records turn "the repaint reached this control" and "it said this" into
+ * assertions.
  *
  * @returns A stub typed for the caller's handle field.
  */
-export function stubHandle<P>(): Handle<P> & { readonly paints: () => number } {
+export function stubHandle<P extends object>(): Handle<P> & StubReads {
     let count = 0;
+    let last: Record<string, unknown> | null = null;
 
     return {
-        update: (): void => {
+        update: (props): void => {
             count += 1;
+            last = { ...props };
         },
         dispose: (): void => undefined,
         paints: (): number => count,
+        lastProps: (): Record<string, unknown> | null => last,
     };
 }
 
@@ -94,6 +129,10 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
         note: stubHandle(),
         bindingsList: stubHandle(),
         refreshBindings: stubHandle(),
+        // The history-scope control and its derived window line (002 FR-089, FR-092).
+        historyScope: { select: stubHandle() },
+        historyScopeHelp: stubHandle(),
+        windowScopeLine: stubHandle(),
         newBindingReason: {
             box: paneBody,
             line: stubHandle(),

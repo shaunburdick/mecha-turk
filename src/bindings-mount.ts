@@ -42,6 +42,7 @@ import {
     stopEditingBinding,
 } from './bindings-edit.ts';
 import { storedActorsFor } from './bindings-actors.ts';
+import { storedHistoryScopeFor } from './bindings-history.ts';
 import { storedPromptFor } from './bindings-prompt.ts';
 import { mountBindingsBody } from './bindings-body.ts';
 import { repaintBindingsPane } from './bindings-ui.ts';
@@ -82,7 +83,7 @@ import {
  */
 function promptHandlers(rt: PanelRuntime): Pick<
     BindingsPaneHandlers,
-    'selectBinding' | 'setStartingPrompt' | 'setAllowedUsers'
+    'selectBinding' | 'setStartingPrompt' | 'setAllowedUsers' | 'setHistoryScope'
 > {
     return {
         selectBinding: (id) => {
@@ -115,6 +116,9 @@ function promptHandlers(rt: PanelRuntime): Pick<
             bindings.allowedUsersInput = storedActorsFor(bindings, id);
             bindings.allowedUsersDirty = false;
             bindings.allowedUsersError = null;
+            // The history scope opens on what the service holds for this row, so a
+            // selection shows the stored choice rather than the default (002 FR-057).
+            bindings.historyScopeInput = storedHistoryScopeFor(bindings.bindings, id);
             // The click opens the editor on this row — or refuses to open it
             // (a worktree option this editor cannot render) and says why with
             // the editor shut and the draft clean.
@@ -130,6 +134,12 @@ function promptHandlers(rt: PanelRuntime): Pick<
             allowedUsersDirty: true,
             allowedUsersError: null,
         }),
+        // One `editBindings` patch like every other field: the select has no dirty
+        // flag of its own, because the whole-file write carries the mode on **every**
+        // row and omission means *leave this one alone* (002 FR-057). So an untouched
+        // select writes the stored value, and there is no third "unchanged" state for
+        // a flag to represent.
+        setHistoryScope: (value) => editBindings(rt, { historyScopeInput: value }),
     };
 }
 

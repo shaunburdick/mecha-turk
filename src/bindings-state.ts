@@ -22,7 +22,8 @@
  * directly.
  */
 
-import type { BindingStatusRow, PanelAccount, PanelBinding } from './bindings-service.ts';
+import { DEFAULT_HISTORY_SCOPE } from './bindings-service.ts';
+import type { BindingStatusRow, HistoryScope, PanelAccount, PanelBinding } from './bindings-service.ts';
 
 /** Lifecycle of the Bindings tab's data. */
 export type BindingsStatus =
@@ -144,6 +145,22 @@ export interface BindingsTabState {
     allowedUsersDirty: boolean;
     /** The service's field-level refusal for the allow-list, or `null` (FR-095). */
     allowedUsersError: string | null;
+    /**
+     * Draft history scope — one of the two names, and **never** "unset" (002
+     * FR-058, FR-093).
+     *
+     * A select rather than text, so the draft holds a member of the field's closed
+     * vocabulary and the panel never has to validate one: the service judges the
+     * value, the panel only offers it (002 FR-063). In **add mode** it starts at
+     * the documented default, which is what an untouched control then writes — so
+     * a choice the creator may indicate is met by a control that also works when
+     * they indicate nothing (002 FR-089).
+     *
+     * The whole-file write carries this on **every** row, and omission means
+     * *leave this one alone* — the prompt's rule, unlike the allow-list's (002
+     * FR-057).
+     */
+    historyScopeInput: HistoryScope;
 }
 
 /**
@@ -174,5 +191,8 @@ export function initialBindings(): BindingsTabState {
         allowedUsersInput: '',
         allowedUsersDirty: false,
         allowedUsersError: null,
+        // The documented default, not a sentinel: this is what a brand-new binding
+        // scans with when the operator chooses nothing (002 FR-089, FR-058).
+        historyScopeInput: DEFAULT_HISTORY_SCOPE,
     };
 }

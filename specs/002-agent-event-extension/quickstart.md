@@ -70,7 +70,6 @@ an uninstall, and what a hand-edited file that fails validation does.
 <https://shaunburdick.github.io/mecha-turk/configure/> — the Settings tab as
 the single configuration input for the whole service configuration, and the
 layered starting prompt.
-
 ## 7. Cleanup (manual only)
 
 The extension never deletes sessions, worktrees, or projects. Route cleanup to OpenChamber's own surfaces (session list, worktrees view, project management). Disabling a repository binding stops its polling; removing the extension stops the service (SIGTERM) and clears its grant.
@@ -80,3 +79,24 @@ The extension never deletes sessions, worktrees, or projects. Route cleanup to O
 Published documentation, and the canonical source for this section:
 <https://shaunburdick.github.io/mecha-turk/debug/> — every symptom token the
 panel and the service render, what each one means, and what to do about it.
+
+## 9. When a binding starts watching (002 v1.13.0)
+
+A binding scans **from now on** by default — its window's lower bound is its own creation
+boundary — so a binding you add today will not open dispatches for last month's assignments.
+
+- **The one other option** is a **seven-day look-back**, offered in words on the binding
+  editor's *When this binding starts watching* field: *From now on (default)*, or *From now
+  on, and look back over the last seven days once*.
+- **The look-back happens once.** After that sweep the window moves on to the ordinary
+  incremental one and does not repeat on its own. **There is no setting for its length** —
+  seven days is fixed — **and there is no "all history" option.**
+- **On an existing binding it may offer many sessions:** choosing the look-back offers work
+  for every matching item inside that window at once.
+- **A recovery replay after data loss re-offers work regardless of this setting.** A burst of
+  older events appearing together is that, not a look-back you did not ask for.
+
+**Upgrade consequence, stated plainly.** A binding that existed before this field and has not
+completed its first scan keeps the behaviour it always had: it starts at its creation boundary
+and skips its backlog. Choosing the look-back on it afterwards is the supported way to ask for
+that window, and the upgrade itself writes nothing.

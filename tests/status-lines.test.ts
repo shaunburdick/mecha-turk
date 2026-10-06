@@ -69,6 +69,11 @@ function statusFixture(slot: {
         lastScanAt: slot.lastScanAt,
         lastError: slot.lastError,
         pendingCount: 0,
+        // The window-in-force members 002 v1.13.0 added. `null` here means this
+        // binding has no window yet, which is the state the row above describes.
+        windowStart: null,
+        historyScope: 'new-only',
+        forceReplay: false,
     };
 }
 

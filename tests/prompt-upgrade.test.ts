@@ -153,6 +153,21 @@ function pre004Binding(): Record<string, unknown> {
     };
 }
 
+/**
+ * The same row as `GET /v1/bindings` answers it.
+ *
+ * The stored document omits `historyScope` — it predates the field — but the read
+ * path **projects** the documented default onto a binding that stores no member, so
+ * the answer always states what the binding will do (002 FR-055, FR-058; plan H13).
+ * That is a projection in the answer, never a write: the bytes this suite compares
+ * still hold no member at all.
+ *
+ * @returns The stored row plus the projected mode.
+ */
+function servedPre004Binding(): Record<string, unknown> {
+    return { ...pre004Binding(), historyScope: 'new-only' };
+}
+
 /** The pre-004 account credential file, complete so reconciliation re-verifies nothing. */
 function pre004Account(): Record<string, unknown> {
     return {
@@ -610,7 +625,7 @@ describe('T-036 arrival writes nothing (FR-018, FR-089, SC-128, AC-131, AC-142)'
         // the member is not invented to stand in for its absence.
         const bindings = await servedBindings(service);
         const accounts = await servedAccounts(service);
-        expect(bindings[0]).toEqual(pre004Binding());
+        expect(bindings[0]).toEqual(servedPre004Binding());
         expect(accounts[0]?.startingPrompt).toBeNull();
 
         // The identifiers are untouched: the same delivery id, run key, and
@@ -721,7 +736,7 @@ describe('T-036 arrival writes nothing (FR-018, FR-089, SC-128, AC-131, AC-142)'
         // absent member are the same record on the wire.
         const bindings = await servedBindings(service);
         const accounts = await servedAccounts(service);
-        expect(bindings[0]).toEqual(pre004Binding());
+        expect(bindings[0]).toEqual(servedPre004Binding());
         expect(accounts[0]?.startingPrompt).toBeNull();
 
         // …and the composed bytes are the golden the absence case composes:
@@ -802,7 +817,7 @@ describe('T-036 arrival writes nothing (FR-018, FR-089, SC-128, AC-131, AC-142)'
         expect(envelope.defaultsApplied).toEqual([PROMPT_FIELD]);
         expect(envelope.config[PROMPT_FIELD]).toBe('');
         const bindings = await servedBindings(service);
-        expect(bindings[0]).toEqual(pre004Binding());
+        expect(bindings[0]).toEqual(servedPre004Binding());
     });
 
     it('sets a stored non-text prompt aside with a field-level reason and never coerces it', async () => {

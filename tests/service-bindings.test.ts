@@ -169,6 +169,10 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
             expect(parsed?.bindings.map((binding) => binding.bindingId)).toEqual([BINDING_ID]);
             // The row shape is exactly what `readStatusRows`/`BindingStatusRow`
             // in bindings-service.ts expects: nothing invented, nothing dropped.
+            // The last three members arrived with 002 v1.13.0 (FR-092) — the window
+            // in force, the mode in force, and the replay flag. This fixture has no
+            // baseline derived yet, so the window is `null` and the mode is the
+            // **documented default** the service projects for an absent member.
             expect(parsed?.status).toEqual([
                 {
                     bindingId: BINDING_ID,
@@ -179,6 +183,9 @@ describe('GET /v1/bindings (bindings + per-binding scan status)', () => {
                     lastScanAt: null,
                     lastError: SKIP_REASON,
                     pendingCount: 0,
+                    windowStart: null,
+                    historyScope: 'new-only',
+                    forceReplay: false,
                 },
             ]);
         }

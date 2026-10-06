@@ -281,6 +281,10 @@ function statusFixture(overrides: Partial<BindingStatusRow> = {}): BindingStatus
         lastScanAt: null,
         lastError: null,
         pendingCount: 0,
+        // The window-in-force members 002 v1.13.0 added (002 FR-092).
+        windowStart: null,
+        historyScope: 'new-only',
+        forceReplay: false,
         ...overrides,
     };
 }

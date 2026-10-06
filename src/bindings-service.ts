@@ -81,6 +81,23 @@ export interface PanelBinding {
      */
     readonly startingPrompt?: string | undefined;
     /**
+     * Where this binding's scan window's lower bound comes from, as the service
+     * reports it (002 FR-055, FR-092).
+     *
+     * **Always present, never `undefined`**: absence means the documented
+     * default and the service projects it (FR-058; plan H13), so the editor
+     * renders what the binding will do from one source of truth instead of
+     * inventing a reading. The panel still **refuses** an unusable member rather
+     * than defaulting it (FR-063) — the two rules are about different answers:
+     * an *absent* member is a fact the service states, and an *unusable* one is
+     * something this build cannot judge.
+     *
+     * Read only here and written by the editor's own control; the whole-file
+     * write carries it on **every** row, and omission means *leave this one
+     * alone* (002 FR-057).
+     */
+    readonly historyScope?: HistoryScope | undefined;
+    /**
      * The GitHub logins allowed to trigger dispatches from this binding, or
      * **absent** when it carries no list.
      *
@@ -123,10 +140,90 @@ export interface BindingStatusRow {
     readonly lastError: string | null;
     /** Pending or in-flight events for the binding. */
     readonly pendingCount: number;
+    /**
+     * The lower bound the binding's next scan will open at, as the service
+     * computed it (002 FR-092).
+     *
+     * **Derived state, not configuration.** `null` means the binding has no
+     * window yet — no completed scan and no derivable baseline — and the refusal
+     * that caused it is on `lastError`. Both ends of the window are then readable
+     * together: this, and `lastScanAt`.
+     */
+    readonly windowStart: string | null;
+    /**
+     * The history scope in force, as the service reports it (002 FR-092).
+     *
+     * Read **leniently**: an **absent** member is the documented default, because
+     * an older service's answer that does not carry it is not a fault. An
+     * *unusable* member is a different case and is refused (FR-063).
+     */
+    readonly historyScope: HistoryScope;
+    /**
+     * Whether a recovery replay is in force for this binding (002 FR-074, FR-078).
+     *
+     * Distinct from `lastScanAt === null`, which also means *never scanned*: the
+     * two are different facts, and this one is what distinguishes a burst of older
+     * events arriving together because the queue was lost from one arriving
+     * because the operator chose to look back.
+     */
+    readonly forceReplay: boolean;
 }
 
 /** Trigger kinds the panel can render; a stored row from a future build reads as `assignment`. */
 export type EventKind = 'assignment' | 'mention' | 'review';
+
+/**
+ * The binding history scope, as the panel reads it (002 FR-053).
+ *
+ * **The same two names the service stores, and no third.** Re-declared here
+ * rather than imported because the panel bundle must not reach into
+ * `service/` — the service is a separate artefact behind a request boundary,
+ * and a shared module would make a panel build depend on service internals (the
+ * same reason `EventKind` is declared on this side). The two are pinned together
+ * by `tests/history-scope.test.ts`, which drives the service and the reader over
+ * the same fixtures.
+ */
+export type HistoryScope = 'new-only' | 'recent-history';
+
+/**
+ * What a binding with no `historyScope` member scans with (002 FR-053, FR-058).
+ *
+ * Absence has exactly one reading everywhere — `new-only` — and the service
+ * projects it, so a binding from an older service still reads as the default
+ * rather than as an unknown (002 FR-058; plan H13).
+ */
+export const DEFAULT_HISTORY_SCOPE: HistoryScope = 'new-only';
+
+/**
+ * The one mode that is not the default: watch from now on **and** look back over
+ * a bounded window once (002 FR-053, FR-084).
+ *
+ * Named because it is the mode that changes behaviour in three places — the
+ * window the scan opens, whether a grant arms a catch-up, and what the row may
+ * label — and a literal spelled out three times is three chances to spell it
+ * three ways.
+ */
+export const RECENT_HISTORY_SCOPE: HistoryScope = 'recent-history';
+
+/**
+ * Narrow a stored member to one of the two names.
+ *
+ * **Fails closed rather than defaulting** (002 FR-063, FR-093): a value outside
+ * the vocabulary is something this build cannot judge, and rendering it as the
+ * default would tell the operator their binding scans from now on when the
+ * service may hold something else. `undefined` is *not* that case — an absent
+ * member is the documented default and is accepted as it.
+ *
+ * @param value - The member as it arrived, or `undefined` when absent.
+ * @returns The mode, or `null` when the member is present and unusable.
+ */
+export function readHistoryScope(value: unknown): HistoryScope | null {
+    if (value === undefined || value === null) {
+        return DEFAULT_HISTORY_SCOPE;
+    }
+
+    return value === 'new-only' || value === 'recent-history' ? value : null;
+}
 
 /** What one bindings/GET answered with. */
 export interface BindingsSnapshot {
@@ -204,10 +301,35 @@ export function issueNumberFrom(record: Record<string, unknown>): number {
 /**
  * Read one status row, filling what the panel cannot trust with `''`/null.
  */
+/**
+ * The status row's history-scope read, and what makes the row droppable.
+ *
+ * Two states, and the difference is a decision: a member this build cannot judge
+ * **drops the row** (002 FR-063 — one refused member is never partially applied,
+ * invariant 8), while an absent member reads as the documented default, because
+ * an answer from a build that does not report it is not a fault (plan H13).
+ */
+interface StatusScopeRead {
+    /** The mode, or `null` when the member is present and unusable. */
+    readonly scope: HistoryScope | null;
+}
+
+/**
+ * Read one status row, filling what the panel cannot trust with `''`/null.
+ *
+ * @returns The row, or `null` when its `historyScope` is present and unusable —
+ *   which drops the whole row rather than rendering a mode this build could not
+ *   judge (002 FR-063).
+ */
 function statusRowOf(
     record: Record<string, unknown>,
     ids: { readonly bindingId: string; readonly repository: string },
-): BindingStatusRow {
+): BindingStatusRow | null {
+    const scope: StatusScopeRead = { scope: readHistoryScope(record.historyScope) };
+    if (scope.scope === null) {
+        return null;
+    }
+
     return {
         bindingId: ids.bindingId,
         repository: ids.repository,
@@ -217,6 +339,13 @@ function statusRowOf(
         lastScanAt: textOrNull(record, 'lastScanAt'),
         lastError: textOrNull(record, 'lastError'),
         pendingCount: integerOrZero(record, 'pendingCount'),
+        // Derived state the service computed (002 FR-092). Unknown members are
+        // read leniently — `windowStart` from an older service reads as absent,
+        // and the flag as not-in-force — because a *newer* row must not break an
+        // older panel (R10.5).
+        windowStart: textOrNull(record, 'windowStart'),
+        historyScope: scope.scope,
+        forceReplay: record.forceReplay === true,
     };
 }
 
@@ -238,7 +367,10 @@ export function readStatusRows(rows: readonly unknown[]): BindingStatusRow[] {
             continue;
         }
 
-        usable.push(statusRowOf(statusRow, { bindingId, repository }));
+        const row2 = statusRowOf(statusRow, { bindingId, repository });
+        if (row2 !== null) {
+            usable.push(row2);
+        }
     }
 
     return usable;
@@ -293,26 +425,29 @@ function readAllowedUsers(value: unknown): AllowedUsersRead {
 
 /** The two optional members one entry reader refuses rather than defaults. */
 type OptionalMembers =
-    /** Both readable; `undefined` members are written as no key at all. */
+    /** All three readable; the prompt is written as no key when it is `undefined`. */
     | {
         readonly ok: true;
         readonly startingPrompt: string | undefined;
         readonly allowedUsers: readonly string[] | undefined;
+        readonly historyScope: HistoryScope;
     }
     /** A member present and unusable: the whole body is refused (invariant 8). */
     | { readonly ok: false };
 
 /**
- * Read the two members a binding carries *optionally*, refusing a bad one.
+ * Read the three members a binding carries *optionally*, refusing a bad one.
  *
- * Both are fail-closed for the same reason and together because they share the
- * shape: a value that is neither text nor a list of text cannot be rendered,
- * cleared, or re-sent honestly, so the whole body stops rather than
- * half-applying it (004 FR-028, 002 FR-047, invariant 8). Absent stays absent
- * for both — that is the complete "this binding has none" state, never a
- * default the operator did not ask for.
+ * All three are fail-closed for the same reason and together because they share
+ * the shape: a value that is neither text, nor a list of text, nor one of the two
+ * scope names cannot be rendered, cleared, or re-sent honestly, so the whole body
+ * stops rather than half-applying it (004 FR-028, 002 FR-047, 002 FR-063,
+ * invariant 8). The prompt and the allow-list stay absent when they are — those
+ * are the complete "this binding has none" states — while the **scope never
+ * stays absent**: absence means the documented default, and the service projects
+ * it (002 FR-055, FR-058).
  *
- * @returns Both members, or the refusal that stops the read.
+ * @returns All three members, or the refusal that stops the read.
  */
 function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
     const { startingPrompt } = record;
@@ -321,8 +456,30 @@ function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
     }
 
     const actors = readAllowedUsers(record.allowedUsers);
+    if (!actors.ok) {
+        return { ok: false };
+    }
 
-    return actors.ok ? { ok: true, startingPrompt, allowedUsers: actors.users } : { ok: false };
+    // The history scope is judged by the same rule and refused by the same rule:
+    // a member outside the two names is something this build cannot render or
+    // re-send honestly, so the whole body stops (002 FR-063, invariant 8).
+    // **Absent is not that case** — it is the documented default and is accepted
+    // as one (002 FR-058).
+    const scope = readHistoryScope(record.historyScope);
+    if (scope === null) {
+        return { ok: false };
+    }
+
+    return {
+        ok: true,
+        startingPrompt,
+        allowedUsers: actors.users,
+        // The service projects the documented default for a binding that stores
+        // no member (002 FR-055), so an answer from a build that *does* report it
+        // always carries one. An absent member here is an older service's answer,
+        // which is not a fault, and it reads as the default downstream (plan H13).
+        historyScope: scope,
+    };
 }
 
 /**
@@ -366,6 +523,7 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
         updatedAt: record.updatedAt as string,
         ...(optional.startingPrompt !== undefined && { startingPrompt: optional.startingPrompt }),
         ...(optional.allowedUsers !== undefined && { allowedUsers: optional.allowedUsers }),
+        historyScope: optional.historyScope,
     };
 }
 

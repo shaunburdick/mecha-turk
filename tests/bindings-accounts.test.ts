@@ -1227,9 +1227,13 @@ describe('K-4 FR-121 the reason mounts under the list toolbar as text alone', ()
         }
         // Not one of them is a new entry: the census is the tab's own, and the
         // picker, the two text fields and the five buttons are the ones the
-        // Bindings pane already mounted before this block existed.
+        // Bindings pane already mounted before this block existed. The **fourth**
+        // select is 002 v1.13.0's history-scope control (002 FR-089), which is a
+        // field of the editor and not part of this reason's surface — asserted
+        // here because the census is the tab's whole primitive inventory and a new
+        // control has to show up in it.
         expect(census.mountButton).toBe(6);
-        expect(census.mountSelect).toBe(3);
+        expect(census.mountSelect).toBe(4);
         expect(inert.calls).toBe(0);
 
         const reason = listBlockChildren(mounted.dom).find((node) => node.className === REASON_CLASS);

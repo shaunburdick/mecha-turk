@@ -24,21 +24,30 @@
  * not attribute. A candidate that simply produced no event is a different
  * outcome, recorded by the read itself and never a skip.
  *
- * The first scan of a binding *replays*: with no recorded `lastScanAt` the
- * loop sends no `since` filter, so every open item matching a trigger is
- * enqueued — an operator who binds a repository and immediately wants work
- * on already-assigned issues gets it even when the issue (or the assignment)
- * predates the binding (product decision, 2026-09-28). Every scan after the
- * first is incremental from the recorded `lastScanAt`, and dedupe by the
- * deterministic event id keeps the replay idempotent. Queued events reach
- * the panel through the relay (M2); the panel dispatches (M4). MVP-DEBT:
- * the production plan's checkpoint machinery (overlap windows, run keys,
- * lease renewal) is deliberately not here — this is the simple stand-in the
- * MVP cut asked for.
+ * **Every scan opens at a computable lower bound** (002 FR-065, added at
+ * v1.13.0). What a binding's *first* window starts at is what its **history
+ * scope** fixes: the binding's own creation boundary widened by the configured
+ * overlap under the documented default, or one fixed seven-day look-back before
+ * that boundary when the operator asked for it (FR-066, FR-067). Every scan
+ * after the first is incremental from the recorded `lastScanAt` widened by the
+ * same overlap, in **both** modes — the mode is not consulted again at all
+ * (FR-068). A queue-recovery reset re-offers the binding's in-window work
+ * whatever its mode is (FR-073), deduplicating through the unchanged
+ * deterministic event id (FR-075, FR-082). The pre-v1.13.0 rule — a binding
+ * with no recorded stamp replays *everything* — is retired as a window source,
+ * together with the "an unreadable stamp is the same as no window" fallback;
+ * neither is reachable any more (FR-065).
+ *
+ * A scan window that cannot be computed at all **refuses** rather than falling
+ * open: no listing, no event, and the reason recorded against that binding
+ * (FR-072, FR-024). Queued events reach the panel through the relay (M2); the
+ * panel dispatches (M4). MVP-DEBT: the production plan's checkpoint machinery
+ * (overlap windows, run keys, lease renewal) is deliberately not here — this is
+ * the simple stand-in the MVP cut asked for.
  */
 
 import { readAccount } from '../accounts/store.ts';
-import { readBindings } from '../bindings-read.ts';
+import { readBindings, readStoredCreationStamps } from '../bindings-read.ts';
 import { resolvePromptSnapshot } from '../prompt.ts';
 import { runRetentionPasses } from '../retention.ts';
 import type { ServiceConfig } from '../config.ts';
@@ -49,18 +58,37 @@ import { readCycleConfig } from './cycle-config.ts';
 import { enqueueEvents, readEvents } from './events.ts';
 import type { QueuedEvent } from './events.ts';
 import type { GitHubIssuePoller, ListPace, PollFailure } from './poller-github.ts';
-import { readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
-import type { ScanState } from './scan.ts';
+import { bindingScanOf, readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
+import type { BindingScanState, ScanState } from './scan.ts';
 import { collectTriggerEvents } from './triggers.ts';
-import { windowFor } from './window.ts';
+import { answersCatchUp, baselineFor, bindingsNeedingBaseline, widenBaseline, windowFor } from './window.ts';
+import type { WindowRefusal } from './window.ts';
 
 // The window rule lives beside its own rationale in `window.ts`; the loop
 // re-exports it so `windowFor` keeps one import path for the cycle and for
 // the suites that drive it.
-export { windowFor };
+export { baselineFor, windowFor };
+export type { WindowRefusal, WindowVerdict } from './window.ts';
 
-/** Short machine reasons a scan was skipped, logged instead of upstream text. */
-export type ScanSkip = 'missing-account' | 'inactive-account' | 'auth-failed' | 'rate-limited' | 'offline' | 'upstream';
+/**
+ * Short machine reasons a scan was skipped, logged instead of upstream text.
+ *
+ * The six upstream ones are classifications of a `PollFailure`. The three window
+ * ones are 002 FR-072's refusals and are **not** failures of any call: they are
+ * the verdict that this binding's scan window could not be computed, so the
+ * cycle lists nothing and the reason is recorded against the binding (FR-024).
+ * They are named in the same vocabulary because they answer the same question an
+ * operator asks — *why did this scan do nothing* — and two vocabularies would be
+ * two answers (constitution IV).
+ */
+export type ScanSkip =
+    | 'missing-account'
+    | 'inactive-account'
+    | 'auth-failed'
+    | 'rate-limited'
+    | 'offline'
+    | 'upstream'
+    | WindowRefusal;
 
 /** What one binding's scan produced. */
 export interface BindingScan {
@@ -72,6 +100,14 @@ export interface BindingScan {
     readonly enqueued: number;
     /** New window stamp, or `null` when the scan did not complete. */
     readonly windowFrom: string | null;
+    /**
+     * The lower bound this scan **opened at**, or `null` when it listed nothing.
+     *
+     * Carried out of {@link scanBinding} and into the slot write, because the
+     * retained baseline must be the widest window the binding has ever scanned
+     * from and only the scan that opened one can widen it (002 FR-073; plan H8).
+     */
+    readonly openedFrom: string | null;
     /** Skip reason for the whole scan, else `null`. */
     readonly skipped: ScanSkip | null;
 }
@@ -184,6 +220,7 @@ function blankScan(binding: BindingRecord): BindingScan {
         repository: binding.repository,
         enqueued: 0,
         windowFrom: null,
+        openedFrom: null,
         skipped: null,
     };
 }
@@ -210,8 +247,8 @@ async function collectScanEvents(input: {
     readonly deps: ScanContext;
     /** The binding being scanned. */
     readonly binding: BindingRecord;
-    /** Window start; `null` opens an unbounded (replay) listing. */
-    readonly windowStart: string | null;
+    /** The window this cycle opened; every scan has a computable lower bound (002 FR-065). */
+    readonly windowStart: string;
     /** RFC 3339 stamp pinned at cycle start. */
     readonly detectedAt: string;
     /** Account credential presented to GitHub. */
@@ -246,8 +283,8 @@ async function scanBinding(input: {
     readonly deps: ScanContext;
     /** The binding being scanned. */
     readonly binding: BindingRecord;
-    /** Scan state read at cycle start. */
-    readonly scanned: ScanState;
+    /** This binding's slot, as it stood after the cycle derived any baseline. */
+    readonly scanned: BindingScanState;
     /** RFC 3339 stamp pinned at cycle start. */
     readonly detectedAt: string;
 }): Promise<BindingScan> {
@@ -263,12 +300,23 @@ async function scanBinding(input: {
         return { ...blank, skipped: 'inactive-account' };
     }
 
+    // The **verdict**, not a stamp: a scan that cannot compute a lower bound
+    // records the refusal and lists nothing, which is the only state in which a
+    // binding opens no window (002 FR-072). Nothing on this path reads the
+    // history scope — it was consumed once, by `ensureBaselines`, and a branch
+    // below needs only a window start (002 FR-068).
+    const verdict = windowFor({ binding, scanned, overlapMs: deps.config.overlapMs });
+    if ('refused' in verdict) {
+        return { ...blank, skipped: verdict.refused };
+    }
+
     const listed = await collectScanEvents({
         deps,
         binding,
-        // The window this cycle opens is widened by the overlap the cycle's
-        // own configuration declared (006 FR-059(a)).
-        windowStart: windowFor({ binding, scanned, overlapMs: deps.config.overlapMs }),
+        // The window this cycle opens is widened by the overlap the cycle's own
+        // configuration declared (006 FR-059(a)), or by the binding's history
+        // scope on its first scan (002 FR-066, FR-067).
+        windowStart: verdict.window,
         detectedAt,
         token: account.credential.token,
         login: account.login === '' ? binding.accountLogin : account.login,
@@ -290,23 +338,55 @@ async function scanBinding(input: {
         // carry is unset and contributes nothing.
         prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
     });
-    return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
+
+    // The window this scan opened is carried out, because it is the only thing
+    // that can widen the retained baseline — and widening it is what keeps a later
+    // recovery replay from being narrower than the work it must re-cover
+    // (002 FR-073).
+    return { ...blank, enqueued: appended.length, windowFrom: detectedAt, openedFrom: verdict.window };
 }
 
 /**
  * Persist per-binding scan state: the stamp on completion, the skip reason
- * otherwise.
+ * otherwise — and, on completion, the clearing of the two one-shot facts.
+ *
+ * **One atomic write per scan** (002 FR-018), which is what makes the three
+ * facts agree with each other rather than merely being stored near one another:
+ *
+ * - a scan that **completes** advances `lastScanAt` and clears `forceReplay`,
+ *   because the lost work has been re-detected (002 FR-075);
+ * - `rescanFrom` is cleared **only by a scan whose window covered the armed
+ *   bound** (`answersCatchUp`), which is a stricter test than completion: a
+ *   recovery replay outranks the arming, so a replay at a *narrower* baseline than
+ *   `now − 7 days` completes without having reached the ground the operator asked
+ *   for, and the request must survive to be the next scan's window (002 FR-076,
+ *   FR-084; plan H7);
+ * - a scan that **does not complete** leaves `lastScanAt` where it was (006
+ *   FR-058: an incomplete scan neither advances past data that was never
+ *   durably represented nor clears to a replay) **and leaves both one-shots
+ *   armed** — a transient failure must not silently consume a recovery replay
+ *   (002 FR-076) or an operator's explicit catch-up request (plan H7).
+ *
+ * `baselineAt` is **widened, never narrowed** (002 FR-073, FR-066). It is derived
+ * once, before the binding's first scan, from the creation boundary — which is
+ * what FR-066's stability rests on — and every scan that opened a window wider
+ * than the one already retained moves it **earlier** and never later. That is
+ * what makes a recovery replay re-cover *at least* everything some earlier scan
+ * covered: an armed `rescanFrom` bound (`now − 7 days` on a binding younger than
+ * that) is narrower than the binding's own creation boundary on a fresh default,
+ * and a replay opening at the un-widened baseline would silently drop the older
+ * rows the catch-up had already queued.
  */
 async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promise<void> {
     await serializeScan(async () => {
         const state = await readScanState(deps);
-        const prior = state.bindings[scan.bindingId];
-        // FR-058 (006): a scan that did not complete **retains** the checkpoint
-        // it already had — it neither advances past data that was never
-        // durably represented nor clears to a full replay. The next successful
-        // scan re-covers the failed period through `lastScanAt − overlapMs`.
-        // The queue-recovery reset remains the one path that clears the stamp.
-        const retained = scan.windowFrom ?? (prior?.lastScanAt ?? null);
+        const prior = bindingScanOf(state, scan.bindingId);
+        const didComplete = scan.windowFrom !== null;
+        // 006 FR-058: a scan that did not complete **retains** the checkpoint it
+        // already had. The next successful scan re-covers the failed period
+        // through `lastScanAt − overlapMs`, or through the baseline when there
+        // is no stamp yet.
+        const retained = scan.windowFrom ?? prior.lastScanAt;
         await writeScanState({
             store: deps.store,
             state: withBindingScanState({
@@ -315,6 +395,26 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
                 slot: {
                     lastScanAt: retained,
                     lastError: scan.skipped,
+                    // Only a scan that actually listed may widen the bound, and only
+                    // ever earlier: an incomplete scan opened no window, so it has
+                    // nothing to contribute and must not move a bound another scan
+                    // set (002 FR-076).
+                    baselineAt: didComplete
+                        ? widenBaseline({ retained: prior.baselineAt, opened: scan.openedFrom })
+                        : prior.baselineAt,
+                    // Only the scan that answered a one-shot clears it; a scan that
+                    // did not complete leaves it armed (002 FR-076; plan H7).
+                    forceReplay: !didComplete && prior.forceReplay,
+                    // **Coverage, not completion.** A scan that completed at a window
+                    // covering the armed bound served the request; one that opened
+                    // later — a recovery replay at a narrower baseline than
+                    // `now − 7 days` on a young binding — did not, so the arming
+                    // survives for the next scan. Clearing on completion alone
+                    // discarded the operator's explicit look-back with nothing
+                    // recording that it had been asked for (002 FR-076, FR-084).
+                    rescanFrom: answersCatchUp({ opened: scan.openedFrom, armed: prior.rescanFrom })
+                        ? null
+                        : prior.rescanFrom,
                 },
             }),
         });
@@ -322,14 +422,91 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
 }
 
 /**
- * Run one poll cycle over every eligible binding.
+ * Derive and retain the baseline for every binding that needs one (002 FR-066).
  *
- * Never throws: every failure it can see is one binding's `skipped` reason,
- * logged once at the end with counts only. The cycle keeps walking the
- * remaining bindings so one broken account cannot block another.
+ * **Once per cycle, once per binding, and only when needed.** A binding whose
+ * slot already carries a `baselineAt` — or a completed scan — is not touched, so
+ * a steady-state cycle pays nothing here and no `bindings.json` read happens at
+ * all (plan H3: the extra `readJson` exists *only* in a cycle where some binding
+ * has no baseline yet, which is the first cycle and the one after a recovery
+ * reset).
  *
- * @returns The cycle outcome.
+ * The derivation reads each row's **stored** creation stamp, because the
+ * assembled record substitutes a clock reading for a stamp the clock cannot read
+ * and FR-072 requires that case to **refuse** rather than silently become
+ * `now − overlapMs` (plan H3, AC-038). A refusal writes no baseline, so the
+ * binding keeps refusing on every cycle until an operator repairs the stamp — the
+ * honest direction, and never a widening.
+ *
+ * The read and the write happen **inside one `serializeScan` task**, which is why
+ * this is not a bare read-then-write: the slots are re-read inside the chain and
+ * `needing` is recomputed against that fresh read, so a `PUT /v1/bindings` that
+ * arms `rescanFrom` — or a recovery reset that sets `forceReplay` — landing
+ * between this cycle's scan-state read and its write cannot be reverted by a stale
+ * map written back over it (002 FR-018, FR-076; plan H7).
+ *
+ * The write is one atomic scan-state write for every binding that derived
+ * something, and it happens **before** any scan so the scan's own window reads a
+ * slot that already carries its baseline (FR-018).
+ *
+ * @returns The scan state to scan under, with any newly derived baselines in it.
  */
+async function ensureBaselines(
+    deps: ScanContext,
+    bindings: readonly BindingRecord[],
+): Promise<ScanState> {
+    const byId = new Map(bindings.map((binding) => [binding.bindingId, binding]));
+
+    return await serializeScan(async (): Promise<ScanState> => {
+        const state = await readScanState(deps);
+        // Recomputed against the state read **here**, not against a snapshot the
+        // caller took before entering the chain: a binding whose baseline another
+        // writer derived while this task waited must not have it overwritten.
+        const needing = bindingsNeedingBaseline({ bindings, slots: state.bindings });
+        if (needing.length === 0) {
+            return state;
+        }
+
+        const stamps = await readStoredCreationStamps({
+            store: deps.store,
+            log: deps.log,
+            bindingIds: needing,
+        });
+        let derived: ScanState | null = null;
+        for (const bindingId of needing) {
+            const binding = byId.get(bindingId);
+            const stored = stamps.get(bindingId);
+            if (binding === undefined || stored === undefined) {
+                continue;
+            }
+
+            // The one place the history scope is read: it decides *which* lower bound
+            // a no-completed-scan window opens at, and is not consulted again (FR-068).
+            const verdict = baselineFor({ binding, stored, overlapMs: deps.config.overlapMs });
+            if ('refused' in verdict) {
+                // No baseline is written, so `windowFor` refuses on every cycle until
+                // the record is repaired — and records the reason each time (FR-072).
+                continue;
+            }
+
+            const prior = bindingScanOf(derived ?? state, bindingId);
+            derived = withBindingScanState({
+                state: derived ?? state,
+                bindingId,
+                slot: { ...prior, baselineAt: verdict.window },
+            });
+        }
+
+        if (derived === null) {
+            return state;
+        }
+
+        await writeScanState({ store: deps.store, state: derived });
+
+        return derived;
+    });
+}
+
 /**
  * Read this cycle's configuration and narrow the dependencies around it.
  *
@@ -361,6 +538,15 @@ async function cycleContext(input: {
     return { store: input.store, log: input.log, poller: input.poller, config, pace };
 }
 
+/**
+ * Run one poll cycle over every eligible binding.
+ *
+ * Never throws: every failure it can see is one binding's `skipped` reason,
+ * logged once at the end with counts only. The cycle keeps walking the
+ * remaining bindings so one broken account cannot block another.
+ *
+ * @returns The cycle outcome.
+ */
 export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     if (deps.store === null) {
         return { bindings: [], enqueued: 0 };
@@ -374,17 +560,26 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     // guarded inside `runRetentionPasses`.
     await runRetentionPasses({ store: context.store, log: context.log, config: context.config });
     // Health pass before this cycle reads its windows: a queue file that has
-    // to be quarantined clears every binding's `lastScanAt` inside that read,
-    // so the scan-state read below must see the cleared slots rather than
-    // the stamps a pre-recovery read would have cached. The cycle then opens
-    // each window with no `since` filter at all — a full replay that
-    // re-detects whatever the lost queue carried (deterministic ids keep
-    // that replay duplicate-free).
+    // to be quarantined clears every binding's `lastScanAt` **and sets its
+    // `forceReplay` flag** inside that read, so the scan-state read below must
+    // see the cleared slots rather than the stamps a pre-recovery read would
+    // have cached. A cleared binding then opens from its **retained baseline** —
+    // the widest window it has ever scanned from, widened by every scan that
+    // opened one — so a recovery re-offers the binding's in-window work **whatever
+    // its history scope is and whatever catch-up was armed** (002 FR-073; plan H8,
+    // corrected 2026-10-05). What the flag adds beyond precedence is visibility,
+    // and the guarantee that no reader mistakes this for a first scan (FR-074,
+    // FR-078). Deterministic event ids keep the re-detection duplicate-free
+    // (002 FR-075, FR-082).
     await readEvents({ store: context.store, log: context.log });
-    const [bindings, scannedState] = await Promise.all([
-        readBindings({ store: context.store, log: context.log }),
-        readScanState({ store: context.store, log: context.log }),
-    ]);
+    const bindings = await readBindings({ store: context.store, log: context.log });
+    // Any baseline a binding still lacks is derived **once**, before the first
+    // scan reads a window, and retained (002 FR-066). A binding whose stored
+    // creation stamp cannot be read derives nothing, so its own window verdict
+    // refuses for as long as the record says so (002 FR-072). The read-modify-write
+    // is one task on the scan-state chain, so it reads fresh state rather than a
+    // snapshot this cycle took before it queued (plan H7).
+    const scannedState = await ensureBaselines(context, bindings);
     const detectedAt = new Date().toISOString();
 
     const outcomes: BindingScan[] = [];
@@ -394,7 +589,12 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
             continue;
         }
 
-        const scan = await scanBinding({ deps: context, binding, scanned: scannedState, detectedAt });
+        const scan = await scanBinding({
+            deps: context,
+            binding,
+            scanned: bindingScanOf(scannedState, binding.bindingId),
+            detectedAt,
+        });
         await saveBindingScanState(context, scan);
         if (scan.windowFrom !== null) {
             total += scan.enqueued;

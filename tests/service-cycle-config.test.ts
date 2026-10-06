@@ -39,7 +39,7 @@ import { isRecord } from '../service/json.ts';
 import { createLogger } from '../service/log.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
 import { createGitHubIssuePoller } from '../service/poll/poller-github.ts';
-import { SCAN_STATE_FILE, readScanState } from '../service/poll/scan.ts';
+import { SCAN_STATE_FILE, emptyBindingScan, readScanState } from '../service/poll/scan.ts';
 import { openStore } from '../service/store/index.ts';
 import type { Account } from '../service/accounts/model.ts';
 import type { AuditEntry } from '../service/audit.ts';
@@ -77,11 +77,26 @@ const SCANNED_AT = '2026-09-27T06:00:00.000Z';
 /** Saved overlap this suite writes into the configuration (20 minutes). */
 const SAVED_OVERLAP_MS = 1_200_000;
 
-/** The window the saved overlap opens: `SCANNED_AT − SAVED_OVERLAP_MS`. */
+/**
+ * The window the saved overlap opens: `SCANNED_AT − SAVED_OVERLAP_MS`.
+ *
+ * Also what these poller-level cases hand as `since`, which used to be `null`:
+ * since 002 v1.13.0 a windowed list always carries one (002 FR-065).
+ */
 const WIDENED_SINCE = new Date(Date.parse(SCANNED_AT) - SAVED_OVERLAP_MS).toISOString();
 
 /** Issue update stamp inside the widened window but before the recorded scan. */
 const UPDATED_IN_WINDOW = new Date(Date.parse(SCANNED_AT) - 300_000).toISOString();
+
+/**
+ * The baseline a default-mode binding derives on its first scan: its creation
+ * boundary widened by the **saved** overlap (002 FR-066).
+ *
+ * The suite's point is that one configured number moves every window, so this is
+ * `SAVED_OVERLAP_MS` and not `DEFAULT_CONFIG`'s — a first scan and a later scan
+ * agree because both read the configuration this cycle read once (006 FR-055).
+ */
+const FIRST_BASELINE = new Date(Date.parse(CREATED_AT) - SAVED_OVERLAP_MS).toISOString();
 
 /** Saved page size AC-150 drives the request with. */
 const SAVED_PER_PAGE = 12;
@@ -187,7 +202,15 @@ function assignmentIssue(issueNumber: number, updatedAt: string): PollIssue {
 
 /** What one fake-poller call was asked for. */
 interface RecordedCall {
-    /** `since` window the call opened. */
+    /**
+     * `since` window the call opened.
+     *
+     * `string | null` because these recorders see both list feeds: the issues
+     * and comments feeds are windowed, while a **pulls** call carries `null`
+     * because that endpoint has no `since` parameter at all (002 FR-051). A
+     * windowed feed never sees `null` — every scan opens at a computable lower
+     * bound (002 FR-065).
+     */
     readonly since: string | null;
     /** Page size and ladder the cycle carried to the call. */
     readonly pace: ListPace;
@@ -384,16 +407,24 @@ describe('the window is widened by the saved overlap (006 T-008, FR-059(a), AC-1
         const issue = assignmentIssue(7, UPDATED_IN_WINDOW);
         const { poller, calls } = recordingPoller([issue]);
 
-        // First cycle: a binding that never scanned replays with no window,
-        // and the item lands in the queue.
-        await plantScanState({ bindings: { [BINDING_A]: { lastScanAt: null, lastError: null } } });
+        // First cycle: a binding that never scanned opens at its **baseline** — its
+        // creation boundary widened by the saved overlap — and the item lands in
+        // the queue. 002 v1.13.0 retires the "replay with no window" rule, so
+        // `calls[0].since` is a stamp (FR-065, FR-066).
+        await plantScanState({
+            bindings: { [BINDING_A]: { ...emptyBindingScan(), lastScanAt: null } },
+        });
         const first = await runScanCycle({ store, log, poller });
         expect(first.enqueued).toBe(1);
-        expect(calls[0]?.since).toBeNull();
+        expect(calls[0]?.since).toBe(FIRST_BASELINE);
 
         // Second cycle: the recorded stamp is back, and the saved overlap
         // widens the window onto an item the queue already holds.
-        await plantScanState({ bindings: { [BINDING_A]: { lastScanAt: SCANNED_AT, lastError: null } } });
+        await plantScanState({
+            bindings: {
+                [BINDING_A]: { ...emptyBindingScan(), lastScanAt: SCANNED_AT, baselineAt: FIRST_BASELINE },
+            },
+        });
         const second = await runScanCycle({ store, log, poller });
 
         expect(calls[1]?.since).toBe(WIDENED_SINCE);
@@ -455,7 +486,7 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
                 token: FIXTURE_TOKEN,
                 owner: 'acme',
                 name: 'widget',
-                since: null,
+                since: WIDENED_SINCE,
                 pace: paceFor(SAVED_PER_PAGE),
             });
 
@@ -494,7 +525,7 @@ describe('the list request carries the configured page size (006 T-009, FR-059(b
                 token: FIXTURE_TOKEN,
                 owner: 'acme',
                 name: 'widget',
-                since: null,
+                since: WIDENED_SINCE,
                 pace: paceFor(NUMERIC_BOUNDS.perPage.max),
             });
 

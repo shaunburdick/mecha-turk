@@ -208,7 +208,7 @@ function mentionEvents(input: {
     /** Issues the same scan listed, for title and URL resolution. */
     readonly issues: readonly PollIssue[];
     /** Window start; `null` on a replay scan. */
-    readonly windowStart: string | null;
+    readonly windowStart: string;
     /** RFC 3339 stamp pinned at cycle start. */
     readonly detectedAt: string;
 }): QueuedEvent[] {
@@ -251,7 +251,7 @@ function bodyMentionEvents(input: {
     /** Issues the same scan listed. */
     readonly issues: readonly PollIssue[];
     /** Window start; `null` on a replay scan. */
-    readonly windowStart: string | null;
+    readonly windowStart: string;
     /** RFC 3339 stamp pinned at cycle start. */
     readonly detectedAt: string;
 }): QueuedEvent[] {

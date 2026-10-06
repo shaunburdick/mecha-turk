@@ -165,20 +165,36 @@ function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boole
 }
 
 /**
- * Clear every binding's `lastScanAt` so the next scan replays every open
- * issue.
+ * Clear every binding's `lastScanAt` and **record that this was a recovery**
+ * (002 FR-073, FR-074).
  *
  * The quarantined queue's rows are gone with the file, so the only way to
  * recover what they carried is to re-detect it — and a binding whose window
  * already advanced past those assignments will never match them again.
- * Clearing every slot moves each binding back to "never scanned", which makes
- * `windowFor` return no window at all: the next cycle replays every open
- * issue — the same contract a fresh binding gets (product decision,
- * 2026-09-28) — and the deterministic event ids keep that replay
- * duplicate-free. The write runs on the scan-state chain, so it cannot
- * interleave with the loop's own read-modify-write of that file.
  *
- * @returns How many bindings had a window to clear.
+ * Two members are written, and the second is what makes the first honest
+ * (FR-074): `lastScanAt: null` on its own is indistinguishable from *never
+ * scanned*, and 002 FR-074 requires the two facts to be **separate values** that
+ * no reader infers one from. So the reset sets `forceReplay: true` beside the
+ * cleared stamp, and `forceReplay` is written **here and nowhere else** — never by
+ * a first scan (plan H4).
+ *
+ * What the flag does to the window is *nothing*: after the reset the binding has
+ * no recorded stamp, so 002 FR-065's second branch applies and the binding's
+ * **baseline** governs — `createdAt − overlapMs` under the documented default,
+ * `createdAt − 7 days` under the look-back mode. Both cover everything the lost
+ * queue's rows carried, which is exactly why no replay bound has to be invented
+ * (plan H8). What the flag buys is the three things that make recovery legible:
+ * recovery is **never governed by the mode** (FR-073), it **takes precedence**
+ * where a sweep is also in force, and the operator can be **told** which of the
+ * two is happening (FR-078, FR-092; constitution IV).
+ *
+ * `baselineAt` is deliberately left untouched: it is what this replay has to
+ * cover, and recomputing it from a later clock would shrink the very window the
+ * recovery exists to re-open. The write runs on the scan-state chain, so it
+ * cannot interleave with the loop's own read-modify-write of that file.
+ *
+ * @returns How many bindings had a checkpoint to clear.
  */
 async function resetScanWindows(input: {
     /** Open store. */
@@ -190,7 +206,8 @@ async function resetScanWindows(input: {
         const bindings: Record<string, BindingScanState> = {};
         let cleared = 0;
         for (const [bindingId, slot] of Object.entries(state.bindings)) {
-            const next: BindingScanState = slot.lastScanAt === null ? slot : { ...slot, lastScanAt: null };
+            const next: BindingScanState =
+                slot.lastScanAt === null && slot.forceReplay ? slot : { ...slot, lastScanAt: null, forceReplay: true };
             cleared += next === slot ? 0 : 1;
             bindings[bindingId] = next;
         }
