@@ -61,13 +61,13 @@ import type { GitHubIssuePoller, ListPace, PollFailure } from './poller-github.t
 import { bindingScanOf, readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
 import type { BindingScanState, ScanState } from './scan.ts';
 import { collectTriggerEvents } from './triggers.ts';
-import { baselineFor, bindingsNeedingBaseline, widenBaseline, windowFor } from './window.ts';
+import { answersCatchUp, baselineFor, bindingsNeedingBaseline, widenBaseline, windowFor } from './window.ts';
 import type { WindowRefusal } from './window.ts';
 
 // The window rule lives beside its own rationale in `window.ts`; the loop
 // re-exports it so `windowFor` keeps one import path for the cycle and for
 // the suites that drive it.
-export { baselineFor, widenBaseline, windowFor };
+export { baselineFor, windowFor };
 export type { WindowRefusal, WindowVerdict } from './window.ts';
 
 /**
@@ -353,10 +353,14 @@ async function scanBinding(input: {
  * **One atomic write per scan** (002 FR-018), which is what makes the three
  * facts agree with each other rather than merely being stored near one another:
  *
- * - a scan that **completes** advances `lastScanAt` and clears **both**
- *   one-shots in the same write — `rescanFrom`, because the operator's requested
- *   catch-up has been served, and `forceReplay`, because the lost work has been
- *   re-detected. Neither survives the scan that answered it (002 FR-075);
+ * - a scan that **completes** advances `lastScanAt` and clears `forceReplay`,
+ *   because the lost work has been re-detected (002 FR-075);
+ * - `rescanFrom` is cleared **only by a scan whose window covered the armed
+ *   bound** (`answersCatchUp`), which is a stricter test than completion: a
+ *   recovery replay outranks the arming, so a replay at a *narrower* baseline than
+ *   `now − 7 days` completes without having reached the ground the operator asked
+ *   for, and the request must survive to be the next scan's window (002 FR-076,
+ *   FR-084; plan H7);
  * - a scan that **does not complete** leaves `lastScanAt` where it was (006
  *   FR-058: an incomplete scan neither advances past data that was never
  *   durably represented nor clears to a replay) **and leaves both one-shots
@@ -401,7 +405,16 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
                     // Only the scan that answered a one-shot clears it; a scan that
                     // did not complete leaves it armed (002 FR-076; plan H7).
                     forceReplay: !didComplete && prior.forceReplay,
-                    rescanFrom: didComplete ? null : prior.rescanFrom,
+                    // **Coverage, not completion.** A scan that completed at a window
+                    // covering the armed bound served the request; one that opened
+                    // later — a recovery replay at a narrower baseline than
+                    // `now − 7 days` on a young binding — did not, so the arming
+                    // survives for the next scan. Clearing on completion alone
+                    // discarded the operator's explicit look-back with nothing
+                    // recording that it had been asked for (002 FR-076, FR-084).
+                    rescanFrom: answersCatchUp({ opened: scan.openedFrom, armed: prior.rescanFrom })
+                        ? null
+                        : prior.rescanFrom,
                 },
             }),
         });

@@ -135,11 +135,11 @@ Each row is one assertion in the proof suite.
 | 5.11 | A look-back binding's first window is exactly `createdAt − 604,800,000 ms`; a second scan over it produces **zero** further events |
 | 5.12 | The baseline is **stable**: three failed scans then a success still opens at `createdAt − overlapMs`, not at the last attempt |
 | 5.13 | An unreadable `createdAt` produces **no** event, **no** run, and **no** work, with a recorded reason — in both modes |
-| 5.14 | After the recovery reset, **both** modes replay; the two durable facts are distinguishable; only the recovery path writes the second |
-| 5.15 | A scan that starts a recovery replay and fails leaves the replay in force, and the next scan replays again |
+| 5.14 | After the recovery reset, **both** modes replay; the two durable facts are distinguishable; only the recovery path writes the second; a catch-up sweep widens the retained baseline; and an **armed catch-up survives a replay that never reached its ground**, cleared only by a scan that did |
+| 5.15 | A scan that starts a recovery replay and fails leaves the replay in force, and the next scan replays again — at the **retained baseline, ahead of the armed bound**, which therefore stays armed for the scan that serves it |
 | 5.16 | A repeated sweep, a repeated recovery replay, and a restart each produce **zero** duplicate events and **zero** duplicate sessions |
 | 5.17 | A sweep enqueues only: no session starts outside the claim-and-lease cycle, and at most one is in flight |
-| 5.18 | Editing to `recent-history` opens a **bounded** catch-up **through FR-023's one rescan mechanism** — exactly one in the service, and **no** general timestamp-picking surface is added; editing to `new-only` clears no checkpoint and alters no queued or dispatched run |
+| 5.18 | Editing to `recent-history` opens a **bounded** catch-up **through FR-023's one rescan mechanism** — exactly one in the service, **no** general timestamp-picking surface is added, and the scan-state file is written **only from inside its own chain**; editing to `new-only` clears no checkpoint and alters no queued or dispatched run |
 | 5.19 | Exactly one audit row per change, through the panel, inside a whole-file write, and observed in a hand-edited store; **none** for a resubmission in force |
 | 5.20 | **No** per-observation row is written for a non-matching item on a cycle that matches nothing, and `poll.observation` is still unwritten |
 | 5.21 | The panel renders the mode **once**, reads an unusable one as **unreadable**, renders an absent one as the default, and never renders an empty control implying a third choice |

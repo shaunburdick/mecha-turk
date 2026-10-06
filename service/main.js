@@ -6486,6 +6486,11 @@ function widenBaseline(inputs) {
   }
   return new Date(Math.min(...candidates)).toISOString();
 }
+function answersCatchUp(input) {
+  const opened = readableStamp(input.opened);
+  const armed = readableStamp(input.armed);
+  return opened !== null && armed !== null && Date.parse(opened) <= Date.parse(armed);
+}
 function stampInWindow(stamp, windowStart) {
   if (stamp === null) {
     return false;
@@ -9735,7 +9740,7 @@ async function saveBindingScanState(deps, scan) {
           lastError: scan.skipped,
           baselineAt: didComplete ? widenBaseline({ retained: prior.baselineAt, opened: scan.openedFrom }) : prior.baselineAt,
           forceReplay: !didComplete && prior.forceReplay,
-          rescanFrom: didComplete ? null : prior.rescanFrom
+          rescanFrom: answersCatchUp({ opened: scan.openedFrom, armed: prior.rescanFrom }) ? null : prior.rescanFrom
         }
       })
     });

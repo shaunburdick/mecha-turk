@@ -156,6 +156,11 @@ assignments.
   moves on to the ordinary incremental one, and the look-back is not repeated on
   its own. Choosing it again re-arms one more bounded catch-up — the same thing
   the panel's save does when you switch an existing binding into that mode.
+- **A requested catch-up is not thrown away by a bad cycle.** It is served by the
+  first scan whose window actually reaches back seven days. A failing scan leaves
+  it armed, and so does a recovery replay — that one re-offers the lost queue
+  first, and on a binding younger than seven days its window does not reach as
+  far, so the request is still waiting when the next cycle runs.
 - **The window is always bounded, and there is no "all history" option.** The
   look-back is a fixed service-side length that no setting changes; nothing in the
   panel or the store can ask for an unlimited window.
@@ -176,8 +181,11 @@ assignments.
 field did and has **not yet completed its first scan** keeps the same
 behaviour it always had — it starts at its creation boundary and skips its
 backlog. Choosing the look-back on it afterwards is the supported way to ask for
-that window. The upgrade itself writes nothing: a pre-existing `bindings.json` and
-`scan-state.json` are byte-identical after it.
+that window. The upgrade itself writes nothing: a pre-existing `bindings.json`
+and `scan-state.json` are byte-identical after it, because reading and serving a
+row with no mode is a read. The first scan afterwards records its own checkpoint
+as it always did, and from then on it also carries the baseline that replay
+re-opens from.
 
 **Audit.** Each change writes exactly one `binding.history-scope-updated` row
 naming the previous mode, the new one, and who made it (`operator` for a panel

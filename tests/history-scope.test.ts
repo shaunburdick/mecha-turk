@@ -29,7 +29,7 @@
  *    plan's gate item 2, checked by source scan.
  */
 
-import { readdir, readFile, writeFile } from 'node:fs/promises';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { GuestRequestResult } from '@openchamber/sdk';
@@ -648,6 +648,19 @@ async function storedBindingsText(dir: string = dataDir): Promise<string | null>
 }
 
 /**
+ * The queue file's text, or `null` when the store holds no queue at all.
+ *
+ * The absent case is a **state** here, not an error: it is exactly what a service
+ * restarting after a quarantine finds, and it is the only observation that sends a
+ * reader to the evidence files (`recoverFromEvidence`).
+ *
+ * @returns The file's contents, or `null` when it is absent.
+ */
+async function storedQueueText(): Promise<string | null> {
+    return await readFile(join(dataDir, 'events.json'), 'utf8').catch(() => null);
+}
+
+/**
  * List the quarantine files the store left behind.
  *
  * @returns File names carrying the quarantine marker.
@@ -1006,7 +1019,7 @@ describe('§5.5 omission preserves; a pre-field document is not rewritten', () =
         expect(stored.bindings[0]?.historyScope).toBe(DEFAULT_HISTORY_SCOPE);
     });
 
-    it('leaves a pre-field document with zero bytes rewritten and zero checkpoints touched', async () => {
+    it('leaves a pre-field document with zero bytes rewritten and zero checkpoints reset', async () => {
         // The upgrade case: a document written **before** this field existed, with a
         // completed scan already recorded beside it. Reading it, and scanning it,
         // must both be reads — the field's absence is a complete state, so there is
@@ -1031,9 +1044,9 @@ describe('§5.5 omission preserves; a pre-field document is not rewritten', () =
         expect(observed[0]).toEqual({ ...binding(BINDING_A), startingPrompt: 'Pre-field instruction' });
 
         // A cycle over the pre-field row: it scans normally, and the **only** bytes
-        // that change are the ones that record the scan itself. The bindings document
-        // is not one of them — no migration runs, because there is nothing to
-        // migrate.
+        // that change are the ones that record the scan itself — its stamp, and the
+        // baseline the retained bound is built from. The bindings document is not
+        // one of them: no migration runs, because there is nothing to migrate.
         await runScanCycle({ store, log, poller: recordingPoller([]).poller });
 
         expect(await readFile(join(dataDir, 'bindings.json'), 'utf8')).toBe(beforeBindings);
@@ -1075,10 +1088,12 @@ describe('§5.6 the mode reaches no other store', () => {
             expect(line, line).not.toContain('recent-history');
         }
 
-        // And no store file but `bindings.json` and `runs.json` (whose rows carry no
-        // mode member) holds either name. The queue, the scan state, the run
-        // document, the config and the audit trail are all checked by reading the
-        // whole directory rather than by naming the ones we expect.
+        // And `bindings.json` is the **only** store file that names the member: the
+        // queue, the scan state, the run document, the config and the audit trail are
+        // all covered, by reading the whole directory rather than naming the ones we
+        // expect. The mode's third appearance is the health row, which is a *response*
+        // and not a file — §5.22 proves that member, and this census proves it reaches
+        // nothing else on disk and nothing in the log.
         const stored = await readdir(dataDir);
         const named = stored
             .filter((entry) => entry.endsWith('.json') || entry.endsWith('.ndjson'))
@@ -1510,15 +1525,23 @@ describe('§5.14 after the recovery reset both modes replay, from the separate d
         expect(recovered.bindings[BINDING_A]?.lastScanAt).not.toBeNull();
     });
 
-    it('re-offers a catch-up sweep after a loss, because the replay outranks the armed bound', async () => {
-        // 002 FR-073's hard case, and the one the retained baseline used to fail.
+    it('widens the retained baseline to a catch-up sweep\'s own bound, and re-offers it after a loss', async () => {
+        // **Widening**, which is what this case proves: the retained baseline moves
+        // to the widest window the binding has ever scanned from, so a later replay
+        // re-covers the catch-up's ground instead of dropping it.
         //
         // A binding **younger than the look-back** derives its first baseline from its
         // own creation boundary, so that bound is *later* than the `now − 7 days` an
         // armed catch-up opens. The catch-up then sweeps a five-day-old assignment,
-        // and the queue is lost. If a replay opened at the un-widened baseline it
-        // would be **narrower** than the work it must re-cover — and those rows
-        // would be gone for good, silently.
+        // and the queue is lost. A replay opening at the un-widened baseline would be
+        // **narrower** than the work it must re-cover — and those rows would be gone
+        // for good, silently.
+        //
+        // Precedence — which bound the replay opens at when both are present — is
+        // deliberately **not** asserted here: this fixture's baseline and its armed
+        // bound are the same stamp after step 2, so the two shapes would be
+        // indistinguishable and the case would claim a property it cannot see.
+        // §5.15's row is where precedence is proven, with the two bounds different.
         const youngCreatedAt = new Date(Date.now() - 86_400_000).toISOString();
         // Inside the young binding's own creation-boundary window (five minutes
         // before it existed, which the overlap reaches back over), and a week
@@ -1567,10 +1590,93 @@ describe('§5.14 after the recovery reset both modes replay, from the separate d
             `evt-acme~widget~2~${ACCOUNT_ID}`,
         ]);
 
-        // And the flag takes precedence rather than the armed bound: had `rescanFrom`
-        // won, the replay would have opened at the five-day bound and re-offered the
-        // same two rows — which the counts alone would not distinguish.
+        // And the replay left the widened bound where the sweep put it: it opened at
+        // that bound, so it could not move it, and the recovery it just performed is
+        // now part of what any later replay re-covers (002 FR-073).
         expect(bindingScanOf(await readScanState({ store, log }), BINDING_A).baselineAt).toBe(FIVE_DAYS_AGO);
+    });
+
+    it('keeps an armed catch-up through a replay that never reached its ground', async () => {
+        // The whole of plan H7's promise, driven end to end: an operator's explicit
+        // seven-day look-back, **consumed by a scan that never looked back seven
+        // days**, with nothing recording that it had been asked for.
+        //
+        // Reachability is structural, not hypothetical. A binding younger than the
+        // look-back has a creation-derived baseline *later* than `now − 7 days`, so
+        // arming it is the only way the request can be made at all (plan H6 — §5.18
+        // proves the route writes exactly this stamp). Lose the queue before the next
+        // cycle and the replay outranks the arming (002 FR-073), which is right: lost
+        // work is the obligation. But the replay's window is *narrower* than the one
+        // the operator asked for, so clearing the arming on completion discards it
+        // (002 FR-076, FR-084).
+        const youngCreatedAt = new Date(Date.now() - 86_400_000).toISOString();
+        // The arming the route writes for a mode edit: `now − 604,800,000 ms`.
+        const armedFrom = new Date(Date.now() - 604_800_000).toISOString();
+        const insideYoung = new Date(Date.parse(youngCreatedAt) - 5 * 60_000).toISOString();
+
+        await plantBindings([{ ...binding(BINDING_A), createdAt: youngCreatedAt }]);
+
+        // 1. the young binding's first scan, which derives and retains its own
+        //    creation boundary and completes.
+        const first = recordingPoller([issue(1, insideYoung)]);
+
+        const firstCycle = await runScanCycle({ store, log, poller: first.poller });
+
+        expect(firstCycle.enqueued).toBe(1);
+        expect(first.seen().windows).toEqual([new Date(Date.parse(youngCreatedAt) - OVERLAP_MS).toISOString()]);
+
+        // 2. the operator moves it into the look-back mode; the route arms the
+        //    bounded catch-up at `now − 7 days`.
+        const armed = bindingScanOf(await readScanState({ store, log }), BINDING_A);
+
+        expect(armed.lastScanAt).not.toBeNull();
+        await writeScanState({
+            store,
+            state: { bindings: { [BINDING_A]: { ...armed, rescanFrom: armedFrom } } },
+        });
+
+        // 3. the queue is lost before the next cycle can serve it.
+        await writeFile(
+            join(dataDir, 'events.json'),
+            JSON.stringify([{ id: 'evt-broken', issueNumber: 'not-a-number' }]),
+            'utf8',
+        );
+
+        // 4. the replay completes — at the retained baseline, which is a week
+        //    **narrower** than the arming, because this binding is one day old.
+        const replay = recordingPoller([issue(1, insideYoung), issue(2, armedFrom)]);
+
+        const replayCycle = await runScanCycle({ store, log, poller: replay.poller });
+
+        expect(replayCycle.enqueued).toBe(1);
+        expect(replay.seen().windows).toEqual([new Date(Date.parse(youngCreatedAt) - OVERLAP_MS).toISOString()]);
+
+        // The request survives the scan that could not have served it. This is the
+        // assertion the defect made unassertable: the completion flag alone would
+        // have cleared it here.
+        const afterReplay = bindingScanOf(await readScanState({ store, log }), BINDING_A);
+
+        expect(afterReplay.rescanFrom).toBe(armedFrom);
+        expect(afterReplay.forceReplay).toBe(false);
+        expect(afterReplay.lastScanAt).not.toBeNull();
+        // And the replay widened nothing: it opened at the retained baseline.
+        expect(afterReplay.baselineAt).toBe(new Date(Date.parse(youngCreatedAt) - OVERLAP_MS).toISOString());
+
+        // 5. the next scan is the one that serves it — at the armed bound, and
+        //    clearing only because it reached the ground the arming asked for.
+        const served = recordingPoller([issue(2, armedFrom)]);
+
+        const servedCycle = await runScanCycle({ store, log, poller: served.poller });
+
+        expect(servedCycle.enqueued).toBe(1);
+        expect(served.seen().windows).toEqual([armedFrom]);
+
+        const settled = bindingScanOf(await readScanState({ store, log }), BINDING_A);
+
+        expect(settled.rescanFrom).toBeNull();
+        // The served window widened the retained baseline to the arming, so a later
+        // recovery replay re-covers that ground too (002 FR-073).
+        expect(settled.baselineAt).toBe(armedFrom);
     });
 
     it('reports the flag on the health row while it is in force, and only the reset writes it', async () => {
@@ -1648,24 +1754,39 @@ describe('§5.15 a scan that starts a replay and fails leaves it in force', () =
         // the **retained baseline**, not at the armed bound: recovery takes
         // precedence over an armed catch-up, because the replay's job is
         // re-covering lost work and the baseline is the widest window this binding
-        // has ever scanned from (002 FR-073; plan H8, corrected 2026-10-05). The
-        // catch-up request is not lost by that — it is the next scan's window.
+        // has ever scanned from (002 FR-073; plan H8, corrected 2026-10-05).
         const again = recordingPoller([issue(1, FIVE_DAYS_AGO), issue(2, AT_CREATION)]);
         const cycle = await runScanCycle({ store, log, poller: again.poller });
 
         expect(again.seen().windows).toEqual([DEFAULT_BASELINE]);
         expect(cycle.enqueued).toBe(1);
 
-        // Having answered the replay, both one-shots are consumed; the completing scan
-        // advanced the stamp and cleared both.
+        // Having answered the replay, the flag is consumed and the stamp advanced —
+        // but the **catch-up request is still armed**. The replay opened at
+        // `DEFAULT_BASELINE`, which is *later* than `FIVE_DAYS_AGO`, so it never
+        // reached the ground the operator asked for: that ground is a week older
+        // than this binding's own creation boundary. Clearing the arming here would
+        // discard the request with nothing recording it existed (002 FR-076, FR-084).
         const settled = bindingScanOf(await readScanState({ store, log }), BINDING_A);
 
-        expect(settled.rescanFrom).toBeNull();
+        expect(settled.rescanFrom).toBe(FIVE_DAYS_AGO);
         expect(settled.forceReplay).toBe(false);
         expect(settled.lastScanAt).not.toBeNull();
-        // The replay's own window is now the retained baseline — it opened at the
-        // baseline and so could not widen it (002 FR-073).
+        // The replay's own window could not widen the retained baseline: it opened
+        // exactly at it (002 FR-073).
         expect(settled.baselineAt).toBe(DEFAULT_BASELINE);
+
+        // And the scan after it is the one that serves the request — it opens at the
+        // armed bound, and completing there is what clears it.
+        const served = recordingPoller([issue(2, AT_CREATION), issue(3, FIVE_DAYS_AGO)]);
+        const catchUp = await runScanCycle({ store, log, poller: served.poller });
+
+        expect(served.seen().windows).toEqual([FIVE_DAYS_AGO]);
+        expect(catchUp.enqueued).toBe(1);
+        expect(bindingScanOf(await readScanState({ store, log }), BINDING_A).rescanFrom).toBeNull();
+        // The served window widened the retained baseline to the arming, so a later
+        // recovery replay re-covers that ground too (002 FR-073).
+        expect(bindingScanOf(await readScanState({ store, log }), BINDING_A).baselineAt).toBe(FIVE_DAYS_AGO);
     });
 });
 
@@ -1733,39 +1854,64 @@ describe('§5.16 a repeated sweep, a repeated recovery replay, and a restart pro
         expect(runs.runs.every((run) => run.session === null)).toBe(true);
     });
 
-    it('recovers the queue from its evidence file after a restart, not from memory', async () => {
-        // The half of "not on restart" that a restart is actually about. The quarantine
-        // **renames** the file away, so a service that restarts after the loss finds
-        // `events.json` simply absent: no read reports `quarantined` again, and only
-        // the `events.json.corrupt-*` evidence in the directory stands in for the
-        // observation (`recoverFromEvidence`). A restarted handle has an empty claim
-        // set, so it must find that evidence — otherwise the windows would keep
-        // pointing past the assignments the lost queue carried.
+    it('recovers a loss it never saw from the evidence a previous process left', async () => {
+        // The half of "not on restart" that a restart is actually about, on the one
+        // path where it is load-bearing.
+        //
+        // A quarantine **renames** the file, so a service that restarts after the loss
+        // finds `events.json` simply absent: no read ever reports `quarantined` again
+        // and the reset would never run. Only the `events.json.corrupt-*` evidence in
+        // the directory stands in for the observation (`recoverFromEvidence`), and
+        // the per-handle claim set is what decides whether this process believes it.
+        //
+        // The assertions below are the restart-dependent ones: this handle's claim set
+        // is empty where the previous one's was not, and a cycle that **cannot list**
+        // leaves the two durable facts on disk exactly as the evidence scan left them.
+        // Run the same cycle without the restart and the claim set blocks the recovery,
+        // so the stamp stays where the completing scan put it and the flag stays
+        // `false` — both assertions fail.
         await plantBindings([binding(BINDING_A, 'recent-history')]);
         const observations = [issue(1, FIVE_DAYS_AGO)];
 
-        expect(await cycleOver(observations)()).toBe(1);
-        expect(await queuedEventIds()).toHaveLength(1);
-
-        // Plant the loss the way a corrupt queue lands: a row the parser refuses.
+        // 1. **This** process loses the queue: a row the parser refuses. The read
+        //    quarantines it — `events.json` is renamed to `events.json.corrupt-*` —
+        //    the reset runs, and this handle claims that evidence by name. The cycle's
+        //    own replay then re-offers the row and completes, which consumes the flag.
         await writeFile(
             join(dataDir, 'events.json'),
             JSON.stringify([{ id: 'evt-broken', issueNumber: 'not-a-number' }]),
             'utf8',
         );
 
-        // **Before** any scan, restart: the evidence is on disk and the claim set is
-        // empty, so the very first read has to notice.
+        expect(await cycleOver(observations)()).toBe(1);
+        expect((await quarantined())).toHaveLength(1);
+        expect(bindingScanOf(await readScanState({ store, log }), BINDING_A).forceReplay).toBe(false);
+
+        // 2. The queue goes again and the evidence is the only trace left — the exact
+        //    state `recoverFromEvidence` is written for. Nothing is corrupt now; there
+        //    is simply no file.
+        await rm(join(dataDir, 'events.json'));
+        expect(await storedQueueText()).toBeNull();
+
+        // 3. Restart: a new handle over the same directory, so the claim set is gone.
         store = await restartStore();
-        const afterRestart = await cycleOver(observations)();
 
-        expect(afterRestart).toBe(1);
-        expect(await queuedEventIds()).toHaveLength(1);
-        // The evidence file is still standing — the restart read it, it did not
-        // quarantine anything a second time.
-        const evidence = await quarantined();
+        // 4. A cycle that cannot list, so nothing completes and what it records is the
+        //    recovery rather than a scan: a cleared stamp and the replay flag are on
+        //    disk **only** because this fresh handle believed the evidence.
+        await runScanCycle({ store, log, poller: failingPoller() });
+        const recovered = bindingScanOf(await readScanState({ store, log }), BINDING_A);
 
-        expect(evidence.length).toBeGreaterThan(0);
+        expect(recovered.lastScanAt).toBeNull();
+        expect(recovered.forceReplay).toBe(true);
+
+        // 5. And the replay the flag asked for re-offers the lost work under its
+        //    **original** id — the same work, not a second row beside the first.
+        expect(await cycleOver(observations)()).toBe(1);
+
+        const queue = await queuedEventIds();
+
+        expect(queue).toEqual([`evt-acme~widget~1~${ACCOUNT_ID}`]);
     });
 });
 
@@ -1828,8 +1974,10 @@ describe('§5.18 exactly one rescan mechanism, and no timestamp-picking surface'
         expect(scan).not.toContain('replayFrom');
         expect(scan).not.toContain('rescanAt');
 
-        // And the window rule consults it as the first source, ahead of the recorded
-        // stamp and the baseline.
+        // And the window rule consults it ahead of the recorded stamp — the arming is the
+        // most recent explicit request for that binding's next scan. Ahead of the
+        // **baseline** it is not: FR-073's replay outranks it (plan H8, corrected
+        // 2026-10-05), and §5.15 is the row that proves which of the two wins.
         const window = readFileSync(join(REPO, 'service', 'poll', 'window.ts'), 'utf8');
         expect(window.indexOf('input.scanned.rescanFrom')).toBeLessThan(window.indexOf('input.scanned.lastScanAt'));
     });
@@ -1877,6 +2025,56 @@ describe('§5.18 exactly one rescan mechanism, and no timestamp-picking surface'
         // And the panel half of the source carries no `rescanFrom` at all: the field
         // has no representation in the panel's vocabulary to send.
         expect(sourceText(join(REPO, 'src'))).not.toContain('rescanFrom');
+    });
+
+    it('writes scan-state from inside the scan-state chain and nowhere else', () => {
+        // The chain is what makes the scan-state file safe to read-modify-write at
+        // all: the route that arms `rescanFrom`, the recovery reset that clears
+        // `lastScanAt`, and the loop's own two writers all take the same task, so no
+        // write can land between another writer's read and its write (002 FR-018,
+        // FR-076; plan H7).
+        //
+        // **This is a census and not a race test, deliberately.** With every writer
+        // on the one chain the lost update is *unreachable*, so no interleaving this
+        // suite could drive would distinguish the two shapes — which is exactly what
+        // a reviewer found by reverting the fix and watching all 1431 tests stay
+        // green. What the census can prove is the thing the race test cannot: that
+        // the loop contributes no writer outside the chain, so the safety is a
+        // property of the code rather than of the callers happening not to
+        // interleave.
+        const loop = readFileSync(join(REPO, 'service', 'poll', 'loop.ts'), 'utf8');
+        // One function's own source, up to its closing brace at column 0 — which no
+        // nested block in it can produce.
+        const body = (marker: string): string => {
+            const start = loop.indexOf(marker);
+            const end = loop.indexOf('\n}\n', start);
+
+            expect(start, marker).toBeGreaterThan(-1);
+            expect(end, marker).toBeGreaterThan(start);
+
+            return loop.slice(start, end);
+        };
+
+        // `ensureBaselines` is one `serializeScan` task whose read precedes its write:
+        // a `PUT` arming `rescanFrom`, or a recovery reset setting `forceReplay`,
+        // between the two cannot be reverted by a stale map written back over it.
+        const baselines = body('async function ensureBaselines');
+
+        expect(baselines.match(/serializeScan\(/g) ?? []).toHaveLength(1);
+        expect(baselines.indexOf('serializeScan(')).toBeLessThan(baselines.indexOf('readScanState('));
+        expect(baselines.indexOf('readScanState(')).toBeLessThan(baselines.indexOf('writeScanState('));
+
+        // And the cycle that calls it reads that file **nowhere of its own**, which is
+        // what closes the split between the caller's read and the chain's write.
+        const cycle = body('export async function runScanCycle');
+
+        expect(cycle).not.toContain('readScanState(');
+        expect(cycle).not.toContain('writeScanState(');
+
+        // Two writers in the loop, both chained: the one-shot clearing and the
+        // baseline derivation. A third would be a second mechanism.
+        expect(loop.match(/writeScanState\(/g) ?? []).toHaveLength(2);
+        expect(loop.match(/serializeScan\(/g) ?? []).toHaveLength(2);
     });
 
     it('writes the member only in the bindings route, beside the mode edit that caused it', () => {

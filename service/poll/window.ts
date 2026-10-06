@@ -266,6 +266,49 @@ export function widenBaseline(inputs: {
 }
 
 /**
+ * Whether a scan that opened at one bound has answered an armed `rescanFrom`
+ * (002 FR-075, FR-076, FR-084; plan H7).
+ *
+ * **Coverage, not "the scan completed".** An armed catch-up asks for the window
+ * `[armed, now]`, so a scan that opened at or **before** `armed` covered the
+ * whole of it and one that opened later did not. `windowFor` returns the armed
+ * stamp verbatim, so the equal case is the ordinary one — but a recovery replay
+ * opens at the retained baseline instead, and the two can differ in either
+ * direction:
+ *
+ * - the baseline is **later** than the arming (the ordinary case, a binding older
+ *   than the look-back): the replay did not reach the arming's ground, so the
+ *   arming must survive to be the next scan's window;
+ * - the baseline is **earlier** (a binding younger than the look-back, whose arming
+ *   is `now − 7 days` against a creation boundary nearer): the replay swept the
+ *   arming's ground on its way past, so keeping it would cost one redundant scan
+ *   and nothing else.
+ *
+ * That second case is why this is a comparison and not an equality test, and it is
+ * strictly the weaker claim in both directions: it never declares a request
+ * answered on a window narrower than the one asked for, and never leaves one
+ * answered-but-armed showing as pending.
+ *
+ * A stamp on either side that cannot be read makes the answer `false`, because a
+ * member this function cannot interpret is not a request it may answer — the
+ * arming survives for a reader that can interpret it.
+ *
+ * @param inputs - The window the scan opened at, and the armed bound on the slot.
+ * @returns `true` only when the completed scan's window covered the armed one.
+ */
+export function answersCatchUp(input: {
+    /** The window a completing scan opened at, or `null` when it opened none. */
+    readonly opened: string | null;
+    /** The armed lower bound already on the slot, or `null`. */
+    readonly armed: string | null;
+}): boolean {
+    const opened = readableStamp(input.opened);
+    const armed = readableStamp(input.armed);
+
+    return opened !== null && armed !== null && Date.parse(opened) <= Date.parse(armed);
+}
+
+/**
  * Decide whether one freshness stamp falls inside the window.
  *
  * **An observation with no readable freshness stamp is never in-window** (002
