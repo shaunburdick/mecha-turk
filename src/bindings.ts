@@ -256,6 +256,10 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
         note: `Bound ${draft.repository} to ${draft.accountLogin}.`,
         ...(prompt !== undefined && { prompt }),
         ...(actors !== undefined && { actors }),
+        // The new row's mode is the draft's own: the select's default is the
+        // documented default, so an untouched control binds the binding to watch
+        // from now on (002 FR-089).
+        historyScope: draft.historyScope,
     });
     resetCoveredDraft(bindings, draft.repository);
     if (answer.ok) {

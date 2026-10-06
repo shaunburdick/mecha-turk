@@ -27,6 +27,7 @@
 import type { ListItem } from '@openchamber/sdk/ui';
 import { utcStamp } from './ids.ts';
 import { actorsSummary } from './bindings-actors.ts';
+import { historyScopeLabel } from './bindings-history.ts';
 import type { BindingsTabState } from './panel-state.ts';
 import type { PanelBinding } from './bindings-service.ts';
 
@@ -71,6 +72,16 @@ export interface BindingView {
      * once, in `bindings-actors.ts`, and the row only decides where they go.
      */
     readonly actorsClause: string | null;
+    /**
+     * The history scope's permitted **short label**, or `null` when the row has
+     * nothing to add (002 FR-091).
+     *
+     * A label and not a value: 005 FR-091's reasoning is that a count is not a
+     * second rendering of a value, and the same holds here — the row may *name*
+     * the mode and may derive **nothing else** from it, and it is never the only
+     * place the operator can see or change it (the editor control is).
+     */
+    readonly historyScopeLabel: string | null;
 }
 
 /**
@@ -89,6 +100,7 @@ function toView(binding: PanelBinding): BindingView {
         state: binding.state,
         promptLength: binding.startingPrompt === undefined ? null : [...binding.startingPrompt].length,
         actorsClause: actorsSummary(binding),
+        historyScopeLabel: historyScopeLabel(binding),
     };
 }
 
@@ -267,6 +279,9 @@ export function bindingRow(bindings: BindingsTabState, binding: BindingView): Li
         binding.projectId,
         promptSummary(binding),
         binding.actorsClause,
+        // The one label a row may carry from the history scope — and nothing else
+        // derived from it (002 FR-091).
+        binding.historyScopeLabel,
         scan,
     ];
     const subtitle = parts.filter((part): part is string => part !== null).join(' · ');
@@ -310,7 +325,13 @@ export function selectedBindingDetail(bindings: BindingsTabState): string | null
     const scan = status === null ? NOT_SCANNED : scanPhrase(status);
     const pending = status === null ? 0 : status.pendingCount;
     const state = binding.state === 'active' ? 'enabled' : 'disabled';
+    // The window's **lower bound**, beside the scan stamp it comes from — which is
+    // what makes both ends of the window readable together on this row (002
+    // FR-092). It is the service's own computation, reported here and not set here,
+    // and an unexamined row has none rather than a start it never received.
+    const windowStart = status?.windowStart ?? null;
+    const window = windowStart === null ? 'no window yet' : `window from ${windowStart}`;
 
     return `${state} · created ${utcStamp(binding.createdAt)} · updated ${utcStamp(binding.updatedAt)}`
-        + ` · ${scan} · ${pending} pending`;
+        + ` · ${scan} · ${pending} pending · ${window}`;
 }

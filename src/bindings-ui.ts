@@ -40,6 +40,8 @@ import { emptyBindingsText, repaintAccountReason } from './bindings-accounts.ts'
 import type { AccountReasonControls } from './bindings-accounts.ts';
 import { repaintBindingActors } from './bindings-actors.ts';
 import type { BindingActorControls, BindingActorHandlers } from './bindings-actors.ts';
+import { repaintBindingHistoryScope, windowInForceLine } from './bindings-history.ts';
+import type { BindingHistoryScopeControls, BindingHistoryScopeHandlers } from './bindings-history.ts';
 import { accountFieldView, editorStateLine, repaintBindingActions, repaintBindingMention } from './bindings-editor.ts';
 import { bindingRows, selectedBindingDetail } from './bindings-rows.ts';
 import { formProjectOptions } from './project-picker.ts';
@@ -49,6 +51,8 @@ import type { DetailChips } from './bindings-chips.ts';
 export interface BindingsPane {
     /** The pane root this view mounted. */
     readonly pane: HTMLElement;
+    /** The window-in-force line under the editor's history-scope control (002 FR-092). */
+    readonly windowScopeLine: TextHandle;
     /** Status line at the top. */
     readonly status: TextHandle;
     /** The tab's note line, under the status: refusals and results (FR-085). */
@@ -81,6 +85,11 @@ export interface BindingsPane {
     readonly mentionToken: TextHandle;
     /** The actor allow-list field — the only element holding its logins. */
     readonly actors: BindingActorControls;
+    /**
+     * The history-scope control — the **only** place the mode renders panel-wide
+     * (002 FR-091).
+     */
+    readonly historyScope: BindingHistoryScopeControls;
     /** Project select (from the host's project list). */
     readonly projectSelect: SelectHandle;
     /** Assignment trigger checkbox. */
@@ -108,7 +117,8 @@ export interface BindingsPane {
 }
 
 /** Callbacks the mounted Bindings pane invokes. */
-export interface BindingsPaneHandlers extends DispatchControlsHandlers, BindingPromptHandlers, BindingActorHandlers {
+export interface BindingsPaneHandlers
+    extends DispatchControlsHandlers, BindingPromptHandlers, BindingActorHandlers, BindingHistoryScopeHandlers {
     /** Operators re-read the bindings and accounts. */
     readonly refresh: () => void;
     /** Operators submitted the add form. */
@@ -195,6 +205,11 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     });
     repaintBindingMention(rt, view.mentionToken);
     repaintBindingActors(rt, view.actors);
+    repaintBindingHistoryScope(rt, view.historyScope);
+    view.windowScopeLine.update({
+        text: windowInForceLine(bindings.statusRows.find((row) => row.bindingId === bindings.selectedBinding) ?? null)
+            ?? '',
+    });
     view.projectSelect.update({
         options: formProjectOptions(rt.state.projects),
         value: bindings.repoProjectSelection,

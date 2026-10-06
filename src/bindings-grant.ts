@@ -34,8 +34,9 @@ import { redact } from './redaction.ts';
 import { startRelayPolling } from './relay.ts';
 import { BINDINGS_PATH, servicePut } from './service-calls.ts';
 import { countEnabledBindings, parseBindingsBody } from './bindings-service.ts';
+import { historyScopeFor } from './bindings-history.ts';
 import type { ActorPatch } from './bindings-actors.ts';
-import type { PanelBinding } from './bindings-service.ts';
+import type { HistoryScope, PanelBinding } from './bindings-service.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import type { ServiceErrorResult } from './service-calls.ts';
 
@@ -79,6 +80,8 @@ interface GrantOverrides {
     readonly prompt: PromptPatch | null;
     /** The edited binding's allow-list, or `null` when the field was untouched. */
     readonly actors: ActorPatch | null;
+    /** The mode each row submits: the editor's draft, else that row's own. */
+    readonly historyScope: (binding: PanelBinding) => HistoryScope;
 }
 
 /**
@@ -98,11 +101,18 @@ function rowForGrant(input: {
     readonly binding: PanelBinding;
 } & GrantOverrides): PanelBinding {
     const row = forGrant(input.binding, input.prompt);
+    // The history scope rides on **every** row, spelled out by the editor's own
+    // draft or by the row's stored value (002 FR-057). It is never omitted and
+    // never omitted-by-`undefined`: a whole-file row that left the key out is read
+    // by the route as *leave this one alone*, and a row the editor did open must
+    // state what its control showed — including when the operator chose the
+    // documented default, which is a value the service accepts either way.
+    const scoped = { ...row, historyScope: input.historyScope(row) };
     if (input.actors?.bindingId !== input.binding.bindingId) {
-        return row;
+        return scoped;
     }
 
-    return { ...row, allowedUsers: input.actors.allowedUsers ?? undefined };
+    return { ...scoped, allowedUsers: input.actors.allowedUsers ?? undefined };
 }
 
 /**
@@ -212,12 +222,23 @@ export async function grantBindings(input: {
     readonly prompt?: PromptPatch | undefined;
     /** The edited binding's allow-list, or absent when the field was untouched. */
     readonly actors?: ActorPatch | undefined;
+    /**
+     * The mode the editor's own control is showing, or absent when the editor is
+     * closed.
+     *
+     * A **single** value rather than a per-row patch, because the scope is
+     * omission-preserves (002 FR-057): every row the editor never opened keeps its
+     * own stored mode, and only the row the editor has open carries this one.
+     */
+    readonly historyScope?: HistoryScope | undefined;
 }): Promise<ServiceErrorResult> {
     const { rt, bindings, note } = input;
+    const chosen = input.historyScope;
     const overrides: GrantOverrides = {
         bindings,
         prompt: input.prompt ?? null,
         actors: input.actors ?? null,
+        historyScope: (binding) => chosen ?? historyScopeFor(binding),
     };
     const result = await servicePut({
         serviceRequest: rt.host.serviceRequest,

@@ -17,6 +17,7 @@
  */
 
 import { actorsRefusal, allowedUsersPatch, storedActorsFor } from './bindings-actors.ts';
+import { storedHistoryScopeFor } from './bindings-history.ts';
 import { promptRefusal, storedPromptFor } from './bindings-prompt.ts';
 import { grantBindings } from './bindings-grant.ts';
 import { readDraft, resetDraft, SELECT_TO_EDIT_NOTE } from './bindings.ts';
@@ -47,6 +48,9 @@ export function startNewBinding(rt: PanelRuntime): void {
     bindings.allowedUsersInput = '';
     bindings.allowedUsersDirty = false;
     bindings.allowedUsersError = null;
+    // The documented default, so an untouched control on the add form writes the
+    // default rather than a sentinel (002 FR-089).
+    bindings.historyScopeInput = storedHistoryScopeFor(bindings.bindings, null);
     bindings.note = '';
     refresh(rt);
 }
@@ -109,6 +113,9 @@ export function startEditingBinding(rt: PanelRuntime): void {
     bindings.allowedUsersInput = storedActorsFor(bindings, binding.bindingId);
     bindings.allowedUsersDirty = false;
     bindings.allowedUsersError = null;
+    // The scope loads the same way: the select opens on what the service holds
+    // for this row, so an untouched save preserves the stored choice (002 FR-057).
+    bindings.historyScopeInput = storedHistoryScopeFor(bindings.bindings, binding.bindingId);
     bindings.editing = true;
     bindings.editorOpen = true;
     bindings.note = `Editing ${binding.repository}. Change the fields above, then Save changes.`;
@@ -141,6 +148,10 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
     bindings.allowedUsersInput = storedActorsFor(bindings, bindings.selectedBinding);
     bindings.allowedUsersDirty = false;
     bindings.allowedUsersError = null;
+    // Same reason as the allow-list: a draft the operator walks away from must not
+    // be mistaken for a saved one, and the prompt's untouched-omits rule depends on
+    // the draft being reset with it (002 FR-057).
+    bindings.historyScopeInput = storedHistoryScopeFor(bindings.bindings, bindings.selectedBinding);
     if (note !== null) {
         bindings.note = note;
     }
@@ -202,6 +213,10 @@ function applySaveOutcome(input: {
     bindings.allowedUsersDirty = false;
     bindings.allowedUsersError = null;
     bindings.allowedUsersInput = storedActorsFor(bindings, target);
+    // The select repaints from what the service actually stored, for the same
+    // reason: a cleared field must read as cleared rather than as a draft that
+    // failed to save (002 FR-089).
+    bindings.historyScopeInput = storedHistoryScopeFor(bindings.bindings, target);
 }
 
 /**
@@ -249,6 +264,10 @@ export async function saveEditedBinding(rt: PanelRuntime): Promise<void> {
         note: `Saved ${draft.repository}.`,
         ...(prompt !== undefined && { prompt }),
         ...(actors !== undefined && { actors }),
+        // The editor's own select, for the row being saved. Every other row keeps
+        // its stored mode by omission (002 FR-057), and the edited row states what
+        // the control showed.
+        historyScope: draft.historyScope,
     });
     if (rt.disposed) {
         return;
