@@ -291,6 +291,21 @@ bindings document through both write paths and read the refusals.
 >    and fails on the old rule; plan **H7** and `data-model.md`'s `rescanFrom` row are
 >    corrected to match.
 >
+> **Known gap, found while pinning fix 5 (2026-10-05) — recorded, not closed.** An
+> **unreadable** `rescanFrom` is the one stuck state this mechanism admits, and both halves of
+> its handling are deliberate: it is never turned into a window (a stamp the clock cannot read
+> is not a bound anybody chose) and never silently cleared (`answersCatchUp` answers `false` for
+> it), so it is **permanently pending**. Pinned by `tests/history-scope.test.ts`'s §5.18 case,
+> which also pins the consequences: no other member is lost to it, the binding keeps scanning,
+> and the arming is unchanged on every later cycle. It is **not operator-observable** — no
+> projection carries the member (the health row reports `windowStart`, `historyScope` and
+> `forceReplay`, never `rescanFrom`) and no log line names it, so the operator sees look-back
+> mode over an ordinary incremental window, which is what a **served** look-back also looks
+> like. Closing that means a member on the health row, which is a wire contract the panel reads
+> (002 FR-092) and therefore a spec decision rather than a test's to make. Only the bindings
+> route writes the member, as `now − 604,800,000 ms`, so the state is reachable only from a
+> hand-edited or corrupted store.
+>
 > **FR-094 is recorded plausible-not-proven.** Keyboard operability and the accessible name
 > are inherited from the SDK's `mountSelect`; nothing in this repository proves them, and no
 > suite claims to.

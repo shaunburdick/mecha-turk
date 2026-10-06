@@ -71,7 +71,7 @@ import {
     readScanState,
     writeScanState,
 } from '../service/poll/scan.ts';
-import { BASELINE_UNREADABLE, baselineFor, windowFor } from '../service/poll/window.ts';
+import { answersCatchUp, BASELINE_UNREADABLE, baselineFor, windowFor } from '../service/poll/window.ts';
 import { BINDINGS_PATH } from '../service/routes/bindings.ts';
 import { ROUTES } from '../service/routes/index.ts';
 import {
@@ -2075,6 +2075,122 @@ describe('§5.18 exactly one rescan mechanism, and no timestamp-picking surface'
         // baseline derivation. A third would be a second mechanism.
         expect(loop.match(/writeScanState\(/g) ?? []).toHaveLength(2);
         expect(loop.match(/serializeScan\(/g) ?? []).toHaveLength(2);
+    });
+
+    it('never turns an unreadable arming into a window, and never clears it', async () => {
+        // An unreadable `rescanFrom` is the one stuck state this mechanism admits, and
+        // **both** halves of its handling are deliberate (002 FR-060, FR-076, FR-084):
+        //
+        // - it **must not become a window**. The member exists to carry one chosen
+        //   lower bound, and a value the clock cannot read is not a bound anybody
+        //   chose. Arming off it would fire work the operator never asked for — the
+        //   direction FR-065's boundedness exists to prevent, and the one nothing here
+        //   can undo afterwards;
+        // - it **must not be silently cleared** either. `answersCatchUp` answers
+        //   `false` for a stamp it cannot interpret, so a completing scan cannot serve
+        //   a request it did not read, and dropping the member would discard that
+        //   request with nothing recording it existed — plan H7's failure by a
+        //   different route.
+        //
+        // So it is **permanently pending**. Only the bindings route writes this member
+        // and it writes the arithmetic result of the look-back as an ISO stamp, so the
+        // state is reachable only from a hand-edited or corrupted store — the same
+        // family of cases FR-072's fail-closed refusals already answer for the other
+        // two members.
+        const garbage = 'not-a-date';
+        // Inside the ordinary incremental window this slot scans at, so the cycle below
+        // completes and does real work: the stuck member must not wedge the binding.
+        const incremental = new Date(Date.parse(SCANNED_AT) - OVERLAP_MS).toISOString();
+        const insideWindow = new Date(Date.parse(SCANNED_AT) + 3_600_000).toISOString();
+
+        await plantBindings([binding(BINDING_A, 'recent-history')]);
+        await writeScanState({
+            store,
+            state: {
+                bindings: {
+                    [BINDING_A]: {
+                        ...emptyBindingScan(),
+                        lastScanAt: SCANNED_AT,
+                        baselineAt: LOOK_BACK_BASELINE,
+                        rescanFrom: garbage,
+                    },
+                },
+            },
+        });
+
+        // The slot itself: a string is a shape this build accepts (plan H4), so the
+        // member survives to be *judged* rather than defaulting, and **no other
+        // binding's checkpoint is lost** to it — an unusable *type* refuses the
+        // document, an unusable *stamp* is this case.
+        expect(await quarantined()).toEqual([]);
+        expect(bindingScanOf(await readScanState({ store, log }), BINDING_A)).toEqual({
+            lastScanAt: SCANNED_AT,
+            lastError: null,
+            baselineAt: LOOK_BACK_BASELINE,
+            forceReplay: false,
+            rescanFrom: garbage,
+        });
+
+        // The rule, at the rule: no window from it, and no answering of it either.
+        const slot = bindingScanOf(await readScanState({ store, log }), BINDING_A);
+
+        expect(windowFor({ binding: binding(BINDING_A, 'recent-history'), scanned: slot, overlapMs: OVERLAP_MS }))
+            .toEqual({ window: incremental });
+        expect(answersCatchUp({ opened: incremental, armed: garbage })).toBe(false);
+        // And not even when the scan opened at the garbage's own value, which is the
+        // only shape in which a comparison could mistake one for the other.
+        expect(answersCatchUp({ opened: garbage, armed: garbage })).toBe(false);
+
+        // The cycle itself: it scans the ordinary window, enqueues, and advances its
+        // own checkpoint — while the unreadable arming is still sitting there.
+        const { poller, seen } = recordingPoller([issue(1, insideWindow)]);
+        const cycle = await runScanCycle({ store, log, poller });
+
+        expect(seen().windows).toEqual([incremental]);
+        expect(cycle.enqueued).toBe(1);
+
+        const afterCycle = bindingScanOf(await readScanState({ store, log }), BINDING_A);
+
+        expect(afterCycle.rescanFrom).toBe(garbage);
+        expect(afterCycle.lastScanAt).not.toBe(SCANNED_AT);
+        // The baseline did not move either: the completed scan opened at a window
+        // *later* than the retained one, and widening only ever goes earlier (002 FR-073).
+        expect(afterCycle.baselineAt).toBe(LOOK_BACK_BASELINE);
+
+        // And it is still there on the next cycle — permanent, not deferred.
+        await runScanCycle({ store, log, poller: recordingPoller([issue(2, insideWindow)]).poller });
+        expect(bindingScanOf(await readScanState({ store, log }), BINDING_A).rescanFrom).toBe(garbage);
+
+        // **Not observable, and asserted as such.** No projection carries this member —
+        // the health row reports the window in force, the mode, and the replay flag,
+        // and `rescanFrom` is in none of them — and no log line names it. So the
+        // operator sees a binding in look-back mode scanning its ordinary incremental
+        // window, which is exactly what a *served* look-back looks like: the state is
+        // fail-closed and it is in the file, but nothing says it is stuck.
+        //
+        // Pinned rather than papered over. Closing that gap means a member on the
+        // health row, which is a wire contract the panel reads (002 FR-092), so it is
+        // a spec decision rather than a test's to make — and until it is made, this
+        // assertion is what keeps the gap from closing unnoticed *or* being forgotten.
+        const { readStatusRows } = await import('../service/routes/events.ts');
+        const rows = await readStatusRows({
+            store,
+            log: QUIET,
+            bindings: [binding(BINDING_A, 'recent-history')],
+            overlapMs: OVERLAP_MS,
+        });
+
+        expect(Object.hasOwn(rows[0] ?? {}, 'rescanFrom')).toBe(false);
+        // Which is the shape an operator would see: look-back mode, and the ordinary
+        // incremental window a **served** look-back also leaves behind.
+        const projected = rows[0];
+
+        expect(projected?.historyScope).toBe('recent-history');
+        expect(projected?.lastError).toBeNull();
+        expect(projected?.windowStart)
+            .toBe(new Date(Date.parse(projected?.lastScanAt ?? '') - OVERLAP_MS).toISOString());
+        expect(logLines.join('\n')).not.toContain('rescanFrom');
+        expect(logLines.join('\n')).not.toContain(garbage);
     });
 
     it('writes the member only in the bindings route, beside the mode edit that caused it', () => {
