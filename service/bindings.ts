@@ -9,9 +9,12 @@
  * entries it force-disables, so these records keep that exact field:
  * `state` is *the* disabled truth, and there is no separate enabled flag.
  *
- * One field's rule set lives in [`bindings-allow-list.ts`](./bindings-allow-list.ts)
- * — `allowedUsers` validation plus its single membership comparison — read on
- * both the build and the collect-every-refusal pass.
+ * Two fields' rule sets live beside it, each in its own module:
+ * [`bindings-allow-list.ts`](./bindings-allow-list.ts) holds `allowedUsers`
+ * validation plus its single membership comparison, and
+ * [`bindings-history-scope.ts`](./bindings-history-scope.ts) holds the two
+ * `historyScope` names, the default, and the look-back constant. Both are read
+ * on the build and on the collect-every-refusal pass.
  *
  * MVP-DEBT: the contract's per-binding `PATCH /v1/bindings/:bindingId` and
  * its draft/project-missing state machine are not implemented — the
@@ -24,7 +27,9 @@ import { parseProjectId, parseRepository, parseWorktreeOption } from '../src/con
 import { isRecord } from './json.ts';
 import { validateStartingPrompt } from './prompt.ts';
 import { bindingAllowedUsersOf } from './bindings-allow-list.ts';
+import { historyScopeOf } from './bindings-history-scope.ts';
 import { BINDINGS_FILE } from './accounts/store.ts';
+import type { HistoryScope } from './bindings-history-scope.ts';
 import type { ServiceStore } from './store/index.ts';
 
 /** Store file the bindings live in; shared with the hardened delete guard. */
@@ -82,6 +87,22 @@ export interface BindingRecord {
      * policy's *shape* is reported elsewhere.
      */
     readonly allowedUsers?: readonly string[];
+    /**
+     * Where this binding's scan window's lower bound comes from (002 FR-053).
+     *
+     * **The key is absent when the mode is the documented default**
+     * `'new-only'` — never `'new-only'` spelled out and never `null` — so
+     * "unset", "cleared", and "written before the field existed" are one
+     * state with one reading (FR-058, FR-062). A stored name means this binding
+     * watches from now on **and** looked back over the fixed seven-day period
+     * once, on its first scan.
+     *
+     * Configuration, validated on every read and every write by
+     * {@link historyScopeOf}, so a hand-edited file and a panel save are judged
+     * by one rule set (FR-061). Its two values are fixed names, so nothing
+     * credential-shaped is added anywhere it is reported (FR-054).
+     */
+    readonly historyScope?: HistoryScope;
 }
 
 /** One rejected field, in the field + remediation vocabulary the config sets. */
@@ -98,18 +119,19 @@ export type BindingVerdict =
     | { readonly issues: readonly BindingIssue[] };
 
 /**
- * The five field verdicts, as {@link refusalsIn} reads them.
+ * The six field verdicts, as {@link refusalsIn} reads them.
  *
  * A union rather than a single weak all-optional shape: TypeScript rejects an
  * object with "no properties in common" against every-optional types, and the
  * success shapes here are deliberately different (`binding`, `binding`,
- * `binding`, `prompt`, `users`).
+ * `binding`, `prompt`, `users`, `scope`).
  */
 type FieldVerdict =
     | { readonly issue: BindingIssue }
     | { readonly binding: unknown }
     | { readonly prompt: string | null }
-    | { readonly users: readonly string[] | null };
+    | { readonly users: readonly string[] | null }
+    | { readonly scope: HistoryScope | null };
 
 /** Result of validating a whole PUT document. */
 export type BindingValidation =
@@ -214,6 +236,35 @@ function stateFieldOf(value: unknown): 'active' | 'disabled' | null {
  */
 function stampOrKeep(value: unknown, fallback: string): string {
     return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : fallback;
+}
+
+/**
+ * Read a stored stamp **without** substituting a clock reading.
+ *
+ * {@link stampOrKeep} is the assembly's reader, and a fallback is right there:
+ * it is what lets a panel-created row that carries no stamp gain one, and what
+ * keeps a document loadable. It is the **wrong** reader for anything that must
+ * distinguish "no stamp was stored" from "the stamp that is stored is
+ * unreadable", because it answers `now` for both — and a scan window's baseline
+ * needs exactly that distinction (002 FR-072, plan H3). A baseline derived from
+ * a silently-substituted `now` would be `now − overlapMs`, which is the
+ * unbounded-window defect this field's window rule exists to remove, reached
+ * through the assembly instead of through the store.
+ *
+ * Three answers, not two: absent, present-and-readable, and present-and-
+ * unreadable. The middle one is the only case a caller may use as a time
+ * authority.
+ *
+ * @param value - The stored member, as the file holds it.
+ * @returns The stamp, `null` when the key is absent, or `undefined` when it is
+ *   present and the clock cannot read it.
+ */
+export function storedStampOf(value: unknown): string | null | undefined {
+    if (value === undefined) {
+        return null;
+    }
+
+    return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : undefined;
 }
 
 /**
@@ -406,6 +457,11 @@ function assembleBinding(raw: Record<string, unknown>, hasAccount: boolean): Bin
         return null;
     }
 
+    const historyScope = historyScopeOf(raw);
+    if ('issue' in historyScope) {
+        return null;
+    }
+
     const login = identity.binding.accountLogin.trim();
     const createdAt = stampOrKeep(raw.createdAt, nowIso());
 
@@ -416,13 +472,17 @@ function assembleBinding(raw: Record<string, unknown>, hasAccount: boolean): Bin
         ...mode.binding,
         ...(prompt.prompt !== null && { startingPrompt: prompt.prompt }),
         ...(allowedUsers.users !== null && { allowedUsers: allowedUsers.users }),
+        // FR-058: the documented default is **omitted**, not spelled out, so a
+        // binding that never chose a mode and one whose mode was cleared are
+        // byte-identical and the upgrade writes nothing.
+        ...(historyScope.scope !== null && { historyScope: historyScope.scope }),
         createdAt,
         updatedAt: stampOrKeep(raw.updatedAt, createdAt),
     };
 }
 
 /**
- * Collect every refusal five field verdicts produced, in field order.
+ * Collect every refusal six field verdicts produced, in field order.
  *
  * @returns every refusal found, in the order the fields were named.
  */
@@ -464,6 +524,7 @@ export function parseBinding(input: {
             bindingModeOf(raw),
             bindingPromptOf(raw),
             bindingAllowedUsersOf(raw),
+            historyScopeOf(raw),
         ]),
     };
 }

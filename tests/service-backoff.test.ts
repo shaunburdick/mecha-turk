@@ -66,6 +66,16 @@ const CREATED_AT = '2026-09-27T00:00:00.000Z';
 /** The recorded checkpoint a skipped scan must retain. */
 const RECORDED_SCAN_AT = '2026-09-27T06:00:00.000Z';
 
+/**
+ * The `since` window a scan opens at, as these poller-level cases hand it.
+ *
+ * A **stamp**, never `null`: since 002 v1.13.0 every scan opens at a computable
+ * lower bound, so "send no `since` at all" is not a state the poller's windowed
+ * query can express (002 FR-065; plan H11). These cases are about the retry
+ * ladder, not the window, so any readable stamp serves.
+ */
+const WINDOW_STAMP = RECORDED_SCAN_AT;
+
 /** Ladder whose ceiling is already reached, so every delay lands in [cap/2, cap]. */
 const CAPPED_LADDER: RetryPolicy = { maxAttempts: 3, baseMs: 2_000, maxMs: 2_000 };
 
@@ -324,7 +334,7 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
                 token: FIXTURE_TOKEN,
                 owner: 'acme',
                 name: 'widget',
-                since: null,
+                since: WINDOW_STAMP,
                 pace,
             });
 
@@ -346,7 +356,7 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
                 token: FIXTURE_TOKEN,
                 owner: 'acme',
                 name: 'widget',
-                since: null,
+                since: WINDOW_STAMP,
                 pace,
             });
 
@@ -366,7 +376,7 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
                 token: FIXTURE_TOKEN,
                 owner: 'acme',
                 name: 'widget',
-                since: null,
+                since: WINDOW_STAMP,
                 pace,
             });
 
@@ -384,7 +394,7 @@ describe('the ladder over the real poller (006 T-010, AC-148, SC-116)', () => {
                 token: FIXTURE_TOKEN,
                 owner: 'acme',
                 name: 'widget',
-                since: null,
+                since: WINDOW_STAMP,
                 pace,
             });
 

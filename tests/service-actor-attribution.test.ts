@@ -63,7 +63,7 @@ import {
     resolveCandidateActor,
 } from '../service/poll/poller-events.ts';
 import type { ItemEventActor, PollItemEvent } from '../service/poll/poller-events.ts';
-import { readScanState, writeScanState } from '../service/poll/scan.ts';
+import { emptyBindingScan, readScanState, writeScanState } from '../service/poll/scan.ts';
 import { createGitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { openStore } from '../service/store/index.ts';
 import type { Account } from '../service/accounts/model.ts';
@@ -160,8 +160,17 @@ const MIDDLE_IN_WINDOW = '2026-09-27T00:32:00.000Z';
 /** The window start the fixture scans open at, widened past `SCANNED_AT`. */
 const WINDOW_START = '2026-09-27T00:30:00.000Z';
 
-/** The window start's replay: `null` opens an unbounded listing. */
-const NO_WINDOW = null;
+/**
+ * A window **older than every fixture stamp**, standing where `null` used to.
+ *
+ * The old constant was `NO_WINDOW = null` and it fed assertions like *"an
+ * undated observation is in-window only when there is no window"* — the arm 002
+ * FR-069 retired when `windowFor` stopped being able to answer `null` (002 FR-065;
+ * plan H11). Every scan now opens at a computable lower bound, so the widest
+ * possible window is expressed as **the earliest real stamp** and an observation
+ * with no stamp is never in-window.
+ */
+const EARLIEST_WINDOW = '2026-01-01T00:00:00.000Z';
 
 /** The stale window stamp the failure cases plant, as an operator's would be. */
 const SCANNED_AT = '2026-09-27T00:40:38.000Z';
@@ -400,7 +409,7 @@ function candidate(overrides: Partial<Parameters<typeof namingEventOf>[1]> = {})
         kind: 'assignment',
         boundLogin: ACCOUNT_LOGIN,
         issueNumber: ISSUE_NUMBER,
-        windowStart: NO_WINDOW,
+        windowStart: EARLIEST_WINDOW,
         ...overrides,
     };
 }
@@ -696,7 +705,9 @@ async function seed(input: {
         store,
         state: {
             bindings: {
-                [BINDING_ID]: { lastScanAt: input.lastScanAt ?? null, lastError: null },
+                // A complete slot: the loop reads all five members, and the ones
+                // this suite does not vary take their absent defaults (002 FR-074).
+                [BINDING_ID]: { ...emptyBindingScan(), lastScanAt: input.lastScanAt ?? null },
             },
         },
     });
@@ -923,9 +934,11 @@ describe('FR-051 the window is a client-side comparison, and the walk is one-dir
 
         // The other end signal is GitHub's own: a page under its cap means there
         // are no more. That is not an ordering assumption, so it ends the walk
-        // even on a replay scan — whose window could never end it.
-        expect(pageEndsWalk({ events: allInside.slice(0, 3), windowStart: NO_WINDOW, perPage: PAGE_SIZE })).toBe(true);
-        expect(pageEndsWalk({ events: allInside, windowStart: NO_WINDOW, perPage: PAGE_SIZE })).toBe(false);
+        // even on a window wide enough that the window-based stop would never
+        // fire — which is the look-back sweep's case (002 FR-083).
+        expect(pageEndsWalk({ events: allInside.slice(0, 3), windowStart: EARLIEST_WINDOW, perPage: PAGE_SIZE }))
+            .toBe(true);
+        expect(pageEndsWalk({ events: allInside, windowStart: EARLIEST_WINDOW, perPage: PAGE_SIZE })).toBe(false);
         // An empty page has nothing further in-window either way.
         expect(pageEndsWalk({ events: [], windowStart: WINDOW_START, perPage: PAGE_SIZE })).toBe(true);
     });
@@ -1075,7 +1088,7 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
             issueNumber: ISSUE_NUMBER,
             kind: 'assignment',
             boundLogin: ACCOUNT_LOGIN,
-            windowStart: NO_WINDOW,
+            windowStart: EARLIEST_WINDOW,
             pace: PACE,
         });
 
@@ -1304,7 +1317,7 @@ describe('a failed events read takes the scan\'s ordinary skip path (FR-049, 002
             owner: OWNER,
             name: REPO_NAME,
             issueNumber: ISSUE_NUMBER,
-            windowStart: NO_WINDOW,
+            windowStart: EARLIEST_WINDOW,
             pace: PACE,
         });
 
@@ -1326,7 +1339,7 @@ describe('a failed events read takes the scan\'s ordinary skip path (FR-049, 002
             issueNumber: ISSUE_NUMBER,
             kind: 'assignment',
             boundLogin: ACCOUNT_LOGIN,
-            windowStart: NO_WINDOW,
+            windowStart: EARLIEST_WINDOW,
             pace: PACE,
         });
 
@@ -1339,7 +1352,7 @@ describe('a failed events read takes the scan\'s ordinary skip path (FR-049, 002
             issueNumber: ISSUE_NUMBER,
             kind: 'assignment',
             boundLogin: ACCOUNT_LOGIN,
-            windowStart: NO_WINDOW,
+            windowStart: EARLIEST_WINDOW,
             pace: PACE,
         });
 

@@ -21,6 +21,9 @@
  *   field, because a whole-file row that omitted the key would take the binding
  *   back to open — the one rule that differs from 004's prompt, where an
  *   omitted key means *leave this one alone*.
+ * - **The history scope rides the same write** (002 FR-089), and is read from the
+ *   **draft** in both modes rather than from the row being edited: the editor's
+ *   select is what the operator is looking at, and what a save must write.
  *
  * The reader is not pure: when the draft cannot be saved it says why **on the
  * tab's note**, because that note is the surface a refusal already has a home on
@@ -30,7 +33,8 @@
 import { parseRepository, repositoryLabel } from './config.ts';
 import { accountSelectionRefusal } from './bindings-accounts.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
-import type { PanelBinding, PanelTriggers } from './bindings-service.ts';
+import { DEFAULT_HISTORY_SCOPE, readHistoryScope } from './bindings-service.ts';
+import type { HistoryScope, PanelBinding, PanelTriggers } from './bindings-service.ts';
 import type { BindingsTabState } from './panel-state.ts';
 
 /** One candidate binding built from the draft, before the grant. */
@@ -60,6 +64,16 @@ export interface PreparedBinding {
      * `JSON.stringify`, which is exactly how *unset* travels (contract §2).
      */
     readonly allowedUsers?: readonly string[] | undefined;
+    /**
+     * Where this binding's scan window's lower bound comes from (002 FR-053).
+     *
+     * Carried on **every** row and never omitted: omission means *leave this one
+     * alone* (002 FR-057), so a row the editor never opened must keep whatever the
+     * store holds. The value comes from the draft in edit mode and from the
+     * stored row otherwise, which is what makes a whole-file save write what the
+     * control showed.
+     */
+    readonly historyScope: HistoryScope;
 }
 
 /** What an edit saves against; absent means the add form (a brand-new row). */
@@ -208,6 +222,23 @@ function draftActors(origin: DraftOrigin): readonly string[] | undefined {
 }
 
 /**
+ * Read the history scope a saved row writes.
+ *
+ * **The draft's value in both modes** — the editor's select is what the operator
+ * is looking at, and what a save must write (005 FR-050, 002 FR-089). In add mode
+ * the draft starts at the documented default, so an untouched select writes the
+ * default and a chosen one writes the choice; an edit mode's draft was loaded from
+ * the stored row, so an untouched select preserves the stored choice rather than
+ * resetting it (002 FR-057).
+ *
+ * @param bindings - The Bindings tab's state.
+ * @returns The mode the grant will write.
+ */
+function draftHistoryScope(bindings: BindingsTabState): HistoryScope {
+    return readHistoryScope(bindings.historyScopeInput) ?? DEFAULT_HISTORY_SCOPE;
+}
+
+/**
  * Read the identity a saved row keeps.
  *
  * @param origin - Where the draft is being read from.
@@ -280,5 +311,6 @@ export function readDraft(bindings: BindingsTabState, edit?: DraftEditTarget): P
         // `undefined` rather than `[]`: omission is how the wire says *unset*,
         // and the client never manufactures the empty list the service refuses.
         allowedUsers: draftActors(origin),
+        historyScope: draftHistoryScope(bindings),
     };
 }

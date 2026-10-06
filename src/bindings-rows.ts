@@ -27,6 +27,7 @@
 import type { ListItem } from '@openchamber/sdk/ui';
 import { utcStamp } from './ids.ts';
 import { actorsSummary } from './bindings-actors.ts';
+import { historyScopeLabel } from './bindings-history.ts';
 import type { BindingsTabState } from './panel-state.ts';
 import type { PanelBinding } from './bindings-service.ts';
 
@@ -71,6 +72,16 @@ export interface BindingView {
      * once, in `bindings-actors.ts`, and the row only decides where they go.
      */
     readonly actorsClause: string | null;
+    /**
+     * The history scope's permitted **short label**, or `null` when the row has
+     * nothing to add (002 FR-091).
+     *
+     * A label and not a value: 005 FR-091's reasoning is that a count is not a
+     * second rendering of a value, and the same holds here — the row may *name*
+     * the mode and may derive **nothing else** from it, and it is never the only
+     * place the operator can see or change it (the editor control is).
+     */
+    readonly historyScopeLabel: string | null;
 }
 
 /**
@@ -89,6 +100,7 @@ function toView(binding: PanelBinding): BindingView {
         state: binding.state,
         promptLength: binding.startingPrompt === undefined ? null : [...binding.startingPrompt].length,
         actorsClause: actorsSummary(binding),
+        historyScopeLabel: historyScopeLabel(binding),
     };
 }
 
@@ -267,6 +279,9 @@ export function bindingRow(bindings: BindingsTabState, binding: BindingView): Li
         binding.projectId,
         promptSummary(binding),
         binding.actorsClause,
+        // The one label a row may carry from the history scope — and nothing else
+        // derived from it (002 FR-091).
+        binding.historyScopeLabel,
         scan,
     ];
     const subtitle = parts.filter((part): part is string => part !== null).join(' · ');
@@ -297,6 +312,13 @@ export function bindingRows(bindings: BindingsTabState): ListItem[] {
  * the service's scan has done with it. A binding no scan has reached yet
  * reads `not scanned yet` with a pending count of zero — never a blank, and
  * never an invented "it is fine".
+ *
+ * **The window in force is deliberately not here** (002 FR-091). A row summary may
+ * name the mode's short label and may derive **nothing else** from it, and a bare
+ * `window from <stamp>` is exactly that: a second rendering of the window, on a
+ * surface with none of FR-092's "the service computed this" labelling beside it, so
+ * it reads as something the operator chose. The editor's own line carries both ends
+ * of the window with that labelling, and the row carries the label alone.
  *
  * @returns The detail line, or `null` when no binding is selected.
  */

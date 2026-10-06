@@ -132,8 +132,8 @@ export interface ItemEventsQuery {
     readonly name: string;
     /** The item whose events are read — an issue number or a pull-request number. */
     readonly issueNumber: number;
-    /** Window start, or `null` for a replay scan; compared on `created_at`. */
-    readonly windowStart: string | null;
+    /** The window this scan opened, compared on `created_at`. */
+    readonly windowStart: string;
     /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
@@ -270,9 +270,10 @@ export function readItemEventEntry(value: unknown): PollItemEvent | null {
  * - **The page under-filled its cap.** This is GitHub's own "there are no more
  *   pages" answer, the same in-band signal every list call here already honours
  *   (`poller-github.ts`'s `parsed.length < perPage`). It is not an assumption
- *   about ordering, so it can end the walk immediately even on a replay scan
- *   whose window could never end it — without it, a replay would pay the whole
- *   page bound for a candidate whose item holds two events.
+ *   about ordering, so it can end the walk immediately even on a window wide
+ *   enough that the window-based stop would never fire — without it, a
+ *   look-back sweep would pay the whole page bound for a candidate whose item
+ *   holds two events.
  * - **Every event on the page is older than the window start.** This is the
  *   window-based stop, and it requires the **whole** page, so a wrong assumption
  *   about GitHub's ordering can only cause over-fetching: more requests until
@@ -288,8 +289,8 @@ export function readItemEventEntry(value: unknown): PollItemEvent | null {
 export function pageEndsWalk(input: {
     /** One page's events, in the order the response carried them. */
     readonly events: readonly PollItemEvent[];
-    /** Window start, or `null` for a replay scan. */
-    readonly windowStart: string | null;
+    /** The window this scan opened (002 FR-065). */
+    readonly windowStart: string;
     /** The `per_page` this walk asked for. */
     readonly perPage: number;
 }): boolean {
@@ -305,8 +306,8 @@ interface CorrelationInput {
     readonly boundLogin: string;
     /** The item being scanned, so a row about another item cannot answer it. */
     readonly issueNumber: number;
-    /** Window start, or `null` for a replay scan. */
-    readonly windowStart: string | null;
+    /** The window this scan opened (002 FR-065). */
+    readonly windowStart: string;
 }
 
 /**
@@ -404,8 +405,8 @@ interface CandidateRequest {
     readonly kind: ItemCandidateKind;
     /** The bound account, as the account record reports it. */
     readonly boundLogin: string;
-    /** Window start, or `null` for a replay scan. */
-    readonly windowStart: string | null;
+    /** The window this scan opened (002 FR-065). */
+    readonly windowStart: string;
     /** Page size and retry ladder this cycle's reads run under. */
     readonly pace: ListPace;
 }

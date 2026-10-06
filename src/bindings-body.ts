@@ -36,9 +36,17 @@ import type {
     TextHandle,
     TextFieldHandle,
 } from '@openchamber/sdk/ui';
-import type { PanelRuntime } from './panel-state.ts';
+import type { PanelRuntime, BindingsTabState } from './panel-state.ts';
+import type { BindingStatusRow } from './bindings-service.ts';
 import { disposeBindingActors, mountBindingActors } from './bindings-actors.ts';
 import type { BindingActorControls } from './bindings-actors.ts';
+import {
+    disposeBindingHistoryScope,
+    historyScopeHelp,
+    mountBindingHistoryScope,
+    windowInForceLine,
+} from './bindings-history.ts';
+import type { BindingHistoryScopeControls } from './bindings-history.ts';
 import { disposeBindingPrompt, mountBindingPrompt } from './bindings-prompt.ts';
 import type { BindingPromptControls } from './bindings-prompt.ts';
 import {
@@ -69,6 +77,20 @@ export const MENTION_SCAN_NOTE = 'Issue bodies and comments that @mention the bo
 
 /** Note under the review-request checkbox (M7). */
 export const REVIEW_SCAN_NOTE = 'Pull requests that ask the account to review open a dispatch.';
+
+/**
+ * How the history-scope guidance reaches the operator (002 FR-090).
+ *
+ * Mounted as prose rather than as a select `description`, because the SDK's
+ * `SelectProps` has no such member and because six sentences of operator-facing
+ * guidance are not a caption. It sits directly under the control it explains, so
+ * the operator meets it **without opening anything else** — which is the
+ * requirement's own wording.
+ *
+ * It is mounted as a handle and **repainted from state**, not evaluated once: the
+ * add and edit paths differ on the one claim that matters before a catch-up opens,
+ * and the editor is a single mounted block reused for both.
+ */
 
 /** Heading above the bindings list and the selected row's own facts. */
 const LIST_HEADING = 'Bindings';
@@ -113,6 +135,26 @@ interface Board {
     readonly newBindingReason: AccountReasonControls;
 }
 
+/**
+ * The two lines the history-scope field mounts around itself.
+ *
+ * **Both are derived or explanatory prose, not controls.** The guidance is FR-090's
+ * six statements the operator must meet without opening anything else; the window
+ * line is FR-092's derived state — the lower bound of the window this binding's
+ * next scan will open, the mode that produced it, and whether a recovery replay
+ * is in force (FR-078).
+ *
+ * Held as one object so the disposer releases both from the call site that
+ * mounted them; a handle that is mounted and never released outlives the panel's
+ * listeners (005 FR-017).
+ */
+interface HistoryScopeLines {
+    /** FR-090's guidance, mounted directly under the control. */
+    readonly help: TextHandle;
+    /** FR-092's derived window line, under the guidance. */
+    readonly window: TextHandle;
+}
+
 /** The editor half of the pane, which the list opens on request. */
 interface Form {
     /** The loaded binding's state, stated under the editor heading. */
@@ -130,6 +172,9 @@ interface Form {
     readonly worktree: SelectHandle;
     /** The actor allow-list field, beside the mention-token override. */
     readonly actors: BindingActorControls;
+    /** The history-scope control and the derived window line beneath it. */
+    readonly historyScope: BindingHistoryScopeControls;
+    readonly historyScopeLines: HistoryScopeLines;
 }
 
 /** The selected row's wrapper, its chip row, and its detail line. */
@@ -268,6 +313,24 @@ function mountTriggerChecks(input: MountInputs): {
     return { assignment, mention, reviewRequest };
 }
 /**
+ * The status row for the binding the editor is open on.
+ *
+ * `null` in add mode and whenever the panel holds no row for the selection — an
+ * absent row is not a row with zeroes, and {@link windowInForceLine} says nothing
+ * rather than claiming a window it cannot see (002 FR-092).
+ *
+ * @param bindings - The Bindings tab's state.
+ * @returns The row, or `null`.
+ */
+function statusRowFor(bindings: BindingsTabState): BindingStatusRow | null {
+    if (bindings.selectedBinding === null) {
+        return null;
+    }
+
+    return bindings.statusRows.find((row) => row.bindingId === bindings.selectedBinding) ?? null;
+}
+
+/**
  * Mount the editor's controls: the state line, then the fields.
  *
  * The state line leads because it is the fact the whole form acts on — the
@@ -293,6 +356,24 @@ function mountAddForm(input: MountInputs): Form {
     // two of them are what decides *what counts as a trigger for this
     // repository* (005 clarification row 38).
     const actors = mountBindingActors(input);
+    // FR-090: the history scope decides *when* a trigger is looked for, so it
+    // mounts with the trigger switches, immediately after the allow-list that
+    // decides *who* may cause one.
+    const historyScope = mountBindingHistoryScope(input);
+    // FR-090's guidance and FR-092's derived window line, both mounted directly
+    // under the control they belong to.
+    const historyScopeLines: HistoryScopeLines = {
+        // FR-090: the guidance is **repainted** from state, because the add and edit
+        // paths say different things about what a catch-up will offer.
+        help: mountStyledText(input.pane, {
+            className: 'mt-prose',
+            text: historyScopeHelp(input.rt.state.bindings),
+        }),
+        window: mountStyledText(input.pane, {
+            className: 'mt-prose',
+            text: windowInForceLine(statusRowFor(input.rt.state.bindings)) ?? '',
+        }),
+    };
     const projectSelect = mountProjectSelect(input);
     // FR-038's "Not listed?" affordance: constant copy, no handle to keep.
     // Prose, so it keeps a measure on a rail (`.mt-prose` caps it at 72ch).
@@ -309,6 +390,8 @@ function mountAddForm(input: MountInputs): Form {
         accountSelect,
         mentionToken,
         actors,
+        historyScope,
+        historyScopeLines,
         projectSelect,
         assignment: checks.assignment,
         mention: checks.mention,
@@ -366,6 +449,9 @@ function disposeBindingsBody(input: BodyParts): void {
 
     detail.detailBox.remove();
     disposeBindingActors(actors);
+    disposeBindingHistoryScope(form.historyScope);
+    form.historyScopeLines.help.dispose();
+    form.historyScopeLines.window.dispose();
     disposeBindingPrompt(prompt);
     disposeAccountReason(board.newBindingReason);
     detail.detailChips.dispose();
@@ -423,6 +509,9 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
         accountSelect: form.accountSelect,
         mentionToken: form.mentionToken,
         actors: form.actors,
+        historyScope: form.historyScope,
+        historyScopeHelp: form.historyScopeLines.help,
+        windowScopeLine: form.historyScopeLines.window,
         projectSelect: form.projectSelect,
         assignmentCheck: form.assignment,
         mentionCheck: form.mention,

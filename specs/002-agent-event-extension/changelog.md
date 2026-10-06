@@ -304,6 +304,16 @@ Amendments to this specification follow the same procedure and shape as the proj
 
 - **Approval status**: the **product owner's rulings on GitHub issue #9 are unaffected and were never the subject of the error** — fail-open with a discoverable absence, exactly one repository per binding, no migration. The four items v1.11.0 recorded as *fixed by the owner before specification* are re-read: three stand verbatim, and the fourth (*"the issue/PR author as a documented proxy"*) was a **specification answer presented among them**, which is a records error this amendment corrects by moving it out. The six new specification answers in `## Clarifications` are recorded as specification decisions, explicitly **not** as owner rulings. **The one item requiring an owner read is the correlation-field ambiguity named above**; it is specified one way, the specification's own text is given as the reason, and reversing it would be a new trigger against FR-015 rather than a clarification. **Zero `[NEEDS CLARIFICATION]` markers remain in this document.**
 
+> **Two entries below carry the same version label, and both are accurate records.** `main`'s
+> `### v1.13.0 — 2026-10-05 (extension amendment; feature 007 binds the published documentation
+> site, …)` and its matching banner note record **007's documentation-bound amendment**
+> (GitHub issue #11: FR-042 and AC-022 gain the published site as a third bound document).
+> This branch's `### v1.13.0 — 2026-10-05 (the binding's history scope; GitHub issue #22)` records
+> **002's history-scope amendment**, and `### v1.13.1` the same day's two close-out decisions.
+> They were numbered independently on two branches and merged on 2026-10-05; **neither label is
+> renumbered and neither entry is rewritten**, so the document now holds three `v1.13.0` labels and
+> one `v1.13.1`. The header's current version is **1.13.1**.
+>
 ### v1.13.0 — 2026-10-05 (extension amendment; feature 007 binds the published documentation site)
 
 - **Rationale**: FR-042's text bound a **closed list of two documents by literal name** and then said so in its own words — *"This requirement binds the two user-facing documents"* — so extending the list in a changelog while leaving the body alone would have left a requirement that misdescribes the scope it enforces, which is the one failure the amend-in-place rule exists to prevent. Feature 007 (`specs/007-homepage-docs/spec.md`, v1.0.0, submitted for product-owner approval 2026-10-05 — GitHub issue #11) publishes **five pages at `https://shaunburdick.github.io/mecha-turk/`** and reduces `README.md` to a summary, which makes the site the product's canonical operator documentation and a **third** surface a reader actually reads. A canonical surface that no synchronisation requirement covers is not a neutral gap: it is the drift mechanism itself, and this document has already paid for it once. `README.md` §Install tells the reader the approval dialog *"asks for exactly these four things"* and names `network`; the shipped manifest requests `sessions` and `prompt` with `service` implied; `AGENTS.md` invariant 3 records that `network` was removed by product-owner order on 2026-09-30 and is *"no longer requested at all."* Three months of the walkthrough and the README being the only two bound surfaces is exactly how a false permissions list survived in the document an operator installs from. Binding the third surface is therefore the **minimum** the change owes this requirement.
@@ -362,3 +372,185 @@ re-cut. It is the same history the entries below record, kept once.
 > **v1.12.0 (2026-10-03) — the attribution premise corrected; the `subject-author` proxy loses its producer.** **GitHub records both actors, in named fields.** `GET /repos/{owner}/{repo}/issues/{issue_number}/events` — the feed v1.11.0 never consulted — carries `assigner` ("the person who performed the assignment") on every `assigned` event and `review_requester` ("the person who requested a review") on every `review_requested` event, each a nullable `simple-user` carrying `login` and `type`, so the existing bot predicate applies unchanged. v1.11.0 read only the two **list** feeds the poller happens to call — the issues list exposes `assignees` with no actor, the pulls list exposes `requested_reviewers` with no requester — and generalized from *those endpoints* to *GitHub as a whole*. The list feeds name no actor; the events feed names both. The claim "GitHub does not record who assigned" was **false**, and because a false premise cannot be corrected by rewording around it, this amendment replaces the mechanism rather than annotating it: **FR-044 and FR-045 are re-cut, NFR-011 is re-cut, FR-049 – FR-052 are added**, and the corrected research record replaces §R8. `'subject-author'` **remains in the closed union** — rows the shipped PR already wrote to `events.json` carry it, and a vocabulary a stored file still contains cannot be deleted without invalidating that file — but it has **no producer**, and **no row written under this amendment may carry it**. `'direct'` becomes the basis for **all four** trigger kinds, because GitHub names the actor in every case. The actor for the assignment kind is the event's `assigner`; for the review kind, its `review_requester`. The four new requirements are the per-item read that reaches those fields, the closed correlation rule that picks which event answers which trigger, the **client-side** window comparison that stands in for the `since` parameter **these endpoints do not have**, and the fail-closed duty that an actor which cannot be read produces **no event this cycle** — self-healing, because the scan window overlaps, rather than lost. **What is untested is stated, not assumed**: bot and app actors, bulk assignment, and a null `assigner` / `review_requester` are all unobserved on this repository's data, and each is handled by refusing rather than guessing.
 >
 > **v1.13.0 (2026-10-05) — the documentation bound widens to a third document (GitHub issue #11).** Feature 007 (`specs/007-homepage-docs/spec.md`, v1.0.0) publishes five pages at `https://shaunburdick.github.io/mecha-turk/` and reduces `README.md` to a summary, which makes the site the canonical operator documentation. **FR-042 is re-cut** to bind that third document beside the walkthrough and the README — its opening clause names it, its enumerated surface list gains the site pages carrying install, configuration, first-dispatch, and troubleshooting prose, *"Neither document MAY"* becomes *"No bound document MAY"* so the `.env` and unlabelled-`specs/001`-path prohibitions reach it, and its closing sentence gains the **site-is-authoritative** tie-break for a claim that appears in two documents (007 FR-002). **AC-022's scanned set widens with it**, because an uncovered scan is what let the `network` row rot in the README's install steps while this requirement read as satisfied. **Not weakened:** the retired-tab, `.env`, provenance-label, Settings-as-single-input, and expected-login clauses are carried over word for word, and one more document is bound, not one fewer. **No requirement is added, no wire member, stored row, field, route, capability, or audit `eventType` changes, and nothing is superseded here** — 007 states what the site says; this document states what synchrony means. See changelog.md → `### v1.13.0`.
+>
+
+---
+
+### v1.13.0 — 2026-10-05 (the binding's history scope; GitHub issue #22)
+
+**Why**: A binding's first scan and a binding recovering from a lost event queue were **one behaviour expressed by one representation** — an absent checkpoint opened a scan with no lower bound at all, so every open issue qualified whatever its age. That was a deliberate decision of 2026-09-28, recorded in the shipped code next to the rule: *"pre-binding assignments must work (product decision, 2026-09-28), so an issue assigned before the binding existed is still detected."* It is right for an operator who wants a staged backlog picked up, wrong for one who wants a repository watched quietly, and it means re-creating a binding after data loss re-triggers the whole past. GitHub issue #22 asks for a choice; the choice cannot be added on top of that representation without either letting an operator setting silently disable data-loss recovery, or adding a second escape hatch only one path can reach. **Both failure modes were available. One had to be removed first.**
+
+**Where the requirement lives, and why**: the product owner directed that this land **in this document** rather than in a new feature specification. The rule v1.0.0 set is stated here, and a reader of `## Functional Requirements` must get current behaviour from this section alone — a parallel file that left this one standing would have been the append-only anti-pattern the workflow forbids. `FR-001` – `FR-052` keep their numbers and their meanings except where the table below says otherwise; the new block is `FR-053` – `FR-094`. 005 and 006 record the delta in their own changelogs; **their bodies are untouched**, and nothing outside this document had to change to cite the new requirements.
+
+**The six questions, the answers, and what each changed.** All six were answered by the product owner on 2026-10-05.
+
+1. **Where the watch starts when the operator does not choose** → **future events only.** `'new-only'` is the documented default and the single reading of an absent member. Chosen over keeping the replay as the default and adding a quiet mode beside it, which would have left every operator's existing bindings doing the thing they did before — a product whose default nobody asked for and whose quiet mode nobody would find. → **FR-053, FR-058, FR-065, FR-066**
+2. **Is an unbounded replay reachable?** → **no, and unreachable by shape rather than by rule.** The mode is a two-name enum and the look-back length is a declared constant that is not stored on a binding, so no combination of stored members can request one. Chosen over a stored duration with a validated bound, which would have put the number one hand-edit away from being operator-set. → **FR-059, FR-060**
+3. **How far back, and may the operator choose?** → **one fixed window: 7 days (604,800,000 ms), bounded 3,600,000 ms – 2,592,000,000 ms**, chosen by the product and not by the operator. The bound is part of the answer, not decoration: it is what keeps FR-060 true if the constant is ever edited. → **FR-059, FR-067**
+4. **What does "only new items" exclude?** → **nothing about pre-existing items.** The boundary is creation, not the item's age: an item that existed before the binding but was touched after it **fires**, because the comparison is on the event's own timestamp. The stricter reading was rejected twice over — a strict creation instant with no overlap leaves a permanent hole between creation and the first completed scan, and an item-age rule judges the same trigger two different ways depending on when the binding was made. → **FR-051, FR-066**
+5. **May the mode be changed on an existing binding?** → **yes, both directions**, and changing it to the look-back mode **reuses FR-023's operator rescan path**. A second replay surface was the alternative and it is recorded as rejected: two replay mechanisms with different rules is how a rescan silently changes meaning. Only *whose choice* sets the lower bound differs between the two callers. → **FR-023, FR-084, FR-085, FR-089**
+6. **How does a binding stored before this version read?** → **as the default, everywhere** — no legacy reading, no migration, shim, or fallback branch. Two behaviours reachable through the absence of a field are the state that can be neither explained to an operator nor covered by one rule, and the recovery path that genuinely must replay regardless does not depend on absence at all. **The accepted consequence is stated in FR-058 rather than discovered later**: a pre-existing binding whose first scan has still not completed skips its backlog after the upgrade. → **FR-058**, `## Out of Scope`
+
+**Requirement-by-requirement record**
+
+| Requirement | v1.12.0 text | v1.13.0 effect | Status |
+| --- | --- | --- | --- |
+| **FR-013** | add-repository sequence: account → project → triggers | gains a **history-scope** step, skippable, where skipping means the documented default rather than a distinct choice | **Amended** (one clause) |
+| **FR-018** | the checkpoint's durable fields and its advance-only-after-durable rule | additionally requires the same durable state to be able to record that a checkpoint was **cleared to recover lost work**, written in the same atomic write so neither is inferred from the other's absence | **Amended** (one clause) |
+| **FR-019** | 10-minute default overlap + dedupe by delivery key; identifier-only cursors insufficient | states that **what the window is overlapped onto has two sources and both are bounded**, and makes the dedupe clause explicitly load-bearing on the two new window-opening paths | **Amended** |
+| **FR-023** | checkpoints survive restart; a controlled operator rescan/replay from a chosen timestamp MUST be supported | names this the document's **single rescan path**, states that the operator-initiated catch-up **reuses** it, and states that a chosen timestamp is **the window's lower bound and nothing else** — bounded, deduplicating, identity-preserving, and never an offer to scan with no lower bound | **Re-cut** |
+| **FR-024** | fail closed for seven named failure classes | adds **a scan-window baseline that cannot be computed from the stored record** to the enumeration | **Amended** (one clause) |
+| **FR-035** | the audit trail's enumerated contents | adds that a history-scope change **is a configuration change and is recorded as one** | **Amended** (one clause) |
+| **FR-036** | the enumerated health fields | requires per-repository health to carry the **window's lower bound** and whether a recovery replay is in force | **Amended** (one clause) |
+| **FR-042** | documentation synchronization for the shipped surfaces | requires `quickstart.md` and `README.md` to state what the history scope **is and is not**, including that a recovery replay re-offers work regardless of the setting | **Amended** (one clause) |
+| **FR-051** | the client-side `created_at` comparison; window start is `lastScanAt − overlapMs`, *"with the existing overlap semantics unchanged, **including the replay case**"* | **the replay case is retired as a window source.** Two sources and no third: the completed-scan stamp minus the overlap, or the baseline the mode fixes. A scan never opens with no window, so the comparison is never left with nothing to compare against | **Re-cut** |
+| **FR-053 – FR-094** *(new block I)* | — | the field and its rules; the containment boundary the window is computed inside; the window rule; forced replay and recovery; the bounded look-back sweep; audit; and the operator's surface | **Added** |
+| **NFR-002** | replaying a window 100× yields zero duplicates | names the two new window-opening paths as the ones where a gap becomes duplicate **work** rather than a duplicate log line | **Amended** (one clause) |
+| **NFR-012, NFR-013** *(new)* | — | stored-record compatibility and the unchanged stored vocabulary; determinism of the window the mode selects, and the request cost of each mode | **Added** |
+| **SC-009 – SC-013** *(new)* | — | creation-boundary default coverage; the sweep's exact offered set and zero duplicates across five replay sequences; **100%** recovery coverage in both modes; explainability of every non-dispatch; and the reachability, migration, and single-session claims | **Added** |
+| **AC-032 – AC-043** *(new)* | — | twelve binary criteria, one per group plus the baseline-stability case and the containmenproof | **Added** |
+| **User Story 5** *(new, P1)* | — | the operator's choice, its default, and its arrival together with the recovery guarantee | **Added** |
+| **`### Edge Cases`** | 21 bullets | **10 added**: the default choice; a pre-existing item touched after creation; an old item touched today; an unusable stored value; an unreadable creation stamp; a first scan that keeps failing; a queue quarantined mid-sweep; a sweep past the page bound; and an unattributable historical trigger | **Amended** (additive) |
+| **`### Key Entities`** | 9 entries | gains **History scope**, **Look-back length**, and **Scan window in force**; `RepositoryBinding` gains the field | **Amended** |
+| **`## Configuration Model`** | bindings and polling listed | bindings gain the mode; the polling entry states the look-back length is **deliberately absent** from the configuration list and that 006's twelve-field count is unchanged **by decision** | **Amended** |
+| **`## Out of Scope`** | 24 bullets | gains **8**: no baseline outliving its binding; no operator-chosen length or "all history" mode; no Settings row; **no second replay surface**; no count cap on the sweep; no per-observation audit row; no per-repository/account/global tier; no history view or simulator | **Amended** (additive) |
+| **`## Assumptions`** | 11 entries | gains the look-back length and the history-scope baseline | **Amended** (additive) |
+| **`## Clarifications`** | sessions through 2026-10-03 | gains **Session 2026-10-05** — the six answers as current behaviour, each with its requirement numbers | **Added** |
+| **`## Problem Statement`** | three paragraphs | gains a paragraph on *when the watch starts*, and states plainly that this narrows a rule v1.0.0 set | **Amended** (additive) |
+| **`### Header`** | v1.12.0, "Implemented" | **v1.13.0, "Specified, not implemented"**, with the amendment-authority statement and the note that v1.12.0 and earlier are shipped | **Amended** |
+| **FR-001 – FR-012, FR-014 – FR-017, FR-020 – FR-022, FR-025 – FR-034, FR-037 – FR-041, FR-043 – FR-050, FR-052, NFR-001, NFR-003 – NFR-011, SC-001 – SC-008, AC-001 – AC-031, `### States`, `## Setup Prerequisites`, `## Research and Platform Decisions`, the `## Gate Questions`** | Unchanged | **Unchanged** | 002 v1.12.0 |
+
+**Principles reviewed, unchanged in substance.** **II (safe autonomy by default)** — the default moves *toward* not firing unrequested old work, and the burst a look-back sweep produces is contained by design rather than by a cap: the sweep enqueues only, and dispatch remains one session at a time under the existing claim-and-lease cycle (FR-081), so the burst is a queue depth rather than concurrent sessions. A count cap was considered and refused (FR-079): one that stopped part-way would leave a checkpoint recording a completed scan while in-window triggers were never offered, and nothing could name which ones — **a visible backlog is a better failure than a silent partial coverage**, which is the outcome this principle cannot tolerate. **III (durable and idempotent work)** — both new paths *widen* the window relative to ordinary scanning, which is exactly the condition under which a dedupe gap becomes duplicate agent work rather than a duplicate log line; the obligation is therefore restated on them (FR-019, NFR-002, FR-075, FR-082). The subtle one is the checkpoint-retention rule: an incomplete scan that advanced or cleared a checkpoint would strand work, so the forced-replay record that sits beside the retained checkpoint must survive a failure too (FR-076). **IV (human-visible auditability)** — the choice is durable configuration, so it is audited like configuration, one row per change naming the new mode, the previous mode, and the actor (FR-086). The harder half is the negative case, which the trail could not answer at all: *"why was this event not dispatched?"* is answered from **two** durable facts — the window start in force and the mode's change history — rather than a row per non-match, because the row-per-non-match volume is unbounded (FR-087). **I, V, VI, VII** are engaged and unchanged: no `since` is invented where the provider has none (FR-051), nothing about deployment changes, every clause is offline-testable, and no new host capability, route, or permission is added (FR-064). **No principle is weakened by this amendment.**
+
+**Migration impact**: no approved requirement is invalidated, no stored record is rewritten, no checkpoint is reset, and no configuration field is added or removed. `006 FR-059(a)` is **superseded on one point** — its sentence *"a binding with no recorded stamp still replays with no window at all, exactly as today"* is replaced by FR-065 — and `006 FR-010`'s and `006 FR-084`'s documented count of **twelve** fields is deliberately unchanged. Both are recorded in `006-settings-crud/changelog.md`. `005` records the editor field and the one-rendering rule's new value.
+
+**Approval status**: approved 2026-10-05 by the product owner. All six open questions answered; no clarification marker remains in this document. **Two close-out decisions followed the same day and are recorded below as v1.13.1** — FR-023's rescan promise narrowed to what exists, and flat FR numbering affirmed.
+
+---
+
+### v1.13.1 — 2026-10-05 (two close-out decisions; no requirement added, no requirement renumbered)
+
+Two narrow decisions taken at the v1.13.0 gate. **No requirement was added, removed, or renumbered**, no constitutional principle moved, and `FR-001` – `FR-094` keep their numbers and their meanings except where FR-023's text is re-cut below.
+
+**Decision 1 — FR-023's rescan promise is narrowed to what exists.**
+
+- **Why**: FR-023 has required *"a controlled operator rescan/replay from a chosen timestamp"* since **v1.0.0**, and **no such surface exists** — `service/routes/` carries no rescan, replay, or rewind operation, and never has (verified 2026-10-05; `research.md` §R10.2b). This is a conformance gap against a requirement this document has carried its whole life, and it is **invisible from the requirements alone**: a reader of FR-023 would reasonably assume the surface exists. It also became a live hazard for the history-scope work, because *"the mode change reuses FR-023's rescan path"* is only implementable if something is being reused. Left standing beside a new requirement that quietly depends on it, FR-023 would have promised a surface nothing builds.
+- **What changed**: **FR-023's rescan clause is re-cut** to require that a rescan be expressible as a chosen lower bound for one binding's next scan, that **exactly one** rescan mechanism exist, and that the mechanism support **the one caller this document specifies — the history-mode catch-up** (FR-084). It no longer reads as an unqualified promise of a general operator surface, and it says so in its own text: **no requirement, plan, or acceptance criterion may be read as promising it.** **Everything else in FR-023 is preserved verbatim and remains in force**: restart survival, resumption within the overlap window, the audit of a replayed observation as duplicate or previously processed, deduplication not weakened, and source identity unaltered. The bounded-scan rules the narrowed clause carries (FR-065, FR-019, FR-060) are unchanged.
+- **The gap is recorded, not dropped**: `## Out of Scope` gains an entry naming the general operator-chosen-timestamp rescan surface, stating that this document promised it between v1.0.0 and v1.13.0, that it was **never built**, and that this is the product owner's decision of 2026-10-05 to keep it that way for now. It also states what a reader six months out needs: the promise was real, it was never implemented, and building it later is **additive rather than corrective** — no migration, no data-model change, no stored value to reconcile.
+- **What did not change**: **FR-084's "one rescan mechanism with one rule set, not two" constraint is now the operative requirement** and needed no editing beyond dropping the word "operator rescan path", which no longer describes anything that exists. `D-6` in `tasks.md` now states the settled decision in the task text, and the Phase-4 gate item that posed the question is marked settled with its answer, so an implementer does not have to ask.
+
+**Decision 2 — 002 keeps flat sequential FR numbering; the reserved-block convention is declined.**
+
+- **The tradeoff, accepted consciously**: with no per-topic reserved blocks, **the next amendment appends sequentially into whatever space is next**, with no reserved group to land in and no room to add a clarification under its own topic without renumbering — which this document's 173 inbound citations forbid. The alternative, adopting the reserved-block convention features 003–006 already use, was considered and **declined by the product owner on 2026-10-05**. Recorded here so it reads as a decision on the record rather than an oversight; nothing else is done about it: no numbering convention is added, no requirement is restructured, and nothing is renumbered.
+- **Why the tradeoff is acceptable here**: the consequence is only a *future* tidiness cost, paid at the next amendment, and it costs one appended sentence at that time to restore. What it would have cost immediately was touching the numbering of a 94-requirement production document that four later specifications cite by number — a larger risk than the one being deferred.
+
+**Migration impact**: none. No stored record, configuration field, route, or capability changes; nothing is rewritten, reset, or added to a schema. **Approval status**: approved 2026-10-05 by the product owner.
+
+---
+
+### v1.13.2 — 2026-10-05 (five requirements amended in place; the retained baseline widens, and a replay outranks an armed catch-up)
+
+**Why**: the I1 fix, delivered with issue #22, is a **divergence between this document and the
+shipped code**, and it is the kind only delivery can create. `### v1.13.0` specified a retained
+baseline that is *"derived once and retained"*; the code widens it monotonically on every scan that
+opens a wider window, because the alternative — a baseline frozen at its derivation — lets a
+**recovery replay run narrower than the work it exists to re-cover**. `FR-065` named two window
+sources and omitted that a replay's window start *is* the baseline. `FR-073` gave the replay
+precedence over a sweep without saying what the replay opens at. All three had been recorded in
+`data-model.md`, in `plan.md` §B.4 **H7** and **H8**, and in `tasks.md`, with the corrections dated
+in place — but **`## Functional Requirements` is what a reader of this document reads**, and it was
+describing behaviour the build does not have.
+
+**The concrete failure it would have allowed.** A binding **younger than the seven-day look-back**
+derives its baseline from its own creation boundary, which is *later* than the `now − 7 days` an
+armed catch-up opens. The catch-up sweeps a five-day-old assignment and queues it. The queue is lost,
+the checkpoints are cleared, and the replay opens — at the frozen creation boundary, **later** than
+the armed bound. The five-day-old row is inside neither window and is never re-offered, silently.
+FR-073 requires that replay to re-detect and re-offer in-window work; under the frozen baseline it
+could not. Nothing in v1.13.0 forbade the build from narrowing, and nothing in the requirements told a
+reader it did not.
+
+**Requirement-by-requirement record**
+
+| Requirement | v1.13.1 text | v1.13.2 effect | Status |
+| --- | --- | --- | --- |
+| **FR-065** | two window sources: the recorded stamp minus overlap, or the baseline for a binding with no completed scan | names **every** source and the precedence between them — a recovery replay at the retained baseline, then an armed catch-up at its own bound, then the ordinary incremental window, then the baseline — with the reason the replay outranks the other two | **Amended** |
+| **FR-066** | *"the baseline MUST be stable: it is derived once and retained"* | **stable and only ever widening**, on two named axes: stability is about the *clock* (a failed scan reuses the bound it holds), widening is about *coverage* (a completing scan takes the earlier of the retained baseline and the window it opened; a scan that does not complete leaves it alone) | **Amended** |
+| **FR-067** | the look-back baseline is *"widened by nothing further"* | the same derivation, with *"at derivation"* made explicit and a pointer to FR-066 — so it cannot be read as a frozen bound beside FR-066's widening rule | **Corrected in place** |
+| **FR-073** | the replay is bounded like any scan and takes precedence over a sweep in force | states that **the replay's window start is the retained baseline**, so a replay re-covers at least everything any earlier scan covered; and that a catch-up whose ground the replay did not reach **stays armed** for the scan after (FR-076) | **Amended** |
+| **FR-084** | the catch-up caller | gains the **served-not-spent** clause: the armed bound is cleared by the first scan whose window reaches back that length and by no other. *Labelled v1.13.2 rather than v1.13.1: it was written during the merge of `main`, not by the v1.13.1 gate decisions, and a version record that claimed otherwise would be false.* | **Amended** |
+
+**No requirement is added, renumbered, deleted or repurposed.** `FR-001` – `FR-094` keep their
+numbers and their meanings, and the amendment is **in the clause, in place**: the sentences the
+build contradicts were rewritten rather than annotated, because a requirement that leaves the wrong
+sentence standing and adds the right one beside it is two requirements. **Rejected alternative: a
+new requirement stating the widening rule** — appending FR-095 would have left FR-066 reading *"is
+derived once and retained"* next to a later requirement saying it moves, and a reader would have had
+no way to tell which governed. The second half of the gap (an armed bound surviving a replay that
+did not reach it) was found while merging `main` and is folded in here rather than carried as a
+separate amendment, since it is one property of one mechanism.
+
+**Nothing else moves.** No stored record, wire member, configuration field, route, capability or
+audit `eventType` changes; no checkpoint is reset; the code shipped before this amendment and is
+unchanged by it. **AC-036 is unaffected and still true**: three failed scans and then a success open
+at `T − configured overlap`, because a completing scan takes the *earlier* of a baseline already at
+`T − overlap` and the window it opened. **Approval status**: approved 2026-10-05 by the product
+owner, as a documentation correction to the requirement text rather than a change to the product.
+---
+
+### v1.13.3 — 2026-10-05 (three clauses in place; what the build already did with an unreadable scan-state stamp)
+
+**Why**: `### v1.13.2` closed the divergence the I1 fix introduced — the retained baseline's
+monotone widening and the replay's precedence over an armed catch-up. Reading the amended
+requirements with the shipped `service/poll/window.ts` beside them surfaced **three more places
+where the build is right and the text is silent**, all of them in the same family: a stamp that is
+present and the clock cannot read. The build treats each one fail-closed, and in each case a reader
+of `## Functional Requirements` alone could infer a *fallback* the code does not perform. **No
+behaviour changes here; this amendment only says what the build has been doing.**
+
+**The three, and what each would have let a reader believe**
+
+| Requirement | v1.13.2 text | v1.13.3 effect | Status |
+| --- | --- | --- | --- |
+| **FR-084** | an armed bound is cleared by the first scan whose window covers it | adds that an arming **the clock cannot read** is neither turned into a window nor cleared — it **stands armed indefinitely**, and **is deliberately unreported**: no projection carries the member, no log line names it, and the health row shows the binding's ordinary window. Names the follow-up that would change it (a member on the health row, a wire contract the panel reads) as **a product decision not taken**, and distinguishes this from FR-061's refusal of a bad value **on write** | **Amended** |
+| **FR-073** | the replay's window start is the retained baseline | qualifies it: **that baseline must be readable for the rule to hold**, and an unreadable one **refuses** under FR-072 unless another source on FR-065's list is itself computable — and does not disturb an ordinary incremental window, which is computed from a different fact | **Amended** |
+| **FR-065** | an ordered list of window sources ending "*…or the baseline*" | adds that a **present-but-unreadable stamp is not the same fact as no stamp**: it is never coerced, defaulted or read as absent, and at its own place in that order it **refuses** with the reason recorded — which is why an unreadable recorded scan stamp stops the scan instead of falling back to the baseline | **Amended** |
+
+**FR-084's silence is the one that needed the requirement text to say so.** The behaviour was
+already decided — by the product owner, on 2026-10-05, and pinned by
+`tests/history-scope.test.ts`'s §5.18 case *never turns an unreadable arming into a window, and never
+clears it* — but the only place the decision was written down was `tasks.md`'s known-gap note. An
+unreported state that no requirement mentions is indistinguishable from an oversight to the next
+reader, so the clause now states the behaviour **and** that the silence was chosen, **and** what
+would change it.
+
+**No requirement is added, renumbered, deleted or repurposed.** `FR-001` – `FR-094` keep their
+numbers and their meanings, and each clause replaces or extends wording already in the requirement it
+belongs to. **Rejected alternative: a new requirement for unreadable scan-state stamps** — the same
+reason as `### v1.13.2`. A reader would have had three requirements to reconcile (FR-061's write-time
+refusal, FR-072's baseline refusal, and a new one), with the shipped behaviour split across all three
+rather than stated once beside each source it applies to; and FR-061's own text says the value is
+judged by **one rule set**, which a fourth statement of the same family would contradict in form.
+**The alternative actually taken** is one clause per source, each cross-referencing the other two, so
+the family reads as one rule in three places.
+
+**Nothing else moves.** No source file, test, stored record, wire member, configuration field, route,
+capability or audit `eventType` changes; no checkpoint is reset. The one test added,
+`tests/service-scan-state.test.ts`'s *refuses a replay whose baseline the clock cannot read*, pins
+the case FR-073's new clause introduced and nothing else; the other two clauses were already pinned
+(§5.18 for the unreadable arming, and the existing *refuses a recorded stamp the clock cannot read*
+case for FR-065's). **Approval status**: approved 2026-10-05 by the product owner, as a
+documentation correction to the requirement text rather than a change to the product.
+
+**Delivery, 2026-10-05.** This entry and `### v1.13.0` above were **approved specification awaiting
+Phase 4** when written — that is the reading `spec.md`'s header carried at the gate, and it is kept
+here rather than erased there. Both are now **implemented and shipped** on `issue-22-binding-history`
+(GitHub issue #22): Waves 1–4 of `tasks.md` delivered, `npm run verify` green, the contract proof in
+`tests/history-scope.test.ts` and the mode table in `tests/service-events.test.ts` standing as the
+acceptance record. Two decisions were taken during implementation that this changelog did not
+otherwise carry, and both are now stated in the requirements rather than only beside them: the
+**replay outranks an armed catch-up** because the replay's obligation is re-covering lost work, and
+an **arming is cleared only by a scan whose window covered it**. `### v1.13.2` below amends FR-065,
+FR-066, FR-067, FR-073 and FR-084 to carry them; at the time of writing they were recorded only in
+`data-model.md`, `plan.md` and `tasks.md`. Phase 4 and 5 artefacts (`plan.md` **H7** and **H8**, `tasks.md`, `contracts/`) were
+corrected to match both, with the corrections dated in place.

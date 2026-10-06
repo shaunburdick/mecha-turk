@@ -144,8 +144,32 @@ const CEILING = { words: 5_770 } as const;
  */
 const PINNED_LINES = 476;
 
-/** The prose each bound document measures now, so growth cannot pass unnoticed. */
-const REDUCED = { readme: 26, walkthrough: 56 } as const;
+/**
+ * The prose each bound document measures now, so growth cannot pass unnoticed.
+ *
+ * `walkthrough` moved **56 → 73 on 2026-10-05**, for the history-scope section 002 v1.13.0
+ * adds (GitHub issue #22): FR-042 binds the walkthrough to state what the history scope is
+ * and is not, and 007 FR-049 reduced every *other* operator section to a pointer, so that
+ * clause and the one-home rule pull in opposite directions and the product owner resolved
+ * it by keeping the documentation here.
+ *
+ * The same decision as `PINNED_LINES`' second move, and the same discipline: the section was
+ * **trimmed to the operator-facing core first** — 69 prose lines down to 17 — so the figure
+ * moved by 17 and not by 69, and everything the trim removed is stated authoritatively in
+ * spec 002's `FR-053` – `FR-094` rather than nowhere. What remains is what FR-090 requires
+ * an operator to be told before choosing: the two options, that the look-back happens once,
+ * that it is bounded with no "all history", that an existing binding **may offer many
+ * sessions**, that a recovery replay re-offers work regardless, and the upgrade consequence.
+ *
+ * **`CEILING.words` is untouched, deliberately.** The walkthrough is not in `spend()`, so
+ * adding prose here moves a reported figure and no enforced bound; the reader-burden ceiling
+ * the owner protected is not what this constant is.
+ *
+ * The combined reduction assertion below is **also untouched**: at 26 + 73 = 99 it still
+ * clears `BEFORE.lines / 4` (111), so the trimming bought the whole of what was needed and
+ * no reduction claim was given up beyond the recorded figure.
+ */
+const REDUCED = { readme: 26, walkthrough: 73 } as const;
 
 /** The only headings the reduced README may carry (FR-049). */
 const README_HEADINGS: readonly string[] = ['# Mecha Turk', '## Development', '## License'];

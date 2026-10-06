@@ -275,6 +275,7 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
                 store,
                 log: LOGGER,
                 bindings: await storedBindings(),
+                overlapMs: DEFAULT_CONFIG.overlapMs,
             });
 
             // Three waiting runs. The old implementation counted the three delivery
@@ -287,6 +288,7 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
                 store,
                 log: LOGGER,
                 bindings: await storedBindings(),
+                overlapMs: DEFAULT_CONFIG.overlapMs,
             });
             // All three are leased, so none is waiting — the count has to fall, not
             // stay where the delivery count left it.
@@ -334,6 +336,7 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
                 store,
                 log: LOGGER,
                 bindings: await storedBindings(),
+                overlapMs: DEFAULT_CONFIG.overlapMs,
             });
 
             // One requeued run waiting; one dispatched run and one still-claimed run
@@ -350,6 +353,7 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
                 store,
                 log: LOGGER,
                 bindings: await storedBindings(),
+                overlapMs: DEFAULT_CONFIG.overlapMs,
             });
 
             expect(rows.find((row) => row.bindingId === BINDING_ID)?.pendingCount).toBe(2);
@@ -360,8 +364,12 @@ describe('T-040a pendingCount counts waiting runs, not deliveries', () => {
     it('reports zero for a binding with no runs at all', async () => {
         {
             await storeBindings(BINDING_ID);
-            const rows = await readStatusRows({ store, log: LOGGER, bindings: await readBindings({
-                store, log: LOGGER }) });
+            const rows = await readStatusRows({
+                store,
+                log: LOGGER,
+                bindings: await readBindings({ store, log: LOGGER }),
+                overlapMs: DEFAULT_CONFIG.overlapMs,
+            });
 
             expect(rows[0]?.pendingCount).toBe(0);
         }
@@ -493,7 +501,12 @@ describe('T-040c no audit row ever carries a dispatch token value (FR-061)', () 
             await sweepOnce({ store, log: LOGGER, now: ONE_HOUR_LATER });
             await seed(assignment(46));
             await claim();
-            await readStatusRows({ store, log: LOGGER, bindings: await readBindings({ store, log: LOGGER }) });
+            await readStatusRows({
+                store,
+                log: LOGGER,
+                bindings: await readBindings({ store, log: LOGGER }),
+                overlapMs: DEFAULT_CONFIG.overlapMs,
+            });
 
             const entries: readonly AuditEntry[] = await readAuditEntries(store);
             expect(entries.length).toBeGreaterThan(0);
