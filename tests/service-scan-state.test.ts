@@ -382,6 +382,44 @@ describe('windowFor (a verdict, never "no window")', () => {
         }
     });
 
+    it('refuses a replay whose baseline the clock cannot read (002 FR-073, FR-072)', async () => {
+        {
+            // The replay's window start **is** the baseline (FR-073), so a baseline
+            // the clock cannot read cannot become a window by being wanted — the
+            // same fail-closed direction FR-072 takes for a derived baseline, and
+            // the same one FR-065 takes a source over. Being wanted does not make a
+            // stamp readable.
+            const unreadable = stateWith({
+                ...emptyBindingScan(),
+                lastScanAt: null,
+                baselineAt: 'not-a-stamp',
+                forceReplay: true,
+            });
+
+            expect(windowFor({ binding: fixtureBinding(), scanned: unreadable, overlapMs: OVERLAP_MS })).toEqual({
+                refused: BASELINE_UNREADABLE,
+            });
+
+            // And the one exception the requirement names: another source on
+            // FR-065's list that **is** computable is used instead. The armed bound
+            // is such a source, and it is an explicit operator request.
+            const armed = stateWith({ ...unreadable, rescanFrom: RESCAN_AT });
+
+            expect(windowFor({ binding: fixtureBinding(), scanned: armed, overlapMs: OVERLAP_MS })).toEqual({
+                window: RESCAN_AT,
+            });
+
+            // The same unreadable baseline does **not** disturb an ordinary
+            // incremental window: that window is computed from the recorded stamp,
+            // a different fact, so the scan proceeds on it.
+            const incremental = stateWith({ ...unreadable, forceReplay: false, lastScanAt: SCANNED_AT });
+
+            expect(windowFor({ binding: fixtureBinding(), scanned: incremental, overlapMs: OVERLAP_MS })).toEqual({
+                window: new Date(Date.parse(SCANNED_AT) - OVERLAP_MS).toISOString(),
+            });
+        }
+    });
+
     it('refuses a recorded stamp the clock cannot read rather than widening (002 FR-065)', async () => {
         {
             const scanned = stateWith({ ...emptyBindingScan(), lastScanAt: 'not-a-stamp', baselineAt: BASELINE_AT });

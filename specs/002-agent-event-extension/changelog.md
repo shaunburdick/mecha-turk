@@ -304,14 +304,48 @@ Amendments to this specification follow the same procedure and shape as the proj
 
 - **Approval status**: the **product owner's rulings on GitHub issue #9 are unaffected and were never the subject of the error** — fail-open with a discoverable absence, exactly one repository per binding, no migration. The four items v1.11.0 recorded as *fixed by the owner before specification* are re-read: three stand verbatim, and the fourth (*"the issue/PR author as a documented proxy"*) was a **specification answer presented among them**, which is a records error this amendment corrects by moving it out. The six new specification answers in `## Clarifications` are recorded as specification decisions, explicitly **not** as owner rulings. **The one item requiring an owner read is the correlation-field ambiguity named above**; it is specified one way, the specification's own text is given as the reason, and reversing it would be a new trigger against FR-015 rather than a clarification. **Zero `[NEEDS CLARIFICATION]` markers remain in this document.**
 
-**Version**: 1.12.0 | **Implemented at**: 1.1.0 | **Last Amended**: 2026-10-03
+> **Two entries below carry the same version label, and both are accurate records.** `main`'s
+> `### v1.13.0 — 2026-10-05 (extension amendment; feature 007 binds the published documentation
+> site, …)` and its matching banner note record **007's documentation-bound amendment**
+> (GitHub issue #11: FR-042 and AC-022 gain the published site as a third bound document).
+> This branch's `### v1.13.0 — 2026-10-05 (the binding's history scope; GitHub issue #22)` records
+> **002's history-scope amendment**, and `### v1.13.1` the same day's two close-out decisions.
+> They were numbered independently on two branches and merged on 2026-10-05; **neither label is
+> renumbered and neither entry is rewritten**, so the document now holds three `v1.13.0` labels and
+> one `v1.13.1`. The header's current version is **1.13.1**.
+>
+### v1.13.0 — 2026-10-05 (extension amendment; feature 007 binds the published documentation site)
+
+- **Rationale**: FR-042's text bound a **closed list of two documents by literal name** and then said so in its own words — *"This requirement binds the two user-facing documents"* — so extending the list in a changelog while leaving the body alone would have left a requirement that misdescribes the scope it enforces, which is the one failure the amend-in-place rule exists to prevent. Feature 007 (`specs/007-homepage-docs/spec.md`, v1.0.0, submitted for product-owner approval 2026-10-05 — GitHub issue #11) publishes **five pages at `https://shaunburdick.github.io/mecha-turk/`** and reduces `README.md` to a summary, which makes the site the product's canonical operator documentation and a **third** surface a reader actually reads. A canonical surface that no synchronisation requirement covers is not a neutral gap: it is the drift mechanism itself, and this document has already paid for it once. `README.md` §Install tells the reader the approval dialog *"asks for exactly these four things"* and names `network`; the shipped manifest requests `sessions` and `prompt` with `service` implied; `AGENTS.md` invariant 3 records that `network` was removed by product-owner order on 2026-09-30 and is *"no longer requested at all."* Three months of the walkthrough and the README being the only two bound surfaces is exactly how a false permissions list survived in the document an operator installs from. Binding the third surface is therefore the **minimum** the change owes this requirement.
+
+- **Sequencing decision**: the requirement text is re-cut **here**, and 007's changelog points at this entry rather than restating it. The alternative — leaving FR-042's words alone and putting the whole record in `007/changelog.md` — was rejected because a reader who comes to this document for FR-042 would read a body that says *"the two user-facing documents"* and then be bound by a rule about three. The duplication 007 would have created is avoided by 007 stating the **site** (its pages, its address, its single-source rule) and 002 stating the **relationship**, exactly as v1.2.0 and v1.3.0 divided the work with 003 and 004.
+
+- **The one new rule this amendment adds, and why it is a tie-break rather than a relaxation.** FR-042 already required the bound documents to *agree*; this amendment adds which one wins when a claim appears in two of them — **the site** (007 FR-002). A documented precedence is strictly more enforceable than "in agreement", because a disagreement now has an answer instead of a negotiation. It is recorded as a rule rather than left implicit because the alternative is the failure mode the feature exists to fix: two copies of a fact and no statement of which is authoritative is precisely how `network` survived.
+
+  | Requirement | v1.12.0 text | v1.13.0 effect | Status |
+  | --- | --- | --- | --- |
+  | **FR-042** | binds two documents by name — *"The maintained operator walkthrough (`quickstart.md`) and `README.md` MUST be brought into agreement …"* — enumerates the surfaces they must match, and closes *"This requirement binds the two user-facing documents"* | **Binds three.** The site at `https://shaunburdick.github.io/mecha-turk/` joins the walkthrough and `README.md` in the opening clause; the enumerated surface list gains the site pages that carry install, configuration, first-dispatch, and troubleshooting prose for those same surfaces (007 FR-001, FR-036, FR-041, FR-049); *"Neither document MAY"* becomes *"No bound document MAY"* on the `.env` and provenance clauses so both prohibitions reach the third surface; and the closing sentence gains the **site-is-authoritative** tie-break. **Not weakened:** the retired-tab, `.env`/`MECHA_TURK_*`, unlabelled-`specs/001`-path, Settings-as-single-input, and expected-login-supply clauses are carried over word for word, and one more document is bound, not one fewer. Superseded wording quoted as *Was:* in the body | **Extended and re-cut in place** |
+  | **AC-022** | the scan covers *"`quickstart.md` and `README.md`"* | **The scan widens to the third document**, so AC-022 is the criterion that would catch site drift — the whole point of the amendment, since an uncovered scan is what left the `network` row stale. One clause is **added** (the precedence check: where the same claim appears twice, the site governs and the other two MUST NOT contradict it); **no existing clause moves**, and the retired-tab, `.env`, Settings-surface, and provenance-label assertions are unchanged | **Widened in place** |
+  | `FR-001` – `FR-041`, `FR-043` – `FR-052`, every NFR, every SC, `AC-001` – `AC-021`, `AC-023` – `AC-031`, `## Architecture Decision`, `## Configuration Model`, `## Setup Prerequisites`, `## Edge Cases`, `## Out of Scope`, `## Clarifications`, `contracts/` | Unchanged | **Unchanged.** No wire member, stored row, field, route, capability, audit `eventType`, or state changes | 002 v1.12.0 |
+
+- **What this amendment does not do, stated so a reviewer need not infer it.** It adds **no** requirement: FR-042 and AC-022 are the only two bodies touched, and both were already approved. It changes **no** implemented behaviour, **no** manifest key or capability, **no** storage key, **no** audit row, and **no** dispatch, lease, or token rule. It moves **no** requirement to 007 and restates **no** 007 text here — 007 owns what the site says, 002 owns what synchrony means. And it does **not** make `README.md` or the walkthrough optional: 007 reduces the README to a summary (007 FR-057) and reduces the walkthrough's operator sections to pointers (007 FR-049), which is a **content** change under the same obligation, not an exemption from it.
+
+- **Principles reviewed, unchanged in substance**: **IV (human-visible auditability)** is the principle this amendment serves and the reason it is not optional — an operator who reads the site must find the product they have, and `network` is the recorded instance of them not doing so. **VI (specification and verification before implementation)** is why the bound surface is widened in the requirement text rather than in a note, and why the criterion that proves it (AC-022) widens with it. **V (minimal, self-hosted deployment)** is honoured rather than extended: a static documentation site is not product infrastructure, adds no runtime, no control plane, and no operator-installed component. **I, II, III, and VII** are untouched — a documentation bound surface can neither create a dispatch, authorize one, duplicate one, nor add a host capability. **No principle is weakened.**
+
+- **Requirements explicitly unchanged**: everything v1.12.0 specified that is not about which documents carry the operator's copy. In particular **FR-031** (read-only to GitHub), the whole normalised-event contract and `schemaVersion` (invariant 10), the credential-custody rules, the dispatch gate and single-use authorisation, and the audit vocabulary. **The conformance amendments of v1.2.0 are untouched**: where this document's text is still not met by the software, that remains recorded as a gap with its named successor, and this amendment neither closes nor reopens one of them.
+
+- **Migration impact**: **none**, for the same facts v1.11.0 and v1.12.0 recorded — pre-1.0.0, unreleased, nothing tagged, `package.json` `version` `0.0.1`. No stored document, row, field, wire member, or default changes; no data is rewritten and nothing is dropped. The one consequence worth naming is **editorial, not operational**: when 007 ships, `README.md` and the walkthrough are rewritten to point at the site, and from that moment FR-042 is enforceable against three documents rather than two — which is the amendment's purpose, and which costs an author of documentation prose more attention, not less.
+
+- **Approval status**: **Approved by the product owner 2026-10-05**, as one package with feature 007 and feature 005's amendment — the three were submitted together at the phase gate and approved together, so this amendment was never implemented against on its own and 002 v1.13.0 is in force. **The approval is of the package and preceded the merge; it is not a review of the merge.** It implements one amendment 007's own specification and changelog record, and **no** new scope: two requirement bodies, both already approved, extended by one surface. Three confirmations 007 carries (the MIT copyright holder, the placement of the `network`-row correction, and whether the debug page documents the local service's HTTP surface) each carry an encoded default and none of them changes the shape of FR-042 or AC-022. **Constitution v1.3.0 is unamended**: this is an application of principles IV and VI as already written. **Zero `[NEEDS CLARIFICATION]` markers remain in this document.**
+
+**Version**: 1.13.0 | **Implemented at**: 1.1.0 | **Last Amended**: 2026-10-05
 
 ### Amendments-in-force banner (compressed out of spec.md)
 
 This block stood above the requirements, naming every amendment and what it
 re-cut. It is the same history the entries below record, kept once.
 
-> ⚠️ **Amendments in force — read this first.** Twelve amendments apply to this document; the requirement text below is unchanged from v1.1.0 except where v1.6.0 adds FR-041 and FR-042 (FR-041 re-cut at v1.7.0), where v1.7.0 amends FR-029's baseline source, where **v1.8.0 re-cuts FR-011, corrects FR-002's capability clause, and re-cuts AC-021** (the superseded wording of all three is recorded in their entries), where **v1.9.0 re-cuts FR-008, FR-035's consent clause, AC-002, the edge case, the prerequisite list, and the handoff Q&A/gate row** (superseded wording quoted as *Was:* in each entry), where **v1.10.0 re-cuts FR-029's baseline rule, FR-038 and the setup prerequisite that named an agent, FR-041's baseline row, AC-013, and AC-023** (superseded wording quoted in the entry), where **v1.11.0 adds block H — FR-043 – FR-048, NFR-011, SC-008, AC-024 – AC-027 — the actor allow-list, re-cutting no existing requirement and touching no wire path** — and where **v1.12.0 re-cuts FR-044, FR-045, NFR-011, SC-005, AC-024, and AC-025 and adds FR-049 – FR-052 and AC-028 – AC-031, to correct a false premise v1.11.0 built on (superseded wording quoted in its entry)** — and is otherwise retained verbatim as the historical record of what was specified and what shipped.
+> ⚠️ **Amendments in force — read this first.** Thirteen amendments apply to this document; the requirement text below is unchanged from v1.1.0 except where v1.6.0 adds FR-041 and FR-042 (FR-041 re-cut at v1.7.0), where v1.7.0 amends FR-029's baseline source, where **v1.8.0 re-cuts FR-011, corrects FR-002's capability clause, and re-cuts AC-021** (the superseded wording of all three is recorded in their entries), where **v1.9.0 re-cuts FR-008, FR-035's consent clause, AC-002, the edge case, the prerequisite list, and the handoff Q&A/gate row** (superseded wording quoted as *Was:* in each entry), where **v1.10.0 re-cuts FR-029's baseline rule, FR-038 and the setup prerequisite that named an agent, FR-041's baseline row, AC-013, and AC-023** (superseded wording quoted in the entry), where **v1.11.0 adds block H — FR-043 – FR-048, NFR-011, SC-008, AC-024 – AC-027 — the actor allow-list, re-cutting no existing requirement and touching no wire path**, where **v1.12.0 re-cuts FR-044, FR-045, NFR-011, SC-005, AC-024, and AC-025 and adds FR-049 – FR-052 and AC-028 – AC-031, to correct a false premise v1.11.0 built on (superseded wording quoted in its entry)**, and where **v1.13.0 re-cuts FR-042 and widens AC-022 so both bind a third operator-facing document — the published documentation site — and state which document wins when a claim appears in two of them (superseded wording quoted as *Was:* in each body)** — and is otherwise retained verbatim as the historical record of what was specified and what shipped.
 >
 > **v1.2.0 (2026-09-28) — conformance amendment.** Feature 003 (`specs/003-dispatch-integrity/spec.md`, v1.0.0) **supersedes** this document on the dispatch lifecycle, the run-versus-delivery distinction, the correlation id, the dispatch-lifecycle audit vocabulary, and the two operator-surface gaps named in changelog.md. Where the two documents could be read as disagreeing on those points, **003 prevails**.
 >
@@ -331,11 +365,14 @@ re-cut. It is the same history the entries below record, kept once.
 >
 > **v1.10.0 (2026-10-01) — product-owner order: "Default Agent pin should default to blank."** Verbatim: ***"Default Agent pin should default to blank, not everyone is going to use project-manager."*** The agent-verification baseline's **documented default is the empty string** — 006 amends FR-100 at its own v1.5.0, and this document's FR-029 follows: a baseline that is **blank, absent, or unreadable** now means **no comparison is possible**. The read-back still runs and still records the observed agent with the baseline's provenance (`configured` / `defaulted` / `unset`), the run still proceeds, and **nothing is ever compared against a name the operator never chose**. The mismatch warning fires only when a *configured* baseline exists and the observed agent differs from it; the observed-agent rule (mismatch or unreadable → `blocked:agent-mismatch`, fail closed) is untouched, and a baseline problem alone still never blocks. The setup step and FR-038's prerequisite keep the **setting path** and drop the **prescribed value**, because 003 FR-072 and 005 FR-037 require the panel to name the pin and its checkability, not an agent name. AC-013 and AC-023 are re-cut to state the configured-baseline condition; FR-029's fallback sentence, FR-041's "default `project-manager`" row, and US2's independent test follow.
 >
-> changelog.md at the end of this file is the index of all twelve, in the same shape the project's constitution requires.
+> changelog.md at the end of this file is the index of all thirteen, in the same shape the project's constitution requires.
 >
 > **v1.11.0 (2026-10-03) — the per-repository actor allow-list (GitHub issue #9).** Additive, and it adds to three documents without re-cutting a line of any of them. **This document owns the model and the field's validation**: FR-043 makes the triggering actor a first-class member of the normalized event with an honest attribution basis beside it; FR-046 keeps the actor **out of the deterministic event id**, so nothing already in the queue dedupes differently; FR-045 extends the bot and unreadable-author exclusions this document already applies to mention triggers to **all four** trigger kinds, which is why FR-045 also states the `PollPull` author fields the assignment and review proxies need. FR-047 fixes the field's three-state shape — **absent = any human may trigger, non-empty = exactly those logins, an explicitly empty array is a refusal** — and FR-048 records the product owner's rejection of a plural `repository` or a wildcard, with the `binding.projectId` → `host.startSession({ projectId })` chain that makes it load-bearing. **003 v1.8.0 owns the gate** (the one place a dispatch token is minted) and **005 v1.11.0 owns the rendering**; **006 is deliberately not amended**, because a per-binding field is not a `config.json` field and its closed `FieldDescriptor` union must not grow one. **v1.12.0 below corrects this paragraph's attribution premise; the `subject-author` description in it is superseded and must not be relied on.**
 >
 > **v1.12.0 (2026-10-03) — the attribution premise corrected; the `subject-author` proxy loses its producer.** **GitHub records both actors, in named fields.** `GET /repos/{owner}/{repo}/issues/{issue_number}/events` — the feed v1.11.0 never consulted — carries `assigner` ("the person who performed the assignment") on every `assigned` event and `review_requester` ("the person who requested a review") on every `review_requested` event, each a nullable `simple-user` carrying `login` and `type`, so the existing bot predicate applies unchanged. v1.11.0 read only the two **list** feeds the poller happens to call — the issues list exposes `assignees` with no actor, the pulls list exposes `requested_reviewers` with no requester — and generalized from *those endpoints* to *GitHub as a whole*. The list feeds name no actor; the events feed names both. The claim "GitHub does not record who assigned" was **false**, and because a false premise cannot be corrected by rewording around it, this amendment replaces the mechanism rather than annotating it: **FR-044 and FR-045 are re-cut, NFR-011 is re-cut, FR-049 – FR-052 are added**, and the corrected research record replaces §R8. `'subject-author'` **remains in the closed union** — rows the shipped PR already wrote to `events.json` carry it, and a vocabulary a stored file still contains cannot be deleted without invalidating that file — but it has **no producer**, and **no row written under this amendment may carry it**. `'direct'` becomes the basis for **all four** trigger kinds, because GitHub names the actor in every case. The actor for the assignment kind is the event's `assigner`; for the review kind, its `review_requester`. The four new requirements are the per-item read that reaches those fields, the closed correlation rule that picks which event answers which trigger, the **client-side** window comparison that stands in for the `since` parameter **these endpoints do not have**, and the fail-closed duty that an actor which cannot be read produces **no event this cycle** — self-healing, because the scan window overlaps, rather than lost. **What is untested is stated, not assumed**: bot and app actors, bulk assignment, and a null `assigner` / `review_requester` are all unobserved on this repository's data, and each is handled by refusing rather than guessing.
+>
+> **v1.13.0 (2026-10-05) — the documentation bound widens to a third document (GitHub issue #11).** Feature 007 (`specs/007-homepage-docs/spec.md`, v1.0.0) publishes five pages at `https://shaunburdick.github.io/mecha-turk/` and reduces `README.md` to a summary, which makes the site the canonical operator documentation. **FR-042 is re-cut** to bind that third document beside the walkthrough and the README — its opening clause names it, its enumerated surface list gains the site pages carrying install, configuration, first-dispatch, and troubleshooting prose, *"Neither document MAY"* becomes *"No bound document MAY"* so the `.env` and unlabelled-`specs/001`-path prohibitions reach it, and its closing sentence gains the **site-is-authoritative** tie-break for a claim that appears in two documents (007 FR-002). **AC-022's scanned set widens with it**, because an uncovered scan is what let the `network` row rot in the README's install steps while this requirement read as satisfied. **Not weakened:** the retired-tab, `.env`, provenance-label, Settings-as-single-input, and expected-login clauses are carried over word for word, and one more document is bound, not one fewer. **No requirement is added, no wire member, stored row, field, route, capability, or audit `eventType` changes, and nothing is superseded here** — 007 states what the site says; this document states what synchrony means. See changelog.md → `### v1.13.0`.
+>
 
 ---
 
@@ -408,3 +445,112 @@ Two narrow decisions taken at the v1.13.0 gate. **No requirement was added, remo
 - **Why the tradeoff is acceptable here**: the consequence is only a *future* tidiness cost, paid at the next amendment, and it costs one appended sentence at that time to restore. What it would have cost immediately was touching the numbering of a 94-requirement production document that four later specifications cite by number — a larger risk than the one being deferred.
 
 **Migration impact**: none. No stored record, configuration field, route, or capability changes; nothing is rewritten, reset, or added to a schema. **Approval status**: approved 2026-10-05 by the product owner.
+
+---
+
+### v1.13.2 — 2026-10-05 (five requirements amended in place; the retained baseline widens, and a replay outranks an armed catch-up)
+
+**Why**: the I1 fix, delivered with issue #22, is a **divergence between this document and the
+shipped code**, and it is the kind only delivery can create. `### v1.13.0` specified a retained
+baseline that is *"derived once and retained"*; the code widens it monotonically on every scan that
+opens a wider window, because the alternative — a baseline frozen at its derivation — lets a
+**recovery replay run narrower than the work it exists to re-cover**. `FR-065` named two window
+sources and omitted that a replay's window start *is* the baseline. `FR-073` gave the replay
+precedence over a sweep without saying what the replay opens at. All three had been recorded in
+`data-model.md`, in `plan.md` §B.4 **H7** and **H8**, and in `tasks.md`, with the corrections dated
+in place — but **`## Functional Requirements` is what a reader of this document reads**, and it was
+describing behaviour the build does not have.
+
+**The concrete failure it would have allowed.** A binding **younger than the seven-day look-back**
+derives its baseline from its own creation boundary, which is *later* than the `now − 7 days` an
+armed catch-up opens. The catch-up sweeps a five-day-old assignment and queues it. The queue is lost,
+the checkpoints are cleared, and the replay opens — at the frozen creation boundary, **later** than
+the armed bound. The five-day-old row is inside neither window and is never re-offered, silently.
+FR-073 requires that replay to re-detect and re-offer in-window work; under the frozen baseline it
+could not. Nothing in v1.13.0 forbade the build from narrowing, and nothing in the requirements told a
+reader it did not.
+
+**Requirement-by-requirement record**
+
+| Requirement | v1.13.1 text | v1.13.2 effect | Status |
+| --- | --- | --- | --- |
+| **FR-065** | two window sources: the recorded stamp minus overlap, or the baseline for a binding with no completed scan | names **every** source and the precedence between them — a recovery replay at the retained baseline, then an armed catch-up at its own bound, then the ordinary incremental window, then the baseline — with the reason the replay outranks the other two | **Amended** |
+| **FR-066** | *"the baseline MUST be stable: it is derived once and retained"* | **stable and only ever widening**, on two named axes: stability is about the *clock* (a failed scan reuses the bound it holds), widening is about *coverage* (a completing scan takes the earlier of the retained baseline and the window it opened; a scan that does not complete leaves it alone) | **Amended** |
+| **FR-067** | the look-back baseline is *"widened by nothing further"* | the same derivation, with *"at derivation"* made explicit and a pointer to FR-066 — so it cannot be read as a frozen bound beside FR-066's widening rule | **Corrected in place** |
+| **FR-073** | the replay is bounded like any scan and takes precedence over a sweep in force | states that **the replay's window start is the retained baseline**, so a replay re-covers at least everything any earlier scan covered; and that a catch-up whose ground the replay did not reach **stays armed** for the scan after (FR-076) | **Amended** |
+| **FR-084** | the catch-up caller | gains the **served-not-spent** clause: the armed bound is cleared by the first scan whose window reaches back that length and by no other. *Labelled v1.13.2 rather than v1.13.1: it was written during the merge of `main`, not by the v1.13.1 gate decisions, and a version record that claimed otherwise would be false.* | **Amended** |
+
+**No requirement is added, renumbered, deleted or repurposed.** `FR-001` – `FR-094` keep their
+numbers and their meanings, and the amendment is **in the clause, in place**: the sentences the
+build contradicts were rewritten rather than annotated, because a requirement that leaves the wrong
+sentence standing and adds the right one beside it is two requirements. **Rejected alternative: a
+new requirement stating the widening rule** — appending FR-095 would have left FR-066 reading *"is
+derived once and retained"* next to a later requirement saying it moves, and a reader would have had
+no way to tell which governed. The second half of the gap (an armed bound surviving a replay that
+did not reach it) was found while merging `main` and is folded in here rather than carried as a
+separate amendment, since it is one property of one mechanism.
+
+**Nothing else moves.** No stored record, wire member, configuration field, route, capability or
+audit `eventType` changes; no checkpoint is reset; the code shipped before this amendment and is
+unchanged by it. **AC-036 is unaffected and still true**: three failed scans and then a success open
+at `T − configured overlap`, because a completing scan takes the *earlier* of a baseline already at
+`T − overlap` and the window it opened. **Approval status**: approved 2026-10-05 by the product
+owner, as a documentation correction to the requirement text rather than a change to the product.
+---
+
+### v1.13.3 — 2026-10-05 (three clauses in place; what the build already did with an unreadable scan-state stamp)
+
+**Why**: `### v1.13.2` closed the divergence the I1 fix introduced — the retained baseline's
+monotone widening and the replay's precedence over an armed catch-up. Reading the amended
+requirements with the shipped `service/poll/window.ts` beside them surfaced **three more places
+where the build is right and the text is silent**, all of them in the same family: a stamp that is
+present and the clock cannot read. The build treats each one fail-closed, and in each case a reader
+of `## Functional Requirements` alone could infer a *fallback* the code does not perform. **No
+behaviour changes here; this amendment only says what the build has been doing.**
+
+**The three, and what each would have let a reader believe**
+
+| Requirement | v1.13.2 text | v1.13.3 effect | Status |
+| --- | --- | --- | --- |
+| **FR-084** | an armed bound is cleared by the first scan whose window covers it | adds that an arming **the clock cannot read** is neither turned into a window nor cleared — it **stands armed indefinitely**, and **is deliberately unreported**: no projection carries the member, no log line names it, and the health row shows the binding's ordinary window. Names the follow-up that would change it (a member on the health row, a wire contract the panel reads) as **a product decision not taken**, and distinguishes this from FR-061's refusal of a bad value **on write** | **Amended** |
+| **FR-073** | the replay's window start is the retained baseline | qualifies it: **that baseline must be readable for the rule to hold**, and an unreadable one **refuses** under FR-072 unless another source on FR-065's list is itself computable — and does not disturb an ordinary incremental window, which is computed from a different fact | **Amended** |
+| **FR-065** | an ordered list of window sources ending "*…or the baseline*" | adds that a **present-but-unreadable stamp is not the same fact as no stamp**: it is never coerced, defaulted or read as absent, and at its own place in that order it **refuses** with the reason recorded — which is why an unreadable recorded scan stamp stops the scan instead of falling back to the baseline | **Amended** |
+
+**FR-084's silence is the one that needed the requirement text to say so.** The behaviour was
+already decided — by the product owner, on 2026-10-05, and pinned by
+`tests/history-scope.test.ts`'s §5.18 case *never turns an unreadable arming into a window, and never
+clears it* — but the only place the decision was written down was `tasks.md`'s known-gap note. An
+unreported state that no requirement mentions is indistinguishable from an oversight to the next
+reader, so the clause now states the behaviour **and** that the silence was chosen, **and** what
+would change it.
+
+**No requirement is added, renumbered, deleted or repurposed.** `FR-001` – `FR-094` keep their
+numbers and their meanings, and each clause replaces or extends wording already in the requirement it
+belongs to. **Rejected alternative: a new requirement for unreadable scan-state stamps** — the same
+reason as `### v1.13.2`. A reader would have had three requirements to reconcile (FR-061's write-time
+refusal, FR-072's baseline refusal, and a new one), with the shipped behaviour split across all three
+rather than stated once beside each source it applies to; and FR-061's own text says the value is
+judged by **one rule set**, which a fourth statement of the same family would contradict in form.
+**The alternative actually taken** is one clause per source, each cross-referencing the other two, so
+the family reads as one rule in three places.
+
+**Nothing else moves.** No source file, test, stored record, wire member, configuration field, route,
+capability or audit `eventType` changes; no checkpoint is reset. The one test added,
+`tests/service-scan-state.test.ts`'s *refuses a replay whose baseline the clock cannot read*, pins
+the case FR-073's new clause introduced and nothing else; the other two clauses were already pinned
+(§5.18 for the unreadable arming, and the existing *refuses a recorded stamp the clock cannot read*
+case for FR-065's). **Approval status**: approved 2026-10-05 by the product owner, as a
+documentation correction to the requirement text rather than a change to the product.
+
+**Delivery, 2026-10-05.** This entry and `### v1.13.0` above were **approved specification awaiting
+Phase 4** when written — that is the reading `spec.md`'s header carried at the gate, and it is kept
+here rather than erased there. Both are now **implemented and shipped** on `issue-22-binding-history`
+(GitHub issue #22): Waves 1–4 of `tasks.md` delivered, `npm run verify` green, the contract proof in
+`tests/history-scope.test.ts` and the mode table in `tests/service-events.test.ts` standing as the
+acceptance record. Two decisions were taken during implementation that this changelog did not
+otherwise carry, and both are now stated in the requirements rather than only beside them: the
+**replay outranks an armed catch-up** because the replay's obligation is re-covering lost work, and
+an **arming is cleared only by a scan whose window covered it**. `### v1.13.2` below amends FR-065,
+FR-066, FR-067, FR-073 and FR-084 to carry them; at the time of writing they were recorded only in
+`data-model.md`, `plan.md` and `tasks.md`. Phase 4 and 5 artefacts (`plan.md` **H7** and **H8**, `tasks.md`, `contracts/`) were
+corrected to match both, with the corrections dated in place.

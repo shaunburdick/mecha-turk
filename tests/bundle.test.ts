@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -997,18 +997,43 @@ describe('004 full-cycle containment (AC-133, AC-143, AC-151, FR-053, NFR-121)',
 });
 
 describe('004 the field is documented, and the editor it points at is the shipped one (FR-062, FR-074)', () => {
-    /** The two operator pages that owe the field a section. */
-    const pages: readonly string[] = ['README.md', 'specs/002-agent-event-extension/quickstart.md'];
+    /**
+     * The two site pages that now own the field's documentation, and why each.
+     *
+     * 007 FR-049 made the published site authoritative and moved the prose there:
+     * the configure page owns the starting prompt itself — its three tiers, the
+     * field each tier is set on, and every guarantee the validator enforces —
+     * while the debug page owns the store inventory, so `bindings.json` is named
+     * there and not on the page about configuration. Each is asserted once,
+     * against the page that owns it: asserting both pages for both facts would
+     * be the second home FR-049 forbids.
+     */
+    const PROMPT_PAGE = 'site/src/pages/configure.astro';
+    const STORE_PAGE = 'site/src/pages/debug.astro';
+    const pages: readonly string[] = [PROMPT_PAGE, STORE_PAGE];
 
     it('states the set path, the cap, the literal rule, the refusal, and the pinned agent', () => {
         {
-            for (const page of pages) {
-                const text = readFileSync(resolve(ROOT, page), UTF8);
-                expect(text, `${page} names the member`).toContain('startingPrompt');
-                expect(text, `${page} names the store file`).toContain('bindings.json');
-                expect(text, `${page} names the cap`).toContain('2,000');
-                expect(text, `${page} promises literal text`).toContain('literal');
-            }
+            const text = readFileSync(resolve(ROOT, PROMPT_PAGE), UTF8);
+
+            expect(text, `${PROMPT_PAGE} names the member`).toContain('startingPrompt');
+            expect(text, `${PROMPT_PAGE} names the cap`).toContain('2,000');
+            expect(text, `${PROMPT_PAGE} promises literal text`).toContain('literal');
+            // 004 FR-024: a refused value is refused by name and never stored, so
+            // the page has to say so — the cycle's whole containment claim.
+            expect(text, `${PROMPT_PAGE} does not state the credential refusal`).toContain(
+                'A credential-shaped value is refused, not stored',
+            );
+            // The other half of the pinned agent: the field is operator text and
+            // cannot select the agent, so the session runs the pinned default.
+            expect(text, `${PROMPT_PAGE} does not say the prompt cannot select an agent`).toContain(
+                'It cannot select an agent',
+            );
+        }
+        {
+            const text = readFileSync(resolve(ROOT, STORE_PAGE), UTF8);
+
+            expect(text, `${STORE_PAGE} names the store file`).toContain('bindings.json');
         }
         {
             for (const page of pages) {
@@ -1016,8 +1041,8 @@ describe('004 the field is documented, and the editor it points at is the shippe
 
                 // 004 shipped no editor in its own window; 005 T-021 shipped the
                 // binding editor's starting-prompt field, so the cycle's promise
-                // ("no editor yet") is history and both documents must say where
-                // the field actually lives instead of forecasting it.
+                // ("no editor yet") is history and the page that owns the field
+                // must say where it lives instead of forecasting it.
                 expect(text, `${page} still forecasts an editor`).not.toMatch(
                     /no editor for this field yet|Until the panel grows a field/,
                 );
@@ -1037,6 +1062,557 @@ describe('004 the field is documented, and the editor it points at is the shippe
  * sites that exist — no fourth hand-authored field, and the projected row's
  * guidance with exactly one author so it can render exactly once.
  * ------------------------------------------------------------------------- */
+
+/* ------------------------------------------------------------------------- *
+ * T-034 the documentation site's own output joins the secret scan
+ * (007 FR-054, NFR-005)
+ *
+ * Invariant 9 says a credential lives in the service store and nowhere else, and
+ * that a redaction refusal blocks the write rather than logging through it. The
+ * site is a third shipped artefact — its pages are what an operator reads, and
+ * they are generated from the same declarations — so FR-054 puts its sources
+ * and its build output under *the same patterns the repository applies to its
+ * committed bundles*. The bundle's own assertions are unchanged: the scan gains a
+ * path, never an exemption.
+ *
+ * Two things about the shape of this scan are load-bearing.
+ *
+ * **The output is conditional; the sources are not.** `site/dist/` is gitignored
+ * (FR-071) and is produced by `cd site && npm run build`, which the root gate
+ * does not and must not run (FR-070: the root verification command must not
+ * lint, type-check or build the site). So the output scan runs wherever a build
+ * has been run — locally after `npm run build` in `site/`, and in the site's own
+ * CI job, which is the gate that builds it — and is skipped where one has not.
+ * The `git ls-files` assertion below is what keeps that honest: nothing under the
+ * output is committed, so a leak can never hide in a file the skip would miss.
+ * The sources, which are committed and are what the output is generated from, are
+ * scanned on every run.
+ *
+ * **The off-origin check is a check on positions, not on hosts.** The footer's
+ * links into the repository are off-origin by necessity — the site publishes no
+ * copy of the license (plan D8) and AC-005 requires the link — so a scan that
+ * flagged every off-origin URL would be flagging a requirement. `<a href>` is
+ * therefore not a resource-loading position: a hyperlink a reader may choose to
+ * follow is not a request the page makes. The positions below are the same list,
+ * and the same distinction, as `site/scripts/assert-build.mjs` uses.
+ * ------------------------------------------------------------------------- */
+
+/** The site's sources: committed, and what the build output is generated from. */
+const SITE_SRC = 'site/src';
+
+/** The site's build output: gitignored, and produced by the site's own gate. */
+const SITE_DIST = 'site/dist';
+
+/** The site's declared canonical origin, read out of its one configuration file. */
+const SITE_CONFIG = 'site/astro.config.ts';
+
+/**
+ * Attribute positions whose value the browser fetches or executes (FR-010,
+ * NFR-003). `<a href>` is absent by design — see this block's note.
+ */
+const RESOURCE_POSITIONS: readonly { readonly tag: string; readonly attribute: string }[] = [
+    { tag: 'img', attribute: 'src' },
+    { tag: 'image', attribute: 'href' },
+    { tag: 'image', attribute: 'xlink:href' },
+    { tag: 'script', attribute: 'src' },
+    { tag: 'iframe', attribute: 'src' },
+    { tag: 'embed', attribute: 'src' },
+    { tag: 'object', attribute: 'data' },
+    { tag: 'input', attribute: 'src' },
+    { tag: 'source', attribute: 'src' },
+    { tag: 'track', attribute: 'src' },
+    { tag: 'video', attribute: 'src' },
+    { tag: 'video', attribute: 'poster' },
+    { tag: 'audio', attribute: 'src' },
+    { tag: 'use', attribute: 'href' },
+    { tag: 'link', attribute: 'href' },
+    // `base` fetches nothing itself, and is here for the reason
+    // `site/scripts/assert-build.mjs` gives: a `<base href>` re-bases every *relative* URL
+    // on the page, so the request it causes is made under whatever origin it names. That is
+    // the shape NFR-003 forbids, it is reachable from a build that stays otherwise green,
+    // and a position list that omitted it lets a page point its own stylesheet, font, and
+    // script at a third-party host by changing one attribute.
+    //
+    // `style` is the second such entry, and it is handled rather than listed: a `style`
+    // attribute is a stylesheet body, so it is routed through `stylesheetUrls` below —
+    // which is what catches `style="background:url(https://…)"`. Listing it here would read
+    // the value as a bare URL and miss every `url()` inside it.
+    { tag: 'base', attribute: 'href' },
+];
+
+/** Schemes that carry their content inline rather than naming a file to fetch. */
+const INLINE_SCHEMES: ReadonlySet<string> = new Set(['data:', 'blob:', 'about:']);
+
+/** A `url()` reference in a stylesheet body, in single, double, or bare spelling. */
+const STYLESHEET_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]+))\s*\)/gi;
+
+/** An `@import` target, which fetches without a `url()` wrapper. */
+const IMPORT_TARGET = /@import\s+(?:url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'";\s]+))\s*\)|"([^"]*)"|'([^']*)')/gi;
+
+/**
+ * Every resource a stylesheet body names, whether it is the whole body or a `url()` or an
+ * `@import` inside it.
+ *
+ * Three spellings because CSS has three: `url(…)`, `url("…")`, `url('…')`. The unquoted form
+ * cannot contain a closing paren, so the run stops at one — which is the CSS spec's own
+ * grammar, not a shortcut.
+ *
+ * @param css - A stylesheet body, whether a `<style>` block or a `style` attribute.
+ * @returns Each referenced URL, as authored.
+ */
+function stylesheetUrls(css: string): readonly string[] {
+    const found = [...css.matchAll(STYLESHEET_URL)].map((match) => (match[1] ?? match[2] ?? match[3] ?? '').trim());
+    // Only the bare-string `@import` form is read here: `@import url(…)` *is* a `url()` in a
+    // declaration and was already found above, so reading it again would report one
+    // reference twice. Deduplicated, because a finding's count is part of what it says.
+    const imports = [...css.matchAll(IMPORT_TARGET)]
+        .map((match) => (match[4] ?? match[5] ?? '').trim())
+        .filter((url) => url !== '');
+
+    return [...new Set([...found, ...imports].filter((url) => url !== ''))];
+}
+
+/**
+ * The URL a `<meta http-equiv="refresh">` navigates to, or the empty string when it only
+ * re-renders the page it is on.
+ *
+ * Read out of the `content` value rather than treating it as a URL: `0;url=https://evil.example/`
+ * is a *delay* followed by a target, and handing the whole value to `new URL()` would resolve
+ * it as a relative path — back onto the site's own origin, where it passes as an internal
+ * reference. That is why a meta refresh is handled rather than added to `RESOURCE_POSITIONS`.
+ *
+ * **Treated as a resource reference, not ignored.** It is the one navigation a page performs
+ * with no reader's click in it, which makes it a reference the page itself makes — the shape
+ * NFR-003 forbids rather than the shape it exempts (`<a href>`, a hyperlink the reader may
+ * choose to follow).
+ *
+ * @param content - A refresh `content` value.
+ * @returns The target URL, or the empty string when there is none.
+ */
+function refreshTarget(content: string): string {
+    const found = /(?:^|[;,])\s*url\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s;,]+))/i.exec(content);
+
+    return found?.[1] ?? found?.[2] ?? found?.[3] ?? '';
+}
+
+/** One element read out of a page's markup. */
+interface MarkupElement {
+    /** The element's name, lower-cased. */
+    readonly tag: string;
+    /** Its attribute values, keyed by lower-cased attribute name. */
+    readonly attributes: Map<string, string>;
+}
+
+/**
+ * Two scanners, both of which have a nested unbounded quantifier — the shape
+ * `security/detect-unsafe-regex` exists for, whose failure mode is catastrophic
+ * backtracking **on a request body**. Neither ever sees a request body: the input
+ * is `astro build`'s own output on this repository, written by the site's own
+ * build and read back in the same run. The unnested spelling of either one would be
+ * worse than the warning rather than better — a `>` inside a quoted attribute value
+ * would end the tag run early and silently drop a resource reference from the scan,
+ * which is the false *accept* a gate must never buy.
+ */
+
+/** An opening tag: the name, then the attribute run. Quoted runs are matched whole. */
+// eslint-disable-next-line security/detect-unsafe-regex -- nested quantifier; the input is a build artifact
+const OPENING_TAG = /<([a-zA-Z][^\s/>]*)((?:[^>"']|"[^"]*"|'[^']*')*)>/g;
+
+/** One attribute inside an opening tag, with quoted, single-quoted and bare values. */
+// eslint-disable-next-line security/detect-unsafe-regex -- nested quantifier; the input is a build artifact
+const ATTRIBUTE = /([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'`=<>]+)))?/g;
+
+/** A URL scheme at the start of a value. */
+const SCHEME = /^([a-zA-Z][a-zA-Z0-9+.-]*):/;
+
+/**
+ * Every element in a document, in document order, with its attributes read.
+ *
+ * The emitted HTML is flat and minified and the Node standard library has no DOM
+ * parser, so a tolerant tag scanner is what these checks read through — the same
+ * reading `site/scripts/assert-build.mjs` makes and the reason it needs one.
+ *
+ * @param html - A page's markup.
+ * @returns Every element, in document order.
+ */
+function resourceElements(html: string): readonly MarkupElement[] {
+    return [...html.matchAll(OPENING_TAG)].map((match) => {
+        const attributes = new Map<string, string>();
+        const authored = (match[2] ?? '').matchAll(ATTRIBUTE);
+        for (const attribute of authored) {
+            attributes.set(attribute[1]?.toLowerCase() ?? '', attribute[2] ?? attribute[3] ?? attribute[4] ?? '');
+        }
+
+        return { tag: (match[1] ?? '').toLowerCase(), attributes };
+    });
+}
+
+/**
+ * Classify one resource-loading value.
+ *
+ * @param raw - The attribute value as authored.
+ * @param origin - The site's declared canonical origin.
+ * @returns `null` when the value makes no request — empty, a same-document
+ *   fragment, or an inline `data:`/`blob:`/`about:` value — the origin it
+ *   resolves to otherwise, or the empty string when it resolves to nothing.
+ */
+function referenceOrigin(raw: string, origin: string): string | null {
+    const value = raw.trim();
+    if (value === '' || value.startsWith('#')) {
+        return null;
+    }
+    const scheme = SCHEME.exec(value)?.[1]?.toLowerCase();
+    if (scheme !== undefined && INLINE_SCHEMES.has(`${scheme}:`)) {
+        return null;
+    }
+
+    // A relative reference resolves against the site's own origin, so only an
+    // absolute one can leave it.
+    try {
+        return new URL(value, `${origin}/`).origin;
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * Every resource-loading reference in one page's markup that leaves the site's own origin.
+ *
+ * @param html - The page's markup.
+ * @param origin - The site's declared canonical origin.
+ * @returns Each off-origin reference, as the element and attribute it was written on.
+ */
+/** One reference read off an element, with the text a finding should name it by. */
+interface NamedReference {
+    /** How the reference is written in a finding. */
+    readonly label: string;
+    /** The reference as authored, to resolve. */
+    readonly url: string;
+}
+
+/**
+ * Every reference one element makes that is **not** a resource-loading attribute's whole
+ * value, read as the CSS body or the `delay;url=target` pair that it actually is.
+ *
+ * Split out of `offOriginResources` because these two shapes are why the position list was
+ * not enough, and putting them beside the loop that reads the list made the function a
+ * branch tangle. Each is a *shape*, not a position:
+ *
+ * - **A `style` attribute** is a stylesheet body, so `url()` in it is a request — and the URL
+ *   is not the attribute's whole value, which is why no entry in `RESOURCE_POSITIONS` can see
+ *   it. `style="background:url(https://cdn.example/a.gif)"` is the case.
+ * - **A meta refresh** is a delay followed by a target, read out of `content` rather than
+ *   treated as a URL: handing `0;url=https://evil.example/` to `new URL()` resolves it as a
+ *   relative path, back onto the site's own origin, where it passes as an internal reference.
+ *   It is reported rather than ignored because it is the one navigation a page performs with
+ *   no reader's click in it — the shape NFR-003 forbids rather than the shape it exempts
+ *   (`<a href>`, a hyperlink the reader may choose to follow).
+ *
+ * @param element - One element from the page.
+ * @returns Every reference it makes, in document order.
+ */
+function attributeReferences(element: MarkupElement): readonly NamedReference[] {
+    const found: NamedReference[] = [];
+    const style = element.attributes.get('style');
+
+    if (style !== undefined) {
+        for (const url of stylesheetUrls(style)) {
+            found.push({ label: `<${element.tag} style="…${url}…">`, url });
+        }
+    }
+    if (
+        element.tag === 'meta' &&
+        (element.attributes.get('http-equiv') ?? '').trim().toLowerCase() === 'refresh'
+    ) {
+        const target = refreshTarget(element.attributes.get('content') ?? '');
+        if (target !== '') {
+            found.push({ label: `<meta http-equiv="refresh" content="…${target}…">`, url: target });
+        }
+    }
+
+    return found;
+}
+
+function offOriginResources(html: string, origin: string): readonly string[] {
+    const found: string[] = [];
+    const elements = resourceElements(html);
+
+    /**
+     * Report one reference, if it leaves the site's own origin.
+     *
+     * @param label - How the reference is named in the finding.
+     * @param raw - The reference as authored.
+     */
+    const report = (label: string, raw: string): void => {
+        const resolved = referenceOrigin(raw, origin);
+        if (resolved === null || resolved === origin) {
+            return;
+        }
+        found.push(resolved === '' ? `${label} is not a resolvable URL` : `${label} resolves to ${resolved}`);
+    };
+
+    for (const element of elements) {
+        for (const position of RESOURCE_POSITIONS) {
+            const raw = element.tag === position.tag ? element.attributes.get(position.attribute) : undefined;
+            if (raw !== undefined) {
+                report(`<${element.tag} ${position.attribute}="${raw}">`, raw);
+            }
+        }
+        for (const reference of attributeReferences(element)) {
+            report(reference.label, reference.url);
+        }
+    }
+
+    // `<style>` bodies, read past their opening tag to their closing one. Scanned here as
+    // well as by the site's own gate: this scan reads `dist/` when a build has run, and the
+    // whole of T-034 is that the repository applies the same patterns to the site's output
+    // as to its committed bundles.
+    const blocks = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)];
+
+    for (const block of blocks) {
+        const urls = stylesheetUrls(block[1] ?? '');
+
+        for (const url of urls) {
+            report(`<style> …${url}…`, url);
+        }
+    }
+
+    return found;
+}
+
+
+/**
+ * Drop the list item that names a credential's shape — the one thing a site
+ * surface may *name*.
+ *
+ * `findSecretLeak`'s `authorization-header` pattern is
+ * `\bAuthorization\s*[:=]\s*["']?\S+` — any non-space run after the header name —
+ * so the configure page's list item, which has to tell the reader that "a value
+ * shaped like a token, an `Authorization:` header, or a bearer credential" is
+ * refused rather than stored (007 FR-034, 004 FR-024), trips it. That is the
+ * documentation of a refusal rather than a credential, and stating it is not
+ * optional, so the item is cut before the shape patterns run.
+ *
+ * The cut is a **rule** on the item, not a literal of the sentence: an item that
+ * names the header is exempted wherever one is written, and the assertion beside
+ * it holds the sentence that item must carry on the page that owes it — so a page
+ * that stopped documenting the refusal fails there rather than quietly widening
+ * the exemption here. The token patterns are not exempt at all; `ghp_…` is not
+ * something a page can say about a refusal.
+ *
+ * @param text - A surface's text.
+ * @returns The same text with every such item removed.
+ */
+function cutDocumentedShapeItems(text: string): string {
+    return text
+        .split('</li>')
+        .filter((item) => !item.includes('Authorization:'))
+        .join('</li>');
+}
+
+/**
+ * Every file under a repository-relative directory, as a `path`/`text` pair.
+ *
+ * @param dir - Repository-relative directory, which may be absent.
+ * @returns One pair per file, sorted by path; empty when the directory is absent.
+ */
+function readTree(dir: string): readonly (readonly [string, string])[] {
+    const root = resolve(ROOT, dir);
+    if (!existsSync(root)) {
+        return [];
+    }
+
+    return readdirSync(root, { recursive: true })
+        .map(String)
+        .filter((entry) => statSync(resolve(root, entry)).isFile())
+        .toSorted(byText)
+        .map((entry) => [`${dir}/${entry}`, readFileSync(resolve(root, entry), UTF8)]);
+}
+
+/**
+ * The origin the site publishes under, read out of the file that declares it.
+ *
+ * Read rather than written here, for the reason `site/scripts/assert-build.mjs`
+ * gives: FR-005 and AC-002 declare the origin in exactly one file, and a second
+ * copy in a gate is the rename bug inside the gate that exists to catch it.
+ *
+ * @returns The origin, scheme and host, without a trailing slash.
+ */
+function declaredSiteOrigin(): string {
+    const config = readFileSync(resolve(ROOT, SITE_CONFIG), UTF8);
+    const declared = /^\s*site:\s*'([^']+)'/m.exec(config)?.[1];
+
+    if (declared === undefined) {
+        throw new Error(`${SITE_CONFIG} declares no canonical \`site:\` origin to compare against`);
+    }
+
+    return new URL(declared).origin;
+}
+
+/**
+ * Assert that no site surface carries credential material.
+ *
+ * @param surfaces - The `path`/`text` pairs to scan, read from the site's sources or its output.
+ */
+function expectNoCredentialMaterial(surfaces: readonly (readonly [string, string])[]): void {
+    for (const [name, text] of surfaces) {
+        // The token shapes carry no exemption at all: `ghp_…` is not something a
+        // page can say about a refusal.
+        for (const pattern of TOKEN_PATTERNS) {
+            expect(text, `${name} matched ${pattern.source}`).not.toMatch(pattern);
+        }
+        // The shape patterns run on the surface with the one documented refusal
+        // cut out — see `cutDocumentedShapeItems`.
+        expect(findSecretLeak(cutDocumentedShapeItems(text)), `${name} carried credential material`).toBeNull();
+    }
+}
+
+describe('T-034 the site ships no credential material (FR-054, NFR-005)', () => {
+    it('scans the site sources on every run, and the scan bites', () => {
+        {
+            const surfaces = readTree(SITE_SRC);
+
+            expect(surfaces.length, 'no site source was read').toBeGreaterThan(10);
+            expectNoCredentialMaterial(surfaces);
+        }
+        {
+            // The cut is not a hole in the scan: the page that owes the sentence
+            // still carries it, and a credential planted beside it is still found.
+            const configure = readFileSync(resolve(ROOT, 'site/src/pages/configure.astro'), UTF8);
+
+            expect(configure, 'the configure page no longer names the header shape it refuses')
+                .toContain('<code>Authorization:</code> header');
+            expect(findSecretLeak(cutDocumentedShapeItems(configure)), 'the cut is wider than the sentence')
+                .toBeNull();
+            // A token inside the exempted item is still a token: the token patterns have
+            // no exemption at all, so this proves the cut is not what catches it.
+            const inTheItem = `<li>Authorization: ${REGISTERED_PAT}</li>`;
+
+            expect(findSecretLeak(inTheItem), 'the cut hides a planted token').toBe('github-token-classic');
+            expect(TOKEN_PATTERNS.some((pattern) => pattern.test(inTheItem))).toBe(true);
+            // The cut exempts an item that *names* the header and nothing beside
+            // it: a second item in the same list keeps its planted token.
+            const beside = `<li>Authorization: a header</li><li>the token is ${REGISTERED_PAT}</li>`;
+
+            expect(findSecretLeak(cutDocumentedShapeItems(beside)), 'the cut reached past its own item')
+                .toBe('github-token-classic');
+        }
+        {
+            // Not vacuous: the same detectors, on the very credential the
+            // containment cycle above registers in the store. A planted PAT that
+            // none of them caught would make every assertion beside it a
+            // decoration. `findSecretLeak` reports the first matching label in its
+            // own order, so the GitHub shapes are reported ahead of the transport
+            // one — hence the separate, non-token value below for that label.
+            expect(findSecretLeak(`Authorization: ${REGISTERED_PAT}`)).toBe('github-token-classic');
+            expect(TOKEN_PATTERNS.some((pattern) => pattern.test(REGISTERED_PAT))).toBe(true);
+            expect(findSecretLeak(REGISTERED_PAT)).toBe('github-token-classic');
+            expect(findSecretLeak('Authorization: some-header-value')).toBe('authorization-header');
+        }
+    });
+
+    it('covers the build output when a build has run, and nothing under it is committed', () => {
+        {
+            // What makes the skip below honest rather than a silent pass.
+            const tracked = execFileSync('git', ['ls-files', SITE_DIST], { cwd: ROOT, encoding: UTF8 }).trim();
+
+            expect(tracked, `${SITE_DIST} is committed, so its scan must not be conditional`).toBe('');
+        }
+        {
+            if (!existsSync(resolve(ROOT, SITE_DIST))) {
+                // No build has been run here. The root gate does not build the
+                // site (FR-070); the site's own gate does, and there the scan
+                // runs. The sources test above is the one that always runs.
+                expect(existsSync(SITE_CONFIG)).toBe(true);
+
+                return;
+            }
+        }
+        {
+            const surfaces = readTree(SITE_DIST);
+
+            expect(surfaces.length, 'the output directory exists but the build emitted no file').toBeGreaterThan(0);
+            expectNoCredentialMaterial(surfaces);
+        }
+        {
+            // FR-010 and NFR-003: a page view fetches from the site's own origin
+            // only. The positions are resource-loading ones, so the footer's
+            // off-origin links into the repository are not in scope — and the
+            // next assertion proves they are present, so this cannot pass by
+            // having stopped reading them.
+            const origin = declaredSiteOrigin();
+            const pages = readTree(SITE_DIST).filter(([name]) => name.endsWith('.html'));
+
+            expect(pages.length, 'the build emitted no HTML page').toBeGreaterThan(0);
+            for (const [name, text] of pages) {
+                expect(offOriginResources(text, origin), `${name} fetches off-origin`).toEqual([]);
+                expect(text, `${name} links the license in the repository`).toContain('<a href="https://github.com/');
+            }
+
+            // Not vacuous, on the other side of the distinction too: the same
+            // reader, pointed at a real resource-loading position, does report
+            // the off-origin reference — so it is the *position* list that
+            // exempts the footer's hyperlink, not a scan that cannot see it.
+            const planted = offOriginResources('<link href="https://fonts.example/style.css">', origin);
+
+            expect(planted).toHaveLength(1);
+            expect(planted[0]).toContain('fonts.example');
+            expect(offOriginResources('<a href="https://github.com/o/r/blob/main/LICENSE">', origin)).toEqual([]);
+        }
+    });
+
+    it('catches the three resource references no attribute-value scan can see', () => {
+        // **The gap this closes, as a test rather than a claim.** All three shapes name a
+        // resource without putting it in the value of a resource-loading attribute, so the
+        // position list above reported nothing for every one of them. Each is checked in
+        // both directions — refused here, accepted on its own-origin spelling — so a case
+        // cannot pass because the reader stopped working altogether, which is the other way
+        // this scan could go green.
+        const origin = declaredSiteOrigin();
+        const cases: readonly (readonly [string, string, string])[] = [
+            // A `style` attribute is a stylesheet body, so `url()` in it is a request, and
+            // the URL is not the attribute's whole value.
+            ['a remote image in a `style` attribute', '<div style="background:url(https://cdn.example/a.gif)">x</div>', 'cdn.example'],
+            // A `<base href>` fetches nothing, and re-bases every relative URL on the page.
+            ['a base element pointing at another origin', '<base href="https://cdn.example/">', 'cdn.example'],
+            // A meta refresh is a navigation with no reader's click in it.
+            ['a meta refresh to another origin', '<meta http-equiv="refresh" content="0;url=https://evil.example/">', 'evil.example'],
+        ];
+
+        for (const [name, markup, host] of cases) {
+            const found = offOriginResources(markup, origin);
+
+            expect(found, `${name} was not reported`).toHaveLength(1);
+            expect(found[0], `${name} named the wrong host`).toContain(host);
+            // And the same shape, same-origin, is not a finding — so a case cannot pass
+            // because the reader stopped working altogether.
+            const sameOrigin = markup.replace(host, 'shaunburdick.github.io');
+
+            expect(offOriginResources(sameOrigin, origin), `${name} refused its own-origin spelling`).toEqual([]);
+        }
+        // The `style` scan is a *stylesheet* reader, not a substring search: the three CSS
+        // spellings of `url()` and the `@import` form are all references, and none is
+        // reported twice.
+        for (const spelling of [
+            'url(https://cdn.example/a.gif)',
+            'url("https://cdn.example/a.gif")',
+            'url(\'https://cdn.example/a.gif\')',
+            '@import url(https://cdn.example/a.css)',
+            '@import "https://cdn.example/a.css"',
+            'background:#fff url(https://cdn.example/a.gif) no-repeat',
+        ]) {
+            const found = offOriginResources(`<style>a{${spelling}}</style>`, origin);
+
+            expect(found, spelling).toHaveLength(1);
+            expect(found[0] ?? '', spelling).toContain('cdn.example');
+        }
+        // A `data:` value is inline content, not a fetch — the same exemption the
+        // position scan makes, so the two do not disagree about it.
+        const inline = '<div style="background:url(data:image/gif;base64,R0lGOD)">x</div>';
+
+        expect(offOriginResources(inline, origin)).toEqual([]);
+    });
+});
 
 describe('T-032 the three permitted tier sites are the only sites (005 FR-051, AC-123)', () => {
     it('ships the binding field and bakes no second author of the guidance', () => {

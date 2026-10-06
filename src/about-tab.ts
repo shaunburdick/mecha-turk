@@ -3,12 +3,12 @@
  * disclosure (005 T-028 as re-cut by the 2026-10-01 product-owner scrub;
  * FR-074–FR-077, AC-132–AC-134, SC-109).
  *
- * The page is deliberately small — **name, version, description, repository
- * link** — because that is all an About page is asked for. The four
- * statements the scrub removed (the vocabulary mapping, the cleanup posture,
- * the release posture, and the data-directory line) either have a tab that
- * owns them or say nothing the operator can act on; the vocabulary block's
- * own module (`vocabulary.ts`) went with it, so the L1 scan
+ * The page is deliberately small — **name, version, description,
+ * documentation link, repository link** — because that is all an About page is
+ * asked for. The four statements the scrub removed (the vocabulary mapping,
+ * the cleanup posture, the release posture, and the data-directory line)
+ * either have a tab that owns them or say nothing the operator can act on; the
+ * vocabulary block's own module (`vocabulary.ts`) went with it, so the L1 scan
  * (`tests/vocabulary.test.ts`) now exempts nothing.
  *
  * **The version has exactly one source.** It is read from the service's own
@@ -20,14 +20,16 @@
  * source, instead of synthesising a plausible number (FR-074, NFR-112).
  * `tests/about-tab.test.ts` pins the path constant to the route the service
  * registers and scans `src/` for version-shaped literals, so neither half of
- * that rule can rot. The static half — the name, the description, and the
- * repository link — renders with or without the service (FR-078).
+ * that rule can rot. The static half — the name, the description, and both
+ * links — renders with or without the service (FR-078).
  *
- * **The repository link goes through the host.** A sandboxed iframe cannot
- * open a link itself, so the SDK text path hands every http(s) click to
- * `onOpenUrl`, which forwards it to `host.openUrl` — the opener the panel
- * already uses for a dispatch's source link. A refusal lands on the link's
- * own line rather than being swallowed (FR-003).
+ * **Both links go through the host.** A sandboxed iframe cannot open a link
+ * itself, so the SDK text path hands every http(s) click to `onOpenUrl`, which
+ * forwards it to `host.openUrl` — the opener the panel already uses for a
+ * dispatch's source link. Each link is a text handle carrying markdown link
+ * syntax, never an anchor the frame could navigate itself, and each refusal
+ * lands on its own line beside the address it belongs to rather than being
+ * swallowed (FR-003).
  *
  * **Diagnostics is read-only and closed by default** (FR-075): a disclosure
  * control reveals the ledger as `#seq · kind · time` lines, the two schema
@@ -69,11 +71,24 @@ const DIAGNOSTICS_SHOW = 'Diagnostics';
 /** The disclosure control while the record is open (state as text). */
 const DIAGNOSTICS_HIDE = 'Hide diagnostics';
 
-/** Where this project's source lives — the one link the page carries. */
+/**
+ * Where this project's source lives — one of the two links the page carries.
+ */
 const REPOSITORY_URL = 'https://github.com/shaunburdick/mecha-turk';
 
 /** The link line: address and target are the same URL, so it is readable. */
 const REPOSITORY_LINE = `Repository: [${REPOSITORY_URL}](${REPOSITORY_URL})`;
+
+/**
+ * Where the documentation is published — the other link, and the entry point
+ * into the site from inside the product. Its trailing slash is the site's own
+ * published address: the site is served from a subpath, and the trailing slash
+ * is what makes it that address rather than a redirect to it.
+ */
+const DOCUMENTATION_URL = 'https://shaunburdick.github.io/mecha-turk/';
+
+/** The documentation link line: address and target match, so it is readable. */
+const DOCUMENTATION_LINE = `Documentation: [${DOCUMENTATION_URL}](${DOCUMENTATION_URL})`;
 
 /** The one-line description of the tool. */
 const DESCRIPTION =
@@ -92,8 +107,9 @@ const FAILURE_TITLE = 'Version not read';
  * `version` is deliberately separate from `phase`: a failed re-read keeps the
  * version that did land (and the read line marks it stale) rather than
  * replacing a real answer with the unreachable copy. `diagnosticsOpen` is the
- * disclosure's own state, and `repoProblem` is the link's refusal, if the
- * host ever sent one.
+ * disclosure's own state, and `repoProblem` and `docsProblem` are the two
+ * links' refusals, if the host ever sent one — a slot each, so neither link's
+ * refusal can overwrite the other's.
  */
 export interface AboutTabState {
     /** Read phase: nothing yet, in flight, landed, or refused. */
@@ -108,6 +124,8 @@ export interface AboutTabState {
     diagnosticsOpen: boolean;
     /** Why the repository link could not be opened; `null` otherwise. */
     repoProblem: string | null;
+    /** Why the documentation link could not be opened; `null` otherwise. */
+    docsProblem: string | null;
 }
 
 /**
@@ -116,7 +134,15 @@ export interface AboutTabState {
  * @returns The state before the first read.
  */
 export function initialAboutTab(): AboutTabState {
-    return { phase: 'idle', at: null, problem: null, version: null, diagnosticsOpen: false, repoProblem: null };
+    return {
+        phase: 'idle',
+        at: null,
+        problem: null,
+        version: null,
+        diagnosticsOpen: false,
+        repoProblem: null,
+        docsProblem: null,
+    };
 }
 
 /** The mounted About tab: the handles a repaint updates, plus disposal. */
@@ -129,9 +155,13 @@ export interface AboutTabUi {
     readonly version: TextHandle;
     /** The one-line description of the tool. */
     readonly description: TextHandle;
+    /** The documentation link, opened through the host. */
+    readonly docsLink: TextHandle;
+    /** The documentation link's refusal line, empty until there is one (FR-003). */
+    readonly docsNote: TextHandle;
     /** The repository link, opened through the host. */
     readonly repoLink: TextHandle;
-    /** The link's refusal line, empty until there is one (FR-003). */
+    /** The repository link's refusal line, empty until there is one (FR-003). */
     readonly repoNote: TextHandle;
     /** The tab's version control: an explicit re-read of the health answer. */
     readonly retry: ButtonHandle;
@@ -215,6 +245,7 @@ export function repaintAboutTab(rt: PanelRuntime): void {
     const isLoading = slice.phase === 'loading';
 
     ui.version.update({ text: versionLine(slice) });
+    ui.docsNote.update({ text: slice.docsProblem ?? '' });
     ui.repoNote.update({ text: slice.repoProblem ?? '' });
     ui.readLine.update({ text: readStateLine(slice) });
     ui.retry.update({ disabled: isLoading, loading: isLoading });
@@ -248,23 +279,49 @@ export function toggleDiagnostics(rt: PanelRuntime): void {
 }
 
 /**
- * Open the repository link through the host, and say so when it refuses.
+ * Hand one of the page's links to the host's opener and describe a refusal.
  *
  * `host.openUrl` is the opener the panel already uses for a dispatch's source
- * link, so the About page reaches for the same one — no capability, no
- * invented navigation, no anchor that could unload the panel. A refusal lands
- * on the link's own line rather than being swallowed.
+ * link, so the About page reaches for the same one — no capability, no invented
+ * navigation, no anchor that could unload the panel. The refusal text names the
+ * link it belongs to and is redacted like every other operator-facing string,
+ * so neither link's failure can carry a credential out of the message the host
+ * answered with.
+ *
+ * @param rt - Runtime whose host opens the link and whose state records it.
+ * @param url - The address the click carried.
+ * @param label - How the notice names this link ("The repository link").
+ * @returns The refusal line to render, or `null` when the host opened it.
  */
-export async function openRepository(rt: PanelRuntime, url: string): Promise<void> {
+async function openThroughHost(rt: PanelRuntime, url: string, label: string): Promise<string | null> {
     try {
         await rt.host.openUrl(url);
-        rt.state.aboutTab.repoProblem = null;
-    } catch (cause) {
-        rt.state.aboutTab.repoProblem = redact(
-            `The repository link could not be opened: ${describeError(cause)}. Copy the address above instead.`,
-        );
-    }
 
+        return null;
+    } catch (cause) {
+        return redact(`${label} could not be opened: ${describeError(cause)}. Copy the address above instead.`);
+    }
+}
+
+/**
+ * Open the repository link through the host, and say so when it refuses.
+ *
+ * A refusal lands on the link's own line rather than being swallowed.
+ */
+export async function openRepository(rt: PanelRuntime, url: string): Promise<void> {
+    rt.state.aboutTab.repoProblem = await openThroughHost(rt, url, 'The repository link');
+    repaintAboutTab(rt);
+}
+
+/**
+ * Open the documentation link through the host, and say so when it refuses.
+ *
+ * The route into the site from inside the product, and the same two rules as
+ * the repository link beside it: the panel opens nothing itself, and a refusal
+ * is rendered on the link's own line with the address still readable (FR-060).
+ */
+export async function openDocumentation(rt: PanelRuntime, url: string): Promise<void> {
+    rt.state.aboutTab.docsProblem = await openThroughHost(rt, url, 'The documentation link');
     repaintAboutTab(rt);
 }
 
@@ -330,10 +387,14 @@ export async function loadVersion(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Mount the identity block: name, version, description, and the repository
- * link with its refusal line.
+ * Mount the identity block: name, version, description, and the two links, each
+ * with its own refusal line.
  *
- * @returns The five handles.
+ * The documentation link comes first because the README puts it first too: it
+ * is the route into the published documentation, and the repository is the
+ * secondary address beside it.
+ *
+ * @returns The seven handles.
  */
 function mountHeader(input: {
     /** Runtime whose read state the version line renders. */
@@ -344,6 +405,8 @@ function mountHeader(input: {
     readonly identity: TextHandle;
     readonly version: TextHandle;
     readonly description: TextHandle;
+    readonly docsLink: TextHandle;
+    readonly docsNote: TextHandle;
     readonly repoLink: TextHandle;
     readonly repoNote: TextHandle;
 } {
@@ -352,6 +415,14 @@ function mountHeader(input: {
     const identity = mountStyledText(pane, { className: 'mt-prose', text: PRODUCT_NAME });
     const version = mountStyledText(pane, { className: 'mt-prose', text: versionLine(rt.state.aboutTab) });
     const description = mountStyledText(pane, { className: 'mt-prose', text: DESCRIPTION });
+    const docsLink = mountStyledText(pane, {
+        className: 'mt-prose',
+        text: DOCUMENTATION_LINE,
+        onOpenUrl: (url) => {
+            void openDocumentation(rt, url);
+        },
+    });
+    const docsNote = mountStyledText(pane, { className: 'mt-lede', text: rt.state.aboutTab.docsProblem ?? '' });
     const repoLink = mountStyledText(pane, {
         className: 'mt-prose',
         text: REPOSITORY_LINE,
@@ -361,7 +432,7 @@ function mountHeader(input: {
     });
     const repoNote = mountStyledText(pane, { className: 'mt-lede', text: rt.state.aboutTab.repoProblem ?? '' });
 
-    return { identity, version, description, repoLink, repoNote };
+    return { identity, version, description, docsLink, docsNote, repoLink, repoNote };
 }
 
 /**
@@ -440,6 +511,8 @@ function disposeAbout(ui: AboutTabUi): void {
     ui.identity.dispose();
     ui.version.dispose();
     ui.description.dispose();
+    ui.docsLink.dispose();
+    ui.docsNote.dispose();
     ui.repoLink.dispose();
     ui.repoNote.dispose();
     ui.retry.dispose();
@@ -486,6 +559,8 @@ export function mountAboutTab(input: {
         identity: header.identity,
         version: header.version,
         description: header.description,
+        docsLink: header.docsLink,
+        docsNote: header.docsNote,
         repoLink: header.repoLink,
         repoNote: header.repoNote,
         retry: retryRow.retry,

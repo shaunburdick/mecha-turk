@@ -315,10 +315,20 @@ const CAPITAL_NOUNS: readonly NounRule[] = [
  *
  * Deliberately **not** applied to test titles: FR-028 keeps a test of the
  * run model named as a test of the run model.
+ *
+ * `run key` is exempt, and the site's debug page is what showed this rule was a
+ * shape too wide. `runKey` is a retained identifier (FR-022) and the panel's own
+ * shipped copy writes it in prose — `src/dispatches-rows.ts` tells a reader a
+ * retry returns a dispatch "to waiting under the same run key" — so a rule that
+ * bit on the two-word spelling would forbid the product's own words and would
+ * have failed a page the specification endorses (007 FR-050 bans `run` as a noun
+ * *for a unit of work*, which is not what the identifier is). The camelCase
+ * spelling was already outside every rule here, which is why it took a surface
+ * that spells it out in prose to find the gap.
  */
 const DOMAIN_PROSE_RULE: NounRule = {
     name: 'an article + run (the domain noun in a sentence)',
-    pattern: /\b(?:the|this|each|every|its|same|selected|one|that|own)\s+run\b/gi,
+    pattern: /\b(?:the|this|each|every|its|same|selected|one|that|own)\s+run\b(?!\s*[- ]?keys?\b)/gi,
 };
 
 /**
@@ -440,11 +450,15 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
             const sample = 'the Runs list — the Repositories tab — Run shows a reason';
 
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], sample)).toHaveLength(3);
-            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'the run key')).toHaveLength(1);
+            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'every run failed')).toHaveLength(1);
             // The two shapes that must keep working: the imperative verb and the
-            // retained identifiers.
+            // retained identifiers. `run key` is the prose spelling of `runKey`,
+            // which FR-022 retains and the panel itself prints.
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'Run OpenChamber on web')).toEqual([]);
             expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'runs.json runKey mt-run-1')).toEqual([]);
+            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'the same run key, the run-key file')).toEqual([]);
+            // And the exemption is the identifier, not the word `run` after it.
+            expect(hits([...CAPITAL_NOUNS, DOMAIN_PROSE_RULE], 'every run keyed by the run keys')).toHaveLength(1);
         }
     });
 
@@ -460,6 +474,368 @@ describe('L1: no retired noun reaches an operator (005 T-029, AC-140, SC-107)', 
         }
     });
 
+});
+
+/* -------------------------------------------------------------------- *
+ * L1 on the documentation site (007 T-032, FR-050, FR-051, AC-012)
+ * -------------------------------------------------------------------- */
+
+/**
+ * The site's source directory, repository-relative.
+ *
+ * Read as **text** and never imported (007 FR-070): an import would pull Astro
+ * and the site's own `node_modules` into the repository's gate, and the root
+ * manifest must stay the installable manifest with no workspace link by which
+ * the root could reach it (invariant 2, FR-007). Reading the source is also
+ * what makes this suite runnable on a clone that has never built the site.
+ */
+const SITE_SRC_DIR = 'site/src';
+
+/** The five pages the site publishes, so a walk that finds fewer has failed. */
+const SITE_PAGES: readonly string[] = [
+    'configure.astro',
+    'debug.astro',
+    'index.astro',
+    'install.astro',
+    'use.astro',
+];
+
+/**
+ * The marked element: a `<section>` opening tag carrying the exclusion marker.
+ *
+ * The marker is an attribute rather than an HTML comment because Astro strips
+ * comments from a template — a comment would scope the exclusion in the source
+ * and vanish from the built page, so a scan could cut the table out of one and
+ * not the other. Matching the opening tag as well as the attribute is what holds
+ * the exclusion to a `<section>` rather than to any element at all (007 D14).
+ */
+const MAPPING_SECTION = /<section\b[^>]*\bdata-vocabulary-mapping\s*=\s*"true"/;
+
+/** The retired nouns the mapping table exists to carry, spelled as the source spells them. */
+const REQUIRED_MAPPING_NAMES: readonly string[] = ['Runs', 'Run', 'Repositories'];
+
+/** A half-open span of one text. */
+interface Span {
+    readonly start: number;
+    readonly end: number;
+}
+
+/** One site's source file, with the spans its mapping table occupies. */
+interface SiteSource {
+    readonly path: string;
+    readonly text: string;
+    readonly mappingTable: readonly Span[];
+}
+
+/**
+ * Read one of the site's pages whole, frontmatter included.
+ *
+ * @param name - The file name under `site/src/pages/`.
+ * @returns The page's text.
+ */
+function sitePage(name: string): string {
+    return readFileSync(resolve(ROOT, SITE_SRC_DIR, 'pages', name), UTF8);
+}
+
+/**
+ * The offset just past the bracket closing the one that opens at `open`.
+ *
+ * Bracket-counted rather than matched against a literal terminator, so the span
+ * survives the declaration being re-wrapped or re-indented: this suite reads
+ * somebody else's source, and a reader that depends on how it was formatted is a
+ * reader that breaks on a change that changed nothing.
+ *
+ * @param text - The whole file.
+ * @param open - Index of the opening bracket.
+ * @returns The end offset, or `-1` when the brackets never balance.
+ */
+function bracketEnd(text: string, open: number): number {
+    let depth = 0;
+
+    for (let at = open; at < text.length; at += 1) {
+        const character = text[at];
+        if (character === undefined) {
+            break;
+        }
+
+        if ('[{('.includes(character)) {
+            depth += 1;
+        } else if (']})'.includes(character)) {
+            depth -= 1;
+            if (depth === 0) {
+                return at + 1;
+            }
+        }
+    }
+
+    return -1;
+}
+
+/**
+ * The spans the identifier-mapping table occupies in one site's source file.
+ *
+ * **Two spans, and both are the table.** The marked `<section>` is where the
+ * built page carries it; the array declaration the marked markup renders is
+ * where the *source* carries it, because a `.astro` page keeps its rows in a
+ * frontmatter binding rather than in markup. A scan that excluded only the
+ * section would read the table's own rows as an unsanctioned use of the retired
+ * words. The declaration is found by looking for the names the marked markup
+ * itself mentions, rather than by naming one binding — so a page that moves the
+ * table keeps its exemption, and a page that gains a marked section gains its
+ * own.
+ *
+ * Nothing else is removed. A file with no marker yields no spans at all, so the
+ * scan cannot widen itself by accident, and the assertions below pin which two
+ * spans the shipped page produces.
+ *
+ * @param text - The file's whole text.
+ * @returns The table's spans, the marked section first.
+ */
+function mappingTableSpans(text: string): readonly Span[] {
+    const marked = MAPPING_SECTION.exec(text);
+    if (marked === null) {
+        return [];
+    }
+
+    const close = text.indexOf('</section>', marked.index);
+    if (close === -1) {
+        return [];
+    }
+
+    const spans: Span[] = [{ start: marked.index, end: close + '</section>'.length }];
+    const inside = text.slice(marked.index, close);
+
+    for (const declared of text.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)/g)) {
+        const name = declared[1];
+        if (name === undefined || !inside.includes(name)) {
+            continue;
+        }
+
+        const equals = text.indexOf('=', declared.index + declared[0].length);
+        const open = equals === -1 ? -1 : text.indexOf('[', equals);
+        // Only an array *literal*. A binding initialised to a call or a spread
+        // has no bracket to count, and swallowing whatever follows an `=` that is
+        // not followed by `[` is exactly the silent over-exclusion this suite is
+        // required to be unable to do.
+        if (open === -1 || text.slice(equals + 1, open).trim() !== '') {
+            continue;
+        }
+
+        const end = bracketEnd(text, open);
+        if (end !== -1) {
+            spans.push({ start: declared.index, end });
+        }
+    }
+
+    return spans;
+}
+
+/**
+ * One text with the given spans cut out of it.
+ *
+ * All of them in one pass, which is what makes it usable as the *negative* case
+ * for the scan: removing the spans one at a time from the original text would
+ * leave every span but the first still in the result. Sorted here because the
+ * table's rows are declared *before* the section that renders them, so the two
+ * spans arrive in the file's own order and not the file's reading order.
+ *
+ * @param text - The whole file.
+ * @param spans - The spans to remove, non-overlapping.
+ * @returns What is left, in the original order.
+ */
+function withoutSpans(text: string, spans: readonly Span[]): string {
+    const kept: string[] = [];
+    const ordered = [...spans].toSorted((left, right) => left.start - right.start);
+    let at = 0;
+
+    for (const span of ordered) {
+        kept.push(text.slice(at, span.start));
+        at = span.end;
+    }
+    kept.push(text.slice(at));
+
+    return kept.join('');
+}
+
+/**
+ * Every site's source file, with its mapping table's spans resolved.
+ *
+ * Walked rather than listed: the site's own guard records what a hand list costs
+ * — three of its five pages shipped the same prose defect because the rule that
+ * would have caught it was not shared, and `site/tests/prose-wrapping.assertions.mjs`
+ * exists because of it. This is the same argument applied to the vocabulary.
+ *
+ * @returns Each file's repository-relative path, its text, and its table spans.
+ */
+function siteSources(): readonly SiteSource[] {
+    return readdirSync(resolve(ROOT, SITE_SRC_DIR), { recursive: true })
+        .map(String)
+        .filter((entry) => /\.(?:astro|mjs|md|ts)$/.test(entry))
+        .toSorted(byText)
+        .map((entry) => {
+            const text = readFileSync(resolve(ROOT, SITE_SRC_DIR, entry), UTF8);
+
+            return { path: `${SITE_SRC_DIR}/${entry}`, text, mappingTable: mappingTableSpans(text) };
+        });
+}
+
+/**
+ * The retired-noun uses in one site's source that the mapping table does not cover.
+ *
+ * Split out of `siteFindings` so the nesting stays shallow enough to read: three
+ * loops and a guard in one function body is where a reader stops being able to
+ * see which of the two is the guard.
+ *
+ * @param source - The file, with its table spans resolved.
+ * @returns One finding per unsanctioned match, naming the file and the line.
+ */
+function sourceFindings(source: SiteSource): readonly string[] {
+    const findings: string[] = [];
+
+    for (const rule of [...CAPITAL_NOUNS, DOMAIN_PROSE_RULE]) {
+        for (const match of source.text.matchAll(rule.pattern)) {
+            const at = match.index;
+            const isCovered = source.mappingTable.some((span) => at >= span.start && at < span.end);
+            if (isCovered) {
+                continue;
+            }
+
+            const line = source.text.slice(0, at).split('\n').length;
+            findings.push(`${source.path}:${line} ${rule.name}: “${match[0]}”`);
+        }
+    }
+
+    return findings;
+}
+
+/**
+ * The retired-noun uses in the site's source that the mapping table does not cover.
+ *
+ * @param sources - The site's files, each with its table spans.
+ * @returns Every file's findings, in walk order.
+ */
+function siteFindings(sources: readonly SiteSource[]): readonly string[] {
+    return sources.flatMap((source) => sourceFindings(source));
+}
+
+/**
+ * Whether a text carries the identifier-mapping table (007 FR-051, AC-013).
+ *
+ * A **presence** check, and deliberately a separate property from the scan
+ * above. That scan asserts an absence, and an absence is satisfied just as well
+ * by a page that has no table at all — this repository's own README passed the
+ * scan on exactly the day the table was taken out of it. So the exemption and
+ * the requirement are checked apart: the scan says the retired words are
+ * nowhere else, and this says they are somewhere.
+ *
+ * @param text - A site's source, or a fixture standing in for one.
+ * @returns Whether the marked table and the rows it renders are both present.
+ */
+function carriesMappingTable(text: string): boolean {
+    const spans = mappingTableSpans(text);
+    const inside = spans.map((span) => text.slice(span.start, span.end));
+
+    return (
+        MAPPING_SECTION.test(text)
+        && inside.some((piece) => piece.includes('<table'))
+        && REQUIRED_MAPPING_NAMES.every((name) => inside.some((piece) => piece.includes(`'${name}'`)))
+    );
+}
+
+/**
+ * A page shaped like the debug page: a marked section over a frontmatter table,
+ * with the retired nouns one section away from both.
+ *
+ * A fixture rather than a mutation of the real page, so the negative case stays
+ * readable as the shape it is and does not have to survive an edit to a page
+ * four sessions wrote.
+ */
+const MAPPING_FIXTURE = [
+    '---',
+    "const rows = [{ names: ['Runs'], is: 'a dispatch' }];",
+    '---',
+    '<section data-vocabulary-mapping="true">',
+    '    <table>{rows.map((row) => <code>{row.names}</code>)}</table>',
+    '    <code>Repositories</code>',
+    '</section>',
+    '<p>The Repositories tab is gone and every run failed.</p>',
+].join('\n');
+
+describe('L1 on the documentation site: no retired noun outside the mapping table (007 T-032, AC-012)', () => {
+    const SOURCES = siteSources();
+
+    it('walks all five pages and the components they render', () => {
+        {
+            const pages = SOURCES.filter((source) => source.path.startsWith(`${SITE_SRC_DIR}/pages/`))
+                .map((source) => source.path);
+
+            expect(pages).toEqual(SITE_PAGES.map((page) => `${SITE_SRC_DIR}/pages/${page}`));
+            expect(SOURCES.length).toBeGreaterThan(SITE_PAGES.length);
+        }
+    });
+
+    it('carries no retired noun in any page, component, or data module', () => {
+        expect(siteFindings(SOURCES)).toEqual([]);
+    });
+
+    it('marks one section on the whole site, and it is the debug page\'s', () => {
+        expect(SOURCES.filter((source) => MAPPING_SECTION.test(source.text)).map((source) => source.path)).toEqual([
+            `${SITE_SRC_DIR}/pages/debug.astro`,
+        ]);
+    });
+
+    it('excludes that section and the rows it renders, and almost nothing else', () => {
+        {
+            const text = sitePage('debug.astro');
+
+            // Named by the line each span opens on, so an exclusion that grew —
+            // or a page that moved its table — fails here rather than quietly
+            // hiding a retired word.
+            expect(
+                mappingTableSpans(text).map((span) => text.slice(span.start, text.indexOf('\n', span.start)))
+            ).toEqual([
+                '<section aria-label="Identifier mapping" data-vocabulary-mapping="true">',
+                'const mappingRows: readonly MappingRow[] = [',
+            ]);
+        }
+        {
+            // And the rest of the page is still scanned: two spans out of a
+            // four-hundred-line page leave the overwhelming majority of it in.
+            const text = sitePage('debug.astro');
+            const retained = withoutSpans(text, mappingTableSpans(text));
+
+            expect(retained.length).toBeGreaterThan(text.length / 2);
+        }
+    });
+
+    it('carries the identifier-mapping table, which an absence check cannot prove', () => {
+        {
+            expect(carriesMappingTable(sitePage('debug.astro'))).toBe(true);
+        }
+        {
+            // The negative case, and the reason this is its own test rather than
+            // part of the scan: take the table out and the *absence* assertion
+            // above still passes, because a page with no retired noun anywhere
+            // is what that assertion asks for. Only this one refuses it.
+            const text = sitePage('debug.astro');
+            const without = withoutSpans(text, mappingTableSpans(text));
+
+            expect(siteFindings([{ path: 'debug.astro', text: without, mappingTable: [] }])).toEqual([]);
+            expect(carriesMappingTable(without)).toBe(false);
+        }
+    });
+
+    it('bites: the same words, one section away from the table, are findings', () => {
+        {
+            const spans = mappingTableSpans(MAPPING_FIXTURE);
+
+            expect(spans).toHaveLength(2);
+            expect(siteFindings([{ path: 'fixture.astro', text: MAPPING_FIXTURE, mappingTable: spans }])).toEqual([
+                'fixture.astro:8 Repositories (the bindings noun): “Repositories”',
+                'fixture.astro:8 an article + run (the domain noun in a sentence): “every run”',
+            ]);
+        }
+    });
 });
 
 describe('FR-028: a test is named for the layer its subject is in', () => {

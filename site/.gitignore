@@ -1,0 +1,5 @@
+# The repository's own `.gitignore` already covers both of these with
+# unanchored patterns. They are repeated here so this directory carries its own
+# rule if it is ever moved, copied, or vendored away from the repository root.
+dist/
+.astro/

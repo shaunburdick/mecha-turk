@@ -1,0 +1,28 @@
+---
+/**
+ * The site navigation: the landing page and all four documentation pages, so no
+ * page is an orphan reachable only by its own address (FR-004). Every `href`
+ * comes from the one base-path helper, and `aria-current` marks the page the
+ * reader is on.
+ */
+import { PAGES, withBase } from '../data/site.ts';
+
+const here = Astro.url.pathname;
+---
+
+<nav aria-label="Documentation pages">
+    <ul>
+        {
+            PAGES.map((page) => {
+                const href = withBase(page.path);
+                return (
+                    <li>
+                        <a href={href} aria-current={href === here ? 'page' : undefined}>
+                            {page.title}
+                        </a>
+                    </li>
+                );
+            })
+        }
+    </ul>
+</nav>

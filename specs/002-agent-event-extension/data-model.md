@@ -212,12 +212,14 @@ Retention (spec Assumption): 180 days **or** 50,000 entries, whichever first; pa
 
 ## Storage tier 2 — panel `host.storage` (UI state, uninstall-wiped)
 
-| Key (namespace `mecha-turk:`) | Type | Contents / limits |
+| Key | Type | Contents / limits |
+| --- | --- | --- |
+| *Four of the five live keys carry the `mecha-turk:` namespace — `:project`, `:evidence`, `:ledger`, `:dispatches`; `accounts` below carries **none** (AGENTS.md invariant 4, corrected 2026-10-05: grep `STORAGE_KEY` before claiming a count).* | | |
 | --- | --- | --- |
 | `ui` | JSON | active tab, filters, last-viewed run, sort; ≤4 KiB |
 | `project` | string | selected project id — **picker memory, not configuration**: the spike key is retained (005 FR-025, `AGENTS.md` invariant 4), and since 002 FR-041 (v1.6.0, 2026-09-28) there is no `project-id` card setting beneath it in precedence — the `integration-setting` fallback was retired with the card's settings; the binding's `projectId` is the configuration (FR-013/FR-014). *The "001 amendment 4" precedence rule this row once cited is historical — see the note at the top of this file* |
 | ~~`consent`~~ | ~~`{ givenAt: string, version: 1 }`~~ | **Removed at v1.9.0 (2026-10-01)** with the consent dialog: no panel state reads or writes this key any more (002 FR-008 re-cut). The key is *removed, not renamed*, so no storage-namespace reset occurs (AGENTS invariant 4); an orphaned value on an upgraded install is unread and harmless |
-| `accounts` | JSON array | bounded account mirror `{ numericUserId, login, state, scopeCheck }` written after a successful handoff — display only, never authoritative, never a credential (token-handoff §3) |
+| `accounts` *(no `mecha-turk:` prefix)* | JSON array | bounded account mirror `{ numericUserId, login, state, scopeCheck }` written after a successful handoff — display only, never authoritative, never a credential (token-handoff §3) |
 | `expected-agent` mirror | string | effective value + provenance for display — **source superseded 2026-09-28**: the manifest setting is gone (002 FR-041 re-cut, card = zero settings) and the provenance is now *service configuration (`expectedAgent` in `config.json`) vs the documented default*; the panel reads it through `GET /v1/config` (002 FR-029 as amended, 006 FR-100). Whether the panel still mirrors it into `host.storage` is Phase 4's call — it is UI state either way (FR-034) |
 | `runs-mirror` | JSON array | **bounded** display mirror of the latest ≤50 runs `{ runKeyHash, state, sourceUrl, correlationId, updatedAt }` — never authoritative, never an audit home (FR-034) |
 | `health-mirror` | JSON | last rendered `ServiceHealth` snapshot + `fetchedAt`; stale-render guard |
