@@ -20,7 +20,7 @@
 - [x] **All acceptance scenarios are defined** — seven user stories carry **25** numbered scenarios, plus **31** feature-level ACs in `## Acceptance Criteria`.
 - [x] **Edge cases are identified** — 11 documented cases including the base path being wrong (the failure the local loop cannot catch), the repository being renamed, a capability / configuration field / dispatch state added later, a reader with scripting disabled, a page reached directly, and a pull request adding a file the root tooling would claim.
 - [x] **Scope is clearly bounded** — `## Out of Scope` names **thirteen** exclusions, each marked as offered-and-declined, belonging to another issue, or belonging to another feature. Screenshots, FAQ, and search were **offered to the product owner and declined**; the root Node floor is issue #17; nothing under `service/` moves.
-- [x] **Dependencies and assumptions identified** — 002 (**amended** to v1.13.0: FR-042 gains the site as a bound document), 005 (**amended** to v1.16.0: FR-020 gains the site as a place a human reads, FR-029's table gets a home), 003 / 004 / 006 (**read, not amended**, with the reason given). Eight assumptions, each stating what breaks if it is false.
+- [x] **Dependencies and assumptions identified** — 002 (**amended** to v1.13.0: FR-042 gains the site as a bound document), 005 (**amended** to v1.18.0: FR-020 gains the site as a place a human reads, FR-029's table gets a home), 003 / 004 / 006 (**read, not amended**, with the reason given). Eight assumptions, each stating what breaks if it is false.
 
 ## Feature Readiness
 
