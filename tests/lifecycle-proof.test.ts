@@ -23,6 +23,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
+import { SERVICE_VERSION } from '../service/routes/health.ts';
 import { loadSettings } from '../src/settings-tab.ts';
 import { loadVersion } from '../src/about-tab.ts';
 import { pollRelay, startRelayPolling, stopRelayPolling } from '../src/relay.ts';
@@ -89,7 +90,7 @@ const CONFIG_BODY = JSON.stringify({
 });
 
 /** One healthy `GET /health` answer. */
-const HEALTH_BODY = JSON.stringify({ status: 'ok', version: '0.0.1', schemaVersion: 1 });
+const HEALTH_BODY = JSON.stringify({ status: 'ok', version: SERVICE_VERSION, schemaVersion: 1 });
 
 /** What one lifecycle run recorded. */
 interface LifecycleRun {

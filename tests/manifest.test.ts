@@ -386,7 +386,8 @@ const ESLINT_BIN = resolve(ROOT, 'node_modules/.bin/eslint');
 const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
 
 /**
- * `package.json`'s sha256 — re-derived, not carried, when issue #17 merged.
+ * `package.json`'s sha256 — re-derived, not carried, on each deliberate change
+ * (#17's Node floor, then the `0.1.0` version bump).
  *
  * AC-017 asks for the root manifest to be **byte-identical**, so this is a digest
  * rather than a list of the fields that must not move. That is also what keeps
@@ -397,9 +398,10 @@ const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
  * now pins the document **as #17 left it** rather than as 007 found it. AC-017's
  * operative clause still holds: 007 added nothing to the root manifest, and the
  * `declares no workspaces and no script that reaches the site` case below is the
- * assertion that survives a floor change.
+ * assertion that survives a floor change. The same reading covers the second
+ * update: invariant 2's bump to `0.1.0` moves `version` and nothing else.
  */
-const ROOT_MANIFEST_SHA256 = '80460f017ff7812c93a1630cc1db14df4adad05b4f64712881c7470b86631d8a';
+const ROOT_MANIFEST_SHA256 = 'fbf43eb8f669bb554a2f6e0721513f608fa8d5a306cbe2df443b67bebb9a5334';
 
 /**
  * `.github/workflows/verify.yml`'s sha256, for the same reason and the same
