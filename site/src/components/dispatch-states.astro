@@ -1,0 +1,115 @@
+---
+/**
+ * The use page's state table (T-015, FR-038, AC-010).
+ *
+ * The seven plain tokens come from `LISTABLE_STATES`, the service's own filter
+ * vocabulary, re-exported from `declarations.ts` rather than copied. A state
+ * added to the service and not to this table is the drift FR-048 exists to
+ * prevent, and the row order is the service's so the page reads as the filter
+ * does.
+ *
+ * The eighth row is the `blocked` **family**, and this is the part that is easy
+ * to get wrong: `blocked:<reason>` is not an enumeration. `stateFilterOf` accepts
+ * a non-empty kebab reason it has never seen, so a table listing four reasons
+ * would be a closed list the domain deliberately left open. The row therefore
+ * names the shape and defers the causes to the page's prose, and the panel's own
+ * generic wording for an unnamed cause is carried beside it — the panel matches
+ * this family by prefix rather than by an enum, for the same reason.
+ *
+ * What each state *means* and which control moves it are the panel's own words
+ * and are prose, so they arrive as a required prop keyed by token. A token with
+ * no line throws at build time rather than shipping an empty cell (FR-052).
+ */
+import {
+    ALLOW_LIST_BLOCKED_CAUSE,
+    BLOCKED_FILTER_TOKEN,
+    BLOCKED_REASON_SHAPE,
+    DECLARED_BLOCKED_CAUSES,
+    DISPATCH_STATES,
+} from '../data/declarations.ts';
+
+interface Props {
+    /** What each state means and which control moves it, keyed by state token. */
+    readonly describe: Readonly<Record<string, string>>;
+}
+
+const { describe } = Astro.props;
+
+function lineFor(token: string): string {
+    const line = describe[token];
+    if (line === undefined || line.trim() === '') {
+        throw new Error(
+            `the dispatch-state table has no description for "${token}"; every state the panel can `
+            + 'display must say what it means and what moves it (FR-038)',
+        );
+    }
+
+    return line;
+}
+
+/** The seven plain rows, then the family row — resolved so nothing ships empty. */
+const rows = [
+    ...DISPATCH_STATES.map((token) => ({ token, line: lineFor(token) })),
+    { token: BLOCKED_FILTER_TOKEN, line: lineFor(BLOCKED_FILTER_TOKEN) },
+];
+
+/**
+ * The separator printed before each declared cause.
+ *
+ * Reads the index *and* the set's length, because the count is the service's and
+ * will not stay at five: a hard-coded `, ` would put a comma before the only item
+ * of a set that later has one member, and a hard-coded `and` would read wrong for
+ * a two-member one. Deriving both means the sentence is right whichever set
+ * arrives.
+ */
+function joinCause(index: number): string {
+    if (index === 0) {
+        return ' ';
+    }
+
+    return index === DECLARED_BLOCKED_CAUSES.length - 1 ? ' and ' : ', ';
+}
+---
+
+<table>
+    <caption>
+        Every state a dispatch can show. The last row is a family of causes, not a list of them.
+    </caption>
+    <thead>
+        <tr>
+            <th scope="col">State</th>
+            <th scope="col">What it means, and what moves it</th>
+        </tr>
+    </thead>
+    <tbody>
+        {
+            rows.map((row) => (
+                <tr>
+                    <th scope="row"><code>{row.token}</code></th>
+                    <td>{row.line}</td>
+                </tr>
+            ))
+        }
+    </tbody>
+</table>
+
+<p>
+    A blocked dispatch shows <code>{BLOCKED_REASON_SHAPE}</code>, where the reason is whatever guard
+    refused it. A cause this build has not produced yet shows the same way, as a guard refused the
+    dispatch with that cause named.
+</p>
+
+<p>
+    The causes the service declares today are
+    {
+        DECLARED_BLOCKED_CAUSES.map((cause, index) => (
+            <>
+                {joinCause(index)}
+                <code>{`${BLOCKED_FILTER_TOKEN}:${cause}`}</code>
+            </>
+        ))
+    }. That is what this build produces, not a closed set: a sixth declared cause is a string with no
+    requirement behind it, so the ones above are the whole set by decision rather than by the parser's
+    tolerance. Of those, <code>{`${BLOCKED_FILTER_TOKEN}:${ALLOW_LIST_BLOCKED_CAUSE}`}</code> is waiting on
+    the binding's allow-list rather than on a retry.
+</p>

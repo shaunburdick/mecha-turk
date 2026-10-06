@@ -1,0 +1,206 @@
+---
+/**
+ * The use page (T-019, FR-036 – FR-040).
+ *
+ * The page an operator returns to daily, and the cheapest one to get wrong:
+ * the panel already labels its own states, so every state name and reason line
+ * below is the panel's own wording rather than a paraphrase — 005 FR-020 binds
+ * this page as well as the panel. The vocabulary is **Dispatches** and
+ * **Bindings** (FR-050).
+ *
+ * The state table is generated from the service's own filter vocabulary through
+ * `DispatchStates`; the descriptions are prose and arrive as a required prop,
+ * so a state the panel can display but this page cannot describe fails the
+ * build rather than shipping an empty cell.
+ *
+ * `.astro` rather than `.md` for the reason `install.astro` sets out: a markdown
+ * page cannot render the generated table.
+ */
+import Layout from '../layout.astro';
+import DispatchStates from '../components/dispatch-states.astro';
+import { withBase } from '../data/site.ts';
+
+/**
+ * What each state means and which control moves it, in the panel's words.
+ *
+ * Keyed by state token, not positional: `DispatchStates` resolves each token
+ * against this map and throws when one is missing.
+ */
+const stateMeaning: Readonly<Record<string, string>> = {
+    pending:
+        'waiting for a panel — there is nothing to retry until it fails or a guard refuses it. No control is offered.',
+    claimed:
+        'a panel holds the lease — its result, or the lease expiring, decides what happens next. No control is offered.',
+    starting:
+        'a dispatch is authorized and in progress — the result or the deadline decides what happens next. No control is offered.',
+    dispatched:
+        'a session exists for this dispatch — a dispatched dispatch cannot be retried, and the panel offers no control.',
+    failed:
+        'the dispatch made no session — **Retry dispatch** returns it to waiting under the same dispatch key, with the attempt counted up.',
+    unconfirmed:
+        'no result arrived before the deadline, so a session may or may not exist. **Resolve dispatch** asks which: *Session was created* (with the session id, read from OpenChamber’s session list under the attachment id) or *No session was created*, which returns it to waiting. Check the session list before answering — the panel holds no record of it.',
+    'dead-lettered':
+        'the automatic requeue budget is spent, so nothing further happens without you. **Return to waiting** resets the attempt count and the budget, keeping the source references and every prior attempt record.',
+    blocked:
+        'a guard refused the dispatch before any session was started — the panel names the cause and offers **Retry dispatch**, which the service accepts only once the cause has actually cleared. See the causes below.',
+};
+---
+
+<Layout title="Use">
+    <h1>Use</h1>
+
+    <p>
+        Mecha Turk does its own work: it polls, it queues, it starts sessions, and it records what
+        happened. This page is about watching that happen — reading a dispatch, understanding the state it
+        is in, and acting on the states that wait for you.
+    </p>
+
+    <h2>Your first dispatch</h2>
+
+    <ol>
+        <li>
+            Trigger the work on GitHub: assign an issue to the identity of a bound account, or request a
+            review from it, or mention it where a <strong>Mention</strong> trigger is enabled on that
+            binding.
+        </li>
+        <li>
+            Within about two poll intervals, a row appears under <strong>Dispatches</strong> — two
+            intervals because the scan that detects the event and the cycle that enqueues it are separate
+            passes.
+        </li>
+        <li>
+            <code>host.startSession()</code> fires. OpenChamber's own harness creates the session, the
+            worktree, and the chat; the extension does not create any of them. The app may switch to the
+            new chat once, so the panel can read back which agent took the session.
+        </li>
+        <li>
+            The dispatch is marked <strong>dispatched</strong> and its row carries the session that was
+            created. Select the row and press <strong>Audit history</strong> to read that dispatch's whole
+            trail — creation, claim, authorization, result, verification — under its correlation
+            identifier, in order, from the panel alone.
+        </li>
+    </ol>
+
+    <h2>One session per dispatch, and never a second one</h2>
+
+    <p>
+        A dispatch produces <strong>at most one session</strong>. Triggers that hit the same issue
+        coalesce into one dispatch, and the authorization that admits the dispatch mints a single-use
+        token, so a second session for one dispatch is impossible rather than merely unlikely. A dispatch
+        that already produced a session <strong>cannot be retried</strong>: the panel offers no control
+        on such a row, and the service refuses a retry outright, naming the session that already exists.
+    </p>
+
+    <p>
+        A dispatch that made <em>no</em> session is a different matter, and keeps its <strong>Retry dispatch</strong> control.
+        A retry returns the same dispatch to waiting under the
+        same key with the attempt counted up — the same unit of work, retried, rather than a new one.
+    </p>
+
+    <h2>What each state means, and what moves it</h2>
+
+    <p>
+        Every dispatch row carries a state and a reason line, and every state that waits for a decision
+        offers the control that resolves it. Where no control applies, the control is absent rather than
+        disabled, and the reason line says why.
+    </p>
+
+    <DispatchStates describe={stateMeaning} />
+
+    <h2>Closing the panel never strands work</h2>
+
+    <p>
+        Polling and dispatch stop when OpenChamber stops — that dependency is the product's, not a gap in
+        it — but a panel you merely closed does not strand anything. A claim whose lease expires returns
+        to waiting on its own, with the attempt counted up and the reason audited, so the work is picked
+        up rather than abandoned.
+    </p>
+
+    <p>
+        The one state that waits is <strong>unconfirmed</strong>, and it is held there on purpose: a
+        session may exist, because intent was reported and no result arrived before the deadline.
+        It is <strong>never re-dispatched automatically</strong>. Only an explicit decision of yours — after
+        checking OpenChamber’s own session list — can move it, either by recording the session that was
+        created or by returning it to waiting. Automatic re-dispatch would risk a second agent session for
+        work that may already be running, which is the one outcome the single-use token exists to prevent.
+    </p>
+
+    <h2>The setup prerequisites, on the Status tab</h2>
+
+    <p>
+        <strong>Status</strong> carries a <strong>Setup prerequisites</strong> section: the five things a
+        first dispatch needs, each on its own line with its own state and its own remediation. The states
+        are <strong>met</strong>, <strong>not met</strong>, and <strong>not checkable by the panel</strong>
+        — and the third is the honest one, used where the panel genuinely cannot read the fact rather than
+        displaying a verdict it never reached.
+    </p>
+
+    <p>The five, and what each state can be:</p>
+
+    <ul>
+        <li>
+            <strong>Default Agent pin</strong> — always <em>not checkable by the panel</em>, because no
+            documented host API exposes that setting. Set OpenChamber’s Session Defaults → Default Agent
+            to the agent you want dispatches to run on, and the matching <code>expectedAgent</code> baseline
+            in Settings; the first dispatch is what checks it, and every dispatch afterwards reads the
+            session back and warns when it reports another agent.
+        </li>
+        <li>
+            <strong>OpenChamber running</strong> — <em>not checkable</em> until the host has answered this
+            panel at all, then <em>met</em>. Polling and dispatch stop when OpenChamber closes.
+        </li>
+        <li>
+            <strong>Desktop or web surface</strong> — always <em>not checkable</em>. The documented host
+            surface reports which kind of panel this is, never which OpenChamber app it runs in, and a
+            refused service request cannot separate an unsupported surface from one that is merely not
+            running. Its remediation names the consequence: VS Code and mobile do not spawn the local
+            service.
+        </li>
+        <li>
+            <strong>GitHub token scopes</strong> — checked fail-closed across every usable account: no
+            connected account means <em>not met</em>, an account missing a required read scope means <em>not met</em>,
+            an account whose scope check the panel cannot read means <em>not checkable</em>,
+            and every required read scope present means <em>met</em>. No surface
+            reports write scopes, so read scopes decide the state and the remediation keeps the
+            no-write-scopes instruction visible.
+        </li>
+        <li>
+            <strong>Registered project per binding</strong> — <em>not met</em> when any binding names no
+            project, with the registration routes in its remediation. No binding at all reads <em>met</em>:
+            there is nothing left to resolve.
+        </li>
+    </ul>
+
+    <p>
+        Any checkable prerequisite that is <em>not met</em> also raises a <strong>Setup prerequisites need attention</strong> notice
+        above the tab strip — outside the section, so it cannot be switched away from, and naming the items and
+        where their fixes live. A <em>met</em> item never raises it, and neither does a <em>not checkable</em> one:
+        nagging about what the panel cannot read would teach you to ignore the banner.
+    </p>
+
+    <h2>How Status keeps itself current</h2>
+
+    <p>
+        <strong>Status</strong> is the one tab that refreshes itself. It reads again on the interval the
+        last status document reported — the same interval the service is polling on — so the numbers on
+        screen are not frozen at the moment you opened the panel. The tab states that period in words
+        beside <strong>Refresh status</strong>, so a page whose values move on their own never does it
+        without saying how often.
+    </p>
+
+    <p>
+        The period follows the service rather than the panel: change the poll interval and the next read
+        carries the new one, so the tab moves with it. Until that first read has landed the tab says it
+        is <strong>not refreshing itself</strong> rather than showing a plausible-looking number nobody
+        reported — the panel holds no default for one. The tick belongs to <strong>Status</strong> alone,
+        so switching to another tab stops it, and switching back reads straight away instead of waiting
+        out what was left of the old period. <strong>Refresh status</strong> is there whenever you want a
+        read now, and a read that fails keeps the last document and marks it stale rather than blanking
+        the tab with a summary built from nothing.
+    </p>
+
+    <p>
+        When a dispatch does not go through, the <a href={withBase('/debug/')}>debug page</a> matches the
+        symptom string to a cause and an action.
+    </p>
+</Layout>

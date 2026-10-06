@@ -1,7 +1,8 @@
 # AGENTS.md — working on Mecha Turk
 
 Guide for AI agents and humans changing this repository. Users install and
-operate the extension from [README.md](README.md); everything below is about
+operate the extension from the documentation site published at
+<https://shaunburdick.github.io/mecha-turk/>; everything below is about
 building it safely.
 
 ## What this is
@@ -22,8 +23,10 @@ and review must state alignment with it.
 │                          # accounts/, poll/, store/ — stdlib-only, no framework
 ├── src/                  # panel logic, one responsibility per module
 ├── tests/                # vitest suites + support/ fakes (fake host, DOM helpers)
+├── site/                 # the documentation site (Astro) — its own manifest, lockfile,
+│                          # Node floor and gate; the root verify does NOT reach it
 ├── specs/002-agent-event-extension/      # production spec (the product's source of truth)
-├── README.md             # user-facing (install, configure, operate)
+├── README.md             # identity, and a link to the published documentation
 ├── .specify/             # constitution + spec-kit scripts/templates
 └── .opencode/commands/   # speckit slash commands
 ```
@@ -109,9 +112,11 @@ picture behind.
    so `network` is no longer requested at all. `contributes.service` must not
    gain a `permissions` key.
 4. **Kebab-case identity.** Manifest ids must match `^[a-z][a-z0-9-]*$`;
-   the panel id is `mecha-turk`, and `host.storage` keys are prefixed
-   `mecha-turk:` (`:project`, `:evidence`, `:ledger`). Renaming either is a
-   user-visible storage-namespace reset — treat as a breaking change.
+   the panel id is `mecha-turk`. Four of the five `host.storage` keys carry that
+   `mecha-turk:` prefix (`:project`, `:evidence`, `:ledger`, `:dispatches`); the
+   fifth, `accounts`, carries **no prefix at all** (`src/account-mirror.ts`).
+   Renaming either the id or a key is a user-visible storage-namespace reset —
+   treat as a breaking change, and grep `STORAGE_KEY` before claiming a count.
 5. **`SERVICE_VERSION` mirrors `package.json`.**
    `service/routes/health.ts` hardcodes the version and
    `tests/service-server.test.ts` pins them together.

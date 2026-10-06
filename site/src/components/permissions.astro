@@ -1,0 +1,73 @@
+---
+/**
+ * The install page's permission table (T-013, FR-022, AC-007).
+ *
+ * Three rows come from the shipped manifest and nowhere else — the two tokens
+ * in `openchamber.contributes.capabilities` and the one `contributes.service`
+ * implies. The **count is derived from those rows**, so it cannot state a
+ * number the table does not have (AC-007).
+ *
+ * `network` is not here and cannot be added without a manifest change: it was
+ * removed by product-owner order on 2026-09-30 (AGENTS.md invariant 3) and the
+ * panel makes no GitHub request of its own. The README's claim that the dialog
+ * "asks for exactly these four things" is the drift FR-077 corrects; this table
+ * is generated from the manifest, which is the authority.
+ *
+ * The one-line meaning per capability is **prose**, so it arrives as a prop and
+ * is required: a row the page could not describe is refused at build time rather
+ * than shipped with an empty cell. A component that throws here fails
+ * `npm run build`, which is the point — FR-052 forbids a placeholder and this is
+ * the mechanism that guarantees one never reaches a table.
+ */
+import { CAPABILITIES, CAPABILITY_COUNT } from '../data/declarations.ts';
+
+interface Props {
+    /** One line per capability token, saying what the capability lets the product do. */
+    readonly describe: Readonly<Record<string, string>>;
+}
+
+const { describe } = Astro.props;
+
+const rows = CAPABILITIES.map((capability) => {
+    const meaning = describe[capability.id];
+    if (meaning === undefined || meaning.trim() === '') {
+        throw new Error(
+            `the permission table has no description for "${capability.id}"; every capability the `
+            + 'manifest requests must be described in one line (FR-022)',
+        );
+    }
+
+    return { ...capability, meaning };
+});
+---
+
+<table>
+    <caption>
+        The {CAPABILITY_COUNT} capabilities the shipped manifest asks the host for.
+    </caption>
+    <thead>
+        <tr>
+            <th scope="col">Capability</th>
+            <th scope="col">Asked for by</th>
+            <th scope="col">What it lets Mecha Turk do</th>
+        </tr>
+    </thead>
+    <tbody>
+        {
+            rows.map((row) => (
+                <tr>
+                    <th scope="row"><code>{row.id}</code></th>
+                    <td>
+                        {row.origin === 'implied' ? 'the service contribution' : 'the manifest, by name'}
+                    </td>
+                    <td>{row.meaning}</td>
+                </tr>
+            ))
+        }
+    </tbody>
+</table>
+
+<p>
+    <code>service</code> is implied by the manifest's own service contribution rather than named in its
+    capabilities list; listing it there would make OpenChamber refuse the install with <code>invalid-capabilities</code>.
+</p>

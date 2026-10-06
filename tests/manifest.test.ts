@@ -1,3 +1,5 @@
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -19,9 +21,12 @@ const EXTENSION_MANIFEST = JSON.parse(readFileSync(resolve(ROOT, EXTENSION_MANIF
 interface PackageJson {
     readonly name?: string;
     readonly version?: string;
+    readonly private?: boolean;
+    readonly license?: string;
+    readonly engines?: { readonly node?: string };
+    readonly scripts?: Record<string, string>;
     readonly dependencies?: Record<string, string>;
     readonly devDependencies?: Record<string, string>;
-    readonly engines?: { readonly node?: string };
     readonly openchamber?: OpenChamberBlock;
 }
 
@@ -353,6 +358,716 @@ describe('002 AC-021 — no reader takes a card id from ctx.settings', () => {
             for (const [path, source] of panelSources()) {
                 expect(indexed.test(source), `${path} indexes a settings record`).toBe(false);
             }
+        }
+    });
+});
+
+/* -------------------------------------------------------------------- *
+ * 007 — the site is a subproject the root manifest and the root tools
+ *      must not learn about (FR-006 – FR-008, FR-070 – FR-072, AC-017 – AC-021)
+ * -------------------------------------------------------------------- */
+
+/** Repository-relative path of the documentation site's own manifest. */
+const SITE_MANIFEST_PATH = 'site/package.json';
+
+/** The site's manifest — a second package.json document, and the only other one. */
+const SITE_MANIFEST = JSON.parse(readFileSync(resolve(ROOT, SITE_MANIFEST_PATH), 'utf8')) as PackageJson;
+
+/** Repository-relative path of the documentation site's directory. */
+const SITE_DIR = 'site';
+
+/** Directories under `site/` that hold installed or generated files rather than source. */
+const SITE_GENERATED = new Set(['.astro', 'dist', 'node_modules']);
+
+/** ESLint as the root install put it, so the child process resolves nothing of its own. */
+const ESLINT_BIN = resolve(ROOT, 'node_modules/.bin/eslint');
+
+/** The TypeScript compiler as the root install put it. */
+const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
+
+/**
+ * `package.json`'s sha256 — re-derived, not carried, when issue #17 merged.
+ *
+ * AC-017 asks for the root manifest to be **byte-identical**, so this is a digest
+ * rather than a list of the fields that must not move. That is also what keeps
+ * issue #17 out of this suite: raising the root Node floor is a legitimate change
+ * this test neither names nor forbids, and one that needs the digest updated
+ * deliberately and a commit saying which clause of AC-017 it satisfies. That is
+ * what happened — #17 moved `engines.node` to `>=24.15.0` on `main`, so the digest
+ * now pins the document **as #17 left it** rather than as 007 found it. AC-017's
+ * operative clause still holds: 007 added nothing to the root manifest, and the
+ * `declares no workspaces and no script that reaches the site` case below is the
+ * assertion that survives a floor change.
+ */
+const ROOT_MANIFEST_SHA256 = '80460f017ff7812c93a1630cc1db14df4adad05b4f64712881c7470b86631d8a';
+
+/**
+ * `.github/workflows/verify.yml`'s sha256, for the same reason and the same
+ * reason not to: NFR-007 and AC-023's last clause ask for the repository's own
+ * gate to be untouched, so it is compared whole rather than field by field.
+ *
+ * Re-derived for the same reason and at the same time as the digest above: #17
+ * extended this workflow with the root Node-floor sweep, so it now pins `main`'s
+ * version of the gate. The read-only-permission and fifteen-minute-budget case
+ * below is the assertion that survives an additive change to the workflow.
+ */
+const VERIFY_WORKFLOW_SHA256 = 'd2d6fb1a63e6711e98346f596104ae6d7bf21f1558d3235dbb6095fd12d19670';
+
+/** Repository-relative path of the repository's own gate workflow. */
+const VERIFY_WORKFLOW_PATH = '.github/workflows/verify.yml';
+
+/** Repository-relative path of the publish workflow Wave 7 writes. */
+const PUBLISH_WORKFLOW_PATH = '.github/workflows/site.yml';
+
+/**
+ * The Node floor `astro@7.3.5` declares for itself, as `npm view astro@latest engines`
+ * reported it on 2026-10-05 — `{ npm: '>=9.6.5', node: '>=22.12.0' }`.
+ *
+ * Recorded rather than read from `site/node_modules`, because the root gate cannot
+ * assume the subproject has been installed (FR-070 keeps the site out of the root's
+ * toolchain scope), and asserted so a future Astro bump that raises its own floor
+ * fails here instead of passing unnoticed under a site floor that happens to be higher.
+ */
+const ASTRO_NODE_FLOOR = '>=22.12.0';
+
+/** What one run of a repository tool reported. */
+interface ToolRun {
+    readonly status: number | null;
+    readonly output: string;
+}
+
+/**
+ * The ceiling one tool run gets before its process is killed, in milliseconds.
+ *
+ * The heaviest run here boots ESLint's whole type-aware config over the root
+ * tsconfig, which costs 4.4s on an idle machine and past 5s once a full suite has
+ * every core — so this is far above any honest run and exists to name a hang, not
+ * to police a slow one. Vitest's watchdog kills a blocked test with a line saying
+ * only that it timed out, which is no diagnosis at all: without a bound of its own
+ * the child, and the command it was running, are never named.
+ */
+const TOOL_TIMEOUT_MS = 20_000;
+
+/**
+ * Hash one repository file.
+ *
+ * @param path - Repository-relative path.
+ * @returns The file's sha256, lowercase hex.
+ */
+function sha256(path: string): string {
+    return createHash('sha256').update(readFileSync(resolve(ROOT, path))).digest('hex');
+}
+
+/**
+ * Run one of the repository's own tools and collect everything it said.
+ *
+ * `execFileSync` is no use here: a crash of ESLint's is the behaviour two of these
+ * assertions are about, and throwing it away would throw the finding away with it.
+ *
+ * A run that was killed is reported through `output` rather than swallowed. Callers
+ * assert on `output`, so the marker is what such an assertion prints — carrying the
+ * command, the budget and how it died, so the failure reads as a hung subprocess and
+ * not as a tool that had nothing to say.
+ *
+ * @param binary - An absolute path, or a name the PATH resolves.
+ * @param args - The arguments to pass.
+ * @returns The exit status and the combined standard output and error.
+ */
+function runTool(binary: string, args: readonly string[]): ToolRun {
+    const finished = spawnSync(binary, [...args], {
+        cwd: ROOT,
+        encoding: 'utf8',
+        timeout: TOOL_TIMEOUT_MS,
+    });
+    // `error` covers both a budget overrun and a process that never started, such as
+    // a missing binary. A killed run leaves a null status and whatever was said before
+    // the signal, which on its own is indistinguishable from a clean silent one.
+    const killed = finished.error === undefined
+        ? ''
+        : `\n${binary} ${args.join(' ')} died after ${String(TOOL_TIMEOUT_MS)}ms: ${finished.error.message}`;
+
+    return { status: finished.status, output: `${finished.stdout}${finished.stderr}${killed}` };
+}
+
+/**
+ * Read one line of `git`'s output.
+ *
+ * @param args - The git arguments.
+ * @returns Standard output, trimmed.
+ */
+function git(args: readonly string[]): string {
+    return execFileSync('git', [...args], { cwd: ROOT, encoding: 'utf8' }).trim();
+}
+
+/**
+ * Whether the site's own dependencies are installed under `site/`.
+ *
+ * The check is the package `site/astro.config.ts` itself imports, not a literal
+ * `astro`, and not the mere presence of `site/node_modules`: what decides whether
+ * ESLint's import resolver can load the config is whether *that* package sits
+ * beside it, so a partial or stale install takes the same branch the real one
+ * does. Reading the name out of the file under test keeps the two from parting
+ * company.
+ *
+ * Deliberately not a requirement. FR-070 keeps the site out of the root
+ * toolchain's scope, so the root CI job installs the repository and never the
+ * subproject — this suite cannot assume the directory is there, and two of its
+ * cases read the same installation for exactly that reason.
+ *
+ * @returns `true` when the config's own import is installed beside it.
+ */
+function siteInstallPresent(): boolean {
+    const config = readFileSync(resolve(ROOT, SITE_DIR, 'astro.config.ts'), 'utf8');
+    const specifier = /from '([^']+)'/.exec(config)?.[1];
+    // A scoped name is two segments and an unscoped one is a single, which is the
+    // only difference between the two spellings of the same address.
+    const segments = specifier?.split('/') ?? [];
+    const packageName = specifier?.startsWith('@') === true ? segments.slice(0, 2).join('/') : segments[0];
+
+    if (packageName === undefined) {
+        return false;
+    }
+
+    return existsSync(resolve(ROOT, SITE_DIR, 'node_modules', packageName, 'package.json'));
+}
+
+/**
+ * Every file under `site/` that is not installed or generated.
+ *
+ * The three generated directories are skipped at every level rather than filtered
+ * out at the end: `site/node_modules/` holds a package with a dangling symlink in
+ * it, so a walk that descended first would fail on the way to being able to
+ * discard what it found.
+ *
+ * @param sub - A `/`-separated path below `site/`, `''` for the directory itself.
+ * @returns Repository-relative paths, sorted.
+ */
+function siteFiles(sub: string): readonly string[] {
+    const found: string[] = [];
+    const entries = readdirSync(resolve(ROOT, SITE_DIR, sub), { withFileTypes: true });
+
+    for (const entry of entries) {
+        if (SITE_GENERATED.has(entry.name)) {
+            continue;
+        }
+
+        const path = sub === '' ? entry.name : `${sub}/${entry.name}`;
+        if (entry.isDirectory()) {
+            found.push(...siteFiles(path));
+        } else if (entry.isFile()) {
+            found.push(`${SITE_DIR}/${path}`);
+        }
+    }
+
+    return found.toSorted(byText);
+}
+
+/**
+ * A `>=x.y.z` Node floor as one comparable number.
+ *
+ * The root's floor is read from the manifest and **never written into this suite** —
+ * issue #17 raised it once already, and a suite that named it would turn the next
+ * legitimate change into a failure here rather than in the pull request that made it.
+ * That is why the comparison below is an ordering against a value read at run time
+ * and not an equality against a recorded literal. `1_000_000` is the weight of a major
+ * and `1_000` of a minor, which orders any two releases this repository could declare.
+ *
+ * @param range - A `>=x.y.z` range, or whatever the manifest wrote.
+ * @returns The floor, or `0` for a range that does not parse.
+ */
+function nodeFloor(range: string | undefined): number {
+    const parts = (/^>=(\d+)\.(\d+)\.(\d+)$/.exec(range ?? '') ?? []).slice(1, 4).map(Number);
+
+    return (parts[0] ?? 0) * 1_000_000 + (parts[1] ?? 0) * 1_000 + (parts[2] ?? 0);
+}
+
+describe('007 FR-007 / AC-017 — the root manifest is the document it was before the site', () => {
+    it('is byte-identical to the pre-feature manifest', () => {
+        {
+            expect(
+                sha256(EXTENSION_MANIFEST_PATH),
+                'package.json changed. The site must add nothing to it (FR-007); if a change is intended, update '
+                    + 'this digest deliberately and say in the commit which clause of AC-017 it satisfies.'
+            ).toBe(ROOT_MANIFEST_SHA256);
+        }
+    });
+
+    it('declares no workspaces and no script that reaches the site', () => {
+        {
+            // Invariant 2 states the prohibition in its own words, so it is
+            // asserted in its own words as well as inside the digest above: a
+            // `workspaces` key is the one edit that would put the site's
+            // `node_modules` and its own Node floor into the root install.
+            expect(EXTENSION_MANIFEST).not.toHaveProperty('workspaces');
+        }
+        {
+            const scripts = Object.entries(EXTENSION_MANIFEST.scripts ?? {});
+
+            expect(scripts.length).toBeGreaterThan(0);
+            // FR-070: the root verification command must not lint, type-check, or
+            // build the site. `verify` is four steps of the repository's own work.
+            for (const [name, command] of scripts) {
+                expect(command, `the root script ${name} reaches the site`).not.toMatch(/\b(?:astro|site)\b/);
+            }
+        }
+    });
+});
+
+describe('007 FR-006 / FR-007 / FR-008 — the site is its own pinned package', () => {
+    it('declares no extension manifest and no version of its own', () => {
+        {
+            expect(SITE_MANIFEST).not.toHaveProperty('openchamber');
+            expect(SITE_MANIFEST).not.toHaveProperty('version');
+            // `private` because the site is published by Pages and by nothing
+            // else: a `version` is how npm learns to publish something.
+            expect(SITE_MANIFEST.private).toBe(true);
+        }
+        {
+            // FR-007's other half, and the one `npm ci` in the site's build job
+            // depends on: a committed lockfile of its own, naming its package.
+            expect(git(['ls-files', '--error-unmatch', 'site/package-lock.json'])).toBe('site/package-lock.json');
+            const lock = JSON.parse(readFileSync(resolve(ROOT, 'site/package-lock.json'), 'utf8')) as { name?: string };
+
+            expect(lock.name).toBe(SITE_MANIFEST.name);
+        }
+    });
+
+    it('pins every one of its build tools to an exact version', () => {
+        {
+            const pins = [
+                ...Object.entries(SITE_MANIFEST.dependencies ?? {}),
+                ...Object.entries(SITE_MANIFEST.devDependencies ?? {}),
+            ];
+
+            expect(pins.length).toBeGreaterThan(0);
+            // By analogy with invariant 6, which pins the SDK exactly for the
+            // same reason: a range is a second place a breaking release can enter
+            // from, and the site's gate is the only one that runs.
+            for (const [name, pin] of pins) {
+                expect(pin, `${name} must not carry a range operator or a prerelease`)
+                    .toMatch(/^\d+\.\d+\.\d+$/);
+            }
+        }
+    });
+
+    it('declares a Node floor that satisfies Astro and is not below the root\'s', () => {
+        {
+            // The site's floor is pinned here on purpose: raising it is a reviewed
+            // diff rather than a silent edit. It is *not* Astro's requirement
+            // (`>=22.12.0`, measured via `npm view astro@latest engines` and
+            // recorded in specs/007-homepage-docs/research.md §1.4) — issue #17
+            // raised the repository's floor above that, and the product owner had
+            // the site's follow it, so the floor here is the repository's, with
+            // Astro's requirement satisfied underneath it and asserted below.
+            expect(SITE_MANIFEST.engines?.node).toBe('>=24.15.0');
+        }
+        {
+            // FR-008 as re-cut at 007 v1.3.0: **not lower than** the root's, not
+            // higher. The two manifests legitimately declare the same number, so
+            // `>` would assert a difference the product has decided against. What
+            // the comparison still forbids is the direction that would be a real
+            // defect — a subproject claiming a Node older than the repository
+            // itself refuses to install on — and it is a comparison of the two
+            // values **read at run time**, so it is not weakened by equality: a
+            // floor dropped below the root's, or raised without a reviewed edit to
+            // the pin above, each fail here.
+            expect(nodeFloor(SITE_MANIFEST.engines?.node)).toBeGreaterThanOrEqual(
+                nodeFloor(EXTENSION_MANIFEST.engines?.node),
+            );
+        }
+        {
+            // And the floor really does satisfy the build tool, so the number is
+            // not merely inherited. Astro's own requirement is *recorded* rather
+            // than read from `site/node_modules` — the root gate must not depend
+            // on the subproject's install having happened — which is why it is a
+            // constant here and why a future Astro bump has to update it.
+            expect(nodeFloor(SITE_MANIFEST.engines?.node)).toBeGreaterThanOrEqual(nodeFloor(ASTRO_NODE_FLOOR));
+        }
+    });
+});
+
+describe('007 FR-070 / AC-019 — the root tools report no file under site/', () => {
+    it('has the site directory in the root lint config\'s ignores', () => {
+        {
+            expect(readFileSync(resolve(ROOT, 'eslint.config.mjs'), 'utf8')).toContain("'site/**'");
+        }
+    });
+
+    it('refuses the site directory outright when asked to lint it', () => {
+        {
+            const linted = runTool(ESLINT_BIN, ['site/']);
+
+            // Not "linted nothing, quietly": ESLint stops with a non-zero status
+            // and says the glob matched nothing but ignored files, so a root lint
+            // that stopped reaching `site/` cannot read as a clean tree.
+            expect(linted.status).not.toBe(0);
+            expect(linted.output).toContain('are ignored');
+        }
+    });
+
+    // The budget is vitest's default 5s multiplied by the cost of the one run here
+    // that a full suite can starve: it boots ESLint's type-aware config over the root
+    // tsconfig, measured at 4.4s idle and 5.4s with every core busy, so the default
+    // turned a passing assertion red on load alone. Set above `TOOL_TIMEOUT_MS` on
+    // purpose — a genuine hang is reported by the subprocess bound, which names the
+    // command, while this figure only has to leave an honest run alone.
+    it('refuses to lint a site file cleanly once that ignore is neutralised', () => {
+        {
+            // The reason `site/**` is in `ignores` and not merely tidy. With the
+            // ignore neutralised, the import resolver inherits the root tsconfig,
+            // in which `site/` is not a project, and ESLint aborts — a crash of
+            // the repository's own gate, not a finding.
+            //
+            // **What it says is asserted as the invariant, not as one install
+            // layout's spelling of it.** The claim is that neutralising the
+            // ignore puts the repository's own lint command over a file it has
+            // been told to skip, and that ESLint cannot return success while
+            // doing so. How that refusal arrives depends on whether `site/` has
+            // been installed here, and both of those refusals are the same fact:
+            //   - installed: the resolver loads `astro/config` through the site tsconfig,
+            //     which the root project does not extend, and ESLint dies with
+            //     `EslintPluginImportResolveError` — the crash the config comment names.
+            //   - not installed, as in the root CI job, which never installs the
+            //     subproject (FR-070): there is no `astro/config` to resolve either,
+            //     so the rule reports an ordinary `import-x/no-unresolved` finding.
+            // Asserting the crash class unconditionally would have made this suite
+            // depend on an install the gate is not allowed to assume; asserting
+            // only "non-zero" would have passed for any reason at all.
+            const crashed = runTool(ESLINT_BIN, ['--no-ignore', 'site/astro.config.ts']);
+
+            expect(crashed.status).not.toBe(0);
+            // The finding is against a file under `site/` — the load-bearing half,
+            // and the half that holds whichever way the refusal is expressed. Both
+            // spellings head their output with the offending path.
+            expect(crashed.output).toContain(resolve(SITE_DIR, 'astro.config.ts'));
+            // And it is the file the assertion neutralised, not something ESLint
+            // picked up on its own: the ignore is what used to keep it unread.
+            expect(crashed.output).not.toContain('are ignored');
+        }
+        {
+            // The crash class itself, asserted only where the site *is* installed,
+            // because the error and the rule are the two things a future dependency
+            // bump would change last — and the bump can only change them here, since
+            // this is the only install in which the resolver gets far enough to have
+            // an opinion about the cycle.
+            if (siteInstallPresent()) {
+                const crashed = runTool(ESLINT_BIN, ['--no-ignore', 'site/astro.config.ts']);
+
+                expect(crashed.status).not.toBe(0);
+                expect(crashed.output).toContain('EslintPluginImportResolveError');
+                expect(crashed.output).toContain('import-x/no-cycle');
+            }
+        }
+    }, 30_000);
+
+    it('keeps the site out of the root TypeScript project', () => {
+        {
+            const tsconfig = JSON.parse(readFileSync(resolve(ROOT, 'tsconfig.json'), 'utf8')) as {
+                readonly include?: readonly string[];
+            };
+
+            // Not one `site` glob: adding `site/**/*.ts` would put Astro's own
+            // types and the site's `astro/tsconfigs/strictest` settings under
+            // this repository's compiler options, which are the other half of
+            // FR-070.
+            expect((tsconfig.include ?? []).filter((entry) => entry.includes(SITE_DIR))).toEqual([]);
+            expect(tsconfig.include?.length ?? 0).toBeGreaterThan(0);
+        }
+        {
+            const listed = runTool(TSC_BIN, ['--noEmit', '--listFilesOnly']);
+            const files = listed.output.split('\n').filter((line) => line !== '');
+
+            expect(listed.status).toBe(0);
+            // Not vacuous: the project is hundreds of files, and they are the
+            // panel's, the service's and the tests'.
+            expect(files.filter((file) => file.endsWith('.ts')).length).toBeGreaterThan(100);
+            expect(files.filter((file) => file.startsWith(`${resolve(ROOT, SITE_DIR)}/`))).toEqual([]);
+        }
+    });
+});
+
+describe('007 FR-071 / AC-021 — nothing the site builds is tracked', () => {
+    it('ignores all three of its directories, and tracks none of them', () => {
+        {
+            const ignored = readFileSync(resolve(ROOT, '.gitignore'), 'utf8').split('\n').map((line) => line.trim());
+
+            // Unanchored, so each matches at any depth — which is the whole of
+            // why `site/` needs no line of its own and why `node_modules/` needs
+            // none under it either.
+            for (const pattern of ['dist/', '.astro/', 'node_modules/']) {
+                expect(ignored, `${pattern} must be unanchored so it matches under site/`).toContain(pattern);
+            }
+        }
+        {
+            // The site repeats the first two on purpose: the file says so, and the
+            // reason is that the directory then carries its own rule if it is ever
+            // moved, copied, or vendored away from this repository root. It carries
+            // no `node_modules/` line because the root's pattern already covers it.
+            const own = readFileSync(resolve(ROOT, SITE_DIR, '.gitignore'), 'utf8')
+                .split('\n')
+                .map((line) => line.trim());
+
+            expect(own).toContain('dist/');
+            expect(own).toContain('.astro/');
+            expect(own).not.toContain('node_modules/');
+        }
+        {
+            // Live, and true whether or not a build has run here: the three real
+            // paths, each matched by the pattern this suite says it should be.
+            // `check-ignore -v` writes `<source>:<line>:<pattern>\t<path>`, so the
+            // pattern is the part after the second colon rather than a field.
+            const probes = ['site/dist/index.html', 'site/.astro/types.d.ts', 'site/node_modules/astro/package.json'];
+            const checked = runTool('git', ['check-ignore', '-v', ...probes]);
+            const verdicts = checked.output.split('\n').map((line) => {
+                const [where, probe] = line.split('\t', 2);
+
+                return { probe: probe ?? '', pattern: (where ?? '').replace(/^.*:\d+:/, '') };
+            });
+            const patternFor = (probe: string): string => verdicts.find((row) => row.probe === probe)?.pattern ?? '';
+
+            expect(checked.status).toBe(0);
+            expect(patternFor(probes[0] ?? '')).toBe('dist/');
+            expect(patternFor(probes[1] ?? '')).toBe('.astro/');
+            // Read off the root `.gitignore`, which is the claim the site's own
+            // file makes in its comment and which nothing would otherwise check.
+            expect(patternFor(probes[2] ?? '')).toBe('node_modules/');
+        }
+        {
+            const paths = git(['ls-files']).split('\n');
+
+            expect(paths.filter((path) => path.startsWith('site/dist/'))).toEqual([]);
+            expect(paths.filter((path) => path.startsWith('site/.astro/'))).toEqual([]);
+            expect(paths.filter((path) => path.startsWith('site/node_modules/'))).toEqual([]);
+        }
+        {
+            // The "untracked once they exist, with no untracked-file exception
+            // needed" half of AC-021, observed rather than assumed — and
+            // observed only where there is something to observe.
+            //
+            // Conditional, and the condition is the point: the root CI job runs
+            // `npm run verify`, which builds `panel/` and `service/` and never the
+            // site (FR-070 keeps `site/` out of the root toolchain's scope), so
+            // none of the three directories exists there. Asserting that
+            // `site/dist/` does would have been asserting a fact about whichever
+            // developer's machine ran it. Ignored and untracked is what AC-021
+            // requires and what the two cases above check with or without the
+            // directories present; this case adds the observation that real files
+            // under them leave the working tree clean.
+            if ([...SITE_GENERATED].some((name) => existsSync(resolve(ROOT, SITE_DIR, name)))) {
+                const dirty = git(['status', '--porcelain']).split('\n')
+                    .filter((line) => /site\/(?:dist|\.astro|node_modules)\//.test(line));
+
+                expect(dirty).toEqual([]);
+            }
+        }
+    });
+});
+
+describe('007 FR-070 — the site\'s tests stay out of the root test glob', () => {
+    it('ships no *.test.* file, because the root vitest has no config file', () => {
+        {
+            const shipped = siteFiles('');
+
+            expect(shipped.length).toBeGreaterThan(20);
+            expect(shipped.filter((path) => path.includes('.test.'))).toEqual([]);
+        }
+        {
+            // Why, since a site that grows a normal test file will not think about
+            // it: the root `npm test` is a bare `vitest run` with no config file,
+            // so its default include globs every `*.test.*` from the repository
+            // root and would collect it into the repository's own gate, which
+            // FR-070 forbids. The site's suite is `node --test` over
+            // `tests/**/*.assertions.mjs`, which is why that is the name it uses.
+            const own = siteFiles('tests');
+
+            expect(own.filter((path) => path.endsWith('.assertions.mjs')).length).toBeGreaterThan(0);
+        }
+    });
+});
+
+describe('007 AC-018 / AC-023 — the repository\'s own gate workflow is untouched', () => {
+    it('is byte-identical to the workflow this feature found', () => {
+        {
+            expect(
+                sha256(VERIFY_WORKFLOW_PATH),
+                'verify.yml changed. Nothing in this feature may touch it; if a change is intended, update this '
+                    + 'digest deliberately and say why.'
+            ).toBe(VERIFY_WORKFLOW_SHA256);
+        }
+    });
+
+    it('keeps its read-only permission and its fifteen-minute budget', () => {
+        {
+            const workflow = readFileSync(resolve(ROOT, VERIFY_WORKFLOW_PATH), 'utf8');
+
+            expect(workflow).toContain('permissions:\n  contents: read');
+            expect(workflow).toContain('timeout-minutes: 15');
+            expect(workflow).toContain('run: npm run verify');
+        }
+    });
+});
+
+describe('007 AC-023 / FR-066 / FR-067 — the publish workflow', () => {
+    // Wave 7 (T-037) writes this file, so these two assertions were written
+    // while it did not exist and skipped themselves until it landed. Wave 7 has
+    // landed, and a `skipIf` on "the workflow file is missing" would convert the
+    // one condition AC-023 cares about into a silent skip — deleting
+    // `site.yml` would turn both of these green. So the file's presence is now
+    // asserted outright, once, here: a missing workflow fails this suite loudly
+    // instead of quietly emptying it.
+    it('exists, because both of its properties below are asserted against it', () => {
+        {
+            expect(existsSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH))).toBe(true);
+        }
+    });
+
+    it('references every action by a commit SHA', () => {
+        {
+            const workflow = readFileSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH), 'utf8');
+            const used = workflow
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => line.startsWith('uses:') || line.startsWith('- uses:'))
+                .map((line) => line.slice(line.indexOf('uses:') + 'uses:'.length).trim().split(' ', 1)[0] ?? '');
+
+            expect(used.length).toBeGreaterThan(0);
+            // Taken apart rather than matched whole, because a single pattern over
+            // `owner/name@sha` is a shape the unsafe-regex rule rightly objects to,
+            // and naming the halves says more about which of them is wrong anyway.
+            for (const action of used) {
+                const [slug = '', reference = ''] = action.split('@', 2);
+                const [owner = '', repository = ''] = slug.split('/', 2);
+
+                expect(owner, `${action} names no action owner`).toMatch(/^[\w.-]+$/);
+                expect(repository, `${action} names no action repository`).toMatch(/^[\w.-]+$/);
+                expect(reference, `${action} is referenced by tag rather than by commit SHA`).toMatch(/^[0-9a-f]{40}$/);
+            }
+        }
+    });
+
+    it('grants exactly the permissions a Pages deployment needs, and nothing else', () => {
+        {
+            const workflow = readFileSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH), 'utf8');
+            const granted = [...workflow.matchAll(/^\s*[a-z][a-z-]*:\s*(?:read|write)\s*$/gm)]
+                .map((match) => match[0].trim());
+
+            // The workflow reads the repository; the deploy job writes Pages and
+            // presents an OIDC token and nothing else. A fourth grant is the
+            // failure this is here to catch, and a whole-file list of grants is
+            // what catches it — `contents: write` would otherwise pass unnoticed
+            // beside the three that are correct.
+            expect(granted).toEqual(['contents: read', 'pages: write', 'id-token: write']);
+        }
+    });
+});
+
+describe('007 FR-074 / FR-075 / AC-029 — the license is the standard MIT text and nothing else', () => {
+    /**
+     * The standard MIT template, one entry per clause.
+     *
+     * Written out whole rather than spot-checked, because FR-074 asks for "the
+     * **full** MIT license text — every grant, condition, disclaimer, and
+     * warranty waiver of the standard template, not a summary, not an excerpt, and
+     * not a substitute notice", and a test that looks for three of the clauses
+     * cannot tell an omitted fourth from a present one.
+     */
+    const MIT_TEMPLATE: readonly string[] = [
+        'MIT License',
+        'Copyright (c) 2026 Shaun Burdick',
+        'Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated '
+            + 'documentation files (the "Software"), to deal in the Software without restriction, including without '
+            + 'limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies '
+            + 'of the Software, and to permit persons to whom the Software is furnished to do so, subject to the '
+            + 'following conditions:',
+        'The above copyright notice and this permission notice shall be included in all copies or substantial portions '
+            + 'of the Software.',
+        'THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED '
+            + 'TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT '
+            + 'SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN '
+            + 'AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR '
+            + 'THE USE OR OTHER DEALINGS IN THE SOFTWARE.',
+    ];
+
+    it('carries the whole template, and the copyright line verbatim', () => {
+        {
+            // Whitespace-normalised on both sides before the comparison, and that
+            // is load-bearing rather than cosmetic: the real template wraps the
+            // disclaimer paragraph mid-sentence, so a single-line substring check
+            // on that clause would false-fail on a correct file. Normalising first
+            // is what lets the comparison be exact instead of approximate.
+            const license = readFileSync(resolve(ROOT, 'LICENSE'), 'utf8').replaceAll(/\s+/gu, ' ').trim();
+
+            expect(license).toBe(MIT_TEMPLATE.join(' '));
+        }
+    });
+
+    it('is the license the manifest declares and the README points at', () => {
+        {
+            expect(EXTENSION_MANIFEST.license).toBe('MIT');
+        }
+        {
+            const readme = readFileSync(resolve(ROOT, 'README.md'), 'utf8');
+            const section = readme.indexOf('## License');
+
+            expect(section).toBeGreaterThan(-1);
+            expect(readme.slice(section)).toContain('MIT');
+            expect(readme.slice(section)).toContain('[LICENSE](LICENSE)');
+        }
+    });
+});
+
+describe('007 FR-077 / AC-008 — the README and the install page\'s table agree with the manifest', () => {
+    /** Every capability token this product has ever discussed (002 FR-011, invariant 3). */
+    const CAPABILITY_TOKENS = new Set([
+        'background',
+        'files',
+        'model',
+        'network',
+        'prompt',
+        'service',
+        'sessions',
+    ]);
+
+    it('names every capability the manifest requests, implied ones included, and no other', () => {
+        {
+            // The README-side half of AC-008, and the drift FR-077 was added to
+            // correct: a `network` row, or the "exactly these four things" claim,
+            // copied out of the readme that is being retired and into the
+            // documentation that outlives it. Whole backtick contents only, so
+            // `service/main.js` in the bundle paragraph is not read as the
+            // capability.
+            const named = new Set(
+                [...readFileSync(resolve(ROOT, 'README.md'), 'utf8').matchAll(/`([a-z][a-z-]*)`/g)]
+                    .map((match) => match[1] ?? '')
+                    .filter((token) => CAPABILITY_TOKENS.has(token))
+            );
+            const parsed = parseManifestJson(readFileSync(resolve(ROOT, EXTENSION_MANIFEST_PATH), 'utf8'));
+
+            expect(parsed.ok).toBe(true);
+            if (!parsed.ok) {
+                throw new Error('package.json is not an OpenChamber manifest, so it requests no capabilities at all');
+            }
+
+            expect([...named].toSorted(byText)).toEqual(
+                [...requestedGuestCapabilities(parsed.manifest.contributes)].toSorted(byText)
+            );
+        }
+    });
+
+    it('builds the install page\'s permission table out of the manifest declaration', () => {
+        {
+            // The page-side half of AC-008. Read as source text rather than
+            // imported, because a root test must not reach into `site/` (FR-070):
+            // an import would pull Astro and a second `node_modules` into this
+            // repository's gate. The derivation is what makes the comparison
+            // above hold for the page as well as for the readme — the table
+            // cannot name a capability the manifest does not request, or omit one
+            // it does, because it never holds a list of its own.
+            const declarations = readFileSync(resolve(ROOT, SITE_DIR, 'src/data/declarations.ts'), 'utf8');
+
+            expect(declarations).toContain("import manifest from '../../../package.json'");
+            expect(declarations).toMatch(/manifest\.openchamber\.contributes\.capabilities\.map/);
+            expect(declarations).toMatch(/manifest\.openchamber\.contributes\.service === undefined/);
         }
     });
 });
