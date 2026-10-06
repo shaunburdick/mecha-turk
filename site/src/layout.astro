@@ -47,8 +47,13 @@ const documentTitle = title === undefined ? 'Mecha Turk' : `${title} · Mecha Tu
     /* One light theme, declared rather than inherited: NFR-004's contrast floor
        is a measurable property of this block, and a reader's OS dark-mode
        preference must not be what decides whether it holds. Body text is
-       #111111 on #ffffff (18.9:1) and links are #0a4a8f (8.8:1 on #ffffff,
-       8.1:1 on the #f6f6f6 the furniture sits on) — every pair clears 4.5:1. */
+       #111111 on #ffffff (18.88:1) and links are #0a4a8f (8.79:1 on #ffffff,
+       8.13:1 on the #f6f6f6 the footer paints) — every pair clears 4.5:1.
+       Those three figures are the record, and the audit in
+       `scripts/assert-build.mjs` recomputes them from the built page on
+       every build and prints what it found: it resolves the background
+       through the cascade rather than by token name, so the figure above is
+       the one it measures rather than the one a comment asserts. */
     :root {
         color-scheme: light;
         --text: #111111;

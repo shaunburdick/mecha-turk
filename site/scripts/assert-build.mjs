@@ -138,7 +138,129 @@ function wholeWordPattern(token) {
 const PLACEHOLDER_PATTERNS = PLACEHOLDER_TOKENS.map((token) => ({ token, pattern: new RegExp(wholeWordPattern(token)) }));
 
 /**
- * Attributes whose value the browser fetches or executes.
+ * The other two shapes FR-052 forbids, which no token list can reach because
+ * neither carries a word of its own.
+ *
+ * `PLACEHOLDER_TOKENS` is a vocabulary; these are **syntax**, and the two together
+ * are what AC-006 names — *"a placeholder, a template marker, a 'coming soon', an
+ * empty section heading, or an instruction to fill something in later"*. A gate
+ * holding the vocabulary alone is satisfied by a page whose unfinished parts are
+ * spelled as braces rather than as words, which is precisely what a build leaves
+ * behind when an `.astro` expression is not a valid identifier, is a raw string, or
+ * renders nothing at all.
+ */
+const UNFINISHED_SHAPES = [
+    {
+        name: 'a template marker',
+        // `{{name}}`: the shape every template engine and every README placeholder
+        // reserves, and the shape a value read from configuration can carry into a
+        // page verbatim. A single brace pair is not matched here — that is
+        // `UNRESOLVED_EXPRESSION`, below.
+        pattern: /\{\{[^{}]*\}\}/,
+    },
+    {
+        name: 'an unresolved expression',
+        // `{name}`, `{name.member}`, `{name['key']}`, `{name[0]}`: an expression that
+        // reached the output instead of being evaluated, which is what an undefined
+        // binding, a `set:html` of template source, or a component prop holding literal
+        // text leaves on the page.
+        //
+        // **Member access is inside the pattern, not beside it.** Astro's own expressions
+        // are predominantly member access — `{row.entry}`, `{row.holds}` — so a bare
+        // identifier was the narrow reading of a leak that in practice arrives with a dot
+        // in it, and the audit would have called the shipped site's own shapes unreachable
+        // while catching only the one shape the site does not use.
+        //
+        // A `(` is excluded, so `{foo(bar)}` is not matched here: that is a *call*, and
+        // whether it evaluated is not decidable from the output alone. It is left to the
+        // token scan rather than guessed at, because a false accept is the expensive
+        // direction.
+        pattern: /\{\s*[A-Za-z_$][\w$]*(?:\s*(?:\.\s*[A-Za-z_$][\w$]*|\[\s*(?:'[^']*'|"[^"]*"|\d+)\s*\]))*\s*\}/,
+    },
+    {
+        name: 'an empty heading',
+        // `<h2></h2>`: the section heading FR-052 names explicitly, at any level and
+        // through any attributes. Whitespace-only counts, because that is what a
+        // heading whose only content was an expression that rendered nothing looks
+        // like after the build trims it.
+        pattern: /<h([1-6])\b[^>]*>\s*<\/h\1\s*>/i,
+    },
+];
+
+/**
+ * The one element on the site that spells a literal brace marker on purpose.
+ *
+ * `/configure/` documents that the starting prompt is sent verbatim by printing
+ * the marker itself — `<code>{'{number}'}</code>` — and FR-052's shape check cannot
+ * tell that from an expression that leaked into the output. The exemption is an
+ * **attribute** rather than an HTML comment for the reason 007 D14 gives the
+ * vocabulary scan: Astro strips comments from a template, so a comment would scope
+ * the exemption in the source and vanish from the built page, leaving the scan
+ * reading the marker in one and not the other. Marking the element is what makes the
+ * exemption survive the build, and `AC_LITERAL_MARKER` is asserted to be present
+ * below, so the marker cannot be deleted into a failure the contributor does not
+ * see.
+ */
+const AC_LITERAL_MARKER = 'data-literal-marker';
+
+/**
+ * A page's markup with its style blocks removed.
+ *
+ * The shape checks above are assertions about **what a reader reads**, and a CSS
+ * rule body is a run of braces that no template engine produced. `PLACEHOLDER_PATTERNS`
+ * runs over the raw page and is left alone — it is an existing assertion, and
+ * narrowing the bytes it reads would only weaken it.
+ *
+ * @param {string} html A page's markup.
+ * @returns {string} The same page with every `<style>` body removed.
+ */
+function readMarkup(html) {
+    return html.replaceAll(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ');
+}
+
+/**
+ * Every page's markup, with the marked literal markers cut out of it.
+ *
+ * Cut whole elements rather than the attribute alone, so an exempt `<code>` cannot
+ * hide a second marker the author put inside it. The span runs from the marked
+ * element's opening tag to the first closing tag of the same name — which is
+ * unambiguous for the element this site marks, a `<code>` that carries one marker.
+ *
+ * @param {string} markup A page's markup, style blocks already removed.
+ * @returns {string} The same markup with every marked element removed.
+ */
+function withoutLiteralMarkers(markup) {
+    const open = /<([a-zA-Z][^\s/>]*)\b([^>]*)>/g;
+    const spans = [];
+    for (const element of markup.matchAll(open)) {
+        const attributes = readAttributes(element[2] ?? '');
+        if (attributes.get(AC_LITERAL_MARKER) !== 'true') {
+            continue;
+        }
+        const close = new RegExp(`</${(element[1] ?? '').toLowerCase()}\\s*>`, 'gi');
+        close.lastIndex = (element.index ?? 0) + element[0].length;
+        const found = close.exec(markup);
+        const start = element.index ?? 0;
+        const end = found === null ? start + element[0].length : found.index + found[0].length;
+        spans.push([start, end]);
+    }
+    if (spans.length === 0) {
+        return markup;
+    }
+    const kept = [];
+    let cursor = 0;
+    for (const [start, end] of spans) {
+        kept.push(markup.slice(cursor, start));
+        cursor = end;
+    }
+    kept.push(markup.slice(cursor));
+
+    return kept.join('');
+}
+
+/**
+ * Attributes whose value the browser fetches, executes, or resolves every other
+ * reference against.
  *
  * This is the distinction the whole off-origin check turns on, and it is a
  * distinction of *position*, not of host. FR-010 and NFR-003 govern the requests
@@ -146,8 +268,24 @@ const PLACEHOLDER_PATTERNS = PLACEHOLDER_TOKENS.map((token) => ({ token, pattern
  * repository are off-origin by necessity — the site publishes no copy of the
  * licence (plan D8) and AC-005 requires the link — so a check that flagged every
  * off-origin URL would be flagging a requirement.
+ *
+ * **`base` is the first entry that fetches nothing, and the reason it is here.**
+ * A `<base href>` names no resource; it re-bases every *relative* URL on the page,
+ * so the request it causes is made under whatever origin it names. That is the
+ * shape NFR-003 forbids, it is reachable from a build that stays otherwise green,
+ * and a position list that omitted it would have left a page able to point its
+ * own stylesheet, font and script at a third-party host by changing one attribute
+ * in the layout. It carries the same two AC-002 checks as every other position, so
+ * a base that is off-origin **or** drops the published path fails either way.
+ *
+ * `style` is the second such entry, and it is handled rather than listed: a
+ * `style` attribute is a stylesheet body, so it is routed through
+ * `assertInlineStylesheet` below — which is what catches
+ * `style="background:url(https://…)"`. Listing it here would read it as a bare URL
+ * and miss every `url()` in it.
  */
 const RESOURCE_POSITIONS = [
+    { tag: 'base', attribute: 'href' },
     { tag: 'img', attribute: 'src' },
     { tag: 'image', attribute: 'href' },
     { tag: 'image', attribute: 'xlink:href' },
@@ -173,6 +311,81 @@ const INERT_SCHEMES = new Set(['about:']);
 
 /** Schemes that carry content inline where the browser would otherwise fetch it. */
 const INLINE_SCHEMES = new Set(['data:', 'blob:']);
+
+// ---------------------------------------------------------------------------------------------
+// NFR-004's contrast floor. The requirement names its own verification — *"the site's own check
+// plus an automated audit of the built pages"* — and this is the audit half of it: the structural
+// half (one `h1` in order, a labelled `nav`) is a fact about the markup, whereas contrast is a
+// fact about a palette, and a palette is the one thing a page edit can change without touching any
+// markup. Left to a comment, it is a claim; measured here, it is a gate.
+// ---------------------------------------------------------------------------------------------
+
+/** NFR-004's floor, as WCAG 2.2 states it: 4.5:1 for body text. */
+const CONTRAST_FLOOR = 4.5;
+
+/**
+ * The text/background pairs the layout can put together.
+ *
+ * Each pair names the **element the text sits in**, not a colour and not a token: the
+ * background that element is drawn on is a fact about the cascade, and a token is not
+ * one. `--surface` happens to be what the footer paints today, so a pair could name the
+ * token and pass — but it would then be measuring a custom property that no rule is
+ * obliged to use, which is the audit telling a story about the stylesheet rather than
+ * reading it. `surface` is resolved below the way a browser resolves it, so a footer
+ * repainted with a literal, a `rgb()`, or nothing at all is measured on what it
+ * actually sits on.
+ *
+ * The foreground stays a token: `:root`'s `--text` and `--link` are what the rules that
+ * set `color` reference, so naming them is naming the site's palette rather than
+ * hard-coding its values.
+ *
+ * `--rule` is deliberately absent: it is a border colour, and NFR-004 bounds text
+ * contrast — a 1px rule is not text a reader has to read. The comment in
+ * `src/layout.astro` records the same figures this audit recomputes.
+ */
+const CONTRAST_PAIRS = [
+    { where: 'body text on the page', foreground: '--text', surface: 'body' },
+    { where: 'a link on the page', foreground: '--link', surface: 'body' },
+    { where: 'body text in the footer', foreground: '--text', surface: 'footer' },
+    { where: 'a link in the footer', foreground: '--link', surface: 'footer' },
+];
+
+/**
+ * The elements the pairs above name, and where each one's background comes from when it
+ * declares none.
+ *
+ * `background` is not inherited in CSS — the initial value is `transparent`, and a
+ * transparent box shows whatever is behind it. So "the background behind this text" is a
+ * walk up the ancestor chain until something opaque is declared, and that walk is the
+ * cascade, not a lookup. The shipped chain is `footer → body → html`, and it ends
+ * without an opaque declaration only if the stylesheet paints nothing at all, which the
+ * audit reports rather than assumes.
+ */
+const SURFACE_CHAINS = { footer: ['footer', 'body', 'html'], nav: ['nav', 'body', 'html'], body: ['body', 'html'] };
+
+/**
+ * The tokens every pair above reads. Asserted **present** rather than assumed, because an
+ * audit that reports nothing about a page whose palette it failed to find is the exact shape
+ * of gate this file exists to refuse: a green check that measured nothing.
+ */
+const REQUIRED_PALETTE = ['--text', '--link', '--surface'];
+
+/**
+ * How many `var(--x)` hops a declared colour may take before the audit calls it unreadable.
+ *
+ * The shipped palette resolves in one; the bound exists so a self-referential or circular
+ * declaration fails loudly rather than spinning.
+ */
+const MAX_COLOUR_HOPS = 4;
+
+/**
+ * A background value that paints nothing, so the element behind it shows through.
+ *
+ * `transparent` is the initial value and the one this site could plausibly write; `none` is
+ * the other half of the same idea, and both mean the walk goes up the chain rather than
+ * stopping on a colour nobody can see text against.
+ */
+const SEE_THROUGH_BACKGROUNDS = new Set(['transparent', 'none']);
 
 // ---------------------------------------------------------------------------------------------
 // Reading the site's own configuration. The base path and the canonical origin are declared in
@@ -328,6 +541,342 @@ function locateInOutput(pathname, base) {
 }
 
 /**
+ * The colours and rules one page's inlined stylesheet declares.
+ *
+ * Read out of the **built** page rather than out of `src/layout.astro`, because the
+ * requirement's own verification is *"an automated audit of the built pages"* — and because a
+ * page that carried a `<style>` of its own would then be audited on its palette too, rather
+ * than inheriting the layout's by assumption.
+ *
+ * The rules are the **innermost** blocks, so a rule nested in an at-rule is read as though
+ * it were unconditional. `unconditional` records whether that read is safe: a page whose
+ * conditional block paints a background is one whose contrast the audit cannot decide, and
+ * `assertContrast` refuses it rather than measuring the unconditional reading.
+ *
+ * @param {string} css Every `<style>` body on the page, concatenated.
+ * @returns {{ tokens: Map<string, string>, rules: Array<{ selectors: string[], body: string }>, unconditional: boolean }}
+ *   The declared custom properties by lower-cased name, every rule in source order, and
+ *   whether no at-rule declares a background.
+ */
+function readPalette(css) {
+    const tokens = new Map();
+    const rules = [];
+    for (const block of css.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const selectors = (block[1] ?? '')
+            .split(',')
+            .map((selector) => selector.trim().toLowerCase())
+            .filter((selector) => selector !== '');
+        if (selectors.length > 0) {
+            rules.push({ selectors, body: block[2] ?? '' });
+        }
+    }
+    for (const rule of rules) {
+        // Later declarations win, which is the cascade: a page's second `:root` overrides
+        // the first, exactly as a browser resolves it.
+        for (const declared of rule.body.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;}]+)/gi)) {
+            tokens.set((declared[1] ?? '').toLowerCase(), (declared[2] ?? '').trim());
+        }
+    }
+
+    return { tokens, rules, unconditional: !atRulePaintsABackground(css) };
+}
+
+/**
+ * Whether any at-rule block — `@media`, `@supports` — declares a background.
+ *
+ * A background that only applies inside a query is a background the audit cannot resolve:
+ * whether it paints depends on a viewport it does not know, and reading the rule as though
+ * it were unconditional is the false *accept* this file exists to refuse. The check is a
+ * finding rather than a skip for that reason. Braces are counted so a nested block does not
+ * end the walk early.
+ *
+ * @param {string} css Every `<style>` body on the page, concatenated.
+ * @returns {boolean} Whether a conditional block declares a background.
+ */
+function atRulePaintsABackground(css) {
+    for (const opening of css.matchAll(/@[a-z-]+[^{]*\{/gi)) {
+        let depth = 1;
+        let at = opening.index + opening[0].length;
+        while (at < css.length && depth > 0) {
+            if (css[at] === '{') {
+                depth += 1;
+            } else if (css[at] === '}') {
+                depth -= 1;
+            }
+            at += 1;
+        }
+        if (readBackground(css.slice(opening.index + opening[0].length, at - 1)) !== '') {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * The colour a rule body paints behind itself, as written, or the empty string when it
+ * declares none.
+ *
+ * Both spellings of the property are read because `background-color` is how a rule states
+ * this without the shorthand's other components, and a stylesheet that used only the
+ * shorthand would otherwise read as declaring nothing.
+ *
+ * @param {string} body One rule's declarations.
+ * @returns {string} The declared value, trimmed, or `''`.
+ */
+function readBackground(body) {
+    return /(?<![-\w])background(?:-color)?\s*:\s*([^;}]+)/i.exec(body)?.[1]?.trim() ?? '';
+}
+
+/**
+ * The colour the text on one surface is actually drawn on, resolved the way a browser
+ * resolves it: this element's own declaration, or — when it declares none, or declares one
+ * that paints nothing — the nearest ancestor's.
+ *
+ * Each link in the chain is a *bare element name*, because that is the only selector shape
+ * this audit can resolve to "the box this text is in". A rule whose background sits behind
+ * a compound selector is not skipped quietly: `unresolvableBackgrounds` names it and the
+ * audit fails, because a background it cannot place is a background nobody measured.
+ *
+ * @param {Array<{ selectors: string[], body: string }>} rules Every rule, in source order.
+ * @param {string} element The element the text sits in.
+ * @returns {{ declared: string, from: string }} The winning declaration and the element that
+ *   made it, or the empty string when nothing up the chain paints one.
+ */
+function paintBackground(rules, element) {
+    for (const candidate of SURFACE_CHAINS[element] ?? [element]) {
+        // The last matching rule wins, which is the cascade within the chain.
+        const winner = rules.filter((rule) => rule.selectors.includes(candidate)).at(-1);
+        const declared = winner === undefined ? '' : readBackground(winner.body);
+        if (declared !== '' && !SEE_THROUGH_BACKGROUNDS.has(declared.toLowerCase())) {
+            return { declared, from: candidate };
+        }
+    }
+
+    return { declared: '', from: '' };
+}
+
+/**
+ * Every background declaration this audit cannot place, named.
+ *
+ * A rule may only paint a background behind a bare element name to be read. Anything else —
+ * `main p`, `.card`, `html[dir='rtl']`, `:root` — is a background whose box the audit cannot
+ * identify, and resolving it as though it were absent would report the inherited surface for
+ * text that is not drawn on it.
+ *
+ * @param {Array<{ selectors: string[], body: string }>} rules Every rule, in source order.
+ * @returns {string[]} One line per unresolvable selector, for the failure message.
+ */
+function unresolvableBackgrounds(rules) {
+    const unreadable = [];
+    for (const rule of rules) {
+        if (readBackground(rule.body) === '') {
+            continue;
+        }
+        for (const selector of rule.selectors) {
+            if (!/^[a-z][a-z0-9]*$/.test(selector)) {
+                unreadable.push(selector);
+            }
+        }
+    }
+
+    return unreadable;
+}
+
+/**
+ * Follow a declared colour through `var(--x)` references to the value at the end of it.
+ *
+ * @param {string} value A colour as declared, possibly `var(--name)`.
+ * @param {Map<string, string>} tokens The page's declared custom properties.
+ * @returns {string} The colour as written, with references resolved; unchanged when the chain
+ *   does not end within `MAX_COLOUR_HOPS`, which `assertContrast` then reports as unreadable.
+ */
+function resolveColour(value, tokens) {
+    let resolved = value;
+    for (let hop = 0; hop < MAX_COLOUR_HOPS; hop += 1) {
+        const reference = /^var\(\s*(--[a-z0-9-]+)\s*\)$/i.exec(resolved);
+        if (reference === null) {
+            return resolved;
+        }
+        const next = tokens.get((reference[1] ?? '').toLowerCase());
+        if (next === undefined) {
+            return resolved;
+        }
+        resolved = next;
+    }
+
+    return resolved;
+}
+
+/**
+ * A `#rgb` or `#rrggbb` colour as its three channels.
+ *
+ * Anything else is `null` rather than a guess. `rgb()`, `hsl()`, and colour keywords are all
+ * valid CSS and none of them is in this site's palette; a gate that skipped what it could not
+ * read would report a passing page for a colour it never looked at, so the unreadable shape
+ * is a hard failure that names the value and says what to write instead.
+ *
+ * @param {string} value A colour as declared.
+ * @returns {{ r: number, g: number, b: number } | null} Its channels, each 0–255.
+ */
+function parseColour(value) {
+    const hex = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(value.trim());
+    if (hex === null) {
+        return null;
+    }
+    const digits = hex[1] ?? '';
+    const full = digits.length === 3 ? [...digits].map((digit) => digit + digit).join('') : digits;
+
+    return {
+        r: Number.parseInt(full.slice(0, 2), 16),
+        g: Number.parseInt(full.slice(2, 4), 16),
+        b: Number.parseInt(full.slice(4, 6), 16),
+    };
+}
+
+/**
+ * One channel's linear-light value, per WCAG 2.2's definition of relative luminance.
+ *
+ * @param {number} channel One channel, 0–255.
+ * @returns {number} Its linear-light value, 0–1.
+ */
+function linearise(channel) {
+    const proportion = channel / 255;
+
+    return proportion <= 0.039_28 ? proportion / 12.92 : ((proportion + 0.055) / 1.055) ** 2.4;
+}
+
+/**
+ * A colour's relative luminance.
+ *
+ * @param {{ r: number, g: number, b: number }} colour The colour's channels.
+ * @returns {number} Its relative luminance, 0–1.
+ */
+function luminance(colour) {
+    return 0.2126 * linearise(colour.r) + 0.7152 * linearise(colour.g) + 0.0722 * linearise(colour.b);
+}
+
+/**
+ * The contrast ratio between two colours, as WCAG 2.2 states it.
+ *
+ * @param {{ r: number, g: number, b: number }} foreground The text's colour.
+ * @param {{ r: number, g: number, b: number }} background What it is drawn on.
+ * @returns {number} Their ratio, from 1 (identical) to 21 (black on white).
+ */
+function contrastRatio(foreground, background) {
+    const lighter = Math.max(luminance(foreground), luminance(background));
+    const darker = Math.min(luminance(foreground), luminance(background));
+
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+/**
+ * NFR-004's contrast floor, audited over the colours a page's stylesheet resolves to.
+ *
+ * Three assertions beyond the floor itself, and each of them is the one that keeps the next
+ * honest: the tokens the pairs name must be readable, every background must be placeable, and
+ * every chain must end on a colour. An audit that finds no palette, or cannot tell which box a
+ * background paints, or walks off the end of the chain, reports no failures for a page whose
+ * text colour it never looked at — and a green check that measured nothing is the exact shape
+ * of gate this file exists to refuse.
+ *
+ * @param {string} where The emitted file, for the message.
+ * @param {string} css Every `<style>` body on the page, concatenated.
+ * @returns {Array<{ where: string, foreground: string, background: string, ratio: number }>}
+ *   Every pair the audit measured, for the ledger the run prints.
+ */
+function assertContrast(where, css) {
+    const { tokens, rules, unconditional } = readPalette(css);
+    const measured = [];
+
+    for (const required of REQUIRED_PALETTE) {
+        assert(
+            'NFR-004 the declared text colours are audited',
+            tokens.has(required),
+            `${where}: the inlined stylesheet declares no \`${required}\`, so NFR-004's contrast floor ` +
+                'was measured against nothing. The layout declares its palette in `:root` and the audit ' +
+                'reads it from the built page; deleting a token has to fail here rather than turn the ' +
+                'audit off.',
+        );
+    }
+    assert(
+        'NFR-004 the declared text colours are audited',
+        unconditional,
+        `${where}: a rule inside an at-rule block declares a background, and whether it paints depends on ` +
+            'a viewport this audit does not know — a background it cannot resolve is a background nobody ' +
+            'measured. Paint unconditional backgrounds, or narrow the pairs this audit reads.',
+    );
+    const unplaceable = unresolvableBackgrounds(rules);
+    assert(
+        'NFR-004 the declared text colours are audited',
+        unplaceable.length === 0,
+        `${where}: ${unplaceable.map((selector) => `\`${selector}\``).join(', ')} declare a background behind ` +
+            'something other than a bare element name, so this audit cannot tell which box the text is ' +
+            'drawn in and would measure it against the inherited surface instead. The pairs it reads are ' +
+            `\`${CONTRAST_PAIRS.map((pair) => pair.surface).join('` and `')}\`.`,
+    );
+    // Non-vacuity for the cascade itself: a chain that ends on nothing means the stylesheet paints
+    // no surface at all, and an audit that then measured nothing would still exit zero. Checked
+    // once per surface rather than per pair, and reported as the stylesheet finding it is.
+    for (const surface of [...new Set(CONTRAST_PAIRS.map((pair) => pair.surface))]) {
+        const chain = SURFACE_CHAINS[surface] ?? [surface];
+        const resolved = paintBackground(rules, surface);
+        assert(
+            'NFR-004 the declared text colours are audited',
+            resolved.declared !== '',
+            `${where}: nothing in \`${chain.join('` → `')}\` declares a background, so there is nothing for ` +
+                `NFR-004's contrast floor to measure ${surface === 'body' ? 'body text' : `the ${surface}`} ` +
+                'against. `background` is transparent by default, so a stylesheet that declares none paints ' +
+                'the canvas — which this audit does not read, because the canvas colour is a browser default ' +
+                'rather than something the page states.',
+        );
+    }
+
+    for (const pair of CONTRAST_PAIRS) {
+        const surface = paintBackground(rules, pair.surface);
+        const foregroundRaw = resolveColour(tokens.get(pair.foreground) ?? '', tokens);
+        const backgroundRaw = resolveColour(surface.declared, tokens);
+        const foreground = parseColour(foregroundRaw);
+        const background = parseColour(backgroundRaw);
+        const id = 'NFR-004 the declared text colours clear 4.5:1';
+
+        if (foreground === null) {
+            assert(
+                id,
+                false,
+                `${where}: ${pair.where} is \`${foregroundRaw}\`, which this audit cannot read. NFR-004's floor ` +
+                    'is measured over `#rgb` and `#rrggbb`, and a colour in a form the audit cannot parse is ' +
+                    'a colour nobody measured — write it as a hex literal.',
+            );
+            continue;
+        }
+        if (background === null) {
+            assert(
+                id,
+                false,
+                `${where}: the background behind ${pair.where} is \`${backgroundRaw}\`, which this audit cannot ` +
+                    `read. It resolved from \`${pair.surface}\`${surface.from === '' ? '' : ` through \`${surface.from}\``} ` +
+                    'and no value up that chain is a hex literal; declare one the audit can measure, or write ' +
+                    'the colour as `#rgb`/`#rrggbb`.',
+            );
+            continue;
+        }
+        const ratio = contrastRatio(foreground, background);
+        measured.push({ where: pair.where, foreground: foregroundRaw, background: backgroundRaw, ratio });
+        assert(
+            id,
+            ratio >= CONTRAST_FLOOR,
+            `${where}: ${pair.where} is \`${foregroundRaw}\` on \`${backgroundRaw}\`, a contrast ratio of ` +
+                `${ratio.toFixed(2)}:1 — NFR-004 requires at least ${CONTRAST_FLOOR}:1 for body text. ` +
+                'Darken the foreground or lighten the background; every other pair on the page is measured ' +
+                'the same way.',
+        );
+    }
+
+    return measured;
+}
+
+/**
  * An element's opening tag as written, so a failure quotes the markup it refused
  * rather than a reconstruction of the one attribute that mattered.
  *
@@ -448,6 +997,8 @@ function assertTheOutputShape(emitted) {
  * @param {string} base The declared base path.
  * @param {string} origin The site's canonical origin.
  * @param {Set<string>} emitted The emitted files, as a set of `dist/`-relative paths.
+ * @returns {Array<{ where: string, foreground: string, background: string, ratio: number }>}
+ *   The contrast pairs NFR-004's audit measured on this page, for the ledger the run prints.
  */
 function assertThePage(page, html, base, origin, emitted) {
     const where = `dist/${page.file}`;
@@ -499,15 +1050,46 @@ function assertThePage(page, html, base, origin, emitted) {
                 continue;
             }
             for (const candidate of readSrcset(element.attributes.get(attribute) ?? '')) {
-                assertResourceReference(where, pageAddress, base, origin, emitted, element, attribute, candidate);
+                assertResourceReference(where, pageAddress, base, origin, emitted, element, attribute, candidate, 'candidate');
             }
+        }
+        // A `style` attribute is a stylesheet body, so it is read as one: this is what
+        // catches `style="background:url(https://cdn.example/a.gif)"`, which no entry in
+        // RESOURCE_POSITIONS can see because the URL is not the attribute's whole value.
+        if (element.attributes.has('style')) {
+            assertInlineStylesheet(
+                `${where}: ${openingTag(element)} \`style\` attribute`,
+                element.attributes.get('style') ?? '',
+                origin,
+            );
         }
     }
 
+    // FR-010 and NFR-003: a meta refresh is the one navigation a page performs with no
+    // reader's click in it, which makes it a reference the page itself makes — the shape
+    // NFR-003 forbids, not the shape it exempts (`<a href>`, a hyperlink the reader may
+    // choose to follow). Treated as a resource reference rather than ignored; see
+    // `readRefreshTarget` for why it cannot be read as a bare `content` value.
+    for (const element of elements) {
+        const equiv = (element.attributes.get('http-equiv') ?? '').trim().toLowerCase();
+        if (element.name !== 'meta' || equiv !== 'refresh') {
+            continue;
+        }
+        const target = readRefreshTarget(element.attributes.get('content') ?? '');
+        if (target === '') {
+            continue;
+        }
+        assertResourceReference(where, pageAddress, base, origin, emitted, element, 'content', target, 'navigates to');
+    }
+
     // FR-010: an inline stylesheet cannot reach off-origin either, and there is no stylesheet at all.
-    for (const block of html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)) {
+    const stylesheets = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)];
+    for (const block of stylesheets) {
         assertInlineStylesheet(`${where}: <style>`, block[1], origin);
     }
+
+    // NFR-004's other half: the contrast floor, over the palette this page inlined.
+    const contrast = assertContrast(where, stylesheets.map((block) => block[1]).join('\n'));
 
     // AC-002 and AC-003: every internal link resolves to a page the build actually emitted.
     const reachable = new Set();
@@ -600,8 +1182,9 @@ function assertThePage(page, html, base, origin, emitted) {
     // AC-005 and FR-076: the footer links the licence file in the repository.
     assertTheFooterLicenceLink(where, html, pageAddress, origin);
 
-    // FR-052 and AC-006: nothing unfinished survives into the output. Matched whole —
-    // see `TOKEN_LEADING` for why a substring test would refuse the shipped prose.
+    // FR-052 and AC-006: nothing unfinished survives into the output, in either of the two
+    // shapes it can take. The vocabulary first — matched whole, see `TOKEN_LEADING` for why
+    // a substring test would refuse the shipped prose.
     const lowered = html.toLowerCase();
     for (const { token, pattern } of PLACEHOLDER_PATTERNS) {
         assert(
@@ -613,6 +1196,28 @@ function assertThePage(page, html, base, origin, emitted) {
                 'filename — is not one of them and does not fail here.',
         );
     }
+
+    // And then the shapes, which carry no word of their own — a page whose unfinished parts
+    // are spelled as braces rather than as words is exactly what a vocabulary cannot see.
+    //
+    // Marked literal markers are cut first; that the site still declares one is asserted
+    // once over the whole output, in `assertTheLiteralMarkerIsDeclared`, for the reason
+    // every other scan here is paired with a presence check.
+    const markup = readMarkup(html);
+    const scanned = withoutLiteralMarkers(markup);
+    for (const shape of UNFINISHED_SHAPES) {
+        const found = shape.pattern.exec(scanned);
+        assert(
+            'AC-006 no placeholder or unfinished marker',
+            found === null,
+            `${where}: carries ${shape.name} \`${found?.[0] ?? ''}\` — FR-052 forbids a placeholder, a template ` +
+                'marker, an empty section heading or an instruction to fill something in later, and this is that ' +
+                'check reading the built page rather than a list of words. An expression that evaluates, a heading ' +
+                `with text in it, and a marker quoted inside an element marked \`${AC_LITERAL_MARKER}="true"\` all pass.`,
+        );
+    }
+
+    return contrast;
 }
 
 /**
@@ -627,6 +1232,25 @@ function readSrcset(value) {
 }
 
 /**
+ * The URL a `<meta http-equiv="refresh">` navigates to, or the empty string when it only
+ * re-renders the page it is on.
+ *
+ * Read out of the `content` value rather than through `classify`, because `content` is not a
+ * URL: `0;url=https://evil.example/` is a *delay* followed by a target, and handing the whole
+ * value to `new URL()` would resolve it as a relative path — back onto the site's own origin,
+ * where it passes as an internal reference. That is why a meta refresh had to be handled
+ * rather than added to `RESOURCE_POSITIONS`.
+ *
+ * @param {string} content A refresh `content` value.
+ * @returns {string} The target URL, or the empty string when there is none.
+ */
+function readRefreshTarget(content) {
+    const found = /(?:^|[;,])\s*url\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s;,]+))/i.exec(content);
+
+    return found === null ? '' : found[1] ?? found[2] ?? found[3] ?? '';
+}
+
+/**
  * Check one resource reference: a value the browser fetches or executes.
  *
  * @param {string} where The emitted file, for the message.
@@ -636,11 +1260,13 @@ function readSrcset(value) {
  * @param {Set<string>} emitted The emitted files.
  * @param {{ name: string, attributes: Map<string, string> }} element The element carrying it.
  * @param {string} attribute The attribute's name.
- * @param {string} [raw] One candidate out of the attribute's value, for a `srcset`.
+ * @param {string} [raw] One target read out of the attribute's value — a `srcset` candidate, a
+ *   meta refresh's destination — where the attribute itself holds something larger.
+ * @param {string} [as] How to name `raw` in the message.
  */
-function assertResourceReference(where, pageAddress, base, origin, emitted, element, attribute, raw) {
+function assertResourceReference(where, pageAddress, base, origin, emitted, element, attribute, raw, as) {
     const value = raw ?? element.attributes.get(attribute) ?? '';
-    const at = `${where}: ${openingTag(element)}${raw === undefined ? '' : ` — candidate \`${raw}\``}`;
+    const at = `${where}: ${openingTag(element)}${raw === undefined ? '' : ` — ${as ?? 'candidate'} \`${raw}\``}`;
     const classified = classify(value, pageAddress, origin);
     if (classified.kind === 'same-document') {
         return;
@@ -740,6 +1366,37 @@ function assertTheFooterLicenceLink(where, html, pageAddress, origin) {
     );
 }
 
+/**
+ * Check that the site still declares the literal marker it is exempt about.
+ *
+ * **Once over the whole output, not once per page.** The exemption belongs to
+ * `/configure/`, which is the one page that prints a literal marker in order to say the
+ * prompt is sent verbatim; the other four pages have nothing to mark, and an assertion
+ * every page had to satisfy would be satisfied by four copies of a marker nobody needs.
+ *
+ * The presence check is separate from the scan above for the reason every other scan in
+ * this file is paired with one: an **absence** assertion — no unexplained marker survives —
+ * is satisfied exactly as well by a site that has deleted the marker and its sentence with
+ * it. So the two are checked apart. This is the split `tests/vocabulary.test.ts` makes for
+ * the identifier-mapping table (007 AC-013), and it is why deleting the documentation is a
+ * visible failure rather than a quiet one.
+ *
+ * @param {string} markup Every emitted page's markup, concatenated.
+ */
+function assertTheLiteralMarkerIsDeclared(markup) {
+    const declared = markup.match(new RegExp(`<[^>]*\\b${AC_LITERAL_MARKER}="true"`, 'gi')) ?? [];
+
+    assert(
+        'AC-006 the documented literal marker is marked as one',
+        declared.length > 0,
+        `no emitted element carries \`${AC_LITERAL_MARKER}="true"\`. /configure/ documents that the starting ` +
+            'prompt is sent verbatim by printing the marker itself, and that element is how the AC-006 shape ' +
+            'check tells that documentation from an expression that leaked into the output — so its absence ' +
+            'means the exemption the shipped site relies on is no longer declared, and the shape check would ' +
+            'now be refusing the site it exists to protect.',
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Run.
 // ---------------------------------------------------------------------------------------------
@@ -757,18 +1414,40 @@ if (!existsSync(distDirectory) || !statSync(distDirectory).isDirectory()) {
     const emitted = new Set(listFiles(distDirectory));
     assertTheOutputShape([...emitted]);
 
+    const pages = [];
+    const contrast = [];
     for (const page of PAGES) {
         if (!emitted.has(page.file)) {
             continue;
         }
-        assertThePage(page, readFileSync(join(distDirectory, page.file), 'utf8'), base, origin, emitted);
+        const html = readFileSync(join(distDirectory, page.file), 'utf8');
+        pages.push(html);
+        contrast.push(...assertThePage(page, html, base, origin, emitted));
     }
+    assertTheLiteralMarkerIsDeclared(pages.join(''));
 
     if (failures.length === 0) {
         process.stdout.write(
             `assert-build: ${checks} assertions hold over ${emitted.size} files and ${PAGES.length} pages, ` +
                 `every internal reference under ${base}/.\n`,
         );
+        // NFR-004 names its verification as *"the site's own check plus an automated audit of
+        // the built pages"*, so the audit's own figures are printed rather than left to be
+        // re-derived by hand. Deduplicated by *pair and colour*, not by colour alone: the
+        // layout inlines one palette into all five pages, so five identical ledgers would be
+        // five times the noise — but two different pairs can share a colour pair (a link on the
+        // page and a link on the surface both measure once the surface is `body`'s), and
+        // collapsing those would hide which pair was read.
+        const distinct = new Map();
+        for (const pair of contrast) {
+            distinct.set(`${pair.where}: ${pair.foreground} on ${pair.background}`, pair);
+        }
+        for (const pair of distinct.values()) {
+            process.stdout.write(
+                `assert-build: NFR-004 contrast — ${pair.where}: ${pair.foreground} on ${pair.background}, ` +
+                    `${pair.ratio.toFixed(2)}:1 (floor ${CONTRAST_FLOOR}:1)\n`,
+            );
+        }
     }
 }
 

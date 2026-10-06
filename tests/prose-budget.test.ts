@@ -89,8 +89,9 @@
  * into the repository's own gate.
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /** Repository root, derived from this file's location. */
@@ -235,6 +236,76 @@ function residue(line: string): string {
 
 /** A word inside one line's residue, including internal apostrophes and hyphens. */
 const WORD = /[A-Za-z0-9][A-Za-z0-9'’-]*/g;
+
+/**
+ * Every balanced `{expression}` body in a text, as a `path`/`line`/`body` finding.
+ *
+ * ## Why this is its own assertion and not a side effect of the measure
+ *
+ * `stripExpressions` is the budget's biggest hole and it is a hole the measure *cannot*
+ * close by itself. Words inside an expression body are stripped before `residue` counts,
+ * so a page can carry reader-facing prose in `{…}` and the budget will not see it — the
+ * words are real to the reader and absent from the measurement that is supposed to bound
+ * them. A budget with an unbounded blind spot is not a budget with a small error bar; it is
+ * a number that happens to be computed correctly on the subset it can read.
+ *
+ * So the strip stays where it is (an expression's *code* is markup and the measure is
+ * right to drop it), and this is the paired assertion: the thing the measure drops on
+ * purpose is separately asserted to carry no prose a reader reads.
+ *
+ * ## What counts as prose in a body, and what does not
+ *
+ * Not "contains a letter". A body is code by default, and the shipped site's bodies are
+ * full of legitimate code-shaped content: `{'{number}'}` (a literal marker the configure
+ * page *documents*, `site/src/pages/configure.astro`), `{row.entry}` (a member access),
+ * `{withBase('/use/')}` (a call with a string argument).
+ *
+ * The discriminator is a **string literal holding prose**, in the two shapes that mean
+ * different things:
+ *
+ * - **Multi-word prose** — a literal with a space-separated run of words. `'the manifest,
+ *   by name'`. A sentence a reader reads, invisible to the budget. This is the case the
+ *   assertion exists for.
+ * - **A single bare word** — `'config.json'`, `'host'`, `'tbd'`. Identifiers, filenames,
+ *   enum values, and the documented literal marker are all this shape, and the site's
+ *   legitimate tables are full of them. Counting these would have made the assertion
+ *   refuse the code it is meant to police.
+ *
+ * So the rule is **a literal carrying two or more words**, not "a literal". That is a
+ * stated boundary rather than a fitted one: it is what distinguishes a sentence from a
+ * filename, and the shipped site sits on the right side of it in all thirteen cases.
+ *
+ * All three literal spellings are read — single, double, and backtick. A backtick literal is
+ * how an Astro expression holds a sentence (`{`…`}`), so leaving it out would have made the
+ * assertion blind to exactly the shape a prose-hiding author reaches for first.
+ *
+ * @param path - Path of the document, absolute or repository-relative as `resolve` takes it.
+ * @returns One finding per prose-carrying expression body.
+ */
+function proseInExpressions(path: string): readonly string[] {
+    const findings: string[] = [];
+    const lines = body(readFileSync(resolve(ROOT, path), 'utf8'), path).split(/\r?\n/);
+
+    for (const [index, line] of lines.entries()) {
+        // Innermost-first, repeatedly — the same order `stripExpressions` uses, so what is
+        // read here is exactly what the measure drops. An unbalanced expression leaves its
+        // braces, which carry no literal and so no finding.
+        let remaining = line;
+        while (/\{[^{}]*\}/.test(remaining)) {
+            remaining = remaining.replaceAll(/\{[^{}]*\}/g, (body_) => {
+                const literal = /'([^']*)'|"([^"]*)"|`([^`]*)`/.exec(body_);
+                const text = (literal?.[1] ?? literal?.[2] ?? literal?.[3] ?? '').trim();
+                if (text.split(/\s+/).filter((word) => /[A-Za-z0-9]/.test(word)).length >= 2) {
+                    findings.push(`${path}:${index + 1} ${JSON.stringify(text)}`);
+                }
+
+                return ' ';
+            });
+        }
+    }
+
+    return findings;
+}
 
 /**
  * The prose-bearing residues of one document, one entry per counted line. Split
@@ -476,6 +547,72 @@ describe('007 T-035 the measure is a measurement, not a constant', () => {
         // Every delimiter is a line the measure did not count, so the counted
         // prose is below the document's own non-blank lines.
         expect(measure(WALKTHROUGH).lines).toBeLessThan(nonBlank(WALKTHROUGH));
+    });
+
+    it('finds prose hidden inside an expression, which the measure drops', () => {
+        // The negative, on a document built to hide prose rather than to ship it. The
+        // sentence below is counted by `residue` as nothing at all, because
+        // `stripExpressions` removes the body before the word count runs — which is the hole
+        // this assertion closes.
+        //
+        // Planted in a temporary directory rather than in `site/src/pages/`, because
+        // `proseInExpressions` reads a repository-relative path and the honest way to hand
+        // it one is to write a real file — and a real file written over a shipped page
+        // would replace it. `mkdtempSync` under `os.tmpdir()` keeps the tree the gate
+        // measures untouched, including on a failure.
+        const directory = mkdtempSync(join(tmpdir(), 'prose-budget-'));
+        const planted = join(directory, 'use.astro');
+        writeFileSync(
+            planted,
+            [
+                '<p>{`The dispatch is refused because no account is approved.`}</p>',
+                '<p>{row.meaning}</p>',
+                "<p>{'config.json'}</p>",
+                '<p>Plain prose the measure does count.</p>',
+            ].join('\n'),
+        );
+        try {
+            // Not vacuous: the measure really does drop the sentence, so the finding
+            // cannot be an artefact of the prose budget already counting it.
+            expect(residue('<p>{`The dispatch is refused because no account is approved.`}</p>')).toBe('');
+            expect(residue('<p>Plain prose the measure does count.</p>')).toBe('Plain prose the measure does count.');
+            // The finding names the file and the line, so a failure says where to look.
+            expect(proseInExpressions(planted)).toEqual([
+                `${planted}:1 "The dispatch is refused because no account is approved."`,
+            ]);
+            // And the two shapes beside it are not reported: a member access and a
+            // single-word literal are code, which is why the rule is "two or more words".
+            expect(proseInExpressions(planted)).toHaveLength(1);
+        } finally {
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    it('reads the site\'s own expression bodies, and finds no prose in them', () => {
+        // The shipped state, and the reason the rule above is shaped the way it is: the
+        // site's bodies are all code — member accesses, calls with route arguments, and
+        // one documented literal marker. `configure.astro`'s `{'{number}'}` is the case
+        // that forces the single-word boundary; the thirteen bodies it finds are the
+        // reason the walk is over the pages rather than a hand list.
+        const findings = sitePages().flatMap((path) => proseInExpressions(path));
+
+        expect(findings).toEqual([]);
+        // Not vacuous: the reader found the bodies it is judging, and one of them is the
+        // documented literal marker — the single-word literal the rule must not refuse.
+        const patterns = sitePages().map(
+            (path) => body(readFileSync(resolve(ROOT, path), 'utf8'), path).match(/\{[^{}]*[A-Za-z0-9][^{}]*\}/g) ?? [],
+        );
+        const bodies = patterns.flat();
+
+        expect(bodies.length, 'the walk found no expression body to judge').toBeGreaterThan(5);
+        // The literal marker as `configure.astro` writes it: an expression whose body is the
+        // string `{number}` — a single word, which is why the rule must not refuse it.
+        const marker = '{\'{number}\'}';
+
+        expect(
+            sitePages().some((path) => readFileSync(resolve(ROOT, path), 'utf8').includes(marker)),
+            'the documented literal marker is gone, so the single-word boundary is untested',
+        ).toBe(true);
     });
 
     it('reads the neighbouring project-health figure NFR-006 names, without pinning it', () => {

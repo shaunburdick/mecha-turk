@@ -1126,10 +1126,74 @@ const RESOURCE_POSITIONS: readonly { readonly tag: string; readonly attribute: s
     { tag: 'audio', attribute: 'src' },
     { tag: 'use', attribute: 'href' },
     { tag: 'link', attribute: 'href' },
+    // `base` fetches nothing itself, and is here for the reason
+    // `site/scripts/assert-build.mjs` gives: a `<base href>` re-bases every *relative* URL
+    // on the page, so the request it causes is made under whatever origin it names. That is
+    // the shape NFR-003 forbids, it is reachable from a build that stays otherwise green,
+    // and a position list that omitted it lets a page point its own stylesheet, font, and
+    // script at a third-party host by changing one attribute.
+    //
+    // `style` is the second such entry, and it is handled rather than listed: a `style`
+    // attribute is a stylesheet body, so it is routed through `stylesheetUrls` below —
+    // which is what catches `style="background:url(https://…)"`. Listing it here would read
+    // the value as a bare URL and miss every `url()` inside it.
+    { tag: 'base', attribute: 'href' },
 ];
 
 /** Schemes that carry their content inline rather than naming a file to fetch. */
 const INLINE_SCHEMES: ReadonlySet<string> = new Set(['data:', 'blob:', 'about:']);
+
+/** A `url()` reference in a stylesheet body, in single, double, or bare spelling. */
+const STYLESHEET_URL = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'"]+))\s*\)/gi;
+
+/** An `@import` target, which fetches without a `url()` wrapper. */
+const IMPORT_TARGET = /@import\s+(?:url\(\s*(?:"([^"]*)"|'([^']*)'|([^)'";\s]+))\s*\)|"([^"]*)"|'([^']*)')/gi;
+
+/**
+ * Every resource a stylesheet body names, whether it is the whole body or a `url()` or an
+ * `@import` inside it.
+ *
+ * Three spellings because CSS has three: `url(…)`, `url("…")`, `url('…')`. The unquoted form
+ * cannot contain a closing paren, so the run stops at one — which is the CSS spec's own
+ * grammar, not a shortcut.
+ *
+ * @param css - A stylesheet body, whether a `<style>` block or a `style` attribute.
+ * @returns Each referenced URL, as authored.
+ */
+function stylesheetUrls(css: string): readonly string[] {
+    const found = [...css.matchAll(STYLESHEET_URL)].map((match) => (match[1] ?? match[2] ?? match[3] ?? '').trim());
+    // Only the bare-string `@import` form is read here: `@import url(…)` *is* a `url()` in a
+    // declaration and was already found above, so reading it again would report one
+    // reference twice. Deduplicated, because a finding's count is part of what it says.
+    const imports = [...css.matchAll(IMPORT_TARGET)]
+        .map((match) => (match[4] ?? match[5] ?? '').trim())
+        .filter((url) => url !== '');
+
+    return [...new Set([...found, ...imports].filter((url) => url !== ''))];
+}
+
+/**
+ * The URL a `<meta http-equiv="refresh">` navigates to, or the empty string when it only
+ * re-renders the page it is on.
+ *
+ * Read out of the `content` value rather than treating it as a URL: `0;url=https://evil.example/`
+ * is a *delay* followed by a target, and handing the whole value to `new URL()` would resolve
+ * it as a relative path — back onto the site's own origin, where it passes as an internal
+ * reference. That is why a meta refresh is handled rather than added to `RESOURCE_POSITIONS`.
+ *
+ * **Treated as a resource reference, not ignored.** It is the one navigation a page performs
+ * with no reader's click in it, which makes it a reference the page itself makes — the shape
+ * NFR-003 forbids rather than the shape it exempts (`<a href>`, a hyperlink the reader may
+ * choose to follow).
+ *
+ * @param content - A refresh `content` value.
+ * @returns The target URL, or the empty string when there is none.
+ */
+function refreshTarget(content: string): string {
+    const found = /(?:^|[;,])\s*url\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s;,]+))/i.exec(content);
+
+    return found?.[1] ?? found?.[2] ?? found?.[3] ?? '';
+}
 
 /** One element read out of a page's markup. */
 interface MarkupElement {
@@ -1218,30 +1282,104 @@ function referenceOrigin(raw: string, origin: string): string | null {
  * @param origin - The site's declared canonical origin.
  * @returns Each off-origin reference, as the element and attribute it was written on.
  */
-function offOriginResources(html: string, origin: string): readonly string[] {
-    const found: string[] = [];
-    const elements = resourceElements(html);
+/** One reference read off an element, with the text a finding should name it by. */
+interface NamedReference {
+    /** How the reference is written in a finding. */
+    readonly label: string;
+    /** The reference as authored, to resolve. */
+    readonly url: string;
+}
 
-    for (const element of elements) {
-        for (const position of RESOURCE_POSITIONS) {
-            const raw = element.tag === position.tag ? element.attributes.get(position.attribute) : undefined;
-            if (raw === undefined) {
-                continue;
-            }
-            const resolved = referenceOrigin(raw, origin);
-            if (resolved === null || resolved === origin) {
-                continue;
-            }
-            found.push(
-                resolved === ''
-                    ? `<${element.tag} ${position.attribute}="${raw}"> is not a resolvable URL`
-                    : `<${element.tag} ${position.attribute}="${raw}"> resolves to ${resolved}`,
-            );
+/**
+ * Every reference one element makes that is **not** a resource-loading attribute's whole
+ * value, read as the CSS body or the `delay;url=target` pair that it actually is.
+ *
+ * Split out of `offOriginResources` because these two shapes are why the position list was
+ * not enough, and putting them beside the loop that reads the list made the function a
+ * branch tangle. Each is a *shape*, not a position:
+ *
+ * - **A `style` attribute** is a stylesheet body, so `url()` in it is a request — and the URL
+ *   is not the attribute's whole value, which is why no entry in `RESOURCE_POSITIONS` can see
+ *   it. `style="background:url(https://cdn.example/a.gif)"` is the case.
+ * - **A meta refresh** is a delay followed by a target, read out of `content` rather than
+ *   treated as a URL: handing `0;url=https://evil.example/` to `new URL()` resolves it as a
+ *   relative path, back onto the site's own origin, where it passes as an internal reference.
+ *   It is reported rather than ignored because it is the one navigation a page performs with
+ *   no reader's click in it — the shape NFR-003 forbids rather than the shape it exempts
+ *   (`<a href>`, a hyperlink the reader may choose to follow).
+ *
+ * @param element - One element from the page.
+ * @returns Every reference it makes, in document order.
+ */
+function attributeReferences(element: MarkupElement): readonly NamedReference[] {
+    const found: NamedReference[] = [];
+    const style = element.attributes.get('style');
+
+    if (style !== undefined) {
+        for (const url of stylesheetUrls(style)) {
+            found.push({ label: `<${element.tag} style="…${url}…">`, url });
+        }
+    }
+    if (
+        element.tag === 'meta' &&
+        (element.attributes.get('http-equiv') ?? '').trim().toLowerCase() === 'refresh'
+    ) {
+        const target = refreshTarget(element.attributes.get('content') ?? '');
+        if (target !== '') {
+            found.push({ label: `<meta http-equiv="refresh" content="…${target}…">`, url: target });
         }
     }
 
     return found;
 }
+
+function offOriginResources(html: string, origin: string): readonly string[] {
+    const found: string[] = [];
+    const elements = resourceElements(html);
+
+    /**
+     * Report one reference, if it leaves the site's own origin.
+     *
+     * @param label - How the reference is named in the finding.
+     * @param raw - The reference as authored.
+     */
+    const report = (label: string, raw: string): void => {
+        const resolved = referenceOrigin(raw, origin);
+        if (resolved === null || resolved === origin) {
+            return;
+        }
+        found.push(resolved === '' ? `${label} is not a resolvable URL` : `${label} resolves to ${resolved}`);
+    };
+
+    for (const element of elements) {
+        for (const position of RESOURCE_POSITIONS) {
+            const raw = element.tag === position.tag ? element.attributes.get(position.attribute) : undefined;
+            if (raw !== undefined) {
+                report(`<${element.tag} ${position.attribute}="${raw}">`, raw);
+            }
+        }
+        for (const reference of attributeReferences(element)) {
+            report(reference.label, reference.url);
+        }
+    }
+
+    // `<style>` bodies, read past their opening tag to their closing one. Scanned here as
+    // well as by the site's own gate: this scan reads `dist/` when a build has run, and the
+    // whole of T-034 is that the repository applies the same patterns to the site's output
+    // as to its committed bundles.
+    const blocks = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)];
+
+    for (const block of blocks) {
+        const urls = stylesheetUrls(block[1] ?? '');
+
+        for (const url of urls) {
+            report(`<style> …${url}…`, url);
+        }
+    }
+
+    return found;
+}
+
 
 /**
  * Drop the list item that names a credential's shape — the one thing a site
@@ -1421,6 +1559,58 @@ describe('T-034 the site ships no credential material (FR-054, NFR-005)', () => 
             expect(planted[0]).toContain('fonts.example');
             expect(offOriginResources('<a href="https://github.com/o/r/blob/main/LICENSE">', origin)).toEqual([]);
         }
+    });
+
+    it('catches the three resource references no attribute-value scan can see', () => {
+        // **The gap this closes, as a test rather than a claim.** All three shapes name a
+        // resource without putting it in the value of a resource-loading attribute, so the
+        // position list above reported nothing for every one of them. Each is checked in
+        // both directions — refused here, accepted on its own-origin spelling — so a case
+        // cannot pass because the reader stopped working altogether, which is the other way
+        // this scan could go green.
+        const origin = declaredSiteOrigin();
+        const cases: readonly (readonly [string, string, string])[] = [
+            // A `style` attribute is a stylesheet body, so `url()` in it is a request, and
+            // the URL is not the attribute's whole value.
+            ['a remote image in a `style` attribute', '<div style="background:url(https://cdn.example/a.gif)">x</div>', 'cdn.example'],
+            // A `<base href>` fetches nothing, and re-bases every relative URL on the page.
+            ['a base element pointing at another origin', '<base href="https://cdn.example/">', 'cdn.example'],
+            // A meta refresh is a navigation with no reader's click in it.
+            ['a meta refresh to another origin', '<meta http-equiv="refresh" content="0;url=https://evil.example/">', 'evil.example'],
+        ];
+
+        for (const [name, markup, host] of cases) {
+            const found = offOriginResources(markup, origin);
+
+            expect(found, `${name} was not reported`).toHaveLength(1);
+            expect(found[0], `${name} named the wrong host`).toContain(host);
+            // And the same shape, same-origin, is not a finding — so a case cannot pass
+            // because the reader stopped working altogether.
+            const sameOrigin = markup.replace(host, 'shaunburdick.github.io');
+
+            expect(offOriginResources(sameOrigin, origin), `${name} refused its own-origin spelling`).toEqual([]);
+        }
+        // The `style` scan is a *stylesheet* reader, not a substring search: the three CSS
+        // spellings of `url()` and the `@import` form are all references, and none is
+        // reported twice.
+        for (const spelling of [
+            'url(https://cdn.example/a.gif)',
+            'url("https://cdn.example/a.gif")',
+            'url(\'https://cdn.example/a.gif\')',
+            '@import url(https://cdn.example/a.css)',
+            '@import "https://cdn.example/a.css"',
+            'background:#fff url(https://cdn.example/a.gif) no-repeat',
+        ]) {
+            const found = offOriginResources(`<style>a{${spelling}}</style>`, origin);
+
+            expect(found, spelling).toHaveLength(1);
+            expect(found[0] ?? '', spelling).toContain('cdn.example');
+        }
+        // A `data:` value is inline content, not a fetch — the same exemption the
+        // position scan makes, so the two do not disagree about it.
+        const inline = '<div style="background:url(data:image/gif;base64,R0lGOD)">x</div>';
+
+        expect(offOriginResources(inline, origin)).toEqual([]);
     });
 });
 

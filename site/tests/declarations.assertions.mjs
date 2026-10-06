@@ -31,7 +31,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -72,6 +72,32 @@ const SITE_SRC = join(REPO_ROOT, 'site', 'src');
  */
 function source(...parts) {
     return readFileSync(join(REPO_ROOT, ...parts), 'utf8');
+}
+
+/**
+ * Every source the site renders from, as a path/text pair, walked recursively.
+ *
+ * **Walked rather than listed, and that is the whole point of a walk.** A hand list is a
+ * thing to update by hand, and a hand that forgets is a page nobody checks — which is how
+ * this file's version-literal check came to name seven of the sixteen sources under
+ * `site/src` and pass on the other nine. Two gates in this repository already make the
+ * opposite choice for the same reason and are the precedent: `tests/prose-wrapping.assertions.mjs`
+ * walks `src/` because three of the five pages shipped the same prose defect when the rule
+ * lived in one page's own test file, and `tests/vocabulary.test.ts` walks it for the same
+ * reason. This walk is that argument applied to FR-053.
+ *
+ * The three extensions are the ones a reader of this site can put text into. `.astro` is
+ * every page and component; `.ts` and `.mjs` are the data modules and any helper a component
+ * grows. Sorted, so a failure is reported in the same order every run.
+ *
+ * @returns {Array<{ path: string, text: string }>} Each file's `site/src`-relative path and text.
+ */
+function siteSources() {
+    return readdirSync(SITE_SRC, { recursive: true })
+        .map(String)
+        .filter((entry) => /\.(?:astro|ts|mjs)$/.test(entry))
+        .toSorted()
+        .map((entry) => ({ path: `site/src/${entry}`, text: readFileSync(join(SITE_SRC, entry), 'utf8') }));
 }
 
 /**
@@ -566,15 +592,45 @@ describe('product', () => {
     });
 
     test('carries no version-shaped literal anywhere in the site\'s sources', () => {
-        // The gate T-011 states, as an assertion rather than a grep someone
-        // remembers to run: a semver-shaped token in `site/src` would be a
-        // second version that cannot move with the manifest (FR-053).
+        // The gate T-011 states, as an assertion rather than a grep someone remembers to
+        // run: a semver-shaped token in `site/src` would be a second version that cannot
+        // move with the manifest (FR-053).
+        //
+        // **Walked, not listed.** This named seven of the sixteen files under `site/src` and
+        // was a list because a hand list is a thing to update by hand — and a hand that
+        // forgets is a page nobody checks. Every finding in this feature's history has been
+        // the same shape: three of the five pages shipped the same prose defect because the
+        // rule that would have caught it was not shared, which is why
+        // `tests/prose-wrapping.assertions.mjs` walks `src/` instead of naming pages, and why
+        // `tests/vocabulary.test.ts` walks it for the same reason. This walk is that
+        // precedent applied to the version literal, and a page or component added later is
+        // covered by the walk rather than by a line somebody remembered to add.
         const versionShaped = /(?<![\d.])\d+\.\d+\.\d+(?![\d.])/;
-        for (const file of ['data/product.ts', 'data/declarations.ts', 'data/site.ts', 'components/permissions.astro', 'components/settings-fields.astro', 'components/dispatch-states.astro', 'layout.astro']) {
-            const text = readFileSync(join(SITE_SRC, file), 'utf8');
-            const found = versionShaped.exec(text);
-            assert.equal(found, null, `${file} carries no version literal${found === null ? '' : `: ${found[0]}`}`);
+        for (const file of siteSources()) {
+            const found = versionShaped.exec(file.text);
+            assert.equal(found, null, `${file.path} carries no version literal${found === null ? '' : `: ${found[0]}`}`);
         }
+        // Not vacuous: the walk found every source it is meant to judge, including the five
+        // pages and the components they render — so a renamed directory cannot make this
+        // pass by finding nothing.
+        const walked = siteSources().map((file) => file.path);
+
+        assert.ok(
+            walked.filter((path) => path.includes('/pages/')).length >= 5,
+            `the walk found fewer than the five pages: ${walked.join(', ')}`,
+        );
+        assert.ok(
+            walked.some((path) => path.endsWith('layout.astro')),
+            `the walk missed the layout, which the hand list did name: ${walked.join(', ')}`,
+        );
+        // And the negative, on the pattern itself: it has to bite on a version literal and
+        // stay quiet on the two things that look like one. A bare `1.24` is the minor
+        // version of an engine floor and carries no product version; `1.2.3.4` is four
+        // parts, and `FR-008`'s own floor text in this repository is three-part — which the
+        // pattern *does* match, correctly, because a product version is what it is for.
+        assert.notEqual(versionShaped.exec('const version = "1.2.3";'), null, 'a three-part version is a version literal');
+        assert.equal(versionShaped.exec('The engine floor is >=1.24, per FR-008.'), null, 'a two-part number is not a version');
+        assert.equal(versionShaped.exec('built 1.2.3.4 of it'), null, 'a four-part number is not a version');
     });
 
     test('gives the footer its two addresses from here, not from a second literal', () => {
