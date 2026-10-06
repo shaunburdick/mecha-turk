@@ -127,7 +127,7 @@ Each row is one assertion in the proof suite.
 | 5.3 | Each of those is refused on **read** of a hand-edited file the same way, the file is quarantined with a logged reason, and the poll loop scans nothing until it is repaired |
 | 5.4 | Every problem in one submission is reported together and **nothing** is applied |
 | 5.5 | A write omitting the member **preserves** the stored value; a pre-field document reads with **zero bytes rewritten** and **zero checkpoints reset** |
-| 5.6 | The mode appears in **no** other store: not `host.storage`, not the ledger, not a run record, not a bundle |
+| 5.6 | The mode appears in **no** other store: not `host.storage`, not the ledger, not a run record — and the **look-back length** appears in neither shipped bundle. The mode itself *is* in the panel bundle, because FR-089 requires the editor's select to offer both names |
 | 5.7 | The route table gained **no** operation — `src/` contains no new `PATCH /v1/bindings/` call and no new endpoint call |
 | 5.8 | Across the whole stored-record domain, **no** state produces a scan with no lower bound |
 | 5.9 | The look-back length appears in **no** configuration document, schema projection, Settings row, or route |

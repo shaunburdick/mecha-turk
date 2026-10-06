@@ -32,6 +32,7 @@
 import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import type { GuestRequestResult } from '@openchamber/sdk';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -48,16 +49,22 @@ import { readBindingsUnobserved } from '../service/bindings-read.ts';
 import { parseBinding, storedStampOf, writeBindings } from '../service/bindings.ts';
 import {
     HISTORY_SCOPE_LABEL,
-    historyScopeForGrant,
-    historyScopeGuidance,
     historyScopeLabel,
     historyScopeOptions,
     windowInForceLine,
 } from '../src/bindings-history.ts';
+import { saveEditedBinding, startEditingBinding, startNewBinding } from '../src/bindings-edit.ts';
+import { bindRepository } from '../src/bindings.ts';
+import { refresh } from '../src/panel-ui.ts';
+import { stopRelayPolling } from '../src/relay.ts';
+import type { BindingsPane } from '../src/bindings-ui.ts';
+import type { PanelRuntime } from '../src/panel-state.ts';
+import type { PanelHost } from '../src/session.ts';
 import { HISTORY_SCOPE_UPDATED_EVENT } from '../service/history-scope-audit.ts';
 import { NUMERIC_BOUNDS } from '../service/config.ts';
 import { createLogger } from '../service/log.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
+import { readEvents } from '../service/poll/events.ts';
 import {
     bindingScanOf,
     emptyBindingScan,
@@ -72,7 +79,6 @@ import {
     parseBindingsBody,
     readHistoryScope,
 } from '../src/bindings-service.ts';
-import { initialBindings } from '../src/bindings-state.ts';
 import { openStore } from '../service/store/index.ts';
 import type { Account } from '../service/accounts/model.ts';
 import type { BindingRecord } from '../service/bindings.ts';
@@ -83,6 +89,14 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 import { byText } from './support/sort.ts';
+import { fakeDom } from './support/dom.ts';
+import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import {
+    stubBindingsPane,
+    stubLastProps,
+    stubPanelUi,
+    stubProjectPickerUi,
+} from './support/ui-stubs.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { scopeResults } from './support/verify.ts';
 import { startTestService } from './support/service.ts';
@@ -168,6 +182,9 @@ let log: ServiceLogger;
 /** Harness instances started by the route-level cases. */
 const running: TestService[] = [];
 
+/** Panel runtimes a case built, drained of their relay in teardown. */
+const armedRuntimes: PanelRuntime[] = [];
+
 /**
  * The credential the bindings resolve against.
  *
@@ -212,6 +229,13 @@ beforeEach(async (): Promise<void> => {
 
 /** Per-test teardown: drop the temp root and drain any harness. */
 afterEach(async (): Promise<void> => {
+    // A granted list arms the relay, which is an interval; without this a panel
+    // case would leave one running past the test.
+    for (const rt of armedRuntimes) {
+        stopRelayPolling(rt);
+    }
+    armedRuntimes.length = 0;
+
     while (running.length > 0) {
         const service = running.pop();
         await service?.shutdown();
@@ -252,6 +276,50 @@ function binding(bindingId: string, scope?: HistoryScope): BindingRecord {
 }
 
 /**
+ * A bindings service that echoes back exactly what it was sent, recording the
+ * bodies.
+ *
+ * Enough for the panel's own reader to succeed, and **no** other routing: a panel
+ * claim here is about the bytes that left, and echoing is what lets the panel's
+ * own `parseBindingsBody` run over them.
+ *
+ * @param bodies - Filled with each whole-file grant's raw request body.
+ * @returns The `serviceRequest` the host double hands the panel.
+ */
+function recordingEchoService(bodies: string[]): PanelHost['serviceRequest'] {
+    return async (request): Promise<GuestRequestResult> => {
+        if (request.method !== 'PUT') {
+            return { status: 404, body: '{}' };
+        }
+
+        bodies.push(request.body ?? '{}');
+        const sent = JSON.parse(request.body ?? '{}') as { readonly bindings?: readonly unknown[] };
+
+        return { status: 200, body: JSON.stringify({ bindings: sent.bindings ?? [], status: [] }) };
+    };
+}
+
+/**
+ * The `(bindingId, mode)` pairs one whole-file grant actually put on the wire.
+ *
+ * Read out of the **raw request bodies** the host recorded, so "the member rode
+ * the wrong row" is a fact about bytes rather than about what the panel believes
+ * it sent.
+ *
+ * @param bodies - The recorded grant bodies.
+ * @param index - Which grant to read; the first by default.
+ * @returns One pair per submitted row, in submission order.
+ */
+function grantedModes(bodies: readonly string[], index = 0): readonly (readonly [string, unknown])[] {
+    const submitted = bodies[index] ?? '{}';
+    const rows = (JSON.parse(submitted) as {
+        readonly bindings?: readonly { bindingId?: unknown; historyScope?: unknown }[];
+    }).bindings ?? [];
+
+    return rows.map((row) => [String(row.bindingId), row.historyScope] as const);
+}
+
+/**
  * Narrow one wire row to the panel's own type, for the reader-level assertions.
  *
  * Driven through {@link parseBindingsBody} rather than cast, so the fixture a
@@ -275,13 +343,86 @@ function panelTyped(bindingId: string, scope?: HistoryScope): PanelBinding {
 }
 
 /**
- * The Bindings tab's state carrying one row's mode, as the editor would hold it.
+ * A panel row with its own repository, so two rows can coexist.
  *
- * @param scope - The mode the draft shows.
- * @returns The tab state, with its bindings list empty.
+ * The editor refuses a save whose repository is already bound to **another** row
+ * (005 FR-038), so a two-row grant fixture needs two repositories — a constraint
+ * worth honouring rather than working around, since it is the same refusal an
+ * operator would meet.
+ *
+ * @param bindingId - The row's id.
+ * @param scope - The mode the row carries on the wire.
+ * @param repository - The `owner/name` this row watches.
+ * @returns The row as the panel's reader holds it.
  */
-function bindingsStateWith(scope: HistoryScope): ReturnType<typeof initialBindings> {
-    return { ...initialBindings(), historyScopeInput: scope };
+function panelRow(bindingId: string, scope: HistoryScope, repository: string): PanelBinding {
+    return { ...panelTyped(bindingId, scope), repository };
+}
+
+/**
+ * A runtime with the Bindings pane registered, in one editor mode.
+ *
+ * The **real** repaint is what these cases assert, so the runtime is built by the
+ * production entry points — `startEditingBinding` / `startNewBinding` set the mode
+ * and `refresh` is what the panel itself calls — and the pane is the recording
+ * stub from `tests/support/ui-stubs.ts`. A stub is right here precisely because
+ * the claim is "the repaint reached this element and said this": the stub records
+ * both, and a real mount would only add the SDK's own rendering to the same path.
+ *
+ * @param input - The mode the editor opens in, and the rows it opens over.
+ * @returns The runtime and the mounted pane, which the caller disposes.
+ */
+function mountedBindingsPane(input: {
+    /** Whether the editor opens on an existing row (`true`) or the add form. */
+    readonly editing: boolean;
+    /** Rows the tab holds; defaults to one row in the default mode. */
+    readonly rows?: readonly PanelBinding[];
+}): { readonly rt: PanelRuntime; readonly pane: BindingsPane; readonly bodies: string[] } {
+    const rows = input.rows ?? [panelTyped(BINDING_A)];
+    const bodies: string[] = [];
+    const rt = createTestRuntime(fakeHost({ serviceRequest: recordingEchoService(bodies) }));
+
+    rt.state.bindings.status = 'ready';
+    rt.state.bindings.bindings = [...rows];
+    rt.state.bindings.accounts = [
+        { numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN, displayName: null, usable: true, scope: 'ok' },
+    ];
+    rt.state.bindings.editorOpen = true;
+    rt.ui = stubPanelUi();
+    rt.pickerUi = stubProjectPickerUi();
+    // The pane is registered **before** the entry point runs, because that entry
+    // point's own `refresh` is the first paint this case asserts on.
+    const pane = stubBindingsPane(fakeDom().root);
+
+    rt.bindingsUi = pane;
+    rt.state.bindings.selectedBinding = input.editing && rows.length > 0 ? (rows[0]?.bindingId ?? null) : null;
+    armedRuntimes.push(rt);
+
+    if (input.editing) {
+        startEditingBinding(rt);
+    } else {
+        startNewBinding(rt);
+    }
+
+    return { rt, pane, bodies };
+}
+
+/**
+ * The guidance a mounted editor currently renders beneath its history-scope
+ * control.
+ *
+ * Read back out of the **pane handle** rather than from the module that produced
+ * the string, because "the editor shows the edit-path sentence while editing" is a
+ * claim about the repaint reaching this element.
+ *
+ * @param pane - The mounted pane.
+ * @returns The text the guidance line carries right now.
+ */
+function helpText(pane: BindingsPane): string {
+    const painted = stubLastProps(pane.historyScopeHelp);
+    const text = painted?.text;
+
+    return typeof text === 'string' ? text : '';
 }
 
 /**
@@ -384,8 +525,22 @@ function failingPoller(): GitHubIssuePoller {
 }
 
 /**
- * One scan cycle over a fixed observation set, as a fresh poller each call.
+ * Reopen the store over the same data directory, as a restarted service would.
  *
+ * A **new handle**, not a new poller: the per-handle `WeakMap`s the product keeps
+ * in `poll/events.ts` (`recoveredQuarantines`) and `history-scope-audit.ts`
+ * (`observationStates`) are what a restart throws away, so a leg that claims to
+ * test a restart has to throw them away too — otherwise it is a third repeat of
+ * the sweep leg wearing a restart's name.
+ *
+ * @returns The fresh store over the same directory.
+ */
+async function restartStore(): Promise<ServiceStore> {
+    return await openStore({ dataDir });
+}
+
+/**
+ * One scan cycle over a fixed observation set, as a fresh poller each call.
  * Two places assert "the same observations, again" — the repeated sweep and the
  * duplicate matrix — and both need a **fresh** poller per call so the second cycle
  * is provably a re-read rather than a replay of recorded answers.
@@ -884,14 +1039,18 @@ describe('§5.5 omission preserves; a pre-field document is not rewritten', () =
         expect(await readFile(join(dataDir, 'bindings.json'), 'utf8')).toBe(beforeBindings);
         expect(await quarantined()).toEqual([]);
 
-        // The scan state moved for the scan's own reason and **nowhere else**. This row
-        // already carries a completed scan, so it never needed a baseline and none was
-        // derived — the one field that would have been a migration write, and there
-        // was nothing to migrate.
+        // The scan state moved for the scan's own reason and **nowwhere else**. This row
+        // already carries a completed scan, so no baseline was derived for it — but
+        // the scan that completed **retained** the window it opened, because the
+        // retained baseline is the widest window the binding has ever scanned from
+        // and only a completed scan may widen it (002 FR-073). On an upgraded store
+        // that window is the incremental one, which is the only bound this record
+        // ever carried.
         const state = await readScanState({ store, log });
 
         expect(state.bindings[BINDING_A]?.lastScanAt).not.toBe(SCANNED_AT);
-        expect(state.bindings[BINDING_A]?.baselineAt).toBeNull();
+        expect(state.bindings[BINDING_A]?.baselineAt)
+            .toBe(new Date(Date.parse(SCANNED_AT) - OVERLAP_MS).toISOString());
         // Neither one-shot was armed on the way past either.
         expect(state.bindings[BINDING_A]?.forceReplay).toBe(false);
         expect(state.bindings[BINDING_A]?.rescanFrom).toBeNull();
@@ -899,6 +1058,36 @@ describe('§5.5 omission preserves; a pre-field document is not rewritten', () =
 });
 
 describe('§5.6 the mode reaches no other store', () => {
+    it('names no mode in any log line, and no other stored projection', async () => {
+        // The census `tasks.md` §D-10 claims and this suite now makes. Two fixed
+        // names are not a secret, so nothing here is about confidentiality — it is
+        // about **vocabulary**: a log line or a second document carrying the mode
+        // would be a place to read the binding's window from, and the whole design
+        // is that the window is one computed value reported on one row (002 FR-054).
+        await plantBindings([binding(BINDING_A, 'recent-history')]);
+
+        const cycle = cycleOver([issue(1, FIVE_DAYS_AGO)]);
+
+        expect(await cycle()).toBe(1);
+
+        for (const line of logLines) {
+            expect(line, line).not.toContain('new-only');
+            expect(line, line).not.toContain('recent-history');
+        }
+
+        // And no store file but `bindings.json` and `runs.json` (whose rows carry no
+        // mode member) holds either name. The queue, the scan state, the run
+        // document, the config and the audit trail are all checked by reading the
+        // whole directory rather than by naming the ones we expect.
+        const stored = await readdir(dataDir);
+        const named = stored
+            .filter((entry) => entry.endsWith('.json') || entry.endsWith('.ndjson'))
+            .filter((entry) => entry !== 'bindings.json')
+            .filter((entry) => readFileSync(join(dataDir, entry), 'utf8').includes('historyScope'));
+
+        expect(named).toEqual([]);
+    });
+
     it('appears in no panel storage key, no ledger entry, and no run record', () => {
         // The mode is **service-owned configuration** (002 FR-054): the panel may hold
         // it in the editor's own control and repaint it, which FR-089 requires, but it
@@ -1294,20 +1483,94 @@ describe('§5.14 after the recovery reset both modes replay, from the separate d
         expect(before.lastScanAt).not.toBeNull();
         expect(before.forceReplay).toBe(false);
 
-        // Now the reset: same cleared stamp, flag **set**, written in one write.
+        // Now the reset: the same cleared stamp and the flag **set**, in one write —
+        // asserted *between* the reset and the completing scan that clears it, since
+        // a cycle which both sets and clears the flag would pass either way.
         await writeFile(
             join(dataDir, 'events.json'),
             JSON.stringify([{ id: 'evt-broken', issueNumber: 'not-a-number' }]),
             'utf8',
         );
+        const duringReplay = await readEvents({ store, log: QUIET });
+        const armed = bindingScanOf(await readScanState({ store, log: QUIET }), BINDING_A);
+
+        // The read that found the loss is what cleared the stamp and set the flag.
+        expect(duringReplay).toEqual([]);
+        expect(armed.lastScanAt).toBeNull();
+        expect(armed.forceReplay).toBe(true);
+        expect(armed.baselineAt).toBe(DEFAULT_BASELINE);
+
+        // The scan that follows completes, which advances the stamp and clears the
+        // flag — the recovery path's flag, and no other writer's.
         const afterReset = recordingPoller([]);
         await runScanCycle({ store, log: QUIET, poller: afterReset.poller });
         const recovered = await readScanState({ store, log: QUIET });
 
-        // A completing scan advanced the stamp and cleared the flag — which is the
-        // recovery path's flag and nothing else's.
         expect(recovered.bindings[BINDING_A]?.forceReplay).toBe(false);
         expect(recovered.bindings[BINDING_A]?.lastScanAt).not.toBeNull();
+    });
+
+    it('re-offers a catch-up sweep after a loss, because the replay outranks the armed bound', async () => {
+        // 002 FR-073's hard case, and the one the retained baseline used to fail.
+        //
+        // A binding **younger than the look-back** derives its first baseline from its
+        // own creation boundary, so that bound is *later* than the `now − 7 days` an
+        // armed catch-up opens. The catch-up then sweeps a five-day-old assignment,
+        // and the queue is lost. If a replay opened at the un-widened baseline it
+        // would be **narrower** than the work it must re-cover — and those rows
+        // would be gone for good, silently.
+        const youngCreatedAt = new Date(Date.now() - 86_400_000).toISOString();
+        // Inside the young binding's own creation-boundary window (five minutes
+        // before it existed, which the overlap reaches back over), and a week
+        // inside the armed catch-up's — so one stamp separates the two bounds.
+        const insideYoung = new Date(Date.parse(youngCreatedAt) - 5 * 60_000).toISOString();
+
+        await plantBindings([{ ...binding(BINDING_A), createdAt: youngCreatedAt }]);
+        const cycle = cycleOver([issue(1, insideYoung)]);
+
+        // 1. the first scan derives and retains the young binding's own boundary.
+        expect(await cycle()).toBe(1);
+        const derived = bindingScanOf(await readScanState({ store, log }), BINDING_A);
+
+        expect(derived.baselineAt).toBe(new Date(Date.parse(youngCreatedAt) - OVERLAP_MS).toISOString());
+
+        // 2. an armed catch-up opens **earlier** than that bound — `now − 7 days`
+        //    against a binding one day old — and sweeps one row the young binding's
+        //    own window never covered.
+        const swept = [issue(1, insideYoung), issue(2, FIVE_DAYS_AGO)];
+
+        await writeScanState({
+            store,
+            state: { bindings: { [BINDING_A]: { ...derived, rescanFrom: FIVE_DAYS_AGO } } },
+        });
+        const catchUp = await runScanCycle({ store, log, poller: recordingPoller(swept).poller });
+
+        expect(catchUp.enqueued).toBe(1);
+        // The completed sweep widened the retained baseline to the armed bound —
+        // monotone widening, and the reason a replay can re-cover it (002 FR-073).
+        expect(bindingScanOf(await readScanState({ store, log }), BINDING_A).baselineAt).toBe(FIVE_DAYS_AGO);
+
+        // 3. the queue is lost. The replay must re-offer **both** rows — the ones the
+        //    catch-up queued and the one the first scan queued — under their own ids.
+        await writeFile(
+            join(dataDir, 'events.json'),
+            JSON.stringify([{ id: 'evt-broken', issueNumber: 'not-a-number' }]),
+            'utf8',
+        );
+        const afterLoss = await runScanCycle({ store, log, poller: recordingPoller(swept).poller });
+
+        expect(afterLoss.enqueued).toBe(2);
+        const reoffered = await queuedEventIds();
+
+        expect(reoffered.toSorted(byText)).toEqual([
+            `evt-acme~widget~1~${ACCOUNT_ID}`,
+            `evt-acme~widget~2~${ACCOUNT_ID}`,
+        ]);
+
+        // And the flag takes precedence rather than the armed bound: had `rescanFrom`
+        // won, the replay would have opened at the five-day bound and re-offered the
+        // same two rows — which the counts alone would not distinguish.
+        expect(bindingScanOf(await readScanState({ store, log }), BINDING_A).baselineAt).toBe(FIVE_DAYS_AGO);
     });
 
     it('reports the flag on the health row while it is in force, and only the reset writes it', async () => {
@@ -1381,22 +1644,28 @@ describe('§5.15 a scan that starts a replay and fails leaves it in force', () =
         // moved rather than looking like a quiet service.
         expect(state.lastError).toBe('auth-failed');
 
-        // The next scan replays again — the flag survived every failure. And it
-        // replays at the **armed** bound, which is the one explicit request in force.
-        const again = recordingPoller([issue(1, FIVE_DAYS_AGO)]);
+        // The next scan replays again — the flag survived every failure. It replays at
+        // the **retained baseline**, not at the armed bound: recovery takes
+        // precedence over an armed catch-up, because the replay's job is
+        // re-covering lost work and the baseline is the widest window this binding
+        // has ever scanned from (002 FR-073; plan H8, corrected 2026-10-05). The
+        // catch-up request is not lost by that — it is the next scan's window.
+        const again = recordingPoller([issue(1, FIVE_DAYS_AGO), issue(2, AT_CREATION)]);
         const cycle = await runScanCycle({ store, log, poller: again.poller });
 
-        expect(again.seen().windows).toEqual([FIVE_DAYS_AGO]);
+        expect(again.seen().windows).toEqual([DEFAULT_BASELINE]);
         expect(cycle.enqueued).toBe(1);
 
-        // Having answered it, the catch-up is consumed; the recovery flag survives,
-        // because a completing scan clears `rescanFrom` and advances the stamp, and
-        // the next cycle reports the flag's own state.
+        // Having answered the replay, both one-shots are consumed; the completing scan
+        // advanced the stamp and cleared both.
         const settled = bindingScanOf(await readScanState({ store, log }), BINDING_A);
 
         expect(settled.rescanFrom).toBeNull();
         expect(settled.forceReplay).toBe(false);
         expect(settled.lastScanAt).not.toBeNull();
+        // The replay's own window is now the retained baseline — it opened at the
+        // baseline and so could not widen it (002 FR-073).
+        expect(settled.baselineAt).toBe(DEFAULT_BASELINE);
     });
 });
 
@@ -1405,7 +1674,8 @@ describe('§5.16 a repeated sweep, a repeated recovery replay, and a restart pro
         await plantBindings([binding(BINDING_A, 'recent-history')]);
         // Five different paths over one window, each answering with the same two
         // observations, and one set of rows out of all of them.
-        const cycle = cycleOver([issue(1, FIVE_DAYS_AGO), issue(2, AT_CREATION)]);
+        const observations = [issue(1, FIVE_DAYS_AGO), issue(2, AT_CREATION)];
+        const cycle = cycleOver(observations);
 
         // 1. the sweep
         expect(await cycle()).toBe(2);
@@ -1413,8 +1683,15 @@ describe('§5.16 a repeated sweep, a repeated recovery replay, and a restart pro
 
         // 2. the repeated sweep
         expect(await cycle()).toBe(0);
-        // 3. a restart — a fresh cycle over the same store
-        expect(await cycle()).toBe(0);
+
+        // 3. **a restart**: a genuinely new store handle over the same data
+        //    directory, so the per-handle recovery claim sets the product keeps in
+        //    `WeakMap`s (`recoveredQuarantines`, `observationStates`) are rebuilt
+        //    from nothing. A fresh *poller* is not a restart — it is the sweep leg
+        //    again, which is how this leg used to pass without testing anything.
+        store = await restartStore();
+
+        expect(await cycleOver(observations)()).toBe(0);
         expect(await queuedEventIds()).toEqual(afterSweep);
 
         // 4. the recovery replay. The queue is **lost** here, so the replay's job is
@@ -1430,16 +1707,21 @@ describe('§5.16 a repeated sweep, a repeated recovery replay, and a restart pro
         expect(await cycle()).toBe(2);
         expect(await queuedEventIds()).toEqual(afterSweep);
 
-        // 5. the repeated recovery replay — the evidence file is still there, and the
-        //    reset is idempotent, so the replay that already happened is not served
-        //    twice.
-        expect(await cycle()).toBe(0);
+        // 5. the repeated recovery replay. The evidence file is still there, and the
+        //    claim set is per-handle, so a **second restart** must find the evidence
+        //    again and find the loss already recovered: one reset per loss per
+        //    process, and a new process starts the claim from nothing (002 FR-073).
+        store = await restartStore();
 
+        expect(await cycleOver(observations)()).toBe(0);
+        expect(await queuedEventIds()).toEqual(afterSweep);
+
+        // Six legs, and the queue is still two rows with two distinct ids — the runs
+        // the first sweep wrote are still the only two, because a re-offered event is
+        // the **same** work: it neither duplicates the queue row nor mints a second
+        // run (002 FR-081).
         const queue = await queuedEventIds();
 
-        // Two rows, two distinct ids, and the runs the first sweep wrote are still
-        // the only two: a re-offered event is the **same** work, so it neither
-        // duplicates the queue row nor mints a second run (002 FR-081).
         expect(queue).toHaveLength(2);
         expect(new Set(queue).size).toBe(2);
 
@@ -1449,6 +1731,41 @@ describe('§5.16 a repeated sweep, a repeated recovery replay, and a restart pro
 
         expect(runs.runs).toHaveLength(2);
         expect(runs.runs.every((run) => run.session === null)).toBe(true);
+    });
+
+    it('recovers the queue from its evidence file after a restart, not from memory', async () => {
+        // The half of "not on restart" that a restart is actually about. The quarantine
+        // **renames** the file away, so a service that restarts after the loss finds
+        // `events.json` simply absent: no read reports `quarantined` again, and only
+        // the `events.json.corrupt-*` evidence in the directory stands in for the
+        // observation (`recoverFromEvidence`). A restarted handle has an empty claim
+        // set, so it must find that evidence — otherwise the windows would keep
+        // pointing past the assignments the lost queue carried.
+        await plantBindings([binding(BINDING_A, 'recent-history')]);
+        const observations = [issue(1, FIVE_DAYS_AGO)];
+
+        expect(await cycleOver(observations)()).toBe(1);
+        expect(await queuedEventIds()).toHaveLength(1);
+
+        // Plant the loss the way a corrupt queue lands: a row the parser refuses.
+        await writeFile(
+            join(dataDir, 'events.json'),
+            JSON.stringify([{ id: 'evt-broken', issueNumber: 'not-a-number' }]),
+            'utf8',
+        );
+
+        // **Before** any scan, restart: the evidence is on disk and the claim set is
+        // empty, so the very first read has to notice.
+        store = await restartStore();
+        const afterRestart = await cycleOver(observations)();
+
+        expect(afterRestart).toBe(1);
+        expect(await queuedEventIds()).toHaveLength(1);
+        // The evidence file is still standing — the restart read it, it did not
+        // quarantine anything a second time.
+        const evidence = await quarantined();
+
+        expect(evidence.length).toBeGreaterThan(0);
     });
 });
 
@@ -1876,30 +2193,59 @@ describe('§5.21 the panel renders the mode once, unreadable when unusable, defa
         expect(Object.hasOwn(parsed?.bindings[0] ?? {}, 'historyScope')).toBe(true);
     });
 
-    it('states every one of the six things the guidance must say, without opening anything', () => {
-        // 002 FR-090's six claims, read off the shipped copy rather than off a
-        // comment about it. Both variants are checked because the catch-up sentence
-        // is conditional: a **new** binding cannot open one, and a binding that can
-        // must say what it will offer (plan H6).
+    it('states every one of the six things the editor actually shows', async () => {
+        // 002 FR-090's six claims, read off what the **mounted editor** renders
+        // rather than off a pure function's two branches. Assert 5 is the one that
+        // needed this: "offers every matching item inside that window at once,
+        // which may be many sessions" is the warning that exists **only** on the
+        // edit path — the path that opens a catch-up (002 FR-084; plan H6) — and a
+        // suite that loops a pure function over `[false, true]` would pass while
+        // the shipped editor showed the add-path sentence on both.
         for (const isEditing of [false, true]) {
-            const guidance = historyScopeGuidance(isEditing);
+            const pane = mountedBindingsPane({ editing: isEditing });
+            const guidance = helpText(pane.pane);
+            const label = `editing=${String(isEditing)}`;
 
             // 1. the default watches from now on
-            expect(guidance).toContain('From now on is the default');
+            expect(guidance, label).toContain('From now on is the default');
             // 2. a fixed seven-day period
-            expect(guidance).toContain('seven days');
+            expect(guidance, label).toContain('seven days');
             // 3. once, and not repeated on its own
-            expect(guidance).toContain('once');
-            expect(guidance).toContain('does not repeat on its own');
+            expect(guidance, label).toContain('once');
+            expect(guidance, label).toContain('does not repeat on its own');
             // 4. bounded, with no "all history"
-            expect(guidance).toContain('always bounded');
-            expect(guidance).toContain('no "all history" option');
-            // 5. what an edit may offer at once
-            expect(guidance).toMatch(/many sessions|looks back once/);
+            expect(guidance, label).toContain('always bounded');
+            expect(guidance, label).toContain('no "all history" option');
+            // 5. what an edit will offer — the catch-up warning, and **only** where
+            //    a catch-up can open.
+            if (isEditing) {
+                expect(guidance).toContain('offers every matching item inside that window at once');
+                expect(guidance).toContain('may be many sessions');
+            } else {
+                expect(guidance).toContain('looks back once, from before the binding existed');
+                expect(guidance).not.toContain('many sessions');
+            }
+
             // 6. recovery is never governed by this setting
-            expect(guidance).toContain('recovery replay');
-            expect(guidance).toContain('regardless of this setting');
+            expect(guidance, label).toContain('recovery replay');
+            expect(guidance, label).toContain('regardless of this setting');
         }
+    });
+
+    it('repaints the guidance when the editor mode changes under a mounted pane', () => {
+        // The other half of FR-090: the editor block is mounted **once** and reused
+        // for both modes, so a string chosen at mount time would never change. The
+        // add form opens it, a row selection swaps it to edit mode, and the line
+        // under the control has to follow — with no second mount.
+        const pane = mountedBindingsPane({ editing: false });
+
+        expect(helpText(pane.pane)).toContain('from before the binding existed');
+
+        pane.rt.state.bindings.editing = true;
+        refresh(pane.rt);
+
+        expect(helpText(pane.pane)).toContain('may be many sessions');
+        expect(helpText(pane.pane)).not.toContain('from before the binding existed');
     });
 
     it('offers exactly the two names and nothing else, under an accessible name', () => {
@@ -2023,20 +2369,84 @@ describe('§5.21 the panel renders the mode once, unreadable when unusable, defa
         ]);
     });
 
-    it('writes the mode on every grant row and preserves it for rows it never opened', () => {
-        // 002 FR-057: omission-preserves, so a row the editor did not open keeps its
-        // own stored mode even though the whole file was replaced. The editor is open
-        // on `BINDING_A` with the draft at the **default**, so that row submits
-        // `'new-only'` and the row the editor never touched submits its own stored
-        // `'recent-history'` — two rows, two answers, which is the whole of the claim.
-        const state: ReturnType<typeof bindingsStateWith> = {
-            ...bindingsStateWith('new-only'),
-            editing: true,
-            selectedBinding: BINDING_A,
-        };
+    it('writes the edited row\'s mode on that row alone, and every other row its own', async () => {
+        // 002 FR-057 and FR-084, asserted on the **bytes the panel actually sends**.
+        //
+        // The bug this replaces was invisible from a helper: `rowForGrant` took a
+        // bare `HistoryScope`, so a value without a row stamped the edited
+        // binding's mode onto every row of the whole-file grant — and the service,
+        // reading a mode change on a row nobody opened, armed a bounded catch-up
+        // for it. A suite asserting a per-row helper would keep passing after that,
+        // because the helper was not on the path.
+        const rows = [
+            panelRow(BINDING_A, 'new-only', 'acme/widget'),
+            panelRow(BINDING_B, 'recent-history', 'acme/other'),
+        ];
+        const pane = mountedBindingsPane({ editing: true, rows });
 
-        expect(historyScopeForGrant(state, panelTyped(BINDING_A, 'recent-history'))).toBe('new-only');
-        expect(historyScopeForGrant(state, panelTyped(BINDING_B, 'recent-history'))).toBe('recent-history');
+        pane.rt.state.bindings.historyScopeInput = 'recent-history';
+        pane.rt.state.bindings.selectedBinding = BINDING_A;
+        pane.rt.state.bindings.repoInput = 'acme/widget';
+        pane.rt.state.bindings.repoProjectSelection = 'prj_42';
+
+        await saveEditedBinding(pane.rt);
+        await tick();
+
+        // Two rows, two answers. `BINDING_B` was never opened in the editor, so the
+        // grant must not carry the editor's choice onto it — a fabricated mode change
+        // there is exactly what arms a catch-up nobody asked for (002 FR-084).
+        expect(grantedModes(pane.bodies)).toEqual([
+            [BINDING_A, 'recent-history'],
+            [BINDING_B, 'recent-history'],
+        ]);
+
+        // And the case the bug was actually reported with: the edited row moves
+        // *into* the look-back while the other row stays in the default, so the
+        // other row's stored mode must survive the whole-file replacement.
+        const second = mountedBindingsPane({
+            editing: true,
+            rows: [panelRow(BINDING_A, 'new-only', 'acme/widget'), panelRow(BINDING_B, 'new-only', 'acme/other')],
+        });
+
+        second.rt.state.bindings.historyScopeInput = 'recent-history';
+        second.rt.state.bindings.selectedBinding = BINDING_A;
+        second.rt.state.bindings.repoInput = 'acme/widget';
+        second.rt.state.bindings.repoProjectSelection = 'prj_42';
+
+        await saveEditedBinding(second.rt);
+        await tick();
+
+        expect(grantedModes(second.bodies)).toEqual([
+            [BINDING_A, 'recent-history'],
+            [BINDING_B, 'new-only'],
+        ]);
+    });
+
+    it('creates one look-back binding without touching the others\' modes', async () => {
+        // The add path is the worse half of the same bug: a **new** row has no id
+        // the operator could have edited, so a mode that did not name its row would
+        // land on every existing binding and re-arm each scanned one.
+        const rows = [
+            panelRow(BINDING_A, 'recent-history', 'acme/widget'),
+            panelRow(BINDING_B, 'new-only', 'acme/other'),
+        ];
+        const pane = mountedBindingsPane({ editing: false, rows });
+
+        pane.rt.state.bindings.repoInput = 'acme/new-thing';
+        pane.rt.state.bindings.repoProjectSelection = 'prj_42';
+        pane.rt.state.bindings.accountSelection = ACCOUNT_ID;
+        pane.rt.state.bindings.historyScopeInput = 'recent-history';
+
+        await bindRepository(pane.rt);
+        await tick();
+
+        const granted = grantedModes(pane.bodies);
+
+        expect(granted).toHaveLength(3);
+        // The two existing rows keep what they held; only the new row carries the
+        // look-back the operator chose on the add form.
+        expect(granted.slice(0, 2).map(([, scope]) => scope)).toEqual(['recent-history', 'new-only']);
+        expect(granted[2]?.[1]).toBe('recent-history');
     });
 });
 

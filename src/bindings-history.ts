@@ -47,9 +47,6 @@ import { DEFAULT_HISTORY_SCOPE, readHistoryScope, RECENT_HISTORY_SCOPE } from '.
 import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 import type { HistoryScope, PanelBinding } from './bindings-service.ts';
 
-/** The wire member this field is the panel's client of record for (002 FR-056). */
-export const HISTORY_SCOPE_FIELD = 'historyScope';
-
 /**
  * What the field is words.
  *
@@ -204,7 +201,26 @@ export interface BindingHistoryScopeControls {
 }
 
 /** The bindings-tab state this field reads, narrowed to what it needs. */
-type ScopeState = Pick<BindingsTabState, 'bindings' | 'selectedBinding' | 'editing' | 'historyScopeInput'>;
+type ScopeState = Pick<BindingsTabState, 'historyScopeInput' | 'editing'>;
+
+/**
+ * The guidance this field shows, from the state the editor is currently in.
+ *
+ * **Repainted, not chosen once at mount.** The two variants differ on the one
+ * claim an operator needs and cannot otherwise learn: choosing the look-back on a
+ * **new** binding sweeps from before it existed, while choosing it on an
+ * **existing** one opens a catch-up that may offer many sessions at once
+ * (002 FR-090, FR-084). The editor is mounted once and reused for both modes, so
+ * a string evaluated at mount time would show the add-path sentence to an operator
+ * about to open a catch-up on a binding that has been scanning for months — which
+ * is the one moment the warning exists for.
+ *
+ * @param state - The Bindings tab's state.
+ * @returns The helper text the control renders beneath it.
+ */
+export function historyScopeHelp(state: ScopeState): string {
+    return historyScopeGuidance(state.editing);
+}
 
 /**
  * Read the editor's mode from the draft, not from the stored row.
@@ -223,21 +239,38 @@ function draftScope(state: ScopeState): HistoryScope {
 }
 
 /**
- * The mode a whole-file write carries for one row (002 FR-057).
+ * The one binding whose history scope a whole-file write overrides.
  *
- * The scope is **omission-preserves** like the prompt, so every row states the
- * value the editor is showing and the row that was never edited states its own
- * stored value — which is what stops an unrelated save from taking a deliberate
- * choice back to the default.
- *
- * @param state - The Bindings tab's state.
- * @param binding - The row being granted.
- * @returns The mode this row submits.
+ * **A patch naming its row, not a bare value.** The scope is
+ * omission-preserves like the prompt (002 FR-057), so every row states its own
+ * stored mode and only the row the editor was open on states the control's value
+ * instead. A bare `HistoryScope` cannot express that: the grant is
+ * whole-file, so a value without a row would stamp the edited binding's choice
+ * onto every row — which for the wider mode means the service sees a mode change
+ * on bindings the operator never touched, and arms a catch-up for each
+ * (002 FR-084). Naming the row is what makes the override *that binding's*
+ * override.
  */
-export function historyScopeForGrant(state: ScopeState, binding: PanelBinding): HistoryScope {
-    return state.editing && state.selectedBinding === binding.bindingId
-        ? draftScope(state)
-        : historyScopeFor(binding);
+export interface HistoryScopePatch {
+    /** Binding whose mode the operator's control chose. */
+    readonly bindingId: string;
+    /** The mode this one row submits, in place of its stored one. */
+    readonly historyScope: HistoryScope;
+}
+
+/**
+ * The mode one row of a whole-file write submits.
+ *
+ * The counterpart of {@link historyScopeFor}, answering for the row itself: the
+ * patch's value for the row it names, and that row's own stored mode for every
+ * other one.
+ *
+ * @param patch - The edited binding's mode, or `null` when the field was untouched.
+ * @param binding - The row being granted.
+ * @returns The mode this row states on the wire.
+ */
+export function historyScopeForRow(patch: HistoryScopePatch | null, binding: PanelBinding): HistoryScope {
+    return patch?.bindingId === binding.bindingId ? patch.historyScope : historyScopeFor(binding);
 }
 
 /**

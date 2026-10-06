@@ -313,6 +313,13 @@ export function bindingRows(bindings: BindingsTabState): ListItem[] {
  * reads `not scanned yet` with a pending count of zero — never a blank, and
  * never an invented "it is fine".
  *
+ * **The window in force is deliberately not here** (002 FR-091). A row summary may
+ * name the mode's short label and may derive **nothing else** from it, and a bare
+ * `window from <stamp>` is exactly that: a second rendering of the window, on a
+ * surface with none of FR-092's "the service computed this" labelling beside it, so
+ * it reads as something the operator chose. The editor's own line carries both ends
+ * of the window with that labelling, and the row carries the label alone.
+ *
  * @returns The detail line, or `null` when no binding is selected.
  */
 export function selectedBindingDetail(bindings: BindingsTabState): string | null {
@@ -325,13 +332,7 @@ export function selectedBindingDetail(bindings: BindingsTabState): string | null
     const scan = status === null ? NOT_SCANNED : scanPhrase(status);
     const pending = status === null ? 0 : status.pendingCount;
     const state = binding.state === 'active' ? 'enabled' : 'disabled';
-    // The window's **lower bound**, beside the scan stamp it comes from — which is
-    // what makes both ends of the window readable together on this row (002
-    // FR-092). It is the service's own computation, reported here and not set here,
-    // and an unexamined row has none rather than a start it never received.
-    const windowStart = status?.windowStart ?? null;
-    const window = windowStart === null ? 'no window yet' : `window from ${windowStart}`;
 
     return `${state} · created ${utcStamp(binding.createdAt)} · updated ${utcStamp(binding.updatedAt)}`
-        + ` · ${scan} · ${pending} pending · ${window}`;
+        + ` · ${scan} · ${pending} pending`;
 }

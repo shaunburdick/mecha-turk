@@ -42,7 +42,7 @@ import { disposeBindingActors, mountBindingActors } from './bindings-actors.ts';
 import type { BindingActorControls } from './bindings-actors.ts';
 import {
     disposeBindingHistoryScope,
-    historyScopeGuidance,
+    historyScopeHelp,
     mountBindingHistoryScope,
     windowInForceLine,
 } from './bindings-history.ts';
@@ -79,15 +79,18 @@ export const MENTION_SCAN_NOTE = 'Issue bodies and comments that @mention the bo
 export const REVIEW_SCAN_NOTE = 'Pull requests that ask the account to review open a dispatch.';
 
 /**
- * The guidance the history-scope control mounts with (002 FR-090).
+ * How the history-scope guidance reaches the operator (002 FR-090).
  *
  * Mounted as prose rather than as a select `description`, because the SDK's
  * `SelectProps` has no such member and because six sentences of operator-facing
  * guidance are not a caption. It sits directly under the control it explains, so
  * the operator meets it **without opening anything else** — which is the
  * requirement's own wording.
+ *
+ * It is mounted as a handle and **repainted from state**, not evaluated once: the
+ * add and edit paths differ on the one claim that matters before a catch-up opens,
+ * and the editor is a single mounted block reused for both.
  */
-export const HISTORY_SCOPE_HELP = historyScopeGuidance(false);
 
 /** Heading above the bindings list and the selected row's own facts. */
 const LIST_HEADING = 'Bindings';
@@ -360,7 +363,12 @@ function mountAddForm(input: MountInputs): Form {
     // FR-090's guidance and FR-092's derived window line, both mounted directly
     // under the control they belong to.
     const historyScopeLines: HistoryScopeLines = {
-        help: mountStyledText(input.pane, { className: 'mt-prose', text: HISTORY_SCOPE_HELP }),
+        // FR-090: the guidance is **repainted** from state, because the add and edit
+        // paths say different things about what a catch-up will offer.
+        help: mountStyledText(input.pane, {
+            className: 'mt-prose',
+            text: historyScopeHelp(input.rt.state.bindings),
+        }),
         window: mountStyledText(input.pane, {
             className: 'mt-prose',
             text: windowInForceLine(statusRowFor(input.rt.state.bindings)) ?? '',
@@ -502,6 +510,7 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
         mentionToken: form.mentionToken,
         actors: form.actors,
         historyScope: form.historyScope,
+        historyScopeHelp: form.historyScopeLines.help,
         windowScopeLine: form.historyScopeLines.window,
         projectSelect: form.projectSelect,
         assignmentCheck: form.assignment,

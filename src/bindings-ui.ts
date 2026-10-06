@@ -40,7 +40,7 @@ import { emptyBindingsText, repaintAccountReason } from './bindings-accounts.ts'
 import type { AccountReasonControls } from './bindings-accounts.ts';
 import { repaintBindingActors } from './bindings-actors.ts';
 import type { BindingActorControls, BindingActorHandlers } from './bindings-actors.ts';
-import { repaintBindingHistoryScope, windowInForceLine } from './bindings-history.ts';
+import { historyScopeHelp, repaintBindingHistoryScope, windowInForceLine } from './bindings-history.ts';
 import type { BindingHistoryScopeControls, BindingHistoryScopeHandlers } from './bindings-history.ts';
 import { accountFieldView, editorStateLine, repaintBindingActions, repaintBindingMention } from './bindings-editor.ts';
 import { bindingRows, selectedBindingDetail } from './bindings-rows.ts';
@@ -51,6 +51,8 @@ import type { DetailChips } from './bindings-chips.ts';
 export interface BindingsPane {
     /** The pane root this view mounted. */
     readonly pane: HTMLElement;
+    /** FR-090's guidance under the editor's history-scope control. */
+    readonly historyScopeHelp: TextHandle;
     /** The window-in-force line under the editor's history-scope control (002 FR-092). */
     readonly windowScopeLine: TextHandle;
     /** Status line at the top. */
@@ -206,6 +208,10 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     repaintBindingMention(rt, view.mentionToken);
     repaintBindingActors(rt, view.actors);
     repaintBindingHistoryScope(rt, view.historyScope);
+    // FR-090: the guidance follows the editor's mode. The catch-up sentence is the
+    // warning an operator needs *before* choosing the look-back on a binding that
+    // already scans, and a string mounted once would never say it there.
+    view.historyScopeHelp.update({ text: historyScopeHelp(bindings) });
     view.windowScopeLine.update({
         text: windowInForceLine(bindings.statusRows.find((row) => row.bindingId === bindings.selectedBinding) ?? null)
             ?? '',

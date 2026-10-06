@@ -258,8 +258,10 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
         ...(actors !== undefined && { actors }),
         // The new row's mode is the draft's own: the select's default is the
         // documented default, so an untouched control binds the binding to watch
-        // from now on (002 FR-089).
-        historyScope: draft.historyScope,
+        // from now on (002 FR-089). The patch names **this** row, so creating one
+        // look-back binding cannot re-arm a catch-up on every binding already
+        // scanned (002 FR-084).
+        historyScope: { bindingId: draft.bindingId, historyScope: draft.historyScope },
     });
     resetCoveredDraft(bindings, draft.repository);
     if (answer.ok) {

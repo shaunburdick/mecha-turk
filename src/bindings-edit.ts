@@ -264,10 +264,11 @@ export async function saveEditedBinding(rt: PanelRuntime): Promise<void> {
         note: `Saved ${draft.repository}.`,
         ...(prompt !== undefined && { prompt }),
         ...(actors !== undefined && { actors }),
-        // The editor's own select, for the row being saved. Every other row keeps
-        // its stored mode by omission (002 FR-057), and the edited row states what
-        // the control showed.
-        historyScope: draft.historyScope,
+        // The editor's own select, for the row being saved. The patch **names that
+        // row**, which is what keeps the override on this binding: every other row
+        // states its own stored mode, so an edit here cannot be read by the service
+        // as a mode change elsewhere (002 FR-057, FR-084).
+        historyScope: { bindingId: target, historyScope: draft.historyScope },
     });
     if (rt.disposed) {
         return;
