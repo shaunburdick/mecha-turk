@@ -6,7 +6,7 @@
  * what `astro build` emitted, not of what anyone wrote: AC-001 (no page beyond
  * the five), AC-002 (every internal link under the base path), AC-003 (every
  * page reaches all five), AC-004 (no remote resource, no image file), AC-005
- * (one `h1`, a named navigation region, the licence link), NFR-002 (no
+ * (one `h1`, a named navigation region, the license link), NFR-002 (no
  * JavaScript), and NFR-003 (no third-party request). A reviewer with `src/` open
  * is checking the wrong artefact — the failure these exist to catch is the one
  * that builds green and 404s on the published address.
@@ -266,7 +266,7 @@ function withoutLiteralMarkers(markup) {
  * distinction of *position*, not of host. FR-010 and NFR-003 govern the requests
  * a page view makes; a hyperlink is not one. The footer's links into the
  * repository are off-origin by necessity — the site publishes no copy of the
- * licence (plan D8) and AC-005 requires the link — so a check that flagged every
+ * license (plan D8) and AC-005 requires the link — so a check that flagged every
  * off-origin URL would be flagging a requirement.
  *
  * **`base` is the first entry that fetches nothing, and the reason it is here.**
@@ -1179,8 +1179,8 @@ function assertThePage(page, html, base, origin, emitted) {
         );
     }
 
-    // AC-005 and FR-076: the footer links the licence file in the repository.
-    assertTheFooterLicenceLink(where, html, pageAddress, origin);
+    // AC-005 and FR-076: the footer links the license file in the repository.
+    assertTheFooterLicenseLink(where, html, pageAddress, origin);
 
     // FR-052 and AC-006: nothing unfinished survives into the output, in either of the two
     // shapes it can take. The vocabulary first — matched whole, see `TOKEN_LEADING` for why
@@ -1327,14 +1327,14 @@ function assertInlineStylesheet(where, css, origin) {
 }
 
 /**
- * Check that the footer carries a link to the licence file in the repository.
+ * Check that the footer carries a link to the license file in the repository.
  *
  * @param {string} where The emitted file, for the message.
  * @param {string} html The page's markup.
  * @param {string} pageAddress The page's own published address.
  * @param {string} origin The site's canonical origin.
  */
-function assertTheFooterLicenceLink(where, html, pageAddress, origin) {
+function assertTheFooterLicenseLink(where, html, pageAddress, origin) {
     const footerStart = html.indexOf('<footer');
     const footerEnd = html.indexOf('</footer>');
     const body =
@@ -1342,7 +1342,7 @@ function assertTheFooterLicenceLink(where, html, pageAddress, origin) {
             ? undefined
             : html.slice(footerStart, footerEnd);
     assert(
-        'AC-005 a footer carrying the licence link',
+        'AC-005 a footer carrying the license link',
         body !== undefined,
         `${where}: the page carries no footer element — AC-005 and FR-076 require a footer on every page.`,
     );
@@ -1350,7 +1350,7 @@ function assertTheFooterLicenceLink(where, html, pageAddress, origin) {
         return;
     }
     const targets = readLinkTargets(body);
-    const licence = targets.find((raw) => {
+    const license = targets.find((raw) => {
         if (!/^https?:\/\//i.test(raw.trim())) {
             return false;
         }
@@ -1358,11 +1358,11 @@ function assertTheFooterLicenceLink(where, html, pageAddress, origin) {
         return classified.kind === 'off-origin' && classified.pathname.endsWith('/LICENSE');
     });
     assert(
-        'AC-005 a footer carrying the licence link',
-        licence !== undefined,
+        'AC-005 a footer carrying the license link',
+        license !== undefined,
         `${where}: the footer's links are [${targets.join(', ') || 'none'}] and none is an absolute link to ` +
             'a repository LICENSE file — AC-005 and FR-076 require one on every page, and the site ' +
-            'publishes no copy of the licence (plan D8), so the link has to be absolute.',
+            'publishes no copy of the license (plan D8), so the link has to be absolute.',
     );
 }
 

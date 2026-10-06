@@ -683,7 +683,7 @@ describe('007 AC-016 the two bound documents shrank', () => {
         // First dispatch, When a dispatch doesn't go through, Where your data
         // lives, Security at a glance, Uninstall, Troubleshooting — and every one
         // of them is a page now. Two are legitimately the repository's own: the
-        // contributor commands and the licence.
+        // contributor commands and the license.
         const document = readFileSync(resolve(ROOT, README), 'utf8');
         const found = headings(document);
         expect(

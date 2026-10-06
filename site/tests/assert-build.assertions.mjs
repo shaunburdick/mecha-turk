@@ -74,7 +74,7 @@ const LITERAL_MARKER = '<p><code data-literal-marker="true">{number}</code> arri
  * A page that satisfies every clause of the contract: one `h1`, a labelled
  * navigation region carrying all five addresses, an inlined stylesheet that
  * fetches nothing and whose palette clears NFR-004's contrast floor, one content
- * section, and a footer linking the licence file in the repository.
+ * section, and a footer linking the license file in the repository.
  *
  * The palette is the shipped one rather than an arbitrary pair, so the fixture a
  * negative case perturbs is the palette a reader actually gets. `--rule` is here
@@ -101,7 +101,7 @@ function conformingPage(page, extra = '', palette = '--text:#111111;--link:#0a4a
         `<main><h1>${page.title}</h1><h2>Section</h2><p>Body copy.</p>${LITERAL_MARKER}${extra}</main>` +
         '<footer><ul>' +
         `<li><a href="${REPOSITORY_URL}">Source repository</a></li>` +
-        `<li><a href="${REPOSITORY_URL}/blob/main/LICENSE">MIT licence</a></li>` +
+        `<li><a href="${REPOSITORY_URL}/blob/main/LICENSE">MIT license</a></li>` +
         '</ul></footer></body></html>'
     );
 }
@@ -299,9 +299,9 @@ const VIOLATIONS = [
         break: (files) => replacePage(files, 'use/index.html', pageOf(files, 'use/index.html').replace('<nav aria-label="Documentation pages">', '<nav>')),
     },
     {
-        name: 'a footer with no link to the licence file',
-        assertion: 'AC-005 a footer carrying the licence link',
-        break: (files) => replacePage(files, 'debug/index.html', pageOf(files, 'debug/index.html').replace(`<li><a href="${REPOSITORY_URL}/blob/main/LICENSE">MIT licence</a></li>`, '')),
+        name: 'a footer with no link to the license file',
+        assertion: 'AC-005 a footer carrying the license link',
+        break: (files) => replacePage(files, 'debug/index.html', pageOf(files, 'debug/index.html').replace(`<li><a href="${REPOSITORY_URL}/blob/main/LICENSE">MIT license</a></li>`, '')),
     },
     {
         name: 'a page left unfinished',

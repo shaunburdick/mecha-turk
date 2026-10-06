@@ -1,4 +1,4 @@
-# Implementation Plan: Documentation Site and MIT Licence
+# Implementation Plan: Documentation Site and MIT License
 
 **Branch**: `issues-11-homepage-docs` | **Date**: 2026-10-05 | **Spec**: [spec.md](./spec.md) (v1.3.0, **Approved 2026-10-05** — with 002 v1.13.0 and 005 v1.18.0, one package; `spec.md` → `**Status**` is authoritative)
 
@@ -12,7 +12,7 @@
 
 ## Summary
 
-Five static pages — one landing page and **install**, **configure**, **use**, **debug** — built by **Astro 7.3.5 pinned exactly**, published to `https://shaunburdick.github.io/mecha-turk/` by a GitHub Actions workflow, carrying the operator prose that currently sits in a 384-line `README.md`. The README reduces to identity, a summary, a documentation link, a licence pointer, and a contributor pointer. A documentation link appears in the panel's About tab. A full MIT licence file lands at the repository root.
+Five static pages — one landing page and **install**, **configure**, **use**, **debug** — built by **Astro 7.3.5 pinned exactly**, published to `https://shaunburdick.github.io/mecha-turk/` by a GitHub Actions workflow, carrying the operator prose that currently sits in a 384-line `README.md`. The README reduces to identity, a summary, a documentation link, a license pointer, and a contributor pointer. A documentation link appears in the panel's About tab. A full MIT license file lands at the repository root.
 
 Four things make this more than a documentation move, and the plan is organised around them:
 
@@ -41,13 +41,13 @@ Four things make this more than a documentation move, and the plan is organised 
 | Publish permissions | `pages: write` + `id-token: write` on the deploy job; the build job inherits `contents: read` (FR-067) |
 | Root toolchain | **Untouched in meaning.** `package.json` byte-identical; `verify` runs the same four steps in the same order; the site directory is added to `eslint.config.mjs` `ignores` and to `.gitignore` only (FR-007, FR-070, FR-071) |
 | Panel change | One new text handle in `src/about-tab.ts` + two comment updates + one test (FR-059 – FR-064) |
-| Licence | MIT, full text, `Copyright (c) 2026 Shaun Burdick` verbatim, at the repository root; the site's footer links it (FR-074 – FR-076) |
+| License | MIT, full text, `Copyright (c) 2026 Shaun Burdick` verbatim, at the repository root; the site's footer links it (FR-074 – FR-076) |
 
 ---
 
 ## Constitution alignment (v1.3.0)
 
-> **This plan aligns with every principle, every §Security and Operational Standards item, and every §Development Quality Gate of constitution v1.3.0. No principle is weakened, none is strained, and there are no exceptions to record and therefore no complexity-tracking rows.** The feature adds a documentation site and a licence file to the repository. It adds no polling, no provider adapter, no policy gate, no durable state, no audit row, no host capability, and no runtime requirement of any kind. **No constitutional amendment is made** — `.specify/memory/constitution.md` stays at v1.3.0, for the reasons `spec.md` → `## Clarifications` Q4 records.
+> **This plan aligns with every principle, every §Security and Operational Standards item, and every §Development Quality Gate of constitution v1.3.0. No principle is weakened, none is strained, and there are no exceptions to record and therefore no complexity-tracking rows.** The feature adds a documentation site and a license file to the repository. It adds no polling, no provider adapter, no policy gate, no durable state, no audit row, no host capability, and no runtime requirement of any kind. **No constitutional amendment is made** — `.specify/memory/constitution.md` stays at v1.3.0, for the reasons `spec.md` → `## Clarifications` Q4 records.
 
 | Principle / gate | How this plan satisfies it |
 | --- | --- |
@@ -99,7 +99,7 @@ site/                                     # self-contained subproject; the root 
 │   │                                     #   the footer. Carries NO content of its own (D6)
 │   ├── components/
 │   │   ├── nav.astro                     # the five links, built through the base-path helper (D2)
-│   │   └── footer.astro                  # repository link + MIT licence link, every page (FR-076)
+│   │   └── footer.astro                  # repository link + MIT license link, every page (FR-076)
 │   ├── data/
 │   │   ├── site.ts                       # the single base-path helper and the page list — the only file
 │   │   │                                 #   that knows a page path, so a rename is one edit (D2)
@@ -124,12 +124,12 @@ tests/about-tab.test.ts                   # + documentation-link assertions; 2 c
 tests/docs-sync.test.ts                   # + the site as a third scanned document; 3 site claims replace
 │                                         #   the README's (002 v1.13.0 FR-042/AC-022)
 tests/vocabulary.test.ts                  # + the site in the L1 scanned set (005 v1.18.0 SC-107/AC-140)
-tests/manifest.test.ts                    # + the About link and the site's licence link are ordinary https
+tests/manifest.test.ts                    # + the About link and the site's license link are ordinary https
 │                                         #   URLs with no capability implication
 tests/bundle.test.ts                      # UNCHANGED in code; + `site/dist/**` added to the same scan (FR-054)
 tests/prose-budget.test.ts                # NEW. The NFR-006 before/after measurement (FR-049, AC-016)
 
-README.md                                 # reduced to summary + documentation link + licence + contributor pointer
+README.md                                 # reduced to summary + documentation link + license + contributor pointer
 specs/002-agent-event-extension/quickstart.md  # §3–§6, §8 reduce to pointers; §1, §2, §7 stay (FR-049)
 LICENSE                                   # NEW. Full MIT text, `Copyright (c) 2026 Shaun Burdick` (FR-074)
 AGENTS.md                                 # layout block: `site/` added, README's line corrected (FR-057 context)
@@ -205,7 +205,7 @@ No topic is authored at two lengths. `specs/002-agent-event-extension/quickstart
 | AC-002 (base path) | the same script resolves every internal `href`/`src` in the output and asserts each begins `/mecha-turk/`; plus the published fetch after deploy | site job + a post-merge fetch task |
 | AC-003 (every page links all five) | the same script asserts each page contains all five nav targets | site job |
 | AC-004 (no remote font/script/image/CDN) | the same script scans every emitted file for any off-origin URL and for `.js`/image extensions | site job |
-| AC-005 (one `h1`, nav landmark, footer licence link) | the same script, per page | site job |
+| AC-005 (one `h1`, nav landmark, footer license link) | the same script, per page | site job |
 | AC-006 (no placeholder/TODO) | a repository test scanning the site's page sources | `tests/docs-sync.test.ts` |
 | AC-007/AC-008 (capabilities) | the page's table is generated from `package.json`; a test asserts the rendered rows equal `capabilities` plus the implied `service`, and that the README names no other | `tests/manifest.test.ts` |
 | AC-009 (configuration fields) | a test reads `service/config.ts`'s `NUMERIC_BOUNDS` + `DEFAULT_CONFIG` and asserts the page's field list matches names, bounds, units, defaults, and take-effect classes | `tests/docs-sync.test.ts` |
@@ -223,7 +223,7 @@ No topic is authored at two lengths. `specs/002-agent-event-extension/quickstart
 | AC-024/AC-025 (deployed address) | a post-merge fetch task | a Phase-6 task, not a test |
 | AC-026/AC-027 (About link) | the About-tab suite gains the assertions; the two comments are corrected | `tests/about-tab.test.ts` |
 | AC-028 (bundle freshness) | the existing `git diff --exit-code` step and the secret scan | `verify.yml` + `tests/bundle.test.ts` |
-| AC-029 (licence) | a test asserts the file exists, carries the full MIT text and the exact copyright line, and that the manifest's `license` and the README's licence section agree | `tests/docs-sync.test.ts` |
+| AC-029 (license) | a test asserts the file exists, carries the full MIT text and the exact copyright line, and that the manifest's `license` and the README's license section agree | `tests/docs-sync.test.ts` |
 | AC-030/AC-031 (constitution discharge) | a test asserts the landing page states the OpenChamber-off dependency, names the Status tab, and names both storage locations with their uninstall survival | `tests/docs-sync.test.ts` |
 
 ---
@@ -237,7 +237,7 @@ No topic is authored at two lengths. `specs/002-agent-event-extension/quickstart
 | **D3** | **No adapter, no integration, `output: 'static'`.** The published artefact is `site/dist/` uploaded as-is. | GitHub Pages serves static files. An adapter adds a dependency, a build-mode surface, and a failure mode to a site with no server component — and the installed Astro skill recommends one, which is the specific thing to avoid here. | `astro add vercel|netlify|cloudflare --yes` (the skill's advice: wrong for a static publish, and it would add a dependency the product owner declined in `## Out of Scope`) |
 | **D4** | **Two jobs in one workflow file, `.github/workflows/site.yml`.** `build` runs `astro check` then `astro build`; `deploy` needs `build`, is gated on `github.event_name == 'push'`, and is the only job holding `pages: write` + `id-token: write`. | FR-069 requires the build job to type-check as well as build, because it is the site's **only** gate — the root `npm run verify` cannot reach a self-contained subproject. FR-065 makes its failure fail the pull request. One workflow with two jobs keeps the build steps in one place and lets the deploy job reuse the built artefact rather than rebuilding it. | Two separate workflow files (duplicates the build steps and lets the two drift); a `withastro/action` single step (it hides the `astro check` half, and FR-069 requires it to be visible) |
 | **D5** | **`actions/configure-pages` + `actions/upload-pages-artifact` + `actions/deploy-pages`, each pinned to a commit SHA, and **no** `static_site_generator` input.** | FR-067 requires SHA pins and exact permissions. The three actions are GitHub's own documented sequence for a custom Pages workflow, and they are what the repository's `AGENTS.md` action-SHA convention already applies to `verify.yml`. **`static_site_generator` is deliberately not passed** — see the flag below. | `withastro/action` (convenient, but it collapses `astro check` and `astro build` into one opaque `build-cmd`, and FR-069 requires the type-check to be a step a reviewer can see fail) |
-| **D6** | **The navigation, the heading discipline, and the footer live in `src/layout.astro` and its two components; pages carry content only.** | FR-004 (every page links all five), NFR-004 (one `h1` in order, a labelled nav landmark, discernible link text, contrast), and FR-076 (a footer licence link on every page) are then true **by construction**. Verified: a `.md` page with `layout:` frontmatter inherits exactly one `<h1>` and the layout's nav, and the build emits no `<script>` and no external stylesheet. | Per-page markup (fifteen copies of the same nav, each a chance to miss a link, add an orphan, or drop the licence link) |
+| **D6** | **The navigation, the heading discipline, and the footer live in `src/layout.astro` and its two components; pages carry content only.** | FR-004 (every page links all five), NFR-004 (one `h1` in order, a labelled nav landmark, discernible link text, contrast), and FR-076 (a footer license link on every page) are then true **by construction**. Verified: a `.md` page with `layout:` frontmatter inherits exactly one `<h1>` and the layout's nav, and the build emits no `<script>` and no external stylesheet. | Per-page markup (fifteen copies of the same nav, each a chance to miss a link, add an orphan, or drop the license link) |
 | **D7** | **The four trace-derived enumerations are generated from the shipped declarations at build time and compared by a repository test.** The site's `data/declarations.ts` imports the root `package.json`, and the four tables are asserted against `service/config.ts`, `service/routes/events-page.ts`, and the panel's rendered tokens. | FR-048 makes the derivation the rule and a failing check the consequence, so a later feature that adds a field, a state, or a capability fails a check rather than producing a stale page. Verified: a site subproject can import the parent `package.json` and render it under `astro check` + `astro build` without complaint. | Hand-writing the tables and adding a test that compares them (a second copy to keep in step, and the page is still wrong between the two edits) |
 | **D8** | **`public/` is not created. There is no favicon, no image, and no font file.** Zero images is FR-009 and AC-004 asserts the built output contains no image file. | The requirement is explicit and a self-hosted favicon would be the one image in the output. The browser's default `/favicon.ico` request 404s harmlessly, and Pages serves a 404 page — no reader impact, and a strictly smaller surface. | A self-hosted `favicon.svg` in `public/` (it would be the only image in the output, and AC-004 asserts there is none) |
 | **D9** | **Version and capabilities are read from the root `package.json` at build time. No page authors a version literal.** | FR-053 forbids an authored version literal and names the manifest as the one permitted source. Reading it rather than hard-coding it is what makes the rule structural instead of aspirational. The About tab keeps its own single source (the service's health answer) — two surfaces, two legitimate sources, neither a literal. | Hard-coding `0.0.1` in a page (a literal that rots on the next release, and FR-053 forbids it) |
@@ -268,7 +268,7 @@ The repository's Pages configuration reports `build_type: "workflow"` alongside 
 | **A capability, configuration field, dispatch state, or symptom token is added to the product later and the page goes stale.** | D7 (the enumerations are generated) plus four repository tests that compare them (AC-008 – AC-011). The failure is a failing check in the root gate, which every pull request already runs. |
 | **The documentation re-creates a home the owner deliberately emptied.** | The About tab's scrubbed copy is not re-added (005 v1.18.0 is explicit), and the mapping table goes on the site rather than back into the README. `tests/docs-sync.test.ts`'s negative half asserts the retired copy stays out of the README. |
 | **The prose budget is exceeded** — the move becomes an expansion. | `tests/prose-budget.test.ts` measures before and after against `.project-health/baseline.json` and fails if the total grows (NFR-006, AC-016). The measurement command and both figures are recorded in the pull request, as AC-016 requires. The most recent commit on `main` (`d2d3f40`) was a reduction pass; the budget is measured against what exists, not against what is convenient. |
-| **The `LICENSE` file is a summary rather than the licence.** | FR-074 requires every grant, condition, disclaimer, and warranty waiver, and the exact copyright line. A repository test asserts the presence of the standard template's clauses and the verbatim string, and `package.json`'s `license: "MIT"` is asserted to agree (FR-075, AC-029). |
+| **The `LICENSE` file is a summary rather than the license.** | FR-074 requires every grant, condition, disclaimer, and warranty waiver, and the exact copyright line. A repository test asserts the presence of the standard template's clauses and the verbatim string, and `package.json`'s `license: "MIT"` is asserted to agree (FR-075, AC-029). |
 | **Adding `site/` and `.agents/` to the root lint `ignores` reads as a suppression.** | The reason is stated in the config comment, exactly as the two committed bundles' entries are, and FR-072's prohibition on disabling a rule is honoured — no rule is turned off and no type suppression is added. The check that proves it (AC-019, AC-020) is a test. |
 | **The README's reduced length breaks `tests/docs-sync.test.ts`'s existing assertions**, which currently require the README to name six tabs, `GET /v1/config`, `expectedAgent`, `config.json`, and `expected GitHub login`. | Expected, and it is the point of FR-049: those claims move to the pages that own them. The test's `PAGES` list gains the site and its per-document assertions become per-surface — the README is checked for the summary, the site pages for the detail. This is a named task, not an incidental fix, and the plan does not weaken any assertion it moves. |
 | **`astro check` needs `@astrojs/check` and `typescript` present**, and refuses to run without them. | **Verified**: with `@astrojs/check` absent, `astro check` prints a prompt asking to install it and exits 0 — a silent pass, which is the worst possible shape for the site's only gate. Both are exact devDependencies of the site from the first commit, and the build job's assertion step fails if the check did not actually run. |

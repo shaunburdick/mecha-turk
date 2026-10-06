@@ -65,9 +65,9 @@ export const OPENCHAMBER_ENGINE_FLOOR: string = manifest.openchamber.engines.ope
 export const REPOSITORY_URL = 'https://github.com/shaunburdick/mecha-turk';
 
 /**
- * The licence file inside the repository, derived from {@link REPOSITORY_URL}.
+ * The license file inside the repository, derived from {@link REPOSITORY_URL}.
  *
- * The site publishes no copy of the licence (there is no `public/` directory),
+ * The site publishes no copy of the license (there is no `public/` directory),
  * so the link is into the repository rather than onto the site.
  */
 export const LICENSE_URL = `${REPOSITORY_URL}/blob/main/LICENSE`;

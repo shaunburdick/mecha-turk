@@ -1,4 +1,4 @@
-# Contracts: Documentation Site and MIT Licence
+# Contracts: Documentation Site and MIT License
 
 Two contracts, each for something two parties must agree on and a change to which would break an approved requirement.
 

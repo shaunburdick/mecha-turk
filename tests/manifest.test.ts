@@ -961,12 +961,12 @@ describe('007 AC-023 / FR-066 / FR-067 — the publish workflow', () => {
     });
 });
 
-describe('007 FR-074 / FR-075 / AC-029 — the licence is the standard MIT text and nothing else', () => {
+describe('007 FR-074 / FR-075 / AC-029 — the license is the standard MIT text and nothing else', () => {
     /**
      * The standard MIT template, one entry per clause.
      *
      * Written out whole rather than spot-checked, because FR-074 asks for "the
-     * **full** MIT licence text — every grant, condition, disclaimer, and
+     * **full** MIT license text — every grant, condition, disclaimer, and
      * warranty waiver of the standard template, not a summary, not an excerpt, and
      * not a substitute notice", and a test that looks for three of the clauses
      * cannot tell an omitted fourth from a present one.
@@ -995,13 +995,13 @@ describe('007 FR-074 / FR-075 / AC-029 — the licence is the standard MIT text 
             // disclaimer paragraph mid-sentence, so a single-line substring check
             // on that clause would false-fail on a correct file. Normalising first
             // is what lets the comparison be exact instead of approximate.
-            const licence = readFileSync(resolve(ROOT, 'LICENSE'), 'utf8').replaceAll(/\s+/gu, ' ').trim();
+            const license = readFileSync(resolve(ROOT, 'LICENSE'), 'utf8').replaceAll(/\s+/gu, ' ').trim();
 
-            expect(licence).toBe(MIT_TEMPLATE.join(' '));
+            expect(license).toBe(MIT_TEMPLATE.join(' '));
         }
     });
 
-    it('is the licence the manifest declares and the README points at', () => {
+    it('is the license the manifest declares and the README points at', () => {
         {
             expect(EXTENSION_MANIFEST.license).toBe('MIT');
         }

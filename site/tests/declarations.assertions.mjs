@@ -637,7 +637,7 @@ describe('product', () => {
         const footer = readFileSync(join(SITE_SRC, 'components', 'footer.astro'), 'utf8');
         assert.ok(footer.includes("from '../data/product.ts'"), 'the footer reads product.ts');
         assert.ok(!footer.includes('github.com'), 'the footer states no repository address of its own');
-        assert.ok(LICENSE_URL.startsWith('https://'), 'the licence link is an absolute repository address');
-        assert.ok(LICENSE_URL.endsWith('/blob/main/LICENSE'), 'the licence link points at the licence file');
+        assert.ok(LICENSE_URL.startsWith('https://'), 'the license link is an absolute repository address');
+        assert.ok(LICENSE_URL.endsWith('/blob/main/LICENSE'), 'the license link points at the license file');
     });
 });

@@ -1,4 +1,4 @@
-# Feature Specification: Documentation Site and MIT Licence
+# Feature Specification: Documentation Site and MIT License
 
 **Feature ID**: `007-homepage-docs`
 
@@ -40,7 +40,7 @@ Mecha Turk ships a working product and one long README. `README.md` is 384 lines
 
 **The prose has no owner.** Every documentation fact lives in at least two documents, none of which is authoritative, and the drift above is the predictable result. The product's own specifications anticipated this and bound the documents by name — 002 FR-042 requires the walkthrough and the README to be kept *"in agreement with the surfaces this document and features 003–006 specify"*, and 005 FR-020 forbids the word "Run" for a work unit *"everywhere a human reads it: tab labels, … `README.md`"*. Those requirements name two documents. A third documentation surface would be the one surface no requirement covers, which is the drift mechanism itself.
 
-This feature gives the documentation a single home and a gate. The site becomes the canonical documentation: one landing page that explains what the product is, and exactly four documentation pages — **install, configure, use, debug**. The README reduces to a short summary and a link. A documentation link appears in the panel's About tab, so the operator who already has the extension installed finds the documentation from inside it. The site builds on every pull request, so a broken page fails the pull request rather than reaching `main`, and publishes to GitHub Pages from a workflow on push to `main`. A full MIT licence file lands at the repository root, which `package.json` already declares and the README already claims.
+This feature gives the documentation a single home and a gate. The site becomes the canonical documentation: one landing page that explains what the product is, and exactly four documentation pages — **install, configure, use, debug**. The README reduces to a short summary and a link. A documentation link appears in the panel's About tab, so the operator who already has the extension installed finds the documentation from inside it. The site builds on every pull request, so a broken page fails the pull request rather than reaching `main`, and publishes to GitHub Pages from a workflow on push to `main`. A full MIT license file lands at the repository root, which `package.json` already declares and the README already claims.
 
 The constraint that shapes every requirement below: **this is a move, not an expansion.** The prose that moves is the prose that already exists, re-sourced against the shipped code rather than remembered. No topic is authored twice at two lengths, and the repository's prose budget does not grow to accommodate a third copy.
 
@@ -94,7 +94,7 @@ Every one of these is `AGENTS.md`, and none of them moves.
 1. **Given** the landing page, **When** a reader looks for what the product does, **Then** one paragraph states the direction of work (GitHub activity → OpenChamber sessions) and one states that polling, storage, and dispatch happen on the reader's own machine with no hosted control plane.
 2. **Given** the landing page, **When** a reader looks for the limits, **Then** all four honest boundaries are stated: it never creates projects or worktrees, nothing runs while OpenChamber is off, the only GitHub traffic is the service's outbound polling, and it has no GitHub write access.
 3. **Given** the landing page, **When** a reader looks for where their data would live, **Then** both locations are named with what each holds and which survive an uninstall.
-4. **Given** the landing page, **When** a reader finishes, **Then** the four documentation pages and the licence are reachable from it.
+4. **Given** the landing page, **When** a reader finishes, **Then** the four documentation pages and the license are reachable from it.
 
 ---
 
@@ -239,7 +239,7 @@ Every one of these is `AGENTS.md`, and none of them moves.
 - **FR-015**: The landing page MUST name the six panel tabs in their shipped order with one line each, so a reader knows what they are getting.
 - **FR-016**: The landing page MUST name both storage locations, what each holds, and which survive an uninstall. *(Constitution §Security and Operational Standards — "durable state must match the storage it actually lives in.")*
 - **FR-017**: The landing page MUST state the prerequisites — OpenChamber desktop or web; a registered OpenChamber project per repository to be bound; a read-only fine-grained personal access token per account with the exact required scopes and **no write scopes**; and the recommended default-agent pin with its matching verification baseline.
-- **FR-018**: The landing page MUST carry a link to each of the four documentation pages and to the repository licence, and MUST NOT carry a link to a page the site does not publish.
+- **FR-018**: The landing page MUST carry a link to each of the four documentation pages and to the repository license, and MUST NOT carry a link to a page the site does not publish.
 - **FR-019**: The landing page MUST state where the product reports its honest state when something is not running, naming the Status tab, so a reader is directed to the surface rather than left to infer.
 
 #### Block C — The four documentation pages
@@ -288,8 +288,8 @@ Every one of these is `AGENTS.md`, and none of them moves.
 #### Block E — Entry points
 
 - **FR-056**: The repository README MUST carry a documentation link near its top — above the first section of explanation — labelled as documentation, pointing at the site.
-- **FR-057**: The README MUST reduce to: the product's identity, a short summary of what it is and that it runs on the operator's own OpenChamber, the documentation link, a pointer to the licence, and a contributor pointer. Its requirements, install, setup, starting-prompt, first-dispatch, failed-dispatch, data-location, security, uninstall, and troubleshooting prose move to the site.
-- **FR-058**: The README's licence section MUST name MIT and link the licence file in the repository.
+- **FR-057**: The README MUST reduce to: the product's identity, a short summary of what it is and that it runs on the operator's own OpenChamber, the documentation link, a pointer to the license, and a contributor pointer. Its requirements, install, setup, starting-prompt, first-dispatch, failed-dispatch, data-location, security, uninstall, and troubleshooting prose move to the site.
+- **FR-058**: The README's license section MUST name MIT and link the license file in the repository.
 - **FR-059**: The panel's About tab MUST carry a documentation link that opens through the host's URL-opening path — the same path the repository link uses — so the panel's sandboxed frame never navigates itself away.
 - **FR-060**: A refusal to open the documentation link MUST render on its own line, leave the address readable, and never be swallowed; and the About tab's static content MUST render whether or not the service is reachable.
 - **FR-061**: The About tab MUST gain **no** interactive control: the documentation link is a link, not a button, input, select, or list, and the tab's control set is unchanged. Its version line keeps its single source and still prints no digit when the service is unreachable.
@@ -309,15 +309,15 @@ Every one of these is `AGENTS.md`, and none of them moves.
 - **FR-072**: No lint rule may be disabled, and no type suppression may be added anywhere in the repository, to accommodate the site. *(AGENTS.md invariant 7.)*
 - **FR-073**: The site's own Node floor MUST be satisfied by the Node release the site's workflows use, and that release MUST be one the repository already verifies green on.
 
-#### Block G — The licence
+#### Block G — The license
 
-- **FR-074**: The repository root MUST carry an MIT licence file containing the **full** MIT licence text — every grant, condition, disclaimer, and warranty waiver of the standard template, not a summary, not an excerpt, and not a substitute notice — and the copyright line **`Copyright (c) 2026 Shaun Burdick`**, exact and verbatim. *(The product owner's answer to `## Clarifications` Q1, settled 2026-10-05: the repository owner's name as GitHub renders it. That question's two alternatives — a `Mecha Turk contributors` line, and omitting the holder entirely — are **closed, not deferred**; only the holder string was open, and the year is fixed at 2026.)* Every page of the site links this file from its footer (FR-076).
-- **FR-075**: The licence declared in the repository manifest and the licence file MUST agree, and no second licence may be asserted anywhere.
-- **FR-076**: Every page of the site MUST carry a footer link to the licence file in the repository.
+- **FR-074**: The repository root MUST carry an MIT license file containing the **full** MIT license text — every grant, condition, disclaimer, and warranty waiver of the standard template, not a summary, not an excerpt, and not a substitute notice — and the copyright line **`Copyright (c) 2026 Shaun Burdick`**, exact and verbatim. *(The product owner's answer to `## Clarifications` Q1, settled 2026-10-05: the repository owner's name as GitHub renders it. That question's two alternatives — a `Mecha Turk contributors` line, and omitting the holder entirely — are **closed, not deferred**; only the holder string was open, and the year is fixed at 2026.)* Every page of the site links this file from its footer (FR-076).
+- **FR-075**: The license declared in the repository manifest and the license file MUST agree, and no second license may be asserted anywhere.
+- **FR-076**: Every page of the site MUST carry a footer link to the license file in the repository.
 
 ### Key Entities
 
-- **Page**: one published document at one address under the site's base path. Five exist (FR-001): the landing page and four documentation pages. Each carries the product name, navigation to the other four, and a footer with the repository and licence links.
+- **Page**: one published document at one address under the site's base path. Five exist (FR-001): the landing page and four documentation pages. Each carries the product name, navigation to the other four, and a footer with the repository and license links.
 - **Documentation topic**: the subject a page is authoritative for — one of *what it is*, *install*, *configure*, *use*, *debug*. Each topic has exactly one home (FR-049), which is what makes "the site is canonical" an enforceable property rather than a preference.
 - **Trace target**: the named surface in this repository a documentation claim is read from — a manifest field, a panel-rendered string, a declared configuration field and its bounds, a shipped state token, a prerequisite record, or a store path. Every operational claim names one (FR-047, FR-048).
 - **Declaration**: a list the shipped code already owns and the documentation must mirror — the requested capabilities, the configuration fields with bounds and effect classes, the dispatch states, the prerequisites. A check compares each declaration against its page (FR-048).
@@ -347,7 +347,7 @@ Every one of these is `AGENTS.md`, and none of them moves.
 - **SC-105**: Every symptom token the panel or service renders today appears in the debug page's symptom table, matched exactly.
 - **SC-106**: The README contains no section whose substance is also present in full on a site page; each README section maps to exactly one site page.
 - **SC-107**: The repository's own verification command is green before and after this feature, its step list is unchanged, and its test count does not decrease.
-- **SC-108**: A licence file exists at the repository root containing the full MIT text, the year 2026, and a holder line; the manifest's declared licence and the README's licence section agree with it.
+- **SC-108**: A license file exists at the repository root containing the full MIT text, the year 2026, and a holder line; the manifest's declared license and the README's license section agree with it.
 - **SC-109**: The About tab renders the documentation link with the service both reachable and unreachable, its control count is unchanged, and its version line still has exactly one source.
 - **SC-110**: Measured documentation prose does not increase (NFR-006).
 
@@ -363,7 +363,7 @@ Every one of these is `AGENTS.md`, and none of them moves.
 - [ ] **AC-002**: The site's base path is declared in exactly one file, and the built output serves every asset and internal link under `https://shaunburdick.github.io/mecha-turk/`: fetching the landing page and following every link and every referenced asset returns a non-404 response.
 - [ ] **AC-003**: Every page contains a link to the landing page and to all four documentation pages, and every one of those links resolves.
 - [ ] **AC-004**: No page references a remote font, script, stylesheet, image, analytics endpoint, or content-delivery host; the built output contains no image file and no script file.
-- [ ] **AC-005**: Every page contains exactly one top-level heading, a navigation region, and a footer containing a link to the licence file in the repository.
+- [ ] **AC-005**: Every page contains exactly one top-level heading, a navigation region, and a footer containing a link to the license file in the repository.
 - [ ] **AC-006**: No page contains a screenshot, a "coming soon", a template placeholder, an empty section, or a TODO.
 
 **Content fidelity**
@@ -378,7 +378,7 @@ Every one of these is `AGENTS.md`, and none of them moves.
 
 **Prose discipline**
 
-- [ ] **AC-014**: Each section of the README maps to exactly one site page; no README section's substance is also present in full on a site page; and the README is a summary plus a documentation link, a licence pointer, and a contributor pointer.
+- [ ] **AC-014**: Each section of the README maps to exactly one site page; no README section's substance is also present in full on a site page; and the README is a summary plus a documentation link, a license pointer, and a contributor pointer.
 - [ ] **AC-015**: The operator walkthrough's install, first-run, store, and troubleshooting sections point to the site rather than restating it, and its build and verification sections are unchanged.
 - [ ] **AC-016**: Measured documentation prose **words** — site content plus README — do not exceed the README plus the operator walkthrough's prose words as measured before this feature, excluding per-page navigation and footer furniture, with the measurement command and both figures recorded in the pull request. The prose **line** count of the same set is measured and recorded beside the words but is **not** an enforced ceiling: a prose line is a unit of layout rather than of reader burden, and the format this document requires (FR-001's five distinct pages, FR-015's one-line-per-tab list, FR-028/FR-029's generated field tables) is cut into more, shorter units than the paragraphs it replaces — so a line budget would penalise the specified format while measuring template structure. *Was: "Measured documentation prose — site content plus README — does not exceed the README plus the operator walkthrough as measured before this feature, excluding per-page navigation and footer furniture, with the measurement command and both figures recorded in the pull request." — the unit is re-cut at v1.2.0 by product-owner amendment from an unnamed unit to **prose words**, with the prose line count demoted from a ceiling to a reported and pinned figure. The spend, the budget, the exclusion, and the recording duty are unchanged, and the id is not renumbered.*
 
@@ -400,9 +400,9 @@ Every one of these is `AGENTS.md`, and none of them moves.
 - [ ] **AC-027**: The About tab's module comment and the suite comment that assert the page's complete contents state the page as shipped, and no comment in the repository describes the About tab as four items.
 - [ ] **AC-028**: The rebuilt panel bundle is committed with the `src/` change in the same commit, and the repository's existing bundle-freshness check and secret-scan assertions pass.
 
-**Licence**
+**License**
 
-- [ ] **AC-029**: A licence file exists at the repository root, contains the full MIT licence text, states the year 2026, and carries a copyright holder line; the manifest's declared licence and the README's licence section agree with it.
+- [ ] **AC-029**: A license file exists at the repository root, contains the full MIT license text, states the year 2026, and carries a copyright holder line; the manifest's declared license and the README's license section agree with it.
 
 **Constitution discharge**
 
@@ -439,7 +439,7 @@ Each exclusion was offered and declined by the product owner on 2026-10-05, or b
 - The site's content is derived from this repository at the revision it is built from. A page is never ahead of the code it documents.
 - The Pages site stays enabled and public, and the repository name stays `mecha-turk`. A rename changes the site's address (FR-005); nothing in this feature assumes otherwise.
 - The four documentation pages are enough to replace the README's operator prose. If a fifth topic emerges from the content move, it becomes a section of the page that owns its subject rather than a sixth page (FR-001).
-- The MIT licence's holder is the repository's owner. **Settled** 2026-10-05 (`## Clarifications` Q1): the copyright line is exactly `Copyright (c) 2026 Shaun Burdick` (FR-074). No open question remains on this line.
+- The MIT license's holder is the repository's owner. **Settled** 2026-10-05 (`## Clarifications` Q1): the copyright line is exactly `Copyright (c) 2026 Shaun Burdick` (FR-074). No open question remains on this line.
 - No page needs to be written for a user who has not installed the product *and* wants a reference of the HTTP endpoints. **Ruled** by the product owner 2026-10-05 (`## Clarifications` Q3): the debug page documents the **panel and files** surface only, and names no endpoint. The service listens on a loopback port with a host-provided token, so a reader has no supported way to reach it from a shell.
 - The site's build runs on the Node release the repository's CI already uses, so no new Node version is introduced into this repository's workflows.
 - Astro's own base-path handling is relied upon rather than reimplemented; the feature's obligation is to verify the published result, not to implement subpath routing.
@@ -456,7 +456,7 @@ Six product-owner decisions are **locked** and encoded above; they are recorded,
 | L-2 | Page scope is exactly one landing page plus four documentation pages (install, configure, use, debug). No screenshots, no FAQ, no search — all three were offered and declined. | FR-001, FR-009, `## Out of Scope` |
 | L-3 | The site is built on every pull request (a broken site fails the check) and published to GitHub Pages on push to `main`. | FR-065, FR-066 |
 | L-4 | Both entry points are required: a short link near the top of the README, and a documentation link in the panel's About tab. | FR-056, FR-059 |
-| L-5 | A full MIT licence file lands at the repository root with the year 2026 and the copyright line `Copyright (c) 2026 Shaun Burdick`; the site's footer links it. | FR-074, FR-076 |
+| L-5 | A full MIT license file lands at the repository root with the year 2026 and the copyright line `Copyright (c) 2026 Shaun Burdick`; the site's footer links it. | FR-074, FR-076 |
 | L-6 | Pages publishing is workflow-driven, not branch-publish. | FR-066 |
 
 ### Three confirmations, answered by the product owner 2026-10-05
@@ -464,8 +464,8 @@ Six product-owner decisions are **locked** and encoded above; they are recorded,
 All three were put to the product owner with an encoded default so that planning need not wait for an answer. **The owner has now answered all three. Each answer below is settled, not a default** — Q1 and Q3 changed what a requirement says, and Q2 added **FR-077**. None is open, and none blocked Phase 4. The defaults are retained below only as the record of what each answer displaced.
 
 **Q1 — Who is the MIT copyright holder? — Answered: `Shaun Burdick, 2026`.**
-*Why it matters:* the licence file needs a holder line and only the product owner can supply the exact string; a wrong name on a licence is a legal artefact with the author's name on it, not a typo.
-**Ruling (2026-10-05):** the repository owner's name as GitHub renders it, with the year **2026** — so the licence file carries the **full** MIT licence text and the copyright line **`Copyright (c) 2026 Shaun Burdick`**, exact and verbatim. Encoded in **FR-074**; the site's footer link was already **FR-076**. **The two alternatives are closed, not deferred**: the `Copyright (c) 2026 Mecha Turk contributors` fallback, and omitting the holder line entirely — the latter never recommended, because the MIT template's copyright line is what the licence is granted under.
+*Why it matters:* the license file needs a holder line and only the product owner can supply the exact string; a wrong name on a license is a legal artefact with the author's name on it, not a typo.
+**Ruling (2026-10-05):** the repository owner's name as GitHub renders it, with the year **2026** — so the license file carries the **full** MIT license text and the copyright line **`Copyright (c) 2026 Shaun Burdick`**, exact and verbatim. Encoded in **FR-074**; the site's footer link was already **FR-076**. **The two alternatives are closed, not deferred**: the `Copyright (c) 2026 Mecha Turk contributors` fallback, and omitting the holder line entirely — the latter never recommended, because the MIT template's copyright line is what the license is granted under.
 
 **Q2 — Does correcting the stale `network` row in the README's install table belong to this feature, or to issue #16's follow-up? — Answered: correct it here, in this feature.**
 *Why it matters:* `README.md` §Install tells the reader the approval dialog *"asks for exactly these four things"* and names `network`; the shipped manifest requests `sessions` and `prompt` with `service` implied, and `AGENTS.md` invariant 3 records that `network` was removed by product-owner order on 2026-09-30. This feature rewrites the install page from the manifest (FR-022) and reduces the README (FR-057), so the stale row would otherwise be **copied into the canonical source** or left behind beside it.
@@ -482,7 +482,7 @@ All three were put to the product owner with an encoded default so that planning
 
 `.specify/memory/constitution.md` stays at **v1.3.0** (ratified 2026-09-26, last amended 2026-09-27). The reasoning, against the actual text rather than a general impression:
 
-- **No principle text is made obsolete.** The single amendment in the history (v1.3.0) was justified because Principle V "described the deployment target as *one self-hosted container*, which was accurate for the fallback daemon architecture the project started with" — *factually obsolete, not violated*. Nothing here makes a principle's text false. This feature adds a documentation site and a licence file to the repository; it adds no polling, no provider adapter, no policy gate, no durable state, no audit row, no orchestrator split, and no runtime requirement.
+- **No principle text is made obsolete.** The single amendment in the history (v1.3.0) was justified because Principle V "described the deployment target as *one self-hosted container*, which was accurate for the fallback daemon architecture the project started with" — *factually obsolete, not violated*. Nothing here makes a principle's text false. This feature adds a documentation site and a license file to the repository; it adds no polling, no provider adapter, no policy gate, no durable state, no audit row, no orchestrator split, and no runtime requirement.
 - **Principle V is honoured, not extended.** It governs *the product's deployment*: self-hosted inside the operator's OpenChamber, no proprietary hosted control plane, infrastructure complexity justified by a measurable need. A static documentation site is none of those things — it requires no infrastructure from the operator, no container, no service, and no control plane, and it removes nothing from the product's deployment. It is squarely inside the principle's intent.
 - **§Governance permits this outright**: *"A feature specification may add constraints but may not weaken these principles without an explicit constitutional amendment."* This feature adds constraints (no third-party requests, zero client-side scripting, a prose budget, a base-path acceptance criterion) and weakens none.
 - **The two load-bearing §Security and Operational Standards items are discharged, not reinterpreted.** The "unattended operation depends on the operator's OpenChamber installation running … must be documented, surfaced as health/status, and never masked" item is satisfied *by publishing pages* that say so and name where the state is read (FR-014, FR-019, FR-042, AC-030). The "durable state must match the storage it actually lives in" item is satisfied by publishing the two locations with their retention facts (FR-016, FR-043, AC-031). Neither is satisfied by inventing a requirement in this document; both are satisfied by the artefact, which is why each carries its own acceptance criterion.

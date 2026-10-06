@@ -1,4 +1,4 @@
-# Research: Documentation Site and MIT Licence — new findings only
+# Research: Documentation Site and MIT License — new findings only
 
 **Feature**: `specs/007-homepage-docs` · **Spec**: v1.1.0 · **Date**: 2026-10-05
 **Phase**: 1–3 (constitution check, specification, clarification) **and §6, added in Phase 4**. `plan.md`, `contracts/`, and `tasks.md` are Phase 4–5; §6 records the findings Phase 4 made that a later phase would otherwise re-derive, and it is **appended** — nothing above this line changed.
@@ -483,3 +483,24 @@ Everything above is retained as written. §1.4 and §2 recorded a **conflict** a
 **The consequence §2 stated as unavoidable, and what happened to it.** §2's second consequence was *"**Two Node floors now exist in one repository.** They are different floors for different subtrees, and `quickstart.md` states both so a contributor on Node 20 is not left to discover it."* **There is one floor now.** The two-`engines`-blocks arrangement survives, so the site is still installed and built from its own directory and the root `npm run verify` still cannot reach it — §2's *first* consequence, that the site's pull-request job is its only gate, is **unchanged and still the price of branch 3**. But the contributor on Node 20 no longer exists as a distinct case, and `quickstart.md` §0 has been rewritten to say so rather than to teach a distinction that has stopped being true.
 
 **What is recorded rather than rewritten.** `tests/manifest.test.ts` deliberately **never writes the root's floor into the suite**, so that the next legitimate change to it is not a failure here — that property is preserved, and the digest of `package.json` (§'s `ROOT_MANIFEST_SHA256`) is the mechanism that catches an unintended change instead. The site's own floor *is* named there, as a deliberate pin: raising it is a reviewed diff rather than a silent edit. FR-008's assertion is therefore about **the relationship between two manifests read at run time**, not about two recorded numbers — which is why it survives equality, and the comment in the test says so.
+
+---
+
+## 10. The word is spelled `license`, and the four sites that keep the other spelling are on purpose (added 2026-10-05)
+
+Everything above is retained as written. §5's first open item still reads *"The licence file needs a holder line"*, and it is left that way for the reason §8.3 left the stale header pointer: this file is append-only above this line, so a correction is recorded here rather than edited in.
+
+**What was corrected.** This repository spells the word American — `license` — and 007 introduced the British spelling into **102 places across the 20 files it touched**, the most serious of them the footer link every published page carries. One hundred of them are corrected; the two that are not, and the three in files 007 never touched, are:
+
+| Site | Occurrences | Disposition |
+| --- | --- | --- |
+| §5's first open item | 1 | **Retained** — a phase-1–3 record inside the sections this file retains. This section is where its correction lives, as it is for §7.1 and §1.4 |
+| `changelog.md` → `### v1.1.0`, the *Was:* quote of FR-074 | 1 | **Retained** — quoted prior wording, kept as quoted. The *Now:* beside it is the corrected text, which is that changelog's own mechanism for recording a re-cut |
+| `src/relay.ts` | 2 | **Untouched** — pre-existing on `main`, so a different feature's prose |
+| `tests/dispatches.test.ts` | 1 | **Untouched** — same, and for the same reason |
+
+The correction reached identifiers too: `site/scripts/assert-build.mjs`'s `assertTheFooterLicenceLink` is now `assertTheFooterLicenseLink`, and the word read `licence` in the comment and the assertion label around it.
+
+**What was never at risk.** `LICENSE` is the file's name rather than prose, `package.json`'s `"license": "MIT"` key is a manifest field, and the MIT template's body contains **neither** spelling — it says *"Permission is hereby granted"* and *"the Software"*. So no verbatim upstream text was edited, and no requirement changed meaning: every corrected site said *license* or *licence* for the same artefact, the same file, or the same link.
+
+**The reader-visible half, and what the build contract actually checks.** `site/src/components/footer.astro` rendered `MIT licence` on all five published pages, so this was not only a records question. But `assertTheFooterLicenseLink` reads the footer's **targets** — `readLinkTargets` matches `href` and nothing else — and asks whether one is an absolute off-origin path ending in `/LICENSE`. **The link's label is not part of that assertion**, so correcting the footer's wording alone would not have failed the contract. Measured rather than assumed: with `footer.astro` put back to `MIT licence` and the fixture left at `MIT license`, `assert-build` still reported 251 assertions holding; **removing the `<li>` outright is what fails it**, and it fails on all five pages at once. The literal in `site/tests/assert-build.assertions.mjs` is a synthetic page the script is tested against, not a copy of the shipped footer — so the two had to be corrected together by eye, and nothing would have said otherwise.

@@ -1,4 +1,4 @@
-# Specification Quality Checklist: Documentation Site and MIT Licence (007)
+# Specification Quality Checklist: Documentation Site and MIT License (007)
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-10-05
@@ -24,7 +24,7 @@
 
 ## Feature Readiness
 
-- [x] **All functional requirements have clear acceptance criteria** — the 76 FRs map to the 31 ACs and the 10 SCs; the load-bearing requirements each have their own: base path (AC-002), permission table against the manifest (AC-007, AC-008), configuration fields against the declaration (AC-009), dispatch states against the vocabulary (AC-010), symptom tokens against the source (AC-011), vocabulary (AC-012), the move not the expansion (AC-014 – AC-016), tooling isolation (AC-017 – AC-021), the gate (AC-022 – AC-025), the entry points (AC-026 – AC-028), and the licence (AC-029).
+- [x] **All functional requirements have clear acceptance criteria** — the 76 FRs map to the 31 ACs and the 10 SCs; the load-bearing requirements each have their own: base path (AC-002), permission table against the manifest (AC-007, AC-008), configuration fields against the declaration (AC-009), dispatch states against the vocabulary (AC-010), symptom tokens against the source (AC-011), vocabulary (AC-012), the move not the expansion (AC-014 – AC-016), tooling isolation (AC-017 – AC-021), the gate (AC-022 – AC-025), the entry points (AC-026 – AC-028), and the license (AC-029).
 - [x] **User scenarios cover primary flows** — understand, install, configure, use, debug, and *the two flows that keep those pages honest*: a broken page fails the pull request, and a contributor can see the site locally at the address it will be served from.
 - [x] **Feature meets measurable outcomes defined in Success Criteria** — every SC has at least one AC behind it, and every constitution item this feature touches has its own AC (AC-030, AC-031) because a constitutional requirement is discharged by the **published artefact**, not by this document.
 - [x] **No implementation details leak into specification** — the line held for the one place it is hardest: the product owner's locked decisions *are* technical (a self-contained subproject, a workflow-driven publish, two entry points), and they are recorded as requirements with their evidence in `research.md` rather than as design prose in `spec.md`.

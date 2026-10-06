@@ -1090,7 +1090,7 @@ describe('004 the field is documented, and the editor it points at is the shippe
  *
  * **The off-origin check is a check on positions, not on hosts.** The footer's
  * links into the repository are off-origin by necessity — the site publishes no
- * copy of the licence (plan D8) and AC-005 requires the link — so a scan that
+ * copy of the license (plan D8) and AC-005 requires the link — so a scan that
  * flagged every off-origin URL would be flagging a requirement. `<a href>` is
  * therefore not a resource-loading position: a hyperlink a reader may choose to
  * follow is not a request the page makes. The positions below are the same list,
@@ -1546,7 +1546,7 @@ describe('T-034 the site ships no credential material (FR-054, NFR-005)', () => 
             expect(pages.length, 'the build emitted no HTML page').toBeGreaterThan(0);
             for (const [name, text] of pages) {
                 expect(offOriginResources(text, origin), `${name} fetches off-origin`).toEqual([]);
-                expect(text, `${name} links the licence in the repository`).toContain('<a href="https://github.com/');
+                expect(text, `${name} links the license in the repository`).toContain('<a href="https://github.com/');
             }
 
             // Not vacuous, on the other side of the distinction too: the same

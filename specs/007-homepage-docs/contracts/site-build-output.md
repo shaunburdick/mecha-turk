@@ -70,7 +70,7 @@ Verified on a real build of the chosen configuration: a `<style>` block in a com
 3. no off-origin URL in any resource reference, in any emitted file
 4. every internal `href`/`src` begins `/mecha-turk/`
 5. every page contains a link to all five targets
-6. every page has exactly one `<h1>`, a named `<nav>`, and a footer link to the licence file
+6. every page has exactly one `<h1>`, a named `<nav>`, and a footer link to the license file
 7. no page contains a placeholder, a "coming soon", or a `TODO`
 
 Each assertion must be shown to **fail** on a deliberate violation before it is trusted — a check that has never been seen red is not a check (AC-001 – AC-005, AC-006, and the negative half of AC-022).

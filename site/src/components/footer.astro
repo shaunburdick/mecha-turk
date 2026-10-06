@@ -1,17 +1,17 @@
 ---
 /**
- * The footer every page carries (FR-076): the repository, and the licence file
+ * The footer every page carries (FR-076): the repository, and the license file
  * inside it.
  *
  * Both are absolute links into the repository rather than into the site. The
- * licence is a file at the repository root (FR-074) and the site publishes no
+ * license is a file at the repository root (FR-074) and the site publishes no
  * copy of it — `public/` does not exist, because a copy would be the one image-
  * free artefact copy that has to be kept in step. A link a reader chooses to
  * follow is not a request the page makes, which is what FR-010 and NFR-003 are
  * about; nothing here is fetched on load.
  *
  * Both addresses come from `data/product.ts`, the one module that holds the
- * product's identity — the licence URL is derived there from the repository URL,
+ * product's identity — the license URL is derived there from the repository URL,
  * so renaming the repository moves both links from one edit.
  */
 import { LICENSE_URL, REPOSITORY_URL } from '../data/product.ts';
@@ -20,6 +20,6 @@ import { LICENSE_URL, REPOSITORY_URL } from '../data/product.ts';
 <footer>
     <ul>
         <li><a href={REPOSITORY_URL}>Source repository</a></li>
-        <li><a href={LICENSE_URL}>MIT licence</a></li>
+        <li><a href={LICENSE_URL}>MIT license</a></li>
     </ul>
 </footer>

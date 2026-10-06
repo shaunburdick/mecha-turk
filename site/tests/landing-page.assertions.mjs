@@ -46,7 +46,7 @@ const PAGE = 'src/pages/index.astro';
  * discharges.
  *
  * FR-018 is absent by design, and that absence is the assertion: its four
- * documentation links and the licence link arrive with `Layout`, which
+ * documentation links and the license link arrive with `Layout`, which
  * `assert-build.mjs` checks in the output (AC-003, AC-005). A section here would
  * be a second list of the same five addresses, and a one-line summary of each
  * documentation page a fifth place its subject is described — the drift FR-049
@@ -218,7 +218,7 @@ describe('the landing page lays out the structure FR-013 – FR-019 require', ()
         // carry no anchor at all: a link to a published page would be harmless but
         // redundant, and a link to a page the site does not publish is what FR-018
         // forbids outright.
-        assert.ok(template().includes('<Layout>'), 'FR-018: the documentation links and the licence link come with Layout');
+        assert.ok(template().includes('<Layout>'), 'FR-018: the documentation links and the license link come with Layout');
         assert.deepEqual([...template().matchAll(/<a\s/g)].map((match) => match[0]), [], 'the page writes an anchor of its own');
     });
 

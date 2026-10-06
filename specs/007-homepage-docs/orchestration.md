@@ -1,4 +1,4 @@
-# Orchestration: Documentation Site and MIT Licence (007)
+# Orchestration: Documentation Site and MIT License (007)
 
 **Feature**: `specs/007-homepage-docs` · **Issue**: https://github.com/shaunburdick/mecha-turk/issues/11
 **Branch**: `issues-11-homepage-docs` (no upstream yet)
@@ -31,7 +31,7 @@
 
 | Date | Decision | Rationale |
 |---|---|---|
-| 2026-10-05 | Constitution **not** amended; stays v1.3.0 | §Governance permits a spec to add constraints without weakening principles. No principle text becomes obsolete — this adds a static site and a licence file, not a runtime, adapter, or policy gate. Recorded in 007 §Clarifications Q4, `research.md` R-8. |
+| 2026-10-05 | Constitution **not** amended; stays v1.3.0 | §Governance permits a spec to add constraints without weakening principles. No principle text becomes obsolete — this adds a static site and a license file, not a runtime, adapter, or policy gate. Recorded in 007 §Clarifications Q4, `research.md` R-8. |
 | 2026-10-05 | Site is **canonical** for docs; README becomes a summary | Product owner. Makes FR-049 ("no substance left in both") and FR-002 (site authoritative where a claim appears twice) enforceable. |
 | 2026-10-05 | Landing + exactly 4 doc pages; **no** screenshots, FAQ page, or search | Product owner. Keeps FR-009 true and avoids committed PNGs that go stale. |
 | 2026-10-05 | Build on PR, **deploy on push to `main`** | Product owner. A broken site fails the PR check before it reaches the homepage. |
