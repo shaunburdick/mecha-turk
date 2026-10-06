@@ -464,6 +464,50 @@ function sha256(path: string): string {
 }
 
 /**
+ * Every `uses:` reference in a workflow file, as `owner/name@reference`.
+ *
+ * Read out of the file's text rather than parsed as YAML, because the rule is
+ * about what is written down: a parser accepts `uses: some/action@v4` just as
+ * happily as a pinned one, so it would report the same shape either way and
+ * leave the difference this exists to catch — the reference — to the caller.
+ *
+ * @param workflow - The workflow file's contents.
+ * @returns Each reference, in file order.
+ */
+function actionReferences(workflow: string): string[] {
+    return workflow
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('uses:') || line.startsWith('- uses:'))
+        .map((line) => line.slice(line.indexOf('uses:') + 'uses:'.length).trim().split(' ', 1)[0] ?? '');
+}
+
+/**
+ * Assert a workflow pins every one of its actions to a commit SHA — and pins
+ * at least one, because a file with no actions would satisfy a pinning rule by
+ * having nothing to pin.
+ *
+ * @param workflow - The workflow file's contents.
+ * @param path - Repository-relative path, carried into each failure message.
+ */
+function expectActionsShaPinned(workflow: string, path: string): void {
+    const used = actionReferences(workflow);
+
+    expect(used.length, `${path} references no action at all, so nothing in it is pinned`).toBeGreaterThan(0);
+    // Taken apart rather than matched whole, because a single pattern over
+    // `owner/name@sha` is a shape the unsafe-regex rule rightly objects to, and
+    // naming the halves says more about which of them is wrong anyway.
+    for (const action of used) {
+        const [slug = '', reference = ''] = action.split('@', 2);
+        const [owner = '', repository = ''] = slug.split('/', 2);
+
+        expect(owner, `${action} names no action owner`).toMatch(/^[\w.-]+$/);
+        expect(repository, `${action} names no action repository`).toMatch(/^[\w.-]+$/);
+        expect(reference, `${action} is referenced by tag rather than by commit SHA`).toMatch(/^[0-9a-f]{40}$/);
+    }
+}
+
+/**
  * Run one of the repository's own tools and collect everything it said.
  *
  * `execFileSync` is no use here: a crash of ESLint's is the behaviour two of these
@@ -928,25 +972,7 @@ describe('007 AC-023 / FR-066 / FR-067 — the publish workflow', () => {
 
     it('references every action by a commit SHA', () => {
         {
-            const workflow = readFileSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH), 'utf8');
-            const used = workflow
-                .split('\n')
-                .map((line) => line.trim())
-                .filter((line) => line.startsWith('uses:') || line.startsWith('- uses:'))
-                .map((line) => line.slice(line.indexOf('uses:') + 'uses:'.length).trim().split(' ', 1)[0] ?? '');
-
-            expect(used.length).toBeGreaterThan(0);
-            // Taken apart rather than matched whole, because a single pattern over
-            // `owner/name@sha` is a shape the unsafe-regex rule rightly objects to,
-            // and naming the halves says more about which of them is wrong anyway.
-            for (const action of used) {
-                const [slug = '', reference = ''] = action.split('@', 2);
-                const [owner = '', repository = ''] = slug.split('/', 2);
-
-                expect(owner, `${action} names no action owner`).toMatch(/^[\w.-]+$/);
-                expect(repository, `${action} names no action repository`).toMatch(/^[\w.-]+$/);
-                expect(reference, `${action} is referenced by tag rather than by commit SHA`).toMatch(/^[0-9a-f]{40}$/);
-            }
+            expectActionsShaPinned(readFileSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH), 'utf8'), PUBLISH_WORKFLOW_PATH);
         }
     });
 
@@ -973,6 +999,15 @@ describe('the release workflow — one write grant, and a tag the manifest agree
     it('exists, because every property below is asserted against it', () => {
         {
             expect(existsSync(resolve(ROOT, RELEASE_WORKFLOW_PATH))).toBe(true);
+        }
+    });
+
+    // The one third-party piece of code the repository runs: the release action.
+    // Pinned like the others, so a tag push executes the bytes that were reviewed
+    // rather than whatever the moving `v3` tag points at on the day.
+    it('references every action by a commit SHA', () => {
+        {
+            expectActionsShaPinned(readFileSync(resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8'), RELEASE_WORKFLOW_PATH);
         }
     });
 

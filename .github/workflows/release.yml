@@ -9,10 +9,11 @@
 # A tag push starts this file and nothing else: `verify.yml` and `site.yml` are
 # filtered to `branches: main`, so neither answers a tag.
 #
-# It never pushes a ref. `contents: write` is granted to one job so `gh release`
-# can create the Release object, and nothing below can move a branch or a tag.
-# Action versions are pinned to commit SHAs; the `# vX.Y.Z` comment keeps them
-# readable — the convention `verify.yml` and `site.yml` both hold to.
+# It never pushes a ref. `contents: write` is granted to one job so the release
+# action can create the Release object, and nothing below can move a branch or a
+# tag. That action is the workflow's only third-party code, SHA-pinned with its
+# version in a comment — the convention `verify.yml` and `site.yml` both hold
+# to, and the supply-chain posture a pinned ref buys.
 name: Release
 
 on:
@@ -97,16 +98,18 @@ jobs:
           persist-credentials: false
 
       - name: Create the release from the tag
-        env:
-          GH_TOKEN: ${{ github.token }}
-        # `--verify-tag` re-checks that the tag exists on the remote rather than
-        # trusting the trigger; `--generate-notes` writes the body from the
-        # commits since the previous release, which for a first release is the
-        # whole history — what a first release should say. No checkout of history
-        # is needed for either: `gh` reads them from the API.
-        run: >-
-          gh release create "${GITHUB_REF_NAME}"
-          --repo "${GITHUB_REPOSITORY}"
-          --verify-tag
-          --title "${GITHUB_REF_NAME}"
-          --generate-notes
+        # SHA-pinned with the version in a comment — the convention the other two
+        # workflows hold to, and the one `tests/manifest.test.ts` now checks here
+        # too. v3 is the Node 24 line; v2 ended at 2.6.2 on the deprecated Node 20
+        # runtime.
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          # The tag names the release, so the title is the tag rather than a
+          # sentence someone has to remember to write.
+          name: ${{ github.ref_name }}
+          # Notes from the commits since the previous release; with no previous
+          # tag — the case this repository is in — from the whole history, which
+          # is what a first release should say. The token is the job's own
+          # `github.token`, which is the action's default, so it is not restated.
+          generate_release_notes: true
