@@ -1,0 +1,116 @@
+# Publish the release the pushed tag names.
+#
+# The tag is cut by hand — `git tag v0.1.0 && git push origin v0.1.0` after the
+# version bump of AGENTS.md invariant 2 — and this workflow is what the push
+# earns: it refuses a tag the manifest disagrees with, refuses a tag `main` has
+# not taken, and publishes the GitHub Release from what is left, with generated
+# notes.
+#
+# Why no install and no second `npm run verify`: a commit is content-addressed,
+# so the run that passed on `<sha>` is a statement about *these bytes* — paying
+# for it again adds a second copy of the gate to keep in step, not a fact the
+# first run lacked. Ancestry does the work instead, and ancestry is only worth
+# what the branch's rules are worth:
+#
+#   `main` admits commits through a pull request (the `Main` ruleset), and that
+#   ruleset requires `verify (node 24)`, `verify (node 24.15.0)` and `build` to
+#   have passed before one lands. So "main contains this SHA" implies "these
+#   bytes were green when main took them" — and the implication is the
+#   ruleset's, not this file's. Remove those required checks and this gate's
+#   proof goes with them; that is the dependency to know about, stated here
+#   rather than left to be rediscovered.
+#
+# A tag push starts this file and nothing else: `verify.yml` and `site.yml` are
+# filtered to `branches: main`, so neither answers a tag.
+#
+# It never pushes a ref, and it talks to no API: the whole gate is read from
+# the checkout, on the workflow-level `contents: read`. `contents: write` is
+# granted to the one job that needs it, so the release action can create the
+# Release object and nothing below can move a branch or a tag. That action is
+# the workflow's only third-party code, SHA-pinned with its version in a
+# comment — the convention `verify.yml` and `site.yml` both hold to.
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# Read-only, and inherited by the gate job, which reads the repository and
+# nothing else. Only the publish job asks for more, by name.
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    # No `npm ci`, no second `npm run verify`, no polling: the tag is checked
+    # against the branch that its own rules already gate.
+    name: the tagged commit is one main has taken
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository with its history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Ancestry needs the history, not just the tagged commit. Nothing
+          # here talks to git over the network beyond that fetch, so the token
+          # is never written into the workspace's configuration.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Fail closed, and first: a tag is a claim about the manifest, and the
+      # manifest is what OpenChamber reads for its git-URL update notifications
+      # (invariant 2). A tag of `v0.2.0` over a `0.1.0` manifest would publish a
+      # release the extension never reports, so the run stops here before it
+      # looks at anything else.
+      - name: Refuse a tag that does not name the shipped version
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "::error title=Tag does not match the manifest::${GITHUB_REF_NAME} names a version the manifest does not ship (v${version})"
+            exit 1
+          fi
+
+      # The link to the gate, stated as one git question. A tag on a branch
+      # commit, or on history main never took, is refused here — the release
+      # exists for what main has accepted, not for any SHA someone can name.
+      - name: Refuse a tag main has not taken
+        run: |
+          set -euo pipefail
+
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error title=Tag is not on main::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which main does not contain. A release is published from a commit main has taken."
+            exit 1
+          fi
+          echo "${GITHUB_SHA} is on main; the branch's own rules are what let it land."
+
+  publish:
+    needs: gate
+    name: publish the GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Create the release from the tag
+        # SHA-pinned with the version in a comment — the convention the other two
+        # workflows hold to, and the one `tests/manifest.test.ts` checks here too.
+        # v3 is the Node 24 line; v2 ended at 2.6.2 on the deprecated Node 20
+        # runtime.
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ github.ref_name }}
+          # The tag names the release, so the title is the tag rather than a
+          # sentence someone has to remember to write.
+          name: ${{ github.ref_name }}
+          # Notes from the commits since the previous release; with no previous
+          # tag — the case this repository is in — from the whole history, which
+          # is what a first release should say. The token is the job's own
+          # `github.token`, which is the action's default, so it is not restated.
+          generate_release_notes: true

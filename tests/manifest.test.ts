@@ -386,7 +386,8 @@ const ESLINT_BIN = resolve(ROOT, 'node_modules/.bin/eslint');
 const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
 
 /**
- * `package.json`'s sha256 — re-derived, not carried, when issue #17 merged.
+ * `package.json`'s sha256 — re-derived, not carried, on each deliberate change
+ * (#17's Node floor, then the `0.1.0` version bump).
  *
  * AC-017 asks for the root manifest to be **byte-identical**, so this is a digest
  * rather than a list of the fields that must not move. That is also what keeps
@@ -397,9 +398,10 @@ const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
  * now pins the document **as #17 left it** rather than as 007 found it. AC-017's
  * operative clause still holds: 007 added nothing to the root manifest, and the
  * `declares no workspaces and no script that reaches the site` case below is the
- * assertion that survives a floor change.
+ * assertion that survives a floor change. The same reading covers the second
+ * update: invariant 2's bump to `0.1.0` moves `version` and nothing else.
  */
-const ROOT_MANIFEST_SHA256 = '80460f017ff7812c93a1630cc1db14df4adad05b4f64712881c7470b86631d8a';
+const ROOT_MANIFEST_SHA256 = 'fbf43eb8f669bb554a2f6e0721513f608fa8d5a306cbe2df443b67bebb9a5334';
 
 /**
  * `.github/workflows/verify.yml`'s sha256, for the same reason and the same
@@ -418,6 +420,9 @@ const VERIFY_WORKFLOW_PATH = '.github/workflows/verify.yml';
 
 /** Repository-relative path of the publish workflow Wave 7 writes. */
 const PUBLISH_WORKFLOW_PATH = '.github/workflows/site.yml';
+
+/** Repository-relative path of the workflow a pushed tag starts. */
+const RELEASE_WORKFLOW_PATH = '.github/workflows/release.yml';
 
 /**
  * The Node floor `astro@7.3.5` declares for itself, as `npm view astro@latest engines`
@@ -456,6 +461,50 @@ const TOOL_TIMEOUT_MS = 20_000;
  */
 function sha256(path: string): string {
     return createHash('sha256').update(readFileSync(resolve(ROOT, path))).digest('hex');
+}
+
+/**
+ * Every `uses:` reference in a workflow file, as `owner/name@reference`.
+ *
+ * Read out of the file's text rather than parsed as YAML, because the rule is
+ * about what is written down: a parser accepts `uses: some/action@v4` just as
+ * happily as a pinned one, so it would report the same shape either way and
+ * leave the difference this exists to catch — the reference — to the caller.
+ *
+ * @param workflow - The workflow file's contents.
+ * @returns Each reference, in file order.
+ */
+function actionReferences(workflow: string): string[] {
+    return workflow
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith('uses:') || line.startsWith('- uses:'))
+        .map((line) => line.slice(line.indexOf('uses:') + 'uses:'.length).trim().split(' ', 1)[0] ?? '');
+}
+
+/**
+ * Assert a workflow pins every one of its actions to a commit SHA — and pins
+ * at least one, because a file with no actions would satisfy a pinning rule by
+ * having nothing to pin.
+ *
+ * @param workflow - The workflow file's contents.
+ * @param path - Repository-relative path, carried into each failure message.
+ */
+function expectActionsShaPinned(workflow: string, path: string): void {
+    const used = actionReferences(workflow);
+
+    expect(used.length, `${path} references no action at all, so nothing in it is pinned`).toBeGreaterThan(0);
+    // Taken apart rather than matched whole, because a single pattern over
+    // `owner/name@sha` is a shape the unsafe-regex rule rightly objects to, and
+    // naming the halves says more about which of them is wrong anyway.
+    for (const action of used) {
+        const [slug = '', reference = ''] = action.split('@', 2);
+        const [owner = '', repository = ''] = slug.split('/', 2);
+
+        expect(owner, `${action} names no action owner`).toMatch(/^[\w.-]+$/);
+        expect(repository, `${action} names no action repository`).toMatch(/^[\w.-]+$/);
+        expect(reference, `${action} is referenced by tag rather than by commit SHA`).toMatch(/^[0-9a-f]{40}$/);
+    }
 }
 
 /**
@@ -923,25 +972,7 @@ describe('007 AC-023 / FR-066 / FR-067 — the publish workflow', () => {
 
     it('references every action by a commit SHA', () => {
         {
-            const workflow = readFileSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH), 'utf8');
-            const used = workflow
-                .split('\n')
-                .map((line) => line.trim())
-                .filter((line) => line.startsWith('uses:') || line.startsWith('- uses:'))
-                .map((line) => line.slice(line.indexOf('uses:') + 'uses:'.length).trim().split(' ', 1)[0] ?? '');
-
-            expect(used.length).toBeGreaterThan(0);
-            // Taken apart rather than matched whole, because a single pattern over
-            // `owner/name@sha` is a shape the unsafe-regex rule rightly objects to,
-            // and naming the halves says more about which of them is wrong anyway.
-            for (const action of used) {
-                const [slug = '', reference = ''] = action.split('@', 2);
-                const [owner = '', repository = ''] = slug.split('/', 2);
-
-                expect(owner, `${action} names no action owner`).toMatch(/^[\w.-]+$/);
-                expect(repository, `${action} names no action repository`).toMatch(/^[\w.-]+$/);
-                expect(reference, `${action} is referenced by tag rather than by commit SHA`).toMatch(/^[0-9a-f]{40}$/);
-            }
+            expectActionsShaPinned(readFileSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH), 'utf8'), PUBLISH_WORKFLOW_PATH);
         }
     });
 
@@ -957,6 +988,81 @@ describe('007 AC-023 / FR-066 / FR-067 — the publish workflow', () => {
             // what catches it — `contents: write` would otherwise pass unnoticed
             // beside the three that are correct.
             expect(granted).toEqual(['contents: read', 'pages: write', 'id-token: write']);
+        }
+    });
+});
+
+describe('the release workflow — one write grant, and a tag the manifest agrees with', () => {
+    // The same reasoning as the publish workflow above: the properties are
+    // asserted outright rather than skipped when the file is missing, so
+    // deleting `release.yml` fails here instead of quietly emptying this suite.
+    it('exists, because every property below is asserted against it', () => {
+        {
+            expect(existsSync(resolve(ROOT, RELEASE_WORKFLOW_PATH))).toBe(true);
+        }
+    });
+
+    // The one third-party piece of code the repository runs: the release action.
+    // Pinned like the others, so a tag push executes the bytes that were reviewed
+    // rather than whatever the moving `v3` tag points at on the day.
+    it('references every action by a commit SHA', () => {
+        {
+            expectActionsShaPinned(readFileSync(resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8'), RELEASE_WORKFLOW_PATH);
+        }
+    });
+
+    it('grants exactly a read-only gate and one job-scoped write', () => {
+        {
+            const workflow = readFileSync(resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8');
+            const granted = [...workflow.matchAll(/^\s*[a-z][a-z-]*:\s*(?:read|write)\s*$/gm)]
+                .map((match) => match[0].trim());
+
+            // The whole-file list is the assertion, for the reason the one above
+            // gives: `contents: write` is granted to the publish job alone, so
+            // the release action can create the Release object and nothing else
+            // in the file can move a ref. The gate job reads the checkout and
+            // inherits the workflow's `contents: read` — it states no block of
+            // its own — so a third grant, or one it does not need, is the
+            // failure this catches.
+            expect(granted).toEqual(['contents: read', 'contents: write']);
+        }
+    });
+
+    it('takes the gate result from the commit\'s own CI run instead of buying a second one', () => {
+        {
+            // Comment lines are dropped first: the file's prose is *about* the
+            // duplicate install, and a rule that read the prose would refuse a
+            // sentence discussing it. What is checked is what GitHub executes.
+            const executed = readFileSync(resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8')
+                .split('\n')
+                .filter((line) => !line.trimStart().startsWith('#'))
+                .join('\n');
+
+            // The link, and the three strings that would undo it. A commit is
+            // content-addressed, so CI's pass on this SHA is a statement about
+            // these bytes: a second install here would add a copy of the gate
+            // to keep in step, not a fact — and polling the Actions API would
+            // add a second system to disagree with the first. Ancestry is read
+            // from the checkout, and the branch's required checks are what make
+            // ancestry mean the bytes were green. Re-introducing either
+            // mechanism is a deliberate change, and it fails here first.
+            expect(executed).toContain('--is-ancestor');
+            expect(executed).toContain('needs: gate');
+            expect(executed).not.toContain('npm ci');
+            expect(executed).not.toContain('npm run verify');
+            expect(executed).not.toContain('gh run list');
+        }
+    });
+
+    it('refuses a tag that does not name the version the manifest ships', () => {
+        {
+            const workflow = readFileSync(resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8');
+
+            // Asserted by the two load-bearing lines rather than by the message
+            // around them: the comparison is made against the pushed ref name,
+            // and a run that reaches `exit 1` publishes nothing.
+            expect(workflow).toContain('GITHUB_REF_NAME');
+            expect(workflow).toContain('exit 1');
         }
     });
 });

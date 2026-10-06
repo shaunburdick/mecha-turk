@@ -116,9 +116,15 @@ exiting non-zero on any finding.
    in the same commit.
 2. **One document, two roles.** `package.json` is the npm package *and* the
    installable manifest. `version` gates git-URL update notifications:
-   bump + rebuild + push to release. Do not reintroduce npm `workspaces`.
+   bump + rebuild + push, then push tag `v<version>` —
+   `.github/workflows/release.yml` refuses a tag the manifest disagrees
+   with or one `main` has not taken, then publishes the GitHub Release.
+   Its CI proof is `main`'s own rule: the `Main` ruleset must require
+   `verify (node 24)`, `verify (node 24.15.0)` and `build` before
+   anything lands — drop those and the gate proves only reachability.
+   Do not reintroduce npm `workspaces`.
    **Release policy: stay pre-1.0.0 until the public 1.0.0 release** —
-   current version `0.0.1`, increment per release; jumping to `1.0.0` is a
+   current version `0.1.0`, increment per release; jumping to `1.0.0` is a
    product-owner call, never incidental.
 3. **Capabilities: `sessions` and `prompt` only.** `service` is implied by
    `contributes.service` — listing an implied capability in `capabilities[]`
