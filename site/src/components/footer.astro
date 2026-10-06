@@ -1,24 +1,27 @@
 ---
 /**
- * The footer every page carries (FR-076): the repository, and the license file
- * inside it.
+ * The footer every page carries (FR-076): the version, the repository, and the
+ * license file inside it.
  *
- * Both are absolute links into the repository rather than into the site. The
- * license is a file at the repository root (FR-074) and the site publishes no
- * copy of it — `public/` does not exist, because a copy would be the one image-
- * free artefact copy that has to be kept in step. A link a reader chooses to
- * follow is not a request the page makes, which is what FR-010 and NFR-003 are
- * about; nothing here is fetched on load.
+ * Both addresses are absolute links into the repository rather than into the
+ * site. The license is a file at the repository root (FR-074) and the site
+ * publishes no copy of it — `public/` does not exist, because a copy would be
+ * the one image-free artefact copy that has to be kept in step. A link a reader
+ * chooses to follow is not a request the page makes, which is what FR-010 and
+ * NFR-003 are about; nothing here is fetched on load.
  *
- * Both addresses come from `data/product.ts`, the one module that holds the
+ * All three come from `data/product.ts`, the one module that holds the
  * product's identity — the license URL is derived there from the repository URL,
- * so renaming the repository moves both links from one edit.
+ * so renaming the repository moves both links from one edit, and the version is
+ * read from the manifest rather than typed (FR-053), so a release moves it
+ * everywhere the footer appears without a page being touched.
  */
-import { LICENSE_URL, REPOSITORY_URL } from '../data/product.ts';
+import { LICENSE_URL, PRODUCT_VERSION, REPOSITORY_URL } from '../data/product.ts';
 ---
 
 <footer>
     <ul>
+        <li>Version {PRODUCT_VERSION}</li>
         <li><a href={REPOSITORY_URL}>Source repository</a></li>
         <li><a href={LICENSE_URL}>MIT license</a></li>
     </ul>

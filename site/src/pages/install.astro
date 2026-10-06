@@ -4,9 +4,10 @@
  *
  * Every step below is a step OpenChamber offers, traced rather than remembered:
  * the add flow and the approval wording come from the shipped walkthrough
- * (`specs/002-agent-event-extension/quickstart.md` §3), the git URL and the
- * engine floor from the manifest through `data/product.ts`, and the permission
- * table from the manifest itself through `Permissions`.
+ * (`specs/002-agent-event-extension/quickstart.md` §3), the git URL, the
+ * engine floor and the current release tag from the manifest through
+ * `data/product.ts`, and the permission table from the manifest itself
+ * through `Permissions`.
  *
  * The table is the load-bearing part. The README said the dialog *"asks for
  * exactly these four things"* and named `network`; `AGENTS.md` invariant 3
@@ -27,7 +28,7 @@
  */
 import Layout from '../layout.astro';
 import Permissions from '../components/permissions.astro';
-import { OPENCHAMBER_ENGINE_FLOOR, REPOSITORY_URL } from '../data/product.ts';
+import { OPENCHAMBER_ENGINE_FLOOR, PRODUCT_VERSION, REPOSITORY_URL } from '../data/product.ts';
 import { withBase } from '../data/site.ts';
 
 /** One line per capability the shipped manifest requests, keyed by the token. */
@@ -85,6 +86,11 @@ const capabilityMeaning: Readonly<Record<string, string>> = {
         look immediately. When a newer version is available you get an <strong>Update</strong> control:
         your permissions, your accounts, and your configuration carry over, and you are asked to approve
         again only if the new version asks for more than the old one did.
+    </p>
+
+    <p>
+        Each release is tagged in the repository, and the current one is <code>#v{PRODUCT_VERSION}</code>:
+        append it to the git URL from step two to install that release rather than the default branch.
     </p>
 
     <h2>Surfaces that do not run the service</h2>

@@ -141,8 +141,14 @@ const CEILING = { words: 5_770 } as const;
  * Moved 462 → 476 with the *How Status keeps itself current* section on `/use/`
  * (14 lines, 190 words): content the site is now measured against, not a reflow.
  * The word ceiling is untouched, so the enforced bound did not move with it.
+ *
+ * Moved 476 → **478** with the release-tag paragraph on `/install/` (2 lines):
+ * the current tag, read from the manifest rather than authored (FR-053), so the
+ * number a reader pastes after the git URL is the one the extension ships. The
+ * footer's own version line never reaches this measure — it is component
+ * furniture, excluded by construction — so the figure moved by the page alone.
  */
-const PINNED_LINES = 476;
+const PINNED_LINES = 478;
 
 /**
  * The prose each bound document measures now, so growth cannot pass unnoticed.
