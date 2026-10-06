@@ -14,10 +14,16 @@
  *
  * | Member | Written by | Means |
  * | --- | --- | --- |
- * | `lastScanAt` | the poll loop, on a completing scan | this binding has a completed scan at this stamp |
- * | `baselineAt` | the poll loop, once, on the first scan that needs it | the window a no-scan binding uses |
- * | `forceReplay` | the **queue-recovery reset alone** | cleared to recover a lost queue |
- * | `rescanFrom` | the bindings route alone | 002 FR-023's one chosen lower bound for the next scan |
+ * | `lastScanAt` | the poll loop, on a completing scan | a completed scan at this stamp |
+ * | `baselineAt` | the poll loop, on a completing scan, **widened only** | the widest window ever scanned from |
+ * | `forceReplay` | **only** the reset writes `true`; the loop may only clear it | cleared to recover a lost queue |
+ * | `rescanFrom` | the bindings route alone | FR-023's one chosen lower bound for the next scan |
+ *
+ * The `forceReplay` row reads that way on purpose: the loop writes the member on
+ * every scan, but **only the recovery path can write it `true`**, and a scan that
+ * did not complete leaves a `true` value exactly where it found it (002 FR-074,
+ * FR-076). `baselineAt`'s writer is the loop and its only operation is *earlier*,
+ * so a replay re-covers at least everything an earlier scan covered (002 FR-073).
  *
  * "No completed scan" and "cleared to recover" must not be the same value or be
  * inferred from one another by any reader, so they are **two members**, each

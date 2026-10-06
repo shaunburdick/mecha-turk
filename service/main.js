@@ -6459,6 +6459,10 @@ function baselineFor(input) {
   return { window: new Date(createdAtMs - reachedBackMs).toISOString() };
 }
 function windowFor(input) {
+  const baseline = readableStamp(input.scanned.baselineAt);
+  if (baseline !== null && input.scanned.forceReplay) {
+    return { window: baseline };
+  }
   const armed = readableStamp(input.scanned.rescanFrom);
   if (armed !== null) {
     return { window: armed };
@@ -6470,11 +6474,17 @@ function windowFor(input) {
   if (input.scanned.lastScanAt !== null) {
     return { refused: STAMP_UNREADABLE };
   }
-  const baseline = readableStamp(input.scanned.baselineAt);
   if (baseline !== null) {
     return { window: baseline };
   }
   return { refused: BASELINE_UNREADABLE };
+}
+function widenBaseline(inputs) {
+  const candidates = [inputs.retained, inputs.opened].filter((stamp) => readableStamp(stamp) !== null).map((stamp) => Date.parse(stamp));
+  if (candidates.length === 0) {
+    return null;
+  }
+  return new Date(Math.min(...candidates)).toISOString();
 }
 function stampInWindow(stamp, windowStart) {
   if (stamp === null) {
@@ -9657,6 +9667,7 @@ function blankScan(binding) {
     repository: binding.repository,
     enqueued: 0,
     windowFrom: null,
+    openedFrom: null,
     skipped: null
   };
 }
@@ -9706,7 +9717,7 @@ async function scanBinding(input) {
     incoming: listed.events,
     prompt: resolvePromptSnapshot({ global: deps.config, account, binding })
   });
-  return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
+  return { ...blank, enqueued: appended.length, windowFrom: detectedAt, openedFrom: verdict.window };
 }
 async function saveBindingScanState(deps, scan) {
   await serializeScan(async () => {
@@ -9722,7 +9733,7 @@ async function saveBindingScanState(deps, scan) {
         slot: {
           lastScanAt: retained,
           lastError: scan.skipped,
-          baselineAt: prior.baselineAt,
+          baselineAt: didComplete ? widenBaseline({ retained: prior.baselineAt, opened: scan.openedFrom }) : prior.baselineAt,
           forceReplay: !didComplete && prior.forceReplay,
           rescanFrom: didComplete ? null : prior.rescanFrom
         }
@@ -9730,36 +9741,43 @@ async function saveBindingScanState(deps, scan) {
     });
   });
 }
-async function ensureBaselines(deps, bindings, state) {
-  const needing = bindingsNeedingBaseline({ bindings, slots: state.bindings });
-  if (needing.length === 0) {
-    return state;
-  }
-  const stamps = await readStoredCreationStamps({ store: deps.store, log: deps.log, bindingIds: needing });
+async function ensureBaselines(deps, bindings) {
   const byId = new Map(bindings.map((binding) => [binding.bindingId, binding]));
-  let derived = null;
-  for (const bindingId of needing) {
-    const binding = byId.get(bindingId);
-    const stored = stamps.get(bindingId);
-    if (binding === undefined || stored === undefined) {
-      continue;
+  return await serializeScan(async () => {
+    const state = await readScanState(deps);
+    const needing = bindingsNeedingBaseline({ bindings, slots: state.bindings });
+    if (needing.length === 0) {
+      return state;
     }
-    const verdict = baselineFor({ binding, stored, overlapMs: deps.config.overlapMs });
-    if ("refused" in verdict) {
-      continue;
-    }
-    const prior = bindingScanOf(derived ?? state, bindingId);
-    derived = withBindingScanState({
-      state: derived ?? state,
-      bindingId,
-      slot: { ...prior, baselineAt: verdict.window }
+    const stamps = await readStoredCreationStamps({
+      store: deps.store,
+      log: deps.log,
+      bindingIds: needing
     });
-  }
-  if (derived === null) {
-    return state;
-  }
-  await writeScanState({ store: deps.store, state: derived });
-  return derived;
+    let derived = null;
+    for (const bindingId of needing) {
+      const binding = byId.get(bindingId);
+      const stored = stamps.get(bindingId);
+      if (binding === undefined || stored === undefined) {
+        continue;
+      }
+      const verdict = baselineFor({ binding, stored, overlapMs: deps.config.overlapMs });
+      if ("refused" in verdict) {
+        continue;
+      }
+      const prior = bindingScanOf(derived ?? state, bindingId);
+      derived = withBindingScanState({
+        state: derived ?? state,
+        bindingId,
+        slot: { ...prior, baselineAt: verdict.window }
+      });
+    }
+    if (derived === null) {
+      return state;
+    }
+    await writeScanState({ store: deps.store, state: derived });
+    return derived;
+  });
 }
 async function cycleContext(input) {
   const config = await readCycleConfig({ store: input.store, log: input.log });
@@ -9780,11 +9798,8 @@ async function runScanCycle(deps) {
   const context = await cycleContext({ store: deps.store, log: deps.log, poller: deps.poller });
   await runRetentionPasses({ store: context.store, log: context.log, config: context.config });
   await readEvents({ store: context.store, log: context.log });
-  const [bindings, readState] = await Promise.all([
-    readBindings({ store: context.store, log: context.log }),
-    readScanState({ store: context.store, log: context.log })
-  ]);
-  const scannedState = await ensureBaselines(context, bindings, readState);
+  const bindings = await readBindings({ store: context.store, log: context.log });
+  const scannedState = await ensureBaselines(context, bindings);
   const detectedAt = new Date().toISOString();
   const outcomes = [];
   let total = 0;

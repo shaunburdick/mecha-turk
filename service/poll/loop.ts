@@ -61,13 +61,13 @@ import type { GitHubIssuePoller, ListPace, PollFailure } from './poller-github.t
 import { bindingScanOf, readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
 import type { BindingScanState, ScanState } from './scan.ts';
 import { collectTriggerEvents } from './triggers.ts';
-import { baselineFor, bindingsNeedingBaseline, windowFor } from './window.ts';
+import { baselineFor, bindingsNeedingBaseline, widenBaseline, windowFor } from './window.ts';
 import type { WindowRefusal } from './window.ts';
 
 // The window rule lives beside its own rationale in `window.ts`; the loop
 // re-exports it so `windowFor` keeps one import path for the cycle and for
 // the suites that drive it.
-export { baselineFor, windowFor };
+export { baselineFor, widenBaseline, windowFor };
 export type { WindowRefusal, WindowVerdict } from './window.ts';
 
 /**
@@ -100,6 +100,14 @@ export interface BindingScan {
     readonly enqueued: number;
     /** New window stamp, or `null` when the scan did not complete. */
     readonly windowFrom: string | null;
+    /**
+     * The lower bound this scan **opened at**, or `null` when it listed nothing.
+     *
+     * Carried out of {@link scanBinding} and into the slot write, because the
+     * retained baseline must be the widest window the binding has ever scanned
+     * from and only the scan that opened one can widen it (002 FR-073; plan H8).
+     */
+    readonly openedFrom: string | null;
     /** Skip reason for the whole scan, else `null`. */
     readonly skipped: ScanSkip | null;
 }
@@ -212,6 +220,7 @@ function blankScan(binding: BindingRecord): BindingScan {
         repository: binding.repository,
         enqueued: 0,
         windowFrom: null,
+        openedFrom: null,
         skipped: null,
     };
 }
@@ -329,7 +338,12 @@ async function scanBinding(input: {
         // carry is unset and contributes nothing.
         prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
     });
-    return { ...blank, enqueued: appended.length, windowFrom: detectedAt };
+
+    // The window this scan opened is carried out, because it is the only thing
+    // that can widen the retained baseline — and widening it is what keeps a later
+    // recovery replay from being narrower than the work it must re-cover
+    // (002 FR-073).
+    return { ...blank, enqueued: appended.length, windowFrom: detectedAt, openedFrom: verdict.window };
 }
 
 /**
@@ -349,8 +363,15 @@ async function scanBinding(input: {
  *   armed** — a transient failure must not silently consume a recovery replay
  *   (002 FR-076) or an operator's explicit catch-up request (plan H7).
  *
- * `baselineAt` is never touched here. It was derived once, before the scan, and
- * retaining it is what FR-066's stability rests on.
+ * `baselineAt` is **widened, never narrowed** (002 FR-073, FR-066). It is derived
+ * once, before the binding's first scan, from the creation boundary — which is
+ * what FR-066's stability rests on — and every scan that opened a window wider
+ * than the one already retained moves it **earlier** and never later. That is
+ * what makes a recovery replay re-cover *at least* everything some earlier scan
+ * covered: an armed `rescanFrom` bound (`now − 7 days` on a binding younger than
+ * that) is narrower than the binding's own creation boundary on a fresh default,
+ * and a replay opening at the un-widened baseline would silently drop the older
+ * rows the catch-up had already queued.
  */
 async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promise<void> {
     await serializeScan(async () => {
@@ -370,7 +391,13 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
                 slot: {
                     lastScanAt: retained,
                     lastError: scan.skipped,
-                    baselineAt: prior.baselineAt,
+                    // Only a scan that actually listed may widen the bound, and only
+                    // ever earlier: an incomplete scan opened no window, so it has
+                    // nothing to contribute and must not move a bound another scan
+                    // set (002 FR-076).
+                    baselineAt: didComplete
+                        ? widenBaseline({ retained: prior.baselineAt, opened: scan.openedFrom })
+                        : prior.baselineAt,
                     // Only the scan that answered a one-shot clears it; a scan that
                     // did not complete leaves it armed (002 FR-076; plan H7).
                     forceReplay: !didComplete && prior.forceReplay,
@@ -398,6 +425,13 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
  * binding keeps refusing on every cycle until an operator repairs the stamp — the
  * honest direction, and never a widening.
  *
+ * The read and the write happen **inside one `serializeScan` task**, which is why
+ * this is not a bare read-then-write: the slots are re-read inside the chain and
+ * `needing` is recomputed against that fresh read, so a `PUT /v1/bindings` that
+ * arms `rescanFrom` — or a recovery reset that sets `forceReplay` — landing
+ * between this cycle's scan-state read and its write cannot be reverted by a stale
+ * map written back over it (002 FR-018, FR-076; plan H7).
+ *
  * The write is one atomic scan-state write for every binding that derived
  * something, and it happens **before** any scan so the scan's own window reads a
  * slot that already carries its baseline (FR-018).
@@ -407,58 +441,59 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
 async function ensureBaselines(
     deps: ScanContext,
     bindings: readonly BindingRecord[],
-    state: ScanState,
 ): Promise<ScanState> {
-    const needing = bindingsNeedingBaseline({ bindings, slots: state.bindings });
-    if (needing.length === 0) {
-        return state;
-    }
-
-    const stamps = await readStoredCreationStamps({ store: deps.store, log: deps.log, bindingIds: needing });
     const byId = new Map(bindings.map((binding) => [binding.bindingId, binding]));
-    let derived: ScanState | null = null;
-    for (const bindingId of needing) {
-        const binding = byId.get(bindingId);
-        const stored = stamps.get(bindingId);
-        if (binding === undefined || stored === undefined) {
-            continue;
+
+    return await serializeScan(async (): Promise<ScanState> => {
+        const state = await readScanState(deps);
+        // Recomputed against the state read **here**, not against a snapshot the
+        // caller took before entering the chain: a binding whose baseline another
+        // writer derived while this task waited must not have it overwritten.
+        const needing = bindingsNeedingBaseline({ bindings, slots: state.bindings });
+        if (needing.length === 0) {
+            return state;
         }
 
-        // The one place the history scope is read: it decides *which* lower bound
-        // a no-completed-scan window opens at, and is not consulted again (FR-068).
-        const verdict = baselineFor({ binding, stored, overlapMs: deps.config.overlapMs });
-        if ('refused' in verdict) {
-            // No baseline is written, so `windowFor` refuses on every cycle until
-            // the record is repaired — and records the reason each time (FR-072).
-            continue;
-        }
-
-        const prior = bindingScanOf(derived ?? state, bindingId);
-        derived = withBindingScanState({
-            state: derived ?? state,
-            bindingId,
-            slot: { ...prior, baselineAt: verdict.window },
+        const stamps = await readStoredCreationStamps({
+            store: deps.store,
+            log: deps.log,
+            bindingIds: needing,
         });
-    }
+        let derived: ScanState | null = null;
+        for (const bindingId of needing) {
+            const binding = byId.get(bindingId);
+            const stored = stamps.get(bindingId);
+            if (binding === undefined || stored === undefined) {
+                continue;
+            }
 
-    if (derived === null) {
-        return state;
-    }
+            // The one place the history scope is read: it decides *which* lower bound
+            // a no-completed-scan window opens at, and is not consulted again (FR-068).
+            const verdict = baselineFor({ binding, stored, overlapMs: deps.config.overlapMs });
+            if ('refused' in verdict) {
+                // No baseline is written, so `windowFor` refuses on every cycle until
+                // the record is repaired — and records the reason each time (FR-072).
+                continue;
+            }
 
-    await writeScanState({ store: deps.store, state: derived });
+            const prior = bindingScanOf(derived ?? state, bindingId);
+            derived = withBindingScanState({
+                state: derived ?? state,
+                bindingId,
+                slot: { ...prior, baselineAt: verdict.window },
+            });
+        }
 
-    return derived;
+        if (derived === null) {
+            return state;
+        }
+
+        await writeScanState({ store: deps.store, state: derived });
+
+        return derived;
+    });
 }
 
-/**
- * Run one poll cycle over every eligible binding.
- *
- * Never throws: every failure it can see is one binding's `skipped` reason,
- * logged once at the end with counts only. The cycle keeps walking the
- * remaining bindings so one broken account cannot block another.
- *
- * @returns The cycle outcome.
- */
 /**
  * Read this cycle's configuration and narrow the dependencies around it.
  *
@@ -490,6 +525,15 @@ async function cycleContext(input: {
     return { store: input.store, log: input.log, poller: input.poller, config, pace };
 }
 
+/**
+ * Run one poll cycle over every eligible binding.
+ *
+ * Never throws: every failure it can see is one binding's `skipped` reason,
+ * logged once at the end with counts only. The cycle keeps walking the
+ * remaining bindings so one broken account cannot block another.
+ *
+ * @returns The cycle outcome.
+ */
 export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     if (deps.store === null) {
         return { bindings: [], enqueued: 0 };
@@ -507,22 +551,22 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     // `forceReplay` flag** inside that read, so the scan-state read below must
     // see the cleared slots rather than the stamps a pre-recovery read would
     // have cached. A cleared binding then opens from its **retained baseline** —
-    // `createdAt − overlapMs` under the documented default, `createdAt − 7 days`
-    // under the look-back mode — so a recovery re-offers the binding's in-window
-    // work **whatever its history scope is** (002 FR-073; plan H8). What the flag
-    // adds is precedence, visibility, and the guarantee that no reader mistakes
-    // this for a first scan (FR-074, FR-078). Deterministic event ids keep the
-    // re-detection duplicate-free (002 FR-075, FR-082).
+    // the widest window it has ever scanned from, widened by every scan that
+    // opened one — so a recovery re-offers the binding's in-window work **whatever
+    // its history scope is and whatever catch-up was armed** (002 FR-073; plan H8,
+    // corrected 2026-10-05). What the flag adds beyond precedence is visibility,
+    // and the guarantee that no reader mistakes this for a first scan (FR-074,
+    // FR-078). Deterministic event ids keep the re-detection duplicate-free
+    // (002 FR-075, FR-082).
     await readEvents({ store: context.store, log: context.log });
-    const [bindings, readState] = await Promise.all([
-        readBindings({ store: context.store, log: context.log }),
-        readScanState({ store: context.store, log: context.log }),
-    ]);
+    const bindings = await readBindings({ store: context.store, log: context.log });
     // Any baseline a binding still lacks is derived **once**, before the first
     // scan reads a window, and retained (002 FR-066). A binding whose stored
     // creation stamp cannot be read derives nothing, so its own window verdict
-    // refuses for as long as the record says so (002 FR-072).
-    const scannedState = await ensureBaselines(context, bindings, readState);
+    // refuses for as long as the record says so (002 FR-072). The read-modify-write
+    // is one task on the scan-state chain, so it reads fresh state rather than a
+    // snapshot this cycle took before it queued (plan H7).
+    const scannedState = await ensureBaselines(context, bindings);
     const detectedAt = new Date().toISOString();
 
     const outcomes: BindingScan[] = [];

@@ -16,15 +16,21 @@
  *
  * Resolution order, and every branch is bounded (002 FR-065):
  *
- * 1. **an armed `rescanFrom`** — FR-023's one chosen lower bound, which wins
- *    because it is the most recent explicit request for this binding's next scan
+ * 1. **a recovery replay** (`forceReplay`) — the retained `baselineAt`, which is
+ *    the **widest window this binding has ever scanned from**. FR-073 requires a
+ *    replay to re-detect and re-offer in-window work, so it takes precedence over
+ *    an armed `rescanFrom`: a catch-up request is an instruction about the *next*
+ *    scan, and a replay is about re-covering work that was **lost** — a narrower
+ *    window here would silently drop what the recovery exists to restore
+ *    (plan H8, corrected 2026-10-05: the flag, not the armed bound, wins);
+ * 2. **an armed `rescanFrom`** — FR-023's one chosen lower bound, which is
+ *    otherwise the most recent explicit request for this binding's next scan
  *    (plan H5, FR-084);
- * 2. **a recorded `lastScanAt` minus the configured overlap** — the ordinary
+ * 3. **a recorded `lastScanAt` minus the configured overlap** — the ordinary
  *    incremental window, and the whole of every scan after the first (FR-019);
- * 3. **the retained `baselineAt`** — what a binding with no completed scan scans
- *    from, whatever its history scope is, which is what makes a recovery replay
- *    work in both modes (FR-073; plan H8);
- * 4. **`refused`** — the only state in which a binding opens no window, and it
+ * 4. **the retained `baselineAt`** — what a binding with no completed scan scans
+ *    from, whatever its history scope is (FR-066, FR-067);
+ * 5. **`refused`** — the only state in which a binding opens no window, and it
  *    never falls open to admit every observation (FR-072).
  *
  * The **comparison** the window exists for lives here too, beside the window
@@ -181,12 +187,24 @@ export function windowFor(input: {
     /** Configured overlap subtracted from the recorded stamp. */
     readonly overlapMs: number;
 }): WindowVerdict {
+    const baseline = readableStamp(input.scanned.baselineAt);
+
+    // A recovery replay outranks everything else in the slot, including an armed
+    // `rescanFrom`. FR-073 makes the replay's job re-offering the binding's
+    // in-window work, and the baseline is the widest window it has ever scanned
+    // from, so it is the only lower bound that satisfies that; an armed catch-up
+    // request is about the scan *after* this one. The two cannot both hold, and
+    // the one that would drop lost work is the one that must not (FR-073).
+    if (baseline !== null && input.scanned.forceReplay) {
+        return { window: baseline };
+    }
+
     const armed = readableStamp(input.scanned.rescanFrom);
     if (armed !== null) {
         // FR-023's chosen lower bound is the most recent explicit request for
-        // this binding's next scan, so it wins. It is bounded by construction: a
-        // member that must hold a parseable stamp cannot ask for everything
-        // (FR-060).
+        // this binding's next scan, so it wins next. It is bounded by
+        // construction: a member that must hold a parseable stamp cannot ask for
+        // everything (FR-060).
         return { window: armed };
     }
 
@@ -203,12 +221,48 @@ export function windowFor(input: {
         return { refused: STAMP_UNREADABLE };
     }
 
-    const baseline = readableStamp(input.scanned.baselineAt);
     if (baseline !== null) {
         return { window: baseline };
     }
 
     return { refused: BASELINE_UNREADABLE };
+}
+
+/**
+ * The retained baseline a completing scan leaves behind (002 FR-073).
+ *
+ * **The widest window this binding has ever scanned from, and only ever
+ * widening.** A recovery replay opens at `baselineAt`, so a baseline narrower
+ * than a window the binding has already scanned would make the replay
+ * **narrower** than the work it must re-cover — silently dropping, say, the
+ * five-day-old rows a catch-up sweep had already queued. That is the direction
+ * this function exists to forbid: `min(prior, opened)` moves the bound earlier
+ * and never later, so every replay re-covers **at least** everything any earlier
+ * scan covered.
+ *
+ * Monotone by construction rather than by comparison against a policy, so no
+ * reader has to know *why* a bound should not shrink: the only writer is
+ * {@link widenBaseline} and the only operation is "keep the earlier of two
+ * parseable stamps".
+ *
+ * @param inputs - The bound already retained, and the window this scan opened at.
+ * @returns The bound to store, or `null` when neither is readable.
+ */
+export function widenBaseline(inputs: {
+    /** The bound already on the slot, or `null`. */
+    readonly retained: string | null;
+    /** The window this scan opened at, or `null` when it refused. */
+    readonly opened: string | null;
+}): string | null {
+    const candidates = [inputs.retained, inputs.opened]
+        .filter((stamp): stamp is string => readableStamp(stamp) !== null)
+        .map((stamp) => Date.parse(stamp));
+
+    if (candidates.length === 0) {
+        return null;
+    }
+
+    return new Date(Math.min(...candidates)).toISOString();
 }
 
 /**
