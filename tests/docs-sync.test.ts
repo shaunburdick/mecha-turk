@@ -16,7 +16,7 @@
  * | claim | owner |
  * | --- | --- |
  * | the six tabs, the OpenChamber-off dependency, both storage locations | the landing page (FR-014 – FR-016) |
- * | the approval, and that no card and no `network` remain | the install page (FR-020 – FR-024, FR-077) |
+ * | the approval's capabilities, from the manifest, and no `network` | the install page (FR-020 – FR-024, FR-077) |
  * | `GET /v1/config`, `expectedAgent`, `config.json`, the expected login | the configure page (FR-025 – FR-035) |
  * | the starting-prompt field, its cap, and its refusals | the configure page (FR-030 – FR-034) |
  * | the prerequisites section and its placement on **Status** | the use page (FR-036 – FR-040) |
@@ -262,7 +262,7 @@ describe('007 FR-049 each claim is asserted against the one page that owns it', 
         }
     });
 
-    it('the install page owns the approval, and says the card is gone', () => {
+    it('the install page owns the approval capability list and the absence of any network capability', () => {
         {
             // The permission table is generated from the manifest rather than
             // retyped, so the page cannot claim a capability the manifest does
@@ -272,15 +272,26 @@ describe('007 FR-049 each claim is asserted against the one page that owns it', 
             expect(page(INSTALL), 'the install page renders no permission table').toContain('<Permissions describe={');
         }
         {
-            // 002 FR-029, 006 FR-100, and AGENTS.md invariant 3: the manifest
-            // carries no configuration either way it is said, and since the
-            // owner's 2026-09-30 sweep no integration card exists at all and
-            // `network` is not requested.
+            // AGENTS.md invariant 3: since the owner's 2026-09-30 sweep no
+            // integration card exists and `network` is not requested at all, so
+            // the page has to say the absence rather than let a reader infer it
+            // from a list that happens not to mention it.
             expect(page(INSTALL), 'the install page does not say no network capability is requested')
                 .toContain('No network capability is requested');
             expect(page(INSTALL), 'the install page does not say the panel makes no GitHub request')
                 .toContain('the panel makes no GitHub request of its own');
         }
+        // **The card's own absence is not asserted here, and the page does not
+        // claim it.** The product fact is guarded by `tests/manifest.test.ts`
+        // instead — `contributes.integration` is undefined, in "GitHub
+        // integration card (retired 2026-09-30)" and "002 FR-041 / FR-011 re-cut".
+        // This suite's pre-restructure half asserted the same absence in prose
+        // over README and walkthrough (`/carries **no settings**|no integration
+        // card/`). Nothing obliges the page to repeat it: 007's `## Out of
+        // Scope` says the site documents what is requested "and nothing more",
+        // and FR-049 forbids a topic living at two lengths — it obliges no
+        // coverage beyond what a page owns. Restoring the prose is an addition
+        // of scope to be agreed, not a gap to be filled here.
     });
 
     it('the configure page owns the configuration, the baseline, and the expected-login input', () => {
