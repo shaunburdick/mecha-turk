@@ -355,6 +355,7 @@ function notAvailableVerification(): StatusVerification {
 async function runDerivedProjection(
     context: RouteContext,
     bindings: readonly BindingRecord[],
+    overlapMs: number,
 ): Promise<{ readonly repositories: readonly StatusRepositoryRow[]; readonly verification: StatusVerification }> {
     const { store } = context;
     if (store === null) {
@@ -362,7 +363,9 @@ async function runDerivedProjection(
     }
 
     try {
-        const rows = await readStatusRows({ store, log: context.log, bindings });
+        // The same overlap the poll loop widens windows by, so this route's
+        // `windowStart` is the window a scan run now would open (002 FR-092).
+        const rows = await readStatusRows({ store, log: context.log, bindings, overlapMs });
         const document = await previewRunsDocument({ store, log: context.log });
 
         return {
@@ -408,7 +411,7 @@ async function buildStatusBody(context: RouteContext): Promise<ServiceStatusBody
     const hasStore = store !== null;
     const accounts = await statusAccounts(context);
     const bindings = await storedBindings(context);
-    const { repositories, verification } = await runDerivedProjection(context, bindings);
+    const { repositories, verification } = await runDerivedProjection(context, bindings, config.overlapMs);
     // The scheduler's own answer: paused only when the loop is genuinely not
     // running, never a literal the running process would contradict.
     const isRunning = hasStore && polling.isRunning();

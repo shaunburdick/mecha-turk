@@ -42,14 +42,18 @@
  * binding's policy (005 plan D17; contract `status-projection.md` §8).
  */
 
+import { effectiveHistoryScope } from '../bindings-history-scope.ts';
 import { readBindings } from '../bindings-read.ts';
 import { MAX_CLAIMED_RUNS } from '../poll/claim-bounds.ts';
 import { claimPendingRuns, holderOf } from '../poll/claim.ts';
+import { readCycleConfig } from '../poll/cycle-config.ts';
 import { readEvents } from '../poll/events.ts';
 import { projectRunHistory } from '../poll/run-history-project.ts';
 import { previewRunsDocument } from '../poll/runs-document.ts';
-import { readScanState } from '../poll/scan.ts';
+import { bindingScanOf, readScanState } from '../poll/scan.ts';
+import { windowFor } from '../poll/window.ts';
 import type { BindingRecord } from '../bindings.ts';
+import type { HistoryScope } from '../bindings-history-scope.ts';
 import type { QueuedEvent } from '../poll/events.ts';
 import type { ActorPolicy } from '../poll/runs-types.ts';
 import type { RunHistoryRow } from '../poll/run-history-project.ts';
@@ -116,6 +120,35 @@ export interface BindingStatusRow {
      * needed — or permitted — to answer it.
      */
     readonly actorPolicy: ActorPolicy;
+    /**
+     * The lower bound the binding's next scan will open at, as the service
+     * computed it (002 FR-092, FR-065).
+     *
+     * **Derived state, never configured**: the operator sets the history scope
+     * and this row reports what the service made of it. `null` means the binding
+     * has no window yet — no completed scan and no derivable baseline — and the
+     * refusal that caused it is on {@link BindingStatusRow.lastError}. Both ends
+     * of the window are then readable together: this, and `lastScanAt`.
+     */
+    readonly windowStart: string | null;
+    /**
+     * The history scope in force, as the service holds it (002 FR-055, FR-092).
+     *
+     * The **documented default** is projected for a binding that stores no
+     * member, so the operator's surface renders from one source of truth and
+     * never invents a reading of an absent key (002 FR-058; plan H13).
+     */
+    readonly historyScope: HistoryScope;
+    /**
+     * Whether a **recovery replay** is in force for this binding: its checkpoint
+     * was cleared to recover a lost or quarantined queue (002 FR-074, FR-078).
+     *
+     * Separate from `lastScanAt === null`, which also means *never scanned*: the
+     * two are different facts with different windows, and while this is `true` the
+     * binding is re-offering in-window work because the queue was lost — not
+     * because the operator chose a look-back.
+     */
+    readonly forceReplay: boolean;
 }
 
 /**
@@ -176,6 +209,21 @@ function claimLimitOf(raw: string | null): number | null {
  * count derived from runs, and that is what this reads — the same document the
  * claim answers from, so the two can never disagree.
  *
+ * **The window in force** came with 002 v1.13.0 (FR-092, FR-078). The row carries
+ * `windowStart`, `historyScope`, and `forceReplay` beside the `lastScanAt` it
+ * already had, so both ends of the window can be read together and the two facts
+ * that answer *"why was this event never offered?"* are **derived state the
+ * service computed** — not something the operator set, and not something this
+ * route recomputes from a different rule than the loop's.
+ *
+ * The three members come from the **same** {@link windowFor} verdict the scan
+ * itself opens under, and from the slot the loop derived the baseline into, which
+ * is what keeps the two answers unable to disagree: the row says what the next
+ * scan will do, because it reads the same rule. `null` on each of the three means
+ * *this binding has no window yet* — no completed scan and no derivable baseline —
+ * which is a state the operator can see and the refusal that caused it is already
+ * on `lastError`.
+ *
  * @throws {StorageUnavailableError} When the run document cannot be read.
  */
 export async function readStatusRows(input: {
@@ -185,6 +233,8 @@ export async function readStatusRows(input: {
     readonly log: ServiceLogger;
     /** Stored bindings, as the route itself read them. */
     readonly bindings: readonly BindingRecord[];
+    /** Configured overlap, so the row reports the same widening the scan applies. */
+    readonly overlapMs: number;
 }): Promise<BindingStatusRow[]> {
     const [scannedState, runs] = await Promise.all([readScanState(input), previewRunsDocument(input)]);
 
@@ -196,7 +246,13 @@ export async function readStatusRows(input: {
     }
 
     return input.bindings.map((binding) => {
-        const scan = scannedState.bindings[binding.bindingId];
+        const scan = bindingScanOf(scannedState, binding.bindingId);
+        // The **same** verdict the next scan opens under, from the same rule and
+        // the same slot — the row says what the next scan will do because it reads
+        // what the next scan will read (002 FR-092). The history scope is read here
+        // only to report which rule is in force; `windowFor` consumed it, through
+        // the baseline the loop already derived (002 FR-068).
+        const verdict = windowFor({ binding, scanned: scan, overlapMs: input.overlapMs });
 
         return {
             bindingId: binding.bindingId,
@@ -204,10 +260,13 @@ export async function readStatusRows(input: {
             projectId: binding.projectId,
             accountLogin: binding.accountLogin,
             active: binding.state === 'active',
-            lastScanAt: scan?.lastScanAt ?? null,
-            lastError: scan?.lastError ?? null,
+            lastScanAt: scan.lastScanAt,
+            lastError: scan.lastError,
             pendingCount: counts.get(binding.bindingId) ?? 0,
             actorPolicy: actorPolicyOf(binding),
+            windowStart: 'window' in verdict ? verdict.window : null,
+            historyScope: effectiveHistoryScope(binding.historyScope),
+            forceReplay: scan.forceReplay,
         };
     });
 }
@@ -256,7 +315,11 @@ async function handlePendingEvents(context: RouteContext, request: RouteRequest)
         maxRuns: limit,
     });
     const bindings = await readBindings({ store, log: context.log });
-    const rows = await readStatusRows({ store, log: context.log, bindings });
+    // The overlap comes from the configuration this answer reports against, so
+    // `windowStart` is the window a scan run right now would open — not one
+    // widened by a different number (002 FR-092).
+    const { overlapMs } = await readCycleConfig({ store, log: context.log });
+    const rows = await readStatusRows({ store, log: context.log, bindings, overlapMs });
 
     return {
         status: STATUS.ok,

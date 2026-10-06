@@ -74,8 +74,15 @@ interface WindowedListQuery {
     readonly owner: string;
     /** Repository name. */
     readonly name: string;
-    /** Window start, or `null` for a replay scan; sent as `since`. */
-    readonly since: string | null;
+    /**
+     * Window start, sent as `since`.
+     *
+     * A `string` since v1.13.0, not `string | null`: every scan now opens at a
+     * computable lower bound (002 FR-065), so a windowed list always carries one
+     * and "send no `since` at all" is no longer a state a caller can reach
+     * (plan H11).
+     */
+    readonly since: string;
     /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }

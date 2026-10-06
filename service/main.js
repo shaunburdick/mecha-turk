@@ -3433,22 +3433,39 @@ function applyEnqueue(input) {
 
 // service/poll/scan.ts
 var SCAN_STATE_FILE = "scan-state.json";
+function emptyBindingScan() {
+  return { lastScanAt: null, lastError: null, baselineAt: null, forceReplay: false, rescanFrom: null };
+}
 function emptyScanState() {
   return { bindings: {} };
+}
+function optionalStampHolds(value) {
+  return value === undefined || value === null || typeof value === "string";
+}
+function stampMemberOf(value) {
+  return typeof value === "string" ? value : null;
 }
 function parseBindingSlot(value) {
   if (!isRecord(value)) {
     return null;
   }
-  const { lastScanAt, lastError } = value;
-  const isStampHolds = lastScanAt === null || typeof lastScanAt === "string";
-  const isReasonHolds = lastError === null || typeof lastError === "string";
-  if (!isStampHolds || !isReasonHolds) {
+  const { lastScanAt, lastError, baselineAt, forceReplay, rescanFrom } = value;
+  const members = [
+    [lastScanAt === null || typeof lastScanAt === "string", lastScanAt],
+    [lastError === null || typeof lastError === "string", lastError],
+    [optionalStampHolds(baselineAt), baselineAt],
+    [forceReplay === undefined || typeof forceReplay === "boolean", forceReplay],
+    [optionalStampHolds(rescanFrom), rescanFrom]
+  ];
+  if (members.some(([holds]) => !holds)) {
     return null;
   }
   return {
-    lastScanAt: typeof lastScanAt === "string" ? lastScanAt : null,
-    lastError: typeof lastError === "string" ? lastError : null
+    lastScanAt: stampMemberOf(lastScanAt),
+    lastError: stampMemberOf(lastError),
+    baselineAt: stampMemberOf(baselineAt),
+    forceReplay: forceReplay === true,
+    rescanFrom: stampMemberOf(rescanFrom)
   };
 }
 function parseStoredScanState(raw) {
@@ -3494,6 +3511,9 @@ async function writeScanState(input) {
 }
 function withBindingScanState(input) {
   return { bindings: { ...input.state.bindings, [input.bindingId]: input.slot } };
+}
+function bindingScanOf(state, bindingId) {
+  return state.bindings[bindingId] ?? emptyBindingScan();
 }
 // service/poll/events-write.ts
 function buildEventId(input) {
@@ -3580,7 +3600,7 @@ async function resetScanWindows(input) {
     const bindings = {};
     let cleared = 0;
     for (const [bindingId, slot] of Object.entries(state.bindings)) {
-      const next = slot.lastScanAt === null ? slot : { ...slot, lastScanAt: null };
+      const next = slot.lastScanAt === null && slot.forceReplay ? slot : { ...slot, lastScanAt: null, forceReplay: true };
       cleared += next === slot ? 0 : 1;
       bindings[bindingId] = next;
     }
@@ -5178,6 +5198,37 @@ var putConfigRoute = {
   handler: (context, request) => handlePutConfig(context, request)
 };
 
+// service/bindings-history-scope.ts
+var DEFAULT_HISTORY_SCOPE = "new-only";
+var HISTORY_SCOPES = ["new-only", "recent-history"];
+var LOOK_BACK_MS = 604800000;
+var LOOK_BACK_BOUNDS = {
+  min: 3600000,
+  max: 2592000000,
+  unit: "milliseconds"
+};
+var FIELD = "historyScope";
+var NOT_A_SCOPE_REMEDIATION = "historyScope must be `new-only` (watch from this binding's own creation " + "onward) or `recent-history` (also look back over the last seven days, once), or null to clear it " + 'to `new-only`; there is no "all history" option';
+function isHistoryScope(value) {
+  return value === "new-only" || value === "recent-history";
+}
+function lookBackWithinBounds(candidate) {
+  return Number.isFinite(candidate) && candidate >= LOOK_BACK_BOUNDS.min && candidate <= LOOK_BACK_BOUNDS.max;
+}
+function lookBackMs() {
+  return lookBackWithinBounds(LOOK_BACK_MS) ? LOOK_BACK_MS : null;
+}
+function historyScopeOf(raw) {
+  const value = raw.historyScope;
+  if (value === undefined || value === null) {
+    return { scope: null };
+  }
+  return isHistoryScope(value) ? { scope: value } : { issue: { field: FIELD, remediation: NOT_A_SCOPE_REMEDIATION } };
+}
+function effectiveHistoryScope(historyScope) {
+  return historyScope ?? DEFAULT_HISTORY_SCOPE;
+}
+
 // src/config.ts
 var REPOSITORY_PART_PATTERN = /^[A-Za-z0-9_.-]+$/;
 var BRANCH_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
@@ -5250,12 +5301,12 @@ function isGitHubLogin(value) {
   }
   return spelled.length === 1 ? SINGLE_LOGIN.test(spelled) : LOGIN_SHAPE.test(spelled) && !spelled.includes("--");
 }
-var FIELD = "allowedUsers";
+var FIELD2 = "allowedUsers";
 var NOT_AN_ARRAY_REMEDIATION = "allowedUsers must be an array of GitHub logins, or omitted so any human " + "actor may trigger this repository";
 var EMPTY_REMEDIATION = "allowedUsers must name at least one GitHub login: omit the field to let any human " + "actor may trigger this repository, or list the logins who may; to stop every trigger, disable the binding";
 var NOT_A_LOGIN_REMEDIATION = "allowedUsers must name GitHub logins: at most 39 characters, " + "alphanumeric with single interior hyphens";
 function refuse2(remediation) {
-  return { issue: { field: FIELD, remediation } };
+  return { issue: { field: FIELD2, remediation } };
 }
 function bindingAllowedUsersOf(raw) {
   const value = raw.allowedUsers;
@@ -5324,6 +5375,12 @@ function stateFieldOf(value) {
 }
 function stampOrKeep(value, fallback) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : fallback;
+}
+function storedStampOf(value) {
+  if (value === undefined) {
+    return null;
+  }
+  return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : undefined;
 }
 function repositoryFieldOf(value) {
   if (typeof value !== "string" || value.length > MAX_REPOSITORY_CHARS) {
@@ -5438,6 +5495,10 @@ function assembleBinding(raw, hasAccount) {
   if ("issue" in allowedUsers) {
     return null;
   }
+  const historyScope = historyScopeOf(raw);
+  if ("issue" in historyScope) {
+    return null;
+  }
   const login = identity.binding.accountLogin.trim();
   const createdAt = stampOrKeep(raw.createdAt, nowIso());
   return {
@@ -5447,6 +5508,7 @@ function assembleBinding(raw, hasAccount) {
     ...mode.binding,
     ...prompt.prompt !== null && { startingPrompt: prompt.prompt },
     ...allowedUsers.users !== null && { allowedUsers: allowedUsers.users },
+    ...historyScope.scope !== null && { historyScope: historyScope.scope },
     createdAt,
     updatedAt: stampOrKeep(raw.updatedAt, createdAt)
   };
@@ -5466,7 +5528,8 @@ function parseBinding(input) {
       bindingTargetOf(raw),
       bindingModeOf(raw),
       bindingPromptOf(raw),
-      bindingAllowedUsersOf(raw)
+      bindingAllowedUsersOf(raw),
+      historyScopeOf(raw)
     ])
   };
 }
@@ -5520,8 +5583,8 @@ async function writeBindings(input) {
   await input.store.writeJson(BINDINGS_FILE, input.bindings);
 }
 
-// service/prompt-audit.ts
-var PROMPT_UPDATED_EVENT = "binding.prompt-updated";
+// service/history-scope-audit.ts
+var HISTORY_SCOPE_UPDATED_EVENT = "binding.history-scope-updated";
 var observationStates3 = new WeakMap;
 function stateFor3(store) {
   let state = observationStates3.get(store);
@@ -5531,7 +5594,126 @@ function stateFor3(store) {
   }
   return state;
 }
+function recordedScopeOf(recorded) {
+  return HISTORY_SCOPES.find((scope) => scope === recorded) ?? null;
+}
 async function seedBaseline2(store, baseline) {
+  const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
+  const highest = new Map;
+  for (const entry of trail.entries) {
+    if (entry.eventType !== HISTORY_SCOPE_UPDATED_EVENT) {
+      continue;
+    }
+    const { bindingId } = entry.details;
+    if (typeof bindingId !== "string") {
+      continue;
+    }
+    const scope = recordedScopeOf(entry.details.to) ?? effectiveHistoryScope();
+    const prior = highest.get(bindingId);
+    if (prior === undefined || entry.seq > prior.seq) {
+      highest.set(bindingId, { seq: entry.seq, scope });
+    }
+  }
+  for (const [bindingId, value] of highest) {
+    baseline.set(bindingId, value.scope);
+  }
+}
+async function runHistoryScopeChain(store, task) {
+  const state = stateFor3(store);
+  const start = async () => {
+    if (!state.seeded) {
+      await seedBaseline2(store, state.baseline);
+      state.seeded = true;
+    }
+    return await task();
+  };
+  const run = state.chain.then(start, start);
+  state.chain = run;
+  return await run;
+}
+function decisionFor(input) {
+  if (input.from === input.to) {
+    return "changed";
+  }
+  const fallback = effectiveHistoryScope();
+  if (input.from === fallback) {
+    return "set";
+  }
+  return input.to === fallback ? "cleared" : "changed";
+}
+async function appendHistoryScopeChange(input) {
+  const decision = decisionFor({ from: input.from, to: input.to });
+  await appendAudit(input.store, {
+    eventType: HISTORY_SCOPE_UPDATED_EVENT,
+    actorSource: input.actor,
+    entity: { kind: "binding", id: input.bindingId },
+    correlationId: newCorrelationId(),
+    decision,
+    reason: null,
+    details: { bindingId: input.bindingId, from: input.from, to: input.to, actor: input.actor }
+  });
+}
+function dropUnobserved(state, observed) {
+  for (const bindingId of state.baseline.keys()) {
+    if (!observed.has(bindingId)) {
+      state.baseline.delete(bindingId);
+    }
+  }
+}
+async function recordOneChange2(context) {
+  const { input, binding, to, from } = context;
+  try {
+    await appendHistoryScopeChange({
+      store: input.store,
+      bindingId: binding.bindingId,
+      from,
+      to,
+      actor: input.actor
+    });
+    return 1;
+  } catch (cause) {
+    input.log.warn("history-scope change audit row could not be appended", {
+      bindingId: binding.bindingId,
+      from,
+      to,
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return 0;
+  }
+}
+async function recordHistoryScopeChanges(input) {
+  const state = stateFor3(input.store);
+  const observed = new Set;
+  let rows = 0;
+  for (const binding of input.bindings) {
+    observed.add(binding.bindingId);
+    const to = effectiveHistoryScope(binding.historyScope);
+    const from = state.baseline.get(binding.bindingId) ?? effectiveHistoryScope();
+    state.baseline.set(binding.bindingId, to);
+    if (from === to) {
+      continue;
+    }
+    rows += await recordOneChange2({ input, binding, to, from });
+  }
+  dropUnobserved(state, observed);
+  return rows;
+}
+async function observeHistoryScopeChanges(input) {
+  return await runHistoryScopeChain(input.store, async () => await recordHistoryScopeChanges(input));
+}
+
+// service/prompt-audit.ts
+var PROMPT_UPDATED_EVENT = "binding.prompt-updated";
+var observationStates4 = new WeakMap;
+function stateFor4(store) {
+  let state = observationStates4.get(store);
+  if (state === undefined) {
+    state = { baseline: new Map, seeded: false, chain: Promise.resolve() };
+    observationStates4.set(store, state);
+  }
+  return state;
+}
+async function seedBaseline3(store, baseline) {
   const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
   const highest = new Map;
   for (const entry of trail.entries) {
@@ -5554,10 +5736,10 @@ async function seedBaseline2(store, baseline) {
   }
 }
 async function runPromptChain(store, task) {
-  const state = stateFor3(store);
+  const state = stateFor4(store);
   const start = async () => {
     if (!state.seeded) {
-      await seedBaseline2(store, state.baseline);
+      await seedBaseline3(store, state.baseline);
       state.seeded = true;
     }
     return await task();
@@ -5590,14 +5772,14 @@ async function appendPromptChange(input) {
     }
   });
 }
-function dropUnobserved(state, observed) {
+function dropUnobserved2(state, observed) {
   for (const bindingId of state.baseline.keys()) {
     if (!observed.has(bindingId)) {
       state.baseline.delete(bindingId);
     }
   }
 }
-async function recordOneChange2(context) {
+async function recordOneChange3(context) {
   const { input, binding, snapshot, current, previous } = context;
   try {
     await appendPromptChange({
@@ -5618,7 +5800,7 @@ async function recordOneChange2(context) {
   }
 }
 async function recordPromptChanges(input) {
-  const state = stateFor3(input.store);
+  const state = stateFor4(input.store);
   const observed = new Set;
   let rows = 0;
   for (const binding of input.bindings) {
@@ -5630,9 +5812,9 @@ async function recordPromptChanges(input) {
     if (previous === current) {
       continue;
     }
-    rows += await recordOneChange2({ input, binding, snapshot, current, previous });
+    rows += await recordOneChange3({ input, binding, snapshot, current, previous });
   }
-  dropUnobserved(state, observed);
+  dropUnobserved2(state, observed);
   return rows;
 }
 async function observePromptChanges(input) {
@@ -5640,6 +5822,8 @@ async function observePromptChanges(input) {
 }
 
 // service/bindings-read.ts
+var BINDINGS_UNUSABLE = "stored bindings were unusable and have been set aside";
+var BINDINGS_READ_FAILED = "bindings read failed";
 function noteFirstRefusal(note, issues) {
   const first = issues[0];
   if (first !== undefined && note.reason === null) {
@@ -5670,20 +5854,26 @@ async function readBindingsUnobserved(input) {
       return result.value;
     }
     if (result.status === "quarantined") {
-      log.warn("stored bindings were unusable and have been set aside", {
+      log.warn(BINDINGS_UNUSABLE, {
         quarantinePath: result.quarantinePath,
         ...note.reason !== null && { reason: note.reason }
       });
     }
     return [];
   } catch (cause) {
-    log.warn("bindings read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
+    log.warn(BINDINGS_READ_FAILED, { errorKind: cause instanceof Error ? cause.name : typeof cause });
     return [];
   }
 }
 async function readBindings(input) {
   const bindings = await readBindingsUnobserved(input);
   await observePromptChanges({
+    store: input.store,
+    log: input.log,
+    bindings,
+    actor: "service"
+  });
+  await observeHistoryScopeChanges({
     store: input.store,
     log: input.log,
     bindings,
@@ -5700,16 +5890,67 @@ async function readBindingsForAuthorization(input) {
       return { readable: true, bindings: result.value };
     }
     if (result.status === "quarantined") {
-      log.warn("stored bindings were unusable and have been set aside", {
+      log.warn(BINDINGS_UNUSABLE, {
         quarantinePath: result.quarantinePath,
         ...note.reason !== null && { reason: note.reason }
       });
     }
     return { readable: false };
   } catch (cause) {
-    log.warn("bindings read failed", { errorKind: cause instanceof Error ? cause.name : typeof cause });
+    log.warn(BINDINGS_READ_FAILED, { errorKind: cause instanceof Error ? cause.name : typeof cause });
     return { readable: false };
   }
+}
+var NOT_ESTABLISHED = { kind: "unreadable" };
+function creationStampOf(entry) {
+  const stored = storedStampOf(entry.createdAt);
+  if (stored === null) {
+    return { kind: "absent" };
+  }
+  return stored === undefined ? { kind: "unreadable" } : { kind: "stamp", at: stored };
+}
+async function readStoredCreationStamps(input) {
+  const answers = new Map;
+  if (input.bindingIds.length === 0) {
+    return answers;
+  }
+  const fail = () => {
+    for (const bindingId of input.bindingIds) {
+      answers.set(bindingId, NOT_ESTABLISHED);
+    }
+    return answers;
+  };
+  try {
+    const result = await input.store.readJson(BINDINGS_FILE, (raw) => {
+      if (!Array.isArray(raw)) {
+        return null;
+      }
+      const stamps = new Map;
+      for (const entry of raw) {
+        if (!isRecord(entry) || typeof entry.bindingId !== "string") {
+          continue;
+        }
+        stamps.set(entry.bindingId, creationStampOf(entry));
+      }
+      return stamps;
+    });
+    if (result.status === "ok") {
+      for (const bindingId of input.bindingIds) {
+        answers.set(bindingId, result.value.get(bindingId) ?? NOT_ESTABLISHED);
+      }
+      return answers;
+    }
+    if (result.status === "quarantined") {
+      input.log.warn(BINDINGS_UNUSABLE, {
+        quarantinePath: result.quarantinePath
+      });
+    }
+  } catch (cause) {
+    input.log.warn(BINDINGS_READ_FAILED, {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+  }
+  return fail();
 }
 
 // service/poll/claim-bounds.ts
@@ -6027,6 +6268,40 @@ async function claimPendingRuns(input) {
   };
 }
 
+// service/poll/cycle-config.ts
+function describeKind(cause) {
+  return cause instanceof Error ? cause.name : typeof cause;
+}
+async function currentIntervalMs(store, log) {
+  if (store === null) {
+    return DEFAULT_CONFIG.intervalMs;
+  }
+  try {
+    const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+    return config.intervalMs;
+  } catch (cause) {
+    log.warn("poll interval read failed", { errorKind: describeKind(cause) });
+    return DEFAULT_CONFIG.intervalMs;
+  }
+}
+async function readCycleConfig(input) {
+  try {
+    return await runConfigPromptChain(input.store, async () => {
+      const { config } = configFromStore(await input.store.readJson(CONFIG_FILE, parseStoredConfig), input.log);
+      await recordConfigPromptChanges({
+        store: input.store,
+        log: input.log,
+        config,
+        actor: "service"
+      });
+      return config;
+    });
+  } catch (cause) {
+    input.log.warn("cycle configuration read failed", { errorKind: describeKind(cause) });
+    return DEFAULT_CONFIG;
+  }
+}
+
 // service/poll/run-history-project.ts
 var WAITING_REASON = "waiting for a panel";
 function reviewCoordinates2(delivery) {
@@ -6156,6 +6431,64 @@ function historyRowOf(input) {
 function projectRunHistory(input) {
   const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries }));
   return rows.toSorted((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, input.cap);
+}
+
+// service/poll/window.ts
+var BASELINE_UNREADABLE = "baseline-unreadable";
+var LOOK_BACK_OUT_OF_BOUNDS = "look-back-out-of-bounds";
+var STAMP_UNREADABLE = "stamp-unreadable";
+function readableStamp(value) {
+  return value !== null && !Number.isNaN(Date.parse(value)) ? value : null;
+}
+function baselineFor(input) {
+  if (input.stored.kind === "unreadable") {
+    return { refused: BASELINE_UNREADABLE };
+  }
+  const createdAtMs = input.stored.kind === "stamp" ? Date.parse(input.stored.at) : Date.parse(input.binding.createdAt);
+  if (Number.isNaN(createdAtMs)) {
+    return { refused: BASELINE_UNREADABLE };
+  }
+  let reachedBackMs = input.overlapMs;
+  if (effectiveHistoryScope(input.binding.historyScope) === "recent-history") {
+    const lookBack = lookBackMs();
+    if (lookBack === null) {
+      return { refused: LOOK_BACK_OUT_OF_BOUNDS };
+    }
+    reachedBackMs = lookBack;
+  }
+  return { window: new Date(createdAtMs - reachedBackMs).toISOString() };
+}
+function windowFor(input) {
+  const armed = readableStamp(input.scanned.rescanFrom);
+  if (armed !== null) {
+    return { window: armed };
+  }
+  const recorded = readableStamp(input.scanned.lastScanAt);
+  if (recorded !== null) {
+    return { window: new Date(Date.parse(recorded) - input.overlapMs).toISOString() };
+  }
+  if (input.scanned.lastScanAt !== null) {
+    return { refused: STAMP_UNREADABLE };
+  }
+  const baseline = readableStamp(input.scanned.baselineAt);
+  if (baseline !== null) {
+    return { window: baseline };
+  }
+  return { refused: BASELINE_UNREADABLE };
+}
+function stampInWindow(stamp, windowStart) {
+  if (stamp === null) {
+    return false;
+  }
+  const observed = Date.parse(stamp);
+  const start = Date.parse(windowStart);
+  return !Number.isNaN(observed) && !Number.isNaN(start) && observed >= start;
+}
+function bindingsNeedingBaseline(input) {
+  return input.bindings.filter((binding) => {
+    const slot = input.slots[binding.bindingId];
+    return (slot?.lastScanAt ?? null) === null && (slot?.baselineAt ?? null) === null;
+  }).map((binding) => binding.bindingId);
 }
 
 // service/routes/events-page.ts
@@ -6320,17 +6653,21 @@ async function readStatusRows(input) {
     }
   }
   return input.bindings.map((binding) => {
-    const scan = scannedState.bindings[binding.bindingId];
+    const scan = bindingScanOf(scannedState, binding.bindingId);
+    const verdict = windowFor({ binding, scanned: scan, overlapMs: input.overlapMs });
     return {
       bindingId: binding.bindingId,
       repository: binding.repository,
       projectId: binding.projectId,
       accountLogin: binding.accountLogin,
       active: binding.state === "active",
-      lastScanAt: scan?.lastScanAt ?? null,
-      lastError: scan?.lastError ?? null,
+      lastScanAt: scan.lastScanAt,
+      lastError: scan.lastError,
       pendingCount: counts.get(binding.bindingId) ?? 0,
-      actorPolicy: actorPolicyOf(binding)
+      actorPolicy: actorPolicyOf(binding),
+      windowStart: "window" in verdict ? verdict.window : null,
+      historyScope: effectiveHistoryScope(binding.historyScope),
+      forceReplay: scan.forceReplay
     };
   });
 }
@@ -6353,7 +6690,8 @@ async function handlePendingEvents(context, request) {
     maxRuns: limit
   });
   const bindings = await readBindings({ store, log: context.log });
-  const rows = await readStatusRows({ store, log: context.log, bindings });
+  const { overlapMs } = await readCycleConfig({ store, log: context.log });
+  const rows = await readStatusRows({ store, log: context.log, bindings, overlapMs });
   return {
     status: STATUS.ok,
     body: { events: claimed.runs, status: rows, auditWritten: claimed.auditWritten }
@@ -7559,36 +7897,87 @@ var blockedRoute = {
 
 // service/routes/bindings.ts
 var BINDINGS_PATH = "/v1/bindings";
+function withEffectiveScopes(bindings) {
+  return bindings.map((binding) => ({ ...binding, historyScope: effectiveHistoryScope(binding.historyScope) }));
+}
 async function handleGetBindings(context) {
   const { store } = context;
   if (store === null) {
     return storageUnavailableResponse();
   }
-  const bindings = await readBindings({ store, log: context.log });
-  const status = await readStatusRows({ store, log: context.log, bindings });
-  return { status: STATUS.ok, body: { bindings, status } };
+  const stored = await readBindings({ store, log: context.log });
+  const { overlapMs } = await readCycleConfig({ store, log: context.log });
+  const status = await readStatusRows({ store, log: context.log, bindings: stored, overlapMs });
+  return { status: STATUS.ok, body: { bindings: withEffectiveScopes(stored), status } };
 }
-function omittedPromptIds(submitted) {
-  const omitted = new Set;
+function omittedMemberIds(submitted) {
+  const prompt = new Set;
+  const historyScope = new Set;
   for (const entry of submitted) {
     if (!isRecord(entry)) {
       continue;
     }
     const { bindingId } = entry;
-    if (typeof bindingId === "string" && !Object.hasOwn(entry, "startingPrompt")) {
-      omitted.add(bindingId);
+    if (typeof bindingId !== "string") {
+      continue;
+    }
+    if (!Object.hasOwn(entry, "startingPrompt")) {
+      prompt.add(bindingId);
+    }
+    if (!Object.hasOwn(entry, "historyScope")) {
+      historyScope.add(bindingId);
     }
   }
-  return omitted;
+  return { prompt, historyScope };
 }
-function mergePrompts(input) {
+function mergeOmittedMembers(input) {
   const storedById = new Map(input.stored.map((binding) => [binding.bindingId, binding]));
   return input.submitted.map((binding) => {
-    if (!input.omitted.has(binding.bindingId)) {
+    const isPromptKept = input.omittedPrompt.has(binding.bindingId);
+    const isScopeKept = input.omittedScope.has(binding.bindingId);
+    if (!isPromptKept && !isScopeKept) {
       return binding;
     }
-    const previous = storedById.get(binding.bindingId)?.startingPrompt;
-    return previous === undefined ? binding : { ...binding, startingPrompt: previous };
+    const previous = storedById.get(binding.bindingId);
+    return {
+      ...binding,
+      ...isPromptKept && previous?.startingPrompt !== undefined && { startingPrompt: previous.startingPrompt },
+      ...isScopeKept && previous?.historyScope !== undefined && { historyScope: previous.historyScope }
+    };
+  });
+}
+async function armCatchUps(input) {
+  const before = new Map(input.stored.map((binding) => [binding.bindingId, binding]));
+  const moved = input.written.filter((binding) => effectiveHistoryScope(binding.historyScope) === "recent-history" && effectiveHistoryScope(before.get(binding.bindingId)?.historyScope) !== "recent-history");
+  if (moved.length === 0) {
+    return 0;
+  }
+  const lookBack = lookBackMs();
+  if (lookBack === null) {
+    input.log.warn("history-mode catch-up was not armed: the declared look-back is outside its own bound");
+    return 0;
+  }
+  const armedFrom = new Date(Date.parse(input.at) - lookBack).toISOString();
+  return await serializeScan(async () => {
+    const state = await readScanState(input);
+    let next = state;
+    let armed = 0;
+    for (const binding of moved) {
+      const slot = bindingScanOf(state, binding.bindingId);
+      if (slot.lastScanAt === null) {
+        continue;
+      }
+      next = withBindingScanState({
+        state: next,
+        bindingId: binding.bindingId,
+        slot: { ...slot, rescanFrom: armedFrom }
+      });
+      armed += 1;
+    }
+    if (armed > 0) {
+      await writeScanState({ store: input.store, state: next });
+    }
+    return armed;
   });
 }
 async function readCustodyAndValidate(input) {
@@ -7603,15 +7992,18 @@ async function readCustodyAndValidate(input) {
   };
 }
 async function writeGrant(input) {
-  const { store, log, submitted, omitted } = input;
-  return await inQueueChain(async () => await runPromptChain(store, async () => {
+  const { store, log, submitted, omittedPrompt, omittedScope, at } = input;
+  return await inQueueChain(async () => await runPromptChain(store, async () => await runHistoryScopeChain(store, async () => {
     const stored = await readBindingsUnobserved({ store, log });
     await recordPromptChanges({ store, log, bindings: stored, actor: "service" });
-    const merged = mergePrompts({ submitted, omitted, stored });
+    await recordHistoryScopeChanges({ store, log, bindings: stored, actor: "service" });
+    const merged = mergeOmittedMembers({ submitted, omittedPrompt, omittedScope, stored });
     await writeBindings({ store, bindings: merged });
     await recordPromptChanges({ store, log, bindings: merged, actor: "operator" });
+    await recordHistoryScopeChanges({ store, log, bindings: merged, actor: "operator" });
+    await armCatchUps({ store, log, written: merged, stored, at });
     return merged;
-  }));
+  })));
 }
 async function handlePutBindings(context, request) {
   const { store } = context;
@@ -7635,13 +8027,17 @@ async function handlePutBindings(context, request) {
     complete: true,
     actor: "service"
   });
+  const omitted = omittedMemberIds(request.body.bindings);
   const bindings = await writeGrant({
     store,
     log: context.log,
     submitted: custody.validation.bindings,
-    omitted: omittedPromptIds(request.body.bindings)
+    omittedPrompt: omitted.prompt,
+    omittedScope: omitted.historyScope,
+    at: nowIso()
   });
-  const status = await readStatusRows({ store, log: context.log, bindings });
+  const { overlapMs } = await readCycleConfig({ store, log: context.log });
+  const status = await readStatusRows({ store, log: context.log, bindings, overlapMs });
   return { status: STATUS.ok, body: { bindings, status } };
 }
 var bindingsRoute = {
@@ -8298,13 +8694,13 @@ function mostRecentVerification(runs) {
 function notAvailableVerification() {
   return { available: false, reason: "no-service-mirror" };
 }
-async function runDerivedProjection(context, bindings) {
+async function runDerivedProjection(context, bindings, overlapMs) {
   const { store } = context;
   if (store === null) {
     return { repositories: [], verification: notAvailableVerification() };
   }
   try {
-    const rows = await readStatusRows({ store, log: context.log, bindings });
+    const rows = await readStatusRows({ store, log: context.log, bindings, overlapMs });
     const document = await previewRunsDocument({ store, log: context.log });
     return {
       repositories: rows.map((row) => ({ ...row, readable: true })),
@@ -8333,7 +8729,7 @@ async function buildStatusBody(context) {
   const hasStore = store !== null;
   const accounts = await statusAccounts(context);
   const bindings = await storedBindings(context);
-  const { repositories, verification } = await runDerivedProjection(context, bindings);
+  const { repositories, verification } = await runDerivedProjection(context, bindings, config.overlapMs);
   const isRunning = hasStore && polling.isRunning();
   const activeBindings = bindings.filter((binding) => binding.state === "active").length;
   const pausedReason = pausedReasonOf({
@@ -8804,65 +9200,6 @@ async function sweepOnce(input) {
     written.push(await appendSweepAudit({ ...input, recovery }));
   }
   return { recoveries: planned.recoveries, auditWritten: written.every(Boolean) };
-}
-
-// service/poll/cycle-config.ts
-function describeKind(cause) {
-  return cause instanceof Error ? cause.name : typeof cause;
-}
-async function currentIntervalMs(store, log) {
-  if (store === null) {
-    return DEFAULT_CONFIG.intervalMs;
-  }
-  try {
-    const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
-    return config.intervalMs;
-  } catch (cause) {
-    log.warn("poll interval read failed", { errorKind: describeKind(cause) });
-    return DEFAULT_CONFIG.intervalMs;
-  }
-}
-async function readCycleConfig(input) {
-  try {
-    return await runConfigPromptChain(input.store, async () => {
-      const { config } = configFromStore(await input.store.readJson(CONFIG_FILE, parseStoredConfig), input.log);
-      await recordConfigPromptChanges({
-        store: input.store,
-        log: input.log,
-        config,
-        actor: "service"
-      });
-      return config;
-    });
-  } catch (cause) {
-    input.log.warn("cycle configuration read failed", { errorKind: describeKind(cause) });
-    return DEFAULT_CONFIG;
-  }
-}
-
-// service/poll/window.ts
-function windowFor(input) {
-  const recorded = input.scanned.bindings[input.binding.bindingId];
-  const lastScanAt = recorded?.lastScanAt ?? null;
-  if (lastScanAt === null) {
-    return null;
-  }
-  const openedAt = Date.parse(lastScanAt) - input.overlapMs;
-  if (!Number.isFinite(openedAt)) {
-    return null;
-  }
-  return new Date(openedAt).toISOString();
-}
-function stampInWindow(stamp, windowStart) {
-  if (windowStart === null) {
-    return true;
-  }
-  if (stamp === null) {
-    return false;
-  }
-  const observed = Date.parse(stamp);
-  const start = Date.parse(windowStart);
-  return !Number.isNaN(observed) && !Number.isNaN(start) && observed >= start;
 }
 
 // service/poll/trigger-scan.ts
@@ -9348,10 +9685,14 @@ async function scanBinding(input) {
   if (account.state !== "active") {
     return { ...blank, skipped: "inactive-account" };
   }
+  const verdict = windowFor({ binding, scanned, overlapMs: deps.config.overlapMs });
+  if ("refused" in verdict) {
+    return { ...blank, skipped: verdict.refused };
+  }
   const listed = await collectScanEvents({
     deps,
     binding,
-    windowStart: windowFor({ binding, scanned, overlapMs: deps.config.overlapMs }),
+    windowStart: verdict.window,
     detectedAt,
     token: account.credential.token,
     login: account.login === "" ? binding.accountLogin : account.login
@@ -9370,8 +9711,9 @@ async function scanBinding(input) {
 async function saveBindingScanState(deps, scan) {
   await serializeScan(async () => {
     const state = await readScanState(deps);
-    const prior = state.bindings[scan.bindingId];
-    const retained = scan.windowFrom ?? (prior?.lastScanAt ?? null);
+    const prior = bindingScanOf(state, scan.bindingId);
+    const didComplete = scan.windowFrom !== null;
+    const retained = scan.windowFrom ?? prior.lastScanAt;
     await writeScanState({
       store: deps.store,
       state: withBindingScanState({
@@ -9379,11 +9721,45 @@ async function saveBindingScanState(deps, scan) {
         bindingId: scan.bindingId,
         slot: {
           lastScanAt: retained,
-          lastError: scan.skipped
+          lastError: scan.skipped,
+          baselineAt: prior.baselineAt,
+          forceReplay: !didComplete && prior.forceReplay,
+          rescanFrom: didComplete ? null : prior.rescanFrom
         }
       })
     });
   });
+}
+async function ensureBaselines(deps, bindings, state) {
+  const needing = bindingsNeedingBaseline({ bindings, slots: state.bindings });
+  if (needing.length === 0) {
+    return state;
+  }
+  const stamps = await readStoredCreationStamps({ store: deps.store, log: deps.log, bindingIds: needing });
+  const byId = new Map(bindings.map((binding) => [binding.bindingId, binding]));
+  let derived = null;
+  for (const bindingId of needing) {
+    const binding = byId.get(bindingId);
+    const stored = stamps.get(bindingId);
+    if (binding === undefined || stored === undefined) {
+      continue;
+    }
+    const verdict = baselineFor({ binding, stored, overlapMs: deps.config.overlapMs });
+    if ("refused" in verdict) {
+      continue;
+    }
+    const prior = bindingScanOf(derived ?? state, bindingId);
+    derived = withBindingScanState({
+      state: derived ?? state,
+      bindingId,
+      slot: { ...prior, baselineAt: verdict.window }
+    });
+  }
+  if (derived === null) {
+    return state;
+  }
+  await writeScanState({ store: deps.store, state: derived });
+  return derived;
 }
 async function cycleContext(input) {
   const config = await readCycleConfig({ store: input.store, log: input.log });
@@ -9404,10 +9780,11 @@ async function runScanCycle(deps) {
   const context = await cycleContext({ store: deps.store, log: deps.log, poller: deps.poller });
   await runRetentionPasses({ store: context.store, log: context.log, config: context.config });
   await readEvents({ store: context.store, log: context.log });
-  const [bindings, scannedState] = await Promise.all([
+  const [bindings, readState] = await Promise.all([
     readBindings({ store: context.store, log: context.log }),
     readScanState({ store: context.store, log: context.log })
   ]);
+  const scannedState = await ensureBaselines(context, bindings, readState);
   const detectedAt = new Date().toISOString();
   const outcomes = [];
   let total = 0;
@@ -9415,7 +9792,12 @@ async function runScanCycle(deps) {
     if (binding.state !== "active" || !watchesAnything(binding)) {
       continue;
     }
-    const scan = await scanBinding({ deps: context, binding, scanned: scannedState, detectedAt });
+    const scan = await scanBinding({
+      deps: context,
+      binding,
+      scanned: bindingScanOf(scannedState, binding.bindingId),
+      detectedAt
+    });
     await saveBindingScanState(context, scan);
     if (scan.windowFrom !== null) {
       total += scan.enqueued;
