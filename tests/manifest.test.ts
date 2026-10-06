@@ -1019,19 +1019,35 @@ describe('the release workflow — one write grant, and a tag the manifest agree
 
             // The whole-file list is the assertion, for the reason the one above
             // gives: `contents: write` is granted to the publish job alone, so
-            // `gh release` can create the Release object and nothing else in the
-            // file can move a ref. The same grant at the workflow level, or a
-            // fourth scope beside it, is the failure this catches.
-            expect(granted).toEqual(['contents: read', 'contents: write']);
+            // the release action can create the Release object and nothing else
+            // in the file can move a ref. The gate job reads Actions runs and
+            // the tagged commit, and says so — a job-level block *replaces* the
+            // workflow-level set, which is why `contents: read` appears twice
+            // and why a fifth grant, or one the gate does not need, is the
+            // failure this catches.
+            expect(granted).toEqual(['contents: read', 'actions: read', 'contents: read', 'contents: write']);
         }
     });
 
-    it('re-runs the repository gate, and publishes only behind it', () => {
+    it('takes the gate result from the commit\'s own CI run instead of buying a second one', () => {
         {
-            const workflow = readFileSync(resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8');
+            // Comment lines are dropped first: the file's prose is *about* the
+            // duplicate install, and a rule that read the prose would refuse a
+            // sentence discussing it. What is checked is what GitHub executes.
+            const executed = readFileSync(resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8')
+                .split('\n')
+                .filter((line) => !line.trimStart().startsWith('#'))
+                .join('\n');
 
-            expect(workflow).toContain('run: npm run verify');
-            expect(workflow).toContain('needs: verify');
+            // The link, and the two strings that would undo it. A commit is
+            // content-addressed, so CI's pass on this SHA is a statement about
+            // these bytes: a second install here would add a copy of the gate
+            // to keep in step, not a fact. Re-introducing the duplicate is a
+            // deliberate change, and it fails here first.
+            expect(executed).toContain('--workflow verify.yml');
+            expect(executed).toContain('needs: gate');
+            expect(executed).not.toContain('npm ci');
+            expect(executed).not.toContain('npm run verify');
         }
     });
 
