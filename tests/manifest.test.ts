@@ -833,14 +833,20 @@ describe('007 AC-018 / AC-023 — the repository\'s own gate workflow is untouch
 });
 
 describe('007 AC-023 / FR-066 / FR-067 — the publish workflow', () => {
-    // Wave 7 (T-037) writes this file, so these two assertions are skipped until
-    // it exists and are the gate the moment it does. They are here rather than in
-    // Wave 7's own wave because AC-023 assigns the contract to this suite: the
-    // workflow is the product and these are the two properties of it that a
-    // wider permission or a floating tag would quietly change.
-    const isLanded = existsSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH));
+    // Wave 7 (T-037) writes this file, so these two assertions were written
+    // while it did not exist and skipped themselves until it landed. Wave 7 has
+    // landed, and a `skipIf` on "the workflow file is missing" would convert the
+    // one condition AC-023 cares about into a silent skip — deleting
+    // `site.yml` would turn both of these green. So the file's presence is now
+    // asserted outright, once, here: a missing workflow fails this suite loudly
+    // instead of quietly emptying it.
+    it('exists, because both of its properties below are asserted against it', () => {
+        {
+            expect(existsSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH))).toBe(true);
+        }
+    });
 
-    it.skipIf(!isLanded)('references every action by a commit SHA', () => {
+    it('references every action by a commit SHA', () => {
         {
             const workflow = readFileSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH), 'utf8');
             const used = workflow
@@ -864,7 +870,7 @@ describe('007 AC-023 / FR-066 / FR-067 — the publish workflow', () => {
         }
     });
 
-    it.skipIf(!isLanded)('grants exactly the permissions a Pages deployment needs, and nothing else', () => {
+    it('grants exactly the permissions a Pages deployment needs, and nothing else', () => {
         {
             const workflow = readFileSync(resolve(ROOT, PUBLISH_WORKFLOW_PATH), 'utf8');
             const granted = [...workflow.matchAll(/^\s*[a-z][a-z-]*:\s*(?:read|write)\s*$/gm)]
