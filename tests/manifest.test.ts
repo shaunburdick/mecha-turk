@@ -421,6 +421,9 @@ const VERIFY_WORKFLOW_PATH = '.github/workflows/verify.yml';
 /** Repository-relative path of the publish workflow Wave 7 writes. */
 const PUBLISH_WORKFLOW_PATH = '.github/workflows/site.yml';
 
+/** Repository-relative path of the workflow a pushed tag starts. */
+const RELEASE_WORKFLOW_PATH = '.github/workflows/release.yml';
+
 /**
  * The Node floor `astro@7.3.5` declares for itself, as `npm view astro@latest engines`
  * reported it on 2026-10-05 — `{ npm: '>=9.6.5', node: '>=22.12.0' }`.
@@ -959,6 +962,53 @@ describe('007 AC-023 / FR-066 / FR-067 — the publish workflow', () => {
             // what catches it — `contents: write` would otherwise pass unnoticed
             // beside the three that are correct.
             expect(granted).toEqual(['contents: read', 'pages: write', 'id-token: write']);
+        }
+    });
+});
+
+describe('the release workflow — one write grant, and a tag the manifest agrees with', () => {
+    // The same reasoning as the publish workflow above: the properties are
+    // asserted outright rather than skipped when the file is missing, so
+    // deleting `release.yml` fails here instead of quietly emptying this suite.
+    it('exists, because every property below is asserted against it', () => {
+        {
+            expect(existsSync(resolve(ROOT, RELEASE_WORKFLOW_PATH))).toBe(true);
+        }
+    });
+
+    it('grants exactly a read-only gate and one job-scoped write', () => {
+        {
+            const workflow = readFileSync(resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8');
+            const granted = [...workflow.matchAll(/^\s*[a-z][a-z-]*:\s*(?:read|write)\s*$/gm)]
+                .map((match) => match[0].trim());
+
+            // The whole-file list is the assertion, for the reason the one above
+            // gives: `contents: write` is granted to the publish job alone, so
+            // `gh release` can create the Release object and nothing else in the
+            // file can move a ref. The same grant at the workflow level, or a
+            // fourth scope beside it, is the failure this catches.
+            expect(granted).toEqual(['contents: read', 'contents: write']);
+        }
+    });
+
+    it('re-runs the repository gate, and publishes only behind it', () => {
+        {
+            const workflow = readFileSync(resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8');
+
+            expect(workflow).toContain('run: npm run verify');
+            expect(workflow).toContain('needs: verify');
+        }
+    });
+
+    it('refuses a tag that does not name the version the manifest ships', () => {
+        {
+            const workflow = readFileSync(resolve(ROOT, RELEASE_WORKFLOW_PATH), 'utf8');
+
+            // Asserted by the two load-bearing lines rather than by the message
+            // around them: the comparison is made against the pushed ref name,
+            // and a run that reaches `exit 1` publishes nothing.
+            expect(workflow).toContain('GITHUB_REF_NAME');
+            expect(workflow).toContain('exit 1');
         }
     });
 });

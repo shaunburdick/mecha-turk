@@ -116,7 +116,10 @@ exiting non-zero on any finding.
    in the same commit.
 2. **One document, two roles.** `package.json` is the npm package *and* the
    installable manifest. `version` gates git-URL update notifications:
-   bump + rebuild + push to release. Do not reintroduce npm `workspaces`.
+   bump + rebuild + push, then push tag `v<version>` —
+   `.github/workflows/release.yml` re-runs the gate and publishes the GitHub
+   Release from that tag, refusing one the manifest disagrees with. Do not
+   reintroduce npm `workspaces`.
    **Release policy: stay pre-1.0.0 until the public 1.0.0 release** —
    current version `0.1.0`, increment per release; jumping to `1.0.0` is a
    product-owner call, never incidental.
