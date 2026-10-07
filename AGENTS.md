@@ -124,7 +124,7 @@ exiting non-zero on any finding.
    anything lands — drop those and the gate proves only reachability.
    Do not reintroduce npm `workspaces`.
    **Release policy: stay pre-1.0.0 until the public 1.0.0 release** —
-   current version `0.1.0`, increment per release; jumping to `1.0.0` is a
+   current version `0.1.1`, increment per release; jumping to `1.0.0` is a
    product-owner call, never incidental.
 3. **Capabilities: `sessions` and `prompt` only.** `service` is implied by
    `contributes.service` — listing an implied capability in `capabilities[]`
