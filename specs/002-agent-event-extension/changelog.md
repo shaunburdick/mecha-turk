@@ -554,3 +554,48 @@ an **arming is cleared only by a scan whose window covered it**. `### v1.13.2` b
 FR-066, FR-067, FR-073 and FR-084 to carry them; at the time of writing they were recorded only in
 `data-model.md`, `plan.md` and `tasks.md`. Phase 4 and 5 artefacts (`plan.md` **H7** and **H8**, `tasks.md`, `contracts/`) were
 corrected to match both, with the corrections dated in place.
+
+---
+
+### v1.14.0 — 2026-10-06 (the current-project default; GitHub issue #21)
+
+**Why**: the issue asked *"When using a project select dropdown, can the panel be aware of the current project it is in? If so, can it default to the current project?"* The first half needed no product decision — it is a premise, and it was verified before anything was written: the ready context already carries the current project's directory (`HostReadyContext.directory`) and the picker's list already carries every project's directory (`GuestProject.directory`), both in the pinned SDK, so the panel can know without asking for anything new (`research.md` §R11). The second half needed five decisions, and this amendment is their encoding. **Chosen over the two obvious alternatives**: *live tracking* — subscribe to the directory and move the pickers as the operator switches projects — was rejected by the product owner in favour of load-time only, because a value that moves while the operator is editing yanks a picker out from under them; and *auto-store the default*, which would have made the first visit "stick", was rejected because it would end the `mecha-turk:project` key's meaning as *a human picked this* — a derived default written there is indistinguishable from a pick in every later read, which is the constitution-IV failure the key's current rule exists to prevent.
+
+**Product-owner decisions, 2026-10-06** (all five asked and answered before specification; each is a requirement below, not a note):
+
+| Question | Decision | Requirement |
+| --- | --- | --- |
+| Precedence — may the default displace a stored pick? | **No, never.** It fills in only when nothing was ever stored, slotting between the stored selection and the binding-context project | FR-095 |
+| Scope — which dropdowns? | **Both**, and in the binding form **add mode only**; edit mode keeps loading the binding's saved project | FR-097 |
+| Live tracking? | **Load-time only.** No directory subscription; a switch while the panel is open changes nothing | FR-095 |
+| Persistence? | **Derive at load, never auto-store.** The key is written only by the existing explicit-pick path | FR-096 |
+| Add-form value? | **The same resolved value the panel picker shows** — one rule, so the two dropdowns agree | FR-097 |
+
+**Specification decisions** (taken here rather than by the owner, recorded so they read as choices):
+
+- **Fail-closed fallback, including on ambiguity.** No directory, no match, **two projects sharing a directory**, a list that is not `ready`, or a failed `listProjects()` → no default, and resolution falls through to today's rule exactly. *Rejected: first-match-wins on a shared directory* — that is the one case where silently choosing a project is worse than choosing none, and constitution II makes ambiguity a stop condition rather than a coin-flip.
+- **Exact string equality, no path normalization.** Both values are the host's own, so a mismatch is the host disagreeing with itself and fails closed. *Rejected: prefix, case, or trailing-slash folding* — normalization can only turn a fail-closed miss into a match the host never reported.
+- **Provenance copy is a closed string.** `(current project — not saved as a pick)` joins the existing two sources, and the derived line may never say *panel picker*. *Rejected: reusing the panel-picker wording* — it would state that a human picked what the machine derived, which is exactly what constitution IV and NFR-011's *no surface may state more than the provenance holds* forbid.
+- **Clicking the displayed default stores nothing, and that is accepted.** The SDK select skips `onChange` when a click matches the displayed value — the constraint `src/panel-ui.ts`'s `refreshProjectPicker` comment records — so pinning by clicking is impossible without a new control or a synthetic write. *Rejected: a Pin control, and any mount-time or change-adjacent write* — both manufacture a "human pick" for a key defined to hold only what a human picked; an operator who wants it stored picks another project and then the desired one, which is an ordinary explicit pick. The default therefore re-derives every load until any explicit pick stores one, and the edge case is specified (FR-099) rather than left for an implementer to discover.
+- **"The same resolved value the panel picker shows" is read as the control's displayed value.** The owner's fifth decision and the fail-closed rule only hold together under that reading: in the binding-context fallback the picker's control displays nothing (today's behaviour, which the fail-closed rule freezes), so the add form opens empty there too, and the two controls agree in **every** state. *Rejected: preselecting the binding-context project into the draft* — the add form would then show a value the picker's control does not, disagreeing in exactly the state the fallback governs, and a new binding would be seeded with a value no picker displayed.
+
+**Requirement-by-requirement record**:
+
+| 002 v1.13.3 requirement | Effect of v1.14.0 | Status | Authoritative text |
+| --- | --- | --- | --- |
+| **FR-013** — the add sequence: account → project from the `listProjects()` picker → triggers → history scope | The project step gains that it **may arrive pre-filled** — with the operator's stored pick or with the current-project default — keepable by saving and changeable by an ordinary pick, storing nothing and never displacing an existing choice | **Amended** | 002 FR-013 |
+| **AC-005** — the add-flow sequence, `project_missing`, no project creation | Gains the pre-fill case (stored pick or default), the nothing-resolving case, and the edit-mode-never-receives-it clause | **Amended** | 002 AC-005 |
+| **FR-095** *(new)* | Resolution order (stored → derived → binding context → none), with the resolution/display split — the detail line and *Copy project id* take the order, a control displays only terms (1) and (2) (FR-097) — exact-match derivation from the load/refresh snapshot, load-time only with no directory subscription | **Added** | 002 FR-095 |
+| **FR-096** *(new)* | Never stored; the fail-closed set including the ambiguous directory; no storage key, wire member, route, manifest field, capability, or host call | **Added** | 002 FR-096 |
+| **FR-097** *(new)* | Both dropdowns, one rule — **the value the picker's control displays** — add mode only, the binding-context term never preselected, edit mode untouched, an untouched save writing the binding's own `projectId` | **Added** | 002 FR-097 |
+| **FR-098** *(new)* | The detail line's closed four-string vocabulary, with the new derived string, chosen by the term of FR-095's order that produced the value — a derived id never renders the binding string | **Added** | 002 FR-098 |
+| **FR-099** *(new)* | The click on the displayed default changes nothing, by decision; no Pin control, no synthetic write | **Added** | 002 FR-099 |
+| **AC-044 – AC-047** *(new)* | Four binary criteria: resolution and dropdown agreement, with *Copy project id* mirroring the detail line; load-time-only plus never-stored plus byte-identical surface; the fail-closed set; the closed copy — including the derived-vs-binding label when both are in force — and the click case | **Added** | 002 AC-044 – AC-047 |
+
+**Principles reviewed, unchanged in substance**: Principle II (safe autonomy) supplies the fail-closed rule for an unmatchable or ambiguous directory — a directory the panel cannot resolve is a stop condition for the derivation, never permission to guess a project. Principle IV (human-visible auditability) supplies both the never-store rule and FR-098's closed wording: a surface must not present a derived value as an operator choice. Principle VI (specification and verification) is why the premise was verified against the pinned SDK before a requirement was written (§R11) and why every clause above carries a binary criterion. Principle VII (thin orchestration boundary) is satisfied rather than strained: the default reads two facts the panel already receives and adds no host call, no capability, and no service surface; OpenChamber still owns projects. **No principle is weakened by this amendment.**
+
+**Requirements explicitly unchanged**: FR-004 and FR-014 (the *not listed?* affordance and the recoverable `project_missing` state — a default never invents a project, so neither moves), FR-028 and FR-048 (the dispatch target stays the binding's stored `projectId`; this default never reaches `host.startSession()`), FR-041's owner table (the `mecha-turk:project` key remains UI state and not a configuration source — now stated twice over, since the default never touches it either), and 005's rendering block. No NFR, contract, configuration field, or audit vocabulary moves.
+
+**Migration impact**: none for any deployed system. No stored record, storage key, wire member, route, manifest field, capability, or contract changes; an installation that has never picked a project simply starts showing a default it may accept or overwrite, one that has picked is untouched by construction (FR-095 clause 1), and the shipped build behaves exactly as it did until Phase 6 lands this — `### v1.13.3` remains the description of what is running.
+
+**Approval status**: drafted 2026-10-06 for Gate 1 challenge and product-owner approval with GitHub issue #21. **Not yet approved, not implemented.**

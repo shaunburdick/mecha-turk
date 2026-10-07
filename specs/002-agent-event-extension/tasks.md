@@ -378,6 +378,231 @@ Three file-ownership rules make the bands hold, and each one exists because a dr
 
 ---
 
+## Wave 5 — 002 v1.14.0: the current-project default (GitHub issue #21) — added 2026-10-06
+
+**Goal**: the panel derives the host's current project as a **load-time, never-stored** default, so both
+project dropdowns start on the project the operator is already in — with every refusal, every detail-line
+string, every storage key and every control prop exactly as they are when no default resolves.
+
+**User story**: 002 **User Story 6** (P2, *Land on the project I am already in*) is this wave's only story,
+so it is stated once here rather than carried as a per-task `[US]` label — Wave 4's tasks carried
+requirement brackets for the same reason.
+
+**Independent test** (AC-044 – AC-047, AC-005 as amended, SC-014 — offline, per `AGENTS.md`: no live
+OpenChamber, no real PAT, no network): from fixture state (a ready project list plus a host directory) read
+both dropdowns, the detail line and the *Copy project id* control in every resolution state; drive one
+add-mode save through the existing loopback service on a temp dir and read the stored `projectId` back out of
+the service; assert `storage.set` with `mecha-turk:project` **zero** times across load, refresh, list reload,
+add-form open and untouched save; and read the source for the absences — no `onDirectory`, no new `PanelHost`
+member, exactly one write site for the key, two buttons in the picker group.
+
+**Input**: [`plan.md`](./plan.md) § *Amendment record — 002 v1.14.0* (§C.1–§C.10, decisions **J1–J9**; Gate 2
+PASS with six findings, folded into the tasks below) · [`research.md`](./research.md) §R11 ·
+[`challenge-ledger.md`](./challenge-ledger.md) (Gate 1 and Gate 2) · `spec.md` **v1.14.0**, the approved text
+of record. **No requirement text is rewritten by this wave.**
+
+**Brackets reconciled** 2026-10-06 against the final v1.14.0 numbering: `FR-095 – FR-099`, `AC-044 – AC-047`
+and `SC-014` are new; `FR-013` and `AC-005` are amended in place and marked *(am.)*; `FR-001 – FR-094` and
+`AC-001 – AC-043` keep their numbers and meanings, so no bracket below names a requirement this amendment
+did not touch except the two it amended. **Two tasks are the Gate-2 mandatory checks**: **E-2** carries
+G2-5 (AC-047's closing-clause static absence) and **E-8** carries G2-1 (the non-vacuous FR-099 assertion);
+**E-1 is the wave's first task and is J9's absence scan with its bite-check** (Gate-2 assumption 2), and the
+`resetDraft` threading in **E-7** follows J5, not §C.3's old loose "unchanged" (Gate-2 assumption 3, G2-2).
+
+- [ ] **E-1** [002 FR-095, FR-096(c), AC-045] **The absence scan, written before any feature code** (plan
+  **J9**; Gate-2 assumption "write the scan before the feature code"). Create `tests/current-project-default.test.ts`
+  holding only the static block for now, green on today's tree — that is what makes it a proof of absence
+  rather than a proof of the feature: (a) a source-and-bundle scan whose matcher is the **registration/call
+  form**, `onDirectory\(` (equivalently `\.onDirectory\(`), following `PROJECT_CREATE_CALL`'s trailing-`\(`
+  rule (`tests/project-picker.test.ts:430`) so a bare name cannot match and the SDK's bundled name text stays
+  out of reach by construction — asserting that no **registration** appears in `src/`, `panel/`, `service/`,
+  `panel/main.js` or `service/main.js`. **Baseline, expected (G3-1): `panel/main.js:31` carries the bundled
+  SDK's own `onDirectory:` property definition — a definition, not a registration by our code — so the scan
+  reads green over it by construction, not by allowance.** **Bite-check**: feed the matcher a synthetic
+  call-form sample (`host.onDirectory(() => {})`) and require a match, then the bare name text
+  (`onDirectory:`) and require none — a green pattern that cannot fail proves
+  nothing (the AC-121 precedent in this repo's own suites); (b) `src/session.ts`'s `PanelHost` Pick list pinned
+  to its **exact current member set** — modelled on the `Pick<…>` extraction `tests/project-picker.test.ts`
+  already uses for its `Project` members, but pinning the whole list — so "no host method it did not call at
+  v1.13.3" is a closed list rather than
+  an open grep; (c) AC-045's closed enumeration restated once in this suite — `package.json`'s
+  `openchamber.contributes` (panel id `mecha-turk`, `capabilities[]` = `['sessions','prompt']`, `service`
+  without `permissions`), the `host.storage` key set, the route table, and the `contracts/` file list — with
+  `tests/manifest.test.ts` and `tests/containment-proof.test.ts` left **untouched** as the independent proof
+  (they go green at `E-9`). No `src/` change.
+
+- [ ] **E-2** [P] [002 FR-096(a), FR-099, AC-047] **AC-047's closing-clause census** (Gate-2 **G2-5 —
+  mandatory Gate-3 check**). Add to `tests/project-picker.test.ts`'s static-guard section, beside the AC-121
+  project-creation scan and reusing its `SCANNED_DIRS` / `scanProjectCreationSurface()` reader (it already
+  covers the bundles): (a) `mecha-turk:project` has **exactly one** write site in `src/` —
+  `storeProjectSelection` (`src/project-actions.ts:97`), reached only from the explicit-pick handler — with a
+  **bite-check** that a planted second `host.storage.set(PROJECT_STORAGE_KEY, …)` is reported by the same
+  census; (b) a **panel-wide button census** — AC-047 says "anywhere in the panel" — keeping the picker-group
+  census over `mountProjectPicker` (`src/panel-ui.ts`, exactly `Reload projects` and `Copy project id`) and
+  adding the bindings-form **Dispatch project** select (`mountProjectSelect`, `src/bindings-body.ts:276`,
+  whose `mountSelect` is at `:288`) to the scanned surfaces, so no
+  third button, no *Pin* control and no second write path exists anywhere in the
+  panel — again with a bite-check against a planted third `mountButton`. Green before any feature code; no
+  module changes.
+  *Parallel-safe with `E-3`: different files, no shared state.*
+
+- [ ] **E-3** [P] [002 FR-095, FR-096(b), AC-046] **The wave's fixtures** — in
+  `tests/current-project-default.test.ts` (so it follows `E-1` in that file), add the data every later case
+  arranges from: ready snapshots whose project directories **match**, **nearly match** (`/dir` against
+  `/dir/`), **differ only in case**, and **collide** (two projects sharing one directory); the `loading`,
+  `error` and rejection doubles; and the stored-pick / no-pick / binding-context inputs. Include the
+  **fixture-shape guard** — assert the near-miss pair differs only by its trailing slash and the collision pair
+  really shares a directory — because a fixture quietly normalised later would make AC-046's exact-equality
+  case pass vacuously. Per plan **J7**, `tests/support/panel.ts` and `tests/support/dispatch-loop.ts` are
+  **not edited** (`dispatch-loop.ts` stays directory-less by decision). Pure data plus one guard test: it
+  compiles and passes with no feature code present. *Needs `E-1`. Parallel-safe with `E-2`.*
+
+- [ ] **E-4** [002 FR-095, FR-096(c), AC-045] **The load-time directory snapshot** (plan **J2**) —
+  `src/panel-state.ts` gains the wave's only new state member, `PanelState.hostDirectory: string | null`,
+  initial `null`, in-memory only, never persisted; `src/project-actions.ts` gains the exported
+  `recordHostDirectory(rt, directory)` — one assignment, beside `restoreProjectSelection`, exported because the
+  harnesses mount by hand and an unexported step would be untestable; `src/app.ts`'s `mountPanel` records
+  `context.directory ?? null` as its **first statement** (`src/app.ts:287`) and nowhere else, so a later
+  `onReady` snapshot still stops at the `started` guard (`:361`). No host call, no listener, no key.
+  *Ordered after `E-1`…`E-3` by J9's discipline, not by a code dependency.*
+
+- [ ] **E-5** [002 FR-095, FR-096(b), FR-098] **The resolution/display split and the term label** (plan
+  **J1**, **J3**, **J4**) — `src/project-picker.ts`: `currentProjectDefault(state)`, pure and fail-closed
+  (ready list, non-null `hostDirectory`, exactly one `directory === hostDirectory` — exact `===`, no
+  normalisation; `null` for every other state, including two projects sharing a directory);
+  `displayedProjectId(state) = projectSelection ?? currentProjectDefault` (terms (1)–(2) only, never the
+  binding context); `selectedProjectId` gains the derived term between (1) and (3);
+  `projectSelectionSource(state)` chooses one of FR-098's four strings by producing term — **deleting the
+  two-way branch at `src/project-picker.ts:279`** (ledger Q2b). Tests alongside in
+  `tests/project-picker.test.ts`: the four-term resolution order, the whole FR-096(b) fall-through set with
+  byte-identical pre-amendment output, and the four exact strings **including the combined-state regression**
+  — no stored pick + derived default + binding context renders exactly
+  `Selected project: B (current project — not saved as a pick).` and contains neither `(from the binding).`
+  nor `panel picker` (AC-047). *Needs `E-4` (the member it reads) and `E-2` (same test file).*
+
+- [ ] **E-6** [P] [002 FR-097(a), FR-099] **The picker control displays the default** (plan **J6**) —
+  `src/panel-ui.ts`: `mountProjectPicker` **and** `refreshProjectPicker` set `value:` from
+  `displayedProjectId(state)` (both sites — mount and repaint must not disagree), and the onChange-trap comment
+  (`src/panel-ui.ts:164-167`) is rewritten: the binding-context term still must not be displayed, the derived
+  default may, and the SDK's same-value skip applying to it is accepted behaviour (FR-099). **No** change to
+  any `onChange` handler, to the select's change semantics, or to `disabled`/`placeholder` derivation; no Pin
+  control. *Needs `E-5` (and `E-4`). Parallel-safe with `E-7`: disjoint files.*
+
+- [ ] **E-7** [P] [002 FR-013 (am.), FR-097(b)(c)(d), AC-005 (am.), AC-044] **The add-form prefill, threaded
+  through every reset** (plan **J5**; Gate-2 **G2-2**) — `resetDraft(bindings, displayed: string | null)` in
+  `src/bindings.ts`, with **both threading sites named rather than left to a guess**: (1) `resetCoveredDraft`,
+  called from `bindRepository` (`src/bindings.ts:266`), gains the parameter and forwards it (`clearDraftIfCovered`
+  at `:133` likewise); (2) `applySaveOutcome` (`src/bindings-edit.ts:184`) takes an input object with **no
+  `rt`**, so the displayed value arrives as a field of that input from its single caller (`:277`), the one
+  holding the runtime. Every reset site passes `displayedProjectId(rt.state)`; `readDraft` is untouched; the
+  edit path never receives it — `startEditingBinding`'s success path loads the stored row, and the refusal
+  paths reset to add-mode defaults only after leaving edit mode (FR-097(c)). Tests in
+  `tests/bindings-edit.test.ts`: prefill order stored → default → null; a binding-context-only state opens
+  **empty**; with a default of `B` in force the editor opens on the stored row's project. (The **loopback
+  untouched-save** case is `E-8`'s, where plan §C.6 places it.) *Needs `E-5`. Parallel-safe with `E-6`.*
+
+- [ ] **E-8** [002 FR-095 – FR-099, AC-044 – AC-047, SC-014] **The cross-surface proof, offline** (Gate-2
+  **G2-1 — mandatory Gate-3 check** — and **G2-3**'s two named cases) — finish
+  `tests/current-project-default.test.ts`, driving panel state and the mounted bodies against the fake host
+  only (no live host, no PAT, no network):
+  - **AC-044** — both dropdowns resolve through one rule at load and never disagree; the detail line and
+    *Copy project id* mirror each other (`A` stored / `B` derived / `C` binding-only), the copy control is
+    enabled exactly when the line reports an id and disabled only on `No project selected …`; with a default
+    of `B` in force the editor opens on the stored project.
+  - **FR-099, non-vacuously (G2-1)** — assert the **mounted picker select's props `value:` IS the derived id**
+    while `state.projectSelection === null`: that is the fact which makes the SDK's verified same-value
+    `onChange` skip apply (`research.md` §R11 item 6), and the assertion is written so it **fails if `value:`
+    regresses to `state.projectSelection`**. The storage double records **zero** writes to `mecha-turk:project`
+    across that click, and the pick-`A`-then-`B` path stores `B` through the ordinary explicit-pick write.
+    **A select double that never fires `onChange` may not be the sole assertion** — it stays green whatever the
+    panel does; the props assertion is the load-bearing one.
+  - **AC-046's two named cases (G2-3)** — the **near-miss**: host directory `/dir` against a project at
+    `/dir/`, and the same pair differing only in case, each ⇒ **no default** (exact `===`, no folding); and
+    the **control-props** assertion: across all six fail-closed states the select's `disabled`, `placeholder`
+    and the note are what they are with no directory in force, so nothing is disabled, delayed, or
+    invalidated.
+  - **AC-045's runtime half** — a directory change while the panel is open changes nothing (no value, no
+    control, no draft) and registers no listener; **AC-047** — the rendered detail line reads the exact
+    combined-state string, the click scenario writes nothing; **FR-097(d) / SC-014 / FR-096(a)** — on the
+    existing loopback harness, a form opened **after** the ready snapshot and saved untouched stores the
+    default in **that binding's** `projectId`, read back out of the service, while a form opened **before**
+    it saves into today's refusal; across load, Reload projects, add-form open and that save, **zero**
+    `set:mecha-turk:project` writes; and the key's count among `host.storage` keys unchanged.
+  *Needs `E-3`, `E-4`, `E-5`, `E-6`, `E-7` — it asserts the finished behaviour.*
+
+- [ ] **E-9** [002 all; `AGENTS.md` gate] **`npm run verify` — THE gate.** Build → lint → typecheck → test
+  green across the whole tree (`src/`, `panel/`, `service/`, `tests/`), with **no edits to any pre-existing
+  suite** (plan **J7**: no existing suite derives a default by
+  construction, so none needs touching — the untouched green run *is* that proof) and **zero lint
+  suppressions** (invariant 7: a described, line-scoped disable at most, and none is planned). No task above
+  counts as done until this is green.
+
+- [ ] **E-10** [AGENTS.md invariant 1] **Rebuild and commit the bundles with the wave** — `npm run build`, and
+  the rebuilt `panel/main.js` goes into the **same commit** as the `src/` change; `service/main.js` must be
+  **byte-unchanged** (no service source moves) and the commit says so as a checked fact, not an assumption.
+  No `version` bump (invariant 2 — a release is the product owner's call), no manifest, capability, storage
+  key, SDK pin or contract change (invariants 3, 4, 6, 10); the commit body records the per-AC status
+  (`AC-044` – `AC-047`, `AC-005`, `SC-014`) with the `Generated-By` attribution the hook expects.
+
+- [ ] **E-11** **Delivery bookkeeping.** Check each box above off **as its task lands** — an unchecked box in a
+  delivered wave is a lie, and `tasks.md` is kept unconditionally (AGENTS.md). Two notes, both explicit about
+  *when*: (a) `spec.md`'s **`Status` line flips to implemented at delivery, in Phase 6 — not in this phase**
+  (Phase 5 touched no requirement text; the v1.13.x precedent is `changelog.md` → *Delivery* plus the header),
+  and that flip is the one `spec.md` edit this wave makes — **flagged for Gate 3**, because plan §C.9's
+  "no `spec.md` edit" guard was written for requirement text and a challenger reading it literally should
+  route the status flip through the PM rather than have an implementer assume it; (b) `quickstart.md`,
+  `README.md`, `contracts/` and the site stay **unedited by decision** (plan §C.1: nothing there describes the
+  old default, so no operator note is owed and `prose-budget.test.ts`'s pinned walkthrough figure stands).
+
+**Wave 5 boundary**: `npm run verify` green; rebuilt `panel/main.js` committed with the wave and
+`service/main.js` byte-unchanged (invariant 1); every pre-existing suite untouched and green (J7); per-AC
+status in the commit body with `Generated-By`.
+
+**MVP slice if delivery is cut**: `E-4 + E-5 + E-6 + E-7` is the behaviour-bearing half, but **nothing ships
+without `E-1` and `E-2`** — the wave's safety property is an absence, and an absence proved after the fact is
+not proved — nor without `E-9`/`E-10`, which are the repo's own floor. `E-8` is not honestly shippable
+either: a default whose proof suite is missing is the vacuity G2-1 exists to prevent.
+
+**Dependencies**:
+
+| Task | Needs | Why |
+| --- | --- | --- |
+| **E-1** | — | the absence proof must exist before the code it constrains |
+| **E-2** | — | the census reads today's tree; disjoint from `E-1`'s file |
+| **E-3** | E-1 | same suite file |
+| **E-4** | E-1 … E-3 | J9's ordering discipline, not a code edge |
+| **E-5** | E-4, E-2 | reads `hostDirectory`; adds to the test file `E-2` edited |
+| **E-6** | E-5, E-4 | reads `displayedProjectId`; the mount reads state |
+| **E-7** | E-5 | reads `displayedProjectId`; owns its own test file |
+| **E-8** | E-3, E-4, E-5, E-6, E-7 | asserts the finished behaviour in the suite `E-1`/`E-3` built |
+| **E-9** | E-1 … E-8 | the gate |
+| **E-10** | E-9 | bundles are rebuilt from green source |
+| **E-11** | E-10 | delivery |
+
+**Genuinely parallel**, and only in these two bands — inside a band the tasks own disjoint files:
+
+| Band | Parallel tasks | Files they own |
+| --- | --- | --- |
+| 1 | **E-2** `[P]`, **E-3** `[P]` | `tests/project-picker.test.ts` · `tests/current-project-default.test.ts` (after `E-1`) |
+| 2 | **E-6** `[P]`, **E-7** `[P]` | `src/panel-ui.ts` · `src/bindings.ts`, `src/bindings-edit.ts`, `tests/bindings-edit.test.ts` |
+
+`E-1` runs alone and first; `E-4 → E-5 → (E-6 ∥ E-7) → E-8 → E-9 → E-10 → E-11` is the serial spine.
+
+**Routing recommendation for Phase 6 — Wave 5 alone: 11 tasks, 4 `[P]`, two parallel bands — architect
+delivery with one review gate.** The middle band of the repo's own reading (≤5 solo · 6–15 with review
+gates · >15 multi-wave): one branch, one file set, one wave boundary, and the longest genuinely parallel set
+is two tasks — splitting it across dispatches would buy parallelism the bands do not offer and cost a bundle
+rebuild at every seam. **The review gate sits after `E-8`, before `E-9`'s rebuild-and-commit**, and it reads
+four things in this order: `E-1`/`E-2`'s bite-checks (a scan that cannot fail is the failure mode this wave
+fears most); `E-8`'s FR-099 props assertion (does it fail when `value:` reverts to `state.projectSelection`?);
+`E-7`'s two threading sites (J5, not §C.3's loose wording); and `E-5`'s deletion of `project-picker.ts:279`
+for the term function, with the combined-state string asserted by exact equality. What does **not** need its
+own gate: no security boundary is added — the key gains no writer (constitution IV is enforced by `E-2`'s
+census, which is an absence assertion), no credential is read, and every new value is an operator-visible
+project id.
+
+---
+
 ## Wave graph, dependencies, and parallel structure
 
 ```
@@ -415,6 +640,7 @@ Wave 3  C-1 (005's parser)  ◄── A-1                          │
 
 Wave 4 (corrected 2026-10-05 — five internal bands; see the dependency table above)
 
+```
   band 1   D-1 [P] the field and its rule set   ∥  D-4 [P]  the three durable facts  ∥  D-11 [P] the docs
               │
               ├──────────────▶ D-3 [P]  the change observer (a module, no route edit)
@@ -429,8 +655,32 @@ Wave 4 (corrected 2026-10-05 — five internal bands; see the dependency table a
   band 4   D-10  the contract proof  ∥  D-12 [P]  the acceptance proof   (both need D-1…D-9)
 ```
 
+Wave 5 (added 2026-10-06 — four bands; the dependency table and file-ownership rules live in its own
+section above)
+
+```
+  band 1   E-1  the absence scan + bite-check + Pick-list pin      (first, serial — no feature code yet)
+               │
+  band 2   E-2 [P] AC-047's census  ∥  E-3 [P] the fixtures        (disjoint test files)
+               │
+  band 3   E-4  hostDirectory + recordHostDirectory + mount wiring
+               ▼
+           E-5  currentProjectDefault / displayedProjectId / term label, `:279` deleted
+               ├──────────────▶ E-6 [P] picker `value:` + comment rewrite
+               └──────────────▶ E-7 [P] add-form prefill threading (J5's two sites)
+               │
+  band 4   E-8  the cross-surface proof  ─▶  E-9  npm run verify  ─▶  E-10  bundles  ─▶  E-11  bookkeeping
+```
+
 - **Wave 4 is a separate delivery from Waves 1–3** and may run without them: it shares no task and no file with the allow-list work except `service/bindings.ts`, which `D-1` extends and `D-5` adds one exported reader to, rather than re-cutting. Its spine is `D-1 → D-5 → D-6`, and `D-4 → D-5` is a hard edge with a reason — the durable distinction must exist before the window rule can consult it, or the rule has nothing to keep recovery working. **`D-4` is not optional within the wave**: shipping `D-5` without it is the one outcome this wave exists to prevent.
 - **Wave 4's own shape, corrected**: the draft claimed `D-1 ∥ D-3 ∥ D-4 ∥ D-7 ∥ D-11` in one parallel set. That was wrong in two directions — `D-3` observes the member `D-1` adds, and `D-7` reports the mode `D-1` defines and the flag `D-4` writes, so none of the three can precede `D-1` — and it omitted that `D-2` and `D-3` shared `service/routes/bindings.ts` until the Phase-4 decision moved the observer into its own module. The five bands above are the corrected claim, and **only the bands** are parallel.
+- **Wave 5 is a separate delivery from Waves 1–4** (all four delivered) and shares no open task, so its
+  file set is its own: `src/{panel-state,project-actions,app,project-picker,panel-ui,bindings,bindings-edit}.ts`
+  plus `tests/current-project-default.test.ts` (new), `tests/project-picker.test.ts` and
+  `tests/bindings-edit.test.ts`. Its spine is `E-1 → E-5 → E-8`, and `E-1 → everything` is a hard edge with a
+  reason: AC-045's safety property is an *absence*, and a scan written after the feature code proves the
+  feature rather than the absence. Wave 5's own edges are the dependency table in its section rather than a
+  duplicate list here.
 - **Strictly serial, and why**: `A-1 → A-5 → A-6/A-7` is one chain because attribution is only
   testable once the row carries it, and the row shape must exist before the detection code compiles
   against it. `B-1 → B-2 → B-3 → B-5` is one chain because the gate reads the run's references, the
@@ -563,6 +813,27 @@ except the four pre-existing ones each genuinely touches.
 | **I.7** FR-089 – FR-094 (one control, its guidance, one rendering, derived state, honest absence, keyboard) | **D-9** | D-7, D-10 |
 | **Pre-existing, touched** FR-018 (the atomic write), FR-019 (dedupe), FR-023 (the one rescan mechanism), FR-024 (fail closed), FR-051 (the `since`-less comparison), FR-035 (the trail records a change), FR-036 (health carries the window), FR-042 (the two documents), 006 FR-059(a) (`overlapMs` subtraction) | spread across D-2, D-4, D-5, D-6, D-7, D-11 | D-10 asserts the *unchanged* ones |
 
+## Requirement → task coverage (v1.14.0 block)
+
+Audited 2026-10-06 against the **final** v1.14.0 numbering: every requirement the amendment adds or amends
+has an owning task, and no task cites a requirement outside `FR-095 – FR-099` except the two amended ones it
+genuinely touches.
+
+| 002 v1.14.0 requirement | Owning task | Also asserted by |
+| --- | --- | --- |
+| **J.1** FR-095 (resolution order; load-time derivation; resolve/display split; exact equality; two reload moments only) | **E-4**, **E-5** | E-3 (fixtures), E-8 (AC-044, AC-045's runtime half) |
+| **J.2** FR-096(a) never stored | **E-2** (the one write site), **E-8** (zero writes) | SC-014 row |
+| **J.2** FR-096(b) fail closed — null / no match / shared directory / not `ready` / error / rejection | **E-5** | E-3 (near-miss and collision fixtures), E-8 (six states, control props) |
+| **J.2** FR-096(c) no new surface | **E-1** | E-10 (nothing else may move) |
+| **J.3** FR-097(a) the picker displays terms (1)–(2) only | **E-6** | E-8 |
+| **J.3** FR-097(b) add-form prefill, one rule, add mode only | **E-7** | E-8 |
+| **J.3** FR-097(c) edit mode untouched | **E-7** | E-8 |
+| **J.3** FR-097(d) untouched save writes the binding's own `projectId`; an empty draft behaves as today | **E-7**, **E-8** | SC-014 row |
+| **J.4** FR-098 the four strings, chosen by producing term | **E-5** | E-8 (rendered combined state) |
+| **J.5** FR-099 the displayed default stores nothing; no *Pin* | **E-6** | E-2 (no Pin control exists), E-8 (non-vacuous props assertion) |
+| FR-013 *(am.)* the project step may arrive pre-filled, never in edit mode | **E-7** | E-8 |
+| SC-014 (0 recorded defaults across every enumerated moment) | **E-8** | E-2 (the key's single writer) |
+
 ## Acceptance criterion → task coverage (v1.13.0 block)
 
 | 002 v1.13.0 criterion | Tasks |
@@ -579,6 +850,17 @@ except the four pre-existing ones each genuinely touches.
 | **AC-041** (both edits; one rescan path; the control, its guidance, and its rendering) | D-2, D-6, D-9, D-10 |
 | **AC-042** (one row per change; no per-observation row; the health row's three facts) | D-3, D-7, D-8, D-10 |
 | **AC-043** (no new route, capability, or manifest change; the mode gates nothing; the docs) | D-9, D-10, D-11 |
+
+## Acceptance criterion → task coverage (v1.14.0 block)
+
+| 002 v1.14.0 criterion | Tasks |
+| --- | --- |
+| **AC-044** (both dropdowns through one rule; line and *Copy project id* mirror each other; edit untouched) | E-5, E-7, E-8 |
+| **AC-045** (load-time only, no directory listener, zero writes to the key, byte-for-byte closed surfaces) | E-1, E-4, E-8, E-10 |
+| **AC-046** (six fail-closed states byte-identical; near-miss exact equality; no control disabled, delayed, or invalidated) | E-3, E-5, E-8 |
+| **AC-047** (four strings by exact equality; combined state; the click stores nothing; no *Pin*, no second write path) | E-2, E-5, E-6, E-8 |
+| **AC-005** *(am.)* (fresh form pre-filled or empty; edit never receives the default) | E-7, E-8 |
+| **SC-014** (0 derived defaults recorded in `mecha-turk:project`, key count unchanged) | E-8, E-2 |
 
 ## Acceptance criterion → task coverage
 
