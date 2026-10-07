@@ -409,7 +409,7 @@ G2-5 (AC-047's closing-clause static absence) and **E-8** carries G2-1 (the non-
 **E-1 is the wave's first task and is J9's absence scan with its bite-check** (Gate-2 assumption 2), and the
 `resetDraft` threading in **E-7** follows J5, not §C.3's old loose "unchanged" (Gate-2 assumption 3, G2-2).
 
-- [ ] **E-1** [002 FR-095, FR-096(c), AC-045] **The absence scan, written before any feature code** (plan
+- [x] **E-1** [002 FR-095, FR-096(c), AC-045] **The absence scan, written before any feature code** (plan
   **J9**; Gate-2 assumption "write the scan before the feature code"). Create `tests/current-project-default.test.ts`
   holding only the static block for now, green on today's tree — that is what makes it a proof of absence
   rather than a proof of the feature: (a) a source-and-bundle scan whose matcher is the **registration/call
@@ -431,7 +431,7 @@ G2-5 (AC-047's closing-clause static absence) and **E-8** carries G2-1 (the non-
   `tests/manifest.test.ts` and `tests/containment-proof.test.ts` left **untouched** as the independent proof
   (they go green at `E-9`). No `src/` change.
 
-- [ ] **E-2** [P] [002 FR-096(a), FR-099, AC-047] **AC-047's closing-clause census** (Gate-2 **G2-5 —
+- [x] **E-2** [P] [002 FR-096(a), FR-099, AC-047] **AC-047's closing-clause census** (Gate-2 **G2-5 —
   mandatory Gate-3 check**). Add to `tests/project-picker.test.ts`'s static-guard section, beside the AC-121
   project-creation scan and reusing its `SCANNED_DIRS` / `scanProjectCreationSurface()` reader (it already
   covers the bundles): (a) `mecha-turk:project` has **exactly one** write site in `src/` —
@@ -446,7 +446,7 @@ G2-5 (AC-047's closing-clause static absence) and **E-8** carries G2-1 (the non-
   module changes.
   *Parallel-safe with `E-3`: different files, no shared state.*
 
-- [ ] **E-3** [P] [002 FR-095, FR-096(b), AC-046] **The wave's fixtures** — in
+- [x] **E-3** [P] [002 FR-095, FR-096(b), AC-046] **The wave's fixtures** — in
   `tests/current-project-default.test.ts` (so it follows `E-1` in that file), add the data every later case
   arranges from: ready snapshots whose project directories **match**, **nearly match** (`/dir` against
   `/dir/`), **differ only in case**, and **collide** (two projects sharing one directory); the `loading`,
@@ -457,7 +457,7 @@ G2-5 (AC-047's closing-clause static absence) and **E-8** carries G2-1 (the non-
   **not edited** (`dispatch-loop.ts` stays directory-less by decision). Pure data plus one guard test: it
   compiles and passes with no feature code present. *Needs `E-1`. Parallel-safe with `E-2`.*
 
-- [ ] **E-4** [002 FR-095, FR-096(c), AC-045] **The load-time directory snapshot** (plan **J2**) —
+- [x] **E-4** [002 FR-095, FR-096(c), AC-045] **The load-time directory snapshot** (plan **J2**) —
   `src/panel-state.ts` gains the wave's only new state member, `PanelState.hostDirectory: string | null`,
   initial `null`, in-memory only, never persisted; `src/project-actions.ts` gains the exported
   `recordHostDirectory(rt, directory)` — one assignment, beside `restoreProjectSelection`, exported because the
@@ -466,7 +466,7 @@ G2-5 (AC-047's closing-clause static absence) and **E-8** carries G2-1 (the non-
   `onReady` snapshot still stops at the `started` guard (`:361`). No host call, no listener, no key.
   *Ordered after `E-1`…`E-3` by J9's discipline, not by a code dependency.*
 
-- [ ] **E-5** [002 FR-095, FR-096(b), FR-098] **The resolution/display split and the term label** (plan
+- [x] **E-5** [002 FR-095, FR-096(b), FR-098] **The resolution/display split and the term label** (plan
   **J1**, **J3**, **J4**) — `src/project-picker.ts`: `currentProjectDefault(state)`, pure and fail-closed
   (ready list, non-null `hostDirectory`, exactly one `directory === hostDirectory` — exact `===`, no
   normalisation; `null` for every other state, including two projects sharing a directory);
@@ -480,7 +480,7 @@ G2-5 (AC-047's closing-clause static absence) and **E-8** carries G2-1 (the non-
   `Selected project: B (current project — not saved as a pick).` and contains neither `(from the binding).`
   nor `panel picker` (AC-047). *Needs `E-4` (the member it reads) and `E-2` (same test file).*
 
-- [ ] **E-6** [P] [002 FR-097(a), FR-099] **The picker control displays the default** (plan **J6**) —
+- [x] **E-6** [P] [002 FR-097(a), FR-099] **The picker control displays the default** (plan **J6**) —
   `src/panel-ui.ts`: `mountProjectPicker` **and** `refreshProjectPicker` set `value:` from
   `displayedProjectId(state)` (both sites — mount and repaint must not disagree), and the onChange-trap comment
   (`src/panel-ui.ts:164-167`) is rewritten: the binding-context term still must not be displayed, the derived
@@ -488,7 +488,7 @@ G2-5 (AC-047's closing-clause static absence) and **E-8** carries G2-1 (the non-
   any `onChange` handler, to the select's change semantics, or to `disabled`/`placeholder` derivation; no Pin
   control. *Needs `E-5` (and `E-4`). Parallel-safe with `E-7`: disjoint files.*
 
-- [ ] **E-7** [P] [002 FR-013 (am.), FR-097(b)(c)(d), AC-005 (am.), AC-044] **The add-form prefill, threaded
+- [x] **E-7** [P] [002 FR-013 (am.), FR-097(b)(c)(d), AC-005 (am.), AC-044] **The add-form prefill, threaded
   through every reset** (plan **J5**; Gate-2 **G2-2**) — `resetDraft(bindings, displayed: string | null)` in
   `src/bindings.ts`, with **both threading sites named rather than left to a guess**: (1) `resetCoveredDraft`,
   called from `bindRepository` (`src/bindings.ts:266`), gains the parameter and forwards it (`clearDraftIfCovered`
@@ -501,7 +501,7 @@ G2-5 (AC-047's closing-clause static absence) and **E-8** carries G2-1 (the non-
   **empty**; with a default of `B` in force the editor opens on the stored row's project. (The **loopback
   untouched-save** case is `E-8`'s, where plan §C.6 places it.) *Needs `E-5`. Parallel-safe with `E-6`.*
 
-- [ ] **E-8** [002 FR-095 – FR-099, AC-044 – AC-047, SC-014] **The cross-surface proof, offline** (Gate-2
+- [x] **E-8** [002 FR-095 – FR-099, AC-044 – AC-047, SC-014] **The cross-surface proof, offline** (Gate-2
   **G2-1 — mandatory Gate-3 check** — and **G2-3**'s two named cases) — finish
   `tests/current-project-default.test.ts`, driving panel state and the mounted bodies against the fake host
   only (no live host, no PAT, no network):
@@ -530,21 +530,21 @@ G2-5 (AC-047's closing-clause static absence) and **E-8** carries G2-1 (the non-
     `set:mecha-turk:project` writes; and the key's count among `host.storage` keys unchanged.
   *Needs `E-3`, `E-4`, `E-5`, `E-6`, `E-7` — it asserts the finished behaviour.*
 
-- [ ] **E-9** [002 all; `AGENTS.md` gate] **`npm run verify` — THE gate.** Build → lint → typecheck → test
+- [x] **E-9** [002 all; `AGENTS.md` gate] **`npm run verify` — THE gate.** Build → lint → typecheck → test
   green across the whole tree (`src/`, `panel/`, `service/`, `tests/`), with **no edits to any pre-existing
   suite** (plan **J7**: no existing suite derives a default by
   construction, so none needs touching — the untouched green run *is* that proof) and **zero lint
   suppressions** (invariant 7: a described, line-scoped disable at most, and none is planned). No task above
   counts as done until this is green.
 
-- [ ] **E-10** [AGENTS.md invariant 1] **Rebuild and commit the bundles with the wave** — `npm run build`, and
+- [x] **E-10** [AGENTS.md invariant 1] **Rebuild and commit the bundles with the wave** — `npm run build`, and
   the rebuilt `panel/main.js` goes into the **same commit** as the `src/` change; `service/main.js` must be
   **byte-unchanged** (no service source moves) and the commit says so as a checked fact, not an assumption.
   No `version` bump (invariant 2 — a release is the product owner's call), no manifest, capability, storage
   key, SDK pin or contract change (invariants 3, 4, 6, 10); the commit body records the per-AC status
   (`AC-044` – `AC-047`, `AC-005`, `SC-014`) with the `Generated-By` attribution the hook expects.
 
-- [ ] **E-11** **Delivery bookkeeping.** Check each box above off **as its task lands** — an unchecked box in a
+- [x] **E-11** **Delivery bookkeeping.** Check each box above off **as its task lands** — an unchecked box in a
   delivered wave is a lie, and `tasks.md` is kept unconditionally (AGENTS.md). Two notes, both explicit about
   *when*: (a) `spec.md`'s **`Status` line flips to implemented at delivery, in Phase 6 — not in this phase**
   (Phase 5 touched no requirement text; the v1.13.x precedent is `changelog.md` → *Delivery* plus the header),

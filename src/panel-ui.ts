@@ -17,6 +17,7 @@ import { repaintAboutTab } from './about-tab.ts';
 import { repaintDispatchesBoard } from './dispatches-ui.ts';
 import {
     describeProjectSelection,
+    displayedProjectId,
     notListedGuidance,
     pickerNote,
     pickerOptions,
@@ -105,7 +106,12 @@ export function mountProjectPicker(input: {
 
     const projectSelect = mountSelect(row, {
         label: 'OpenChamber project',
-        value: rt.state.projectSelection,
+        // The displayed value, not the effective one: the binding-context
+        // term is the dispatch context rather than a choice and never shows
+        // here (FR-097(a)), while the stored pick and the derived default
+        // both do. Mount and repaint read the same function, so the control
+        // cannot disagree with itself.
+        value: displayedProjectId(rt.state),
         options: [],
         searchable: true,
         searchPlaceholder: 'Search by name or id',
@@ -161,11 +167,15 @@ function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
 
     ui.projectSelect.update({
         options: pickerOptions(picker),
-        // The picker's own value, not the effective one: a project that only
-        // a binding supplies has not been picked yet, and the
-        // SDK select skips `onChange` when a click matches the current value —
-        // so showing it here would silently block the operator from storing it.
-        value: state.projectSelection,
+        // The **displayed** value (FR-097(a)): the stored pick, else the
+        // derived current-project default, never the binding-context term.
+        // The SDK select skips `onChange` when a click matches the value
+        // already displayed, so clicking the displayed default fires no
+        // change and stores nothing (FR-099) — accepted by design: pinning
+        // is not required to use the default, and an operator who wants it
+        // stored picks another project first, then this one, which is an
+        // ordinary explicit pick.
+        value: displayedProjectId(state),
         disabled: picker.status !== 'ready' || picker.projects.length === 0,
         placeholder: pickerPlaceholder(picker),
     });

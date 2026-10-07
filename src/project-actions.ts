@@ -102,6 +102,25 @@ export async function storeProjectSelection(
 }
 
 /**
+ * Record the host's current project directory for this mount (002 FR-095).
+ *
+ * The panel's one and only directory reader: `mountPanel` passes the ready
+ * snapshot's directory here as its first statement, and this assignment is
+ * the only write — so "computed at load, and at no other moment" is a
+ * structural property rather than a rule every later edit must remember,
+ * and a directory change while the panel is open has nothing to reach.
+ * Exported because the test harnesses mount by hand, exactly as
+ * `restoreProjectSelection` is: an unexported step could not be driven at
+ * all, and would then only be provable by a scan.
+ *
+ * @param directory - The ready context's directory, or `null` when the host
+ *   reports none — which fails the derivation closed rather than guessing.
+ */
+export function recordHostDirectory(rt: PanelRuntime, directory: string | null): void {
+    rt.state.hostDirectory = directory;
+}
+
+/**
  * Restore the stored selection onto the runtime before settings are parsed.
  *
  * Called once per mount, ahead of the first `applySettings`, so a panel that

@@ -250,15 +250,92 @@ export function isSelectableProject(picker: ProjectPickerState, id: string): boo
 }
 
 /**
- * The project id the panel currently resolves.
+ * The project id the current-project default resolves to, if any (002 FR-095).
  *
- * The picker's stored selection wins; otherwise the binding-derived dispatch
- * context supplies one. Since 002 FR-041 there is no third source.
+ * A pure function of panel state, and fail-closed on every condition it
+ * cannot answer honestly (FR-096(b)): no recorded directory, a list that is
+ * not `ready`, no project on that exact directory, or **two** projects
+ * sharing it — ambiguous, so no default rather than the first hit. The
+ * comparison is exact `===` on purpose: both values are the host's own, and
+ * a guessed normalisation could only invent a match the host never reported.
  *
- * @returns The panel-picker selection, else the binding's id, else `null`.
+ * @returns The single matching project id, else `null`.
+ */
+export function currentProjectDefault(state: PanelState): string | null {
+    const directory = state.hostDirectory;
+    if (directory === null || state.projects.status !== 'ready') {
+        return null;
+    }
+
+    const matches = state.projects.projects.filter((project) => project.directory === directory);
+    if (matches.length !== 1) {
+        return null;
+    }
+
+    return matches[0]?.id ?? null;
+}
+
+/**
+ * The project id the panel's select controls display (002 FR-097).
+ *
+ * Terms (1)–(2) of FR-095's order only — the stored pick, else the derived
+ * default — and deliberately not term (3): a binding-context project is the
+ * panel's dispatch context rather than a choice, so under it alone both
+ * dropdowns open empty exactly as they did before v1.14.0.
+ *
+ * @returns The displayed id, or `null` when neither term resolves.
+ */
+export function displayedProjectId(state: PanelState): string | null {
+    return state.projectSelection ?? currentProjectDefault(state);
+}
+
+/**
+ * The project id the panel currently resolves (002 FR-095's full order).
+ *
+ * The stored selection wins and is never displaced; the current-project
+ * default fills in only while nothing is stored; the binding-derived dispatch
+ * context supplies the third term. Resolution is a different question from
+ * display — the detail line and *Copy project id* read this, the controls
+ * read {@link displayedProjectId}.
+ *
+ * @returns The effective selection, else `null`.
  */
 export function selectedProjectId(state: PanelState): string | null {
-    return state.projectSelection ?? state.config?.projectId ?? null;
+    return state.projectSelection ?? currentProjectDefault(state) ?? state.config?.projectId ?? null;
+}
+
+/** Which term of FR-095's order produced the effective selection. */
+export type ProjectSelectionSource =
+    /** The stored manual pick. */
+    | 'picker'
+    /** The derived current-project default. */
+    | 'default'
+    /** The binding-context dispatch project. */
+    | 'binding'
+    /** Nothing resolves. */
+    | 'none';
+
+/**
+ * Name the term that produced the effective selection (002 FR-098).
+ *
+ * Provenance is about the *term*, never the id: the same id can arrive from
+ * two of them, and only the term says whether a human chose it. This replaces
+ * the old `projectSelection === null ? 'binding' : 'panel picker'` branch,
+ * which under the combined state (no pick + derived default + binding) would
+ * have credited the binding with an id the binding does not hold.
+ *
+ * @returns The producing term, as a closed union.
+ */
+export function projectSelectionSource(state: PanelState): ProjectSelectionSource {
+    if (state.projectSelection !== null) {
+        return 'picker';
+    }
+
+    if (currentProjectDefault(state) !== null) {
+        return 'default';
+    }
+
+    return state.config === null ? 'none' : 'binding';
 }
 
 /**
@@ -266,18 +343,29 @@ export function selectedProjectId(state: PanelState): string | null {
  *
  * The id is shown verbatim so the operator can read it back into the
  * binding's project field; the source line makes the precedence visible
- * instead of surprising. Since 002 FR-041 emptied the integration card there
- * are exactly two answers: the operator's own picker selection, or the
- * binding that already carries a project.
+ * instead of surprising. Exactly four strings render — FR-098's closed
+ * vocabulary — and which one renders is decided by the term that produced
+ * the value, so the label can never drift from the resolution order.
  */
 export function describeProjectSelection(state: PanelState): string {
     const selected = selectedProjectId(state);
-    if (selected === null) {
-        return 'No project selected — dispatch stays blocked until one is.';
-    }
+    switch (projectSelectionSource(state)) {
+        case 'picker': {
+            return `Selected project: ${selected} (from the panel picker).`;
+        }
 
-    const source = state.projectSelection === null ? 'binding' : 'panel picker';
-    return `Selected project: ${selected} (from the ${source}).`;
+        case 'default': {
+            return `Selected project: ${selected} (current project — not saved as a pick).`;
+        }
+
+        case 'binding': {
+            return `Selected project: ${selected} (from the binding).`;
+        }
+
+        case 'none': {
+            return 'No project selected — dispatch stays blocked until one is.';
+        }
+    }
 }
 
 /**
