@@ -36,7 +36,6 @@ import { loadDispatches } from '../src/dispatches.ts';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import { tick } from './support/panel.ts';
@@ -76,11 +75,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
 /** The six tabs FR-010 puts in the strip, in strip order. */
 const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
-
-/** The panel-level handler the bodies take; none is exercised by a mount. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-};
 
 /** Stamp the legacy rows carry. */
 const STAMP = '2026-09-20T12:00:00.000Z';
@@ -322,7 +316,7 @@ async function bootUpgradedPanel(): Promise<{
     // The read app.ts performs at startup (its `start()` path): the harness
     // mounts the shell by hand, so it performs that read by hand too.
     await loadDispatches(rt);
-    mountTabShell({ rt, root: fakeDom().root, specs: tabSpecs(rt, inertHandlers) });
+    mountTabShell({ rt, root: fakeDom().root, specs: tabSpecs(rt) });
     for (const id of TAB_IDS) {
         rt.shell?.activate(id);
     }

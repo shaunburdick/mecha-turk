@@ -5,7 +5,6 @@ import { RESOLVE_LABEL, RETRY_LABEL, RETURN_LABEL } from '../src/dispatches-rows
 import { AUDIT_BUTTON_LABEL } from '../src/audit-view.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
@@ -279,11 +278,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 /** The six tabs FR-010 puts in the strip, in strip order. */
 const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
 
-/** The panel-level handler the bodies take; none is exercised by a mount. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-};
-
 /** One retired-noun rule: a shape that can only be a noun use. */
 interface NounRule {
     /** What the finding means, printed when the rule bites. */
@@ -397,7 +391,7 @@ async function renderedSixTabs(): Promise<readonly string[]> {
     mounts.log.length = 0;
     const rt = createTestRuntime(fakeHost());
     const dom = fakeDom();
-    mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
+    mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt) });
     for (const id of TAB_IDS) {
         rt.shell?.activate(id);
     }

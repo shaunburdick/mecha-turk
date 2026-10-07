@@ -45,7 +45,6 @@ import { HEALTH_PATH } from '../src/service-calls.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { LedgerEntry } from '../src/ledger.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
@@ -79,11 +78,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/** The panel-level handler the shell takes; none is exercised by this suite. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-};
 
 /** Stamp the fixtures record ledger entries with. */
 const STAMP = '2026-09-30T12:00:00.000Z';
@@ -172,7 +166,7 @@ async function mountAbout(input: {
     input.setup?.(rt);
 
     const dom = fakeDom();
-    const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'about');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'about');
     if (spec === undefined) {
         throw new Error('the About tab spec is missing from the shell');
     }

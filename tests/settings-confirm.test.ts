@@ -35,7 +35,6 @@ import { parseConfigEnvelope } from '../src/settings-schema.ts';
 import { restoreConfirmation, saveConfirmation } from '../src/settings-confirm.ts';
 import type { ConfigEnvelope } from '../src/settings-schema.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
@@ -71,11 +70,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/** The panel-level handler the shell takes; none is exercised by this suite. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-};
 
 /** The three knobs whose lowering deletes stored history (006 FR-050). */
 const RETENTION_KNOTS: readonly { readonly field: string; readonly lower: string; readonly raise: string }[] = [
@@ -214,7 +208,7 @@ async function mountSettings(input: {
     });
     const rt = createTestRuntime(host);
     const dom = fakeDom();
-    const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'settings');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'settings');
     if (spec === undefined) {
         throw new Error('the Settings tab spec is missing from the shell');
     }

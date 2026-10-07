@@ -36,7 +36,6 @@ import { createAccountsHandlers, selectAccountRow } from '../src/accounts-tab.ts
 import { persistLedger } from '../src/panel-actions.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { AccountScopeMatrix, PanelAccount, PanelBinding } from '../src/bindings-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { RunRow } from '../src/dispatches-service.ts';
@@ -88,11 +87,6 @@ function labelOf(id: (typeof TAB_IDS)[number]): string {
 
     return labels[id];
 }
-
-/** The panel-level handler the bodies take; none is exercised by a mount. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-};
 
 /** What the six tabs are being hostile-loaded with (FR-080). */
 const HOSTILE = '<img src=x onerror="alert(1)">';
@@ -307,7 +301,7 @@ async function renderSixTabs(input: {
     input.setup?.(rt);
 
     const dom = fakeDom();
-    mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
+    mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt) });
     for (const id of TAB_IDS) {
         rt.shell?.activate(id);
     }
@@ -506,7 +500,7 @@ describe('FR-084 irreversible actions arm first, and confirm() does not exist', 
             rt.state.bindings.status = 'ready';
             const handlers = createAccountsHandlers(rt);
             const dom = fakeDom();
-            const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'accounts');
+            const spec = tabSpecs(rt).find((entry) => entry.id === 'accounts');
             if (spec === undefined) {
                 throw new Error('the Accounts tab spec is missing from the shell');
             }

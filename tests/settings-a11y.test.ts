@@ -32,7 +32,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
@@ -68,11 +67,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
 /** The six tab ids, in the shell's order (005 FR-010). */
 const TAB_IDS: readonly string[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'];
-
-/** The panel-level handler the shell takes; none is exercised by this suite. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-};
 
 /** What one tab's mounts recorded. */
 interface TabRender {
@@ -121,7 +115,7 @@ function collectStrings(value: unknown, found: string[]): void {
 async function renderAllTabs(rt: PanelRuntime): Promise<readonly TabRender[]> {
     mounts.log.length = 0;
     const dom = fakeDom();
-    const specs = tabSpecs(rt, inertHandlers);
+    const specs = tabSpecs(rt);
     const renders: TabRender[] = [];
     for (const id of TAB_IDS) {
         const spec = specs.find((entry) => entry.id === id);

@@ -22,12 +22,6 @@ import { repaintPrerequisites } from './prerequisites.ts';
 import { repaintBindingsPane } from './bindings-ui.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** Callbacks the mounted controls invoke. */
-export interface PanelHandlers {
-    /** Reload the project list behind the binding form's project select. */
-    readonly refreshProjects: () => void;
-}
-
 /** The root framing: the banner above the prerequisite and tab strip. */
 export interface PanelUi {
     /** Status banner. */

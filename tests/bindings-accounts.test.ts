@@ -67,7 +67,6 @@ import { initialBindings } from '../src/panel-state.ts';
 import { refresh } from '../src/panel-ui.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { stopRelayPolling } from '../src/relay.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { BindingsStatus, BindingsTabState, PanelRuntime } from '../src/panel-state.ts';
 import type { PanelAccount } from '../src/bindings-service.ts';
 import { fakeDom } from './support/dom.ts';
@@ -126,20 +125,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/**
- * The panel-level handler the shell's bodies take; none is exercised here.
- *
- * It **counts** rather than no-ops, so an accidental invocation during a mount
- * shows up as a number instead of as silence — the same shape
- * `tests/bindings-ui.test.ts` uses for the same callback.
- */
-const inert = { calls: 0 };
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => {
-        inert.calls += 1;
-    },
-};
 
 /** Label the toolbar's *New binding* control carries. */
 const NEW_BINDING_LABEL = 'New binding';
@@ -563,7 +548,7 @@ function mountedAccounts(input: {
     const rt = createTestRuntime(fakeHost());
     Object.assign(rt.state.bindings, { status: 'ready' as const, accounts: input.accounts });
     freshJournal();
-    const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'accounts');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'accounts');
     if (spec === undefined) {
         throw new Error('the Accounts tab spec is missing from the shell');
     }
@@ -1228,7 +1213,6 @@ describe('K-4 FR-121 the reason mounts under the list toolbar as text alone', ()
         // whole primitive inventory and a new control has to show up in it.
         expect(census.mountButton).toBe(7);
         expect(census.mountSelect).toBe(4);
-        expect(inert.calls).toBe(0);
 
         const reason = listBlockChildren(mounted.dom).find((node) => node.className === REASON_CLASS);
         // The reason line's own handle, found by the node it mounted into — which

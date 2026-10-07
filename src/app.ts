@@ -31,7 +31,6 @@ import { mountPrerequisiteNotice, disposePrerequisites } from './prerequisites.t
 import { createPanelRuntime, setStatus } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { mountPanelFraming, refresh } from './panel-ui.ts';
-import type { PanelHandlers } from './panel-ui.ts';
 import { loadProjects, recordHostDirectory } from './project-actions.ts';
 import { reconcileDispatchAttempts } from './reconcile.ts';
 import { settleReconciliation, stopRelayPolling } from './relay.ts';
@@ -348,16 +347,13 @@ function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
 export function createPanelApp(options: PanelAppOptions): PanelApp {
     const { host, root, panelWindow } = options;
     const rt = createPanelRuntime(host, panelWindow);
-    const handlers: PanelHandlers = {
-        refreshProjects: () => void loadProjects(rt),
-    };
 
     // Above the tab strip on purpose: FR-036 and FR-037 need the notice region
     // outside every section, and the banner is read-state framing that belongs
     // to the whole panel rather than to one tab.
     mountPrerequisiteNotice({ rt, parent: root });
     rt.ui = mountPanelFraming(root);
-    mountTabShell({ rt, root, specs: tabSpecs(rt, handlers) });
+    mountTabShell({ rt, root, specs: tabSpecs(rt) });
     rt.pagehideListener = () => handlePagehide(rt);
     panelWindow.addEventListener('pagehide', rt.pagehideListener);
     registerHostListeners(rt, root);

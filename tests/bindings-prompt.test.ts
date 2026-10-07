@@ -44,7 +44,6 @@ import { stopRelayPolling } from '../src/relay.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelBinding } from '../src/bindings-service.ts';
 import { BINDINGS_PATH, CONFIG_PATH } from '../src/service-calls.ts';
 import { fakeDom } from './support/dom.ts';
@@ -69,7 +68,6 @@ const mounts = vi.hoisted(() => ({
     updates: [] as { readonly key: string; readonly id: number; readonly props: unknown }[],
     paints: 0,
     disposes: 0,
-    inert: 0,
 }));
 
 /** The SDK primitive the prompt field and the repository input both are. */
@@ -155,18 +153,6 @@ const UNROUTED = '{"error":{"code":"not-found","message":"unrouted"}}';
 
 /** Tabs FR-010 puts in the strip, so SC-105 really is cross-tab. */
 const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
-
-/**
- * The panel-level handler the shell's bodies take; none is exercised here.
- *
- * It counts rather than no-ops so an accidental invocation during a mount
- * would show up as a number instead of as silence.
- */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => {
-        mounts.inert += 1;
-    },
-};
 
 /** The service's field-level refusal, exactly as the prompt route answers it. */
 const REFUSAL = JSON.stringify({
@@ -481,7 +467,7 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six ta
 
         {
             const dom = fakeDom();
-            mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
+            mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt) });
             for (const id of TAB_IDS) {
                 rt.shell?.activate(id);
             }

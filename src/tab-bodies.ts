@@ -16,7 +16,6 @@ import { disposeAboutTab, mountAboutTab } from './about-tab.ts';
 import { createBindingsHandlers, mountBindingsTabBody } from './bindings-mount.ts';
 import { disposeDispatchesBoard, mountDispatchesBoard } from './dispatches-ui.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import type { PanelHandlers } from './panel-ui.ts';
 import { mountPrerequisitesSection } from './prerequisites.ts';
 import { disposeSettingsTab, mountSettingsTab } from './settings-tab.ts';
 import { disposeStatusTab, mountStatusTab } from './status-tab.ts';
@@ -102,14 +101,6 @@ function mountBindingsBody(input: {
     readonly rt: PanelRuntime;
     /** The body container the shell created. */
     readonly body: HTMLElement;
-    /**
-     * The panel-level handlers the shell passes to every body.
-     *
-     * Only `refreshProjects` remains (issue #39 removed the panel-level
-     * picker it fed); the form's reload button is wired through the bindings
-     * handlers, so the shell threads this and the body does not read it.
-     */
-    readonly handlers: PanelHandlers;
 }): () => void {
     const { rt, body } = input;
     mountBindingsTabBody({
@@ -145,11 +136,11 @@ function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
  * @returns The specs the shell mounts from.
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
-export function tabSpecs(rt: PanelRuntime, handlers: PanelHandlers): readonly TabSpec[] {
+export function tabSpecs(rt: PanelRuntime): readonly TabSpec[] {
     return [
         { id: 'status', label: 'Status', mount: (body) => statusSpec(rt, body) },
         { id: 'dispatches', label: 'Dispatches', mount: (body) => mountDispatchesBody(rt, body) },
-        { id: 'bindings', label: 'Bindings', mount: (body) => mountBindingsBody({ rt, body, handlers }) },
+        { id: 'bindings', label: 'Bindings', mount: (body) => mountBindingsBody({ rt, body }) },
         { id: 'accounts', label: 'Accounts', mount: (body) => mountAccountsBody(rt, body) },
         { id: 'settings', label: 'Settings', mount: (body) => settingsSpec(rt, body) },
         { id: 'about', label: 'About', mount: (body) => mountAboutBody(rt, body) },

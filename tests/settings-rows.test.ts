@@ -45,7 +45,6 @@ import { readStateLine } from '../src/settings-tab.ts';
 import type { SettingsTabState } from '../src/settings-tab.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
@@ -88,11 +87,6 @@ const STAMP = '2026-09-30T00:00:00.000Z';
 
 /** Problem copy the failed-read cases report. */
 const PROBLEM = 'service unreachable';
-
-/** The panel-level handler the shell takes; none is exercised by this suite. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-};
 
 /**
  * The twelve fields 006 itself declares (006 v1.6.0; FR-084, AC-101) — 003's
@@ -419,7 +413,7 @@ async function mountSettings(input: {
     input.setup?.(rt);
 
     const dom = fakeDom();
-    const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'settings');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'settings');
     if (spec === undefined) {
         throw new Error('the Settings tab spec is missing from the shell');
     }

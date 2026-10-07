@@ -29,7 +29,6 @@ import type { PanelBinding } from '../src/bindings-service.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
 import { LEDGER_STORAGE_KEY } from '../src/ledger.ts';
 import { refresh } from '../src/panel-ui.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import { createPanelRuntime } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import {
@@ -535,11 +534,8 @@ function mountTab(input: {
     // it is for an operator whose panel has read its bindings.
     rt.state.bindings.status = 'ready';
     input.arrange?.(rt);
-    const handlers: PanelHandlers = {
-        refreshProjects: () => void loadProjects(rt),
-    };
     const dom = fakeDom();
-    const spec = tabSpecs(rt, handlers).find((entry) => entry.id === 'bindings');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'bindings');
     if (spec === undefined) {
         throw new Error('the Bindings tab spec is missing from the shell');
     }
