@@ -3403,7 +3403,7 @@ function applyEnqueue(input) {
     if (shape === null || reference === null) {
       continue;
     }
-    const index = runs.findIndex((run2) => !isTerminalRun(run2) && subjectKeyOfRun2(run2) === shape.subjectKey);
+    const index = runs.findIndex((run) => !isTerminalRun(run) && subjectKeyOfRun2(run) === shape.subjectKey);
     const open = index === -1 ? undefined : runs[index];
     if (open !== undefined) {
       const authorizedReference = { ...reference, presentAtAuthorization: open.reservation === null };
@@ -4223,7 +4223,7 @@ function matchRoute(call, url) {
   const method = call.request.method ?? "";
   const { routes } = call.deps;
   const candidates = [
-    ...routes.filter((route2) => route2.path === url.pathname),
+    ...routes.filter((route) => route.path === url.pathname),
     ...patternRoutes(routes, url.pathname)
   ];
   if (candidates.length === 0) {
@@ -7096,7 +7096,7 @@ async function operateRun(target, task) {
   const now = target.now ?? nowIso();
   return await inQueueChain(async () => {
     const document = await readRunsDocument({ ...target, now });
-    const index = document.runs.findIndex((run2) => run2.correlationId === target.correlationId);
+    const index = document.runs.findIndex((run) => run.correlationId === target.correlationId);
     const run = document.runs[index];
     if (run === undefined) {
       return { status: "not-found" };
@@ -7465,20 +7465,20 @@ async function applyVerdict(input) {
   if (verdict.verdict === "duplicate") {
     return await duplicateReport(report, run);
   }
-  const settled2 = reportedRun({ run, outcome: report.outcome, now: report.now ?? run.updatedAt });
-  await persist(settled2);
+  const settled = reportedRun({ run, outcome: report.outcome, now: report.now ?? run.updatedAt });
+  await persist(settled);
   const wasAppended = await appendRunRow({
     store: report.store,
     log: report.log,
-    correlationId: settled2.correlationId,
+    correlationId: settled.correlationId,
     row: reportRow({
-      run: settled2,
+      run: settled,
       dispatchToken: report.dispatchToken,
       outcome: report.outcome,
       operation: report.operation
     })
   });
-  return { status: "applied", run: settled2, auditWritten: wasAppended };
+  return { status: "applied", run: settled, auditWritten: wasAppended };
 }
 async function reportDispatch(input) {
   return await operateRun(input, async ({ run, now, persist }) => {
@@ -9351,14 +9351,14 @@ async function resolveCandidateActor(request) {
 }
 
 // service/poll/triggers-assignment.ts
-function isIssueAssignment(issue2, bindingLogin) {
-  if (issue2.state !== "open") {
+function isIssueAssignment(issue, bindingLogin) {
+  if (issue.state !== "open") {
     return false;
   }
-  return issue2.assignees.some((login) => login.toLowerCase() === bindingLogin.toLowerCase());
+  return issue.assignees.some((login) => login.toLowerCase() === bindingLogin.toLowerCase());
 }
 function assignmentEvent(input) {
-  const { binding, issue: issue2, actorLogin, detectedAt } = input;
+  const { binding, issue, actorLogin, detectedAt } = input;
   const repository = repositoryRefOf(binding.repository);
   return createEvent({
     bindingId: binding.bindingId,
@@ -9369,22 +9369,22 @@ function assignmentEvent(input) {
     worktreeOption: binding.worktreeOption,
     kind: "assignment",
     issue: {
-      issueNumber: issue2.issueNumber,
-      issueTitle: issue2.title,
-      issueUrl: issue2.url,
-      issueBodyExcerpt: bodyExcerptOf(issue2.body)
+      issueNumber: issue.issueNumber,
+      issueTitle: issue.title,
+      issueUrl: issue.url,
+      issueBodyExcerpt: bodyExcerptOf(issue.body)
     },
     actorLogin,
     actorAttribution: "direct",
     triggerNote: "Issue assigned to the bound account",
     detectedAt,
-    subjectType: issue2.isPullRequest ? "pull_request" : "issue"
+    subjectType: issue.isPullRequest ? "pull_request" : "issue"
   });
 }
 async function assignmentEvents(input) {
   const events = [];
-  for (const issue2 of input.issues) {
-    if (!stampInWindow(issue2.updatedAt, input.windowStart) || !isIssueAssignment(issue2, input.login)) {
+  for (const issue of input.issues) {
+    if (!stampInWindow(issue.updatedAt, input.windowStart) || !isIssueAssignment(issue, input.login)) {
       continue;
     }
     const actor = await resolveCandidateActor({
@@ -9392,7 +9392,7 @@ async function assignmentEvents(input) {
       log: input.log,
       token: input.token,
       repository: repositoryRefOf(input.binding.repository),
-      issueNumber: issue2.issueNumber,
+      issueNumber: issue.issueNumber,
       kind: "assignment",
       boundLogin: input.login,
       windowStart: input.windowStart,
@@ -9404,7 +9404,7 @@ async function assignmentEvents(input) {
     if (actor.kind === "actor") {
       events.push(assignmentEvent({
         binding: input.binding,
-        issue: issue2,
+        issue,
         actorLogin: actor.login,
         detectedAt: input.detectedAt
       }));
@@ -9511,17 +9511,17 @@ function isMentionComment(comment, bindingLogin) {
   }
   return mentionsLogin(comment.body, bindingLogin);
 }
-function isIssueBodyMention(issue2, bindingLogin) {
-  if (!isAttributableAuthor(issue2.authorLogin, issue2.authorType)) {
+function isIssueBodyMention(issue, bindingLogin) {
+  if (!isAttributableAuthor(issue.authorLogin, issue.authorType)) {
     return false;
   }
-  return mentionsLogin(issue2.body ?? "", bindingLogin);
+  return mentionsLogin(issue.body ?? "", bindingLogin);
 }
 function subjectShapeOf2(isPullRequest) {
   return isPullRequest ? "pull_request" : "issue";
 }
 function mentionEvent(input) {
-  const { binding, comment, issue: issue2, detectedAt } = input;
+  const { binding, comment, issue, detectedAt } = input;
   const repository = repositoryRefOf(binding.repository);
   const commenter = actorLoginOf(comment.authorLogin);
   const fallbackUrl = `https://github.com/${repository.owner}/${repository.name}/issues/${comment.issueNumber}`;
@@ -9537,28 +9537,28 @@ function mentionEvent(input) {
     commentId: comment.commentId,
     issue: {
       issueNumber: comment.issueNumber,
-      issueTitle: issue2?.title ?? `Issue #${comment.issueNumber}`,
-      issueUrl: issue2?.url ?? fallbackUrl,
+      issueTitle: issue?.title ?? `Issue #${comment.issueNumber}`,
+      issueUrl: issue?.url ?? fallbackUrl,
       issueBodyExcerpt: bodyExcerptOf(comment.body)
     },
     actorLogin: commenter,
     actorAttribution: "direct",
     triggerNote: `Comment by ${commenter} on issue #${comment.issueNumber} mentioned the bound account`,
     detectedAt,
-    ...issue2 !== null && { subjectType: subjectShapeOf2(issue2.isPullRequest) }
+    ...issue !== null && { subjectType: subjectShapeOf2(issue.isPullRequest) }
   });
 }
 function mentionEvents(input) {
   const { binding, login, comments, issues, windowStart, detectedAt } = input;
-  const known = new Map(issues.map((issue2) => [issue2.issueNumber, issue2]));
+  const known = new Map(issues.map((issue) => [issue.issueNumber, issue]));
   const events = [];
   for (const comment of comments) {
     const isEligible = stampInWindow(comment.updatedAt, windowStart) && isMentionComment(comment, login);
     if (!isEligible) {
       continue;
     }
-    const issue2 = known.get(comment.issueNumber) ?? null;
-    events.push(mentionEvent({ binding, comment, issue: issue2, detectedAt }));
+    const issue = known.get(comment.issueNumber) ?? null;
+    events.push(mentionEvent({ binding, comment, issue, detectedAt }));
   }
   return events;
 }
@@ -9566,8 +9566,8 @@ function bodyMentionEvents(input) {
   const { binding, login, issues, windowStart, detectedAt } = input;
   const label = repositoryLabel(repositoryRefOf(binding.repository));
   const events = [];
-  for (const issue2 of issues) {
-    const isEligible = stampInWindow(issue2.updatedAt, windowStart) && isIssueBodyMention(issue2, login);
+  for (const issue of issues) {
+    const isEligible = stampInWindow(issue.updatedAt, windowStart) && isIssueBodyMention(issue, login);
     if (!isEligible) {
       continue;
     }
@@ -9581,16 +9581,16 @@ function bodyMentionEvents(input) {
       kind: "mention",
       origin: "body",
       issue: {
-        issueNumber: issue2.issueNumber,
-        issueTitle: issue2.title,
-        issueUrl: issue2.url,
-        issueBodyExcerpt: bodyExcerptOf(issue2.body)
+        issueNumber: issue.issueNumber,
+        issueTitle: issue.title,
+        issueUrl: issue.url,
+        issueBodyExcerpt: bodyExcerptOf(issue.body)
       },
-      actorLogin: actorLoginOf(issue2.authorLogin),
+      actorLogin: actorLoginOf(issue.authorLogin),
       actorAttribution: "direct",
       triggerNote: "mentioned in issue body",
       detectedAt,
-      subjectType: subjectShapeOf2(issue2.isPullRequest)
+      subjectType: subjectShapeOf2(issue.isPullRequest)
     }));
   }
   return events;
@@ -9875,8 +9875,8 @@ var STATUS_FORBIDDEN2 = 403;
 var STATUS_TOO_MANY_REQUESTS2 = 429;
 var MAX_LIST_PAGES = 2;
 var systemSleep = async (milliseconds) => {
-  await new Promise((resolve3) => {
-    setTimeout(resolve3, milliseconds);
+  await new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
   });
 };
 function pollerRuntime(deps, fetchImpl) {
@@ -10342,14 +10342,14 @@ async function adoptStoredLogLevel(store, log) {
   }
 }
 function listen(server, port) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve, reject) => {
     const onError = (error) => {
       reject(error);
     };
     server.once("error", onError);
     server.listen(port, LOOPBACK_HOST, () => {
       server.removeListener("error", onError);
-      resolve3();
+      resolve();
     });
   });
 }
@@ -10361,8 +10361,8 @@ function boundPort(server) {
   return address.port;
 }
 function sleep(milliseconds) {
-  return new Promise((resolve3) => {
-    setTimeout(resolve3, milliseconds);
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
   });
 }
 async function waitForDrain(state, timeoutMs) {
@@ -10373,9 +10373,9 @@ async function waitForDrain(state, timeoutMs) {
 }
 async function withTimeout(promise, timeoutMs) {
   let timer;
-  const deadline = new Promise((resolve3) => {
+  const deadline = new Promise((resolve) => {
     timer = setTimeout(() => {
-      resolve3();
+      resolve();
     }, timeoutMs);
   });
   await Promise.race([promise, deadline]);
@@ -10388,9 +10388,9 @@ async function performShutdown(input) {
   polling.beginShutdown();
   poll?.stop();
   sweep?.stop();
-  const closed = new Promise((resolve3) => {
+  const closed = new Promise((resolve) => {
     server.close(() => {
-      resolve3();
+      resolve();
     });
   });
   await waitForDrain(state, DRAIN_TIMEOUT_MS);

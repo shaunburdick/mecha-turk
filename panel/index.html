@@ -87,6 +87,21 @@
                 color: var(--mt-ink);
             }
 
+            #panel-startup-notice {
+                position: fixed;
+                inset: 0;
+                z-index: 1000;
+                box-sizing: border-box;
+                margin: 0;
+                padding: 14px;
+                overflow: auto;
+                color: var(--oc-fg, var(--surface-foreground, CanvasText));
+                background: var(--oc-elevated, var(--surface-elevated, Canvas));
+                font-family: var(--oc-font, var(--font-sans, system-ui, sans-serif));
+                font-size: 0.875rem;
+                line-height: 1.45;
+            }
+
             /* ---------------------------------------------------------------- *
              * Hidden: the element is out of the layout, whatever says otherwise.
              * ---------------------------------------------------------------- */
@@ -1028,6 +1043,9 @@
         </style>
     </head>
     <body>
+        <div id="panel-startup-notice" role="status" aria-live="polite" aria-atomic="true">
+            Mecha Turk panel is starting. If this message remains, reopen the panel; if the problem persists, check OpenChamber's host logs.
+        </div>
         <div id="root"></div>
         <script src="main.js"></script>
     </body>

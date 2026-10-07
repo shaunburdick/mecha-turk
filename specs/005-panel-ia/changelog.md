@@ -644,3 +644,19 @@ Also arriving here from 002 FR-036: the per-repository **health** surface gains 
 - **Requirements explicitly unchanged**: the six tabs and their order, existing content and copy, all runtime/service behavior, controls, host functionality, keyboard/tab semantics, focus requirements, state-as-text requirements, 320px narrow-rail usability, and every data, storage, capability, service, and wire contract. Styling remains in the host-themed panel and uses its semantic aliases/fallbacks; the site palette is not a shared contract. `src/style.ts` remains structural and need not change for CSS decoration.
 - **Migration impact**: none. No storage key, persisted data, manifest, capability, permission, service, route, DTO, audit row, or wire contract changes. The target is pre-1.0.0, `package.json` remains unchanged, and no migration is required. The specified CSS-only implementation boundary is `panel/index.html`; a `src/` change is not assumed. The matching site/design-guide amendment is 007 v1.5.0. Constitution v1.3.0 remains unchanged; this amendment applies its specification and verification principles and does not weaken any principle or invariant.
 - **Approval status**: **Approved by the product owner 2026-10-06 after Gate 1 PASS.** Implemented on this branch, 2026-10-06, with published-address checks (007 T-039–T-045) remaining open post-merge. No product question remains unresolved.
+
+### v1.20.0 — 2026-10-07 (startup rendering and failure recovery)
+
+- **Rationale**: The product owner reported that the panel can launch without a rendered screen. Source inspection found an empty `#root` in the shipped HTML and no visible failure surface for early bootstrap errors; the exact runtime trigger remains unverified. An empty panel prevents the operator from seeing either progress or a recovery action.
+- **Requirement-by-requirement record**:
+
+  | Requirement | Effect in v1.20.0 | Status after this amendment |
+  | --- | --- | --- |
+  | **FR-140** | New: shipped HTML provides an accessible static startup message before the panel bundle; successful mount removes it; a bundle-load failure leaves actionable text visible. | Added |
+  | **FR-141** | New: synchronous bootstrap failures and rejected initial host-ready setup render a safe manual recovery message; raw exception data is withheld, automatic retries are prohibited, and failed startup cannot release relay arming. | Added |
+  | **NFR-115** | New: startup and failure states are visible, accessible, and contained without new host/service capabilities. | Added |
+  | **005 AC-161 / 005 SC-116** | New acceptance evidence covers static fallback, successful removal, synchronous and asynchronous failures, no unhandled rejection, and no exception-text leakage. | Added |
+
+- **Requirements explicitly unchanged**: six-tab order and behavior, service/API/wire/storage contracts, manifest capabilities, permissions, credentials, GitHub read-only posture, and the existing `SERVICE_FAILED` copy owned by `specs/002-agent-event-extension/contracts/panel-service.md`. No automatic retry or host service restart is added.
+- **Migration impact**: none. No stored data, route, DTO, capability, permission, or package version changes. The existing bundles must be rebuilt and committed with their sources under `AGENTS.md` invariant 1.
+- **Approval status**: **Approved by the product owner** through the 2026-10-07 task objective reporting the blank-launch defect and authorizing write mode. Implemented on `fix/panel-startup-render`; `npm run verify` passed (113 test files, 1,550 tests). An in-app browser preview showed the mounted six-tab panel; the prescribed screenshot capture remains open because Chrome failed before startup with `No usable sandbox`.

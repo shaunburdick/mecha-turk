@@ -1,10 +1,20 @@
 # Research: Panel IA — Six Tabs — new findings only
 
-**Spec**: v1.12.0 · **Amended**: 2026-10-03 (§Q3, §Q4 — the actor allow-list's rendering, GitHub issue #9)
+**Spec**: v1.20.0 · **Amended**: 2026-10-07 (startup rendering and failure recovery; historical findings below are retained)
 
-**Feature**: `specs/005-panel-ia` · **Spec**: v1.3.0 · **Date**: 2026-09-28
+**Historical baseline**: `specs/005-panel-ia` v1.3.0 · 2026-09-28
 
 This file answers only the questions **005** raises. It opens with the honest headline: **005 needs no new platform research.** Every platform fact a plan for this feature might otherwise re-open is already settled with a stamped source; those are cited, not re-researched. Two items at the end are **confirmations Phase 4 returns to the product owner** — each is decided here with a stated default, so neither blocks Phase 5, and neither is written as a clarification marker (the spec has none).
+
+## Current amendment — startup rendering (v1.20.0)
+
+- **Reported by the product owner**: opening the panel can show no rendered screen; a screenshot was referenced in the task but no image file was available in the workspace for inspection.
+- **Observed in source**: `panel/index.html:1031` contains an empty `<div id="root"></div>` before `main.js` is loaded at `:1032`. `panel/main.ts:16-24` can throw while locating the root, calling `connectHost()`, or constructing the app, with no visible catch. `src/app.ts:339-346,359-367` starts asynchronous initialization with `void begin(...)`; `begin` has `try/finally` but no `catch`.
+- **Observed in tests**: `tests/app.test.ts` does not exercise `createPanelApp`; no test pins a static initial-render fallback or bootstrap-error display. Existing read-state requirements cover errors after a tab is mounted (FR-019/NFR-111), not an empty initial root.
+- **Unverified**: the exact runtime trigger for the reported blank screen. The prescribed offline screenshot harness was attempted with `npm run shot` after the project toolchain was installed; Chrome exited before startup with `No usable sandbox`, so no screenshot was produced. The sandbox was not weakened.
+- **Observed verification**: Node `v24.15.0` and Bun `1.4.2` were installed only under `/tmp/opencode/mecha-toolchain` after SHA-256 checks against Node's `SHASUMS256.txt` and GitHub's Bun release asset digest; the system Node remains `v22.22.1`, and no global Bun/PATH or profile change was made. `npm ci` populated the repository's ignored `node_modules/` using a temporary npm cache. The full `npm run verify` passed: build, lint, typecheck, 113 test files / 1,550 tests.
+- **Observed preview**: A temporary loopback-only static server served `panel/` to the in-app browser at a 1440×900 desktop viewport. Its snapshot showed the Mecha Turk Status view, all six tabs, and the startup overlay removed after mount. This confirms a nonblank successful browser render but does not reproduce the exact reported host launch or exercise service connectivity; no screenshot artifact was retained.
+- **Decision**: add static HTML fallback content and handle both synchronous bootstrap failures and asynchronous initial setup rejection. Keep the message generic, use text-only rendering, and require operator-driven reopen; do not add host/service APIs, auto-retry, or exception-detail display.
 
 ## Settled before this feature (cited, not re-researched)
 

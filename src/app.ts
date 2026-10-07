@@ -33,6 +33,7 @@ import { createPanelRuntime, setStatus } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { mountPanelFraming, refresh } from './panel-ui.ts';
 import type { PanelHandlers } from './panel-ui.ts';
+import { reportPanelStartupFailure, runPanelStartup } from './panel-startup.ts';
 import { isSelectableProject } from './project-picker.ts';
 import {
     copyProjectId,
@@ -331,18 +332,17 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
 /**
  * First-time start, driven by `onReady`.
  *
- * The reconcile gate closes before anything that could arm the relay and opens
- * only after every outstanding attempt has been re-reported, in a
- * `finally` so no mount path can leave the relay unarmed — or armed ahead of
- * its own reconciliation.
+ * The reconcile gate closes before anything that could arm the relay. It opens
+ * only after startup and reconciliation succeed; a failed setup keeps the gate
+ * closed and exposes a safe recovery status instead of leaking a rejection.
  */
 async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
     rt.reconcileSettled = false;
-    try {
-        await mountPanel(rt, context);
-    } finally {
-        settleReconciliation(rt);
-    }
+    await runPanelStartup(
+        () => mountPanel(rt, context),
+        () => settleReconciliation(rt),
+        () => reportPanelStartupFailure(rt),
+    );
 }
 
 /**

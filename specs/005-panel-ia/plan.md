@@ -977,3 +977,26 @@ No amendment or exception. Principle I and III are untouched because no contract
 ## No data-model or contract amendment
 
 The amendment changes CSS and verification fixtures only. It creates no panel state, entity, API, service DTO, storage, route, event, or wire change. No `data-model.md` or `contracts/` amendment is needed; creating one would describe a nonexistent boundary change.
+
+# Amendment plan — 005 v1.20.0 startup rendering and recovery (2026-10-07)
+
+> The preceding plan and its amendments remain the historical plan for the six-tab IA. This appended plan implements the separately approved FR-140–FR-141 startup-render requirements; the normative source is the current `spec.md` v1.20.0.
+
+## Scope
+
+Keep the shipped panel visibly informative from the first HTML paint through successful mount or startup failure. No service/API, GitHub, manifest capability, permission, provider configuration, storage, or automatic-retry changes.
+
+## Implementation design
+
+1. Put FR-140's exact accessible static status copy in `#panel-startup-notice` in the document body before `#root` and `main.js` in `panel/index.html`. It remains available if the root element is missing, the bundle never loads, or JavaScript does not execute.
+2. After `createPanelApp` returns with the shell mounted, remove only the startup node. On a synchronous root/host/app bootstrap failure, keep the static node and update its text and role using DOM text APIs; never include the exception value.
+3. Catch the rejection from `begin` in `src/app.ts`. The shell is already mounted on this path, so update the existing visible app status with FR-141's exact generic recovery message. On failure, keep reconciliation closed and clear deferred relay arming so no claim/session begins. Do not swallow the rejection silently, expose raw error content, or add automatic retries.
+4. Add offline tests that exercise both source-markup ordering and the startup helper/lifecycle paths. Preserve FR-080's non-HTML rendering invariant.
+
+## Verification and delivery gates
+
+- **Passed**: isolated Node `24.15.0` and Bun `1.4.2` were installed under `/tmp/opencode/mecha-toolchain` after SHA-256 verification; `npm ci` used a `/tmp`-local cache. System Node and user-wide configuration were unchanged.
+- **Passed**: focused startup tests and `npm run verify` (build, lint, typecheck, 1,549 tests across 113 files).
+- **Passed**: rebuilt and committed-output candidates `panel/main.js` and `service/main.js` were generated with the source change per AGENTS.md invariant 1. The service bundle has only bundler-generated local identifier renames; no service source changed.
+- **Still open**: Run `npm run shot` for all six tabs at 720px and 560px. The attempt failed before Chrome startup because the environment reported `No usable sandbox`; do not pass `--no-sandbox` or weaken browser isolation. Leave visual capture explicitly unverified until a safe browser is available.
+- Keep changes on `fix/panel-startup-render`; submit a PR from an `aliza-agent` fork after tests. Do not merge.

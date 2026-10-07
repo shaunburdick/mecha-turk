@@ -1,6 +1,6 @@
 # Tasks: Panel IA — Six Tabs (005)
 
-**Input**: [plan.md](./plan.md), [data-model.md](./data-model.md), [research.md](./research.md), [contracts/](./contracts/) — all Phase-4 outputs; [spec.md](./spec.md) v1.4.0 is the source of truth (FR/AC numbers below are quoted as written — v1.4.0 is the record-only FR-057 amendment and changed no requirement text).
+**Input**: [plan.md](./plan.md), [data-model.md](./data-model.md), [research.md](./research.md), [contracts/](./contracts/) — original Phase-4 outputs; [spec.md](./spec.md) v1.20.0 is the current source of truth. The completed T-001–T-041 waves record the earlier panel-IA implementation; the v1.20.0 startup-render amendment tasks are appended below.
 
 **Bar**: six tabs, every one honest, nothing that worked yesterday worse. Tests are offline and deterministic per `AGENTS.md`: fake host (`tests/support/panel.ts`), DOM helpers (`tests/support/{dom,ui-stubs}.ts`), real loopback service on temp dirs (`tests/support/service.ts`), fixture GitHub (`tests/support/github.ts`) — **no live OpenChamber, no PAT, no network** (FR-086). `[P]` = parallel-safe (different files, no dependency). **`npm run verify` runs at every wave boundary, and any wave that touches `src/`, `panel/*.ts`, or `service/*.ts` ends with `npm run build` and the rebuilt `panel/main.js` + `service/main.js` committed in the same commit (invariant 1).**
 
@@ -843,3 +843,18 @@ These open tasks cover only the approved v1.19.0 amendment. All earlier complete
 | NFR-107, 005 AC-159 — three-fixture contrast and focus thresholds, keyboard access and narrow rail | M-002, M-003 |
 | 005 AC-160 — static, decorative-only indices/motifs, unchanged labels/controls/associations | M-001–M-004 |
 | `DESIGN.md` accurately records both systems and accessibility evidence (007 AC-034) | M-004 supplies evidence; 007 T-050 owns the edit |
+
+# Amendment tasks — 005 v1.20.0 startup rendering and recovery
+
+- [x] **T-042** Add the accessible static `#panel-startup-notice` to `panel/index.html` before `#root` and the `main.js` script. Contract tests verify the message and ordering; the notice is removed only after the panel shell mounts successfully. **(FR-140, NFR-115)**
+- [x] **T-043** Catch synchronous entry/bootstrap failures and render FR-141's exact recovery copy through the non-HTML path. Catch rejected initial host-ready setup in `src/app.ts`, update the visible status surface, and prevent an unhandled rejection. Keep reconciliation closed, clear deferred relay arming, and prove no claim/session starts. Do not expose exception text or retry automatically. **(FR-141, NFR-115)**
+- [x] **T-044** Add deterministic offline tests for source markup/order, successful fallback removal path, synchronous bootstrap failure rendering, rejected async initialization, no unhandled rejection, and exception-text non-disclosure. **(005 AC-161, 005 SC-116)**
+- [x] **T-045** Run `npm run verify` and rebuild both committed bundles with the panel source change. **Result**: build, lint, typecheck, and 1,550 tests across 113 files pass on Node 24.15.0/Bun 1.4.2. **(FR-087, 005 AC-139, 005 AC-161, 005 SC-116)**
+- [ ] **T-046** Capture all six tabs at 720px/560px using `npm run shot`. The attempt currently fails before Chrome startup with `No usable sandbox`; preserve that failure and do not weaken the sandbox. **(005 AC-158–AC-161, 005 SC-116)**
+
+| Requirement / criterion | Tasks |
+| --- | --- |
+| FR-140, NFR-115 — accessible static startup fallback | T-042, T-044, T-045 |
+| FR-141, NFR-115 — synchronous/asynchronous startup recovery | T-043, T-044, T-045 |
+| 005 AC-161, 005 SC-116 — acceptance evidence and build gate | T-044, T-045 |
+| 005 AC-158–AC-160 — visual snapshots and accessible presentation review | T-046 |
