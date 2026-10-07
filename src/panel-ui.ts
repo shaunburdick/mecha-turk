@@ -17,6 +17,7 @@ import { repaintAboutTab } from './about-tab.ts';
 import { repaintDispatchesBoard } from './dispatches-ui.ts';
 import {
     describeProjectSelection,
+    displayedProjectId,
     notListedGuidance,
     pickerNote,
     pickerOptions,
@@ -105,7 +106,9 @@ export function mountProjectPicker(input: {
 
     const projectSelect = mountSelect(row, {
         label: 'OpenChamber project',
-        value: rt.state.projectSelection,
+        // Displayed, not effective (002 FR-097(a)); `refreshProjectPicker`
+        // paints the same function, so the control cannot disagree with itself.
+        value: displayedProjectId(rt.state),
         options: [],
         searchable: true,
         searchPlaceholder: 'Search by name or id',
@@ -161,11 +164,10 @@ function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
 
     ui.projectSelect.update({
         options: pickerOptions(picker),
-        // The picker's own value, not the effective one: a project that only
-        // a binding supplies has not been picked yet, and the
-        // SDK select skips `onChange` when a click matches the current value —
-        // so showing it here would silently block the operator from storing it.
-        value: state.projectSelection,
+        // Displayed, not effective (002 FR-097(a)). The SDK select skips
+        // `onChange` when a click matches the value shown, so clicking the
+        // displayed default stores nothing — accepted by design (FR-099).
+        value: displayedProjectId(state),
         disabled: picker.status !== 'ready' || picker.projects.length === 0,
         placeholder: pickerPlaceholder(picker),
     });

@@ -22,6 +22,7 @@ import { promptRefusal, storedPromptFor } from './bindings-prompt.ts';
 import { grantBindings } from './bindings-grant.ts';
 import { readDraft, resetDraft, SELECT_TO_EDIT_NOTE } from './bindings.ts';
 import { refresh } from './panel-ui.ts';
+import { displayedProjectId } from './project-picker.ts';
 import { redact } from './redaction.ts';
 import type { BindingsTabState, PanelRuntime } from './panel-state.ts';
 import type { ServiceErrorResult } from './service-calls.ts';
@@ -38,7 +39,7 @@ import type { ServiceErrorResult } from './service-calls.ts';
  */
 export function startNewBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
-    resetDraft(bindings);
+    resetDraft(bindings, displayedProjectId(rt.state));
     bindings.selectedBinding = null;
     bindings.editing = false;
     bindings.editorOpen = true;
@@ -80,7 +81,9 @@ export function startEditingBinding(rt: PanelRuntime): void {
         bindings.note = SELECT_TO_EDIT_NOTE;
         bindings.editorOpen = false;
         bindings.editing = false;
-        resetDraft(bindings);
+        // Add-mode fallback, so the reset takes the displayed value; the edit
+        // path below loads the binding's own project (002 FR-097(c)).
+        resetDraft(bindings, displayedProjectId(rt.state));
         refresh(rt);
 
         return;
@@ -92,7 +95,7 @@ export function startEditingBinding(rt: PanelRuntime): void {
             'so editing it here would change it — leave it as it is.';
         bindings.editorOpen = false;
         bindings.editing = false;
-        resetDraft(bindings);
+        resetDraft(bindings, displayedProjectId(rt.state));
         refresh(rt);
 
         return;
@@ -136,7 +139,7 @@ export function startEditingBinding(rt: PanelRuntime): void {
  */
 export function stopEditingBinding(rt: PanelRuntime, note: string | null): void {
     const { bindings } = rt.state;
-    resetDraft(bindings);
+    resetDraft(bindings, displayedProjectId(rt.state));
     bindings.editing = false;
     bindings.editorOpen = false;
     bindings.startingPromptInput = storedPromptFor(bindings, bindings.selectedBinding);
@@ -188,8 +191,10 @@ function applySaveOutcome(input: {
     readonly answer: ServiceErrorResult;
     /** The row this save wrote. */
     readonly target: string;
+    /** The value the panel picker's control displays right now. */
+    readonly displayed: string | null;
 }): void {
-    const { bindings, answer, target } = input;
+    const { bindings, answer, target, displayed } = input;
     if (!answer.ok) {
         const refusal = promptRefusal(answer);
         bindings.startingPromptError = refusal === null ? null : redact(refusal);
@@ -204,7 +209,7 @@ function applySaveOutcome(input: {
     // the note now reports it).
     bindings.editing = false;
     bindings.editorOpen = false;
-    resetDraft(bindings);
+    resetDraft(bindings, displayed);
     bindings.startingPromptDirty = false;
     bindings.startingPromptError = null;
     // The service normalises (trim, cap, line endings), so each field shows
@@ -274,6 +279,6 @@ export async function saveEditedBinding(rt: PanelRuntime): Promise<void> {
         return;
     }
 
-    applySaveOutcome({ bindings, answer, target });
+    applySaveOutcome({ bindings, answer, target, displayed: displayedProjectId(rt.state) });
     refresh(rt);
 }

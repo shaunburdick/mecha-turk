@@ -19,7 +19,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
-import { saveEditedBinding, startEditingBinding } from '../src/bindings-edit.ts';
+import { saveEditedBinding, startEditingBinding, startNewBinding } from '../src/bindings-edit.ts';
 import { readDraft } from '../src/bindings.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
 import { stopRelayPolling } from '../src/relay.ts';
@@ -497,4 +497,86 @@ describe('New binding opens the editor on an empty draft (2026-10-01 review)', (
         }
     });
 
+});
+
+/* ------------------------------------------------------------------ *
+ * 002 v1.14.0: the add-form prefill (E-7) — FR-013 and FR-097 as
+ * amended, AC-005 and AC-044's edit case.
+ * ------------------------------------------------------------------ */
+
+/** Directory the current-project default's project sits on. */
+const CURRENT_DIRECTORY = '/home/agent/acme/current';
+
+/** Project id the current-project default resolves to. */
+const CURRENT_PROJECT_ID = 'prj_current';
+
+/**
+ * Arrange a loaded project list with no stored pick, so only the named
+ * term can decide what the form shows.
+ *
+ * @param rt - Runtime to arrange.
+ */
+function withProjectList(rt: ReturnType<typeof createTestRuntime>): void {
+    rt.state.projectSelection = null;
+    rt.state.projects.status = 'ready';
+    rt.state.projects.projects = [
+        { id: CURRENT_PROJECT_ID, name: 'current', directory: CURRENT_DIRECTORY },
+        { id: PROJECT_ID, name: 'widget', directory: '/home/agent/acme/widget' },
+    ];
+}
+
+/**
+ * Arrange the same list with a recorded directory that answers to the
+ * default's project — a derived default is in force for the case.
+ *
+ * @param rt - Runtime to arrange.
+ */
+function withCurrentProjectDefault(rt: ReturnType<typeof createTestRuntime>): void {
+    withProjectList(rt);
+    rt.state.hostDirectory = CURRENT_DIRECTORY;
+}
+
+describe('the add form arrives on what the picker displays (FR-013, FR-097, AC-005)', () => {
+    it('prefills the stored pick, else the default, else nothing — in that order', () => {
+        const stored = createTestRuntime(recordingHost().host);
+        withCurrentProjectDefault(stored);
+        stored.state.projectSelection = PROJECT_ID;
+        startNewBinding(stored);
+        expect(stored.state.bindings.repoProjectSelection).toBe(PROJECT_ID);
+
+        const derived = createTestRuntime(recordingHost().host);
+        withCurrentProjectDefault(derived);
+        startNewBinding(derived);
+        expect(derived.state.bindings.repoProjectSelection).toBe(CURRENT_PROJECT_ID);
+
+        const nothing = createTestRuntime(recordingHost().host);
+        withProjectList(nothing);
+        startNewBinding(nothing);
+        expect(nothing.state.bindings.repoProjectSelection).toBeNull();
+    });
+
+    it('opens empty when only a binding context is in force — the binding term is never preselected', () => {
+        const rt = createTestRuntime(recordingHost().host);
+        expect(rt.state.config?.projectId, 'a binding context is in force').toBe(PROJECT_ID);
+        withProjectList(rt);
+        expect(rt.state.hostDirectory, 'no directory was recorded').toBeNull();
+
+        startNewBinding(rt);
+        expect(rt.state.bindings.repoProjectSelection).toBeNull();
+    });
+
+    it('never replaces a stored row in edit mode, even with a default in force', async () => {
+        {
+            const service = await startWithAccount();
+            await seedRow(service, panelRow());
+            const rt = await editorRuntime(service);
+            withCurrentProjectDefault(rt);
+
+            startEditingBinding(rt);
+
+            expect(rt.state.bindings.editing).toBe(true);
+            expect(rt.state.bindings.repoProjectSelection, "the row's own project, not the default")
+                .toBe(PROJECT_ID);
+        }
+    });
 });

@@ -102,6 +102,14 @@ export async function storeProjectSelection(
 }
 
 /**
+ * Record the ready snapshot's project directory for this mount (002 FR-095).
+ * `hostDirectory`'s only write; exported so mount-by-hand tests can drive it.
+ */
+export function recordHostDirectory(rt: PanelRuntime, directory: string | null): void {
+    rt.state.hostDirectory = directory;
+}
+
+/**
  * Restore the stored selection onto the runtime before settings are parsed.
  *
  * Called once per mount, ahead of the first `applySettings`, so a panel that

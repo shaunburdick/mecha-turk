@@ -153,6 +153,11 @@ export interface PanelState {
      * panel says so rather than inventing one.
      */
     projectSelection: string | null;
+    /**
+     * The ready snapshot's current project directory: recorded once at mount,
+     * in memory only (002 FR-095).
+     */
+    hostDirectory: string | null;
     /** Project list backing the picker. */
     projects: ProjectPickerState;
     /** Evidence record for the current match. */
@@ -385,6 +390,7 @@ function initialState(createdAt: string): PanelState {
         settings: null,
         bindingsActive: 0,
         projectSelection: null,
+        hostDirectory: null,
         projects: initialProjectPicker(),
         evidence: null,
         status: { tone: 'info', title: 'Mecha Turk', body: 'Waiting for the host.' },

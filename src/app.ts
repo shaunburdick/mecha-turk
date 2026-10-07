@@ -37,6 +37,7 @@ import { isSelectableProject } from './project-picker.ts';
 import {
     copyProjectId,
     loadProjects,
+    recordHostDirectory,
     rejectProjectSelection,
     restoreProjectSelection,
     storeProjectSelection,
@@ -285,6 +286,9 @@ function tornDown(rt: PanelRuntime): boolean {
  * Mount the panel: restore, configure, read, reconcile, repaint.
  */
 async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
+    // First on purpose: the default's snapshot is load-time only, recorded
+    // before anything can repaint from it (002 FR-095).
+    recordHostDirectory(rt, context.directory ?? null);
     await loadLedger(rt, nowIso());
     // The stored selection must land before the first `applySettings`: it is
     // the picker's starting point for this mount. The restore self-guards

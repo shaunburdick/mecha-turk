@@ -250,15 +250,66 @@ export function isSelectableProject(picker: ProjectPickerState, id: string): boo
 }
 
 /**
- * The project id the panel currently resolves.
+ * The project id the current-project default resolves to, if any (002 FR-095).
  *
- * The picker's stored selection wins; otherwise the binding-derived dispatch
- * context supplies one. Since 002 FR-041 there is no third source.
- *
- * @returns The panel-picker selection, else the binding's id, else `null`.
+ * Fail-closed (FR-096(b)): `null` for a missing directory, a list that is
+ * not `ready`, or anything but exactly one project on that exact directory.
+ */
+export function currentProjectDefault(state: PanelState): string | null {
+    const directory = state.hostDirectory;
+    if (directory === null || state.projects.status !== 'ready') {
+        return null;
+    }
+
+    const matches = state.projects.projects.filter((project) => project.directory === directory);
+    if (matches.length !== 1) {
+        return null;
+    }
+
+    return matches[0]?.id ?? null;
+}
+
+/**
+ * The project id the panel's select controls display (002 FR-097): the
+ * stored pick, else the current-project default — never the binding-context
+ * term, which is dispatch context rather than a choice.
+ */
+export function displayedProjectId(state: PanelState): string | null {
+    return state.projectSelection ?? currentProjectDefault(state);
+}
+
+/**
+ * The project id the panel currently resolves (002 FR-095's order): stored
+ * pick, else the current-project default, else the binding's dispatch
+ * context. The detail line and *Copy project id* read this; the select
+ * controls read {@link displayedProjectId} instead.
  */
 export function selectedProjectId(state: PanelState): string | null {
-    return state.projectSelection ?? state.config?.projectId ?? null;
+    return state.projectSelection ?? currentProjectDefault(state) ?? state.config?.projectId ?? null;
+}
+
+/** Which term of FR-095's order produced the effective selection. */
+export type ProjectSelectionSource =
+    | 'picker'
+    | 'default'
+    | 'binding'
+    | 'none';
+
+/**
+ * The term that produced the effective selection (002 FR-098): provenance
+ * names the term, never the id — one id can arrive from two terms, and only
+ * the term says whether a human chose it.
+ */
+export function projectSelectionSource(state: PanelState): ProjectSelectionSource {
+    if (state.projectSelection !== null) {
+        return 'picker';
+    }
+
+    if (currentProjectDefault(state) !== null) {
+        return 'default';
+    }
+
+    return state.config === null ? 'none' : 'binding';
 }
 
 /**
@@ -266,18 +317,29 @@ export function selectedProjectId(state: PanelState): string | null {
  *
  * The id is shown verbatim so the operator can read it back into the
  * binding's project field; the source line makes the precedence visible
- * instead of surprising. Since 002 FR-041 emptied the integration card there
- * are exactly two answers: the operator's own picker selection, or the
- * binding that already carries a project.
+ * instead of surprising.
+ * Exactly one of FR-098's four strings renders, picked by
+ * {@link projectSelectionSource} — so the label cannot drift from the order.
  */
 export function describeProjectSelection(state: PanelState): string {
     const selected = selectedProjectId(state);
-    if (selected === null) {
-        return 'No project selected — dispatch stays blocked until one is.';
-    }
+    switch (projectSelectionSource(state)) {
+        case 'picker': {
+            return `Selected project: ${selected} (from the panel picker).`;
+        }
 
-    const source = state.projectSelection === null ? 'binding' : 'panel picker';
-    return `Selected project: ${selected} (from the ${source}).`;
+        case 'default': {
+            return `Selected project: ${selected} (current project — not saved as a pick).`;
+        }
+
+        case 'binding': {
+            return `Selected project: ${selected} (from the binding).`;
+        }
+
+        case 'none': {
+            return 'No project selected — dispatch stays blocked until one is.';
+        }
+    }
 }
 
 /**

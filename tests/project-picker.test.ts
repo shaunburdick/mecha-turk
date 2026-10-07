@@ -3,18 +3,22 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { GuestProjectsSnapshot } from '@openchamber/sdk';
 import { createPanelRuntime } from '../src/panel-state.ts';
-import type { PanelRuntime, ProjectPickerState } from '../src/panel-state.ts';
+import type { PanelRuntime, PanelState, ProjectPickerState } from '../src/panel-state.ts';
+import type { BindingContext } from '../src/config.ts';
 import {
     NOT_LISTED_LABEL,
     PROJECT_REGISTRATION_ROUTES,
     applyProjectSnapshot,
+    currentProjectDefault,
     describeProjectSelection,
+    displayedProjectId,
     isSelectableProject,
     notListedGuidance,
     pickerNote,
     pickerOptions,
     pickerPlaceholder,
     projectOption,
+    projectSelectionSource,
     selectedProjectId,
 } from '../src/project-picker.ts';
 import {
@@ -491,5 +495,483 @@ describe('no project-creation call exists anywhere (AC-121)', () => {
         const projectMembers = members.filter((member) => member.includes('Project')).toSorted(byText);
 
         expect(projectMembers).toEqual(['listProjects', 'onProjects']);
+    });
+});
+
+/** How often a pattern occurs in one source string. */
+function occurrences(source: string, pattern: RegExp): number {
+    return [...source.matchAll(pattern)].length;
+}
+
+/**
+ * A *write* of the panel's pick key, in call form.
+ *
+ * The `host.storage.set(` prefix is what makes this the key's write path
+ * rather than any mention of the constant: a reader (`storage.get`) or a
+ * prose reference is not a write, and AC-047's closing clause closes the
+ * write path specifically.
+ */
+const PROJECT_KEY_WRITE = /host\.storage\.set\(\s*PROJECT_STORAGE_KEY/gu;
+
+/**
+ * The panel's whole button-mounting surface, closed (AC-047: "no … second
+ * button … exists anywhere in the panel").
+ *
+ * A census over *every* `mountButton` would be red on arrival — the panel
+ * mounts 32 buttons across ten modules and only two of them are this
+ * feature's subject — so the surface is stated as this enumerated record:
+ * which files mount a button, and how many times each does today. A button
+ * added anywhere, in any module, is then a reported change to a closed set
+ * rather than a judgement call, which is the same discipline `PanelHost`'s
+ * Pick list applies to the host surface.
+ */
+const BUTTON_MOUNT_SITES: Readonly<Record<string, number>> = {
+    'src/about-tab.ts': 2,
+    'src/accounts-detail.ts': 3,
+    'src/accounts-tab.ts': 1,
+    'src/bindings-body.ts': 1,
+    'src/bindings-editor.ts': 5,
+    'src/dispatches-controls.ts': 5,
+    'src/dispatches-ui.ts': 7,
+    'src/panel-ui.ts': 2,
+    'src/settings-mount.ts': 5,
+    'src/status-tab.ts': 1,
+};
+
+/** Buttons the picker group mounts, in label order — exactly two (AC-047). */
+const PICKER_GROUP_BUTTONS: readonly string[] = ['Copy project id', 'Reload projects'].toSorted(byText);
+
+/**
+ * Count `mountButton(` call sites per file.
+ *
+ * One primitive shared by the real census and its bite-check, so the check
+ * proves the very function that judged the tree.
+ *
+ * @returns The count for every file that mounts at least one button.
+ */
+function buttonMountSites(files: readonly ScannedFile[]): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const file of files) {
+        const count = occurrences(file.text, /mountButton\(/gu);
+        if (count > 0) {
+            counts[file.path] = count;
+        }
+    }
+
+    return counts;
+}
+
+/** Quote characters a balance-walker must skip over rather than count. */
+const QUOTES = new Set(["'", '"', '`']);
+
+/**
+ * Index just past the string literal that starts at `start`.
+ *
+ * @returns The index after the closing quote (or the end of the source).
+ */
+function skipString(source: string, start: number, quote: string): number {
+    let index = start + 1;
+    while (index < source.length) {
+        const character = source[index] ?? '';
+        if (character === '\\') {
+            index += 2;
+        } else if (character === quote) {
+            return index + 1;
+        } else {
+            index += 1;
+        }
+    }
+
+    return index;
+}
+
+/**
+ * Index just past the line comment that starts at `start`.
+ *
+ * @returns The index of the newline (or the end of the source).
+ */
+function skipLine(source: string, start: number): number {
+    const lineEnd = source.indexOf('\n', start);
+
+    return lineEnd === -1 ? source.length : lineEnd + 1;
+}
+
+/**
+ * Walk a balanced open/close pair from its opening index.
+ *
+ * String literals and line comments are skipped, so a parenthesis or brace
+ * inside one cannot unbalance the walk.
+ *
+ * @param open - Index of the opening character.
+ * @returns The index just past the matching closing character.
+ * @throws {Error} When the pair never closes.
+ */
+function walkBalanced(source: string, open: number, opener: string, closer: string): number {
+    let depth = 0;
+    let index = open;
+    while (index < source.length) {
+        const character = source[index] ?? '';
+        if (character === '/' && source[index + 1] === '/') {
+            index = skipLine(source, index);
+            continue;
+        }
+
+        if (QUOTES.has(character)) {
+            index = skipString(source, index, character);
+            continue;
+        }
+
+        if (character === opener) {
+            depth += 1;
+            index += 1;
+            continue;
+        }
+
+        if (character === closer) {
+            depth -= 1;
+            if (depth === 0) {
+                return index + 1;
+            }
+        }
+
+        index += 1;
+    }
+
+    throw new Error(`the ${opener}${closer} pair opened at ${open} never closed`);
+}
+
+/**
+ * Extract one function's brace-balanced body from a source string.
+ *
+ * The parameter list is walked first, because a signature such as
+ * `mountProjectPicker(input: { … })` opens a brace *before* the body does —
+ * balancing from the first `{` would return the parameter type.
+ *
+ * @returns The body text, braces included.
+ * @throws {Error} When the function is not declared or has no body.
+ */
+function functionBody(source: string, name: string): string {
+    const declaration = source.indexOf(`function ${name}(`);
+    if (declaration === -1) {
+        throw new Error(`no function ${name} declared here`);
+    }
+
+    const signature = walkBalanced(source, source.indexOf('(', declaration), '(', ')');
+    const open = source.indexOf('{', signature);
+    if (open === -1) {
+        throw new Error(`function ${name} has no body`);
+    }
+
+    return source.slice(open, walkBalanced(source, open, '{', '}'));
+}
+
+/**
+ * Read one `mountButton` call's label from its argument text.
+ *
+ * Only string literals are resolved; a `SOME_LABEL` constant reads as its own
+ * identifier, which is enough for the claim this serves — that no button
+ * anywhere carries a pin-style label.
+ *
+ * @returns The label, or `(unlabelled)` when the call names none.
+ */
+function labelOf(args: string): string {
+    const literal = /label:\s*'([^']*)'/u.exec(args);
+    if (literal?.[1] !== undefined) {
+        return literal[1];
+    }
+
+    return /label:\s*([A-Za-z_$][\w$]*)/u.exec(args)?.[1] ?? '(unlabelled)';
+}
+
+/**
+ * Read the `label:` each `mountButton` call in a source was given.
+ *
+ * @returns The labels, in call order.
+ */
+function buttonLabels(source: string): readonly string[] {
+    const labels: string[] = [];
+    for (const match of source.matchAll(/mountButton\s*\(/gu)) {
+        const open = match.index + match[0].length - 1;
+        const args = source.slice(open + 1, walkBalanced(source, open, '(', ')') - 1);
+        labels.push(labelOf(args));
+    }
+
+    return labels;
+}
+
+describe('the pick key has exactly one write path (FR-096(a), AC-047)', () => {
+    it('counts one host.storage.set(PROJECT_STORAGE_KEY) in src, reached only from the explicit pick', () => {
+        const sources = scanProjectCreationSurface().filter((file) => file.path.startsWith('src/'));
+        const writeSites = sources.filter((file) => occurrences(file.text, PROJECT_KEY_WRITE) > 0);
+
+        expect(writeSites.map((file) => file.path)).toEqual(['src/project-actions.ts']);
+        for (const file of writeSites) {
+            expect(occurrences(file.text, PROJECT_KEY_WRITE), `${file.path} must hold the only write`).toBe(1);
+        }
+
+        // The one write is `storeProjectSelection`, and the picker's explicit
+        // pick in `app.ts` is its only caller: a second caller would be a
+        // second way to reach the key even if the `set` stayed singular.
+        const storeCallers = sources.filter(
+            (file) => occurrences(file.text, /(?<!function )\bstoreProjectSelection\s*\(/gu) > 0,
+        );
+        expect(storeCallers.map((file) => file.path)).toEqual(['src/app.ts']);
+        const appSource = storeCallers[0]?.text ?? '';
+        expect(occurrences(appSource, /(?<!function )\bstoreProjectSelection\s*\(/gu)).toBe(1);
+        const selectProject = functionBody(appSource, 'selectProject');
+        expect(selectProject).toContain('storeProjectSelection(');
+
+        // Bite-check: the same census has to report a planted second write.
+        const projectActions = sources.find((file) => file.path === 'src/project-actions.ts');
+        expect(projectActions, 'the write site still exists').toBeDefined();
+        const planted = `${projectActions?.text ?? ''}\nhost.storage.set(PROJECT_STORAGE_KEY, planted);\n`;
+        expect(occurrences(planted, PROJECT_KEY_WRITE), 'a planted second write is reported').toBe(2);
+    });
+});
+
+describe('no third button, no Pin, and no second write path anywhere in the panel (AC-047)', () => {
+    it('enumerates the panel button-mount surface as a closed record', () => {
+        const sources = scanProjectCreationSurface().filter((file) => file.path.startsWith('src/'));
+
+        expect(buttonMountSites(sources)).toEqual(BUTTON_MOUNT_SITES);
+        const total = Object.values(BUTTON_MOUNT_SITES).reduce((sum, count) => sum + count, 0);
+        expect(total).toBe(32);
+
+        // Bite-check, on the same counting function: a planted third button
+        // inside the picker group is reported, so a green census above is a
+        // fact about the tree rather than about a pattern that cannot fail.
+        const panelUi = sources.find((file) => file.path === 'src/panel-ui.ts');
+        expect(panelUi, 'the picker module exists').toBeDefined();
+        const pickerBody = functionBody(panelUi?.text ?? '', 'mountProjectPicker');
+        expect(occurrences(pickerBody, /mountButton\(/gu)).toBe(2);
+        const planted = `${pickerBody}\nmountButton(row, { label: 'Pin project', variant: 'outline' });\n`;
+        expect(occurrences(planted, /mountButton\(/gu), 'a planted third button is counted').toBe(3);
+
+        const plantedSites = buttonMountSites([
+            ...(panelUi === undefined ? [] : [{ path: panelUi.path, text: planted }]),
+        ]);
+        expect(plantedSites['src/panel-ui.ts'], 'the census reports it, not the closed record').toBe(3);
+    });
+
+    it('mounts exactly two labelled buttons in the picker group, and no button beside the form select', () => {
+        const sources = scanProjectCreationSurface().filter((file) => file.path.startsWith('src/'));
+        const panelUi = sources.find((file) => file.path === 'src/panel-ui.ts');
+        const bindingsBody = sources.find((file) => file.path === 'src/bindings-body.ts');
+        expect(panelUi, 'the picker module exists').toBeDefined();
+        expect(bindingsBody, 'the bindings body exists').toBeDefined();
+
+        const pickerBody = functionBody(panelUi?.text ?? '', 'mountProjectPicker');
+        expect(buttonLabels(pickerBody).toSorted(byText)).toEqual(PICKER_GROUP_BUTTONS);
+
+        // The form's Dispatch project select is the other surface a Pin
+        // could be bolted onto; it mounts a select and no button at all.
+        const selectBody = functionBody(bindingsBody?.text ?? '', 'mountProjectSelect');
+        expect(occurrences(selectBody, /mountButton\(/gu)).toBe(0);
+        expect(selectBody).toContain('mountSelect(');
+        expect(selectBody).toContain("label: 'Dispatch project'");
+
+        // Every button the panel mounts, anywhere, carries a readable label
+        // and none of them is a pin-style control (G3-2's one-line
+        // broadening of this census).
+        const labels = sources.flatMap((file) => buttonLabels(file.text));
+        expect(labels).toHaveLength(32);
+        expect(labels.filter((label) => /\bpin\b/iu.test(label))).toEqual([]);
+    });
+});
+
+/* ------------------------------------------------------------------ *
+ * 002 v1.14.0: resolution, display, and the four strings (E-5).
+ * ------------------------------------------------------------------ */
+
+/** Project the current-project default resolves to in these cases. */
+const DEFAULT_ID = 'prj_current';
+
+/** Directory only {@link DEFAULT_ID} sits on — the host's current directory. */
+const DEFAULT_DIRECTORY = '/home/agent/acme/current';
+
+/** Ready list holding the default's project beside a second, unrelated one. */
+const RESOLUTION_SNAPSHOT: GuestProjectsSnapshot = {
+    kind: 'projects',
+    state: 'ready',
+    projects: [
+        { id: DEFAULT_ID, name: 'current', directory: DEFAULT_DIRECTORY },
+        { id: OTHER_ID, name: 'gadget', directory: '/home/agent/acme/gadget' },
+    ],
+};
+
+/** Ready list whose two projects share one directory — ambiguous. */
+const COLLIDING_SNAPSHOT: GuestProjectsSnapshot = {
+    kind: 'projects',
+    state: 'ready',
+    projects: [
+        { id: 'prj_left', name: 'left', directory: DEFAULT_DIRECTORY },
+        { id: 'prj_right', name: 'right', directory: DEFAULT_DIRECTORY },
+    ],
+};
+
+/**
+ * Panel state arranged for one resolution case (002 FR-095).
+ *
+ * Everything starts at its initial value and only the named facts are set,
+ * so a case cannot inherit an answer from a fixture it never mentioned.
+ *
+ * @returns The state under test.
+ */
+function resolutionState(input: {
+    /** The directory recorded at load; absent means none was. */
+    readonly hostDirectory?: string | null;
+    /** The project list, as `loadProjects` would fold it in. */
+    readonly snapshot?: GuestProjectsSnapshot;
+    /** The stored manual pick; absent means none is stored. */
+    readonly projectSelection?: string | null;
+    /** The binding context; absent means no enabled binding supplies one. */
+    readonly config?: BindingContext | null;
+} = {}): PanelState {
+    const { state } = createPanelRuntime(fakeHost(), fakeWindow().window);
+    state.hostDirectory = input.hostDirectory ?? null;
+    if (input.snapshot !== undefined) {
+        applyProjectSnapshot(state.projects, input.snapshot);
+    }
+
+    state.projectSelection = input.projectSelection ?? null;
+    state.config = input.config ?? null;
+
+    return state;
+}
+
+describe('the current-project default resolves one ordered rule (FR-095, FR-097)', () => {
+    it('resolves stored, derived, binding, none in order — and displays only the first two', () => {
+        const config = testConfig();
+
+        // (1) the stored pick, never displaced by a default, on this load
+        // and every later one (AC-044's A case).
+        const stored = resolutionState({
+            hostDirectory: DEFAULT_DIRECTORY,
+            snapshot: RESOLUTION_SNAPSHOT,
+            projectSelection: PROJECT_ID,
+            config,
+        });
+        expect(selectedProjectId(stored)).toBe(PROJECT_ID);
+        expect(displayedProjectId(stored)).toBe(PROJECT_ID);
+        expect(projectSelectionSource(stored)).toBe('picker');
+
+        // (2) the derived default while nothing is stored.
+        const derived = resolutionState({
+            hostDirectory: DEFAULT_DIRECTORY,
+            snapshot: RESOLUTION_SNAPSHOT,
+            config,
+        });
+        expect(selectedProjectId(derived)).toBe(DEFAULT_ID);
+        expect(displayedProjectId(derived)).toBe(DEFAULT_ID);
+        expect(projectSelectionSource(derived)).toBe('default');
+
+        // (3) the binding context when no default resolves: the detail line
+        // reports it, and no control ever displays it (FR-097(a)/(b)).
+        const bindingOnly = resolutionState({ snapshot: RESOLUTION_SNAPSHOT, config });
+        expect(selectedProjectId(bindingOnly)).toBe(PROJECT_ID);
+        expect(displayedProjectId(bindingOnly), 'a control never displays the binding term').toBeNull();
+        expect(projectSelectionSource(bindingOnly)).toBe('binding');
+
+        // (4) nothing resolves.
+        const none = resolutionState({ snapshot: RESOLUTION_SNAPSHOT });
+        expect(selectedProjectId(none)).toBeNull();
+        expect(displayedProjectId(none)).toBeNull();
+        expect(projectSelectionSource(none)).toBe('none');
+    });
+
+    it('derives nothing in every state FR-096(b) refuses, falling through byte-identically', () => {
+        const config = testConfig();
+        const cases: readonly (readonly [string, PanelState])[] = [
+            ['a null directory', resolutionState({ snapshot: RESOLUTION_SNAPSHOT, config })],
+            [
+                'a directory no project matches',
+                resolutionState({ hostDirectory: '/elsewhere', snapshot: RESOLUTION_SNAPSHOT, config }),
+            ],
+            [
+                'two projects sharing one directory',
+                resolutionState({ hostDirectory: DEFAULT_DIRECTORY, snapshot: COLLIDING_SNAPSHOT, config }),
+            ],
+            [
+                'a list still loading',
+                resolutionState({
+                    hostDirectory: DEFAULT_DIRECTORY,
+                    snapshot: { ...RESOLUTION_SNAPSHOT, state: 'loading' },
+                    config,
+                }),
+            ],
+            [
+                'an error snapshot',
+                resolutionState({
+                    hostDirectory: DEFAULT_DIRECTORY,
+                    snapshot: { ...RESOLUTION_SNAPSHOT, state: 'error' },
+                    config,
+                }),
+            ],
+            ['a list that was never loaded', resolutionState({ hostDirectory: DEFAULT_DIRECTORY, config })],
+        ];
+
+        for (const [label, state] of cases) {
+            expect(currentProjectDefault(state), label).toBeNull();
+            // The pre-amendment rule, byte for byte: resolution falls to the
+            // binding term, the controls stay empty, and the line keeps the
+            // string it has always rendered.
+            expect(selectedProjectId(state), label).toBe(PROJECT_ID);
+            expect(displayedProjectId(state), label).toBeNull();
+            expect(describeProjectSelection(state), label).toBe(
+                `Selected project: ${PROJECT_ID} (from the binding).`,
+            );
+        }
+
+        const unconfigured = resolutionState({
+            hostDirectory: DEFAULT_DIRECTORY,
+            snapshot: COLLIDING_SNAPSHOT,
+        });
+        expect(describeProjectSelection(unconfigured)).toBe(
+            'No project selected — dispatch stays blocked until one is.',
+        );
+    });
+
+    it("renders exactly FR-098's four strings, chosen by the producing term", () => {
+        const config = testConfig();
+
+        expect(
+            describeProjectSelection(
+                resolutionState({
+                    hostDirectory: DEFAULT_DIRECTORY,
+                    snapshot: RESOLUTION_SNAPSHOT,
+                    projectSelection: PROJECT_ID,
+                    config,
+                }),
+            ),
+        ).toBe(`Selected project: ${PROJECT_ID} (from the panel picker).`);
+
+        expect(
+            describeProjectSelection(
+                resolutionState({ hostDirectory: DEFAULT_DIRECTORY, snapshot: RESOLUTION_SNAPSHOT, config }),
+            ),
+        ).toBe(`Selected project: ${DEFAULT_ID} (current project — not saved as a pick).`);
+
+        expect(
+            describeProjectSelection(resolutionState({ snapshot: RESOLUTION_SNAPSHOT, config })),
+        ).toBe(`Selected project: ${PROJECT_ID} (from the binding).`);
+
+        expect(describeProjectSelection(resolutionState({ snapshot: RESOLUTION_SNAPSHOT }))).toBe(
+            'No project selected — dispatch stays blocked until one is.',
+        );
+
+        // The combined state — no stored pick, a derived default, and a
+        // binding context all in force — asserted by exact equality, because
+        // the branch this replaced rendered the binding string here and
+        // credited the binding with an id it does not hold (ledger Q2b,
+        // AC-047).
+        const combined = resolutionState({
+            hostDirectory: DEFAULT_DIRECTORY,
+            snapshot: RESOLUTION_SNAPSHOT,
+            config,
+        });
+        const line = describeProjectSelection(combined);
+        expect(line).toBe(`Selected project: ${DEFAULT_ID} (current project — not saved as a pick).`);
+        expect(line).not.toContain('(from the binding).');
+        expect(line).not.toContain('panel picker');
     });
 });
