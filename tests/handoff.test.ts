@@ -318,7 +318,9 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
             expect(host.record.note).toBe(
                 `This GitHub account is already registered — connected as ${CONNECTED_LOGIN}.`
             );
-            expect(host.record.pasteVisible).toBe(false);
+            // Issue #35: the add form stays enabled for the next account.
+            expect(host.record.tokenEnabled).toBe(true);
+            expect(host.record.submitEnabled).toBe(true);
             // The mirror was rewritten for the account the mirror lost.
             expect(host.storage.values.get(ACCOUNTS_STORAGE_KEY)).toEqual([
                 { numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, state: 'active', scopeCheck: null },
@@ -337,7 +339,6 @@ describe('duplicate-account adoption (operator re-paste after reinstall)', () =>
             await submitHandoffAndRepaint(host.rt, { token: PANEL_TOKEN });
 
             expect(host.rt.state.handoff.connected).toBeNull();
-            expect(host.record.pasteVisible).toBe(true);
             expectNoCredential(host);
         }
     });
