@@ -286,10 +286,8 @@ function tornDown(rt: PanelRuntime): boolean {
  * Mount the panel: restore, configure, read, reconcile, repaint.
  */
 async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
-    // The load-time snapshot the current-project default derives from (002
-    // FR-095): recorded first, before any read can paint a control that
-    // reads it, and never again — a later `onReady` snapshot still stops at
-    // the `started` guard, so this is the panel's one directory write.
+    // First on purpose: the default's snapshot is load-time only, recorded
+    // before anything can repaint from it (002 FR-095).
     recordHostDirectory(rt, context.directory ?? null);
     await loadLedger(rt, nowIso());
     // The stored selection must land before the first `applySettings`: it is

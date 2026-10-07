@@ -69,15 +69,8 @@ export function editBindings(rt: PanelRuntime, patch: Partial<BindingsTabState>)
  * same draft when an edit is saved or cancelled: two resets of one draft are
  * two places the defaults could drift, so there is one.
  *
- * The project field is **prefilled with the value the panel picker's control
- * displays** (002 FR-013, FR-097(b)) — the stored pick, else the derived
- * current-project default, else `null` — so the two dropdowns agree whenever
- * the form opens, and one where nothing resolves still opens empty exactly as
- * it did before. The caller passes it rather than reading panel state here:
- * this function stays a function of the bindings slice alone, and every reset
- * site names the value it means (plan J5).
- *
- * @param displayed - What the picker's control shows right now, or `null`.
+ * `displayed` prefills the project field with the value the panel picker's
+ * control shows, so the two dropdowns agree when the form opens (002 FR-097(b)).
  */
 export function resetDraft(bindings: BindingsTabState, displayed: string | null): void {
     bindings.repoInput = '';
@@ -145,8 +138,6 @@ async function fetchBindings(rt: PanelRuntime): Promise<BindingsSnapshot | null>
         return null;
     }
 
-    // The covered-draft clear is a reset, so it takes the displayed value
-    // like every other one (002 FR-097(b)).
     clearDraftIfCovered(rt.state.bindings, parsed.bindings, displayedProjectId(rt.state));
 
     return parsed;

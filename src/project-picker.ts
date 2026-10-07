@@ -252,14 +252,8 @@ export function isSelectableProject(picker: ProjectPickerState, id: string): boo
 /**
  * The project id the current-project default resolves to, if any (002 FR-095).
  *
- * A pure function of panel state, and fail-closed on every condition it
- * cannot answer honestly (FR-096(b)): no recorded directory, a list that is
- * not `ready`, no project on that exact directory, or **two** projects
- * sharing it — ambiguous, so no default rather than the first hit. The
- * comparison is exact `===` on purpose: both values are the host's own, and
- * a guessed normalisation could only invent a match the host never reported.
- *
- * @returns The single matching project id, else `null`.
+ * Fail-closed (FR-096(b)): `null` for a missing directory, a list that is
+ * not `ready`, or anything but exactly one project on that exact directory.
  */
 export function currentProjectDefault(state: PanelState): string | null {
     const directory = state.hostDirectory;
@@ -276,29 +270,19 @@ export function currentProjectDefault(state: PanelState): string | null {
 }
 
 /**
- * The project id the panel's select controls display (002 FR-097).
- *
- * Terms (1)–(2) of FR-095's order only — the stored pick, else the derived
- * default — and deliberately not term (3): a binding-context project is the
- * panel's dispatch context rather than a choice, so under it alone both
- * dropdowns open empty exactly as they did before v1.14.0.
- *
- * @returns The displayed id, or `null` when neither term resolves.
+ * The project id the panel's select controls display (002 FR-097): the
+ * stored pick, else the current-project default — never the binding-context
+ * term, which is dispatch context rather than a choice.
  */
 export function displayedProjectId(state: PanelState): string | null {
     return state.projectSelection ?? currentProjectDefault(state);
 }
 
 /**
- * The project id the panel currently resolves (002 FR-095's full order).
- *
- * The stored selection wins and is never displaced; the current-project
- * default fills in only while nothing is stored; the binding-derived dispatch
- * context supplies the third term. Resolution is a different question from
- * display — the detail line and *Copy project id* read this, the controls
- * read {@link displayedProjectId}.
- *
- * @returns The effective selection, else `null`.
+ * The project id the panel currently resolves (002 FR-095's order): stored
+ * pick, else the current-project default, else the binding's dispatch
+ * context. The detail line and *Copy project id* read this; the select
+ * controls read {@link displayedProjectId} instead.
  */
 export function selectedProjectId(state: PanelState): string | null {
     return state.projectSelection ?? currentProjectDefault(state) ?? state.config?.projectId ?? null;
@@ -306,25 +290,15 @@ export function selectedProjectId(state: PanelState): string | null {
 
 /** Which term of FR-095's order produced the effective selection. */
 export type ProjectSelectionSource =
-    /** The stored manual pick. */
     | 'picker'
-    /** The derived current-project default. */
     | 'default'
-    /** The binding-context dispatch project. */
     | 'binding'
-    /** Nothing resolves. */
     | 'none';
 
 /**
- * Name the term that produced the effective selection (002 FR-098).
- *
- * Provenance is about the *term*, never the id: the same id can arrive from
- * two of them, and only the term says whether a human chose it. This replaces
- * the old `projectSelection === null ? 'binding' : 'panel picker'` branch,
- * which under the combined state (no pick + derived default + binding) would
- * have credited the binding with an id the binding does not hold.
- *
- * @returns The producing term, as a closed union.
+ * The term that produced the effective selection (002 FR-098): provenance
+ * names the term, never the id — one id can arrive from two terms, and only
+ * the term says whether a human chose it.
  */
 export function projectSelectionSource(state: PanelState): ProjectSelectionSource {
     if (state.projectSelection !== null) {
@@ -343,9 +317,9 @@ export function projectSelectionSource(state: PanelState): ProjectSelectionSourc
  *
  * The id is shown verbatim so the operator can read it back into the
  * binding's project field; the source line makes the precedence visible
- * instead of surprising. Exactly four strings render — FR-098's closed
- * vocabulary — and which one renders is decided by the term that produced
- * the value, so the label can never drift from the resolution order.
+ * instead of surprising.
+ * Exactly one of FR-098's four strings renders, picked by
+ * {@link projectSelectionSource} — so the label cannot drift from the order.
  */
 export function describeProjectSelection(state: PanelState): string {
     const selected = selectedProjectId(state);

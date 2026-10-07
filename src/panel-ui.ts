@@ -106,11 +106,8 @@ export function mountProjectPicker(input: {
 
     const projectSelect = mountSelect(row, {
         label: 'OpenChamber project',
-        // The displayed value, not the effective one: the binding-context
-        // term is the dispatch context rather than a choice and never shows
-        // here (FR-097(a)), while the stored pick and the derived default
-        // both do. Mount and repaint read the same function, so the control
-        // cannot disagree with itself.
+        // Displayed, not effective (002 FR-097(a)); `refreshProjectPicker`
+        // paints the same function, so the control cannot disagree with itself.
         value: displayedProjectId(rt.state),
         options: [],
         searchable: true,
@@ -167,14 +164,9 @@ function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
 
     ui.projectSelect.update({
         options: pickerOptions(picker),
-        // The **displayed** value (FR-097(a)): the stored pick, else the
-        // derived current-project default, never the binding-context term.
-        // The SDK select skips `onChange` when a click matches the value
-        // already displayed, so clicking the displayed default fires no
-        // change and stores nothing (FR-099) — accepted by design: pinning
-        // is not required to use the default, and an operator who wants it
-        // stored picks another project first, then this one, which is an
-        // ordinary explicit pick.
+        // Displayed, not effective (002 FR-097(a)). The SDK select skips
+        // `onChange` when a click matches the value shown, so clicking the
+        // displayed default stores nothing — accepted by design (FR-099).
         value: displayedProjectId(state),
         disabled: picker.status !== 'ready' || picker.projects.length === 0,
         placeholder: pickerPlaceholder(picker),

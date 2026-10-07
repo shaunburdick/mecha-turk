@@ -154,16 +154,8 @@ export interface PanelState {
      */
     projectSelection: string | null;
     /**
-     * The host's current project directory, as the ready snapshot that
-     * mounted this panel reported it (002 FR-095, added at v1.14.0).
-     *
-     * Recorded once — `mountPanel`'s first statement, through
-     * `recordHostDirectory` — and never again, so a directory change while
-     * the panel is open cannot move anything (load-time only is a structural
-     * property here, not a rule every later edit has to remember). In-memory
-     * only: nothing persists it, and it starts `null`, which is why an
-     * existing suite that never records one derives no default by
-     * construction.
+     * The ready snapshot's current project directory: recorded once at mount,
+     * in memory only (002 FR-095).
      */
     hostDirectory: string | null;
     /** Project list backing the picker. */

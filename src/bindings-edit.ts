@@ -39,8 +39,6 @@ import type { ServiceErrorResult } from './service-calls.ts';
  */
 export function startNewBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
-    // The add form arrives on the value the panel picker's control displays
-    // (002 FR-097(b)): one rule, so the two dropdowns never disagree at open.
     resetDraft(bindings, displayedProjectId(rt.state));
     bindings.selectedBinding = null;
     bindings.editing = false;
@@ -83,8 +81,8 @@ export function startEditingBinding(rt: PanelRuntime): void {
         bindings.note = SELECT_TO_EDIT_NOTE;
         bindings.editorOpen = false;
         bindings.editing = false;
-        // Back to add mode, so this reset takes the displayed value like any
-        // other add-mode reset; the success path below never does (FR-097(c)).
+        // Add-mode fallback, so the reset takes the displayed value; the edit
+        // path below loads the binding's own project (002 FR-097(c)).
         resetDraft(bindings, displayedProjectId(rt.state));
         refresh(rt);
 
@@ -193,11 +191,7 @@ function applySaveOutcome(input: {
     readonly answer: ServiceErrorResult;
     /** The row this save wrote. */
     readonly target: string;
-    /**
-     * The value the panel picker's control displays, handed in by the one
-     * caller that holds the runtime — this function takes no `rt` on purpose
-     * (002 FR-097(b); plan J5's threading site 2).
-     */
+    /** The value the panel picker's control displays right now. */
     readonly displayed: string | null;
 }): void {
     const { bindings, answer, target, displayed } = input;
