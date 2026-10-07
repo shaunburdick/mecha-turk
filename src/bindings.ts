@@ -20,7 +20,7 @@
 
 import { nowIso } from './ids.ts';
 import { refresh } from './panel-ui.ts';
-import { displayedProjectId } from './project-picker.ts';
+import { currentProjectDefault } from './project-picker.ts';
 import { redact } from './redaction.ts';
 import { armRelayForBindings, grantBindings } from './bindings-grant.ts';
 import { readDraft } from './bindings-draft.ts';
@@ -69,8 +69,9 @@ export function editBindings(rt: PanelRuntime, patch: Partial<BindingsTabState>)
  * same draft when an edit is saved or cancelled: two resets of one draft are
  * two places the defaults could drift, so there is one.
  *
- * `displayed` prefills the project field with the value the panel picker's
- * control shows, so the two dropdowns agree when the form opens (002 FR-097(b)).
+ * `displayed` prefills the project field with the current-project default
+ * when one resolves, so an untouched add saves the project the operator is
+ * already in (002 FR-097(b)).
  */
 export function resetDraft(bindings: BindingsTabState, displayed: string | null): void {
     bindings.repoInput = '';
@@ -138,7 +139,7 @@ async function fetchBindings(rt: PanelRuntime): Promise<BindingsSnapshot | null>
         return null;
     }
 
-    clearDraftIfCovered(rt.state.bindings, parsed.bindings, displayedProjectId(rt.state));
+    clearDraftIfCovered(rt.state.bindings, parsed.bindings, currentProjectDefault(rt.state));
 
     return parsed;
 }
@@ -271,7 +272,7 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
         // scanned (002 FR-084).
         historyScope: { bindingId: draft.bindingId, historyScope: draft.historyScope },
     });
-    resetCoveredDraft(bindings, draft.repository, displayedProjectId(rt.state));
+    resetCoveredDraft(bindings, draft.repository, currentProjectDefault(rt.state));
     if (answer.ok) {
         bindings.editorOpen = false;
         bindings.startingPromptDirty = false;

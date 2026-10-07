@@ -67,11 +67,9 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 /** A value that is outside `intervalMs`'s bounds, so the service refuses it. */
 const OUT_OF_RANGE = 999_999_999;
 
-/** The picker callbacks the shell takes; none is exercised by this suite. */
+/** The panel-level handler the shell takes; none is exercised by this suite. */
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
 };
 
 /** The configuration as stored, with every field at its default. */

@@ -511,13 +511,12 @@ const CURRENT_DIRECTORY = '/home/agent/acme/current';
 const CURRENT_PROJECT_ID = 'prj_current';
 
 /**
- * Arrange a loaded project list with no stored pick, so only the named
- * term can decide what the form shows.
+ * Arrange a loaded project list with no host directory recorded, so nothing
+ * resolves and the form shows what an empty draft shows.
  *
  * @param rt - Runtime to arrange.
  */
 function withProjectList(rt: ReturnType<typeof createTestRuntime>): void {
-    rt.state.projectSelection = null;
     rt.state.projects.status = 'ready';
     rt.state.projects.projects = [
         { id: CURRENT_PROJECT_ID, name: 'current', directory: CURRENT_DIRECTORY },
@@ -536,14 +535,8 @@ function withCurrentProjectDefault(rt: ReturnType<typeof createTestRuntime>): vo
     rt.state.hostDirectory = CURRENT_DIRECTORY;
 }
 
-describe('the add form arrives on what the picker displays (FR-013, FR-097, AC-005)', () => {
-    it('prefills the stored pick, else the default, else nothing — in that order', () => {
-        const stored = createTestRuntime(recordingHost().host);
-        withCurrentProjectDefault(stored);
-        stored.state.projectSelection = PROJECT_ID;
-        startNewBinding(stored);
-        expect(stored.state.bindings.repoProjectSelection).toBe(PROJECT_ID);
-
+describe('the add form arrives on the current-project default (FR-013, FR-097, AC-005)', () => {
+    it('prefills the default when one resolves, else nothing', () => {
         const derived = createTestRuntime(recordingHost().host);
         withCurrentProjectDefault(derived);
         startNewBinding(derived);

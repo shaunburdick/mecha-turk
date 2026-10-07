@@ -2,14 +2,16 @@
  * The Bindings pane's contract and its repaint (M3 re-cut).
  *
  * **The list is the tab, and the editor is opened on request** (2026-10-01
- * product-owner review): entering the tab shows the picker, the status and
- * note lines, the list, and its row controls — **New binding**, **Refresh**,
- * **Toggle enabled**, **Remove** — while the editor block underneath stays
- * hidden until a row is clicked (which loads that row into it) or **New
- * binding** is activated (which opens an empty draft). The editor states the
- * loaded binding's enabled/disabled state in words, so *Toggle enabled* is
- * never the only place that truth lives, and the starting prompt is a field
- * of that same form: one primary button writes all of it.
+ * product-owner review): entering the tab shows the status and note lines,
+ * the list, and its row controls — **New binding**, **Refresh**, **Toggle
+ * enabled**, **Remove** — while the editor block underneath stays hidden
+ * until a row is clicked (which loads that row into it) or **New binding**
+ * is activated (which opens an empty draft). The editor carries the project
+ * controls — the *Dispatch project* select with **Reload projects** and the
+ * list's status line beside it (issue #39) — states the loaded binding's
+ * enabled/disabled state in words, so *Toggle enabled* is never the only
+ * place that truth lives, and holds the starting prompt as a field of that
+ * same form: one primary button writes all of it.
  *
  * This module owns what those controls **are** ({@link BindingsPane}), what
  * they ask for ({@link BindingsPaneHandlers}), the tab's status copy, and the
@@ -44,7 +46,7 @@ import { historyScopeHelp, repaintBindingHistoryScope, windowInForceLine } from 
 import type { BindingHistoryScopeControls, BindingHistoryScopeHandlers } from './bindings-history.ts';
 import { accountFieldView, editorStateLine, repaintBindingActions, repaintBindingMention } from './bindings-editor.ts';
 import { bindingRows, selectedBindingDetail } from './bindings-rows.ts';
-import { formProjectOptions } from './project-picker.ts';
+import { formProjectOptions, pickerNote } from './project-picker.ts';
 import type { DetailChips } from './bindings-chips.ts';
 
 /** The pane handle: the mounted element and every repaint handle it needs. */
@@ -94,6 +96,10 @@ export interface BindingsPane {
     readonly historyScope: BindingHistoryScopeControls;
     /** Project select (from the host's project list). */
     readonly projectSelect: SelectHandle;
+    /** **Reload projects**, beside the project select (issue #39). */
+    readonly projectRefresh: ButtonHandle;
+    /** The project list's loading/error/empty/count status line. */
+    readonly projectStatus: TextHandle;
     /** Assignment trigger checkbox. */
     readonly assignmentCheck: CheckboxHandle;
     /** Mention trigger checkbox. */
@@ -221,6 +227,10 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
         value: bindings.repoProjectSelection,
         disabled: bindings.status !== 'ready',
     });
+    // The list's own status line: the one surface that says why a
+    // `host.listProjects()` failure left the select empty, and where the
+    // reload button's retry lands (issue #39, constitution II).
+    view.projectStatus.update({ text: pickerNote(rt.state.projects) });
     view.assignmentCheck.update({ checked: bindings.triggerAssignment });
     view.mentionCheck.update({ checked: bindings.triggerMention });
     view.reviewRequestCheck.update({ checked: bindings.triggerReviewRequest });

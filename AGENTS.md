@@ -124,7 +124,7 @@ exiting non-zero on any finding.
    anything lands — drop those and the gate proves only reachability.
    Do not reintroduce npm `workspaces`.
    **Release policy: stay pre-1.0.0 until the public 1.0.0 release** —
-   current version `0.1.1`, increment per release; jumping to `1.0.0` is a
+   current version `0.1.2`, increment per release; jumping to `1.0.0` is a
    product-owner call, never incidental.
 3. **Capabilities: `sessions` and `prompt` only.** `service` is implied by
    `contributes.service` — listing an implied capability in `capabilities[]`
@@ -134,9 +134,10 @@ exiting non-zero on any finding.
    so `network` is no longer requested at all. `contributes.service` must not
    gain a `permissions` key.
 4. **Kebab-case identity.** Manifest ids must match `^[a-z][a-z0-9-]*$`;
-   the panel id is `mecha-turk`. Four of the five `host.storage` keys carry that
-   `mecha-turk:` prefix (`:project`, `:evidence`, `:ledger`, `:dispatches`); the
-   fifth, `accounts`, carries **no prefix at all** (`src/account-mirror.ts`).
+   the panel id is `mecha-turk`. Three of the four `host.storage` keys carry that
+   `mecha-turk:` prefix (`:evidence`, `:ledger`, `:dispatches`; `:project` was
+   removed with the panel-level picker — issue #39); the fourth, `accounts`,
+   carries **no prefix at all** (`src/account-mirror.ts`).
    Renaming either the id or a key is a user-visible storage-namespace reset —
    treat as a breaking change, and grep `STORAGE_KEY` before claiming a count.
 5. **`SERVICE_VERSION` mirrors `package.json`.**

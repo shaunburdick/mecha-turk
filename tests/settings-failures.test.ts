@@ -79,11 +79,9 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** The picker callbacks the shell takes; none is exercised by this suite. */
+/** The panel-level handler the shell takes; none is exercised by this suite. */
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
 };
 
 /** The notice wording the transport case must show verbatim (AC-129). */

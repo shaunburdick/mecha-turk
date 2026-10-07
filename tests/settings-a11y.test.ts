@@ -69,11 +69,9 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 /** The six tab ids, in the shell's order (005 FR-010). */
 const TAB_IDS: readonly string[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'];
 
-/** The picker callbacks the shell takes; none is exercised by this suite. */
+/** The panel-level handler the shell takes; none is exercised by this suite. */
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
 };
 
 /** What one tab's mounts recorded. */

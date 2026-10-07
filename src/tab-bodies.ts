@@ -16,7 +16,6 @@ import { disposeAboutTab, mountAboutTab } from './about-tab.ts';
 import { createBindingsHandlers, mountBindingsTabBody } from './bindings-mount.ts';
 import { disposeDispatchesBoard, mountDispatchesBoard } from './dispatches-ui.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import { mountProjectPicker } from './panel-ui.ts';
 import type { PanelHandlers } from './panel-ui.ts';
 import { mountPrerequisitesSection } from './prerequisites.ts';
 import { disposeSettingsTab, mountSettingsTab } from './settings-tab.ts';
@@ -94,40 +93,31 @@ function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
 }
 
 /**
- * The Bindings body: the picker, the status/list, and the add form.
+ * The Bindings body: the status/list and the add form.
  *
- * @returns A disposer that releases the picker and the pane's handles.
+ * @returns A disposer that releases the pane's handles.
  */
 function mountBindingsBody(input: {
     /** Panel runtime the body reads and repaints. */
     readonly rt: PanelRuntime;
     /** The body container the shell created. */
     readonly body: HTMLElement;
-    /** The picker's callbacks. */
+    /**
+     * The panel-level handlers the shell passes to every body.
+     *
+     * Only `refreshProjects` remains (issue #39 removed the panel-level
+     * picker it fed); the form's reload button is wired through the bindings
+     * handlers, so the shell threads this and the body does not read it.
+     */
     readonly handlers: PanelHandlers;
 }): () => void {
-    const { rt, body, handlers } = input;
+    const { rt, body } = input;
     mountBindingsTabBody({
         rt,
         root: body,
-        // The picker opens the tab's first block rather than floating above
-        // it: one rule across the six tabs — the tab title is the first
-        // block's heading, and the controls live inside that block
-        // .
-        mountFirst: (into) => {
-            rt.pickerUi = mountProjectPicker({ rt, root: into, handlers });
-        },
     });
 
     return () => {
-        const picker = rt.pickerUi;
-        if (picker !== null) {
-            for (const handle of Object.values(picker)) {
-                handle.dispose();
-            }
-        }
-
-        rt.pickerUi = null;
         const view = rt.bindingsUi;
         if (view !== null) {
             view.dispose();

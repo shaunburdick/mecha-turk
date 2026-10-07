@@ -89,11 +89,9 @@ const STAMP = '2026-09-30T00:00:00.000Z';
 /** Problem copy the failed-read cases report. */
 const PROBLEM = 'service unreachable';
 
-/** The picker callbacks the shell takes; none is exercised by this suite. */
+/** The panel-level handler the shell takes; none is exercised by this suite. */
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
 };
 
 /**

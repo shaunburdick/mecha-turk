@@ -91,15 +91,9 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** The picker callbacks the Bindings body takes; none is exercised here. */
+/** The panel-level handler the Bindings body takes; none is exercised here. */
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => {
-        mounts.inert += 1;
-    },
-    selectProject: (): void => {
-        mounts.inert += 1;
-    },
-    copyProjectId: (): void => {
         mounts.inert += 1;
     },
 };

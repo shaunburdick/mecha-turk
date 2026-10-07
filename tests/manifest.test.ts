@@ -387,7 +387,8 @@ const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
 
 /**
  * `package.json`'s sha256 — re-derived, not carried, on each deliberate change
- * (#17's Node floor, the `0.1.0` version bump, then the `0.1.1` patch bump).
+ * (#17's Node floor, the `0.1.0` version bump, then the `0.1.1` and `0.1.2`
+ * patch bumps — the last one carrying issue #39's rail-icon fix).
  *
  * AC-017 asks for the root manifest to be **byte-identical**, so this is a digest
  * rather than a list of the fields that must not move. That is also what keeps
@@ -399,10 +400,10 @@ const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
  * operative clause still holds: 007 added nothing to the root manifest, and the
  * `declares no workspaces and no script that reaches the site` case below is the
  * assertion that survives a floor change. The same reading covers every
- * version bump since: invariant 2's `0.1.0` and `0.1.1` each move `version`
- * and nothing else.
+ * version bump since: invariant 2's `0.1.0`, `0.1.1` and `0.1.2` each move
+ * `version` (and 0.1.2 the panel icon) and nothing else.
  */
-const ROOT_MANIFEST_SHA256 = '1d704ffd42a9ae24b932d8fb60c9aed7a39e71d2f2be47ed9dd573fece9cac1c';
+const ROOT_MANIFEST_SHA256 = '7b22ae77b85726249e5eddc2f634a316ed2aa46b9ac3f517349222ecf8b98c62';
 
 /**
  * `.github/workflows/verify.yml`'s sha256, for the same reason and the same

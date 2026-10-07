@@ -128,21 +128,15 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 });
 
 /**
- * The picker callbacks the shell's bodies take; none is exercised here.
+ * The panel-level handler the shell's bodies take; none is exercised here.
  *
- * They **count** rather than no-op, so an accidental invocation during a mount
+ * It **counts** rather than no-ops, so an accidental invocation during a mount
  * shows up as a number instead of as silence — the same shape
- * `tests/bindings-ui.test.ts` uses for the same three callbacks.
+ * `tests/bindings-ui.test.ts` uses for the same callback.
  */
 const inert = { calls: 0 };
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => {
-        inert.calls += 1;
-    },
-    selectProject: (): void => {
-        inert.calls += 1;
-    },
-    copyProjectId: (): void => {
         inert.calls += 1;
     },
 };
@@ -1226,13 +1220,13 @@ describe('K-4 FR-121 the reason mounts under the list toolbar as text alone', ()
             expect(census[key], `${key}: ${reason}`).toBeGreaterThan(0);
         }
         // Not one of them is a new entry: the census is the tab's own, and the
-        // picker, the two text fields and the five buttons are the ones the
-        // Bindings pane already mounted before this block existed. The **fourth**
-        // select is 002 v1.13.0's history-scope control (002 FR-089), which is a
-        // field of the editor and not part of this reason's surface — asserted
-        // here because the census is the tab's whole primitive inventory and a new
-        // control has to show up in it.
-        expect(census.mountButton).toBe(6);
+        // project controls, the two text fields and the seven buttons are the
+        // ones the Bindings pane mounts — the reason block contributes none of
+        // them. The **fourth** select is 002 v1.13.0's history-scope control
+        // (002 FR-089), which is a field of the editor and not part of this
+        // reason's surface — asserted here because the census is the tab's
+        // whole primitive inventory and a new control has to show up in it.
+        expect(census.mountButton).toBe(7);
         expect(census.mountSelect).toBe(4);
         expect(inert.calls).toBe(0);
 

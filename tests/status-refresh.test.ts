@@ -71,11 +71,9 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** The picker callbacks the bodies take; none is exercised by a mount. */
+/** The panel-level handler the bodies take; none is exercised by a mount. */
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
 };
 
 /** The five tabs FR-100 gives no cadence, in strip order. */

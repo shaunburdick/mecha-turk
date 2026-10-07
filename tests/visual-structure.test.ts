@@ -82,11 +82,9 @@ interface MountRecord {
 /** The six tabs FR-010 puts in the strip, in strip order. */
 const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
 
-/** Picker callbacks the bodies take; none is exercised by a mount. */
+/** Panel-level handler the bodies take; none is exercised by a mount. */
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
 };
 
 /** Stamp the fixture document's next poll points at. */

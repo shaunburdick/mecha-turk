@@ -21,7 +21,6 @@ import type { HostReadyContext, JsonValue } from '@openchamber/sdk';
 import { applyHostReady } from '@openchamber/sdk/ui';
 import { applyBindingsMode, loadInitialBindings } from './bindings-mode.ts';
 import { preflightAndRepaint } from './accounts-ui.ts';
-import { parseProjectId } from './config.ts';
 import { restoreStoredEvidence } from './evidence.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { analyzeLastCloseGap, buildMountContext, LIFECYCLE_EXPERIMENT_PLAN } from './lifecycle.ts';
@@ -33,16 +32,7 @@ import { createPanelRuntime, setStatus } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { mountPanelFraming, refresh } from './panel-ui.ts';
 import type { PanelHandlers } from './panel-ui.ts';
-import { isSelectableProject } from './project-picker.ts';
-import {
-    copyProjectId,
-    loadProjects,
-    recordHostDirectory,
-    rejectProjectSelection,
-    restoreProjectSelection,
-    storeProjectSelection,
-} from './project-actions.ts';
-import { redact } from './redaction.ts';
+import { loadProjects, recordHostDirectory } from './project-actions.ts';
 import { reconcileDispatchAttempts } from './reconcile.ts';
 import { settleReconciliation, stopRelayPolling } from './relay.ts';
 import { loadDispatches } from './dispatches.ts';
@@ -105,39 +95,6 @@ export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string
         title: 'Waiting for a binding',
         body: 'Dispatch context comes from a binding; the integration card declares no settings.',
     });
-    refresh(rt);
-}
-
-/**
- * Adopt the project the operator picked in the panel picker.
- *
- * The id must come from the list the host just loaded, so a stale or invented
- * value can never reach the dispatch path. It is then persisted to extension
- * storage — integration settings are read-only from the panel in SDK 1.24.2,
- * and there are none to write anyway — and recorded on the
- * runtime as this mount's selection. A refused write keeps the in-memory
- * selection for this mount and says so on the picker line; either way the
- * panel fails closed until a valid id is resolved.
- *
- * Exported for the orchestration tests, which drive the picker without a DOM.
- */
-export async function selectProject(rt: PanelRuntime, id: string): Promise<void> {
-    const candidate = parseProjectId(id);
-    if (candidate === null || !isSelectableProject(rt.state.projects, candidate)) {
-        rejectProjectSelection(rt, id);
-        return;
-    }
-
-    rt.state.projectSelection = candidate;
-
-    const write = await storeProjectSelection(rt.host, candidate);
-    if (rt.disposed) {
-        return;
-    }
-
-    rt.state.projects.note = write.ok
-        ? `Selected project ${candidate}; stored for the next mount.`
-        : redact(`Selected project ${candidate} for this session only: ${write.problem}`);
     refresh(rt);
 }
 
@@ -243,7 +200,6 @@ export function teardown(rt: PanelRuntime): void {
 
     rt.bindingsUi = null;
     rt.dispatchesUi = null;
-    rt.pickerUi = null;
     rt.aboutUi = null;
 
     rt.host.dispose();
@@ -290,10 +246,6 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
     // before anything can repaint from it (002 FR-095).
     recordHostDirectory(rt, context.directory ?? null);
     await loadLedger(rt, nowIso());
-    // The stored selection must land before the first `applySettings`: it is
-    // the picker's starting point for this mount. The restore self-guards
-    // after its own await, so one dispose check after both awaits is enough.
-    await restoreProjectSelection(rt);
     if (rt.disposed) {
         return;
     }
@@ -398,8 +350,6 @@ export function createPanelApp(options: PanelAppOptions): PanelApp {
     const rt = createPanelRuntime(host, panelWindow);
     const handlers: PanelHandlers = {
         refreshProjects: () => void loadProjects(rt),
-        selectProject: (id) => void selectProject(rt, id),
-        copyProjectId: () => void copyProjectId(rt),
     };
 
     // Above the tab strip on purpose: FR-036 and FR-037 need the notice region

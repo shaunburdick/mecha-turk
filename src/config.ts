@@ -9,9 +9,10 @@
  * `expected-login`, `project-id`, `worktree-option`, `poll-interval-ms`, or
  * `expected-agent` from `ctx.settings`. Bindings are
  * the only configuration resolution mode (`bindings-mode.ts`), the project id
- * comes from the panel picker's `mecha-turk:project` selection alone
- * ({@link parseProjectId}), and the agent-verification baseline is read from
- * `GET /v1/config` per verification (`agent-verify.ts`).
+ * is validated fail-closed here ({@link parseProjectId}) and reaches a
+ * binding only through the binding form's project select, and the
+ * agent-verification baseline is read from `GET /v1/config` per verification
+ * (`agent-verify.ts`).
  *
  * What survives are the value parsers: the service and the binding editor
  * still hand this module an `owner/name` string, a worktree option, and a
@@ -164,14 +165,14 @@ export function parseWorktreeOption(value: string): WorktreeSelection | null {
 /**
  * Validate one candidate project id.
  *
- * Shared by the panel's project picker and by the selection restore, so a
- * stored selection and a freshly picked id are held to the same rule. The
- * integration card no longer supplies a `project-id` value: the
- * stored `mecha-turk:project` selection and the host's own project list are
- * the only sources, and a source that holds no valid id leaves the resolution
- * `null` rather than inventing a project.
+ * The integration card supplies no `project-id` value (002 FR-041) and no
+ * stored selection is restored (issue #39 removed the panel-level picker and
+ * its pick key), so the id that reaches this function is the one the binding
+ * form's project select just took from the host's own project list. A source
+ * that holds no valid id leaves the resolution `null` rather than inventing a
+ * project.
  *
- * @param raw - Candidate id from a stored selection or a picker pick.
+ * @param raw - Candidate id from the form's project select.
  * @returns The trimmed id, or `null` when the candidate is absent or malformed.
  */
 export function parseProjectId(raw: string | null): string | null {

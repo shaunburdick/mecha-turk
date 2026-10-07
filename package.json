@@ -1,6 +1,6 @@
 {
     "name": "mecha-turk",
-    "version": "0.1.1",
+    "version": "0.1.2",
     "private": true,
     "type": "module",
     "description": "Mecha Turk: GitHub → OpenChamber agent dispatch. A local service polls bound repositories for assignment, mention, and review-request triggers; the panel relays each queued event into a host.startSession() session.",
@@ -17,7 +17,7 @@
             "panel": {
                 "id": "mecha-turk",
                 "name": "Mecha Turk",
-                "icon": "robot-3-line",
+                "icon": "robot",
                 "entry": "panel/index.html"
             },
             "capabilities": [

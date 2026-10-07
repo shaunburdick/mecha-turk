@@ -77,11 +77,9 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 /** The six tabs FR-010 puts in the strip, in strip order. */
 const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
 
-/** The picker callbacks the bodies take; none is exercised by a mount. */
+/** The panel-level handler the bodies take; none is exercised by a mount. */
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
 };
 
 /** Stamp the legacy rows carry. */
@@ -120,16 +118,14 @@ type RetiredState = 'pending' | 'in-flight' | 'dispatched';
 /** Panel-storage key the extension's ledger lives under (FR-025). */
 const LEDGER_KEY = 'mecha-turk:ledger';
 
-/** Panel-storage key the stored project selection lives under (FR-025). */
-const PROJECT_KEY = 'mecha-turk:project';
-
 /**
  * Every storage key the extension namespace has ever used (FR-025).
  *
- * Adding one is a user-visible change, so the set is frozen here.
+ * Adding one is a user-visible change, so the set is frozen here. It lost
+ * `mecha-turk:project` at 002 v1.15.0 (issue #39): nothing stores a project
+ * pick any more, so the key has no writer and no reader.
  */
 const STORAGE_KEYS = [
-    PROJECT_KEY,
     'mecha-turk:evidence',
     LEDGER_KEY,
     'mecha-turk:dispatches',
@@ -315,7 +311,6 @@ async function bootUpgradedPanel(): Promise<{
         createdAt: STAMP,
     });
     loop.panelStorage.set(LEDGER_KEY, parseJsonValue(serializeLedger(ledger)));
-    loop.panelStorage.set(PROJECT_KEY, 'prj_42');
     const legacyBytes = readFileSync(join(loop.service.dataDir, EVENTS_FILE), 'utf8');
     // The first boot already wrote an empty run document, and adoption is
     // idempotent by design — so the document the seeded queue would be read
@@ -374,7 +369,7 @@ describe('FR-005 / NFR-103 a pre-003 store boots through the upgraded panel and 
             expect(files.filter((name) => name.includes('.corrupt-'))).toEqual([]);
             expect(readFileSync(join(loop.service.dataDir, EVENTS_FILE), 'utf8')).toBe(legacyBytes);
             expect([...loop.panelStorage.keys()]).toEqual(
-                expect.arrayContaining([LEDGER_KEY, PROJECT_KEY]),
+                expect.arrayContaining([LEDGER_KEY]),
             );
             const ledger = loop.panelStorage.get(LEDGER_KEY) as { readonly panelGeneration?: number };
             expect(ledger.panelGeneration).toBe(3);

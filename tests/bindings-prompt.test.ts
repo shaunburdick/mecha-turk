@@ -157,19 +157,13 @@ const UNROUTED = '{"error":{"code":"not-found","message":"unrouted"}}';
 const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
 
 /**
- * The picker callbacks the shell's bodies take; none is exercised here.
+ * The panel-level handler the shell's bodies take; none is exercised here.
  *
- * They count rather than no-op so an accidental invocation during a mount
+ * It counts rather than no-ops so an accidental invocation during a mount
  * would show up as a number instead of as silence.
  */
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => {
-        mounts.inert += 1;
-    },
-    selectProject: (): void => {
-        mounts.inert += 1;
-    },
-    copyProjectId: (): void => {
         mounts.inert += 1;
     },
 };

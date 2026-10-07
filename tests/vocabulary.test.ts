@@ -279,11 +279,9 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 /** The six tabs FR-010 puts in the strip, in strip order. */
 const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
 
-/** The picker callbacks the bodies take; none is exercised by a mount. */
+/** The panel-level handler the bodies take; none is exercised by a mount. */
 const inertHandlers: PanelHandlers = {
     refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
 };
 
 /** One retired-noun rule: a shape that can only be a noun use. */
