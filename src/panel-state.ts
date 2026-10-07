@@ -34,7 +34,7 @@ import type { SettingsTabState, SettingsTabUi } from './settings-tab.ts';
 import { initialAboutTab } from './about-tab.ts';
 import type { AboutTabState, AboutTabUi } from './about-tab.ts';
 import type { TabShell } from './tabs.ts';
-import type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
+import type { PanelUi } from './panel-ui.ts';
 
 // The Accounts and Bindings tabs' working states moved out for the file-length
 // gate; both stay importable from here, so no call site had to change with the
@@ -46,7 +46,7 @@ export { initialBindings };
 export { initialProjectPicker };
 export type { ProjectPickerState } from './project-picker.ts';
 
-export type { PanelUi, ProjectPickerUi } from './panel-ui.ts';
+export type { PanelUi } from './panel-ui.ts';
 import type { RunRow } from './dispatches-service.ts';
 import type { PanelHost } from './session.ts';
 import { initialDispatchFilters, initialDispatchListPage } from './dispatch-page.ts';
@@ -147,18 +147,11 @@ export interface PanelState {
      */
     bindingsActive: number;
     /**
-     * Project id chosen by the panel picker, restored from extension storage.
-     *
-     * `null` means "no panel selection": no project is configured, and the
-     * panel says so rather than inventing one.
-     */
-    projectSelection: string | null;
-    /**
      * The ready snapshot's current project directory: recorded once at mount,
      * in memory only (002 FR-095).
      */
     hostDirectory: string | null;
-    /** Project list backing the picker. */
+    /** Project list the binding form's project select renders from. */
     projects: ProjectPickerState;
     /** Evidence record for the current match. */
     evidence: PanelEvidence | null;
@@ -241,8 +234,6 @@ export interface PanelRuntime {
     statusUi: StatusTabUi | null;
     /** Settings body's mounted view, `null` until that tab first activates. */
     settingsUi: SettingsTabUi | null;
-    /** Project picker handles, which live inside the Bindings body. */
-    pickerUi: ProjectPickerUi | null;
     /** About body's diagnostics list, `null` until that tab first activates. */
     aboutUi: AboutTabUi | null;
     /** `true` once the panel has been torn down. */
@@ -389,7 +380,6 @@ function initialState(createdAt: string): PanelState {
         config: null,
         settings: null,
         bindingsActive: 0,
-        projectSelection: null,
         hostDirectory: null,
         projects: initialProjectPicker(),
         evidence: null,
@@ -431,7 +421,6 @@ export function createPanelRuntime(
         dispatchesUi: null,
         statusUi: null,
         settingsUi: null,
-        pickerUi: null,
         aboutUi: null,
         disposed: false,
         started: false,

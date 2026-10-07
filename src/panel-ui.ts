@@ -3,137 +3,29 @@
  *
  * The UI is built once from `@openchamber/sdk/ui` controls and repainted from
  * state, so `onReady` refreshes never replace a control the user is
- * interacting with. The project picker renders from the picker state alone —
- * loading, error, empty, and ready are all values, not code paths — and every
- * body repaints only while it is mounted, so a tab the operator has never
- * opened owns no handles yet (FR-013, FR-019).
+ * interacting with, and every body repaints only while it is mounted, so a tab
+ * the operator has never opened owns no handles yet (FR-013, FR-019).
+ *
+ * The panel-level *OpenChamber project* picker that used to head the
+ * Bindings tab is gone (issue #39): the binding form's own *Dispatch
+ * project* field is the one project control, and it carries the list's
+ * reload button and status line beside it (`bindings-body.ts`).
  */
 
-import { mountBanner, mountButton, mountSelect, mountText } from '@openchamber/sdk/ui';
-import type { BannerHandle, ButtonHandle, SelectHandle, TextHandle } from '@openchamber/sdk/ui';
+import { mountBanner } from '@openchamber/sdk/ui';
+import type { BannerHandle } from '@openchamber/sdk/ui';
 import { refreshHandoff } from './accounts-ui.ts';
 import { repaintAccountsBody } from './accounts-tab.ts';
 import { repaintAboutTab } from './about-tab.ts';
 import { repaintDispatchesBoard } from './dispatches-ui.ts';
-import {
-    describeProjectSelection,
-    displayedProjectId,
-    notListedGuidance,
-    pickerNote,
-    pickerOptions,
-    pickerPlaceholder,
-    selectedProjectId,
-} from './project-picker.ts';
 import { repaintPrerequisites } from './prerequisites.ts';
 import { repaintBindingsPane } from './bindings-ui.ts';
-import type { PanelRuntime, PanelState } from './panel-state.ts';
-import { mountStyledText } from './style.ts';
-
-/** Callbacks the mounted controls invoke. */
-export interface PanelHandlers {
-    /** Reload the project list behind the picker. */
-    readonly refreshProjects: () => void;
-    /** Adopt the project the operator picked in the picker. */
-    readonly selectProject: (id: string) => void;
-    /** Copy the effective project id to the host clipboard. */
-    readonly copyProjectId: () => void;
-}
+import type { PanelRuntime } from './panel-state.ts';
 
 /** The root framing: the banner above the prerequisite and tab strip. */
 export interface PanelUi {
     /** Status banner. */
     banner: BannerHandle;
-}
-
-/** The project picker's handles; they live inside the Bindings tab body. */
-export interface ProjectPickerUi {
-    /** Project picker select. */
-    projectSelect: SelectHandle;
-    /** Project picker status line (loading / error / empty / note). */
-    projectStatus: TextHandle;
-    /** Selected project id, shown with its source. */
-    projectDetail: TextHandle;
-    /** Reload-projects button. */
-    projectRefresh: ButtonHandle;
-    /** Copy-the-selected-id button. */
-    projectCopy: ButtonHandle;
-}
-
-/**
- * Create the container that groups the project picker's controls.
- *
- * The picker sits above the form because it is configuration, not an
- * action: a control row for the select and its buttons, with the status and
- * selection lines underneath.
- *
- * @returns The group element and the control row inside it.
- */
-function createProjectGroup(root: HTMLElement): { readonly group: HTMLElement; readonly row: HTMLElement } {
-    const group = root.ownerDocument.createElement('div');
-    group.style.display = 'grid';
-    group.style.gap = '4px';
-    group.style.marginBottom = '8px';
-
-    const row = root.ownerDocument.createElement('div');
-    row.style.display = 'flex';
-    row.style.flexWrap = 'wrap';
-    row.style.gap = '8px';
-    row.style.alignItems = 'flex-end';
-    group.append(row);
-    root.append(group);
-
-    return { group, row };
-}
-
-/**
- * Mount the project picker: list select, reload, copy, and its two lines.
- *
- * The select starts empty and disabled; `refresh` fills it in from the picker
- * state, so the loading, error, and empty states are painted from state rather
- * than from whatever the mount happened to see. It mounts inside the Bindings
- * body, because that is where the operator is when a project is what is
- * missing.
- *
- * @returns The picker handles used for later repaints.
- */
-export function mountProjectPicker(input: {
-    readonly rt: PanelRuntime;
-    readonly root: HTMLElement;
-    readonly handlers: PanelHandlers;
-}): ProjectPickerUi {
-    const { rt, root, handlers } = input;
-    const { group, row } = createProjectGroup(root);
-
-    const projectSelect = mountSelect(row, {
-        label: 'OpenChamber project',
-        // Displayed, not effective (002 FR-097(a)); `refreshProjectPicker`
-        // paints the same function, so the control cannot disagree with itself.
-        value: displayedProjectId(rt.state),
-        options: [],
-        searchable: true,
-        searchPlaceholder: 'Search by name or id',
-        placeholder: 'Select a project',
-        disabled: true,
-        onChange: (id) => handlers.selectProject(id),
-    });
-    const projectRefresh = mountButton(row, {
-        label: 'Reload projects',
-        variant: 'secondary',
-        onClick: handlers.refreshProjects,
-    });
-    const projectCopy = mountButton(row, {
-        label: 'Copy project id',
-        variant: 'outline',
-        onClick: handlers.copyProjectId,
-    });
-    const projectStatus = mountText(group, { text: pickerNote(rt.state.projects) });
-    const projectDetail = mountText(group, { text: describeProjectSelection(rt.state) });
-    // FR-070: the same "Not listed?" line the binding picker shows, so the
-    // routes to register a project are readable from either picker without
-    // leaving the panel. Constant copy, so it is painted once, not repainted.
-    mountStyledText(group, { className: 'mt-prose', text: notListedGuidance() });
-
-    return { projectSelect, projectStatus, projectDetail, projectRefresh, projectCopy };
 }
 
 /**
@@ -156,27 +48,6 @@ export function mountPanelFraming(root: HTMLElement): PanelUi {
 }
 
 /**
- * Repaint the project picker from the picker state.
- */
-function refreshProjectPicker(state: PanelState, ui: ProjectPickerUi): void {
-    const picker = state.projects;
-    const selected = selectedProjectId(state);
-
-    ui.projectSelect.update({
-        options: pickerOptions(picker),
-        // Displayed, not effective (002 FR-097(a)). The SDK select skips
-        // `onChange` when a click matches the value shown, so clicking the
-        // displayed default stores nothing — accepted by design (FR-099).
-        value: displayedProjectId(state),
-        disabled: picker.status !== 'ready' || picker.projects.length === 0,
-        placeholder: pickerPlaceholder(picker),
-    });
-    ui.projectStatus.update({ text: pickerNote(picker) });
-    ui.projectDetail.update({ text: describeProjectSelection(state) });
-    ui.projectCopy.update({ disabled: selected === null });
-}
-
-/**
  * Repaint every mounted control from the current state.
  *
  * Nothing runs on a disposed runtime, and each body repaints only while it is
@@ -194,7 +65,7 @@ export function refresh(rt: PanelRuntime): void {
         ui.banner.update({ tone: state.status.tone, title: state.status.title, body: state.status.body });
     }
 
-    const { bindingsUi, dispatchesUi, pickerUi, accountsUi } = rt;
+    const { bindingsUi, dispatchesUi, accountsUi } = rt;
     if (bindingsUi !== null) {
         repaintBindingsPane(rt, bindingsUi);
     }
@@ -205,10 +76,6 @@ export function refresh(rt: PanelRuntime): void {
 
     if (dispatchesUi !== null) {
         repaintDispatchesBoard(rt, dispatchesUi);
-    }
-
-    if (pickerUi !== null) {
-        refreshProjectPicker(rt.state, pickerUi);
     }
 
     // The About tab paints itself from state it shares with no other body:

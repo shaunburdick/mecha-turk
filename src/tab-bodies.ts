@@ -16,8 +16,6 @@ import { disposeAboutTab, mountAboutTab } from './about-tab.ts';
 import { createBindingsHandlers, mountBindingsTabBody } from './bindings-mount.ts';
 import { disposeDispatchesBoard, mountDispatchesBoard } from './dispatches-ui.ts';
 import type { PanelRuntime } from './panel-state.ts';
-import { mountProjectPicker } from './panel-ui.ts';
-import type { PanelHandlers } from './panel-ui.ts';
 import { mountPrerequisitesSection } from './prerequisites.ts';
 import { disposeSettingsTab, mountSettingsTab } from './settings-tab.ts';
 import { disposeStatusTab, mountStatusTab } from './status-tab.ts';
@@ -94,40 +92,23 @@ function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
 }
 
 /**
- * The Bindings body: the picker, the status/list, and the add form.
+ * The Bindings body: the status/list and the add form.
  *
- * @returns A disposer that releases the picker and the pane's handles.
+ * @returns A disposer that releases the pane's handles.
  */
 function mountBindingsBody(input: {
     /** Panel runtime the body reads and repaints. */
     readonly rt: PanelRuntime;
     /** The body container the shell created. */
     readonly body: HTMLElement;
-    /** The picker's callbacks. */
-    readonly handlers: PanelHandlers;
 }): () => void {
-    const { rt, body, handlers } = input;
+    const { rt, body } = input;
     mountBindingsTabBody({
         rt,
         root: body,
-        // The picker opens the tab's first block rather than floating above
-        // it: one rule across the six tabs — the tab title is the first
-        // block's heading, and the controls live inside that block
-        // .
-        mountFirst: (into) => {
-            rt.pickerUi = mountProjectPicker({ rt, root: into, handlers });
-        },
     });
 
     return () => {
-        const picker = rt.pickerUi;
-        if (picker !== null) {
-            for (const handle of Object.values(picker)) {
-                handle.dispose();
-            }
-        }
-
-        rt.pickerUi = null;
         const view = rt.bindingsUi;
         if (view !== null) {
             view.dispose();
@@ -155,11 +136,11 @@ function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
  * @returns The specs the shell mounts from.
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
-export function tabSpecs(rt: PanelRuntime, handlers: PanelHandlers): readonly TabSpec[] {
+export function tabSpecs(rt: PanelRuntime): readonly TabSpec[] {
     return [
         { id: 'status', label: 'Status', mount: (body) => statusSpec(rt, body) },
         { id: 'dispatches', label: 'Dispatches', mount: (body) => mountDispatchesBody(rt, body) },
-        { id: 'bindings', label: 'Bindings', mount: (body) => mountBindingsBody({ rt, body, handlers }) },
+        { id: 'bindings', label: 'Bindings', mount: (body) => mountBindingsBody({ rt, body }) },
         { id: 'accounts', label: 'Accounts', mount: (body) => mountAccountsBody(rt, body) },
         { id: 'settings', label: 'Settings', mount: (body) => settingsSpec(rt, body) },
         { id: 'about', label: 'About', mount: (body) => mountAboutBody(rt, body) },

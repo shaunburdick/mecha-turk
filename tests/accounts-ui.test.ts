@@ -48,7 +48,6 @@ import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
 import type { ScopeResult } from '../src/account-mirror.ts';
 import { initialBindings } from '../src/panel-state.ts';
 import type { BindingsTabState, PanelRuntime } from '../src/panel-state.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { AccountScopeMatrix, PanelAccount, PanelBinding } from '../src/bindings-service.ts';
 import { parseAccountsBody } from '../src/bindings-service.ts';
 import { ACCOUNTS_PATH } from '../src/service-calls.ts';
@@ -179,13 +178,6 @@ describe('silent account adoption (MVP blocker 2)', () => {
     });
 });
 
-/** The picker callbacks the shell takes; none is exercised by this suite. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
-};
-
 /** Every lifecycle state FR-062 names, in the order the DTO lists them. */
 const LIFECYCLE_STATES = [
     'pending_handoff',
@@ -315,7 +307,7 @@ function mountAccountsTab(setup?: (rt: PanelRuntime) => void): {
     const rt = createTestRuntime(fakeHost());
     setup?.(rt);
     const dom = fakeDom();
-    const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'accounts');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'accounts');
     if (spec === undefined) {
         throw new Error('the Accounts tab spec is missing from the shell');
     }

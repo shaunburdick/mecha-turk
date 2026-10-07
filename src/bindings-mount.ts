@@ -232,14 +232,11 @@ export function mountBindingsTabBody(input: {
     readonly rt: PanelRuntime;
     /** The body container `mountTabShell` created for `bindings`. */
     readonly root: HTMLElement;
-    /** Anything the tab mounts inside the first block, before this pane. */
-    readonly mountFirst?: (into: HTMLElement) => void;
 }): void {
     const view = mountBindingsBody({
         root: input.root,
         rt: input.rt,
         handlers: createBindingsHandlers(input.rt),
-        ...(input.mountFirst !== undefined && { mountFirst: input.mountFirst }),
     });
     // The bundle gate greps the built panel for this attribute: a string
     // literal that only ships when this pane is wired (identifier names are

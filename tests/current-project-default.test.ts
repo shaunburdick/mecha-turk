@@ -1,9 +1,11 @@
 /**
- * The current-project default (002 v1.14.0, FR-095 – FR-099; GitHub issue #21).
+ * The current-project default (002 v1.14.0 → v1.15.0, FR-095 – FR-099;
+ * GitHub issues #21 and #39).
  *
  * The feature's safety property is an *absence*: no directory subscription,
- * no new host surface, no write to the pick key, no third control. An
- * absence proved after the feature code exists proves the feature rather
+ * no new host surface, no stored pick — v1.15.0 removed the panel-level
+ * picker and with it the `mecha-turk:project` key — and no third control.
+ * An absence proved after the feature code exists proves the feature rather
  * than the absence, so this file opens with the static block alone — green
  * on a tree that has no default at all (plan J9; Gate-2 assumption "write
  * the scan before the feature code"). The fixtures and the cross-surface
@@ -21,27 +23,21 @@ import type { GuestProjectsSnapshot } from '@openchamber/sdk';
 import type { BindingContext } from '../src/config.ts';
 import { ROUTES } from '../service/routes/index.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
-import { selectProject } from '../src/app.ts';
 import { startEditingBinding, startNewBinding } from '../src/bindings-edit.ts';
 import { bindRepository, readDraft } from '../src/bindings.ts';
 import type { PanelBinding } from '../src/bindings-service.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
 import { LEDGER_STORAGE_KEY } from '../src/ledger.ts';
 import { refresh } from '../src/panel-ui.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import { createPanelRuntime } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import {
-    PROJECT_STORAGE_KEY,
-    copyProjectId,
     loadProjects,
     recordHostDirectory,
-    restoreProjectSelection,
 } from '../src/project-actions.ts';
 import {
     applyProjectSnapshot,
     currentProjectDefault,
-    displayedProjectId,
 } from '../src/project-picker.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { BINDINGS_PATH } from '../src/service-calls.ts';
@@ -84,12 +80,12 @@ interface RecorderHandle {
 /**
  * Every SDK mount, and what each handle was last painted with.
  *
- * The panel's controls are read through the handles it stores (`rt.pickerUi`,
- * `rt.bindingsUi`), so the recorder lives on the handle rather than only in a
- * flat log: that is what lets an assertion name *which* select it is reading
- * instead of inferring it from mount order. The log is kept too, for the
- * counts — a control mounted twice would otherwise be invisible to a props
- * assertion that reads whichever handle the panel kept.
+ * The panel's controls are read through the handles it stores
+ * (`rt.bindingsUi`), so the recorder lives on the handle rather than only in
+ * a flat log: that is what lets an assertion name *which* select it is
+ * reading instead of inferring it from mount order. The log is kept too, for
+ * the counts — a control mounted twice would otherwise be invisible to a
+ * props assertion that reads whichever handle the panel kept.
  */
 const sdk = vi.hoisted(() => {
     const log: { readonly key: string; readonly props: Record<string, unknown> }[] = [];
@@ -247,15 +243,16 @@ const PANEL_HOST_MEMBERS: readonly string[] = [
  * The namespaced `host.storage` keys the extension has ever used (AC-045).
  *
  * Frozen as a set: a key added or renamed is a user-visible storage-namespace
- * change (AGENTS.md invariant 4), and the fifth key of the namespace —
+ * change (AGENTS.md invariant 4), and the fourth key of the namespace —
  * `accounts`, deliberately unprefixed — is asserted by name below rather than
- * discovered by a looser pattern.
+ * discovered by a looser pattern. `mecha-turk:project` left this set at
+ * v1.15.0 (issue #39): nothing stores a project pick any more, so the key
+ * has no writer and no reader.
  */
 const NAMESPACED_STORAGE_KEYS: readonly string[] = [
     'mecha-turk:dispatches',
     'mecha-turk:evidence',
     'mecha-turk:ledger',
-    'mecha-turk:project',
 ].toSorted(byText);
 
 /** Every path the service's route table answers, in declaration order. */
@@ -370,7 +367,7 @@ describe("AC-045's closed enumeration, restated once", () => {
             .map((match) => match[1] ?? '')
             .toSorted(byText);
         expect([...new Set(namespaced)]).toEqual(NAMESPACED_STORAGE_KEYS);
-        // The fifth key of the namespace carries no prefix at all (AGENTS.md
+        // The fourth key of the namespace carries no prefix at all (AGENTS.md
         // invariant 4), so a separate, exact assertion is the only way to
         // pin it.
         expect(/export const ACCOUNTS_STORAGE_KEY = 'accounts';/u.test(source)).toBe(true);
@@ -393,13 +390,10 @@ describe("AC-045's closed enumeration, restated once", () => {
 /** Directory the host's ready context reports as the current project's. */
 const HOST_DIRECTORY = '/dir';
 
-/** Project id the stored manual pick names (FR-095 term 1). */
-const STORED_ID = 'prj_stored';
-
-/** Project id the derived default names (FR-095 term 2). */
+/** Project id the derived default names (FR-095's default term). */
 const DERIVED_ID = 'prj_derived';
 
-/** Project id only the binding context names (FR-095 term 3). */
+/** Project id only the binding context names (never preselected: FR-097(b)). */
 const BINDING_CONTEXT_ID = 'prj_binding';
 
 /**
@@ -430,9 +424,8 @@ const COLLIDING_SNAPSHOT = readySnapshot(
     ['prj_right', HOST_DIRECTORY] as const,
 );
 
-/** Snapshot holding the three projects the resolution-order cases name. */
-const THREE_PROJECTS_SNAPSHOT = readySnapshot(
-    [STORED_ID, '/projects/stored'] as const,
+/** Snapshot holding the two projects the resolution cases name. */
+const TWO_PROJECTS_SNAPSHOT = readySnapshot(
     [DERIVED_ID, HOST_DIRECTORY] as const,
     [BINDING_CONTEXT_ID, '/projects/binding'] as const,
 );
@@ -451,9 +444,6 @@ const ERROR_SNAPSHOT: GuestProjectsSnapshot = { ...MATCHING_SNAPSHOT, state: 'er
 async function rejectingListProjects(): Promise<GuestProjectsSnapshot> {
     throw new Error('host offline');
 }
-
-/** A stored manual pick of {@link STORED_ID}. */
-const STORED_PICK = STORED_ID;
 
 /** The binding-context input: one enabled binding carrying {@link BINDING_CONTEXT_ID}. */
 function bindingContext(): BindingContext {
@@ -482,16 +472,14 @@ describe('the wave fixtures say what they claim (AC-046)', () => {
         await expect(rejectingListProjects()).rejects.toThrow('host offline');
     });
 
-    it('keeps the three resolution terms naming three different projects, one of them the host directory', () => {
-        expect([STORED_PICK, DERIVED_ID, bindingContext().projectId]).toEqual(
-            [STORED_ID, DERIVED_ID, BINDING_CONTEXT_ID],
-        );
-        expect(new Set([STORED_PICK, DERIVED_ID, BINDING_CONTEXT_ID]).size, 'three distinct terms').toBe(3);
+    it('keeps the two remaining terms naming two different projects, only one on the host directory', () => {
+        expect([DERIVED_ID, bindingContext().projectId]).toEqual([DERIVED_ID, BINDING_CONTEXT_ID]);
+        expect(new Set([DERIVED_ID, BINDING_CONTEXT_ID]).size, 'two distinct terms').toBe(2);
 
-        // Exactly one of the three sits on the host's directory, so a
-        // precedence case built from this snapshot cannot be decided by
-        // accident: the derived term is the only one that can resolve.
-        const onHostDirectory = THREE_PROJECTS_SNAPSHOT.projects.filter(
+        // Exactly one of them sits on the host's directory, so a precedence
+        // case built from this snapshot cannot be decided by accident: the
+        // derived term is the only one that can resolve.
+        const onHostDirectory = TWO_PROJECTS_SNAPSHOT.projects.filter(
             (project) => project.directory === HOST_DIRECTORY,
         );
         expect(onHostDirectory.map((project) => project.id)).toEqual([DERIVED_ID]);
@@ -510,27 +498,23 @@ describe('the wave fixtures say what they claim (AC-046)', () => {
  * real PAT, no network (AGENTS.md testing philosophy).
  * ------------------------------------------------------------------ */
 
-/** What the mounted picker currently shows, read through its own handles. */
-interface RenderedPicker {
+/** What the mounted form project controls currently show, read through their own handles. */
+interface RenderedProjectControls {
     /** Value the select control displays. */
     readonly value: unknown;
     /** Whether the select is disabled. */
     readonly disabled: unknown;
-    /** Placeholder the select paints when the value has no option. */
+    /** Placeholder the select mounted with (constant since mount). */
     readonly placeholder: unknown;
     /** How many options the select offers. */
     readonly optionCount: number;
-    /** The picker's status line. */
+    /** The project list's status line beside the select. */
     readonly note: unknown;
-    /** The detail line, provenance qualifier included. */
-    readonly detail: unknown;
-    /** Whether *Copy project id* is disabled. */
-    readonly copyDisabled: unknown;
 }
 
 /**
- * Mount the Bindings tab — the tab that owns both dropdowns, the detail line
- * and the copy control — against a fixture runtime.
+ * Mount the Bindings tab — the tab that owns the project select, its reload
+ * button, and the list's status line — against a fixture runtime.
  *
  * @returns The runtime and the disposer that releases the mounted handles.
  */
@@ -542,18 +526,16 @@ function mountTab(input: {
 } = {}): { readonly rt: PanelRuntime; readonly dispose: () => void } {
     sdk.log.length = 0;
     // The fixture list answers every `loadProjects`, so Reload projects
-    // re-lists the same three projects rather than the harness's own.
-    const host = input.host ?? fakeHost({ listProjects: async () => THREE_PROJECTS_SNAPSHOT });
+    // re-lists the same projects rather than the harness's own.
+    const host = input.host ?? fakeHost({ listProjects: async () => TWO_PROJECTS_SNAPSHOT });
     const rt = createPanelRuntime(host, fakeWindow().window);
     rt.state.config = testConfig();
+    // The bindings list has landed, so the form's select is enabled the way
+    // it is for an operator whose panel has read its bindings.
+    rt.state.bindings.status = 'ready';
     input.arrange?.(rt);
-    const handlers: PanelHandlers = {
-        refreshProjects: () => void loadProjects(rt),
-        selectProject: (id) => void selectProject(rt, id),
-        copyProjectId: () => void copyProjectId(rt),
-    };
     const dom = fakeDom();
-    const spec = tabSpecs(rt, handlers).find((entry) => entry.id === 'bindings');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'bindings');
     if (spec === undefined) {
         throw new Error('the Bindings tab spec is missing from the shell');
     }
@@ -563,31 +545,31 @@ function mountTab(input: {
         throw new Error('the Bindings body mounted no disposer');
     }
 
-    // The mount repaints the pane; the picker group repaints through the
-    // panel's own `refresh`, which is what every action calls.
+    // The mount repaints the pane; the form's project controls repaint
+    // through the panel's own `refresh`, which is what every action calls.
     refresh(rt);
 
     return { rt, dispose };
 }
 
 /**
- * Read what the mounted picker renders right now.
+ * Read what the mounted form's project controls render right now.
  *
- * @param rt - Runtime whose picker is mounted.
- * @returns The control props, both lines, and the copy control's state.
+ * @param rt - Runtime whose bindings pane is mounted.
+ * @returns The select's props and the list's status line.
  */
-function rendered(rt: PanelRuntime): RenderedPicker {
-    const select = recorded(rt.pickerUi?.projectSelect).painted();
+function rendered(rt: PanelRuntime): RenderedProjectControls {
+    const selectHandle = recorded(rt.bindingsUi?.projectSelect);
+    const select = selectHandle.painted();
     const { options } = select;
+    const mounted = selectHandle.mounted();
 
     return {
         value: select.value,
         disabled: select.disabled,
-        placeholder: select.placeholder,
+        placeholder: mounted.placeholder,
         optionCount: Array.isArray(options) ? options.length : -1,
-        note: recorded(rt.pickerUi?.projectStatus).painted().text,
-        detail: recorded(rt.pickerUi?.projectDetail).painted().text,
-        copyDisabled: recorded(rt.pickerUi?.projectCopy).painted().disabled,
+        note: recorded(rt.bindingsUi?.projectStatus).painted().text,
     };
 }
 
@@ -616,95 +598,63 @@ function formValue(rt: PanelRuntime): string | null {
     return projectIdOf(recorded(rt.bindingsUi?.projectSelect).painted());
 }
 
-describe('both dropdowns, the detail line and the copy control answer one rule (AC-044)', () => {
-    it('shows the stored pick everywhere, and a later list reload never displaces it', async () => {
+describe('the form preselects the current-project default under one rule (AC-044)', () => {
+    it('prefills the derived default, and a later list reload never displaces it', async () => {
         const { rt, dispose } = mountTab({
             arrange: (runtime) => {
                 runtime.state.hostDirectory = HOST_DIRECTORY;
-                applyProjectSnapshot(runtime.state.projects, THREE_PROJECTS_SNAPSHOT);
-                runtime.state.projectSelection = STORED_ID;
-                runtime.state.config = bindingContext();
-            },
-        });
-        try {
-            startNewBinding(rt);
-            expect(rendered(rt).value, 'the picker').toBe(STORED_ID);
-            expect(formValue(rt), 'the form').toBe(STORED_ID);
-            expect(rendered(rt).detail).toBe(`Selected project: ${STORED_ID} (from the panel picker).`);
-            expect(rendered(rt).copyDisabled).toBe(false);
-
-            // Reload projects: the same rule runs again over a fresh list,
-            // and the stored pick still wins (AC-044's "every later one").
-            await loadProjects(rt);
-            expect(rendered(rt).value).toBe(STORED_ID);
-            expect(formValue(rt)).toBe(STORED_ID);
-        } finally {
-            dispose();
-        }
-    });
-
-    it('shows the derived default in both dropdowns, labelled as derived', () => {
-        const { rt, dispose } = mountTab({
-            arrange: (runtime) => {
-                runtime.state.hostDirectory = HOST_DIRECTORY;
-                applyProjectSnapshot(runtime.state.projects, THREE_PROJECTS_SNAPSHOT);
-                runtime.state.projectSelection = null;
+                applyProjectSnapshot(runtime.state.projects, TWO_PROJECTS_SNAPSHOT);
                 runtime.state.config = bindingContext();
             },
         });
         try {
             expect(currentProjectDefault(rt.state), 'the default resolves').toBe(DERIVED_ID);
             startNewBinding(rt);
-            expect(rendered(rt).value, 'the picker').toBe(DERIVED_ID);
-            expect(formValue(rt), 'the form, under the same rule').toBe(DERIVED_ID);
-            expect(rendered(rt).detail).toBe(
-                `Selected project: ${DERIVED_ID} (current project — not saved as a pick).`,
-            );
-            expect(rendered(rt).copyDisabled).toBe(false);
+            expect(formValue(rt), 'the form').toBe(DERIVED_ID);
+            expect(rendered(rt).value, 'repainted with it').toBe(DERIVED_ID);
+
+            // Reload projects: the rule runs again over a fresh list, and the
+            // draft keeps the default it arrived with (AC-044's "every later
+            // one"). The reload button beside the select is the retry a failed
+            // list read leaves behind (issue #39).
+            await loadProjects(rt);
+            expect(formValue(rt)).toBe(DERIVED_ID);
+            expect(rendered(rt).note, 'the reload reported its own state').toMatch(/2 projects available/);
         } finally {
             dispose();
         }
     });
 
-    it('opens both dropdowns empty when only a binding context resolves, keeping the binding line', () => {
+    it('prefers the default over the binding context when both are in force', () => {
+        const { rt, dispose } = mountTab({
+            arrange: (runtime) => {
+                runtime.state.hostDirectory = HOST_DIRECTORY;
+                applyProjectSnapshot(runtime.state.projects, TWO_PROJECTS_SNAPSHOT);
+                runtime.state.config = bindingContext();
+            },
+        });
+        try {
+            expect(rt.state.config?.projectId, 'a binding context is in force').toBe(BINDING_CONTEXT_ID);
+            startNewBinding(rt);
+            expect(formValue(rt), 'the default wins the preselect').toBe(DERIVED_ID);
+            expect(formValue(rt), 'the binding term is never preselected').not.toBe(BINDING_CONTEXT_ID);
+        } finally {
+            dispose();
+        }
+    });
+
+    it('opens empty when only a binding context resolves — the binding term is never preselected', () => {
         const { rt, dispose } = mountTab({
             arrange: (runtime) => {
                 runtime.state.hostDirectory = null;
-                applyProjectSnapshot(runtime.state.projects, THREE_PROJECTS_SNAPSHOT);
-                runtime.state.projectSelection = null;
+                applyProjectSnapshot(runtime.state.projects, TWO_PROJECTS_SNAPSHOT);
                 runtime.state.config = bindingContext();
             },
         });
         try {
             startNewBinding(rt);
-            expect(rendered(rt).value, 'the binding term is never displayed').toBeNull();
-            expect(formValue(rt), 'nor preselected into the form').toBeNull();
-            expect(rendered(rt).detail).toBe(
-                `Selected project: ${BINDING_CONTEXT_ID} (from the binding).`,
-            );
-            // The line reports an id, so the copy control is enabled — it
-            // copies the binding's id exactly as it did before v1.14.0.
-            expect(rendered(rt).copyDisabled).toBe(false);
-        } finally {
-            dispose();
-        }
-    });
-
-    it('renders today\'s empty state, and disables Copy exactly there', () => {
-        const { rt, dispose } = mountTab({
-            arrange: (runtime) => {
-                runtime.state.hostDirectory = null;
-                applyProjectSnapshot(runtime.state.projects, THREE_PROJECTS_SNAPSHOT);
-                runtime.state.projectSelection = null;
-                runtime.state.config = null;
-            },
-        });
-        try {
-            startNewBinding(rt);
+            expect(formValue(rt), 'no directory, no default').toBeNull();
             expect(rendered(rt).value).toBeNull();
-            expect(formValue(rt)).toBeNull();
-            expect(rendered(rt).detail).toBe('No project selected — dispatch stays blocked until one is.');
-            expect(rendered(rt).copyDisabled, 'disabled only when the line reports no id').toBe(true);
         } finally {
             dispose();
         }
@@ -714,8 +664,7 @@ describe('both dropdowns, the detail line and the copy control answer one rule (
         const { rt, dispose } = mountTab({
             arrange: (runtime) => {
                 runtime.state.hostDirectory = HOST_DIRECTORY;
-                applyProjectSnapshot(runtime.state.projects, THREE_PROJECTS_SNAPSHOT);
-                runtime.state.projectSelection = null;
+                applyProjectSnapshot(runtime.state.projects, TWO_PROJECTS_SNAPSHOT);
                 runtime.state.config = bindingContext();
                 runtime.state.bindings.status = 'ready';
                 runtime.state.bindings.bindings = [
@@ -736,7 +685,7 @@ describe('both dropdowns, the detail line and the copy control answer one rule (
             },
         });
         try {
-            expect(displayedProjectId(rt.state), 'a default is in force').toBe(DERIVED_ID);
+            expect(currentProjectDefault(rt.state), 'a default is in force').toBe(DERIVED_ID);
             startEditingBinding(rt);
             expect(rt.state.bindings.editing).toBe(true);
             expect(rt.state.bindings.repoProjectSelection, "the row's own project").toBe(BINDING_CONTEXT_ID);
@@ -747,61 +696,51 @@ describe('both dropdowns, the detail line and the copy control answer one rule (
 });
 
 describe('the mounted control displays the default, so the SDK skip applies (FR-099, G2-1)', () => {
-    it('mounts and repaints the picker on the derived id, writes nothing, and still stores a real pick', async () => {
+    it('repaints the form select on the derived id, with one project select and no storage write', async () => {
         const storage = createStorageDouble();
         const { rt, dispose } = mountTab({
             host: fakeHost({
                 storage: storage.storage,
-                listProjects: async () => THREE_PROJECTS_SNAPSHOT,
+                listProjects: async () => TWO_PROJECTS_SNAPSHOT,
             }),
             arrange: (runtime) => {
                 runtime.state.hostDirectory = HOST_DIRECTORY;
-                applyProjectSnapshot(runtime.state.projects, THREE_PROJECTS_SNAPSHOT);
-                runtime.state.projectSelection = null;
+                applyProjectSnapshot(runtime.state.projects, TWO_PROJECTS_SNAPSHOT);
                 runtime.state.config = bindingContext();
             },
         });
         try {
-            // The load-bearing assertion (Gate-2 G2-1): the **mounted** select's
-            // `value:` *is* the derived id while `state.projectSelection ===
-            // null`. That is the fact which makes the SDK's verified same-value
-            // `onChange` skip apply, and it fails if `value:` ever regresses to
-            // `state.projectSelection` — a select double that simply never fires
-            // `onChange` would stay green whatever the panel did, so it is not
-            // the assertion.
-            expect(rt.state.projectSelection, 'nothing is stored').toBeNull();
-            const select = recorded(rt.pickerUi?.projectSelect);
-            expect(select.mounted().value, 'mounted props').toBe(DERIVED_ID);
+            // The load-bearing assertion (Gate-2 G2-1): the **repainted**
+            // select's `value:` *is* the derived id, while no stored pick
+            // exists anywhere to have produced it — issue #39 removed the
+            // pick key and its machinery, so the default is the only source
+            // left. That is the fact which makes the SDK's verified
+            // same-value `onChange` skip apply when a click re-selects it.
+            startNewBinding(rt);
+            const select = recorded(rt.bindingsUi?.projectSelect);
             expect(select.painted().value, 'repainted props').toBe(DERIVED_ID);
-            expect(select.mounted().value).not.toBe(rt.state.projectSelection);
-            // Mount and repaint must not disagree (E-6's both-sites rule).
-            expect(select.painted().value).toBe(select.mounted().value);
+            expect(rt.state.bindings.repoProjectSelection, 'the draft holds it too').toBe(DERIVED_ID);
 
-            // Exactly one picker select is on screen: no second control.
-            const pickerSelects = sdk.log.filter(
+            // Exactly one project select is on screen: the form's *Dispatch
+            // project* field. The panel-level *OpenChamber project* picker
+            // (issue #39) is gone rather than second.
+            const projectSelects = sdk.log.filter(
+                (entry) => entry.key === 'mountSelect' && entry.props.label === 'Dispatch project',
+            );
+            expect(projectSelects).toHaveLength(1);
+            const retiredSelects = sdk.log.filter(
                 (entry) => entry.key === 'mountSelect' && entry.props.label === 'OpenChamber project',
             );
-            expect(pickerSelects).toHaveLength(1);
+            expect(retiredSelects, 'the panel-level picker no longer mounts').toEqual([]);
 
-            // The click that matches the displayed value fires no change
-            // event, so the panel does nothing — and nothing writes the key
-            // across load, list reload, and a form open.
+            // A click matching the displayed value fires no change event
+            // (the SDK's same-value skip), so it reaches no handler — and
+            // with the pick machinery gone there is no write path left for
+            // any of these flows to reach.
             await loadProjects(rt);
             startNewBinding(rt);
             await tick();
-            expect(storage.operations.filter((operation) => operation === `set:${PROJECT_STORAGE_KEY}`))
-                .toEqual([]);
-
-            // An operator who does want the default stored picks another
-            // project first, then this one: two ordinary explicit picks, and
-            // the second one is what the key holds (AC-047).
-            await selectProject(rt, STORED_ID);
-            await selectProject(rt, DERIVED_ID);
-            expect(storage.values.get(PROJECT_STORAGE_KEY)).toBe(DERIVED_ID);
-            expect(
-                storage.operations.filter((operation) => operation.startsWith('set:')),
-                'the ordinary explicit-pick write, twice, and nothing else',
-            ).toEqual([`set:${PROJECT_STORAGE_KEY}`, `set:${PROJECT_STORAGE_KEY}`]);
+            expect(storage.operations, 'no storage write of any kind').toEqual([]);
         } finally {
             dispose();
         }
@@ -821,7 +760,7 @@ interface FailClosedCase {
 /** What one fail-closed run rendered, and what it resolved. */
 interface FailClosedRun {
     /** What the mounted picker showed. */
-    readonly rendered: RenderedPicker;
+    readonly rendered: RenderedProjectControls;
     /** What the default resolved to — always `null` for these cases. */
     readonly resolved: string | null;
 }
@@ -851,6 +790,9 @@ async function failClosedRun(input: {
     try {
         await loadProjects(rt);
         refresh(rt);
+        // The form is the only project control left, so the case reads what
+        // it shows once a draft is open — which is where the default lands.
+        startNewBinding(rt);
 
         return { rendered: rendered(rt), resolved: currentProjectDefault(rt.state) };
     } finally {
@@ -880,17 +822,16 @@ describe('nothing resolves in any state FR-096(b) refuses, and no control is aff
 
         // The null-directory state *is* the control, so its own props are
         // asserted here rather than left to pass by self-comparison: a
-        // ready list still enables the select and paints today's note, line,
-        // and copy control, with no default in force.
+        // ready list still offers its one option and paints today's note,
+        // with no default in force.
         const baseline = await failClosedRun({ directory: null, snapshot: MATCHING_SNAPSHOT });
         expect(baseline.resolved, 'no directory, no default').toBeNull();
         expect(baseline.rendered).toMatchObject({
+            value: null,
             disabled: false,
-            placeholder: 'Select a project',
+            placeholder: 'Pick a project',
             optionCount: 1,
             note: '1 project available.',
-            detail: `Selected project: ${PROJECT_ID} (from the binding).`,
-            copyDisabled: false,
         });
     });
 
@@ -917,12 +858,12 @@ describe('a directory change while the panel is open changes nothing (AC-045)', 
         const { rt, dispose } = mountTab({
             arrange: (runtime) => {
                 runtime.state.hostDirectory = HOST_DIRECTORY;
-                applyProjectSnapshot(runtime.state.projects, THREE_PROJECTS_SNAPSHOT);
-                runtime.state.projectSelection = null;
+                applyProjectSnapshot(runtime.state.projects, TWO_PROJECTS_SNAPSHOT);
                 runtime.state.config = bindingContext();
             },
         });
         try {
+            startNewBinding(rt);
             const before = rendered(rt);
             expect(before.value).toBe(DERIVED_ID);
 
@@ -934,7 +875,7 @@ describe('a directory change while the panel is open changes nothing (AC-045)', 
 
             expect(rt.state.hostDirectory, 'the recorded snapshot is untouched').toBe(HOST_DIRECTORY);
             expect(rendered(rt), 'no value and no control moved').toEqual(before);
-            expect(rt.state.bindings.repoProjectSelection, 'no draft moved').toBeNull();
+            expect(rt.state.bindings.repoProjectSelection, 'no draft moved').toBe(DERIVED_ID);
             expect(rt.unsubscribes, 'the mounted body registers no listener').toHaveLength(0);
 
             // And there is nothing anywhere that *could* learn of the change:
@@ -946,45 +887,6 @@ describe('a directory change while the panel is open changes nothing (AC-045)', 
                     DIRECTORY_REGISTRATION,
                 );
             }
-        } finally {
-            dispose();
-        }
-    });
-});
-
-describe('the combined state renders its own string and writes nothing (AC-047)', () => {
-    it('renders the derived string — never the binding one — and a click on it writes nothing', async () => {
-        const storage = createStorageDouble();
-        const { rt, dispose } = mountTab({
-            host: fakeHost({ storage: storage.storage }),
-            arrange: (runtime) => {
-                runtime.state.hostDirectory = HOST_DIRECTORY;
-                applyProjectSnapshot(runtime.state.projects, THREE_PROJECTS_SNAPSHOT);
-                runtime.state.projectSelection = null;
-                runtime.state.config = bindingContext();
-            },
-        });
-        try {
-            // The rendered line, read off the mounted text handle rather than
-            // off the pure function: this is what the operator sees.
-            const shown = rendered(rt);
-            expect(shown.detail, 'the combined state').toBe(
-                `Selected project: ${DERIVED_ID} (current project — not saved as a pick).`,
-            );
-            expect(String(shown.detail)).toContain('current project — not saved as a pick');
-            expect(String(shown.detail)).not.toContain('panel picker');
-            expect(String(shown.detail)).not.toContain('(from the binding).');
-
-            // The click scenario: the displayed value is the derived id, so
-            // the SDK's same-value skip fires no change event, and the
-            // panel's own pick handler is never reached with a write.
-            expect(recorded(rt.pickerUi?.projectSelect).painted().value).toBe(DERIVED_ID);
-            await tick();
-            expect(
-                storage.operations.filter((operation) => operation === `set:${PROJECT_STORAGE_KEY}`),
-                'no storage write across the click',
-            ).toEqual([]);
-            expect(rt.state.projectSelection, 'state is unchanged').toBeNull();
         } finally {
             dispose();
         }
@@ -1057,7 +959,7 @@ async function startWithAccount(): Promise<TestService> {
 
 /**
  * Bridge one panel runtime onto the loopback service, with its own storage
- * double so the pick key's writes can be counted.
+ * double so every storage write can be counted.
  *
  * @returns The host double the runtime runs against.
  */
@@ -1109,7 +1011,6 @@ describe('an untouched add-mode save writes the default into that binding, and n
         // A form opened **after** the ready snapshot: the mount records the
         // directory, the list lands, and the draft arrives prefilled.
         const late = createTestRuntime(bridgedHost(service, storage.storage));
-        await restoreProjectSelection(late);
         recordHostDirectory(late, PROJECT_DIR);
         await loadProjects(late);
         expect(currentProjectDefault(late.state), 'the default resolves').toBe(PROJECT_ID);
@@ -1145,10 +1046,12 @@ describe('an untouched add-mode save writes the default into that binding, and n
         expect(early.state.bindings.note).toBe('Pick the OpenChamber project the dispatch opens in.');
         expect(await storedBindings(service), 'the refusal wrote nothing').toHaveLength(1);
 
-        // Zero writes to the pick key across every enumerated moment, and
-        // the key's count among `host.storage` keys is unchanged.
+        // Zero writes to the retired pick key across every enumerated
+        // moment, and the key's count among `host.storage` keys is
+        // unchanged — v1.15.0 removed the key with the panel-level picker
+        // (issue #39), so this is a write no code can make any more.
         expect(
-            storage.operations.filter((operation) => operation === `set:${PROJECT_STORAGE_KEY}`),
+            storage.operations.filter((operation) => operation === 'set:mecha-turk:project'),
             'the default is never stored',
         ).toEqual([]);
         expect([...(await storage.storage.keys())].toSorted(byText), 'the key set never gains a member')

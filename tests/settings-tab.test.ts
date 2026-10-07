@@ -26,7 +26,6 @@ import { DEFAULT_CONFIG } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
 import { repaintSettingsTab } from '../src/settings-tab.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
@@ -66,13 +65,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
 /** A value that is outside `intervalMs`'s bounds, so the service refuses it. */
 const OUT_OF_RANGE = 999_999_999;
-
-/** The picker callbacks the shell takes; none is exercised by this suite. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
-};
 
 /** The configuration as stored, with every field at its default. */
 const STORED_CONFIG = { ...DEFAULT_CONFIG };
@@ -160,7 +152,7 @@ async function mountSettings(input: {
     const rt = createTestRuntime(host);
 
     const dom = fakeDom();
-    const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'settings');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'settings');
     if (spec === undefined) {
         throw new Error('the Settings tab spec is missing from the shell');
     }
@@ -469,7 +461,7 @@ describe('nothing is written by looking; one activation writes once (AC-123, AC-
             // The shell keeps every body mounted, so "switching away and back" is
             // another body mounting beside this one — no read, no write, and no
             // repaint that could clear the draft.
-            const other = tabSpecs(view.rt, inertHandlers).find((entry) => entry.id === 'status');
+            const other = tabSpecs(view.rt).find((entry) => entry.id === 'status');
             const disposeOther = other?.mount(fakeDom().root) ?? null;
             repaintSettingsTab(view.rt);
 

@@ -601,3 +601,63 @@ corrected to match both, with the corrections dated in place.
 **Approval status**: drafted 2026-10-06 for Gate 1 challenge and product-owner approval with GitHub issue #21. **Not yet approved, not implemented.** — superseded by the *Delivery* note below: Gates 1–3 passed and the artifacts were approved for implementation on 2026-10-06 (commit `507c83d`, *"approve 002 v1.14.0 current-project default"*), the product owner's five decisions of that day already encoded as the requirements above; implemented the same day.
 
 **Delivery, 2026-10-06.** Implemented in Phase 6 on `issue-mt-run-70e6d69cf27638eb43b85d4e-quick-ferret` (GitHub issue #21): Wave 5's **E-1 – E-11** delivered, `npm run verify` green, `panel/main.js` rebuilt with the source and `service/main.js` byte-unchanged (AGENTS.md invariant 1), and no version bump — `0.1.0` stands, because a release is the product owner's call (invariant 2). **No requirement text changed at delivery**: the one `spec.md` edit this wave makes is the `Status` line's flip to implemented, flagged for Gate 3 exactly as plan §C.9's guard requires, with the stale *"drafted for Gate 1 challenge"* clause refreshed beside it. The wave's safety property is an absence, and it is proved by scans written **before** the feature code, each with a bite-check that was re-run against a planted violation before this entry was written: no `onDirectory(` registration in source or bundles, the panel's Pick list pinned as a closed set, exactly one `mecha-turk:project` write site reached only from the explicit pick, and a closed enumeration of the panel's 32 button mounts with the picker group at exactly two. `quickstart.md`, `README.md`, `contracts/` and the site are **unedited by decision** (plan §C.1): nothing there described the old default, so no operator note is owed and `tests/prose-budget.test.ts`'s pinned walkthrough figure stands.
+
+---
+
+### v1.15.0 — 2026-10-07 (the panel-level project picker's removal; GitHub issue #39)
+
+**Why**: the product owner removed the Bindings tab's panel-level *OpenChamber project* block on
+2026-10-07. Two of its four jobs had gone stale since issue #34 gave the form's select
+`name · project-id` labels: *Copy project id* duplicated what the option label already shows, and
+the *Not listed?* paragraph was mounted a second time (the add form carries its own). Of the two
+live jobs, one survives **relocated** — *Reload projects* and the loading/error/empty/count status
+line now sit beside the form's *Dispatch project* field, so a failed `host.listProjects()` still
+has a surface that says why and offers a retry (constitution II, fail closed) — and the other, the
+stored pick, lost the surface that could serve it: with the select and its provenance line gone
+nothing can write `mecha-turk:project`, so the whole stored-pick machinery (the key's read, write
+and restore paths, `PanelState.projectSelection`, *Copy project id*, the four provenance strings)
+is deleted rather than left dormant. Net effect for the operator: **no manual pin** — a new binding
+defaults to the host's current project, which is what issue #21 asked for in the first place. The
+rail-icon fix carried by the same change (`robot-3-line` → `robot`, the host's sprite has no
+`robot-3` key so the rail painted the `apps` fallback) is manifest-only and touches no requirement.
+
+**Requirement-by-requirement record**:
+
+| 002 v1.14.0 requirement | Effect of v1.15.0 | Status | Authoritative text |
+| --- | --- | --- | --- |
+| **FR-013** — the add sequence and its optional pre-fill | The pre-fill names **the current-project default and nothing else**; the stored-pick term and the "never displaces a choice" clause are gone with it | **Amended** | 002 FR-013 |
+| **FR-014** — the "not listed?" affordance | The affordance now rides the binding form's **Dispatch project** select — its only home since the duplicate mount was removed | **Amended** | 002 FR-014 |
+| **FR-041** — the `project-id` row of the owner table | The `mecha-turk:project` "retained as UI state" clause is replaced: no panel storage key holds the value, the key having been removed at this version | **Amended** | 002 FR-041 |
+| **FR-095** — resolution order and load-time derivation | The four-term order loses its first term (the stored manual selection); the field resolves from the default alone, the binding-context term is never preselected, and the exact-equality, load-time-only, no-subscription clauses stand unchanged | **Amended** | 002 FR-095 |
+| **FR-096** — derived, never stored, fail closed, no new surface | (a) gains that the pick key itself is gone, so no value anywhere can claim *a human picked this*; (b) and (c) stand, with the picker's note-and-placeholder wording re-pointed at the relocated status line and the form's select | **Amended in part** | 002 FR-096 |
+| **FR-097** — both dropdowns, one rule, add mode only | Recast to the one surface: the form's **Dispatch project** field is the single project control (clause (a)), preselects the default in add mode only (b), never takes the binding context, and edit mode (c) and the untouched save (d) are unchanged | **Amended** | 002 FR-097 |
+| **FR-098** — provenance honesty | The detail line, its closed four strings, and *Copy project id* are retired with the picker; what remains normative is the constitutional rule they served — a derived default is never presented, persisted, or attributed as a pick | **Amended** | 002 FR-098 |
+| **FR-099** — clicking the displayed default stores nothing | The SDK same-value skip and the no-*Pin* rule stand; the "pick another project and then the desired one to store it" route is gone, there being no key and no pick handler left to reach | **Amended** | 002 FR-099 |
+| **User Story 6, its acceptance scenarios, and the five v1.14.0 edge cases** | Recut to the single field: no stored pick, no detail line, no second dropdown; the stale-pick edge case becomes the inert-remains case | **Amended** | 002 US6, `## Edge Cases` |
+| **SC-014** | The two-dropdowns-and-zero-writes claim becomes one field and zero writes to any key | **Amended** | 002 SC-014 |
+| **AC-005, AC-044 – AC-047** | Re-pointed at the one control: prefill from the default, the fail-closed set, load-time-only plus never-stored (the key now having no writer at all), and the closed record of buttons with no *Pin* and no provenance strings. AC-045's "byte-for-byte at v1.13.3" clause names the manifest's deliberate `version`/`icon` move as the exception | **Amended** | 002 AC-005, AC-044 – AC-047 |
+
+**Principles reviewed, unchanged in substance**: Principle II (safe autonomy) is why the reload
+button and status line were relocated rather than deleted — a failed list read still has a surface
+that says why and offers a retry, and an unresolvable directory still produces no default.
+Principle IV (human-visible auditability) is the rule FR-098 still carries after its line is gone:
+no surface may present a derived value as an operator choice. Principle VI (specification and
+verification) is why every recut clause above carries a binary criterion. **No principle is weakened
+by this amendment.**
+
+**Requirements explicitly unchanged**: everything not named in the table — in particular FR-096(b)
+and (c), FR-014's never-creates-a-project rule, FR-097(b)'s binding-context-never-preselected rule,
+FR-097(c)/(d), FR-028 and FR-048 (the dispatch target is still the binding's stored `projectId`),
+the whole `## Configuration Model`, every NFR, every contract, and 005's rendering block except the
+one FR-038 wording fix that spec records itself.
+
+**Migration impact**: a `mecha-turk:project` value written by a pre-v1.15.0 install is never read —
+no reader exists — and is inert until the operator clears extension storage; no migration step is
+required or offered. No wire member, route, capability, storage key that remains, or contract
+changes. `package.json`'s `version` moves `0.1.1` → `0.1.2` with `SERVICE_VERSION` mirroring it
+(AGENTS.md invariant 5, pinned by `tests/service-server.test.ts`) and the panel icon moves to
+`robot`; both bundles are rebuilt with the change (invariant 1), and releasing stays the product
+owner's call (invariant 2).
+
+**Approval status**: product-owner decision of 2026-10-07 recorded on GitHub issue #39; implemented
+the same day on `quick-cleanups`, `npm run verify` green.

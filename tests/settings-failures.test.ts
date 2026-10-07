@@ -43,7 +43,6 @@ import {
 } from '../src/settings-state.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { SettingsFailureCause } from '../src/settings-edit.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
@@ -78,13 +77,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/** The picker callbacks the shell takes; none is exercised by this suite. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
-};
 
 /** The notice wording the transport case must show verbatim (AC-129). */
 const NOT_RUNNING = 'service not running — settings read-only';
@@ -202,7 +194,7 @@ async function mountSettings(answer: Answer): Promise<SettingsMount> {
     });
     const rt = createTestRuntime(host);
     const dom = fakeDom();
-    const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'settings');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'settings');
     if (spec === undefined) {
         throw new Error('the Settings tab spec is missing from the shell');
     }

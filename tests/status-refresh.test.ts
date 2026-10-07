@@ -34,7 +34,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelRuntime, TabId } from '../src/panel-state.ts';
 import { parseStatusView } from '../src/status-document.ts';
 import type { StatusView } from '../src/status-document.ts';
@@ -70,13 +69,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/** The picker callbacks the bodies take; none is exercised by a mount. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
-};
 
 /** The five tabs FR-100 gives no cadence, in strip order. */
 const OTHER_TABS: readonly TabId[] = ['dispatches', 'bindings', 'accounts', 'settings', 'about'];
@@ -251,7 +243,7 @@ async function mountDriven(answer: Answer): Promise<Harness> {
     }));
     const dom = fakeDom();
     mounts.log.length = 0;
-    mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
+    mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt) });
 
     return {
         rt,

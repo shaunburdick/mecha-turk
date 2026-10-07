@@ -7,13 +7,16 @@
  * mount had outgrown the file-length cap on its own.
  *
  * The shape this module builds is the review's own: **the list is the tab,
- * the editor is opened on request.** Entering the block shows the picker
- * (FR-038), the status and note lines, the list, and its toolbar — **New
- * binding**, **Refresh**, **Toggle enabled**, **Remove** — while the editor
- * block sits in a wrapper that starts `hidden` and opens on a row click or on
- * New binding. The starting-prompt field mounts inside that editor, before
- * the form's own action row, so one button writes the whole binding (005
- * FR-051; 004 FR-014's untouched-omits rides that write unchanged).
+ * the editor is opened on request.** Entering the block shows the status and
+ * note lines, the list, and its toolbar — **New binding**, **Refresh**,
+ * **Toggle enabled**, **Remove** — while the editor block sits in a wrapper
+ * that starts `hidden` and opens on a row click or on New binding. The
+ * editor holds the project controls: the *Dispatch project* select with
+ * **Reload projects** and the list's status line beside it (issue #39 moved
+ * them here, so a failed `host.listProjects()` still has a surface that says
+ * why and offers a retry), and the starting-prompt field before the form's
+ * own action row, so one button writes the whole binding (005 FR-051; 004
+ * FR-014's untouched-omits rides that write unchanged).
  *
  * Every control is a documented SDK primitive handing its strings to the
  * SDK's text path — no HTML sink (panel-service contract §3 invariant 11) —
@@ -64,7 +67,7 @@ import {
     worktreeFieldView,
 } from './bindings-editor.ts';
 import type { BindingActions } from './bindings-editor.ts';
-import { notListedGuidance } from './project-picker.ts';
+import { notListedGuidance, pickerNote } from './project-picker.ts';
 import { mountDetailChips, TRIGGER_ASSIGNMENT, TRIGGER_MENTION, TRIGGER_REVIEW } from './bindings-chips.ts';
 import type { DetailChips } from './bindings-chips.ts';
 import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
@@ -165,6 +168,13 @@ interface Form {
     /** Mention-token line under the account field. */
     readonly mentionToken: TextHandle;
     readonly projectSelect: SelectHandle;
+    /**
+     * **Reload projects**, beside the project select (issue #39 relocated it
+     * here from the removed panel-level picker).
+     */
+    readonly projectRefresh: ButtonHandle;
+    /** The project list's loading/error/empty/count status line. */
+    readonly projectStatus: TextHandle;
     readonly assignment: CheckboxHandle;
     readonly mention: CheckboxHandle;
     /** Review-request checkbox. */
@@ -273,8 +283,17 @@ function mountAccountSelect(input: MountInputs): SelectHandle {
         onChange: (id) => input.handlers.selectAccount(id),
     });
 }
-function mountProjectSelect(input: MountInputs): SelectHandle {
-    const options = {
+/** The project controls the add form mounts together (issue #39). */
+interface ProjectControls {
+    readonly projectSelect: SelectHandle;
+    /** **Reload projects**, beside the select. */
+    readonly projectRefresh: ButtonHandle;
+    /** The project list's loading/error/empty/count status line. */
+    readonly projectStatus: TextHandle;
+}
+
+function mountProjectSelect(input: MountInputs): ProjectControls {
+    const projectSelect = mountSelect(input.pane, {
         label: 'Dispatch project',
         value: input.rt.state.bindings.repoProjectSelection,
         options: [],
@@ -283,9 +302,18 @@ function mountProjectSelect(input: MountInputs): SelectHandle {
         placeholder: 'Pick a project',
         disabled: true,
         onChange: (id: string) => input.handlers.selectProject(id),
-    };
+    });
+    // Issue #39: the reload button and the list's status line moved here with
+    // the picker's removal, so a failed `host.listProjects()` still has a
+    // surface that says why and offers a retry (constitution II, fail closed).
+    const projectRefresh = mountButton(input.pane, {
+        label: 'Reload projects',
+        variant: 'secondary',
+        onClick: input.handlers.refreshProjects,
+    });
+    const projectStatus = mountText(input.pane, { text: pickerNote(input.rt.state.projects) });
 
-    return mountSelect(input.pane, options);
+    return { projectSelect, projectRefresh, projectStatus };
 }
 function mountTriggerChecks(input: MountInputs): {
     readonly assignment: CheckboxHandle;
@@ -374,8 +402,9 @@ function mountAddForm(input: MountInputs): Form {
             text: windowInForceLine(statusRowFor(input.rt.state.bindings)) ?? '',
         }),
     };
-    const projectSelect = mountProjectSelect(input);
-    // FR-038's "Not listed?" affordance: constant copy, no handle to keep.
+    const { projectSelect, projectRefresh, projectStatus } = mountProjectSelect(input);
+    // FR-038's "Not listed?" affordance: constant copy, no handle to keep,
+    // mounted directly under the project controls it explains.
     // Prose, so it keeps a measure on a rail (`.mt-prose` caps it at 72ch).
     mountStyledText(input.pane, { className: 'mt-prose', text: notListedGuidance() });
     const checks = mountTriggerChecks(input);
@@ -393,6 +422,8 @@ function mountAddForm(input: MountInputs): Form {
         historyScope,
         historyScopeLines,
         projectSelect,
+        projectRefresh,
+        projectStatus,
         assignment: checks.assignment,
         mention: checks.mention,
         reviewRequest: checks.reviewRequest,
@@ -436,6 +467,8 @@ function disposeBindingsBody(input: BodyParts): void {
         form.accountSelect,
         form.mentionToken,
         form.projectSelect,
+        form.projectRefresh,
+        form.projectStatus,
         form.assignment,
         form.mention,
         form.reviewRequest,
@@ -513,6 +546,8 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
         historyScopeHelp: form.historyScopeLines.help,
         windowScopeLine: form.historyScopeLines.window,
         projectSelect: form.projectSelect,
+        projectRefresh: form.projectRefresh,
+        projectStatus: form.projectStatus,
         assignmentCheck: form.assignment,
         mentionCheck: form.mention,
         reviewRequestCheck: form.reviewRequest,
@@ -543,15 +578,12 @@ export function mountBindingsBody(input: {
     readonly rt: PanelRuntime;
     /** Handlers the controls invoke. */
     readonly handlers: BindingsPaneHandlers;
-    /** Anything that opens the first block ahead of this pane — FR-038's picker. */
-    readonly mountFirst?: (into: HTMLElement) => void;
 }): BindingsPane {
     const { root, rt, handlers } = input;
     const pane = root.ownerDocument.createElement('div');
     root.append(pane);
     const { listBlock, editorBox, editorBlock } = createBlocks(pane);
 
-    input.mountFirst?.(listBlock.body);
     const board = mountBindingsBoard({ rt, pane: listBlock.body, handlers });
     // The selected row's own facts sit under the list they describe.
     const detail = mountSelectedDetail(listBlock.body);
