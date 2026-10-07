@@ -144,7 +144,7 @@ describe('rendering (contract §4 rule 5, SEC-17)', () => {
 });
 
 describe('silent account adoption (MVP blocker 2)', () => {
-    it('adopts a service-side account after a reinstall and hides the paste form', async () => {
+    it('adopts a service-side account after a reinstall and renders its identity', async () => {
         const accountsBody = JSON.stringify({
             accounts: [
                 {
@@ -169,10 +169,8 @@ describe('silent account adoption (MVP blocker 2)', () => {
 
         expect(host.rt.state.handoff.connected).toEqual({ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN });
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
-        expect(host.record.pasteVisible).toBe(false);
-        // The paste row stays hidden because the service already holds the
-        // account; the disclaimer beneath the Accounts list has no visibility
-        // rule at all — it is always there (002 v1.9.0).
+        // The add form stays available alongside the connected line (issue
+        // #35) — its DOM-level proof lives in `tests/handoff-dom.test.ts`.
         // The adoption rewrote the mirror the reinstall deleted, so the
         // next mount adopts from storage without touching the service.
         const mirrored = host.storage.values.get(ACCOUNTS_STORAGE_KEY);

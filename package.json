@@ -1,6 +1,6 @@
 {
     "name": "mecha-turk",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "private": true,
     "type": "module",
     "description": "Mecha Turk: GitHub → OpenChamber agent dispatch. A local service polls bound repositories for assignment, mention, and review-request triggers; the panel relays each queued event into a host.startSession() session.",
