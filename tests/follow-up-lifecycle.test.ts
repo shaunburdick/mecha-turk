@@ -61,7 +61,15 @@ import type {
 import type { Run } from '../service/poll/runs-types.ts';
 import type { RunHistoryRow } from '../service/poll/run-history-project.ts';
 import type { ServiceLogger } from '../service/log.ts';
-import { classifyHostError, deliverFollowUp, followUpMessage, trackCurrentSession } from '../src/follow-up.ts';
+import {
+    classifyHostError,
+    deliverFollowUp,
+    followUpMessage,
+    followUpWindowOpening,
+    trackCurrentSession,
+} from '../src/follow-up.ts';
+import { DISPATCH_SCHEMA_VERSION } from '../src/dispatch-record.ts';
+import type { DispatchRecordDocument, FollowUpDeliveryRecord } from '../src/dispatch-record.ts';
 import { budgetFloorProblem } from '../src/relay-attempt.ts';
 import { pollRelay } from '../src/relay.ts';
 import { parseEventRows } from '../src/dispatches-service.ts';
@@ -584,6 +592,9 @@ function terminalPoller(
 function followUpRowsOf(queue: readonly QueuedEvent[]): readonly QueuedEvent[] {
     return queue.filter((row) => followUpKindOf(row.id) !== null);
 }
+
+/** How many head follow-ups the bound composition plants: the window's bound, plus five. */
+const BOUND_HEAD_FOLLOW_UPS = MAX_PROJECTED_FOLLOW_UPS + 5;
 
 /** The queue's follow-up rows, read from any handle over the same directory. */
 async function followUpRows(handle: ServiceStore = store): Promise<readonly QueuedEvent[]> {
@@ -2832,6 +2843,75 @@ describe("the member's absence", () => {
             expect(last?.headSha).toBe(shas[boundary]);
             expect(after.map((entry) => entry.headSha)).toEqual(shas.slice(boundary));
             expect(after[0]?.fromHeadSha).toBe(shas[boundary - 1]);
+        }
+    });
+
+    it('reaches an owed follow-up past the bound, because the walk opens at it', async () => {
+        {
+            // **The composition, against nothing faked but the storage.** A real
+            // store, the real scan enqueue, and the real projection: a subject
+            // that kept moving produced {@link BOUND_HEAD_FOLLOW_UPS} head
+            // follow-ups, and the panel's own record says every one but the last
+            // reached a session, with the last one owed a session on its second
+            // attempt.
+            const planted = await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const shas = Array.from({ length: BOUND_HEAD_FOLLOW_UPS }, (_unused, index) =>
+                `${String(index + 1).padStart(2, '0')}${'a'.repeat(38)}`);
+            await enqueueEvents({
+                store,
+                log,
+                incoming: shas.map((sha) => createEvent(headFollowUpSnapshot(sha))),
+            });
+
+            const deliveryIds = shas.map((sha) => followUpHeadId(sha));
+            const record = (
+                deliveryId: string,
+                overrides: Partial<FollowUpDeliveryRecord> = {},
+            ): FollowUpDeliveryRecord => ({
+                deliveryId,
+                correlationId: planted.correlationId,
+                sessionId: SESSION_ID,
+                attempt: 1,
+                nextAttemptAtMs: null,
+                delivered: true,
+                reason: null,
+                parked: false,
+                updatedAt: STAMP,
+                ...overrides,
+            });
+            const document: DispatchRecordDocument = {
+                schemaVersion: DISPATCH_SCHEMA_VERSION,
+                attempts: [],
+                followUps: [
+                    ...deliveryIds.slice(0, -1).map((deliveryId) => record(deliveryId)),
+                    record(deliveryIds.at(-1) ?? '', {
+                        attempt: 2,
+                        nextAttemptAtMs: 5_000,
+                        delivered: false,
+                        reason: 'session-busy',
+                    }),
+                ],
+            };
+
+            // The read's own pre-parameter answer cannot reach it: the bound is
+            // the oldest twenty rows in detection order, delivered or not, and
+            // the route cannot page inside one run's list. Every one of those
+            // twenty is delivered, so the owed twenty-fifth is projected by
+            // nobody — the row names it as waiting, the ladder never advances
+            // again, and nothing ever parks it.
+            const fromStart = await historyRows(null);
+            expect(fromStart[0]?.followUps).toHaveLength(MAX_PROJECTED_FOLLOW_UPS);
+            expect(fromStart[0]?.followUps?.map((followUp) => followUp.deliveryId))
+                .not.toContain(deliveryIds.at(-1));
+
+            // Opening *at* the owed record is a position in this run's own list,
+            // so the window is exactly the row the next relay tick delivers.
+            const opening = followUpWindowOpening(document);
+            const opened = await historyRows(opening);
+
+            expect(opening).toBe(deliveryIds.at(-1));
+            expect(opened[0]?.followUps?.map((followUp) => followUp.deliveryId))
+                .toEqual([deliveryIds.at(-1)]);
         }
     });
 

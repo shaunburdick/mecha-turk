@@ -636,6 +636,78 @@ async function persist(rt: PanelRuntime, document: DispatchRecordDocument): Prom
 }
 
 /**
+ * The chain every writer of {@link DISPATCH_STORAGE_KEY} serializes onto.
+ *
+ * One chain for the key, not one per writer: a read-modify-write is only safe
+ * because no *other* read-modify-write can land between its read and its write,
+ * and a chain each writer kept for itself would be four chains for one key.
+ */
+const recordChain: { write: Promise<unknown> } = { write: Promise.resolve() };
+
+/**
+ * Take the next turn on the dispatch record's write chain.
+ *
+ * @returns Whatever `task` produced, once every earlier writer settled.
+ */
+function inRecordChain<T>(task: () => Promise<T>): Promise<T> {
+    // eslint-disable-next-line unicorn/prefer-then-catch -- one task in both arms: a refused write cannot wedge the key
+    const write = recordChain.write.then(task, task);
+    recordChain.write = write;
+
+    return write;
+}
+
+/**
+ * Read, transform, and persist the dispatch record as one critical section.
+ *
+ * Every writer of the key is `load → transform → persist`, and the section spans
+ * two awaits — the host's read and its write. Reading `relay.inFlight` /
+ * `relay.dispatching` before the first `await` makes the *start* of that section
+ * safe, not the whole of it: a relay tick that starts inside it writes its own
+ * document, and a re-offer then overwrites it with one derived from its earlier
+ * read. The write lost that way is the tick's `delivered: true`, and a delivery
+ * the record forgets is a delivery the next tick re-offers — the second prompt
+ * NFR-002 and constitution III exist to prevent. How often an operator clicks
+ * during a tick decides how often that happens, not whether it can.
+ *
+ * Taking turns on {@link inRecordChain} is what makes the section a critical
+ * section: each transform runs against the document the previous writer left
+ * behind, so a concurrent writer's row is carried forward rather than dropped.
+ * The alternative — re-load and re-derive immediately before `persist`, bailing
+ * when the document moved — cannot tell the caller *what* moved, so its only
+ * safe bail is to refuse the write and report it, which turns a slow host into a
+ * lost re-offer. A chain of promises loses nothing and costs one queue.
+ *
+ * Reads stay outside the chain: `host.storage` answers each call whole, so a
+ * reader sees either the previous document or the new one, never half of one —
+ * and the stale answer is the safe direction, since it projects *more* of a run's
+ * movements rather than fewer.
+ *
+ * @param rt - Runtime whose storage the record lives in.
+ * @param transform - Derive the next document, or `null` to write nothing.
+ * @returns `true` when the write landed, `false` when the record was unreadable,
+ *   the transform declined, or the write was refused.
+ */
+async function updateDispatchRecord(
+    rt: PanelRuntime,
+    transform: (document: DispatchRecordDocument) => DispatchRecordDocument | null,
+): Promise<boolean> {
+    return await inRecordChain(async () => {
+        const read = await loadDispatchRecord(rt);
+        if (!read.ok) {
+            return false;
+        }
+
+        const next = transform(read.document);
+        if (next === null) {
+            return false;
+        }
+
+        return await persist(rt, next);
+    });
+}
+
+/**
  * Record the outcome of one dispatch attempt, durably, before it is reported.
  *
  * This is the durable write: the relay calls it after `host.startSession()`
@@ -656,11 +728,6 @@ export async function recordDispatchOutcome(rt: PanelRuntime, input: {
     /** What the host call produced. */
     readonly outcome: RecordedOutcome;
 }): Promise<boolean> {
-    const read = await loadDispatchRecord(rt);
-    if (!read.ok) {
-        return false;
-    }
-
     const record: DispatchAttemptRecord = {
         correlationId: input.correlationId,
         runKey: input.runKey,
@@ -678,7 +745,7 @@ export async function recordDispatchOutcome(rt: PanelRuntime, input: {
         return false;
     }
 
-    return await persist(rt, appendAttempt(read.document, record));
+    return await updateDispatchRecord(rt, (document) => appendAttempt(document, record));
 }
 
 /**
@@ -695,21 +762,19 @@ export async function acknowledgeDispatch(input: {
     readonly attempt: number;
 }): Promise<boolean> {
     const { rt, correlationId, attempt } = input;
-    const read = await loadDispatchRecord(rt);
-    if (!read.ok) {
-        return false;
-    }
 
-    const next = acknowledgeAttempt({ document: read.document, correlationId, attempt });
-    const wasChanged = next.attempts.some((entry, index) => entry !== read.document.attempts[index]);
-    if (!wasChanged) {
-        // No matching attempt, or it was already acknowledged: writing would
-        // only churn the key, and an acknowledgement for an attempt the panel
-        // never recorded is not a fact worth persisting.
-        return false;
-    }
+    return await updateDispatchRecord(rt, (document) => {
+        const next = acknowledgeAttempt({ document, correlationId, attempt });
+        const wasChanged = next.attempts.some((entry, index) => entry !== document.attempts[index]);
+        if (!wasChanged) {
+            // No matching attempt, or it was already acknowledged: writing would
+            // only churn the key, and an acknowledgement for an attempt the panel
+            // never recorded is not a fact worth persisting.
+            return null;
+        }
 
-    return await persist(rt, next);
+        return next;
+    });
 }
 
 /**
@@ -769,11 +834,6 @@ export async function recordFollowUpDelivery(
     rt: PanelRuntime,
     record: FollowUpDeliveryRecord,
 ): Promise<boolean> {
-    const read = await loadDispatchRecord(rt);
-    if (!read.ok) {
-        return false;
-    }
-
     // Read back what is about to be written: a record the panel could not parse
     // on remount must never reach storage in the first place. The check goes
     // through `JsonValue` rather than the typed shape, so it is exactly the
@@ -783,7 +843,7 @@ export async function recordFollowUpDelivery(
         return false;
     }
 
-    return await persist(rt, putFollowUpRecord(read.document, record));
+    return await updateDispatchRecord(rt, (document) => putFollowUpRecord(document, record));
 }
 
 /**
@@ -851,19 +911,11 @@ export async function reofferFollowUpDelivery(input: {
     /** The deterministic delivery ids to re-offer. */
     readonly deliveryIds: readonly string[];
 }): Promise<boolean> {
-    const read = await loadDispatchRecord(input.rt);
-    if (!read.ok) {
-        return false;
-    }
+    const { rt, deliveryIds } = input;
 
-    const next = reofferFollowUpRecords({
-        document: read.document,
-        deliveryIds: input.deliveryIds,
-        at: nowIso(),
-    });
-    if (next === null) {
-        return false;
-    }
-
-    return await persist(input.rt, next);
+    // The stamp is taken **inside** the chain, so it is the stamp of the write
+    // rather than of the click that queued it: a re-offer that waited its turn
+    // behind a relay tick records the moment the record actually moved.
+    return await updateDispatchRecord(rt, (document) =>
+        reofferFollowUpRecords({ document, deliveryIds, at: nowIso() }));
 }

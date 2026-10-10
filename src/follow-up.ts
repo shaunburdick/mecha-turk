@@ -60,11 +60,13 @@
  * only party that calls the host — so the queue's follow-up rows are never
  * pruned and a run whose subject keeps moving fills the projected window with
  * follow-ups already sent. The read therefore carries the read's one absentable
- * parameter, `followUpsFrom`, advanced past the newest id this panel's durable
- * record says reached a session ({@link followUpWindowOpening}), and omits it
- * entirely when the panel has delivered nothing or cannot read its own record —
- * which is the read's pre-parameter answer and the safe direction, since a
- * window opened early can only ever project a movement sooner than asked.
+ * parameter, `followUpsFrom`, opened where this panel's durable record says it
+ * must ({@link followUpWindowOpening}) — at the newest delivery it recorded, or
+ * at the follow-up it still owes a session, whichever the record names last —
+ * and omits it entirely when the record holds nothing to open at, or when the
+ * panel cannot read its own record. The omission is the read's pre-parameter
+ * answer and the safe direction, since a window opened early can only ever
+ * project a movement sooner than asked.
  *
  * A failed attempt retries under the ladder the service's existing retry
  * configuration already declares and, on exhaustion, **parks** with the exact
@@ -315,18 +317,23 @@ const DELIVERABLE_RUN_STATE: PlainRunState = 'dispatched';
  * newest *delivered* id is simply further back, which opens the window earlier
  * and therefore never skips a movement.
  *
- * **The scan also stops at an owed follow-up.** A record that is neither
- * delivered nor parked is one the relay still owes a session — mid-ladder in its
- * backoff, or returned to due by an operator's re-offer — and opening the window
- * past it would hide the very follow-up the next tick is meant to deliver. So
- * the scan forgets every delivered id once it meets an owed one, which moves the
- * read's opening *earlier*: reading from the start costs a denser page and can
- * only project a movement sooner than asked (the read's own pre-parameter
- * answer), where opening late strands one. A parked record is not owed — it is
- * excluded from automatic handling until an operator re-offers it (FR-105) — so
- * it does not stop the walk; and the re-offer appends the record at the end of
- * the list (`reofferFollowUpRecords`), which is what puts it after the delivered
- * sibling the walk was about to open past.
+ * **The scan stops at the first owed follow-up, and opens *at* it.** A record
+ * that is neither delivered nor parked is one the relay still owes a session —
+ * mid-ladder in its backoff, or returned to due by an operator's re-offer — and
+ * opening the window past it would hide the very follow-up the next tick is
+ * meant to deliver. Resetting the opening to the start **does not** fix that:
+ * the read projects a run's oldest twenty rows in detection order, delivered or
+ * not (`run-history-project.ts`), and it cannot page inside one run's follow-up
+ * list, so an owed record at position 21 or later sits outside the window the
+ * start produces. The opening is therefore that record's own id, which is a
+ * position in the run's own list whatever its number: a window that opens early
+ * costs a denser page, and one that opens late strands the follow-up for good —
+ * the row names it as waiting, the ladder never advances, and nothing parks.
+ *
+ * A parked record is not owed — it is excluded from automatic handling until an
+ * operator re-offers it (FR-105) — so it does not stop the walk. Nothing is
+ * written after the owed record settles it on a later tick, which is why the
+ * scan can stop there rather than continuing to the newest delivered id.
  *
  * @param document - The panel's durable dispatch record.
  * @returns The delivery id to walk past, or `null` when this panel has delivered
@@ -339,7 +346,9 @@ export function followUpWindowOpening(document: DispatchRecordDocument): string 
         if (record.delivered) {
             newest = record.deliveryId;
         } else if (!record.parked) {
-            newest = null;
+            // Owed: open at it, so the read's bound cannot put it out of range.
+            newest = record.deliveryId;
+            break;
         }
     }
 

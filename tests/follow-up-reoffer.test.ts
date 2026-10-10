@@ -46,6 +46,7 @@ import type { DispatchesState, PanelRuntime } from '../src/panel-state.ts';
 import type { RunFollowUp, RunRow } from '../src/dispatches-service.ts';
 import type { PanelHost } from '../src/session.ts';
 import { parseJsonValue } from '../src/json.ts';
+import { MAX_PROJECTED_FOLLOW_UPS } from '../service/poll/run-history-project.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
 
 /** Session id the fixture dispatch recorded, and the host shows as current. */
@@ -65,6 +66,26 @@ const COMMENT_URL = /#issuecomment-(\d+)/;
 
 /** RFC 3339 stamp every fixture record carries. */
 const STAMP = '2026-10-10T12:00:00.000Z';
+
+/**
+ * How many follow-ups the bound tests put on one run: the read's own bound, plus
+ * five, so the last one sits past it.
+ */
+const BOUND_FOLLOW_UPS = MAX_PROJECTED_FOLLOW_UPS + 5;
+
+/** The comment id of the owed follow-up those tests carry: the last of the set. */
+const OWED_COMMENT = 700 + BOUND_FOLLOW_UPS - 1;
+
+/** The comment ids the bound set carries, in detection order. */
+const BOUND_COMMENT_IDS: readonly number[] = Array.from(
+    { length: BOUND_FOLLOW_UPS },
+    (_unused, index) => 700 + index,
+);
+
+/** The deterministic delivery id one comment follow-up row carries. */
+function commentDeliveryId(commentId: number): string {
+    return `evt-acme~widget~7~77331~followup~${commentId}`;
+}
 
 /** Releases a host subscription; the fake host registers nothing to release. */
 function release(): void {
@@ -170,15 +191,39 @@ interface SentHolder {
 }
 
 /**
+ * The write-holder a host double hands back for a write it is holding open.
+ *
+ * One write to the dispatch record can be held at a time. That is what lets a
+ * test land a second writer *inside* the first one's read-modify-write: the
+ * panel has already read the document, and the write that would publish the
+ * result has not landed yet.
+ */
+interface WriteHolder {
+    /** Let the held write land; a no-op while nothing is held. */
+    readonly release: () => void;
+}
+
+/** Let queued promises and timers settle; the shared `tick`, a few times over. */
+async function settle(rounds = 4): Promise<void> {
+    for (let round = 0; round < rounds; round += 1) {
+        await tick();
+    }
+}
+
+/**
  * A host double that serves the relay's own view of one run's follow-ups.
  *
  * The runs view mirrors the route's own window rule — open at or after the
- * named delivery id, and from the start when the parameter is absent or names
+ * named delivery id, **up to the same bound** the route applies
+ * ({@link MAX_PROJECTED_FOLLOW_UPS}: the oldest twenty rows in detection order,
+ * delivered or not), and from the start when the parameter is absent or names
  * an id this row does not carry — so a test can land a follow-up *behind* the
- * window's opening the way a delivered successor does in production. The
- * service-side half of that rule is proven against the real service in
- * `follow-up-lifecycle.test.ts`; what this double exists for is the panel's
- * half.
+ * window's opening the way a delivered successor does in production. The bound
+ * is the half that matters: a double that answered every row would prove a
+ * delivery the real read cannot make, because the route cannot page inside one
+ * run's follow-up list. The service-side rule is proven against the real
+ * service in `follow-up-lifecycle.test.ts`; what this double exists for is the
+ * panel's half.
  */
 function reofferHost(input: {
     /** The follow-ups the run carries, in detection order. */
@@ -187,12 +232,16 @@ function reofferHost(input: {
     readonly stored?: JsonValue;
     /** The prompt switch; every prompt is accepted while it is `true`. */
     readonly sent?: SentHolder;
-}): { readonly host: PanelHost; readonly log: ReofferLog; readonly sent: SentHolder } {
+    /** Hold the first write to the dispatch record until the holder releases it. */
+    readonly holdFirstWrite?: boolean;
+}): { readonly host: PanelHost; readonly log: ReofferLog; readonly sent: SentHolder; readonly hold: WriteHolder } {
     const prompts: string[] = [];
     const writes: { key: string; value: unknown }[] = [];
     const opened: string[] = [];
     const values = new Map<string, JsonValue>();
     const sent: SentHolder = input.sent ?? { value: true };
+    let held: (() => void) | null = null;
+    let isHolding = input.holdFirstWrite === true;
     if (input.stored !== undefined) {
         values.set(DISPATCH_STORAGE_KEY, input.stored);
     }
@@ -216,7 +265,9 @@ function reofferHost(input: {
                 const opening = from === null
                     ? -1
                     : input.followUps.findIndex((entry) => entry.deliveryId === from);
-                const window = opening < 0 ? input.followUps : input.followUps.slice(opening);
+                const window = opening < 0
+                    ? input.followUps.slice(0, MAX_PROJECTED_FOLLOW_UPS)
+                    : input.followUps.slice(opening, opening + MAX_PROJECTED_FOLLOW_UPS);
 
                 return {
                     status: 200,
@@ -237,6 +288,15 @@ function reofferHost(input: {
                 get: async (key: string): Promise<JsonValue | undefined> => values.get(key),
                 set: async (key: string, value: JsonValue) => {
                     writes.push({ key, value });
+                    if (isHolding && key === DISPATCH_STORAGE_KEY) {
+                        isHolding = false;
+                        // eslint-disable-next-line unicorn/prefer-promise-with-resolvers -- ES2024; lib is ES2023.
+                        const gate = new Promise<void>((resolve) => {
+                            held = resolve;
+                        });
+                        await gate;
+                    }
+
                     values.set(key, value);
                 },
                 delete: async (key: string) => {
@@ -260,6 +320,13 @@ function reofferHost(input: {
         }),
         log: { prompts, writes, opened },
         sent,
+        hold: {
+            release: () => {
+                const resolve = held;
+                held = null;
+                resolve?.();
+            },
+        },
     };
 }
 
@@ -464,12 +531,15 @@ describe('the follow-up window opening (FR-104, FR-105)', () => {
         {
             // A mid-ladder record the relay still owes a session: opening past
             // the delivered successor behind it would hide the very follow-up
-            // the next tick must deliver.
+            // the next tick must deliver — and opening at the *start* instead
+            // is just as bad, because the read's oldest-twenty bound would put
+            // the owed record out of range once it sits at position 21 or
+            // later. The opening is the owed record's own id.
             const owed = documentOf(
                 recordFixture({ deliveryId: SUCCESSOR, delivered: true }),
                 recordFixture({ attempt: 2, nextAttemptAtMs: 5_000, reason: 'session-busy' }),
             );
-            expect(followUpWindowOpening(owed)).toBeNull();
+            expect(followUpWindowOpening(owed)).toBe(DELIVERY);
 
             // A parked record is excluded from automatic handling, so the walk
             // goes on past it — and a re-offer is what turns it owed again.
@@ -478,6 +548,29 @@ describe('the follow-up window opening (FR-104, FR-105)', () => {
                 recordFixture({ deliveryId: SUCCESSOR, delivered: true }),
             );
             expect(followUpWindowOpening(parked)).toBe(SUCCESSOR);
+        }
+    });
+
+    it('opens at an owed follow-up past the read\'s bound, rather than before it', () => {
+        {
+            // The bound is the service's and the panel cannot page inside one
+            // run's follow-up list, so the window opening is the only thing that
+            // crosses it. Twenty-four delivered records and an owed one at
+            // position 25: opening at the start projects the oldest twenty rows,
+            // every one of them delivered, and the owed one never retries and
+            // never parks — it is reported as waiting forever.
+            const delivered = BOUND_COMMENT_IDS
+                .filter((commentId) => commentId !== OWED_COMMENT)
+                .map((commentId) => recordFixture({ deliveryId: commentDeliveryId(commentId), delivered: true }));
+            const owed = recordFixture({
+                deliveryId: commentDeliveryId(OWED_COMMENT),
+                attempt: 2,
+                nextAttemptAtMs: 5_000,
+                reason: 'session-busy',
+            });
+
+            expect(followUpWindowOpening(documentOf(...delivered, owed)))
+                .toBe(commentDeliveryId(OWED_COMMENT));
         }
     });
 });
@@ -502,7 +595,11 @@ describe('the operator action (FR-105, AC-051)', () => {
             // The first click states what will happen and writes nothing.
             expect(rt.state.dispatches.pendingAction).toBe('reoffer-follow-up');
             expect(rt.state.dispatches.note).toContain('Confirm: re-offer the parked follow-up for #7');
-            expect(rt.state.dispatches.note).toContain('the next relay poll delivers it once more');
+            // Honest copy: the re-offer buys one more attempt under the ladder
+            // the follow-up already spent, so a second failure parks it again.
+            expect(rt.state.dispatches.note).toContain('buys one more attempt');
+            expect(rt.state.dispatches.note).toContain('the retry ladder is not refreshed');
+            expect(rt.state.dispatches.note).toContain('parks it again at once');
             expect(log.writes).toEqual([]);
 
             await reofferFollowUp(rt);
@@ -651,6 +748,206 @@ describe('the relay delivers what the re-offer frees (FR-104, FR-105)', () => {
 
             expect(log.prompts).toHaveLength(1);
             expect(COMMENT_URL.exec(log.prompts[0] ?? '')?.[1]).toBe('501');
+
+            await pollRelay(rt);
+            await tick();
+            expect(log.prompts).toHaveLength(1);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------ *
+ * The concurrent writer: a re-offer landing inside a relay tick.
+ *
+ * Every writer of `mecha-turk:dispatches` is `load → transform → persist`,
+ * and the section spans two awaits. A re-offer that reads the document and
+ * then waits behind a slow host write while a relay tick writes its own
+ * outcome publishes the document derived from its earlier read, so whichever
+ * write lands second erases the other — and the erased one is either a park
+ * that comes back or a `delivered: true` the next tick re-sends: the second
+ * prompt NFR-002 and constitution III exist to prevent.
+ * ------------------------------------------------------------------ */
+
+describe('the re-offer inside a relay tick (NFR-002, constitution III)', () => {
+    it('keeps the tick’s delivery write, so the re-offer cannot unpick it', async () => {
+        {
+            const parked = recordFixture({ attempt: 3, parked: true, reason: 'session-busy' });
+            const followUps = [
+                followUpFixture(),
+                followUpFixture({
+                    deliveryId: SUCCESSOR,
+                    sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-502',
+                }),
+            ];
+            const { host, log, hold } = reofferHost({
+                followUps,
+                stored: storedDocument([parked]),
+                holdFirstWrite: true,
+            });
+            const rt = relayRuntime(host);
+            rt.state.dispatches = dispatchesState(rowFixture(followUps), [parked]);
+
+            await reofferFollowUp(rt);
+            // The second click starts the re-offer's write, which the double
+            // holds open: the panel has read the document and nothing is
+            // published yet.
+            const reoffer = reofferFollowUp(rt);
+            await settle();
+
+            // A relay tick lands inside it. It reads the same document the
+            // re-offer read, delivers the follow-up that is still outstanding,
+            // and records the outcome.
+            const tickRun = pollRelay(rt);
+            await settle();
+            expect(log.prompts).toHaveLength(1);
+            expect(COMMENT_URL.exec(log.prompts[0] ?? '')?.[1]).toBe('502');
+
+            hold.release();
+            await settle();
+            await tickRun;
+            await reoffer;
+
+            // Both writes survived, in the document storage actually holds.
+            // The unsynchronized re-offer publishes the document it derived from
+            // its earlier read, so whichever write lands second erases the other
+            // — and the erased one is either a park that comes back or a
+            // delivery the next tick sends again.
+            const durable = readDispatchRecord(await host.storage.get(DISPATCH_STORAGE_KEY));
+            const records = new Map((durable?.followUps ?? []).map((record) => [record.deliveryId, record]));
+            expect(records.get(DELIVERY)).toMatchObject({ parked: false, delivered: false });
+            expect(records.get(SUCCESSOR)).toMatchObject({ delivered: true });
+
+            // The durable record is what makes that the end of it, not the write
+            // that happened to land last: the next tick owes the re-offered
+            // follow-up its session, and the follow-up the tick already
+            // delivered is never sent a second time.
+            await pollRelay(rt);
+            await tick();
+            await pollRelay(rt);
+            await tick();
+            const delivered = log.prompts.map((message) => COMMENT_URL.exec(message)?.[1]);
+
+            expect(log.prompts).toHaveLength(2);
+            expect(new Set(delivered).size).toBe(2);
+            expect(delivered.at(-1)).toBe('501');
+        }
+    });
+});
+
+/* ------------------------------------------------------------------ *
+ * The read's bound: an owed follow-up the oldest twenty cannot reach.
+ *
+ * `GET /v1/events` projects a run's **oldest twenty** follow-up rows in
+ * detection order, delivered or not, and it cannot page inside one run's list
+ * (`run-history-project.ts`) — so the window opening is the only thing that
+ * crosses the bound. An owed follow-up past position 20 is therefore reachable
+ * only when the opening lands at or before it, and the pre-fix opening (the
+ * read's start) does not: it projects twenty rows that are all delivered.
+ * ------------------------------------------------------------------ */
+
+/** The follow-up rows of the bound set, as the run history projection carries them. */
+function boundFollowUps(): readonly RunFollowUp[] {
+    return BOUND_COMMENT_IDS.map((commentId) => followUpFixture({
+        deliveryId: commentDeliveryId(commentId),
+        sourceUrl: `https://github.com/acme/widget/issues/7#issuecomment-${commentId}`,
+    }));
+}
+
+/** A durable record for every follow-up of the bound set, delivered in detection order. */
+function boundDeliveredRecords(): readonly FollowUpDeliveryRecord[] {
+    return BOUND_COMMENT_IDS
+        .filter((commentId) => commentId !== OWED_COMMENT)
+        .map((commentId) => recordFixture({ deliveryId: commentDeliveryId(commentId), delivered: true }));
+}
+
+/** The owed record at the end of the bound set, mid-ladder on its second attempt. */
+function owedRecord(overrides: Partial<FollowUpDeliveryRecord> = {}): FollowUpDeliveryRecord {
+    return recordFixture({
+        deliveryId: commentDeliveryId(OWED_COMMENT),
+        attempt: 2,
+        nextAttemptAtMs: 5_000,
+        reason: 'session-busy',
+        ...overrides,
+    });
+}
+
+describe('the owed follow-up past the read\'s bound (FR-104, FR-105)', () => {
+    it('is delivered by the next tick, rather than stranded behind the oldest twenty', async () => {
+        {
+            // The regression the walk used to carry: a subject that kept moving
+            // filled the projected window with delivered follow-ups, and the one
+            // still owed a session sat at position 25 — outside it. Resetting the
+            // opening to the start (the read's own pre-parameter answer) does
+            // not reach it, because the bound counts rows, not positions: the
+            // oldest twenty are all delivered and the owed one is never
+            // projected. It then never retries and never parks, and the row
+            // reports it as waiting forever.
+            const { host, log } = reofferHost({
+                followUps: boundFollowUps(),
+                stored: storedDocument([...boundDeliveredRecords(), owedRecord()]),
+            });
+            const rt = relayRuntime(host);
+
+            await pollRelay(rt);
+            await tick();
+
+            // The opening is the owed record's own id, so the window is the one
+            // row that matters and the ladder continues from where it left off.
+            expect(log.prompts).toHaveLength(1);
+            expect(COMMENT_URL.exec(log.prompts[0] ?? '')?.[1]).toBe(String(OWED_COMMENT));
+            expect(lastRecordWrite(log.writes)?.followUps?.at(-1)).toMatchObject({
+                deliveryId: commentDeliveryId(OWED_COMMENT),
+                delivered: true,
+                parked: false,
+                reason: null,
+                attempt: 3,
+            });
+
+            // At most once, exactly as before the bound was crossed.
+            await pollRelay(rt);
+            await tick();
+            expect(log.prompts).toHaveLength(1);
+            expect(log.opened).toEqual([]);
+        }
+    });
+
+    it('is delivered after a re-offer, which is the commit\'s own purpose', async () => {
+        {
+            // The re-offer turns a parked record into an owed one. If that owed
+            // record resets the opening to the start, the read projects the
+            // oldest twenty delivered rows and the re-offered follow-up is
+            // invisible: the operator clears the park and gets a wait that never
+            // resolves — the exact no-op the re-offer exists to end.
+            const records = [...boundDeliveredRecords(), owedRecord({
+                attempt: 3,
+                nextAttemptAtMs: null,
+                reason: 'session-busy',
+                parked: true,
+            })];
+            const followUps = boundFollowUps();
+            const { host, log } = reofferHost({ followUps, stored: storedDocument(records) });
+            const rt = relayRuntime(host);
+            rt.state.dispatches = dispatchesState(rowFixture(followUps), records);
+
+            await pollRelay(rt);
+            await tick();
+            expect(log.prompts).toHaveLength(0);
+
+            await reofferFollowUp(rt);
+            await reofferFollowUp(rt);
+            await tick();
+
+            await pollRelay(rt);
+            await tick();
+
+            expect(log.prompts).toHaveLength(1);
+            expect(COMMENT_URL.exec(log.prompts[0] ?? '')?.[1]).toBe(String(OWED_COMMENT));
+            expect(lastRecordWrite(log.writes)?.followUps?.at(-1)).toMatchObject({
+                deliveryId: commentDeliveryId(OWED_COMMENT),
+                delivered: true,
+                parked: false,
+                attempt: 4,
+            });
 
             await pollRelay(rt);
             await tick();

@@ -208,7 +208,13 @@ function requeueConfirmCopy(row: RunRow): string {
 }
 
 /**
- * The re-offer confirmation: what the panel clears, and what it keeps.
+ * The re-offer confirmation: what the panel clears, and what it buys.
+ *
+ * The ladder is **not** refreshed — `reofferFollowUpRecords` leaves `attempt`
+ * alone, because a reset would re-spend a bound the park had just exhausted.
+ * So the re-offer buys one more attempt and a second failure parks the
+ * follow-up again at once, which is what the copy has to say (the site's own
+ * wording, mirrored here rather than claimed more softly).
  *
  * @param row - The dispatch the control acts on.
  * @param parked - How many parked follow-ups the control will re-offer.
@@ -218,8 +224,9 @@ function reofferFollowUpCopy(row: RunRow, parked: number): string {
     const subject = parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`;
 
     return `Confirm: re-offer ${subject} for ${issueRef(row)}? The panel clears the parked flag and its cause on its`
-        + ' own delivery record, and the next relay poll delivers it once more. Every follow-up that already reached'
-        + ' the session, and the attempt history, are kept.';
+        + ' own delivery record, which buys one more attempt: the retry ladder is not refreshed, so a second failure'
+        + ' parks it again at once. Every follow-up that already reached the session, and the attempt history, are'
+        + ' kept.';
 }
 
 /**
@@ -441,7 +448,11 @@ const REFUSED_REOFFER_NOTE =
     'The re-offer did not land: the panel could not read or write its own delivery record, so nothing changed.';
 
 /**
- * The outcome note: what was re-offered, and what happens next.
+ * The outcome note: what was re-offered, and what it bought.
+ *
+ * One more attempt, not a fresh ladder: the re-offer clears the park and its
+ * cause and leaves the count alone, so a second failure parks it again at
+ * once — the same promise the confirmation made.
  *
  * @param row - The dispatch the re-offer acted on.
  * @param parked - How many parked follow-ups it cleared.
@@ -450,7 +461,8 @@ const REFUSED_REOFFER_NOTE =
 function reofferOutcomeCopy(row: RunRow, parked: number): string {
     const subject = parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`;
 
-    return `Re-offered ${subject} for ${issueRef(row)} — the next relay poll delivers it once more.`;
+    return `Re-offered ${subject} for ${issueRef(row)} — the next relay poll gives it one more attempt, which`
+        + ' parks it again at once if it fails.';
 }
 
 /**
