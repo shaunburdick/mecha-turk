@@ -461,8 +461,12 @@ export function followUpMessage(input: {
 }): string {
     const { row, followUp } = input;
     const { fromHeadSha, headSha, kind, excerpt, sourceUrl, actorLogin, detectedAt } = followUp;
-    const from = fromHeadSha ?? 'an unrecorded head';
-    const to = headSha ?? 'an unrecorded head';
+    // The frame rides **above** the untrusted block, so a forged delimiter in any
+    // scalar interpolated into it rebinds the region the block's own delimiters
+    // claim to bound. The actor login and the from/to head pair are therefore
+    // defused exactly like the title and URL beside them.
+    const from = defuseDelimiters(fromHeadSha ?? 'an unrecorded head');
+    const to = defuseDelimiters(headSha ?? 'an unrecorded head');
     const movement = kind === 'head' ? `Head moved from ${from} to ${to}` : 'New comment';
     const header = [
         'Mecha Turk follow-up (automated — continuing a work item Mecha Turk already started).',
@@ -472,7 +476,7 @@ export function followUpMessage(input: {
         `URL: ${defuseDelimiters(sourceUrl)}`,
         `Session: ${row.session?.sessionId ?? 'unknown'}`,
         `Movement: ${movement}`,
-        `Observed by: ${actorLogin} at ${detectedAt}`,
+        `Observed by: ${defuseDelimiters(actorLogin)} at ${detectedAt}`,
         'Rule: this is the same work item the session was started for; reply inside this session.',
     ];
     const sources: readonly ContextSource[] = [{
