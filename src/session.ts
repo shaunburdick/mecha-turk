@@ -143,32 +143,83 @@ export async function resolveProject(
 }
 
 /**
- * Build the bounded first-message context for a dispatched session.
+ * The blocks one bounded context quotes.
  *
- * Source text is untrusted, so every source is quoted inside one
- * explicit delimited block and bounded before it can dominate the prompt.
- * Three guarantees hold at once, which is the whole point of the shape:
+ * The source list when the caller has one, and the issue body alone otherwise
+ * — the shape the legacy single-source dispatch and every non-run caller use,
+ * kept here so the renderer cannot grow a third rule about what a body is.
  *
- * - **Both limits, at once.** Each excerpt is capped by
- *   {@link SOURCE_EXCERPT_MAX_CHARS} and the whole context by `maxChars`
- *   ({@link CONTEXT_MAX_CHARS} = 12,000 by default), frame and closing
- *   delimiter included — true for any mix, because every character the
- *   renderer emits is subtracted from one running budget.
- * - **Nothing is dropped silently.** A cut source carries `… [truncated]`, a
- *   source that did not fit carries the omission marker, and sources the
- *   budget could not list are named by a roll-up line whose length was
- *   reserved before the first block ran. The frame states how many references
- *   the run has, so the count of what was quoted checks against the total.
- * - **Source text cannot reach past the delimiters.** Markers are elided out
- *   of every untrusted string before quoting and before any truncation, so a
- *   cut can never reassemble one.
- *
- * The budget is spent on the sources, never on the frame: the frame is
- * counted in full first, so a shortened quotation can never cut the closing
- * delimiter. The context never contains a token or Authorization material.
- *
- * @returns Context truncated to `maxChars` characters, markers intact.
+ * @returns The blocks, in join order.
  */
+function contextBlocks(input: {
+    /** The run's source references, in join order. */
+    readonly sources?: readonly ContextSource[];
+    /** The matched issue the body falls back to. */
+    readonly issue: GitHubIssue;
+}): ContextBlock[] {
+    const sources = input.sources ?? [];
+
+    return sources.length > 0
+        ? sources.map((source) => ({
+            head: `${source.origin} · ${source.kind} · ${source.detectedAt} · ${source.url}`,
+            excerpt: source.excerpt,
+        }))
+        : [{ head: null, excerpt: input.issue.body ?? '' }];
+}
+
+/** Everything the shared bounded-context renderer needs. */
+export interface BoundedContextRender {
+    /**
+     * The frame's own lines, above `BEGIN_UNTRUSTED`.
+     *
+     * The two stories the panel tells — a dispatch and a follow-up — differ in
+     * exactly this header, and nowhere else: the markers, the budget, and the
+     * running subtraction below are the safety half and are shared, so a second
+     * header cannot come with a second (weaker) implementation of them.
+     */
+    readonly header: readonly string[];
+    /** The run's source references, in join order; absent quotes the issue body. */
+    readonly sources?: readonly ContextSource[];
+    /** The matched issue the body falls back to. */
+    readonly issue: GitHubIssue;
+    /** Optional character budget; defaults to {@link CONTEXT_MAX_CHARS}. */
+    readonly maxChars?: number;
+    /** Characters already spoken for by the caller's own frame; defaults to 0. */
+    readonly reservedChars?: number;
+}
+
+/**
+ * Render one bounded context: a caller's frame, the delimited blocks, the bound.
+ *
+ * The budget is spent on the sources, never on the frame: the frame is counted
+ * in full first, so a shortened quotation can never cut the closing delimiter.
+ * Source text is elided of the markers inside {@link renderBlocks}, so a cut
+ * can never reassemble one — which is the whole reason this is one function
+ * with a parameter rather than two functions with two implementations.
+ *
+ * @returns Context truncated to the budget, markers intact.
+ */
+export function renderBoundedContext(input: BoundedContextRender): string {
+    const maxChars = input.maxChars ?? CONTEXT_MAX_CHARS;
+    const reservedChars = Math.max(input.reservedChars ?? 0, 0);
+    const blocks = contextBlocks(input);
+    const frame = [...input.header, BEGIN_UNTRUSTED].join(NEWLINE);
+
+    // The frame, the newline that follows it, the newline before the closing
+    // delimiter, and the delimiter itself are counted before any source is
+    // rendered, so the rendered block can never overrun `maxChars` by exactly
+    // the separator that was forgotten. The prompt's reservation is subtracted
+    // here too: it is part of the same budget, and it is spent first.
+    const available = Math.max(
+        maxChars - reservedChars - frame.length - NEWLINE.length * 2 - END_UNTRUSTED.length,
+        0,
+    );
+    const rendered = renderBlocks({ blocks, available });
+    const body = rendered.length > 0 ? `${NEWLINE}${rendered.join(NEWLINE + NEWLINE)}${NEWLINE}` : '';
+
+    return `${frame}${body}${END_UNTRUSTED}`;
+}
+
 /** Everything one bounded context is built from. */
 export interface BoundedContextInput {
     /** `owner/name` of the repository. */
@@ -197,17 +248,35 @@ export interface BoundedContextInput {
     readonly reservedChars?: number;
 }
 
+/**
+ * Build the bounded first-message context for a dispatched session.
+ *
+ * Source text is untrusted, so every source is quoted inside one
+ * explicit delimited block and bounded before it can dominate the prompt.
+ * Three guarantees hold at once, which is the whole point of the shape:
+ *
+ * - **Both limits, at once.** Each excerpt is capped by
+ *   {@link SOURCE_EXCERPT_MAX_CHARS} and the whole context by `maxChars`
+ *   ({@link CONTEXT_MAX_CHARS} = 12,000 by default), frame and closing
+ *   delimiter included — true for any mix, because every character the
+ *   renderer emits is subtracted from one running budget.
+ * - **Nothing is dropped silently.** A cut source carries `… [truncated]`, a
+ *   source that did not fit carries the omission marker, and sources the
+ *   budget could not list are named by a roll-up line whose length was
+ *   reserved before the first block ran. The frame states how many references
+ *   the run has, so the count of what was quoted checks against the total.
+ * - **Source text cannot reach past the delimiters.** Markers are elided out
+ *   of every untrusted string before quoting and before any truncation, so a
+ *   cut can never reassemble one.
+ *
+ * The budget is spent on the sources, never on the frame: the frame is
+ * counted in full first, so a shortened quotation can never cut the closing
+ * delimiter. The context never contains a token or Authorization material.
+ *
+ * @returns Context truncated to `maxChars` characters, markers intact.
+ */
 export function buildBoundedContext(input: BoundedContextInput): string {
-    const maxChars = input.maxChars ?? CONTEXT_MAX_CHARS;
-    const reservedChars = Math.max(input.reservedChars ?? 0, 0);
-    const sources = input.sources ?? [];
-    const blocks: ContextBlock[] = sources.length > 0
-        ? sources.map((source) => ({
-            head: `${source.origin} · ${source.kind} · ${source.detectedAt} · ${source.url}`,
-            excerpt: source.excerpt,
-        }))
-        : [{ head: null, excerpt: input.issue.body ?? '' }];
-    const frame = [
+    const header = [
         'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
         `Correlation: ${input.correlationId}`,
         `Repository: ${input.repository}`,
@@ -215,25 +284,17 @@ export function buildBoundedContext(input: BoundedContextInput): string {
         `URL: ${defuseDelimiters(input.issue.url)}`,
         `Machine account: ${input.authenticatedLogin}`,
         'Rule: configured-match — open issue assigned to the authenticated machine account.',
-        `Source references: ${blocks.length}`,
-        BEGIN_UNTRUSTED,
-    ].join(NEWLINE);
+        `Source references: ${contextBlocks(input).length}`,
+    ];
 
-    // The frame, the newline that follows it, the newline before the closing
-    // delimiter, and the delimiter itself are counted before any source is
-    // rendered, so the rendered block can never overrun `maxChars` by exactly
-    // the separator that was forgotten. The prompt's reservation is subtracted
-    // here too: it is part of the same budget, and it is spent first.
-    const available = Math.max(
-        maxChars - reservedChars - frame.length - NEWLINE.length * 2 - END_UNTRUSTED.length,
-        0,
-    );
-    const rendered = renderBlocks({ blocks, available });
-    const body = rendered.length > 0 ? `${NEWLINE}${rendered.join(NEWLINE + NEWLINE)}${NEWLINE}` : '';
-
-    return `${frame}${body}${END_UNTRUSTED}`;
+    return renderBoundedContext({
+        header,
+        issue: input.issue,
+        ...(input.sources !== undefined && { sources: input.sources }),
+        ...(input.maxChars !== undefined && { maxChars: input.maxChars }),
+        ...(input.reservedChars !== undefined && { reservedChars: input.reservedChars }),
+    });
 }
-
 /**
  * Map the configured worktree option onto the documented `startSession` value.
  *

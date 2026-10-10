@@ -18,6 +18,7 @@
 import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import { drainVerifications } from '../src/agent-verify.ts';
 import { ROUTES } from '../service/routes/index.ts';
 import { AUDIT_FILE } from '../service/audit.ts';
 import { CONFIG_FILE } from '../service/config.ts';
@@ -33,6 +34,7 @@ import { parseJsonValue } from '../src/json.ts';
 import { findSecretLeak } from '../src/redaction.ts';
 import { dispatchRows } from '../src/dispatches-rows.ts';
 import { loadDispatches } from '../src/dispatches.ts';
+import { loadLedger } from '../src/app.ts';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
@@ -274,6 +276,39 @@ function panelSources(): readonly string[] {
 }
 
 /**
+ * Wait until every mount-time read and the relay's first burst have landed.
+ *
+ * A pane repaint that lands mid-assertion is the race this suite kept hitting:
+ * the relay arms the moment the bindings read lands, claims the seeded legacy
+ * runs, and dispatches them asynchronously — and every step of that repaints
+ * every mounted pane, the prompt field among them. Waiting for the panel to go
+ * quiet is what makes "the starting prompt appears exactly once" a statement
+ * about the selection rather than about the scheduler.
+ *
+ * @param rt - The mounted runtime to settle.
+ */
+async function settlePanel(rt: PanelRuntime): Promise<void> {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+        await tick();
+        const isQuiet = !rt.state.relay.inFlight
+            && !rt.state.relay.dispatching
+            && rt.state.dispatches.status !== 'loading'
+            && rt.state.statusTab.phase !== 'loading'
+            && rt.state.settingsTab.phase !== 'loading'
+            && rt.state.aboutTab.phase !== 'loading'
+            && rt.state.bindings.status !== 'loading';
+        if (isQuiet) {
+            break;
+        }
+    }
+
+    // The agent read-back is detached from the tick (AC-125), so a dispatch
+    // this panel just made can still be verifying: drain it rather than let
+    // its completion repaint the field under the assertion.
+    await drainVerifications(rt);
+}
+
+/**
  * Seed a pre-003 store, restart the service so its boot sweep adopts the
  * queue, and mount the panel over it.
  *
@@ -313,8 +348,13 @@ async function bootUpgradedPanel(): Promise<{
     await loop.restart();
 
     const rt = loop.mount();
-    // The read app.ts performs at startup (its `start()` path): the harness
-    // mounts the shell by hand, so it performs that read by hand too.
+    // The reads app.ts performs at startup (its `start()` path), in the order
+    // `mountPanel` performs them: the harness mounts the shell by hand, so it
+    // runs those reads by hand too. The ledger read matters most — a runtime
+    // whose ledger was never loaded writes its generation-1 ledger over
+    // whatever storage holds the first time anything appends to it, which is
+    // exactly the reset this suite exists to catch.
+    await loadLedger(rt, STAMP);
     await loadDispatches(rt);
     mountTabShell({ rt, root: fakeDom().root, specs: tabSpecs(rt) });
     for (const id of TAB_IDS) {
@@ -328,6 +368,7 @@ async function bootUpgradedPanel(): Promise<{
             break;
         }
     }
+    await settlePanel(rt);
 
     return { loop, rt, legacyBytes };
 }
@@ -366,7 +407,10 @@ describe('FR-005 / NFR-103 a pre-003 store boots through the upgraded panel and 
                 expect.arrayContaining([LEDGER_KEY]),
             );
             const ledger = loop.panelStorage.get(LEDGER_KEY) as { readonly panelGeneration?: number };
-            expect(ledger.panelGeneration).toBe(3);
+            // Carried forward, not reset: the stored ledger held generation 3,
+            // and this mount's `loadLedger` carries it to 4 — a reset would
+            // answer 1, which is what an unloaded runtime writes over it.
+            expect(ledger.panelGeneration).toBe(4);
         } finally {
             rt.shell?.dispose();
             await loop.shutdown();

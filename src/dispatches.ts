@@ -19,6 +19,7 @@ import { initialAuditHistory } from './audit-view.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { runAffordance, selectedRun } from './dispatches-rows.ts';
+import { loadDispatchRecord } from './dispatch-record.ts';
 import { dispatchListPath, parseDispatchListBody } from './dispatches-list.ts';
 import { BLOCKED_PREFIX } from './dispatches-service.ts';
 import { recordDispatchPageMeta } from './dispatch-page.ts';
@@ -95,6 +96,17 @@ export async function loadDispatches(rt: PanelRuntime): Promise<void> {
     runs.pendingAction = null;
     runs.status = 'ready';
     runs.note = '';
+    // The panel's own record of what happened to this history's follow-ups
+    // rides beside the history (002 FR-105): a parked follow-up's reason is a
+    // fact about the row the operator is reading, and re-reading storage on
+    // every repaint is not a price that fact is worth. A record this build
+    // cannot read keeps the last list it held — blanking it would hide parked
+    // reasons that are still true.
+    const record = await loadDispatchRecord(rt);
+    if (record.ok) {
+        runs.followUpRecords = record.document.followUps ?? [];
+    }
+
     refresh(rt);
 }
 

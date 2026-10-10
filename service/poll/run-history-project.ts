@@ -126,9 +126,20 @@ export interface HistoryFollowUp {
  * How many follow-ups one history row projects (002 FR-104).
  *
  * A bound on the **answer**, not on the movement: a comment flood on a busy
- * subject must not be able to grow one row without limit, so the row carries the
- * oldest undelivered ones in detection order and the rest stay in the queue for
- * the next read. The queue is the record; this is the window onto it.
+ * subject must not be able to grow one row without limit, so the row carries a
+ * window of the queue and the rest stay there for a later read. The queue is
+ * the record; this is the window onto it.
+ *
+ * **What the window is, stated plainly: the oldest twenty queue rows in
+ * detection order, delivered or not.** The service holds no record of a
+ * delivery — the panel is the only party that calls the host, and its durable
+ * record lives in host storage — so a delivered follow-up row is never pruned
+ * from the queue and this projection cannot skip one. The consequence is a
+ * known, structural bound: on a run whose subject keeps moving, the window
+ * fills with follow-ups the panel has already delivered, and the movements
+ * behind them are not projected until the service can be told which ones
+ * reached the session. The docblock this replaces promised "the oldest
+ * undelivered ones", which no store member makes possible.
  */
 export const MAX_PROJECTED_FOLLOW_UPS = 20;
 
@@ -259,11 +270,13 @@ export interface RunHistoryRow {
      * until something on its subject moves — so a panel reading a row without it
      * has nothing to deliver.
      *
-     * The list is the run's **undelivered** follow-ups from the panel's point of
-     * view: the service holds no record of a prompt, because the panel is the
-     * only party that calls the host, so what the panel has already delivered is
-     * filtered against its own durable record rather than asked of the service.
-     * No operation, path, or existing member changes (FR-104).
+     * The list is a window of the queue's follow-up rows for this run, in
+     * detection order — **the oldest {@link MAX_PROJECTED_FOLLOW_UPS} of them,
+     * delivered or not**, because the service holds no record of a delivery and
+     * so cannot skip one the panel has already sent. The panel filters what it
+     * has delivered against its own durable record; this projection is the
+     * movement's existence and text, and nothing about its fate. No operation,
+     * path, or existing member changes (FR-104).
      */
     readonly followUps?: readonly HistoryFollowUp[];
 }

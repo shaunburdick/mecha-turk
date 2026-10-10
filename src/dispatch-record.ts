@@ -140,8 +140,17 @@ export interface FollowUpDeliveryRecord {
     readonly deliveryId: string;
     /** The run the follow-up belongs to. */
     readonly correlationId: string;
-    /** The session the follow-up is delivered into. */
-    readonly sessionId: string;
+    /**
+     * The session the follow-up is delivered into, or `null` when the attempt
+     * never had one.
+     *
+     * A `NO_SESSION` refusal is a recorded attempt with no session to name:
+     * inventing one — the run's attachment id, say — would put a session id in
+     * the record that no host ever created. Absent and empty are still refused;
+     * `null` is the honest value, and it is the same nullable shape the
+     * attempts' own `sessionId` member already uses.
+     */
+    readonly sessionId: string | null;
     /** Attempts used so far; `1` is the first. */
     readonly attempt: number;
     /** Epoch milliseconds the next attempt may be made at; `null` when it may go now. */
@@ -443,7 +452,7 @@ function readFollowUp(value: JsonValue): FollowUpDeliveryRecord | null {
 
     const deliveryId = readText(record, 'deliveryId');
     const correlationId = readText(record, 'correlationId');
-    const sessionId = readText(record, 'sessionId');
+    const sessionId = readNullableText(record, 'sessionId');
     const updatedAt = readText(record, 'updatedAt');
     const reason = readFollowUpReason(record);
     const flags = readFollowUpFlags(record);
@@ -451,7 +460,7 @@ function readFollowUp(value: JsonValue): FollowUpDeliveryRecord | null {
     if (
         deliveryId === null
         || correlationId === null
-        || sessionId === null
+        || sessionId === undefined
         || updatedAt === null
         || reason === undefined
         || flags === null
@@ -770,15 +779,4 @@ export async function recordFollowUpDelivery(
     }
 
     return await persist(rt, putFollowUpRecord(read.document, record));
-}
-
-/**
- * The follow-up deliveries still outstanding after a mount, in delivery order.
- *
- * @returns Every record that is neither delivered nor parked.
- */
-export function outstandingFollowUps(
-    document: DispatchRecordDocument,
-): readonly FollowUpDeliveryRecord[] {
-    return (document.followUps ?? []).filter((record) => !record.delivered && !record.parked);
 }

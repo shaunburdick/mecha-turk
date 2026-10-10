@@ -35,11 +35,25 @@
  *   (research §R14.5).
  *
  * The composition reuses the dispatch's bounded excerpt renderer and frame
- * builder, with the same delimiters and preamble, so no comment text can reach
- * past them and alter policy, credentials, approval requirements, or tool scope
- * (constitution Security Standard 3). It is measured **before** any host call and
- * **refused rather than truncated** when over budget — `relay-attempt.ts`'s
- * floor, applied unchanged.
+ * builder, with the same delimiters and the same running budget, so no comment
+ * text can reach past them and alter policy, credentials, approval
+ * requirements, or tool scope (constitution Security Standard 3). The one thing
+ * it does **not** reuse is the dispatch's own header: a follow-up is not a new
+ * dispatch from an open-issue assignment, so claiming that it is would put a
+ * false statement about policy and scope in text the agent reads. The frame is
+ * therefore the follow-up's own — the same markers, a follow-up preamble, and
+ * the rule line that says the session is continuing work it already started.
+ * The composition is measured **before** any host call and **refused rather
+ * than truncated** when over budget — `relay-attempt.ts`'s floor, applied
+ * unchanged.
+ *
+ * This module also owns the **read** the delivery selects from: the relay has
+ * its own current view of `GET /v1/events` on its own clock
+ * ({@link readFollowUpRows}), because the operator's runs list is a *paged,
+ * filterable* view an operator controls — reusing it for the relay would let a
+ * page position or a filter silently decide what gets delivered, and would hand
+ * the relay a view that goes stale the moment the operator navigates away from
+ * the page the work is on.
  *
  * A failed attempt retries under the ladder the service's existing retry
  * configuration already declares and, on exhaustion, **parks** with the exact
@@ -55,18 +69,20 @@ import type { PromptRequest, PromptResult, SessionSnapshot } from '@openchamber/
 import { appendEntryAndPersist } from './panel-actions.ts';
 import { recordFollowUpDelivery } from './dispatch-record.ts';
 import type { FollowUpDeliveryRecord, FollowUpFailure } from './dispatch-record.ts';
-import type { RunFollowUp, RunRow } from './dispatches-service.ts';
+import { parseDispatchListBody } from './dispatches-list.ts';
+import type { RunFollowUp, RunRow, PlainRunState } from './dispatches-service.ts';
 import type { LedgerDetail } from './ledger.ts';
 import { nowIso } from './ids.ts';
+import { MAX_PAGE_SIZE } from './dispatch-page.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { parseJsonObject } from './json.ts';
 import { budgetFloorProblem } from './relay-attempt.ts';
-import { CONFIG_PATH, serviceGet } from './service-calls.ts';
+import { CONFIG_PATH, EVENTS_PATH, serviceGet } from './service-calls.ts';
 import type { ServiceRequester } from './service-calls.ts';
-import {
-    buildBoundedContext,
-} from './session.ts';
+import { renderBoundedContext } from './session.ts';
 import type { ContextSource } from './session.ts';
+import { defuseDelimiters } from './context-blocks.ts';
+import { stillRunning } from './relay-gates.ts';
 
 /** Ledger kind every step of this path records under — the relay's own. */
 const FOLLOW_UP_LEDGER_KIND = 'session';
@@ -247,13 +263,114 @@ export function trackCurrentSession(rt: PanelRuntime): () => void {
     });
 }
 
+/** Page size the relay's follow-up read asks for: the route's largest (005 contract §1). */
+const FOLLOW_UP_PAGE_LIMIT = MAX_PAGE_SIZE;
+
+/**
+ * How many pages one walk reads before it keeps what it has and stops.
+ *
+ * The service retains at most 500 terminal runs, so ten pages of the largest
+ * page size covers any conforming store twice over. The guard is here for the
+ * answer that is *not* conforming — a `hasMore` that never clears — so a
+ * pathological read cannot spin the relay's tick into an unbounded walk.
+ */
+const FOLLOW_UP_PAGE_GUARD = 10;
+
+/**
+ * The state a run must carry for a follow-up to have a session to ride into.
+ *
+ * A run with a recorded session is `dispatched` and nothing else: the run
+ * document quarantines a session-carrying run in any other state, and a
+ * `dead-lettered` run holds no session (FR-100 opens the next ordinal for it).
+ * The filter is therefore exactly "the runs a follow-up can belong to", and
+ * asking the route for it keeps each page dense rather than spending pages on
+ * runs that can never carry one.
+ */
+const DELIVERABLE_RUN_STATE: PlainRunState = 'dispatched';
+
+/**
+ * The path of one page of the relay's own runs view.
+ *
+ * The two filters are the documented query surface of the existing route
+ * (`state`, `limit`) plus its own cursor when the walk is mid-set — no
+ * parameter the contract does not already define.
+ */
+function followUpRowsPath(cursor: string | null): string {
+    const params = [`state=${DELIVERABLE_RUN_STATE}`, `limit=${FOLLOW_UP_PAGE_LIMIT}`];
+    if (cursor !== null) {
+        params.push(`cursor=${encodeURIComponent(cursor)}`);
+    }
+
+    return `${EVENTS_PATH}?${params.join('&')}`;
+}
+
+/**
+ * Read the relay's own view of the runs a follow-up can ride, on its own clock.
+ *
+ * The relay cannot select from the operator's runs list: that list is a paged,
+ * filtered view the operator controls, so a page position would decide what
+ * gets delivered and any navigation would strand the work on a page nobody is
+ * looking at. This read is the relay's own — `state=dispatched` filtered,
+ * newest first, walked to the end of the set through the route's own cursor.
+ *
+ * Two properties it holds deliberately:
+ *
+ * - **A refused or unreadable page keeps the last good view.** A stale row can
+ *   only make a delivery *late* — the durable record is what makes one
+ *   *duplicate* — while a partial walk published as complete would hide the
+ *   follow-ups on the pages it never reached.
+ * - **The walk is bounded** ({@link FOLLOW_UP_PAGE_GUARD}) so a non-conforming
+ *   `hasMore` cannot spin the tick.
+ *
+ * @param rt - Panel runtime whose relay state the view is read into.
+ */
+export async function readFollowUpRows(rt: PanelRuntime): Promise<void> {
+    const rows: RunRow[] = [];
+    let cursor: string | null = null;
+    for (let page = 0; page < FOLLOW_UP_PAGE_GUARD; page += 1) {
+        const fetched = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: followUpRowsPath(cursor) });
+        if (!fetched.ok || !stillRunning(rt)) {
+            rt.state.relay.lastError = 'the relay could not read the runs a follow-up could ride; the last good view'
+                + ' was kept';
+
+            return;
+        }
+
+        const answer = parseDispatchListBody(fetched.body);
+        if (answer === null) {
+            // Fail closed on the *read*: a page this build cannot parse is not
+            // acted on, and the previous view stands rather than a half-read one.
+            rt.state.relay.lastError = 'the service answered a runs page the panel could not read; the last good view'
+                + ' was kept';
+
+            return;
+        }
+
+        rows.push(...answer.rows);
+        if (!answer.page.hasMore || answer.page.nextCursor === null) {
+            break;
+        }
+
+        cursor = answer.page.nextCursor;
+    }
+
+    rt.state.relay.followUpRows = rows;
+    rt.state.relay.lastError = '';
+}
+
 /**
  * Compose the bounded, delimited message one follow-up delivers.
  *
- * The frame is the dispatch's own machinery with a follow-up's facts: the same
- * untrusted-source preamble, the same `BEGIN_UNTRUSTED` / `END_UNTRUSTED` block,
- * the same running budget. What differs is the *frame's* prose, which says the
- * session is continuing work it already started rather than starting it.
+ * The frame builder is the dispatch's — the same untrusted-source markers, the
+ * same running budget, the same single implementation of both — with a
+ * **follow-up's own header**: a follow-up preamble, the run's correlation id,
+ * the movement that arrived, and the rule line that says this is the same work
+ * item the session was started for. The dispatch's header is deliberately not
+ * reused: it names a machine account and the *configured-match* rule for "open
+ * issue assigned to the authenticated machine account", which is what started
+ * the session, not what a later comment or push is. A follow-up that claimed
+ * otherwise would tell the agent it had been dispatched anew from an
+ * assignment, and would put a false policy statement in text it reads.
  *
  * @returns The message, exactly as the host would receive it.
  */
@@ -268,6 +385,17 @@ export function followUpMessage(input: {
     const from = fromHeadSha ?? 'an unrecorded head';
     const to = headSha ?? 'an unrecorded head';
     const movement = kind === 'head' ? `Head moved from ${from} to ${to}` : 'New comment';
+    const header = [
+        'Mecha Turk follow-up (automated — continuing a work item Mecha Turk already started).',
+        `Correlation: ${row.correlationId}`,
+        `Repository: ${row.repository}`,
+        `Issue #${row.issueNumber}: ${defuseDelimiters(row.issueTitle)}`,
+        `URL: ${defuseDelimiters(sourceUrl)}`,
+        `Session: ${row.session?.sessionId ?? 'unknown'}`,
+        `Movement: ${movement}`,
+        `Observed by: ${actorLogin} at ${detectedAt}`,
+        'Rule: this is the same work item the session was started for; reply inside this session.',
+    ];
     const sources: readonly ContextSource[] = [{
         origin: kind === 'head' ? 'review' : 'comment',
         kind: row.kind,
@@ -275,19 +403,13 @@ export function followUpMessage(input: {
         url: sourceUrl,
         excerpt,
     }];
-    const frame = [
-        'Mecha Turk follow-up (automated — continuing a work item Mecha Turk already started).',
-        `Correlation: ${row.correlationId}`,
-        `Repository: ${row.repository}`,
-        `Issue #${row.issueNumber}: ${row.issueTitle}`,
-        `URL: ${sourceUrl}`,
-        `Session: ${row.session?.sessionId ?? 'unknown'}`,
-        `Movement: ${movement}`,
-        `Observed by: ${actorLogin} at ${detectedAt}`,
-        'Rule: this is the same work item the session was started for; reply inside this session.',
-    ].join('\n');
-    const body = buildBoundedContext({
-        repository: row.repository,
+
+    // The follow-up frame is the context's own header, so the excerpt is what
+    // shortens when the two together would exceed the bound — and the whole
+    // composition is still measured against the budget floor before any host
+    // call. Nothing above the header is reserved: there is no second frame.
+    return renderBoundedContext({
+        header,
         issue: {
             issueNumber: row.issueNumber,
             title: row.issueTitle,
@@ -297,19 +419,8 @@ export function followUpMessage(input: {
             assignees: [],
             isPullRequest: row.kind === 'review',
         },
-        // The run's own identity, never a credential: the frame already carries
-        // the correlation id, and nothing here needs a GitHub login.
-        authenticatedLogin: row.attachmentId,
-        correlationId: row.correlationId,
         sources,
-        // The follow-up frame is reserved first, exactly as the operator's prompt
-        // block is, so the excerpt is what shortens when the two together would
-        // exceed the bound — and the whole composition is still measured against
-        // the budget floor before any host call.
-        reservedChars: frame.length + 1,
     });
-
-    return `${frame}\n${body}`;
 }
 
 /**
@@ -432,23 +543,59 @@ export async function deliverFollowUp(input: {
     readonly policy: FollowUpRetryPolicy;
 }): Promise<FollowUpAttempt> {
     const { rt, row, followUp, attempt, policy } = input;
+    const sessionId = row.session?.sessionId ?? null;
+    /**
+     * Persist one settled outcome and write its trail row.
+     *
+     * Every arm goes through here — including the two that return before any
+     * host call — because a durable record that never learns of an attempt
+     * reports the delivery as never tried: the relay then re-offers it on
+     * every tick forever, the ladder never advances, and nothing ever parks
+     * (FR-105's unbounded retry, which is exactly what the bound exists to
+     * forbid).
+     */
+    const settle = async (outcome: FollowUpAttempt): Promise<FollowUpAttempt> => {
+        await recordFollowUpDelivery(rt, {
+            deliveryId: followUp.deliveryId,
+            correlationId: row.correlationId,
+            sessionId,
+            attempt: outcome.attempt,
+            nextAttemptAtMs: outcome.nextAttemptAtMs,
+            delivered: outcome.delivered,
+            reason: outcome.reason,
+            parked: outcome.parked,
+            updatedAt: nowIso(),
+        });
+        recordAttempt({ rt, row, followUp, attempt: outcome });
+
+        return outcome;
+    };
     const finish = (result: {
-        readonly reason: FollowUpFailure | null;
+        readonly reason: FollowUpFailure;
         readonly parked: boolean;
         readonly nextAttemptAtMs: number | null;
-    }): FollowUpAttempt => ({ deliveryId: followUp.deliveryId, attempt, delivered: false, ...result });
-    const sessionId = row.session?.sessionId ?? null;
+    }): Promise<FollowUpAttempt> =>
+        settle({ deliveryId: followUp.deliveryId, attempt, delivered: false, ...result });
 
     // No recorded session means nothing to deliver into: the row is not a
-    // follow-up's target, and a delivery must never start one.
+    // follow-up's target, and a delivery must never start one. `NO_SESSION` is
+    // one of FR-105's retryable refusals, so it runs the ladder like the
+    // others — and now records each attempt like the others do.
     if (sessionId === null || sessionId === '') {
-        return finish({ reason: 'no-session', parked: false, nextAttemptAtMs: null });
+        return await finish({ reason: 'no-session', ...retryAfter({ attempt, policy }) });
     }
 
     const message = followUpMessage({ row, followUp });
     const overBudget = budgetFloorProblem({ composed: message, sources: row.promptSources });
     if (overBudget !== null) {
-        return finish({ reason: 'over-budget', ...retryAfter({ attempt, policy }) });
+        // Measured before any host call, as FR-104 requires. The shared
+        // renderer bounds the whole composition — the follow-up's frame is the
+        // context's own header now, not a second frame stacked on top of one —
+        // so this arm is a guard against a composition path that ever stops
+        // sharing that budget rather than an expected outcome. It still runs
+        // the ladder and still records, because a guard that cannot park is
+        // not a guard.
+        return await finish({ reason: 'over-budget', ...retryAfter({ attempt, policy }) });
     }
 
     // The current session is a fact the panel already holds from the host's own
@@ -458,32 +605,18 @@ export async function deliverFollowUp(input: {
         ? null
         : await navigateToSession({ rt, row, followUp, sessionId, attempt });
     if (refused !== null) {
-        return finish({ reason: refused, ...retryAfter({ attempt, policy }) });
+        return await finish({ reason: refused, ...retryAfter({ attempt, policy }) });
     }
 
     const verdict = await sendPrompt(rt, message);
-    const outcome: FollowUpAttempt = {
+
+    return await settle({
         deliveryId: followUp.deliveryId,
         attempt,
         delivered: verdict.wasSent,
         reason: verdict.reason,
         ...(verdict.wasSent ? { parked: false, nextAttemptAtMs: null } : retryAfter({ attempt, policy })),
-    };
-
-    await recordFollowUpDelivery(rt, {
-        deliveryId: followUp.deliveryId,
-        correlationId: row.correlationId,
-        sessionId,
-        attempt: outcome.attempt,
-        nextAttemptAtMs: outcome.nextAttemptAtMs,
-        delivered: outcome.delivered,
-        reason: outcome.reason,
-        parked: outcome.parked,
-        updatedAt: nowIso(),
     });
-    recordAttempt({ rt, row, followUp, attempt: outcome });
-
-    return outcome;
 }
 
 /**

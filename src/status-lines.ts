@@ -448,6 +448,28 @@ export function agentPinLines(view: StatusView): readonly string[] {
 }
 
 /**
+ * The follow-up queue's one line (002 FR-036, as amended at v1.16.0).
+ *
+ * **A queue, never as delivered work**: the count is of follow-ups that have
+ * *not* reached their session, so a surface can never claim an empty queue
+ * while a prompt is still owed. `null` is the honest pre-count — a mount that
+ * has not run a relay tick yet has measured nothing, and a zero it has not
+ * measured is exactly the claim the amendment forbids.
+ *
+ * @param waiting - The count the relay last computed, or `null` before it ran.
+ * @returns The line.
+ */
+export function followUpQueueLine(waiting: number | null): string {
+    if (waiting === null) {
+        return 'Not counted yet this session — the relay counts on its first tick.';
+    }
+
+    return waiting === 0
+        ? 'Waiting to be delivered: none.'
+        : `Waiting to be delivered: ${waiting}.`;
+}
+
+/**
  * The tab's own read state, in FR-019's three shapes.
  *
  * A failure keeps the document it already holds and says so with the word
