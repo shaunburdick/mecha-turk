@@ -463,20 +463,28 @@ export function followUpMessage(input: {
     const { fromHeadSha, headSha, kind, excerpt, sourceUrl, actorLogin, detectedAt } = followUp;
     // The frame rides **above** the untrusted block, so a forged delimiter in any
     // scalar interpolated into it rebinds the region the block's own delimiters
-    // claim to bound. The actor login and the from/to head pair are therefore
-    // defused exactly like the title and URL beside them.
+    // claim to bound. Every service-projected scalar this frame quotes is
+    // therefore defused — the issue title and URL beside them, the actor login,
+    // the from/to head pair, the movement's stamp, the run's correlation id and
+    // repository, and the session id — because a forged marker in any one of them
+    // is the same hole with a different field name. The reach of the store's own
+    // constraints is not the boundary being defended here; the frame is.
     const from = defuseDelimiters(fromHeadSha ?? 'an unrecorded head');
     const to = defuseDelimiters(headSha ?? 'an unrecorded head');
     const movement = kind === 'head' ? `Head moved from ${from} to ${to}` : 'New comment';
+    const observedAt = defuseDelimiters(detectedAt);
+    const correlationId = defuseDelimiters(row.correlationId);
+    const repository = defuseDelimiters(row.repository);
+    const sessionId = defuseDelimiters(row.session?.sessionId ?? 'unknown');
     const header = [
         'Mecha Turk follow-up (automated — continuing a work item Mecha Turk already started).',
-        `Correlation: ${row.correlationId}`,
-        `Repository: ${row.repository}`,
+        `Correlation: ${correlationId}`,
+        `Repository: ${repository}`,
         `Issue #${row.issueNumber}: ${defuseDelimiters(row.issueTitle)}`,
         `URL: ${defuseDelimiters(sourceUrl)}`,
-        `Session: ${row.session?.sessionId ?? 'unknown'}`,
+        `Session: ${sessionId}`,
         `Movement: ${movement}`,
-        `Observed by: ${defuseDelimiters(actorLogin)} at ${detectedAt}`,
+        `Observed by: ${defuseDelimiters(actorLogin)} at ${observedAt}`,
         'Rule: this is the same work item the session was started for; reply inside this session.',
     ];
     const sources: readonly ContextSource[] = [{
