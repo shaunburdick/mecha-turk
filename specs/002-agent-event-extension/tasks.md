@@ -777,7 +777,7 @@ the route that would write one. No `spec.md` edit by this phase. No
 1. **The follow-up's read is decided, not open.** It is **one additive member on the runs-history read**
    the panel already performs (`GET /v1/events` → `RunHistoryRow.followUps`, mirrored in the panel's
    `RunRow`), because that read already carries `RunHistoryRow.session` and the panel already polls it
-   (`src/dispatches.ts:51`). The alternatives were verified and rejected: `/v1/deliveries` has **zero
+   (`src/dispatches.ts:53`). The alternatives were verified and rejected: `/v1/deliveries` has **zero
    callers** in `src/` or `tests/`, so adopting it means a new panel reader, DTO, parser and poll; and
    the claim route is *correctly* barred (`claim.ts:234` refuses a session-carrying run, which is what
    stops the second disjoint session) so it is not a candidate at all. **F-5 must not add a route and
