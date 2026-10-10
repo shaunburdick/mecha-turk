@@ -1020,3 +1020,174 @@ shapes were verified against the code rather than argued. No principle is weaken
 **Deliberately unchanged.** The eight-requirement count, FR-016 / FR-026 / FR-027, `specs/003-dispatch-integrity/`,
 the `FollowUpFailure` and `TerminalFact` vocabularies, every event id, the evidence schema, and the
 version number.
+
+#### Addendum 2026-10-10 (third) — the re-offer delivered, and the `panel-closed` cause removed
+
+**What this is.** A third addendum to the same `### v1.16.0` entry, recording one delivery
+(`ce93e5c`) and the conformance work it forced. **The version stays `1.16.0`, section K stays at
+eight requirements, and `FR-016`, `FR-026` and `FR-027` are byte-identical to `HEAD`** — verified
+with `git diff`. `specs/003-dispatch-integrity/` is untouched, and no requirement, route, store,
+state name, storage key, configuration field, capability, or manifest change is specified here.
+Nothing above this line is rewritten; this is additive to the entry because the entry is the
+record of what v1.16.0 is.
+
+**The re-offer is delivered.** FR-105 promised a parked follow-up returns to waiting only through
+an **operator-initiated** re-offer under duplicate protection, and until `ce93e5c` nothing cleared
+the park: the `parked` flag had no writer, so a follow-up that spent its ladder was visible with
+its cause and unrecoverable — constitution III's silent loss of agent work. The control is the
+Dispatches tab's own idiom: one control in the selected block, two clicks apart, gated by what
+the panel's **own record** says about the row's follow-ups rather than by the row's state, writing
+only `mecha-turk:dispatches`. It clears `parked`, `reason` and the next-attempt stamp **and
+nothing else** — `delivered` and `attempt` are the at-most-once evidence (NFR-002), so a follow-up
+that already reached its session is never re-offered and the ladder the park had just exhausted
+is not re-spent. A follow-up nobody attempted is not offered one either: it is already due and the
+relay's own tick owes it. Both absences are named in the panel's own refusal rather than refused
+silently. It is local — no route, no service request, no run state (FR-107).
+
+**The relay's walk moved with it.** Its window opening was the newest *delivered* id, which a
+follow-up delivered after this one parked would sit past — so on a busy subject the re-offer would
+have been a silent no-op. The opening now stops at an **owed** record (one neither delivered nor
+parked) and the re-offer appends the record behind the delivered sibling, which is what makes
+reading from the start — the read's own pre-parameter answer — the direction that costs a denser
+page rather than the one that strands work.
+
+**The `panel-closed` cause is gone, and removal is the correction.** The kind had **no producer
+anywhere**: the code's own audit found a failure word the union carried and nothing ever wrote.
+It was not given one, because a closed panel is **not a failure at all** — a mount that goes away
+mid-attempt fails the in-flight call like any other host refusal, and a mount that goes away
+between attempts leaves the record **due**, because the durable record carries the attempt count
+and the next-attempt stamp. The remount therefore **resumes the ladder** (User Story 7's third
+scenario), which the new suite proves with a partially-attempted record in both directions:
+delivered on the resumed attempt, and — when the resumed attempt fails — one further recorded
+attempt with the cause the host actually answered, no park invented for a mount nobody can see. A
+"panel closed" park would be the one failure this panel could never recover from. The member is
+gone from the union, the validator set, and the operator-facing cause map, and a stored document
+naming it is **refused rather than half-applied** (invariant 8). **This supersedes the second
+addendum's `Deliberately unchanged` line**, which listed the `FollowUpFailure` vocabulary: it was
+unchanged as of that addendum and did not survive this pass. That sentence stands above as the
+record of what was true when it was written; `TerminalFact` and every event id are still
+untouched.
+
+**One other cause in FR-105's list had no producer of its own, and is named rather than dropped
+silently**: a **paused extension** (the host's `DISABLED` refusal) is not a parking cause in its
+own right — it parks as `host-unavailable`, because "the host refused or timed out the prompt" is
+the cause an operator can act on. Every other member of the list has a writer:
+`session-busy` (`SESSION_BUSY` and a `skipped` prompt answer), `no-session` (a row carrying no
+session), `navigation-refused` (a refused `openSession`), `host-unavailable` (a rejected or timed
+out prompt, a transport failure, and `DISABLED`), and `over-budget` (the measured-before-the-call
+guard).
+
+**Specification conformed in place — clause only.**
+
+| Document | The amendment |
+| --- | --- |
+| **FR-105** | The cause list drops "a paused extension" as a distinct entry and the requirement now states what a **closed panel** is: not a failure, the follow-up stays **due**, and the remount **resumes the ladder**. Everything else stands — bounded retry under the declared ladder, no unbounded wait, park with the exact cause named, visible on the run row and in the trail, excluded from automatic handling, returning to waiting only through an operator-initiated re-offer under duplicate protection, no new state name |
+| **AC-051** | Extended for the re-offer, now delivered and testable: a re-offered follow-up is delivered **exactly once** on a later relay tick, into the run's own session; a **delivered** follow-up cannot be re-offered; a never-attempted one is not offered a re-offer affordance because it is already due; the re-offer writes the panel's own record and nothing else |
+| **`tasks.md` `F-6`** | Corrected. It recorded the re-offer clause as **delivered 2026-10-09**; the park's exclusion half was, but its return half was not — the `parked` flag had no writer to clear it until `ce93e5c` (2026-10-10). The task's other claims were checked against the delivered code and stand |
+| **`site/src/pages/use.astro`** | The parked paragraph's last sentence over-claimed: "the next relay poll delivers it once more" reads as a guaranteed send. The re-offer buys **one more attempt**, and because the attempt history stands a second failure parks it again at once. The paragraph is now accurate in both directions, and it keeps `CEILING.words` untouched |
+
+**Two figures moved with the delivery, and both live in root test files this phase did not edit.**
+The site's reported prose-line figure moved **512 → 517** in `tests/prose-budget.test.ts`'s
+`PINNED_LINES`: the parked paragraph went from 4 to 9 prose lines with the re-offer sentence, and
+the delta is exactly the five. **`CEILING.words` is untouched** at `5,770` — the spend (the README
+plus the five site pages) now measures **5,765 words, five under**, so no enforced bound moved and
+AC-016 is still met, though with a thin margin rather than a generous one. This phase's own
+sentence fix was written to hold the line count at 517 and was re-measured afterwards: both suites
+were run green on the delivered tree, and neither file was edited. The button-mount census moved
+**31 → 32** in `tests/project-picker.test.ts`'s `BUTTON_MOUNT_SITES` — `src/dispatches-ui.ts` gains
+an eighth, the re-offer control — verified against the tree
+(2 + 3 + 1 + 2 + 5 + 5 + 8 + 5 + 1 = 32) with that suite green too.
+
+**Constitution alignment.** **III** holds and this addendum is its evidence: a park nothing could
+clear was unrecoverable work, and the fix restores it without a new store member that could
+diversify the record. **VII** holds: no host surface moves, the panel is still the only party that
+calls the host, and a busy session remains a bounded retry rather than a wait. **I** holds: the
+re-offer is a local write to a key the panel already owns — no route, no request, no read.
+No principle is weakened.
+
+**Deliberately unchanged.** The eight-requirement count, FR-016 / FR-026 / FR-027,
+`specs/003-dispatch-integrity/`, the `TerminalFact` vocabulary, every event id, the evidence
+schema, and the version number. **One vocabulary moved, against the second addendum's note**: the
+`FollowUpFailure` union lost `panel-closed`.
+
+#### Addendum 2026-10-10 (fourth) — two silent losses of agent work closed in the follow-up's own record (`9cafed7`)
+
+**What this is.** A fourth addendum to the same `### v1.16.0` entry, recording one fix commit
+(`9cafed7`) that a scoped review of `ce93e5c` surfaced and that ships **no** new behaviour beyond
+what section K already specifies. **The version stays `1.16.0`, section K stays at eight
+requirements, and `FR-016`, `FR-026` and `FR-027` are byte-identical to `HEAD`** — verified with
+`git diff`. `specs/003-dispatch-integrity/` is untouched, and no requirement, route, store, state
+name, storage key, configuration field, capability, or manifest change is specified here. Nothing
+above this line is rewritten; this is additive to the entry because the entry is the record of what
+v1.16.0 is. **This supersedes nothing in the earlier addenda** — neither fix touches a vocabulary,
+id, schema, or clause that any earlier addendum marked `Deliberately unchanged`. What `9cafed7`
+does is make two guarantees section K already promised true of the shipped code rather than merely
+intended by it: FR-104's walking window, and FR-105's duplicate-protected re-offer.
+
+**B1 — the follow-up window opens at the owed record, and the read's start was never a safe
+fallback for this read.** FR-104's window walks by opening the read at a delivery id the panel's own
+record names, and `followUpWindowOpening` (`src/follow-up.ts:342`) is where that id is chosen. On
+meeting a record the relay still owes a session — one **neither delivered nor parked**, mid-ladder in
+its backoff or returned to due by a re-offer — it used to **reset the opening to the read's start**
+(`newest = null`). Omitting the parameter is the safe direction for a read whose earliest answer
+over-projects, but it is **not** safe here: the route projects a run's **oldest twenty** follow-up
+rows in detection order, delivered or not (`MAX_PROJECTED_FOLLOW_UPS`, `service/poll/run-history-project.ts:149`),
+and it cannot page inside one run's follow-up list, so the start reaches only what the first twenty
+rows cover. An owed record whose **detection** position is 21 or later is therefore projected by
+nobody — it no longer retried and never parked, and the row named it as waiting forever. The
+re-offer's own case is the same one, because turning a parked record owed is exactly what reset the
+opening: the operator cleared the park and got a wait that never resolved. The opening is now the
+owed record's **own** id, which `windowStartOf` (`run-history-project.ts:549`) resolves inside the
+run's own list whatever its position (`found === -1 ? 0 : found`, so an unmatched or foreign id falls
+to the start as before), keeping it in range; a document with no owed record answers exactly as it
+did (the newest delivered id), and the append that puts a re-offered record behind its delivered
+sibling — introduced with the re-offer — stands.
+
+**I1 — the record's four writers now take turns on one chain.** Every writer of
+`mecha-turk:dispatches` was `load → transform → persist` with nothing serializing it, and the section
+spans two awaits. Reading `relay.inFlight` / `relay.dispatching` before the first await makes the
+*start* of that section safe, not the whole of it: a relay tick that lands inside a re-offer's section
+writes its own document, and the re-offer then overwrites it with one derived from its earlier read.
+The write lost that way is the tick's `delivered: true`, and a delivery the record forgets is one the
+next tick sends again — the second prompt NFR-002 and constitution III exist to prevent. The four
+writers (`recordDispatchOutcome`, `acknowledgeDispatch`, `recordFollowUpDelivery`,
+`reofferFollowUpDelivery`) now all route through one `updateDispatchRecord`
+(`src/dispatch-record.ts`) that takes turns on a single write chain (`recordChain` / `inRecordChain`)
+— the shape the service's own `inQueueChain` already uses — so each transform runs against the
+document the previous writer left behind. Reads stay **outside** the chain: `host.storage` answers
+each call whole, and the stale answer is the safe direction, projecting more of a run's movements
+rather than fewer. The re-offer's stamp is taken **inside** the chain, so it is the stamp of the write
+rather than of the click that queued it.
+
+**What proved it.** Both fixes are held by cases constructed against the real code, and six
+assertions fail without them: the composition of the real store, 25 real head follow-ups
+(`BOUND_HEAD_FOLLOW_UPS`), real `projectRunHistory` and the real walk
+(`tests/follow-up-lifecycle.test.ts:2849`), which shows the read-from-start window projecting 20
+all-delivered rows while the opening both equals the owed id and projects exactly it; an owed
+follow-up delivered past the bound on the next tick (`tests/follow-up-reoffer.test.ts:875`) and one
+delivered past the bound after a re-offer (`:914`); and a re-offer landing inside a relay tick whose
+`delivered: true` write it must not unpick, with no second prompt on the tick after (`:771`).
+`npm run verify` is green (1647 tests across 115 files). The panel's re-offer copy now states the
+ladder is not refreshed and a second failure parks again at once — matching the site's wording, which
+therefore needs **no** edit this pass.
+
+**Specification conformed in place — clause only.**
+
+| Document | The amendment |
+| --- | --- |
+| **`research.md` §R14.6** | The walk's window-opening semantics recorded where the read is already described: the opening is the **owed record's own id** when a record is owed and the **newest delivered id** otherwise, with `file:line` for `followUpWindowOpening`, `windowStartOf` and `MAX_PROJECTED_FOLLOW_UPS`, and the reason the start is not a fallback (the bound counts rows, not positions) |
+| **`research.md` §R14.10** | Two stale `src/dispatch-record.ts` citations re-stamped against the delivered tree: `FollowUpDeliveryRecord` `:138-157` → `:144-172`, and the `FollowUpFailure` closed union `:123-135` → `:131-141`. The union's new location is `ce93e5c`'s (from the `panel-closed` removal); `9cafed7` did not move either |
+| **`tasks.md` `F-11`** | Corrected. The opening is not only "past the newest id it has delivered" — it opens **at** an owed record's own id (`9cafed7`, B1), so the read's oldest-twenty bound cannot place one past position 20. The three-unavailable-shapes and the wire-contract clauses stand |
+| **`tasks.md` `F-6`** | The re-offer's "under duplicate protection" now names its concurrent-safety half (`9cafed7`, I1): the record's four writers serialize on one chain, so a re-offer landing inside a relay tick cannot overwrite the tick's `delivered: true`. The `ce93e5c` note stands |
+
+**Constitution alignment.** **III** holds and this addendum is its sharpest evidence — two shapes of
+work that never reached its session, an owed follow-up stranded behind the bound and a delivery a
+concurrent re-offer overwrote, both closed against the record the panel already owns with no new
+store member. **VII** holds: no host surface moves. **I** holds: the serialization is a local write
+order on a key the panel already owns — no route, no request, no read. No principle is weakened.
+
+**Deliberately unchanged.** The eight-requirement count, FR-016 / FR-026 / FR-027,
+`specs/003-dispatch-integrity/`, the evidence schema, every event id, and the version number.
+**The `FollowUpFailure` vocabulary is unchanged by `9cafed7`** — its `panel-closed` removal was
+`ce93e5c`'s, recorded in the third addendum above, and neither B1 nor I1 adds, removes, or renames a
+reason word. No earlier addendum's `Deliberately unchanged` line is reopened.
