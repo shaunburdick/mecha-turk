@@ -13,6 +13,10 @@
  * so a state the panel can display but this page cannot describe fails the
  * build rather than shipping an empty cell.
  *
+ * The tracking lifecycle (002's section K, GitHub issue #13) lives here too, under
+ * *What happens after a dispatch*: it is a property of a dispatched unit of work, so
+ * the page that owns the dispatch owns it.
+ *
  * `.astro` rather than `.md` for the reason `install.astro` sets out: a markdown
  * page cannot render the generated table.
  */
@@ -95,6 +99,68 @@ const stateMeaning: Readonly<Record<string, string>> = {
         A dispatch that made <em>no</em> session is a different matter, and keeps its <strong>Retry dispatch</strong> control.
         A retry returns the same dispatch to waiting under the
         same key with the attempt counted up — the same unit of work, retried, rather than a new one.
+    </p>
+
+    <h2>What happens after a dispatch: following up</h2>
+
+    <p>
+        Once a work item has been dispatched, Mecha Turk keeps watching it. A comment left on the issue,
+        or a new push to the pull request, is delivered as a <strong>follow-up</strong>: a prompt into the
+        session the dispatch already opened. It is not a new dispatch, it opens no second session, and it
+        starts no second agent on work that already has one.
+    </p>
+
+    <p>
+        Delivering a follow-up moves your view: the panel asks the host to open the session the work is
+        already in, and records why it is moving you before it does. A follow-up is judged exactly as the
+        dispatch that started the session was — autonomously by default, with no approval step of its own.
+    </p>
+
+    <h3>What ends it, and what does not</h3>
+
+    <p>
+        Tracking ends when the item itself reaches its terminal state on GitHub: an <strong>issue
+        closed</strong>, a pull request <strong>merged</strong>, or one <strong>closed unmerged</strong>.
+        That is the end, and nothing else is. A session finishing does not end tracking — the item is
+        still open, and the next comment on it is still a follow-up.
+    </p>
+
+    <p>
+        The end is recorded as an audit row against the dispatch, naming the terminal fact and, where
+        GitHub reports one, the date — so <em>when did this work item conclude?</em> is answerable
+        from <strong>Audit history</strong>.
+    </p>
+
+    <h3>Waiting, and parked</h3>
+
+    <p>
+        The <strong>Status</strong> tab carries a <strong>Follow-ups</strong> block, and it reports how
+        many follow-ups are <em>waiting to be delivered</em> — a queue, never delivered work. Before the
+        panel’s first relay tick has counted anything it reads <em>Not counted yet this session</em>,
+        rather than a zero nobody measured.
+    </p>
+
+    <p>
+        Each dispatch row carries the same three facts about its own follow-ups: how many reached the
+        session, how many are still waiting, and every parked one with its cause — <code>follow-ups: 2
+        delivered · 1 waiting · parked: the session was mid-turn</code>. A row with no follow-up state
+        carries no such line.
+    </p>
+
+    <p>
+        A <strong>parked</strong> follow-up kept failing — the session was mid-turn, no session was
+        open, the host refused — and has spent the bounded retry ladder the service declares. It is
+        excluded from automatic handling: no later tick attempts it, and the panel carries no control
+        that re-offers one, so it stays parked. Its cause is what the row and the trail keep.
+    </p>
+
+    <h3>What this did not add</h3>
+
+    <p>
+        Nothing new was installed for any of this: no new manifest capability, no new permission at the
+        approval dialog, no new GitHub token scope, and no new setting. Follow-up delivery uses the
+        already-declared <code>prompt</code> capability, and detecting one adds no request — it rides
+        the same feeds the scan already reads.
     </p>
 
     <h2>What each state means, and what moves it</h2>
