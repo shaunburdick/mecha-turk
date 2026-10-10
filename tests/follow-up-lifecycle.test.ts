@@ -39,6 +39,9 @@ import {
 } from '../service/poll/events.ts';
 import { followUpKindOf } from '../service/poll/events-parse.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
+import type { BindingScan } from '../service/poll/loop.ts';
+import { createGitHubIssuePoller } from '../service/poll/poller-github.ts';
+import { readIssueObject, readPullObject } from '../service/poll/poller-entries.ts';
 import { projectRunHistory } from '../service/poll/run-history-project.ts';
 import { readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
 import { buildEventId } from '../service/poll/events-write.ts';
@@ -46,7 +49,14 @@ import type { Account } from '../service/accounts/model.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { BindingRecord, BindingTriggers } from '../service/bindings.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
-import type { GitHubIssuePoller, PollComment, PollIssue, PollPull } from '../service/poll/poller-github.ts';
+import type {
+    GitHubIssuePoller,
+    IssueStateOutcome,
+    PollComment,
+    PollIssue,
+    PollPull,
+    PullStateOutcome,
+} from '../service/poll/poller-github.ts';
 import type { Run } from '../service/poll/runs-types.ts';
 import type { RunHistoryRow } from '../service/poll/run-history-project.ts';
 import type { ServiceLogger } from '../service/log.ts';
@@ -262,15 +272,30 @@ interface RecordedPoller {
 /**
  * Build one poller that answers with fixed feeds and records what was asked.
  *
- * The recorded call names are the zero-added-request proof: the two follow-up
- * detectors ride the same feeds the mention and review triggers already read, so
- * a cycle that detects both still asks for exactly those feeds and no others
- * (FR-102, AC-049).
+ * The recorded call names are the request log the request-budget proof reads:
+ * the two follow-up detectors ride the same feeds the mention and review
+ * triggers already read, so a cycle adds nothing for **detection** — and the one
+ * read FR-106 adds (`readIssueState` / `readPullState`) is recorded beside them
+ * as `issueState:<n>` / `pullState:<n>`, so its per-subject-per-cycle bound is
+ * measured rather than argued (FR-102, AC-049). `listIssueEvents` still throws:
+ * the per-item **actor** read has nothing to do with a follow-up, and its ever
+ * being reached here would mean detection stopped being zero-added-request.
+ *
+ * `issueState` / `pullState` answer the terminal read. Their default is **open**,
+ * which is the ordinary case — a detected follow-up on a live item — so a test
+ * that is not about the end of tracking issues the read and keeps its follow-up
+ * exactly as it did before the read existed. A test about the end overrides the
+ * answer to `closed` / `merged` / `closed-unmerged`, to a failure, or leaves it
+ * open.
  */
 function recordingPoller(feeds: {
     readonly issues?: readonly PollIssue[];
     readonly comments?: readonly PollComment[];
     readonly pulls?: readonly PollPull[];
+    /** The answer `readIssueState(n)` gives; the default is an open issue. */
+    readonly issueState?: (itemNumber: number) => IssueStateOutcome;
+    /** The answer `readPullState(n)` gives; the default is an open pull. */
+    readonly pullState?: (itemNumber: number) => PullStateOutcome;
 }): RecordedPoller {
     const calls: string[] = [];
 
@@ -296,6 +321,20 @@ function recordingPoller(feeds: {
                 calls.push(`events:${query.issueNumber}`);
 
                 throw new Error('the follow-up detectors must never read a per-item event list');
+            },
+            readIssueState: async (query): Promise<IssueStateOutcome> => {
+                calls.push(`issueState:${query.itemNumber}`);
+
+                return feeds.issueState === undefined
+                    ? { kind: 'ok', issue: fixtureIssue({ issueNumber: query.itemNumber }) }
+                    : feeds.issueState(query.itemNumber);
+            },
+            readPullState: async (query): Promise<PullStateOutcome> => {
+                calls.push(`pullState:${query.itemNumber}`);
+
+                return feeds.pullState === undefined
+                    ? { kind: 'ok', pull: fixturePull({ pullNumber: query.itemNumber }) }
+                    : feeds.pullState(query.itemNumber);
             },
         },
     };
@@ -425,6 +464,75 @@ async function runCycle(
     expect(cycle.bindings).toHaveLength(1);
 
     return await readEvents({ store, log });
+}
+
+/**
+ * Run one scan cycle and answer its per-binding outcome, skip reason included.
+ *
+ * The fail-closed posture of FR-106's terminal read is a **scan failure** — the
+ * binding's cycle reports the class and retains its checkpoint — so a test that
+ * proves it has to read the {@link BindingScan} rather than only the queue.
+ *
+ * @returns The one binding's scan outcome.
+ */
+async function driveCycle(
+    binding: BindingRecord,
+    recorded: RecordedPoller,
+): Promise<BindingScan> {
+    await writeBindings({ store, bindings: [binding] });
+    await writeAccount(store, fixtureAccount());
+
+    const cycle = await runScanCycle({ store, log, poller: recorded.poller });
+    expect(cycle.bindings).toHaveLength(1);
+    const scan = cycle.bindings[0];
+    if (scan === undefined) {
+        throw new Error('the cycle scanned no binding');
+    }
+
+    return scan;
+}
+
+/**
+ * GitHub's own item-number field name, carried once under a computed key.
+ *
+ * The single-item readers and the real poller parse GitHub's raw object, whose
+ * number field is literally `number` — a word `id-denylist` refuses to spell as
+ * an identifier — so the raw fixtures build it through this constant rather
+ * than a denylisted key.
+ */
+const ITEM_NUMBER_FIELD = 'number';
+
+/** A JSON GitHub issue body, with {@link ITEM_NUMBER_FIELD} and the overrides applied. */
+function issueJson(fields: Readonly<Record<string, unknown>> = {}): string {
+    return JSON.stringify({
+        [ITEM_NUMBER_FIELD]: 7, title: 't', html_url: ISSUE_URL, state: 'open', assignees: [], ...fields,
+    });
+}
+
+/** A JSON GitHub pull-request body, with {@link ITEM_NUMBER_FIELD} and the overrides applied. */
+function pullJson(fields: Readonly<Record<string, unknown>> = {}): string {
+    return JSON.stringify({
+        [ITEM_NUMBER_FIELD]: 7, title: 't', html_url: PULL_URL, state: 'open', requested_reviewers: [], ...fields,
+    });
+}
+
+/** A real `createGitHubIssuePoller` over a fake `fetch`, plus the URLs it was handed. */
+function terminalPoller(
+    respond: () => Response,
+): { readonly poller: GitHubIssuePoller; readonly urls: readonly string[] } {
+    const urls: string[] = [];
+
+    return {
+        urls,
+        poller: createGitHubIssuePoller(
+            { log, sleep: async () => void 0, random: () => 0 },
+            (url) => {
+                urls.push(url);
+
+                return Promise.resolve(respond());
+            },
+        ),
+    };
 }
 
 /** The follow-up rows inside one queue read, in queue order. */
@@ -789,9 +897,10 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
             const followUps = followUpRowsOf(await runCycle(fixtureBinding(MENTION_ONLY), recorded));
 
             // The comment feed and the issue list the mention trigger already
-            // pays for — and nothing else: no per-item comments read, no
-            // repository-wide read of a follow-up surface.
-            expect(recorded.calls).toEqual(['issues', 'comments']);
+            // pays for, plus FR-106's one terminal read for the subject the
+            // follow-up named — nothing else: no per-item comments read, no
+            // repository-wide read of a follow-up surface, no actor read.
+            expect(recorded.calls).toEqual(['issues', 'comments', 'issueState:7']);
             expect(followUps).toHaveLength(1);
             expect(followUps[0]?.id).toBe(followUpCommentId(COMMENT_ID));
         }
@@ -805,16 +914,18 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
             const recorded = recordingPoller({ pulls: [fixturePull({ headSha: MOVED_SHA })] });
             const followUps = followUpRowsOf(await runCycle(fixtureBinding(REVIEW_ONLY), recorded));
 
-            // One read, the one the review-request trigger already makes.
-            expect(recorded.calls).toEqual(['pulls']);
+            // One list read, the one the review-request trigger already makes,
+            // plus FR-106's one terminal read for the pull the follow-up named.
+            expect(recorded.calls).toEqual(['pulls', 'pullState:7']);
             expect(followUps).toHaveLength(1);
             expect(followUps[0]?.id).toBe(followUpHeadId(MOVED_SHA));
         }
     });
 
-    it('adds no request for either kind across a cycle', async () => {
+    it('adds one terminal read for a detected subject and none on a quiet cycle (AC-049)', async () => {
         {
-            // The baseline: the same feeds with nothing tracked.
+            // The baseline: the same feeds with nothing tracked, so no follow-up
+            // is detected and FR-106's read is never issued at all.
             const baseline = recordingPoller({ issues: [fixtureIssue()], comments: [] });
             await runCycle(fixtureBinding(MENTION_ONLY), baseline);
 
@@ -825,11 +936,38 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
             });
             await runCycle(fixtureBinding(MENTION_ONLY), withFollowUp);
 
-            // Exactly the same feeds, in the same order, for the same binding.
-            expect(withFollowUp.calls).toEqual(baseline.calls);
-            // And no per-item read of any kind was made: the recording poller
-            // throws if the per-item events feed is ever asked for.
+            // Detection still rides exactly the feeds the mention scan already
+            // lists — the same feeds, in the same order, as the no-followup
+            // baseline — and the per-item **actor** read is never reached.
+            expect(withFollowUp.calls.filter((name) => name === 'issues' || name === 'comments'))
+                .toEqual(baseline.calls);
             expect(withFollowUp.calls.filter((name) => name.startsWith('events:'))).toEqual([]);
+            // The one read FR-106 adds is measured, not argued: exactly one
+            // single-item read for the one subject that produced a follow-up,
+            // and zero on the baseline cycle that detected nothing.
+            expect(baseline.calls.filter((name) => name.startsWith('issueState:'))).toEqual([]);
+            expect(withFollowUp.calls.filter((name) => name.startsWith('issueState:'))).toEqual(['issueState:7']);
+        }
+    });
+
+    it('issues one terminal read for several follow-ups on the same subject in one cycle (AC-049)', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+
+            // Three comments on the one tracked subject in one cycle: three
+            // follow-ups, but a single per-subject terminal read (FR-102).
+            const recorded = recordingPoller({
+                issues: [fixtureIssue()],
+                comments: [
+                    fixtureComment({ commentId: COMMENT_ID }),
+                    fixtureComment({ commentId: OTHER_COMMENT_ID }),
+                    fixtureComment({ commentId: 503 }),
+                ],
+            });
+            const queue = await runCycle(fixtureBinding(MENTION_ONLY), recorded);
+
+            expect(followUpRowsOf(queue)).toHaveLength(3);
+            expect(recorded.calls.filter((name) => name.startsWith('issueState:'))).toEqual(['issueState:7']);
         }
     });
 
@@ -1065,24 +1203,30 @@ describe('FR-103 the head-SHA seed (AC-049)', () => {
  * ------------------------------------------------------------------ */
 
 describe('FR-106 the end of tracking (AC-052)', () => {
-    it('ends detection for an issue closed as completed, recording the fact and its date', async () => {
+    it('ends detection for an issue closed as completed, read from the item\'s own endpoint', async () => {
         {
             await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
 
-            const closed = await runCycle(
-                fixtureBinding(MENTION_ONLY),
-                recordingPoller({
-                    issues: [fixtureIssue({
-                        state: 'closed',
-                        stateReason: 'completed',
-                        closedAt: STAMP,
-                    })],
-                    comments: [fixtureComment({ commentId: COMMENT_ID })],
+            // The **list** carries only the open row a `state=open` feed returns,
+            // so the closed state can *only* have come from the single-item read
+            // — which is exactly why FR-106 exists.
+            const recorded = recordingPoller({
+                issues: [fixtureIssue()],
+                comments: [fixtureComment({ commentId: COMMENT_ID })],
+                issueState: (itemNumber) => ({
+                    kind: 'ok',
+                    issue: fixtureIssue({
+                        issueNumber: itemNumber, state: 'closed', stateReason: 'completed', closedAt: STAMP,
+                    }),
                 }),
-            );
+            });
+            const closed = await runCycle(fixtureBinding(MENTION_ONLY), recorded);
             const trail = await auditRows();
             const ends = rowsOfType(trail, 'tracking.ended');
 
+            // The read ran once for the subject the follow-up named, and once
+            // only — measured, per the amended AC-049.
+            expect(recorded.calls.filter((name) => name.startsWith('issueState:'))).toEqual(['issueState:7']);
             // Detection ended with the terminal fact recorded, and the row names
             // the run, the shape, the reason GitHub sent, and the date.
             expect(ends).toHaveLength(1);
@@ -1096,24 +1240,31 @@ describe('FR-106 the end of tracking (AC-052)', () => {
                 closedAt: STAMP,
             });
             // A comment arriving after the terminal state is observed is not a
-            // follow-up: the row the cycle produced is the assignment only.
+            // follow-up: the read dropped it before the enqueue, so the cycle
+            // added no follow-up row at all.
             expect(followUpRowsOf(closed)).toHaveLength(0);
         }
     });
 
-    it('ends detection for a merged pull request and for one closed unmerged', async () => {
+    it('ends detection for a merged pull and one closed unmerged, from the item\'s own endpoint', async () => {
         {
             await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
             const trail = await auditRows();
-            const merged = await runCycle(
-                fixtureBinding(REVIEW_ONLY),
-                recordingPoller({
-                    pulls: [fixturePull({ merged: true, state: 'closed', mergedAt: STAMP, headSha: MOVED_SHA })],
+            const mergedPolling = recordingPoller({
+                // The list is `state=open`; the merged fact comes from the read.
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                pullState: (itemNumber) => ({
+                    kind: 'ok',
+                    pull: fixturePull({
+                        pullNumber: itemNumber, merged: true, state: 'closed', mergedAt: STAMP, headSha: MOVED_SHA,
+                    }),
                 }),
-            );
+            });
+            const merged = await runCycle(fixtureBinding(REVIEW_ONLY), mergedPolling);
             const mergedEnds = rowsOfType(await auditRows(), 'tracking.ended').length
                 - rowsOfType(trail, 'tracking.ended').length;
 
+            expect(mergedPolling.calls.filter((name) => name.startsWith('pullState:'))).toEqual(['pullState:7']);
             expect(mergedEnds).toBe(1);
             expect(followUpRowsOf(merged)).toHaveLength(0);
         }
@@ -1123,7 +1274,13 @@ describe('FR-106 the end of tracking (AC-052)', () => {
             const abandoned = await runCycle(
                 fixtureBinding(REVIEW_ONLY),
                 recordingPoller({
-                    pulls: [fixturePull({ merged: false, state: 'closed', headSha: MOVED_SHA })],
+                    pulls: [fixturePull({ headSha: MOVED_SHA })],
+                    pullState: (itemNumber) => ({
+                        kind: 'ok',
+                        pull: fixturePull({
+                            pullNumber: itemNumber, merged: false, state: 'closed', headSha: MOVED_SHA,
+                        }),
+                    }),
                 }),
             );
             // Diffed on the sequence number, not on object identity: every read
@@ -1133,7 +1290,11 @@ describe('FR-106 the end of tracking (AC-052)', () => {
                 .filter((row) => !seen.has(row.seq));
 
             expect(ends).toHaveLength(1);
-            expect(ends[0]?.details).toMatchObject({ kind: 'closed-unmerged', state: 'closed' });
+            expect(ends[0]?.details).toMatchObject({
+                subjectKey: 'github|77331|acme/widget|pull_request|7',
+                kind: 'closed-unmerged',
+                state: 'closed',
+            });
             expect(followUpRowsOf(abandoned)).toHaveLength(0);
         }
     });
@@ -1153,13 +1314,18 @@ describe('FR-106 the end of tracking (AC-052)', () => {
             );
             expect(await followUpRows()).toHaveLength(1);
 
-            // The item then reaches its terminal state: the queue keeps the
-            // follow-up, and nothing is withdrawn or expired.
+            // The item then reaches its terminal state, observed through the same
+            // lazy read: the new comment's follow-up is dropped, but the queue
+            // keeps the one already queued — nothing is withdrawn or expired.
             const after = await runCycle(
                 fixtureBinding(MENTION_ONLY),
                 recordingPoller({
-                    issues: [fixtureIssue({ state: 'closed', closedAt: STAMP })],
+                    issues: [fixtureIssue()],
                     comments: [fixtureComment({ commentId: OTHER_COMMENT_ID })],
+                    issueState: () => ({
+                        kind: 'ok',
+                        issue: fixtureIssue({ state: 'closed', closedAt: STAMP }),
+                    }),
                 }),
             );
 
@@ -1192,40 +1358,216 @@ describe('FR-106 the end of tracking (AC-052)', () => {
         }
     });
 
-    it('returns the subject to ordinary detection afterwards', async () => {
+    it('returns the subject to ordinary detection, and the read answers again', async () => {
         {
             await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
 
-            // A bare comment on a closed item is neither a follow-up nor a
+            // A bare comment on a closed item — the end observed through the
+            // item's own read, not from a list row — is neither a follow-up nor a
             // trigger and produces nothing.
             const closed = await runCycle(
                 fixtureBinding(MENTION_ONLY),
                 recordingPoller({
-                    issues: [fixtureIssue({ state: 'closed', closedAt: STAMP })],
+                    issues: [fixtureIssue()],
                     comments: [fixtureComment({ commentId: COMMENT_ID })],
+                    issueState: () => ({ kind: 'ok', issue: fixtureIssue({ state: 'closed', closedAt: STAMP }) }),
                 }),
             );
             expect(followUpRowsOf(closed)).toHaveLength(0);
+            expect(rowsOfType(await auditRows(), 'tracking.ended')).toHaveLength(1);
 
-            // A **mention** on the same subject is ordinary new work: the
-            // trigger fires again exactly as it did before the amendment, and
-            // nothing about the tracking lifecycle suppresses it.
+            // The item is still concluded, so the read answers the same. A
+            // **mention** lands: ordinary detection fires exactly as it did
+            // before the amendment — nothing suppresses the trigger — and the
+            // delivery joins the session-carrying run rather than opening the
+            // next ordinal (no run member or state could un-join a session-
+            // carrying run).
             const reopened = await runCycle(
                 fixtureBinding(MENTION_ONLY),
                 recordingPoller({
                     issues: [fixtureIssue({ body: null })],
                     comments: [fixtureComment({ commentId: MENTION_COMMENT_ID, body: MENTION_BODY })],
+                    issueState: () => ({ kind: 'ok', issue: fixtureIssue({ state: 'closed', closedAt: STAMP }) }),
                 }),
             );
 
             expect(reopened.find((row) => row.id.includes(`~mention~${MENTION_COMMENT_ID}`))).toBeDefined();
-            // The mention joins the session-carrying run rather than opening the
-            // next ordinal: 003 FR-011 as conformed at v1.12.0 is the coalescing
-            // rule in force, and no run member or state exists that could make a
-            // session-carrying run un-joinable again (FR-103 allows exactly one
-            // new member, the head-SHA seed, and FR-105 mints no new state).
+            // The comment is a follow-up too, and its terminal read answers
+            // `closed` again — so **nothing is delivered**: no follow-up row
+            // survives to the queue and the run projects none.
+            expect(followUpRowsOf(reopened)).toHaveLength(0);
             const ordinary = await readRunsDocument({ store, log });
             expect(ordinary.runs.map((run) => run.ordinal)).toEqual([0]);
+            expect(ordinary.runs).toHaveLength(1);
+            expect(ordinary.runs[0]?.session?.sessionId).toBe(SESSION_ID);
+            const rows = await historyRows();
+            expect(rows[0]?.followUps).toBeUndefined();
+        }
+    });
+
+    it('refuses the binding\'s scan when the read is unreadable, and asks again next cycle (AC-052)', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            const trail = await auditRows();
+
+            // A blameless read failure (offline/timeout/unreadable body) refuses
+            // this binding's detection for the cycle and stops its scan — the
+            // resolveCandidateActor posture — rather than softening into a
+            // per-subject skip that could advance the window past unjudged work.
+            const scan = await driveCycle(
+                fixtureBinding(MENTION_ONLY),
+                recordingPoller({
+                    issues: [fixtureIssue()],
+                    comments: [fixtureComment({ commentId: COMMENT_ID })],
+                    issueState: () => ({ kind: 'unavailable', detail: 'offline' }),
+                }),
+            );
+
+            expect(scan.skipped).toBe('offline');
+            // No end is recorded (an unreadable answer is not a terminal state)
+            // and no follow-up is enqueued (it is not an open one either).
+            expect(rowsOfType(await auditRows(), 'tracking.ended')).toHaveLength(
+                rowsOfType(trail, 'tracking.ended').length,
+            );
+            expect(await followUpRows()).toHaveLength(0);
+
+            // The checkpoint is retained, so the next cycle's detected follow-up
+            // asks again — and a read that answers this time enqueues it.
+            const repaired = await runCycle(
+                fixtureBinding(MENTION_ONLY),
+                recordingPoller({
+                    issues: [fixtureIssue()],
+                    comments: [fixtureComment({ commentId: COMMENT_ID })],
+                }),
+            );
+            expect(followUpRowsOf(repaired)).toHaveLength(1);
+        }
+    });
+
+    it('produces a stop on a 404, never a terminal fact (AC-052)', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+
+            // A deleted or newly inaccessible item arrives as the transport's
+            // shared `auth-failed` class (`poller-transport.ts:210`), so it stops
+            // the scan with that class — the safe direction — rather than being
+            // guessed into a terminal fact, because a 404 cannot be told from a
+            // revoked credential under the shared classification.
+            const scan = await driveCycle(
+                fixtureBinding(MENTION_ONLY),
+                recordingPoller({
+                    issues: [fixtureIssue()],
+                    comments: [fixtureComment({ commentId: COMMENT_ID })],
+                    issueState: () => ({ kind: 'auth-failed' }),
+                }),
+            );
+
+            expect(scan.skipped).toBe('auth-failed');
+            expect(rowsOfType(await auditRows(), 'tracking.ended')).toHaveLength(0);
+            expect(await followUpRows()).toHaveLength(0);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------ *
+ * FR-106's one read, at the two layers it runs on: the one-object
+ * reader that refuses an unreadable `state`, and the real poller's
+ * single-item request, its URL, and its classification.
+ * ------------------------------------------------------------------ */
+
+describe('FR-106 the one-object terminal readers (poller-entries)', () => {
+    it('reads an issue open or closed and refuses a state outside that vocabulary', () => {
+        const open = readIssueObject(JSON.parse(issueJson({ state: 'open' })));
+        expect(open?.state).toBe('open');
+
+        const closed = readIssueObject(JSON.parse(issueJson({
+            state: 'closed', state_reason: 'completed', closed_at: STAMP,
+        })));
+        expect(closed?.stateReason).toBe('completed');
+        expect(closed?.closedAt).toBe(STAMP);
+
+        // A `state` word outside `open` / `closed` is unreadable, not a
+        // not-closed: the read exists to answer the terminal question, so an
+        // answer it cannot read fails the scan rather than passing as open
+        // (AC-052, invariant 8). A body that is not the object fails the same.
+        const reopened = readIssueObject(JSON.parse(issueJson({ state: 'reopened' })));
+        expect(reopened).toBeNull();
+        expect(readIssueObject({ not: 'an issue' })).toBeNull();
+        expect(readIssueObject(null)).toBeNull();
+    });
+
+    it('reads `merged` from the single-pull object the pulls list omits', () => {
+        const merged = readPullObject(JSON.parse(pullJson({
+            state: 'closed', merged: true, merged_at: STAMP,
+        })));
+        expect(merged?.merged).toBe(true);
+        expect(merged?.mergedAt).toBe(STAMP);
+
+        // An absent `merged` reads `false` — the direction that can only fail to
+        // end tracking — and an unusable `state` word is refused, not a not-closed.
+        const openUnmerged = readPullObject(JSON.parse(pullJson({ state: 'open', merged: false })));
+        expect(openUnmerged?.merged).toBe(false);
+        const nonsenseState = readPullObject(JSON.parse(pullJson({ state: 'nonsense', merged: true })));
+        expect(nonsenseState).toBeNull();
+    });
+});
+
+describe('FR-106 the terminal read through the real poller (poller-github)', () => {
+    const pace = { perPage: 30, retry: { maxAttempts: 2, baseMs: 1, maxMs: 2 } };
+
+    /** The item coordinates every read below asks about; `pace` is spread on. */
+    const item = { token: 't', owner: 'acme', name: 'widget', itemNumber: 7 };
+
+    it('reads the single-item issue endpoint — one object, no page or `since`', async () => {
+        {
+            const { poller, urls } = terminalPoller(() => new Response(issueJson({
+                state: 'closed', state_reason: 'completed', closed_at: STAMP,
+            }), { status: 200 }));
+            const result = await poller.readIssueState({ ...item, pace });
+
+            expect(result).toEqual({
+                kind: 'ok',
+                issue: expect.objectContaining({ state: 'closed', stateReason: 'completed', closedAt: STAMP }),
+            });
+            expect(urls).toHaveLength(1);
+            expect(urls[0]).toContain('/repos/acme/widget/issues/7');
+            expect(urls[0]).not.toContain('per_page');
+            expect(urls[0]).not.toContain('page=');
+            expect(urls[0]).not.toContain('since=');
+        }
+    });
+
+    it('reads the single-pull endpoint that carries `merged`', async () => {
+        {
+            const { poller, urls } = terminalPoller(() => new Response(pullJson({
+                state: 'closed', merged: true, merged_at: STAMP, head: { sha: MOVED_SHA }, base: { ref: 'main' },
+            }), { status: 200 }));
+            const result = await poller.readPullState({ ...item, pace });
+
+            expect(result).toEqual({
+                kind: 'ok',
+                pull: expect.objectContaining({ merged: true, mergedAt: STAMP }),
+            });
+            expect(urls[0]).toContain('/repos/acme/widget/pulls/7');
+        }
+    });
+
+    it('classifies a 404 as auth-failed and an unreadable body as unavailable', async () => {
+        {
+            const notFound = terminalPoller(() => new Response('', { status: 404 }));
+            expect(await notFound.poller.readIssueState({ ...item, pace }))
+                .toEqual({ kind: 'auth-failed' });
+
+            // A 200 whose body is not the object is unreadable, not a not-closed.
+            const notJson = terminalPoller(() => new Response('not json', { status: 200 }));
+            expect(await notJson.poller.readIssueState({ ...item, pace }))
+                .toEqual({ kind: 'unavailable', detail: 'upstream' });
+
+            // And a 200 whose `state` is outside the vocabulary is unreadable too:
+            // the reader refuses it, so the transport answers its unreadable class.
+            const unknownState = terminalPoller(() => new Response(issueJson({ state: 'reopened' }), { status: 200 }));
+            expect(await unknownState.poller.readIssueState({ ...item, pace }))
+                .toEqual({ kind: 'unavailable', detail: 'upstream' });
         }
     });
 });

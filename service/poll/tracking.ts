@@ -19,12 +19,15 @@
  * cannot see.** Both list feeds the scan reads are filtered `state=open`, so a
  * closed issue or a merged pull request **leaves the list** rather than
  * arriving on it in a terminal state. That is a real limit of the two existing
- * reads and it is stated rather than designed around (`research.md` §R12.2):
- * no per-item state read exists in this slice, so a merged pull's later
- * activity is **absent** rather than observed terminal. What this module adds is
- * the reader-side capability and its audit row, so the end of tracking is
- * judged the moment a row *is* observed terminal — from the same subject's own
- * list row, at zero added requests.
+ * reads and it is stated rather than designed around (`research.md` §R12.2): a
+ * list row is therefore never the source of an end in production. The one read
+ * that can observe an end is the **lazy per-item terminal read** FR-102 admits
+ * and FR-106 fixes (001 FR-106): `GET …/issues/{number}` and `GET …/pulls/{number}`,
+ * issued only when a follow-up has been detected on the subject, routed here
+ * through the same {@link trackedIssueEnds} / {@link trackedPullEnds} builders a
+ * (never-in-production) terminal list row would take. This module owns the
+ * reader-side capability and its audit row; the timing and the failure posture
+ * of the read live in `loop.ts`.
  */
 
 import type { BindingRecord } from '../bindings.ts';
@@ -209,10 +212,13 @@ export function withoutEnded(
 /**
  * Read the ends of tracking one cycle's **issue** rows report.
  *
- * Only a subject the scan is following can end tracking, and only its own list
- * row can say so — no per-item state read exists in this slice (`research.md`
- * §R12.4). An open row reports nothing, and a closed one reports the fact, the
- * date, and the reason.
+ * Only a subject the scan is following can end tracking. The list rows a
+ * `state=open` feed carries are never terminal, so in production the rows this
+ * is called with are the single read objects the lazy terminal read produced
+ * (FR-106) rather than list rows; it is the same builder either way, because a
+ * concluded issue and a list row would carry the same `state` / `state_reason` /
+ * `closed_at`. An open row reports nothing, and a closed one reports the fact,
+ * the date, and the reason.
  *
  * @returns The ends, in issue-list order.
  */

@@ -9554,6 +9554,26 @@ function headFollowUps(input) {
   }
   return { rows, observations };
 }
+function followUpSubjects(events) {
+  const issues = [];
+  const pulls = [];
+  for (const event of events) {
+    if (followUpKindOf(event.id) === null) {
+      continue;
+    }
+    const bucket = subjectTypeOf(event) === "pull_request" ? pulls : issues;
+    if (!bucket.includes(event.issueNumber)) {
+      bucket.push(event.issueNumber);
+    }
+  }
+  return { issues, pulls };
+}
+function withoutEndedFollowUps(events, endedNumbers) {
+  if (endedNumbers.size === 0) {
+    return events;
+  }
+  return events.filter((event) => followUpKindOf(event.id) === null || !endedNumbers.has(event.issueNumber));
+}
 
 // service/poll/tracking.ts
 function subjectKeyOf2(input) {
@@ -10223,6 +10243,48 @@ async function previewTrackedDocument(input) {
     return { refused: "runs-unreadable" };
   }
 }
+async function terminalFollowUpState(input) {
+  const { deps, binding, token, tracked, events } = input;
+  const subjects = followUpSubjects(events);
+  if (subjects.issues.length === 0 && subjects.pulls.length === 0) {
+    return { events, ends: [] };
+  }
+  const repository = repositoryRefOf(binding.repository);
+  const issueReads = [];
+  const pullReads = [];
+  for (const itemNumber of subjects.issues) {
+    const read = await deps.poller.readIssueState({
+      token,
+      owner: repository.owner,
+      name: repository.name,
+      itemNumber,
+      pace: deps.pace
+    });
+    if (read.kind !== "ok") {
+      return { skipped: skipOf(read) };
+    }
+    issueReads.push(read.issue);
+  }
+  for (const itemNumber of subjects.pulls) {
+    const read = await deps.poller.readPullState({
+      token,
+      owner: repository.owner,
+      name: repository.name,
+      itemNumber,
+      pace: deps.pace
+    });
+    if (read.kind !== "ok") {
+      return { skipped: skipOf(read) };
+    }
+    pullReads.push(read.pull);
+  }
+  const ends = [
+    ...trackedIssueEnds({ binding, issues: issueReads, tracked }),
+    ...trackedPullEnds({ binding, pulls: pullReads, tracked })
+  ];
+  const ended = new Set(ends.map((end) => end.subjectNumber));
+  return { events: withoutEndedFollowUps(events, ended), ends };
+}
 async function collectScanEvents(input) {
   const { deps, binding, windowStart, detectedAt, token, login, tracked } = input;
   const collected = await collectTriggerEvents({
@@ -10239,11 +10301,22 @@ async function collectScanEvents(input) {
   if (!collected.ok) {
     return { ok: false, skipped: skipOf(collected.failure) };
   }
+  const terminal = await terminalFollowUpState({
+    deps,
+    binding,
+    token,
+    tracked,
+    events: collected.events
+  });
+  if ("skipped" in terminal) {
+    return { ok: false, skipped: terminal.skipped };
+  }
+  const ends = [...collected.ends ?? [], ...terminal.ends];
   return {
     ok: true,
-    events: collected.events,
+    events: terminal.events,
     ...collected.observedHeads !== undefined && { observedHeads: collected.observedHeads },
-    ...collected.ends !== undefined && { ends: collected.ends }
+    ...ends.length > 0 && { ends }
   };
 }
 async function scanBinding(input) {
@@ -10572,6 +10645,24 @@ async function listPages(input) {
   }
   return { kind: "ok", items };
 }
+async function readOneObject(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    const parsed = parseJsonText(await attempt.response.text());
+    const object = parsed.ok ? input.read(parsed.value) : null;
+    return object === null ? { kind: "unavailable", detail: "upstream" } : { kind: "ok", object };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
 
 // service/poll/poller-entries.ts
 function asRecord(value) {
@@ -10693,6 +10784,14 @@ function readPullEntry(value) {
     updatedAt: textOf(record, "updated_at")
   };
 }
+function readIssueObject(value) {
+  const issue2 = readIssueEntry(value);
+  return issue2 !== null && (issue2.state === "open" || issue2.state === "closed") ? issue2 : null;
+}
+function readPullObject(value) {
+  const pull = readPullEntry(value);
+  return pull !== null && (pull.state === "open" || pull.state === "closed") ? pull : null;
+}
 
 // service/poll/poller-github.ts
 var NEWEST_UPDATED_FIRST = { sort: "updated", direction: "desc" };
@@ -10775,13 +10874,41 @@ async function itemEventsList(runtime, query) {
   }
   return { kind: "ok", events, exhausted: true };
 }
+function issueStateUrl(input) {
+  return new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/issues/${input.itemNumber}`);
+}
+function pullStateUrl(input) {
+  return new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/pulls/${input.itemNumber}`);
+}
+async function issueStateObject(runtime, query) {
+  const result = await readOneObject({
+    runtime,
+    token: query.token,
+    url: issueStateUrl({ owner: query.owner, name: query.name, itemNumber: query.itemNumber }),
+    pace: query.pace,
+    read: readIssueObject
+  });
+  return result.kind === "ok" ? { kind: "ok", issue: result.object } : result;
+}
+async function pullStateObject(runtime, query) {
+  const result = await readOneObject({
+    runtime,
+    token: query.token,
+    url: pullStateUrl({ owner: query.owner, name: query.name, itemNumber: query.itemNumber }),
+    pace: query.pace,
+    read: readPullObject
+  });
+  return result.kind === "ok" ? { kind: "ok", pull: result.object } : result;
+}
 function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fetch(url, init)) {
   const runtime = pollerRuntime(deps, fetchImpl);
   return {
     listOpenIssues: (query) => issuesList(runtime, query),
     listIssueComments: (query) => commentsList(runtime, query),
     listOpenPulls: (query) => pullsList(runtime, query),
-    listIssueEvents: (query) => itemEventsList(runtime, query)
+    listIssueEvents: (query) => itemEventsList(runtime, query),
+    readIssueState: (query) => issueStateObject(runtime, query),
+    readPullState: (query) => pullStateObject(runtime, query)
   };
 }
 

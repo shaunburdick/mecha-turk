@@ -32,7 +32,7 @@
 import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import { actorLoginOf, isAttributableAuthor } from './attribution.ts';
-import { createEvent } from './events.ts';
+import { createEvent, followUpKindOf, subjectTypeOf } from './events.ts';
 import { bodyExcerptOf } from './trigger-scan.ts';
 import { stampInWindow } from './window.ts';
 import type { QueuedEvent } from './events.ts';
@@ -294,4 +294,70 @@ export function headFollowUps(input: {
     }
 
     return { rows, observations };
+}
+
+/** The distinct subjects whose follow-up rows a cycle produced, split by shape. */
+export interface FollowUpSubjects {
+    /** Issue-subject numbers that produced at least one comment follow-up. */
+    readonly issues: readonly number[];
+    /** Pull-subject numbers that produced at least one follow-up of either kind. */
+    readonly pulls: readonly number[];
+}
+
+/**
+ * Read the distinct subjects that produced at least one follow-up row this
+ * cycle, keyed by the shape their terminal read addresses.
+ *
+ * FR-106's terminal read is issued **only** for a subject that produced a
+ * detected follow-up, and **at most once per subject per cycle** — so the
+ * subjects are the deduplicated set the follow-up rows name, never a sweep over
+ * every tracked subject. A subject's number is unique within a repository (one
+ * numbering space, shared by issues and pulls), and the row's own
+ * `subjectType` — written from the tracked subject, never inferred (FR-101) —
+ * is what routes the read to the issue or the pull single-item endpoint. A
+ * comment that landed on a tracked pull is a pull-subject follow-up, so it reads
+ * the pull's own object.
+ *
+ * @returns The subject numbers, each shape in its own list, in first-seen order.
+ */
+export function followUpSubjects(events: readonly QueuedEvent[]): FollowUpSubjects {
+    const issues: number[] = [];
+    const pulls: number[] = [];
+
+    for (const event of events) {
+        if (followUpKindOf(event.id) === null) {
+            continue;
+        }
+
+        const bucket = subjectTypeOf(event) === 'pull_request' ? pulls : issues;
+        if (!bucket.includes(event.issueNumber)) {
+            bucket.push(event.issueNumber);
+        }
+    }
+
+    return { issues, pulls };
+}
+
+/**
+ * Drop the follow-up rows whose subject ended tracking, leaving every trigger
+ * row in place.
+ *
+ * The end is one-directional and stops **new detection** only (FR-106): the
+ * terminal read, issued before the enqueue, drops the subject's follow-up from
+ * this cycle's enqueue rather than retracting one the queue already holds — a
+ * follow-up queued before the end still delivers. Only follow-up rows are
+ * touched; a trigger row's own fate on a concluded subject is decided by that
+ * trigger's path, not by this filter.
+ *
+ * @returns The rows without the ended subjects' follow-ups.
+ */
+export function withoutEndedFollowUps(
+    events: readonly QueuedEvent[],
+    endedNumbers: ReadonlySet<number>,
+): readonly QueuedEvent[] {
+    if (endedNumbers.size === 0) {
+        return events;
+    }
+
+    return events.filter((event) => followUpKindOf(event.id) === null || !endedNumbers.has(event.issueNumber));
 }

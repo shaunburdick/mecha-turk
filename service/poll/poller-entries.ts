@@ -343,3 +343,47 @@ export function readPullEntry(value: unknown): PollPull | null {
         updatedAt: textOf(record, 'updated_at'),
     };
 }
+
+/**
+ * Read one **single-item** issue object — the terminal read's shape (FR-106).
+ *
+ * The item's own `GET /repos/{owner}/{repo}/issues/{number}` returns the same
+ * Issue object a list row is, so the read reuses {@link readIssueEntry} and the
+ * terminal members it already fills (`state`, `stateReason`, `closedAt`), taking
+ * one object where the page readers took one entry of a page (`research.md`
+ * §R14.10's item 4). What this reader adds is the only thing a `state=open` list
+ * never had to decide: the `state` word is the **whole** terminal fact a read can
+ * carry, so a value outside `open` / `closed` is refused here rather than read as
+ * a silent not-closed. That is what makes an unreadable answer fail the scan
+ * instead of ending — or extending — tracking on a guess (AC-052, invariant 8);
+ * `null` is the direction that can only fail to end tracking.
+ *
+ * @returns The issue with its terminal members, or `null` when the object is
+ *   unrecognizable or its `state` is outside the known vocabulary.
+ */
+export function readIssueObject(value: unknown): PollIssue | null {
+    const issue = readIssueEntry(value);
+
+    return issue !== null && (issue.state === 'open' || issue.state === 'closed') ? issue : null;
+}
+
+/**
+ * Read one **single-item** pull object — the terminal read's shape (FR-106).
+ *
+ * The item's own `GET /repos/{owner}/{repo}/pulls/{number}` returns the full
+ * Pull Request object, which the pulls **list** (`Pull Request Simple`) is not:
+ * the single object carries `merged` as a required boolean, and that is the one
+ * field which tells a merged pull from one closed unmerged — the exact fact the
+ * `state=open` list cannot carry at all (`research.md` §R12.2, §R12.5). The read
+ * reuses {@link readPullEntry}, which already fills `merged` / `mergedAt` /
+ * `state`, and applies the same `open` / `closed` refusal {@link readIssueObject}
+ * does: an unusable `state` word is unreadable, not a guess (AC-052).
+ *
+ * @returns The pull with its terminal members, or `null` when the object is
+ *   unrecognizable or its `state` is outside the known vocabulary.
+ */
+export function readPullObject(value: unknown): PollPull | null {
+    const pull = readPullEntry(value);
+
+    return pull !== null && (pull.state === 'open' || pull.state === 'closed') ? pull : null;
+}

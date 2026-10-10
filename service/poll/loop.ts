@@ -51,6 +51,7 @@ import { readBindings, readStoredCreationStamps } from '../bindings-read.ts';
 import { appendAudit } from '../audit.ts';
 import { resolvePromptSnapshot } from '../prompt.ts';
 import { runRetentionPasses } from '../retention.ts';
+import { repositoryRefOf } from '../../src/config.ts';
 import type { ServiceConfig } from '../config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
@@ -58,12 +59,13 @@ import type { ServiceStore } from '../store/index.ts';
 import { readCycleConfig } from './cycle-config.ts';
 import { enqueueEvents, readEvents } from './events.ts';
 import type { QueuedEvent } from './events.ts';
-import type { GitHubIssuePoller, ListPace, PollFailure } from './poller-github.ts';
+import { followUpSubjects, withoutEndedFollowUps } from './follow-up.ts';
+import type { GitHubIssuePoller, ListPace, PollFailure, PollIssue, PollPull } from './poller-github.ts';
 import { previewRunsDocument } from './runs-document.ts';
 import { bindingScanOf, readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
 import type { BindingScanState, ScanState } from './scan.ts';
 import { collectTriggerEvents } from './triggers.ts';
-import { observedHeadSeeds, trackedSubjectsOf } from './tracking.ts';
+import { observedHeadSeeds, trackedIssueEnds, trackedPullEnds, trackedSubjectsOf } from './tracking.ts';
 import type { TrackedSubject, TrackingEnd } from './tracking.ts';
 import type { RunsDocument } from './runs-types.ts';
 import { answersCatchUp, baselineFor, bindingsNeedingBaseline, widenBaseline, windowFor } from './window.ts';
@@ -329,16 +331,112 @@ type ScanListing =
     | { readonly ok: false; readonly skipped: ScanSkip };
 
 /**
- * List every feed this binding's triggers ask for and collect its events.
+ * Observe the terminal state of every subject that produced a follow-up this
+ * cycle, and drop the follow-ups whose subject ended (002 FR-106).
+ *
+ * FR-102 admits exactly one read — FR-106's — and bounds it: issued only for a
+ * subject that produced at least one detected follow-up in this cycle, at most
+ * **once per subject per cycle**, and **before** the enqueue so a terminal
+ * answer drops the follow-up from this cycle rather than retracting a queued
+ * row. A cycle in which nothing arrived therefore issues **no** read at all, so
+ * the added cost scales with detections rather than with tracked subjects
+ * (NFR-003). Both feeds the scan reads are filtered `state=open`, so a concluded
+ * item leaves them rather than arriving on one — this per-item read is the only
+ * source that can observe the end, and it routes each answer through the same
+ * {@link trackedIssueEnds} / {@link trackedPullEnds} builders a terminal list row
+ * (never produced in production) would reach.
+ *
+ * **The failure posture is the scan's own, copied from the per-item actor read**
+ * (`resolveCandidateActor`), not a per-subject skip: a read that could not answer
+ * — a transport failure (a `404` arrives as the shared `auth-failed` class,
+ * `poller-transport.ts:210`), or a body/`state` the reader refuses — refuses the
+ * **whole binding's** detection for this cycle and stops the scan with its class,
+ * the checkpoint **retained** rather than advanced so the next cycle's detected
+ * follow-up asks again. It never ends tracking on a guess: an unreadable answer
+ * is neither a terminal state nor an open one, and a `404` that is really a
+ * revoked credential must not be read as a deletion. Dropping only the candidate
+ * would advance the window past work nobody judged.
+ *
+ * @returns The events without the ended subjects' follow-ups and the ends to
+ *   record, or the skip that ends this binding's scan.
+ */
+async function terminalFollowUpState(input: {
+    /** Narrowed store/logger/poller/pace. */
+    readonly deps: ScanContext;
+    /** The binding being scanned. */
+    readonly binding: BindingRecord;
+    /** Account credential presented to GitHub. */
+    readonly token: string;
+    /** Subjects this binding and account is following. */
+    readonly tracked: ReadonlyMap<number, TrackedSubject>;
+    /** Every event this scan detected, follow-ups included. */
+    readonly events: readonly QueuedEvent[];
+}): Promise<
+    { readonly events: readonly QueuedEvent[]; readonly ends: readonly TrackingEnd[] }
+    | { readonly skipped: ScanSkip }
+> {
+    const { deps, binding, token, tracked, events } = input;
+    const subjects = followUpSubjects(events);
+    // FR-102's bound, made visible: a cycle that detected no follow-up issues no
+    // read at all, so detection stays zero-added-request.
+    if (subjects.issues.length === 0 && subjects.pulls.length === 0) {
+        return { events, ends: [] };
+    }
+
+    const repository = repositoryRefOf(binding.repository);
+    const issueReads: PollIssue[] = [];
+    const pullReads: PollPull[] = [];
+
+    for (const itemNumber of subjects.issues) {
+        const read = await deps.poller.readIssueState({
+            token,
+            owner: repository.owner,
+            name: repository.name,
+            itemNumber,
+            pace: deps.pace,
+        });
+        if (read.kind !== 'ok') {
+            return { skipped: skipOf(read) };
+        }
+        issueReads.push(read.issue);
+    }
+
+    for (const itemNumber of subjects.pulls) {
+        const read = await deps.poller.readPullState({
+            token,
+            owner: repository.owner,
+            name: repository.name,
+            itemNumber,
+            pace: deps.pace,
+        });
+        if (read.kind !== 'ok') {
+            return { skipped: skipOf(read) };
+        }
+        pullReads.push(read.pull);
+    }
+
+    const ends = [
+        ...trackedIssueEnds({ binding, issues: issueReads, tracked }),
+        ...trackedPullEnds({ binding, pulls: pullReads, tracked }),
+    ];
+    const ended = new Set(ends.map((end) => end.subjectNumber));
+
+    return { events: withoutEndedFollowUps(events, ended), ends };
+}
+
+/**
+ * List every feed this binding's triggers ask for and collect its events,
+ * applying FR-106's terminal read before the events leave for the enqueue.
  *
  * The work itself belongs to `triggers.ts`, which owns each branch's detection
  * and its per-item actor read; what this function contributes is the cycle's own
  * rule — **the first failure of any call ends the listing and becomes the loop's
- * one skip reason for the binding**. A binding with none of its switches on lists
- * nothing at all, so the rate budget only ever pays for triggers the operator
- * turned on.
+ * one skip reason for the binding**, FR-106's terminal read included. A binding
+ * with none of its switches on lists nothing at all, so the rate budget only ever
+ * pays for triggers the operator turned on.
  *
- * @returns Every event this scan matched, or the skip reason.
+ * @returns Every event this scan matched (ended subjects' follow-ups dropped),
+ *   the heads observed, the ends to record, or the skip reason.
  */
 async function collectScanEvents(input: {
     /** Narrowed store/logger/poller. */
@@ -372,11 +470,28 @@ async function collectScanEvents(input: {
         return { ok: false, skipped: skipOf(collected.failure) };
     }
 
+    // FR-106's one read, before the enqueue: it observes the terminal state of
+    // each subject that produced a follow-up and drops the ones that ended. Its
+    // failure is the same skip any other call's is, which is why it lives here
+    // rather than after the enqueue.
+    const terminal = await terminalFollowUpState({
+        deps,
+        binding,
+        token,
+        tracked,
+        events: collected.events,
+    });
+    if ('skipped' in terminal) {
+        return { ok: false, skipped: terminal.skipped };
+    }
+
+    const ends = [...(collected.ends ?? []), ...terminal.ends];
+
     return {
         ok: true,
-        events: collected.events,
+        events: terminal.events,
         ...(collected.observedHeads !== undefined && { observedHeads: collected.observedHeads }),
-        ...(collected.ends !== undefined && { ends: collected.ends }),
+        ...(ends.length > 0 && { ends }),
     };
 }
 
@@ -476,10 +591,11 @@ async function scanBinding(input: {
         }),
     });
 
-    // The end of tracking is recorded for every tracked subject whose own list
-    // row reported a terminal state (FR-106). One-directional by construction:
-    // the row goes to the trail and nothing is withdrawn from the queue, so a
-    // follow-up already queued when the end was observed still delivers.
+    // The end of tracking is recorded for every tracked subject whose own
+    // terminal read reported a terminal state (FR-106). One-directional by
+    // construction: the row goes to the trail and nothing is withdrawn from the
+    // queue, so a follow-up already queued when the end was observed still
+    // delivers.
     await recordTrackingEnds({ store, log, binding, ends: listed.ends ?? [] });
 
     // The window this scan opened is carried out, because it is the only thing
