@@ -603,6 +603,275 @@ project id.
 
 ---
 
+## Wave 6 — 002 v1.16.0: the tracking lifecycle (added 2026-10-09, GitHub issue #13)
+
+**This is the consolidated Phase-5 task list for GitHub issue #13**, rewritten down to the minimum
+after the product owner's scope finding of 2026-10-09. The first draft of this wave carried 17 tasks
+(`F-1 … F-17`) for a 25-requirement amendment with a `tracking.json` store and three new HTTP
+operations; it was cut, and the second draft opened with **eight tasks** for an **eight-requirement**
+amendment covering five behaviours. **Delivery added three** — `F-9` / `F-10` for the lazy terminal
+read the delivered build could not reach, and `F-11` for the follow-up window an independent review
+classed a blocker — and the requirement count never moved: FR-100 – FR-107, still eight. Everything
+above this line is the delivered MVP cut plus Waves 4
+and 5 (issues #9, #22, #21/#39) and is retained as written.
+
+**Delivery runs 2026-10-09 → 2026-10-10. `F-1` – `F-11` are delivered** — the branch carries **eight**
+commits beyond `main`: `feat: deliver a follow-up into the session the run dispatched (issue #13)`,
+`test: prove the follow-up observation reaches the trail once`,
+`feat: observe the end of tracking through FR-106's lazy terminal read (issue #13)`,
+`fix: deliver follow-ups from the relay's own read, and surface the queue (issue #13)`,
+`feat: walk the follow-up window past its bound with followUpsFrom (issue #13)`,
+`fix: defuse the follow-up header's actor and head-SHA scalars`,
+`test: pin the site prose-line figure at 512`, and
+`fix: defuse the follow-up frame's four remaining header scalars` — `npm run verify` is green
+(**1627 tests / 114 files**, measured at `9edc3c6`, the branch tip; the figure first recorded here,
+1617, predates the `followUpsFrom` commit), and both bundles are rebuilt and committed with them
+(invariant 1). **`F-9` and `F-10` were the amendment's second pass and
+`F-11` its third**: delivery review against the shipped code found that FR-106's
+end of tracking could not fire in production, because both list feeds the scan reads are filtered
+`state=open` (`service/poll/poller-github.ts:226,276`) — a closed issue or merged pull request *leaves*
+the list rather than arriving on it, and the end machinery `tracking.ts` already carries
+(`trackedIssueEnds` / `trackedPullEnds` / `withoutEnded`) therefore never sees a terminal row. The
+green suite did not catch it, because `tests/follow-up-lifecycle.test.ts:1070-1101` and `:1104-1139`
+(the suite as it stood before `F-10` rewrote it; the delivered terminal proofs read the item's own
+endpoint at `:1261-1302` for an issue and `:1304-1355` for a pull) proved the end by injecting
+`state: 'closed'` into the **list** fixture — a shape the real endpoint
+never returns. The product owner's decision of 2026-10-10 was **the lazy terminal check**: read the
+item's own state **only** when a follow-up has been detected on that subject, never per subject per
+cycle. `F-9` builds it; `F-10` rewrites the proofs so they hold it to the source that exists.
+**`F-11` then closed the second blocker an independent review raised**: `MAX_PROJECTED_FOLLOW_UPS`
+projects the oldest twenty queue rows *delivered or not*, so a subject with 21+ follow-ups silently
+stops being delivered — constitution III's silent-loss direction — and the fix is one absentable query
+parameter, `followUpsFrom`, on the read the panel already performs.
+
+| Spec | Amendment | What it contributes | Tasks |
+| --- | --- | --- | --- |
+| `002-agent-event-extension` | **v1.16.0** | the whole feature: the run-level correction (a follow-up joins the run, never opens a second), the two detection kinds (issue comment, head-SHA change), the head-SHA seed, the delivery attempt into the run's own session, and the end of tracking — **delivered `F-1` – `F-8`, then `F-9` / `F-10` for the lazy terminal read the delivered build could not reach, then `F-11` for the follow-up window's bound** | `F-1 … F-11` |
+| `003-dispatch-integrity` | **v1.12.0, already conformed in the tree** | its FR-011's terminal-state rule now excludes a dispatched run carrying a recorded session — the conforming edit is **kept as it stands** and is not re-opened here | — |
+| `005-panel-ia` | **not amended, by design** | the rendering lands in the existing Dispatches and Status surfaces through the run-history row the panel already reads; no control, tab, or vocabulary moves | — |
+
+**Input**: [`plan.md`](./plan.md) §"Amendment record — 002 v1.16.0" (§D.1 – §D.9, decisions `K1` – `K5`) ·
+[`research.md`](./research.md) §R12 – §R14 · [`data-model.md`](./data-model.md) (the one absentable
+run-row member) · `spec.md` `FR-100` – `FR-107`, `SC-015`, `SC-016`, `AC-048` – `AC-052`.
+`spec.md` is the source of truth; **no requirement text may be rewritten during implementation.**
+
+**Bar**: *one run, one session, one work item — carried to the item's terminal state.* A follow-up on a
+dispatched subject joins that run, is detected from a feed the scan already reads, and is delivered
+into the agent's original session exactly once; the lifecycle ends on the GitHub terminal state,
+recorded with its fact; and every stop — a busy session, a deleted session, an over-budget
+composition — is a named reason an operator can read. **The end is observed through one lazy
+per-item read, issued only when a follow-up has been detected on that subject** (FR-102's one
+exception, FR-106): its cost scales with detections, not with tracked subjects. Tests are offline and
+deterministic per `AGENTS.md`: fake host (`tests/support/panel.ts`), real loopback service on temp dirs
+(`tests/support/service.ts`), fixture GitHub (`tests/support/github.ts`) — **no live OpenChamber, no
+real PAT, no network**. `[P]` = parallel-safe (disjoint files, no shared state). **`npm run verify`
+runs at the wave boundary, and any wave that touches `src/`, `panel/*.ts`, or `service/*.ts` ends with
+`npm run build` and **both** rebuilt `panel/main.js` + `service/main.js` committed in the same commit
+(invariant 1 — this wave moves `src/`, so the panel bundle rebuilds; the service bundle rebuilds only
+if a `service/` file moves, which `F-1`, `F-3` and `F-9` do).**
+
+### Settled decisions that bind execution (do NOT re-open)
+
+1. **The correction is one predicate.** `runs-join.ts`'s join gains "or holds a recorded session"
+   (plan **K1**). No second coalescing path, no ordinal patching, no separate branch. A `dead-lettered`
+   run with no session still opens the next ordinal, and 003 FR-011's rule for non-terminal runs is
+   untouched.
+2. **Detection adds zero requests; the end adds exactly one bounded read.** The issue-comment read and
+   the pulls read the scan already performs are the only two detection surfaces (plan **K2**): no
+   per-issue comments read, no repository-wide read of any follow-up surface, and no per-item state
+   read on a cycle in which nothing was detected. **The one read the wave adds is FR-106's terminal
+   read** (plan **K6**), and it is lazy by requirement, not by accident: one single-item read of the
+   item a detected follow-up names — `GET …/issues/{number}` for an issue, `GET …/pulls/{number}` for a
+   pull — issued **only** for a subject that produced a detected follow-up in that cycle, bounded to
+   one object, and issued **at most once per subject per cycle** however many follow-ups that subject
+   produced. A terminal-state read per tracked subject per cycle was the first draft's shape and stays
+   cut. **NFR-003 is amended** to carry that one request.
+3. **An unreadable terminal answer is neither open nor closed.** It records **no** end and produces
+   **no** delivery: the reason is recorded, the binding's scan fails with the class named and its
+   checkpoint is **retained** rather than advanced — the posture `poller-events.ts`'s
+   `resolveCandidateActor` and `triggers-review.ts:149-151` already set for a failed per-item read —
+   and the subject's next detected follow-up asks again. A **404** arrives as the shared `auth-failed`
+   class (`poller-transport.ts:210`), so a deleted item stops the scan instead of ending tracking on a
+   guess. **Nothing is substituted** for the unreadable state.
+4. **The park reuses the existing vocabulary and rides beside the session** (plan **K3**). The run's
+   own state cannot carry it — `runs-parse.ts:219` quarantines a session-carrying run whose state is
+   not `dispatched` — so the reason is a member beside the session, and no new state name is minted.
+   **In the delivered build the delivery outcomes live in the panel's own record**
+   (`mecha-turk:dispatches`'s `FollowUpDeliveryRecord`), which is their only writer: `appendAudit` is
+   service-side and `/v1/audit` is GET-only, so no service-side `follow_up.delivered` /
+   `follow_up.attempt-failed` / `follow_up.parked` row may be written and none exists.
+5. **No new wire surface** (FR-107): no route, no contract file, no persisted file, no `Run` member
+   beyond the head-SHA seed, no `host.storage` key, no configuration field, no capability. The
+   follow-up reaches the panel through a read it already performs. **The terminal read is
+   service-internal** — it adds no wire member, which is why `contracts/panel-service.md` does not
+   move.
+6. **Follow-up delivery is judged exactly as `start_work` is judged under FR-027** (FR-104's one
+   clause). FR-027's own text is not touched, no approval gate is built, and no policy document is
+   read on any path this wave adds.
+7. **The only pre-existing test suite this wave edits is `tests/prose-budget.test.ts`**, and only its
+   `REDUCED.walkthrough` constant, by the number of prose lines `quickstart.md` §10 keeps
+   (`research.md` §R14.4). `tests/current-project-default.test.ts`'s `CONTRACT_FILES` and
+   `ROUTE_PATHS` are **restored** by deleting the first draft's `contracts/follow-up-lifecycle.md`
+   and must not be edited. **`F-10` edits `tests/follow-up-lifecycle.test.ts``s own terminal-state
+   assertions**, because they currently prove the end from a list shape the real endpoint never
+   returns; that is this wave's own suite, not a pre-existing one.
+
+### What's already built — do NOT re-touch
+
+The claim-and-lease cycle, the single-use dispatch token, the bounded excerpt renderer
+(`src/context-blocks.ts`), the frame builder and budget floor (`src/session.ts`,
+`src/relay-attempt.ts`), the agent-verification navigation (`src/agent-verify.ts`), the bounded retry
+configuration, and the run-history projection's `session` member. This wave **reuses** all of them;
+the only new panel module is `src/follow-up.ts`.
+
+### Out-of-scope guard (check before any task feels like "just one more")
+
+No GitHub write of any kind (FR-031). No second session for a followed subject. No unbounded wait for a
+busy session. **No new read except FR-106's terminal read** — no per-issue comments read, no
+repository-wide read of any follow-up surface, no terminal-state read per tracked subject per cycle
+(plan **K6**, `research.md` §R12.4). No new route, contract file, persisted file, storage key,
+manifest field, configuration field, or capability. No new run state, and no run-row member beyond the
+head-SHA seed. No Discussions surface, no review
+comments, no whole review submissions, no tracking-set cap, no per-follow-up approval gate — each named
+in `## Out of Scope`. No follow-up text in any trail row, and no service-side `follow_up.delivered` /
+`follow_up.attempt-failed` / `follow_up.parked` row — `/v1/audit` is GET-only and FR-104/FR-107 forbid
+the route that would write one. No `spec.md` edit by this phase. No
+`specs/NNN-*/` directory — this is an amendment to 002.
+
+### The tasks
+
+**W1 — the correction and its identity (blocks everything else)**
+
+- [x] **F-1 [P]** — `service/poll/runs-join.ts`: extend the join predicate to `!isTerminalRun(run) || run.session !== null`, keeping the subject-key match and the two-write chain. Pin the **pre-amendment** behaviour as the failing test case first, then the fix. A `dead-lettered` run with no session still opens the next ordinal. (`FR-100`, 003 FR-011 unchanged) — **delivered 2026-10-09**
+- [x] **F-2 [P]** — `service/poll/events-write.ts` + `events-parse.ts`: add the two discriminators `~followup~<commentId>` and `~followup~head~<sha>`; the base and every existing discriminator stay byte-identical; a present value outside the family refuses the row. Assert both id shapes are byte-identical across cycles, the overlap window, a restart and a replay, and that neither collides with any trigger id. (`FR-101`) — **delivered 2026-10-09**
+- [x] **F-3 [P]** — `service/poll/runs-types.ts`, `runs-parse.ts`, `loop.ts`: the head-SHA seed as one absentable, validated-when-present member on the run row; the establishing cycle seeds it from the establishing delivery row's own `headSha` (reached through the run's first source reference and the existing event queue) and emits **no** push follow-up; a `null` seed compares nothing and records the observed SHA; an issue subject seeds nothing. (`FR-103`) — **delivered 2026-10-09**
+
+**W2 — detection on the feeds the scan already reads**
+
+- [x] **F-4** — `service/poll/triggers.ts` / `triggers-assignment.ts` / `poller-entries.ts` and the new `service/poll/follow-up.ts`: the two detectors — an issue comment whose `issue_url` names a subject with a session-carrying run under this binding and account, and a `head.sha` change against the seed. At most one head follow-up per subject per cycle; the intermediate SHA is not fetched and is not audited as a gap. The request count was proven: a fixture-GitHub request log showing zero added requests for either kind's **detection** and no per-issue or repository-wide follow-up read. (`FR-102`, `FR-103`) — **delivered 2026-10-09**
+
+**W3 — delivery into the run's own session**
+
+- [x] **F-5** — `src/follow-up.ts` (new) + `src/session.ts` (`PanelHost` gains `'prompt'` only): the delivery attempt — compose with the existing bounded excerpt renderer and frame builder, measure against the existing budget floor and refuse rather than truncate, check the current session and prompt directly when it is the target, otherwise record the navigation intent durably **before** `host.openSession`, then `host.prompt({ text, send: true })` into the run's recorded session. Serialized behind the relay's existing one-host-action-at-a-time gate; mount reconciliation extended to an unacknowledged delivery attempt. The follow-up arrives on the runs-history read the panel already performs (`GET /v1/events`): `RunHistoryRow`'s `followUps` member and `src/dispatches-service.ts`'s `RunRow` mirror, with the relay's next delivery read from there. No route added, and the claim's eligibility not widened — `claim.ts:234` refusing a session-carrying run is what stops the second disjoint session. (`FR-104`) — **delivered 2026-10-09**
+- [x] **F-6** — `src/follow-up.ts` + the panel's own record: the bounded retry on the existing ladder, then the park with its reason in the existing vocabulary — recorded durably in `mecha-turk:dispatches`'s `FollowUpDeliveryRecord` beside the run's session, rendered on the run row and in the panel's trail, excluded from automatic handling, returning only through an operator-initiated re-offer under duplicate protection. Assert no unbounded wait (a finite retry count, a cleared timer) and that the run document still parses. (`FR-105`) — **delivered 2026-10-09**
+
+**W4 — the end of tracking**
+
+- [x] **F-7** — the detection predicates + the audit row: the end machinery on the item's own observed terminal state (closed, merged, closed unmerged), recorded with the terminal fact and its date as one `tracking.ended` row; the session's outcome never ends it; a follow-up already queued still delivers. **Delivered as far as a list row can carry it — and that is the gap `F-9` closes**, because both list feeds are filtered `state=open` so a terminal row never arrives. (`FR-106`) — **delivered 2026-10-09; superseded in part by `F-9`**
+
+**W5 — the cross-surface proof and the gate**
+
+- [x] **F-8** — `tests/follow-up-lifecycle.test.ts`: every acceptance criterion (AC-048 – AC-052) and both success criteria (SC-015, SC-016), including the `100×`-replay / restart / remount / duplicate-report permutations producing one prompt; the text-free trail (a scan for the fixture comment's verbatim body across every row type the build can write); the zero-added-request proof for **detection**; and the seed asserted in both directions. The one deliberate pin edit (`tests/prose-budget.test.ts`'s `REDUCED.walkthrough`) was made and every other pre-existing suite stayed green untouched. `npm run verify` green, `npm run build` and both bundles committed with the wave. (`FR-100` – `FR-107`, AC-048 – AC-052, SC-015, SC-016) — **delivered 2026-10-09 / 2026-10-10**
+
+**W4b — the lazy terminal read (the amendment's second pass, 2026-10-10)**
+
+- [x] **F-9** — `service/poll/poller-github.ts` + `service/poll/poller-entries.ts` + `service/poll/follow-up.ts` + `service/poll/tracking.ts` + `service/poll/loop.ts`: **the one read FR-102 admits.** The catalogue gains two single-item endpoints — `GET /repos/{owner}/{repo}/issues/{issue_number}` and `GET /repos/{owner}/{repo}/pulls/{pull_number}` — each with a **one-object** reader (`readIssueEntry` / `readPullEntry` stay the page readers; the four terminal members are already on `PollIssue` / `PollPull` and their page readers already populate them, so the new readers take one object rather than one page). Issue it **only** for a tracked subject that produced at least one detected follow-up in that cycle, **before** that subject's follow-up is enqueued, at most **once per subject per cycle** however many follow-ups the subject produced, and route the terminal fact into the existing `trackedIssueEnds` / `trackedPullEnds` / `withoutEnded` machinery and the existing `tracking.ended` row. Neither list feed's `state=open` filter changes, no route is added, no run-row member is added, and the read inherits the shared 15-second abort, the shared rate-limit and backoff ladder, and the shared failure vocabulary (`poller-transport.ts`). A failed or unreadable read records **no** end and enqueues **no** follow-up for that subject: it fails the binding's scan with the class named, the checkpoint is **retained** rather than advanced, and the next cycle asks again. (`FR-102`'s one exception, `FR-106`, `NFR-003`; `research.md` §R12.5, §R14.10) — **delivered 2026-10-10** (`feat: observe the end of tracking through FR-106's lazy terminal read (issue #13)`)
+- [x] **F-10** — `tests/follow-up-lifecycle.test.ts`: **rewrite the terminal-state proofs against the source that exists.** The pre-`F-10` assertions injected `state: 'closed'` / `merged: true` into the **list** fixture (`:1070-1101`, `:1104-1139`, both as the suite then stood) — a shape the `state=open` list the scan calls never returns — so they passed while the capability was unreachable. Re-anchor them on the item's own endpoint fixture and assert the request log in **both** directions: exactly one single-item read per subject per cycle that detected a follow-up, zero for every other subject, zero on a cycle that detected nothing, and still exactly one where several comments arrived on one subject in one cycle. Add the fail-closed cases: a failed read, a body that is not the object, and a `state` word outside the known vocabulary each record no end, deliver no follow-up, fail the binding's scan with the class named, and retain the checkpoint; a **404** arrives as `auth-failed` and produces a stop, never a terminal fact. Replace the "ended subject opens the next ordinal" assertion (`:1213-1228`, also the pre-`F-10` position; the delivered one is at `:1449-1457`) with the reachable one it already encodes: ordinary detection still fires, the delivery joins the session-carrying run, the ordinal stays `[0]`, and nothing is delivered. (`FR-106`, `AC-049`, `AC-052`, `SC-016`) **This is this wave's own suite — `tests/prose-budget.test.ts` and `tests/current-project-default.test.ts` stay untouched.** — **delivered 2026-10-10**
+
+**W5b — the follow-up window walks (the amendment's third pass, 2026-10-10)**
+
+- [x] **F-11** — `service/poll/run-history-project.ts` + `service/routes/events-page.ts` + `service/routes/events.ts` + the panel's read (`src/dispatches-list.ts` / `src/follow-up.ts`): **one absentable query parameter, `followUpsFrom=<deliveryId>`, on the existing `GET /v1/events` read — no new operation.** The projection currently takes the **oldest twenty** queue rows delivered or not (`MAX_PROJECTED_FOLLOW_UPS`), and because the service holds no record of a delivery a delivered row is never pruned — so a run whose subject accumulates 21+ follow-ups delivers the first 20 and then **silently, permanently never delivers the 21st**. The parameter projects the run's follow-ups **at or after that delivery id** in detection order, up to the same bound; **absent, it projects from the start exactly as today**, so every existing caller reads what it always read. The panel — the only party holding the durable record of what it delivered (`mecha-turk:dispatches`'s `FollowUpDeliveryRecord`) — advances the parameter past the newest id it has delivered, and the three cheaper shapes remain unavailable and are recorded as such: the pagination boundary is a **run row's** `(detectedAt, id)`, so paging cannot express a position inside one row's follow-up list; raising the bound moves the wall; and the panel cannot prune service-side state without a route (FR-107). A value that is not a delivery id → `422 validation` (`field: 'followUpsFrom'`), never silently ignored. Conform `contracts/panel-service.md` §2.4 and the top note, 005's `contracts/dispatch-list.md` §1, and FR-104 / FR-107 in place — **no FR-108, no new operation, no new path, no new member, no state name**. (`FR-104`, `FR-107`; 005 `contracts/dispatch-list.md` §1) — **delivered 2026-10-10**
+
+### Items flagged at the Phase-4 gate for Wave 6
+
+1. **The follow-up's read is decided, not open.** It is **one additive member on the runs-history read**
+   the panel already performs (`GET /v1/events` → `RunHistoryRow.followUps`, mirrored in the panel's
+   `RunRow`), because that read already carries `RunHistoryRow.session` and the panel already polls it
+   (`src/dispatches.ts:51`). The alternatives were verified and rejected: `/v1/deliveries` has **zero
+   callers** in `src/` or `tests/`, so adopting it means a new panel reader, DTO, parser and poll; and
+   the claim route is *correctly* barred (`claim.ts:234` refuses a session-carrying run, which is what
+   stops the second disjoint session) so it is not a candidate at all. **F-5 must not add a route and
+   must not widen the claim's eligibility** (FR-104, `research.md` §R14.6).
+2. **The follow-up row's `kind` and `subjectType` are fixed, not inferred.** The row reuses the closed
+   `EventKind` union — `'mention'` for an issue comment, `'review'` for a head-SHA change, each naming
+   the feed the detection rides — and every follow-up row **MUST carry an explicit `subjectType`**
+   written from the tracked subject, never left to `subjectTypeOf`'s kind-based fallback
+   (`events-parse.ts:606-607`), which would misread a head follow-up on a tracked pull as an issue.
+   `subjectTypeOf` itself needs no change (FR-101, `research.md` §R14.9).
+2. **The parked reason's member name and home** — FR-105 fixes the *posture* (beside the session, the
+   existing vocabulary) and leaves the name to F-6. It must stay absentable and validated when
+   present, so a run written before this version parses unchanged.
+3. **A merged pull that leaves the `state=open` list** was recorded as *absent rather than observed
+   terminal* and accepted. **`F-9` closes it with the one read the amendment admits**, so this item is
+   superseded by the task above: the terminal state is read from the item's own single-object
+   endpoint, once per subject per cycle, only on a cycle that detected a follow-up for it
+   (FR-102's one exception, `research.md` §R12.5, §R14.10). No task may widen it into a per-subject
+   per-cycle read, and no task may relax either list's `state=open` filter.
+
+---
+## Requirement → task coverage (v1.16.0 block)
+
+Audited 2026-10-09 against the **final** numbering, re-audited the same day after the product
+owner's scope finding cut the amendment from 25 requirements to 8, and **re-audited 2026-10-10** after
+the second pass added the lazy terminal read. Every one of the eight new
+requirements has a task, and no task cites a requirement outside `FR-100` – `FR-107` except the amended
+ones each genuinely touches (`FR-030`, `FR-035`, `FR-036`, `FR-037`, `NFR-001`, `NFR-002`,
+**`NFR-003`**, `NFR-007`). **`NFR-003` gains a task at `F-9`: the amendment adds exactly one request,
+the terminal read.** *(The follow-up window's `followUpsFrom` — `F-11` — adds **no** request at all: it
+is a parameter on a read the panel already performs, so NFR-003's figure is unchanged by it, which is
+why it gets no row of its own here.)*
+
+| 002 v1.16.0 requirements | Owning task | Also asserted by |
+| --- | --- | --- |
+| **K.1** FR-100 (a follow-up joins the run that carries the session; no second run, no ordinal, no second session) | **F-1** | F-4, F-8 |
+| **K.1** FR-101 (the two `~followup~…` ids, collision-free, every existing id byte-identical) | **F-2** | F-4, F-8 |
+| **K.1** FR-030 *(am.)* — "never dispatched again" covers the second run | **F-1** | F-8 |
+| **K.2** FR-102 (both kinds ride feeds the scan already reads, zero added requests **for detection**; one head follow-up per cycle; the one bounded exception — FR-106's terminal read) | **F-4** (detection), **F-9** (the exception) | F-10 |
+| **K.3** FR-103 (the seed: established, read from the delivery row's own `headSha`, `null` never means changed) | **F-3** | F-4, F-8 |
+| **K.4** FR-104 (into the run's own session; no navigation when current; the intent before the call; the serialization; bounded delimited text; one policy clause; **the follow-up window and `followUpsFrom`**) | **F-5**, **F-11** | F-6, F-8 |
+| **K.4** FR-105 (bounded retry, then a park in the existing vocabulary, no unbounded wait) | **F-6** | F-8 |
+| **K.4** FR-037 *(am.)* — follow-up delivery obeys the same posture | **F-6** | — |
+| **K.4** NFR-001 *(am.)* — the two-leg latency bar | **F-8** | — |
+| **K.4** NFR-002 *(am.)* — one prompt per delivery id under every permutation | **F-8** | F-1 (101's dedupe) |
+| **K.4** NFR-003 *(am.)* — one added request, bounded to the terminal read | **F-9** | F-10 |
+| **K.5** FR-106 (the end is the item's terminal state, observed through the lazy terminal read, one-directional, then the subject is ordinary in the shipped coalescing rule) | **F-7**, **F-9** | F-10 |
+| **K.5** FR-035 *(am.)* — the audit trail carries the **two** writable tracking rows; the delivery outcomes live in the panel's own record | **F-7** | F-8 |
+| **K.5** FR-036 *(am.)* — health reports the waiting follow-ups as a queue | **F-8** | — |
+| **K.5** NFR-007 *(am.)* — the correlation chain continues through the follow-up | **F-7** | F-8 |
+| **K.5** FR-107 (no new operation, file, state, capability, or field; the one query parameter is additive and adds no operation) | **F-5**, **F-7**, **F-9**, **F-11** | F-8, F-10 (the closed-surface scans) |
+
+## Acceptance criterion → task coverage (v1.16.0 block)
+
+| 002 v1.16.0 criterion | Tasks |
+| --- | --- |
+| **AC-048** (no second run or session; deterministic collision-free ids; the dead-lettered case still ordinals) | F-1, F-2, F-8 |
+| **AC-049** (zero added requests for **detection** measured against the request log; the terminal read's own count measured in both directions; the seed asserted in both directions; an issue subject seeds nothing) | F-3, F-4, F-8, F-9, F-10 |
+| **AC-050** (the delivery action; zero `openSession` when current; the intent before the call; the serialization; the autonomous posture; **the `followUpsFrom` window walking, with the absent read byte-identical to the pre-parameter answer, and the over-budget arm proven as a guard**) | F-5, F-8, **F-11** |
+| **AC-051** (each failure class retries and parks; no unbounded wait; no new state name) | F-6, F-8 |
+| **AC-052** (the three terminal observations, each read from the item's own endpoint rather than a list row, end detection with the fact recorded; a session never ends it; an unreadable read is a recorded skip with the checkpoint retained; one read per subject per detected-follow-up cycle; a queued follow-up still delivers; an ended subject's detection joins the session-carrying run with the ordinal unchanged and nothing delivered) | F-7, F-9, F-10 |
+| **SC-015** (100% delivered into the original session; 0 second sessions; 0 second prompts under replay/restart/remount/duplicate) | F-1, F-5, F-8 |
+| **SC-016** (100% terminal-state ends with the fact recorded; 0 session-outcome ends; every undelivered follow-up explained; the never-read quiet item stated rather than hidden) | F-7, F-9, F-10 |
+
+## Items flagged at the Phase-4 gate for Wave 6
+
+**Nothing is open.** The one cross-document obligation the first draft carried — the conforming edit
+003 FR-011 needs, so 003's *"`dispatched` is terminal → new ordinal"* stops contradicting 002 FR-100 —
+was **made in this package at the product owner's direction of 2026-10-09** and is **kept as it
+stands**: 003 FR-011 is edited in place, 003's changelog carries the `### v1.12.0` entry, and 003's
+version stands at 1.12.0. No "superseded by" note is left in 003's body. Wave 6 depends on nothing the
+PM must schedule.
+
+The three residual readings a Gate-1 challenger may press, each already decided for planning with its
+rejected alternative recorded in plan §D.4, so an implementer cannot get any of them wrong:
+
+1. **Where the follow-up's bounded text reaches the panel** — decided: **one additive member,
+   `followUps`, on the runs-history read** the panel already polls (`GET /v1/events`), mirrored in the
+   panel's `RunRow`, with no route added (FR-104, FR-107; `research.md` §R14.6 records the evidence and
+   why the claim route and the dead `/v1/deliveries` route were both rejected).
+2. **Where a parked follow-up's reason rides** — decided: **beside** the run's session, in the existing
+   vocabulary, never in the run's state (FR-105, plan **K3**), because `runs-parse.ts:219` quarantines
+   a session-carrying run whose state is not `dispatched`.
+3. **What happens when the terminal state is never observed** — decided, and re-decided on 2026-10-10:
+   the first reading was *nothing, because a merged pull leaves the `state=open` list*. That reading was
+   true of the list feeds and it made FR-106 unreachable, so the owner replaced it with **the lazy
+   terminal read**: one single-item read of the item a detected follow-up names, at most once per
+   subject per cycle, before that subject's follow-up is enqueued (FR-102's one exception, FR-106,
+   plan **K6**, `research.md` §R12.5 and §R14.10). An item that concludes **quietly** — nobody
+   comments, nobody pushes — is still never read, and that is the one direction the read cannot
+   cover: it costs nothing further and produces nothing further, because nothing arrives to trigger a
+   read. **`F-9` and `F-10`.**
+
+---
 ## Wave graph, dependencies, and parallel structure
 
 ```
@@ -681,6 +950,39 @@ section above)
   reason: AC-045's safety property is an *absence*, and a scan written after the feature code proves the
   feature rather than the absence. Wave 5's own edges are the dependency table in its section rather than a
   duplicate list here.
+- **Wave 6 is a separate delivery from Waves 1–5** (all five delivered) and shares no open task, so its
+  file set is its own: `service/poll/{runs-join,events-write,events-parse,runs-types,runs-parse,loop,poller-entries,triggers,triggers-review,follow-up,tracking,poller-github,run-history-project}.ts`,
+  `src/{follow-up,session,relay,relay-attempt,ledger,dispatches-service,dispatches-detail}.ts`, and
+  `tests/follow-up-lifecycle.test.ts` (new). **`F-1` – `F-8` are delivered**; the second pass adds
+  **`F-9`** (the lazy terminal read — `poller-github.ts`'s two single-item endpoints, the one-object
+  readers, the read before the enqueue) and **`F-10`** (the terminal-state proofs re-anchored on the
+  object endpoint, plus the request-log assertions in both directions). Its spine is
+  `F-1 → F-4 → F-7 → F-9 → F-10`, and **`F-9 → F-10`** is a hard edge with a reason: a proof written
+  against a fixture shape the real endpoint never returns is what let an unreachable requirement look
+  delivered, and the second pass is the correction of exactly that.
+
+```
+Wave 6 (002 v1.16.0 — delivered F-1…F-8, second pass F-9/F-10 added 2026-10-10)
+
+  W1  F-1 [P] the join predicate  ∥  F-2 [P] the two discriminators  ∥  F-3 [P] the head-SHA seed
+        │
+        ▼
+  W2  F-4  the two detectors on the feeds the scan already reads   (zero added requests for detection)
+        │
+        ▼
+  W3  F-5  the delivery attempt  ──▶  F-6  the bounded retry and the park
+        │
+        ▼
+  W4  F-7  the end machinery and the `tracking.ended` row          (delivered — list-row reachable only)
+        │
+        ▼
+  W4b F-9  the lazy terminal read   (FR-102's one exception, FR-106)   ◄── the second pass
+        │
+        ▼
+  W5  F-10 the re-anchored proofs and the request log, both directions
+        └──▶  npm run verify  ──▶  both bundles  ──▶  bookkeeping
+```
+
 - **Strictly serial, and why**: `A-1 → A-5 → A-6/A-7` is one chain because attribution is only
   testable once the row carries it, and the row shape must exist before the detection code compiles
   against it. `B-1 → B-2 → B-3 → B-5` is one chain because the gate reads the run's references, the

@@ -1,6 +1,6 @@
-# Carry-forward: Normalized Event Contract v1 → v1.1 → v1.2
+# Carry-forward: Normalized Event Contract v1 → v1.1 → v1.2 → v1.3
 
-**Feature**: `specs/002-agent-event-extension` · **Date**: 2026-09-27 · **Amended**: 2026-10-03 for `schemaVersion 1.2` (the actor allow-list, GitHub issue #9); **amended again the same day at spec v1.12.0** — `actorAttribution`'s producer narrows to `'direct'` only and `subject-author` becomes readable-but-unproduced. **No member is added, removed, renamed, or retyped by either amendment.**
+**Feature**: `specs/002-agent-event-extension` · **Date**: 2026-09-27 · **Amended**: 2026-10-09 for `schemaVersion 1.3` (the follow-up discriminator family, GitHub issue #13 — **additive; no existing id, member, or path changes**) · 2026-10-03 for `schemaVersion 1.2` (the actor allow-list, GitHub issue #9); **amended again the same day at spec v1.12.0** — `actorAttribution`'s producer narrows to `'direct'` only and `subject-author` becomes readable-but-unproduced. **No member is added, removed, renamed, or retyped by any amendment.** The v1.3 addition is the id family alone: **a follow-up adds no row member whatsoever**, because its content is the row's existing bounded excerpt and its seed is an existing member (`QueuedEvent.headSha`).
 
 ## What carries forward unchanged
 
@@ -109,6 +109,22 @@ destroy the one fact a reader needs about it: which rule was in force when the r
 
 No v1 or v1.1 member changes shape, nothing is removed, and no wire path changes.
 
+## What 002 versions at `schemaVersion 1.3`: the follow-up discriminator family (additive, 2026-10-09)
+
+The `Delivery` record is v1.3 because 002 v1.16.0 adds a **role** to the existing record rather than a new kind of trigger: a **follow-up** is a delivery whose action is a prompt into an existing session (GitHub issue #13's *"how can it maintain follow up through the lifecycle?"*). **Its identity is the same `evt-` id with a new discriminator, and its row gains no member at all** — the text it carries is the row's existing bounded excerpt, and the head-SHA seed it needs is the row's existing `headSha`. **Every existing id is byte-identical, the base is unchanged, and no trigger row changes**.
+
+| Addition | Form | Requirement |
+| --- | --- | --- |
+| Timeline-comment discriminator | `~followup~<commentId>` | FR-101 — detected from the repository-wide issues-comments feed the scan already reads, linked by the row's `issue_url`, at zero added requests (FR-102) |
+| Head-SHA-change discriminator | `~followup~head~<sha>` | FR-101, FR-103 — detected from the pulls list the scan already reads by comparing `head.sha` against the seed; at most one per subject per cycle |
+
+**Four rules that travel with the addition:**
+
+1. **Collision-free by construction.** The discriminator's first segment is `followup`; no trigger discriminator (`mention`, `review`, or an assignment's absence) can produce it. A comment id is decimal and a SHA is hexadecimal, so the two forms can never be confused with each other either, and **each of the two new tails stays inside `[A-Za-z0-9._~]`** — one URL path segment, no route ambiguity. **The claim is of the tails and not of the id as a whole**, because the shipped writer's own shape is `evt-<owner>~<repo>~<issueNumber>~<accountNumericUserId>` and the `evt-` prefix already carries a hyphen outside that set. The same comment, or the same head, observed across cycles, the overlap window, a restart, a replay, and a remount dedupes to **one** delivery through the queue's **existing** delivery-id deduplication, which is the only suppression mechanism this amendment adds: none.
+2. **The actor rides the record and never the identity** (FR-046, unchanged): a follow-up's `actorLogin` is the row's own, `actorAttribution: 'direct'`, judged by the same author judgement every trigger kind uses.
+3. **A follow-up is not a trigger and not an authorization.** It enters the allow-list gate nowhere (003 v1.8.0 judges dispatch authorization), it is not a source reference on the run, and it grants no binding field a second membership comparison of its own.
+4. **`schemaVersion` is still not a stored member** (the rule 1.2 established, plan D1): the version is a contract version, no row gains one, and an older reader parses a v1.3 row with the follow-up discriminator present but unrecognized as a shape it refuses — which is why the family is *two new forms*, not a new member. `SERVICE_SCHEMA_VERSION` stays `1`.
+
 ## Dispatch attachment (how a Delivery becomes a session)
 
 Not part of the event schema, documented here so the chain is traceable (FR-005/FR-028):
@@ -125,3 +141,9 @@ host.startSession({
 ```
 
 Source text is wrapped in explicit delimiters with an untrusted-input preamble so it cannot alter policy, credentials, approval requirements, or tool scope (FR-028, constitution Security Standard 3).
+
+## Follow-up delivery (how a Delivery reaches an existing session)
+
+Not part of the event schema, documented here so the chain is traceable (FR-104, FR-105): a follow-up's message is composed with the same bounds and delimiters as a dispatch's — ≤4,000 characters per source item, ≤12,000 per follow-up, explicit delimiters, untrusted preamble, the run's correlation id — measured **before** any host call and refused rather than truncated when over budget (FR-104, the budget floor 004 FR-085 set). Delivery is `host.prompt({ text, send: true })` into the session the run's dispatch created, after `host.openSession(sessionId)` only when that session is not already the current one, with the intent to navigate recorded durably **before** the call. The panel is the only party that calls the host; the service holds no session address of its own beyond the run's.
+
+**The over-budget arm is a guard, not a reachable path.** The follow-up's frame is the *context's own* header — not a second frame stacked on a dispatch's — so the composed message is sized by the same bounded renderer against the same `CONTEXT_MAX_CHARS` budget, and a composition that shares that budget cannot exceed it. The measurement still runs before every host call and the refusal is still total; what the structure buys is that no shipped composition path can reach it, so the arm is a check on a divergence that would be a defect rather than an expected outcome.

@@ -699,3 +699,196 @@ No `onDirectory` anywhere — no directory subscription, and no recompute or dis
 ## C.10 Phase-6 task block for this amendment (pointer only)
 
 Wave 5 — 002 v1.14.0: the current-project default (GitHub issue #21), to be written in [`tasks.md`](./tasks.md) by Phase 5; **this record creates no task text and edits no task file**. The shape Phase 5 should expect: **W1** — the absence scans first (`J9`) [P] ∥ the derivation core and its unit tests (`currentProjectDefault`, `displayedProjectId`, `projectSelectionSource`, `recordHostDirectory`, `PanelState.hostDirectory`) [P]; **W2** — display wiring (`src/app.ts`, `src/panel-ui.ts`) ∥ add-form prefill (`src/bindings.ts`, `src/bindings-edit.ts`), parallel bands with disjoint file ownership, both dependent on W1; **W3** — the cross-surface suites (`tests/current-project-default.test.ts`: AC-044, AC-045's zero-write and absence scans, AC-047, SC-014; `tests/bindings-edit.test.ts` additions for AC-005), dependent on W2; **W4** — gate: `npm run verify` green, `panel/main.js` rebuilt and committed with the wave, `service/main.js` byte-unchanged, per-AC status recorded in the commit body with the `Generated-By` attribution. Suggested id series `E-*` (after `A-*` and `D-*`); the file-ownership and wave-boundary discipline mirror Wave 4's in [`tasks.md`](./tasks.md).
+
+---
+
+# Amendment record — 002 v1.16.0 (2026-10-09): the tracking lifecycle (GitHub issue #13)
+
+> **This section is the dated Phase-4 record for the tracking lifecycle**, written 2026-10-09 against `spec.md` **v1.16.0**. Everything above this line is the plan of 2026-09-27 plus the v1.11.0 (2026-10-03), v1.13.0/v1.13.1 (2026-10-05) and v1.14.0 (2026-10-06) amendment records and is retained as written; nothing above is re-cut.
+>
+> **This is the second draft of this record, rewritten down.** The first draft carried decisions `K1` – `K9`, a `tracking.json` store, three additive HTTP operations, a per-account tracking maximum and a policy-gate analysis. The product owner's scope finding of 2026-10-09 — *"I'm noticing a pattern of being additive to specs instead of rewriting them to match the new feature set"* — cut all of it. What survived was **five decisions**, numbered `K1` – `K5`, one per behaviour, plus the constitution alignment and the coverage table.
+>
+> **Amended 2026-10-10, same version, same eight requirements.** The implementation is committed and `npm run verify` is green, and review against the shipped code found that FR-106's end could not fire in production: both list feeds the scan reads are filtered `state=open` (`poller-github.ts:226,276`), so a concluded item *leaves* the list rather than arriving on it, and the green suite did not disprove it because its fixtures injected closed rows into a list the real endpoint never returns. The product owner's decision was **the lazy terminal check**, not a per-subject read per cycle. **Decision `K6`** records it, three requirements are amended in place (`FR-102` gains one bounded exception, `FR-106` gains a stated source and a fail-closed posture, `FR-101`'s alphabet claim is narrowed to the two new tails), `FR-035`'s audit clause is narrowed to the two rows that have a writer, `AC-052` is rewritten to the reachable behaviour, and `NFR-003` gains one clause. `FR-100` – `FR-107` keep their numbering. **Decisions are numbered `K1` … `K6`** and continue none of the earlier series. Nothing below is an open option pair. **No `tasks.md` content is written by this record** and no `spec.md` line is edited by this phase: the wave sketch is §D.9, Phase 5 owns `tasks.md`, and v1.16.0 is the draft text of record for Gate 1. **Draft for Gate 1.**
+
+## D.1 What this wave changes, and what it must not
+
+| Requirement | Builds | Where (module, not implementation) |
+| --- | --- | --- |
+| FR-100, FR-101 | the join predicate extended to a run that holds a recorded session, and the two `~followup~…` discriminators | `service/poll/runs-join.ts` (one predicate), `service/poll/events-write.ts` (the discriminator family), `service/poll/events-parse.ts` (the validator) |
+| FR-102, FR-103 | the two zero-request detections riding existing feeds (`issue_url`, `head.sha`) and the head-SHA seed | `service/poll/triggers.ts` / `triggers-assignment.ts` / `triggers-review.ts` (the predicates), `service/poll/poller-entries.ts` (the row readers) |
+| FR-104 | the delivery attempt: current-session check, gated navigation, the prompt, the durable intent record, the serialized loop | `src/relay.ts` (the delivery joins the tick), a new `src/follow-up.ts`, `src/session.ts` (`PanelHost` gains `'prompt'` only), `src/ledger.ts` (the intent entry) |
+| FR-105 | the bounded retry and the park, reusing the existing ladder and reason vocabulary | `src/follow-up.ts`, `service/poll/runs-transitions.ts` (no new transition — the reason rides beside the session) |
+| FR-106 | the end of tracking on the item's terminal state — observed through one lazy single-item read, and the return to ordinary detection | the terminal read beside the detectors (`poller-github.ts`'s catalogue, `poller-entries.ts`'s one-object reader), `tracking.ts`'s ends, the audit row |
+
+**Not in this wave**, stated plainly: any `package.json` change (no `version` bump — a release is the
+product owner's call, invariant 2; no manifest field, no capability — `prompt` is already declared,
+invariant 3); any `host.storage` key (none, invariant 4); any `ServiceConfig` field (FR-107); any new
+service route or contract file; any new persisted file — **follow-up state rides the run and the
+existing event queue**; any change to the evidence schema (`extension-spike-1`) or to any existing
+event id (invariant 10); any edit to `token-handoff.md`, `binding-allow-list.md`, or
+`binding-history-scope.md`; the GitHub Discussions surface, review comments, whole review
+submissions, and any other follow-up source outside FR-102's two kinds; **any terminal-state read per
+tracked subject per cycle** — the one read the wave adds is FR-106's, issued only when a follow-up has
+been detected for that subject, bounded to one object and one read per subject per cycle (FR-102's
+single exception); and any second authoritative
+copy of the new normative text — the specification, this record, `data-model.md`, and the two
+amended contracts each say their part once.
+
+## D.2 Technical context (delta — verified, not assumed)
+
+- **The GitHub objects were read from the REST API documentation on 2026-10-09** (`research.md`
+  §R12): the issue-comment object's **`issue_url`** and its `since`-filters-on-*updated*
+  behaviour; the pull-request object's `state` / `merged` / `merged_at` / **`head.sha`** and the
+  **absence of `state_reason`** on it; the issue object's `state` / `state_reason` / `closed_at`.
+  One of those facts is load-bearing for module choice: **`issue_url` and `head.sha` are on the rows the scan already reads**, which is why FR-102's **detection** costs zero requests and why NFR-003's figure is unchanged by it. The other is load-bearing for the opposite reason: **neither terminal fact is on a row the scan can see** — both list feeds are filtered `state=open`, and the pulls list's `Pull Request Simple` shape carries `merged_at` but no `merged`. That is what forces FR-106's one exception, and the two single-item endpoints that answer it are read and recorded in `research.md` §R12.5 with their response schemas rather than assumed.
+- **The host surface was read from the live Host API docs on 2026-10-09** (`research.md` §R13):
+  `prompt({ text, send? })` writes into or sends on the **current** session, `send: true` while busy
+  is `SESSION_BUSY` (and *writing into the box works while busy* — the reason a send is a
+  refused-if-busy action rather than a compose), no open session is `NO_SESSION`, the ready context
+  carries `session: { id, title, busy }`, and `openSession` is a navigation. `PanelHost`
+  (`src/session.ts:34-55`) is a `Pick<HostClient, …>` that already carries `openSession`, `onSession`,
+  and `onReady` — this wave adds **`'prompt'` and nothing else**.
+- **The panel survives its own navigation, by this repository's own precedent**: `verifySessionAgent`
+  (`src/agent-verify.ts:249-279`) subscribes `onSession`, calls `openSession`, and resolves on the
+  matching snapshot inside one bounded budget. What is **not** documented — how long the panel
+  survives — is why the intent to navigate is recorded durably **before** the call and why a delivery
+  whose result never lands is an operator-resolved question rather than an automatic re-send.
+- **The join predicate is one line, and the defect is two**: `runs-join.ts:350` (**pre-amendment**; the shipped two-arm predicate is at `:449`) joins only
+  `!isTerminalRun(run)`; `runs-document.ts:153-155` makes `dispatched` terminal. FR-100 is the fix
+  (`run.session !== null` extends the join), and the pre-amendment behaviour is pinned as the
+  failing test case rather than described (`research.md` §R14.1).
+- **Four shipped transitions and one parser gate decide where a park can ride** (`research.md`
+  §R14.2): `parkRun` refuses a run carrying a session (`runs-transitions.ts:149`), `wedgeUnconfirmed`
+  requires `session === null` (`:180`), `expireLease` refuses a session-carrying run (`:118`), and
+  `sessionHistoryHolds` quarantines any run holding a session whose state is not `dispatched`
+  (`runs-parse.ts:219-221`). So the parked reason rides **beside** the run's session, never in its
+  state — which is why FR-105 mints no new state name.
+- **Two test pins were re-examined, and only one moves** (`research.md` §R14.4):
+  `tests/current-project-default.test.ts`'s `CONTRACT_FILES` and `ROUTE_PATHS` are **restored** by
+  this rewrite rather than amended — no route and no contract file is added, and deleting the first
+  draft's `follow-up-lifecycle.md` puts the directory listing back inside its six-file enumeration.
+  `tests/prose-budget.test.ts`'s `REDUCED.walkthrough` still moves, by the number of prose lines
+  §10 keeps; the first draft took the walkthrough from 73 to 98 and this rewrite cuts it back toward
+  that. **That one constant edit is the only pre-existing suite change this wave needs.**
+
+## D.3 Module map delta
+
+| Module | Change | Requirements |
+| --- | --- | --- |
+| `service/poll/runs-join.ts` | the join predicate extended: join the subject's run when it is non-terminal (003 FR-011, unchanged) **or** satisfies FR-100's **recorded-session predicate** (`run.session !== null`); a `dead-lettered` run (no session) still opens the next ordinal | FR-100, FR-030 |
+| `service/poll/events-write.ts` | the two follow-up discriminators (`~followup~<commentId>`, `~followup~head~<sha>`); **no new row member** | FR-101 |
+| `service/poll/events-parse.ts` | the discriminator validated on the existing union; a present value outside it refuses the row | FR-101, FR-024 |
+| `service/poll/poller-entries.ts` | the two detection predicates' row readers (`issue_url` path parse, `head.sha`) **plus the one-object terminal readers** — the four terminal members are already on `PollIssue` / `PollPull` and the two readers already populate them; what is added is a reader for one object rather than one page (`research.md` §R14.10 item 4) | FR-102, FR-106 |
+| `service/poll/poller-github.ts` | the catalogue gains **two single-item endpoints** — `GET …/issues/{number}` and `GET …/pulls/{number}` — issued by the terminal read and nothing else; both list feeds' `state=open` filters are **untouched** | FR-106 |
+| `service/poll/tracking.ts` | already carries `trackedIssueEnds` / `trackedPullEnds` / `withoutEnded` and the `TrackingEnd` shape; the read's ends feed the same machinery, and the read is issued **before** the subject's follow-up is enqueued | FR-106 |
+| `service/poll/loop.ts` / `scan.ts` | the establishing cycle seeds the run's head SHA from the delivery row it already holds | FR-103 |
+| `service/poll/runs-types.ts` / `runs-parse.ts` | one absentable member on the run row (the head-SHA seed), validated when present, absent meaning *no seed recorded* | FR-103 |
+| `src/follow-up.ts` **(new)** | the delivery attempt: compose + measure → current-session check → (gated navigation) → `prompt` → durable record; never throws | FR-104, FR-105 |
+| `src/session.ts` | `PanelHost` gains `'prompt'` — the one new host call site, the already-declared capability | FR-104, FR-107 |
+| `src/ledger.ts` | the navigation-intent entry, appended and persisted **before** the `openSession` call | FR-104 |
+| `src/relay.ts` | the delivery joins the existing tick, behind the same serialization as a dispatch attempt; mount reconciliation extended to an unacknowledged delivery attempt | FR-104 |
+| `src/context-blocks.ts`, `src/session.ts`, `src/relay-attempt.ts` | **unchanged** — the bounded excerpt renderer, the frame builder and the budget floor are reused as they are | FR-104 |
+| tests | new `tests/follow-up-lifecycle.test.ts` (service + panel + fake host); **one deliberate edit** to `tests/prose-budget.test.ts` (`REDUCED.walkthrough`); the request-count proof that a cycle adds nothing | AC-048 – AC-052, SC-015, SC-016 |
+
+## D.4 Key decisions — the tracking lifecycle (added 2026-10-09; rewritten down 2026-10-09)
+
+| # | Decision | Rationale | Rejected alternative |
+| --- | --- | --- | --- |
+| **K1** | **The correction is one predicate, not a second code path.** `runs-join.ts`'s join gains "or holds a recorded session"; nothing else in the enqueue pass changes. | The defect is the join's `!isTerminalRun` arm, so the fix belongs in that arm and nowhere else: a follow-up then rides the same two-write chain, the same `run.coalesced` audit row, and the same link map a joining trigger already rides — one coalescing rule, not two. The dead-lettered-no-session case is named explicitly so "join everything terminal" cannot be the reading. | A separate follow-up branch before the join (two coalescing rules that can disagree, the exact shape FR-023's one-rescan-mechanism clause exists to prevent); patching the ordinal counter instead (hides the join, leaves the second dispatch reachable) |
+| **K2** | **Two detection kinds, both from feeds the scan already reads, and the head-SHA seed is the establishing delivery row's own `headSha`.** | `issue_url` and `head.sha` are on rows the scan already reads, so the cheapest correct implementation adds no request for detection — and the zero-cost claim is now written as a claim about **detection only**, with the one admitted read named in its own clause (FR-102) and its cost carried once in NFR-003. The seed's source is an existing row member reached through the existing event queue, so there is no new file and no new run-document member beyond the one that holds the seed. | A per-issue comments read (one request per tracked subject per cycle for content the existing feed carries); **a terminal-state read per tracked subject per cycle** — the first draft's own shape, cut by the owner on 2026-10-09, replaced by the lazy read K6 describes; keying identity on `updated_at` (an edited comment re-enters the window — `since` filters on *updated*) |
+| **K6** *(added 2026-10-09, second draft)* | **The terminal read is lazy: one single-item read, issued only when a follow-up has been detected for that subject.** | Neither terminal fact is observable from a feed the scan reads — both list feeds are filtered `state=open` and the pulls list's `Pull Request Simple` shape has no `merged` member at all (`research.md` §R12.2, §R12.5) — so FR-106's end could not fire in production as first drafted, and a green suite did not disprove it because the fixtures injected closed rows into a list the real endpoint never returns (`research.md` §R14.10 item 8). The read is `GET …/issues/{number}` for an issue and `GET …/pulls/{number}` for a pull, one object, issued **before** the subject's follow-up is enqueued so a terminal answer drops the row rather than retracting one. Its cost scales with **detections**, not with tracked subjects, which is the whole difference from the rejected per-subject-per-cycle shape and is what keeps NFR-003's figure standing with one request added. | A per-subject read per cycle (a request for every tracked subject every cycle, cut); relaxing either list's `state=open` to `all` (changes the scan for every trigger and makes the whole zero-cost claim false); `GET …/pulls/{number}/merge`'s 204/404 answer (reports *merged* only, cannot distinguish closed-unmerged, and its 404 is the shared `auth-failed` class); a persisted "ended" flag (FR-107 forbids the member, and the read re-answers anyway — an ended subject is re-read only when something actually arrives on it) |
+| **K3** | **The park reuses the existing vocabulary, and the reason rides beside the session.** | Four shipped transitions and the run parser's own session gate make a non-`dispatched` state on a session-carrying run unreadable, so the follow-up's parked reason cannot be a run state. It rides beside the session in the reason words the run already carries, which is what makes "no new state name" true rather than aspirational. | A new follow-up state on the run row (quarantines the run document — `runs-parse.ts:219`); a separate queue file for follow-up state (the first draft's `tracking.json`; no code premise makes the run document unable to hold it) |
+| **K4** | **Delivery is `prompt` into the recorded session, with the navigation's intent written before the call, judged exactly as a dispatch is.** | `host.prompt` addresses the current session and `host.openSession` is a navigation that closes the panel — a user-visible side effect the product must own, so the intent is durable before it fires (constitution IV). The serialization is the relay's existing one-host-action-at-a-time gate. The authorization position is one clause: judged exactly as `start_work` is judged under FR-027, FR-027's own text untouched. The composition is `context-blocks.ts`'s bounded, delimiter-defused renderer with the existing budget floor. | A fresh session with carried context (the issue's whole point is that the agent keeps what it learned); a queue-until-free wait (constitution VII — the host owns session scheduling); a per-follow-up approval gate (the owner settled the treaty; FR-027 is not re-litigated) |
+| **K5** | **The end is the item's terminal state, one-directional, and afterwards the subject is ordinary again.** | The issue's own words: *"continue the work item until a natural conclusion (PR merged, Issue Closed, etc)."* The session's outcome is reported as it is today and never drives detection. The end stops new detection only, so a follow-up already queued still delivers — the honest reading of "continue until a natural conclusion". **"Ordinary again" means the shipped coalescing rule, not a new ordinal**: a run carrying a recorded session can never lose it (`runs-parse.ts:219-221`, and FR-100 and FR-105 mint nothing that could un-join one), so post-end activity joins the session-carrying run, meets the terminal read again, and produces nothing. | Ending on the session's outcome (an item that merges would wait for a session that may never finish; a session that dies would abandon a live item); withdrawing queued follow-ups on a terminal read (loses real discussion); reading an unreadable terminal answer as open (delivers follow-ups for concluded items forever) or as closed (ends tracking on a guess) |
+
+## D.5 Constitution alignment (v1.3.0) — re-read for this amendment
+
+| Principle / gate | How this wave satisfies it |
+| --- | --- |
+| **I. Polling-first, contract-first** | Every detection is an outbound read of a documented endpoint the scan **already performs**; the one added read is FR-106's single-item terminal read of an endpoint GitHub documents, one object per subject per detected-follow-up cycle, through the same transport, the same 15-second abort, the same failure vocabulary, and the same per-account budget as every other read. No new wire surface, no new endpoint family, no webhook, no push, no inbound listener. The wire additions are additive within `/v1` and the event contract versions additively (invariant 10) — the base and every existing event id byte-identical. |
+| **II. Safe autonomy by default** | Follow-up delivery is judged **exactly as `start_work` is judged under FR-027** — autonomous by default — with one clause in FR-104 and FR-027's own text untouched. No follow-up is delivered into a session the product did not dispatch, no follow-up starts a session, and a parked follow-up is excluded from automatic handling until an operator re-offers it. |
+| **III. Durable and idempotent work** | At-most-once is structural, not probabilistic: the deterministic delivery id dedupes the observation at the queue (the existing `enqueueEvents` dedupe), and the panel's own durable record of a completed attempt is what stops a remount from sending again. The run is the durable handle, the seed is durable, and a restart re-establishes nothing that was not recorded. |
+| **IV. Human-visible auditability** | Two service-written audit row types cover the observation and the conclusion; the delivery outcomes live in the panel's own durable record (`mecha-turk:dispatches`'s `FollowUpDeliveryRecord`), which is the same document that already carries a dispatch attempt's own outcome and which no route could have written into the service trail anyway — `/v1/audit` is GET-only and FR-104/FR-107 forbid adding a route. The navigation's intent is written **before** it fires, so the operator can explain why their view moved; the park reasons are the existing vocabulary rendered on the run row; no row carries the follow-up's text (fingerprint, length, counts); an unreadable terminal read is a recorded skip rather than a silent one; and the health surface reports the waiting follow-ups as a queue rather than as delivered work. |
+| **V. Minimal, self-hosted deployment** | No new process, dependency, capability, permission, manifest field, configuration field, storage key, or persisted file. One new service-side read path (two documented endpoints the catalogue did not already shape), one new panel module, and one new host call (`prompt`, an already-declared capability). |
+| **VI. Specification and verification before implementation** | §R12 – §R14 were read before a requirement was written: the GitHub objects from the REST API documentation, the host surface from the live docs plus this repository's own `agent-verify` precedent, and this codebase's join predicate, park gates, and claim eligibility from the source. Every decision in §D.4 names the test that makes it binary. |
+| **VII. Thin orchestration boundary** | The load-bearing constraint of this wave. Delivery is `host.prompt` into a session the host is showing; a busy session is a bounded retry that parks, never an unbounded wait (the host owns session scheduling); the service holds no host bridge and addresses no session; the follow-up starts no session and reimplements nothing the harness owns. |
+| **Quality gates** | Strict TS, zero suppressions, zero `any` (invariant 7) — the seed member and the discriminator are validated by the existing parsers, and every host call is behind the existing try/catch discipline; offline deterministic suites only (`tests/support/`'s fake host and fixture GitHub); `npm run verify` at the wave boundary; **both bundles rebuilt and committed with the wave** (invariant 1 — `src/` moves, so the panel bundle does too). |
+
+**`AGENTS.md`'s ten invariants, one line each.**
+
+1. **Committed bundles ship** — the wave ends with `npm run build` and **both** rebuilt bundles (`panel/main.js`; the service bundle only if a `service/` file moves) in the same commit.
+2. **One document, two roles** — no `version` bump; `0.1.2` stands (a release is the product owner's call).
+3. **Capabilities** — untouched: `capabilities[]` stays `["sessions","prompt"]` (the wave's first `prompt` call uses an already-approved capability), `contributes.service` gains no `permissions`.
+4. **Kebab-case identity** — untouched: no storage key added, renamed, or read anew; the delivery address is the run's own session id, not `host.storage`.
+5. **`SERVICE_VERSION`** — untouched, still pinned by `tests/service-server.test.ts`.
+6. **SDK pinned exactly** — untouched; `prompt` and `openSession` are documented on the pinned surface (`research.md` §R13), so no re-pin is implied.
+7. **Scoped suppressions, zero `any`** — none is planned; the new member is validated by the existing parser pattern.
+8. **Fail closed** — the run parser's session gate, the seed's "absent means *no seed recorded*, never *the head changed*" rule, the park's exclusion from automatic handling, and the terminal read's "unreadable is neither open nor closed — a recorded skip with the checkpoint retained" rule are this invariant's four instances.
+9. **Secrets never leave the service store** — no credential is read, written, or rendered; the follow-up's text is untrusted source with the dispatch excerpt's handling and no second home.
+10. **`extension-spike-1` is a wire contract** — untouched: the evidence schema and every existing event id are byte-identical; the `~followup~…` family is collision-free by construction and changes no existing id.
+
+## D.6 Requirement → module / test coverage
+
+| Requirement | Modules | Tests (suite → assertion) |
+| --- | --- | --- |
+| FR-100 no second run | `runs-join.ts` | `follow-up-lifecycle.test.ts` → the pre-amendment behaviour pinned as the failing case, then the join over FR-100's **recorded-session predicate** (`run.session !== null`); a `dead-lettered` run still ordinals |
+| FR-101 identity | `events-write.ts`, `events-parse.ts` | `follow-up-lifecycle.test.ts` → the two id shapes byte-identical across cycles/overlap/restart/replay; no collision with any trigger id; the base and `~mention~…` / `~review` byte-identical to before |
+| FR-102, FR-103 detection and seed | `triggers*.ts`, `poller-entries.ts`, `loop.ts` | `follow-up-lifecycle.test.ts` → the fixture GitHub's request log: **zero** added requests for either kind's **detection**, measured against the feeds the mention and review triggers already read; no per-issue or repository-wide follow-up read anywhere; the seed asserted in both directions (a `review`-origin row seeds and the establishing cycle emits nothing; a `null` seed compares nothing, records the observed SHA, and emits one on the next change; an issue subject seeds nothing) |
+| FR-104 delivery | `src/follow-up.ts`, `src/session.ts`, `src/relay.ts`, `src/ledger.ts` | `follow-up-lifecycle.test.ts` (fake host) → the call log: `prompt` into the recorded session, no `startSession` for a follow-up, the composed bounds; zero `openSession` when the target is current; the intent entry persisted **before** the call the fake host logs; no delivery during an in-flight dispatch attempt |
+| FR-105 parks | `src/follow-up.ts` | `follow-up-lifecycle.test.ts` → each failure class retries within the declared bound and parks with its reason; an unbounded wait is asserted absent (the retry count is finite); the run row and the trail both name the reason |
+| FR-106 the end | `poller-github.ts` (the two single-item endpoints), `poller-entries.ts` (the one-object readers), `follow-up.ts` (the read, before the enqueue), `tracking.ts`, `runs-audit.ts` | `follow-up-lifecycle.test.ts` → each terminal fact is read from the item's own endpoint, **not** from a list row, and the request log is asserted in both directions: one single-item read per subject per cycle that detected a follow-up, **zero** for every other subject, **zero** on a cycle that detected nothing, and still exactly one where several comments arrived on one subject; the three terminal facts end detection with the fact and date recorded; a completed or failed session ends it in zero cases; a **failed or unreadable** read records no end, delivers no follow-up, fails the binding's scan with the class named and its checkpoint **retained**, and is re-asked next cycle; a queued follow-up still delivers; and an ended subject's next detection joins the session-carrying run with the ordinal still `[0]` and nothing delivered |
+| The one deliberate pin edit | `tests/prose-budget.test.ts` | the wave's own assertion: the edit is the **only** pre-existing suite touched, stated in the commit body and verified by the untouched-green set around it |
+
+## D.7 Risks and mitigations (this amendment only)
+
+| Risk | Mitigation |
+| --- | --- |
+| The panel is unmounted between `openSession` and `prompt`, so the follow-up is never sent | The intent to navigate is recorded durably **before** the call (FR-104) and the outcome is an operator-resolved question rather than an automatic re-send. The failure direction is a missing follow-up the operator confirms, never a duplicate one |
+| The navigation steals the operator's focus mid-work, unattended | K4's three clauses: no navigation when the target is already current; the intent is written before it fires; the delivery is serialized behind dispatch attempts. The waiting count is reported as a queue in health rather than masked |
+| A comment flood on a busy tracked subject produces a delivery storm | The join coalesces into **one** run (FR-100), each observation is one delivery at its own deterministic id, and delivery is one-per-attempt through the serialized relay — the burst is bounded by the observation rate and the panel's own tick, not by a queue the host never sees |
+| A merged pull leaves the `state=open` list, so its terminal state is never observed from a list row | **True, and it is why the terminal read exists.** Neither list feed can report a terminal state at all, so FR-106's end is read from the item's own single-object endpoint, one read per subject per cycle **in which a follow-up was detected for that subject** — the cost scales with detections, not with tracked subjects, and a quiet repository spends nothing (`research.md` §R12.5, §R14.10) |
+| The head-SHA seed is missing on a run dispatched before this version | FR-103(b): absent means *no seed recorded*, so the establishing cycle compares nothing, emits nothing, and records the observed SHA. A run written before the amendment behaves exactly as a `null`-seed run does, with no migration |
+| A fixture that models a shape GitHub never returns proves nothing, and had already happened | The suite as it stood before `F-10` rewrote it injected `state: 'closed'` into the **list** fixture to prove the end (`tests/follow-up-lifecycle.test.ts:1070-1101`, `:1104-1139`) — a row the `state=open` list never produces; the delivered proofs read the item's own endpoint at `:1261-1302` (issue) and `:1304-1355` (pull). The proof is therefore rewritten against the **object** endpoint and the request log, not against the list shape, and the second-draft tasks state that explicitly (`research.md` §R14.10 item 8) |
+| The one test-pin edit hides a real surface change | It is named in the task list and the commit body with its reason (one FR-042 documentation section), and every other pre-existing suite must stay green untouched — the wave's exhaustive-edit claim is itself asserted (`research.md` §R14.4) |
+| The terminal read becomes the expensive part of a cycle | It cannot: it is issued only for a subject that produced a detected follow-up in that cycle, at most once per subject, one object with no page walk, and it inherits the shared 15-second abort and the shared rate-limit and backoff posture. The worst case is one read per active follow-up per cycle, which is a fraction of NFR-003's headroom, and it is charged to the same per-account budget as every other request |
+| `PanelHost` gaining `'prompt'` quietly widens the panel's host surface | It is the one new call site, using an already-declared capability, added to a `Pick` whose own comment says adding a method is a deliberate act; the wave's absence scans assert the rest of the surface is unchanged (invariant 3) |
+
+## D.8 Out-of-scope guard (checked at every task)
+
+No GitHub write of any kind (FR-031). No second session for a tracked subject, and no mechanism that
+addresses a session by id in the background (FR-104, `## Out of Scope`). No unbounded wait for a busy
+session (FR-105). **No new read except FR-106's terminal read** — no per-issue comments read, no
+repository-wide read of any follow-up surface, no terminal-state read per tracked subject per cycle
+(FR-102, `research.md` §R12.4), and no review-comment or review read. No new `ServiceConfig` field,
+`host.storage` key, manifest field, capability, route, or persisted file (FR-107). No member added to
+the run row beyond the head-SHA seed, and no new run state (FR-103, FR-105). No Discussions surface, no
+per-follow-up approval gate, no tracking-set cap — each named in `## Out of Scope`. No follow-up text
+in any trail row (FR-104). No `package.json` change (invariant 2), no key rename (invariant 4), no
+event-id or evidence-schema change (invariant 10). No
+`spec.md` edit by this phase: v1.16.0 is the draft text of record for Gate 1. No `specs/NNN-*/`
+directory — this is an amendment to 002.
+
+## D.9 Phase-6 task block for this amendment (pointer only)
+
+Wave 6 — 002 v1.16.0: the tracking lifecycle (GitHub issue #13), to be written in
+[`tasks.md`](./tasks.md) by Phase 5; **this record creates no task text and edits no task file**. The
+shape Phase 5 should expect, in dependency order: **W1** — the correction and its identity first
+(`runs-join.ts`'s predicate with the pre-amendment case pinned as the failing test, `events-write.ts`'s
+discriminators, `events-parse.ts`'s validators) [P] ∥ the head-SHA seed's absentable member and its
+reader (`runs-types.ts`, `runs-parse.ts`, the establishing cycle in `loop.ts`) [P]; **W2** — the two
+detection predicates and their row readers on the feeds the scan already reads, with the
+zero-added-request proof for **detection**; **W3** — the panel's delivery attempt (`src/follow-up.ts`,
+`PanelHost`'s `'prompt'`, the ledger's intent entry, the relay's serialized claim and mount reconciliation) and the
+park's reason besidethe session, dependent on W1; **W4** — the end of tracking: the lazy terminal read
+(`poller-github.ts`'s two single-item endpoints, `poller-entries.ts`'s one-object readers, the read
+issued **before** the subject's follow-up is enqueued, at most once per subject per cycle and only on a
+cycle that detected a follow-up for it), the ends feeding `tracking.ts`'s existing machinery, the
+`tracking.ended` row, and the reachable return-to-ordinary behaviour; **W5** — the cross-surface proof
+(`tests/follow-up-lifecycle.test.ts`: AC-048 – AC-052, the request-count proof in **both** directions,
+the at-most-once permutations, the text-free trail) plus
+the **one deliberate pin edit**, then the gate: `npm run verify` green, both bundles rebuilt and
+committed with the wave, per-AC status in the commit body with the `Generated-By` attribution; **W6** —
+the documentation surface this feature owns: `quickstart.md` §10 (FR-042's repo half — **the site's
+`use.astro` entry is out of this wave**, cut with the first draft's documentation task). Suggested id
+series `F-*` (after `A-*`, `D-*`, `E-*`); the file-ownership and wave-boundary discipline mirror
+Waves 4 and 5's in the earlier records.

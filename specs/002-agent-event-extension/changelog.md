@@ -578,31 +578,74 @@ corrected to match both, with the corrections dated in place.
 - **Provenance copy is a closed string.** `(current project — not saved as a pick)` joins the existing two sources, and the derived line may never say *panel picker*. *Rejected: reusing the panel-picker wording* — it would state that a human picked what the machine derived, which is exactly what constitution IV and NFR-011's *no surface may state more than the provenance holds* forbid.
 - **Clicking the displayed default stores nothing, and that is accepted.** The SDK select skips `onChange` when a click matches the displayed value — the constraint `src/panel-ui.ts`'s `refreshProjectPicker` comment records — so pinning by clicking is impossible without a new control or a synthetic write. *Rejected: a Pin control, and any mount-time or change-adjacent write* — both manufacture a "human pick" for a key defined to hold only what a human picked; an operator who wants it stored picks another project and then the desired one, which is an ordinary explicit pick. The default therefore re-derives every load until any explicit pick stores one, and the edge case is specified (FR-099) rather than left for an implementer to discover.
 - **"The same resolved value the panel picker shows" is read as the control's displayed value.** The owner's fifth decision and the fail-closed rule only hold together under that reading: in the binding-context fallback the picker's control displays nothing (today's behaviour, which the fail-closed rule freezes), so the add form opens empty there too, and the two controls agree in **every** state. *Rejected: preselecting the binding-context project into the draft* — the add form would then show a value the picker's control does not, disagreeing in exactly the state the fallback governs, and a new binding would be seeded with a value no picker displayed.
+**003's contradiction is fixed, not noted.** 003 FR-011 said a run is *open* until it is terminal and
+that `dispatched` is terminal, so a new delivery opens the next ordinal; 002 FR-100 says a delivery on a
+run that holds a recorded session joins that run instead. The first draft of this entry recorded the
+conforming edit 003 owes as a deferred cross-document obligation, following the v1.2.0
+supersession-index pattern; **the product owner directed on 2026-10-09 that it be made in this package**,
+so it is, and **the second draft keeps it exactly as made**: 003 FR-011 is edited in place — its
+`dispatched` arm narrowed to *a run that carries no recorded session* — 003's changelog carries the
+`### v1.12.0` entry, and 003's version stands at 1.12.0, with **no "superseded by" note left in 003's
+body** (the triage rule, applied to another document's text). 003's SourceReference union gains no member
+and its gate gains no input: a follow-up is not a source reference and not an authorization event
+(FR-100, FR-104).
 
-**Requirement-by-requirement record**:
+**Principles reviewed, unchanged in substance**. Principle II (safe autonomy) is why the navigation is
+judged exactly as `start_work` is judged — autonomous by default, one clause, FR-027's own text
+untouched — so no future reader can take the mirror as either a weakening of FR-027 or an unbuilt
+promise. Principle III (durable and idempotent) is the at-most-once property and the two edges that make
+it structural rather than probabilistic: the deterministic delivery id and the panel's own durable
+record of a completed attempt. Principle IV (human-visible auditability) is why every state change has a
+row, why the navigation's intent is written before it fires, and why no row carries the follow-up's text.
+Principle VII (thin orchestration boundary) is the load-bearing constraint of this amendment: the host
+owns sessions and their scheduling, so delivery is `prompt` into a session the host is showing, a busy
+session is a bounded retry that parks rather than an unbounded wait, and no mechanism addresses a session
+by id in the background. Principle VI (specification and verification) is why §R12 – §R14 exist before
+any requirement does — and why the run row's own session gate became FR-105's "no new state name" rule
+rather than an implementation surprise. **No principle is weakened by this amendment.**
 
-| 002 v1.13.3 requirement | Effect of v1.14.0 | Status | Authoritative text |
-| --- | --- | --- | --- |
-| **FR-013** — the add sequence: account → project from the `listProjects()` picker → triggers → history scope | The project step gains that it **may arrive pre-filled** — with the operator's stored pick or with the current-project default — keepable by saving and changeable by an ordinary pick, storing nothing and never displacing an existing choice | **Amended** | 002 FR-013 |
-| **AC-005** — the add-flow sequence, `project_missing`, no project creation | Gains the pre-fill case (stored pick or default), the nothing-resolving case, and the edit-mode-never-receives-it clause | **Amended** | 002 AC-005 |
-| **FR-095** *(new)* | Resolution order (stored → derived → binding context → none), with the resolution/display split — the detail line and *Copy project id* take the order, a control displays only terms (1) and (2) (FR-097) — exact-match derivation from the load/refresh snapshot, load-time only with no directory subscription | **Added** | 002 FR-095 |
-| **FR-096** *(new)* | Never stored; the fail-closed set including the ambiguous directory; no storage key, wire member, route, manifest field, capability, or host call | **Added** | 002 FR-096 |
-| **FR-097** *(new)* | Both dropdowns, one rule — **the value the picker's control displays** — add mode only, the binding-context term never preselected, edit mode untouched, an untouched save writing the binding's own `projectId` | **Added** | 002 FR-097 |
-| **FR-098** *(new)* | The detail line's closed four-string vocabulary, with the new derived string, chosen by the term of FR-095's order that produced the value — a derived id never renders the binding string | **Added** | 002 FR-098 |
-| **FR-099** *(new)* | The click on the displayed default changes nothing, by decision; no Pin control, no synthetic write | **Added** | 002 FR-099 |
-| **AC-044 – AC-047** *(new)* | Four binary criteria: resolution and dropdown agreement, with *Copy project id* mirroring the detail line; load-time-only plus never-stored plus byte-identical surface; the fail-closed set; the closed copy — including the derived-vs-binding label when both are in force — and the click case | **Added** | 002 AC-044 – AC-047 |
+**Requirements explicitly unchanged**: the trigger set (FR-015, FR-016), the actor model and its closed
+union (FR-043 – FR-052), the history scope's window rule (FR-053 – FR-094 — the tracking lifecycle
+re-reads no history and widens no window), the current-project default (FR-095 – FR-099), the
+read-only-to-GitHub posture (FR-031), the credential custody and redaction rules (FR-006 – FR-012), the
+manifest's capability set (FR-011, FR-041), **FR-027 in full**, and every contract path, method, and
+error code's meaning. No `host.storage` key is added, renamed, or read anew; no configuration field is
+added; the evidence schema `extension-spike-1` and every existing event id are byte-identical (invariant
+10).
 
-**Principles reviewed, unchanged in substance**: Principle II (safe autonomy) supplies the fail-closed rule for an unmatchable or ambiguous directory — a directory the panel cannot resolve is a stop condition for the derivation, never permission to guess a project. Principle IV (human-visible auditability) supplies both the never-store rule and FR-098's closed wording: a surface must not present a derived value as an operator choice. Principle VI (specification and verification) is why the premise was verified against the pinned SDK before a requirement was written (§R11) and why every clause above carries a binary criterion. Principle VII (thin orchestration boundary) is satisfied rather than strained: the default reads two facts the panel already receives and adds no host call, no capability, and no service surface; OpenChamber still owns projects. **No principle is weakened by this amendment.**
+**Migration impact**: none for any deployed system, and this is worth stating precisely because this is
+the implemented document. **No run, delivery, audit row, checkpoint, binding, account, or
+`host.storage` entry is quarantined, discarded, reset, or rewritten.** A run dispatched before this
+version needs none: its establishing cycle seeds the head SHA from the delivery row the run already
+points at — or from `null`, which means *compare nothing this cycle* — and comments already inside the
+scan window's overlap are detected on that same cycle (FR-103). The runs document gains one **absentable**
+member, so a run written before the amendment still parses byte-for-byte. No contract fixture is read as
+data by any suite except `token-handoff.md`, so the event contract's additive version breaks nothing
+(`research.md` §R14.4).
 
-**Requirements explicitly unchanged**: FR-004 and FR-014 (the *not listed?* affordance and the recoverable `project_missing` state — a default never invents a project, so neither moves), FR-028 and FR-048 (the dispatch target stays the binding's stored `projectId`; this default never reaches `host.startSession()`), FR-041's owner table (the `mecha-turk:project` key remains UI state and not a configuration source — now stated twice over, since the default never touches it either), and 005's rendering block. No NFR, contract, configuration field, or audit vocabulary moves.
+**Downstream effect on the contract set**: `contracts/events-carry-forward.md` is amended **deliberately
+and additively** — the event-id discriminator family gains **two** `~followup~…` forms
+(`~followup~<commentId>` and `~followup~head~<sha>`) and the contract version moves to **1.3**, with
+`schemaVersion` still unstored, every existing id byte-identical, and **no delivery row member added**,
+because the follow-up's content is the row's existing bounded excerpt and its seed is the row's existing
+`headSha`. `contracts/panel-service.md` is amended with a note that the feature adds **no operation** and
+was therefore examined and left otherwise unchanged. `contracts/follow-up-lifecycle.md` is **deleted**,
+and `contracts/README.md`'s index no longer carries its row. `token-handoff.md`, `binding-allow-list.md`,
+and `binding-history-scope.md` are untouched. **003** gains the one conforming edit above and nothing
+else — no route, method, status, code, audit type, or token shape changes there. No breaking change, no
+`/v2`, no path removed: invariant 10 is observed by versioning, not by renaming.
 
-**Migration impact**: none for any deployed system. No stored record, storage key, wire member, route, manifest field, capability, or contract changes; an installation that has never picked a project simply starts showing a default it may accept or overwrite, one that has picked is untouched by construction (FR-095 clause 1), and the shipped build behaved exactly as it did until Phase 6 landed this — `### v1.13.3` remains the description of what is **released**, while the repository now carries the amendment (see *Delivery* below).
+**Test pins, re-examined**: `CONTRACT_FILES` and `ROUTE_PATHS` do not move, and the deletion of the first
+draft's contract file **restores** the former. `REDUCED.walkthrough` moves from 73 to 76 for the §10
+pointer section — **the only pre-existing test edit this wave needs**, and one this phase did not make.
 
-**Approval status**: drafted 2026-10-06 for Gate 1 challenge and product-owner approval with GitHub issue #21. **Not yet approved, not implemented.** — superseded by the *Delivery* note below: Gates 1–3 passed and the artifacts were approved for implementation on 2026-10-06 (commit `507c83d`, *"approve 002 v1.14.0 current-project default"*), the product owner's five decisions of that day already encoded as the requirements above; implemented the same day.
+**Approval status**: **drafted 2026-10-09 for Gate 1 challenge and product-owner approval** with GitHub
+issue #13. **Not yet approved, not implemented, and `npm run verify` has not been run** — no code,
+bundle, or test is written by this phase. The Phase 4/5 artifacts (`plan.md`'s amendment record §D,
+`data-model.md`'s one new member, `tasks.md`'s Wave 6) are drafted alongside this entry as planning
+records for the same gate, not as approved text. **Zero `[NEEDS CLARIFICATION]` markers remain in this
+document.**
 
-**Delivery, 2026-10-06.** Implemented in Phase 6 on `issue-mt-run-70e6d69cf27638eb43b85d4e-quick-ferret` (GitHub issue #21): Wave 5's **E-1 – E-11** delivered, `npm run verify` green, `panel/main.js` rebuilt with the source and `service/main.js` byte-unchanged (AGENTS.md invariant 1), and no version bump — `0.1.0` stands, because a release is the product owner's call (invariant 2). **No requirement text changed at delivery**: the one `spec.md` edit this wave makes is the `Status` line's flip to implemented, flagged for Gate 3 exactly as plan §C.9's guard requires, with the stale *"drafted for Gate 1 challenge"* clause refreshed beside it. The wave's safety property is an absence, and it is proved by scans written **before** the feature code, each with a bite-check that was re-run against a planted violation before this entry was written: no `onDirectory(` registration in source or bundles, the panel's Pick list pinned as a closed set, exactly one `mecha-turk:project` write site reached only from the explicit pick, and a closed enumeration of the panel's 32 button mounts with the picker group at exactly two. `quickstart.md`, `README.md`, `contracts/` and the site are **unedited by decision** (plan §C.1): nothing there described the old default, so no operator note is owed and `tests/prose-budget.test.ts`'s pinned walkthrough figure stands.
-
----
 
 ### v1.15.0 — 2026-10-07 (the panel-level project picker's removal; GitHub issue #39)
 
@@ -661,3 +704,319 @@ owner's call (invariant 2).
 
 **Approval status**: product-owner decision of 2026-10-07 recorded on GitHub issue #39; implemented
 the same day on `quick-cleanups`, `npm run verify` green.
+
+---
+### v1.16.0 — 2026-10-09 (the tracking lifecycle; GitHub issue #13)
+
+**Two drafts, recorded so the second is not read as the first.** This entry covers both. The first
+draft of the amendment was written, passed a quality gate, and was **rejected as over-specified by the
+product owner**: it appended 25 requirements (`FR-100` – `FR-124`) to a 124-requirement, 885-line spec,
+plus a new `tracking.json` store with two entities, three new HTTP operations, a separate contract
+document, a per-account tracking maximum, and a policy-gate analysis. The owner's ruling, verbatim:
+*"I'm noticing a pattern of being additive to specs instead of rewriting them to match the new feature
+set."* The amendment was then **rewritten down in place** — this is the record of that reduction, with
+the reason for each cut, because the cuts are decisions and a decision unrecorded gets re-proposed.
+
+**Why the feature exists at all**: the issue asks *"how can it maintain follow up through the
+lifecycle?"* and answers itself with three examples and a goal — the agent should *"continue the work
+item until a natural conclusion (PR merged, Issue Closed, etc)"*. Until this amendment the product could
+only dispatch: a run that dispatched was finished as far as Mecha Turk was concerned, and the next
+observation for that subject followed the shipped coalescing rule to its literal end.
+`service/poll/runs-join.ts:350` joins a run only when `!isTerminalRun(run)`, and
+`service/poll/runs-document.ts:153-155` makes `dispatched` terminal — so a comment arriving after a run
+dispatched opens the subject's **next ordinal** and started a **second, disjoint session** with no
+memory of the first. That is not a missing feature; it was the shipped behaviour working as specified,
+which is exactly why the specification had to change.
+
+**What the second draft specifies: five behaviours, eight requirements (`FR-100` – `FR-107`), and
+nothing else.** Section K is rewritten in place so a reader of `## Functional Requirements` gets the
+current behaviour from that section alone; the first draft's appended block is gone rather than marked
+superseded.
+
+| # | Behaviour | Requirement |
+| --- | --- | --- |
+| 1 | A delivery for a subject whose run carries a recorded session **joins that run** — no new run, no advanced ordinal, no second session | FR-100 |
+| 2 | **Detection** of an issue comment and a pull-request head-SHA change, both read from feeds the scan already reads, identified by deterministic event ids that extend the existing discriminator family | FR-101, FR-102 |
+| 3 | The **head-SHA seed**: the establishing cycle records the head already observed and emits nothing, and a `null` seed never means the head changed | FR-103 |
+| 4 | **Delivery** into the run's recorded session, with navigation whose intent is durable before the call, a bounded retry, and a parked, human-visible reason in the existing vocabulary | FR-104, FR-105 |
+| 5 | The **end of tracking** on the GitHub item's terminal state, after which ordinary detection resumes | FR-106 |
+
+Plus **FR-107**, the guard that keeps the other seven honest: no new HTTP operation, no new persisted
+file, no new run state, no new capability, no new configuration field, no change to any existing event
+id.
+
+**Amended in place, clause only**: `FR-030` (never-dispatched-again now covers the join rather than a
+second unit of work), `FR-035` (the audit class list gains the five tracking rows), `FR-036` (health
+reports the waiting follow-ups as a queue), `FR-037` (follow-up delivery obeys the same posture),
+`NFR-001` (the two-leg latency bar), `NFR-002` (one prompt per delivery id under every permutation),
+`NFR-007` (the correlation chain continues). **`NFR-003` is deliberately untouched**: the amendment adds
+zero requests to a scan cycle, so its figure is unchanged and no cost figure is restated anywhere.
+**`FR-027`'s own text is byte-identical to `HEAD`** — the settled position is one clause inside FR-104.
+
+**What was cut from the first draft, and why.**
+
+| Cut | Reason |
+| --- | --- |
+| **17 of the 25 requirements** (FR-108 – FR-124 as appended) | Their content either survives inside the five behaviours above or is gone. The owner's ruling was to express the feature, not to annotate it: a second draft that keeps the first draft's shape would have missed the point of the finding |
+| **`specs/002-agent-event-extension/contracts/follow-up-lifecycle.md`** and its three additive operations (`GET /v1/follow-ups`, `POST …/delivery-result`, `POST …/retry`), plus `followUps` on the status answer and the derived `tracking` member on the run route | The panel's existing claim-and-relay path carries a follow-up, so no operation is added. **Verified rather than assumed**: the claim answer never projects a run with a session in either direction (`claim.ts:234` and `runs-transitions.ts:73` both refuse one), so the "this run's session already exists" member the first draft proposed was **not needed** — and the fact the panel needs is already carried by the run-history row it already reads (`run-history-project.ts:130`). Deleting the file also **restores** `tests/current-project-default.test.ts`'s `CONTRACT_FILES` pin, which the first draft had left failing against a six-file enumeration |
+| **`tracking.json`, `TrackingRecord`, `FollowUpEntry`, and every derived new state** | No code premise was found that makes the run document unable to hold the follow-up's state, and the brief's instruction was to say so plainly rather than add the file. The run row already carries an absentable, validated-when-present member pattern (`SourceReference.actorLogin?`) and already holds the subject and the session a follow-up needs. The seed is one such member, read from the establishing delivery row's own `headSha` through the existing event queue |
+| **The per-account tracking maximum (8, bound 1–32) and its at-capacity refusal** | It existed to bound a tracked-subject index in a new store file. With the store gone there is no index to bound, so the constant and its bound, the worst-case request arithmetic, and `SC-017` all went with it |
+| **Review comments and whole review submissions as follow-up sources** (the first draft's reads (a) and (b)) | Each is one added GitHub read per tracked pull request. The owner cut both; the read-cost analysis, the `pull_request_url` asymmetry, the reviews endpoint's three quirks, and the closed review-state rule went with them. Recorded in `research.md` §R14.7 so no citation to a deleted finding survives |
+| **The follow-up policy gate — the long FR-117(a) analysis** | The product owner settled that follow-up delivery is judged **exactly as `start_work` is judged, autonomously**, and explicitly did not want the treaty re-litigated in the spec. The settled position is one clause in FR-104; FR-027's own text is untouched. The fail-closed arm for a reader that does not exist, and its "not testable in v1.16.0" caveat, are gone with it |
+| **The site documentation task** (the `use.astro` entry the first draft assigned to this wave) | The owner cut it. FR-042 binds the site and this feature changes operator behaviour, so the entry is owed — but it is not owed by *this* amendment, and claiming it was would have been the same additive habit in a different document |
+| **11 of the 16 edge cases, one of three success criteria, and three of eight acceptance criteria** | Each was rewritten down to what one of the five behaviours needs, and deleted where it could not be traced to one. The surviving edge cases are: a comment after the terminal state is observed, a comment just before it, an edited comment, a 100× replay, and a deleted-or-busy session |
+| **The 15 sub-sections `K.1` – `K.5` as the first draft structured them** | Replaced by five short sub-sections named after the five behaviours, so the section's shape *is* the feature |
+
+**Sequencing decision**: this is an **amendment to the production spec**, not a new `specs/NNN-*/`
+directory, by the product owner's own triage pattern (issue #13 is the same run/dispatch model 003
+built, one lifecycle question deeper).
+
+**The one cross-document obligation, made and kept.** The first draft made the conforming edit 003's own
+text needed and it is **kept as it stands**: **003 FR-011** is edited in place so a dispatched run
+carrying a recorded session is no longer terminal *for coalescing*, 003's changelog carries
+`### v1.12.0`, and 003's version stands at **1.12.0**. No "superseded by" note is left in 003's body —
+the triage rule, applied to another document's text. 003 FR-011's rule for non-terminal runs is
+unchanged and still authoritative for them.
+
+**Premise verification, before a requirement was written** (`research.md` §R12 – §R14): the GitHub
+objects were read from the REST API documentation on 2026-10-09 — the issue-comment object's
+**`issue_url`** and its `since`-filters-on-*updated* behaviour, the pull-request object's
+`state` / `merged` / `merged_at` / **`head.sha`** and the **absence of `state_reason`** on it, and the
+issue object's `state` / `state_reason` / `closed_at`. Two facts carry the amendment: `issue_url` and
+`head.sha` are on rows the scan already reads, which is why FR-102 costs zero requests; and the
+`state=open` filter on both list feeds means a merged pull leaves the list, which the minimum accepts
+and states rather than paying a per-item read to close. The host surface was read from the live Host API
+docs: `prompt` addresses the **current** session, `send: true` while busy is `SESSION_BUSY`, no open
+session is `NO_SESSION`, the ready context carries `session: { id, title, busy }`, and `openSession` is
+a navigation — with `src/agent-verify.ts:249-279` as the in-repo precedent that the navigation is
+survivable. This codebase's own behaviour was read at file and line: the join predicate and its
+`isTerminalRun` companion; the **four** transitions and **one** parser gate that make a parked reason
+unable to ride the run's state (`parkRun` at `runs-transitions.ts:149`, `wedgeUnconfirmed` at `:180`,
+`expireLease` at `:118`, and `sessionHistoryHolds` at `runs-parse.ts:219-221`, which quarantines any run
+holding a session whose state is not `dispatched`); the queue's existing delivery-id dedupe
+(`events.ts:421`); `QueuedEvent.headSha`'s type and its single producer (`events-parse.ts:72`,
+`events-write.ts:186-188`); the claim route's eligibility; and the two test pins, re-examined rather
+than assumed.
+
+**The three test pins the first draft named, re-examined against the rewrite.** `CONTRACT_FILES` and
+`ROUTE_PATHS` **do not move** — no route and no contract file is added, and deleting
+`follow-up-lifecycle.md` puts the directory listing back inside its enumeration. `REDUCED.walkthrough`
+**still moves**: the walkthrough's §10 is a pointer section in the shape §3, §4, §6 and §8 already use,
+which takes the count from **73 to 76** (the first draft took it to 98). That one constant is the only
+pre-existing test edit this wave needs, and no test was edited by this phase.
+
+**Reuse, not a new rule**: the rewrite's follow-up detection reuses the existing attribution predicate — `isAttributableAuthor` / `isBotAuthor` in `service/poll/attribution.ts:67,87`, the one judgement FR-016 already fails closed under and the mention trigger already applies — rather than re-deriving a bot rule, because the follow-up branch is simply a caller that did not exist (`research.md` §R14.2).
+
+**Gate 1 rulings (2026-10-09) — three findings, each fixed in one place.** **F1 (High): the follow-up's read is decided, not deferred.** The rewrite's "a read the panel already performs" was false as written — the runs read projects no excerpt (`run-history-project.ts:187-188`), `SourceReference` has no content member (`runs-types.ts:36-71`), and `/v1/deliveries` has zero callers — so FR-104 now names **one additive member on the runs-history read the panel already polls** (`GET /v1/events` → `followUps`, beside the `session` that read already projects), the panel's `RunRow` mirrors it, and no route is added; the claim route's refusal of a session-carrying run (`claim.ts:234`) is correct and does not block the follow-up, because the runs read leases nothing (`research.md` §R14.6). **F2 (Medium-High): the row's `kind` and `subjectType` are stated.** A follow-up reuses the closed `EventKind` union — `'mention'` for an issue comment, `'review'` for a head-SHA change, each naming the feed the detection rides — rather than widening it into a fourth value both shipped parsers would refuse, and every follow-up row **MUST carry an explicit `subjectType`**, never `subjectTypeOf`'s kind-based fallback (`events-parse.ts:498`), which would misread a head follow-up on a tracked pull as an issue (`research.md` §R14.9). **F3 (Low): FR-026's drift rule is bounded.** One clause in FR-103: the seed's comparison is the *post-dispatch* observation of the head, FR-026's pause is the *pre-dispatch* re-fetch refusal, and the head-SHA follow-up satisfies the first and is not an instance of the second — FR-026's own text is untouched.
+
+**Assumptions gained**: the follow-up message bounds (≤4,000 per source item, ≤12,000 per follow-up —
+FR-028's, applied unchanged, refused rather than truncated) and the retry-ladder reuse
+(`retryMaxAttempts` / `retryBaseMs` / `retryMaxMs`, no second ladder). **Assumption deleted**: the
+tracking maximum.
+
+**Constitution alignment** (`plan.md` §D.5): principle **VII** is load-bearing — the host owns sessions
+and their scheduling, so delivery is `prompt` into a session the host is showing, a busy session is a
+bounded retry that parks, and no mechanism addresses a session by id in the background. **III** is
+satisfied structurally: the deterministic delivery id dedupes the observation at the queue, and the
+panel's own durable record of a completed attempt is what stops a remount from sending again. **IV** by
+the five new row types and by the navigation intent being durable before it fires. **II** by the one
+settled clause — judged exactly as `start_work` is judged, FR-027 untouched. **I** by riding the
+existing polling and contract with no new read, route, or id. No principle is weakened.
+
+**Status**: drafted for Gate 1 challenge. **Not approved, not implemented.**
+
+---
+
+#### Addendum 2026-10-10 — the same version, amended: the lazy terminal check, and three drafting corrections
+
+**What this is.** A scoped amendment to `### v1.16.0` above, made after the wave's code was committed
+and `npm run verify` was green. **The version stays `1.16.0`, the section's eight requirements keep
+their numbers, and `FR-027`, `FR-016` and `FR-026` are byte-identical to `HEAD`** — verified with
+`git diff`. `003-dispatch-integrity/` is untouched, and its FR-011 conforming edit and v1.12.0 remain
+correct and load-bearing. Nothing above this line is rewritten; what follows is additive to the same
+entry because the entry is the record of what v1.16.0. *(A **second** addendum below this one records
+delivery and the `followUpsFrom` change; the two are separate records of two separate passes, and
+neither rewrites the other.)*
+
+**Why an amendment to a delivered, green wave.** Review against the shipped code found that **FR-106's
+end of tracking could not fire in production at all.** Both feeds the scan reads are filtered
+`state=open` — `service/poll/poller-github.ts:226` for the issues list and `:276` for the pulls list —
+so a closed issue or a merged pull request **leaves** the list rather than arriving on it in a terminal
+state. `trackedIssueEnds` skips any row whose `state !== 'closed'` (`service/poll/tracking.ts:236`) and
+`terminalPullFact` never sees a closed row, so the end machinery the wave built — `trackedIssueEnds`,
+`trackedPullEnds`, `withoutEnded`, `observedHeadSeeds`, the `TrackingEnd` shape and the
+`tracking.ended` row at `service/poll/loop.ts:263` — was complete, correct, and **unreachable**. The
+green suite did not disprove it, and the reason matters more than the fact:
+`tests/follow-up-lifecycle.test.ts:1070-1101` and `:1104-1139` (the suite as it stood **before `F-10`
+rewrote it**; the delivered proofs read the item's own endpoint at `:1261-1302` and `:1304-1355`) proved
+the end by injecting `state: 'closed'` / `merged: true` into the **list** fixture — a shape the real
+endpoint never returns. **A fixture that models a shape the provider does not send is how an
+unreachable requirement looks delivered**, and that is recorded here as the general lesson rather than
+as a note about one file. Follow-ups were therefore being delivered for concluded items indefinitely,
+which is the exact behaviour the issue asked to end.
+
+**The owner's decision, and the rejected alternative.** *"Lazy terminal check"*: **when a follow-up is
+detected, read that one item's state.** Not a per-subject read per cycle — that was the first draft of
+this amendment's own shape and it costs up to one request per tracked subject per cycle whether or not
+anything arrived, so it stays cut. The lazy read's cost scales with **detections**: it fires only when
+something actually arrived on a concluded item, which is the case that matters.
+
+**Requirements amended in place, clause only — no new requirement, no renumbering.**
+
+| Requirement | The amendment |
+| --- | --- |
+| **FR-102** | The "no repository-wide or per-item read is added for either" clause now admits **exactly one exception**: a terminal-state read of the item a detected follow-up names, bounded to one page, at most **once per subject per cycle** regardless of how many follow-ups that subject produced, and issued **only** for a subject that produced a detected follow-up that cycle. The requirement's title and its zero-cost claim are now explicitly about **detection only** |
+| **FR-106** | The terminal observation has a stated source: the item's own single-object endpoint, `GET …/issues/{issue_number}` for an issue (`state` / `state_reason` / `closed_at`) and `GET …/pulls/{pull_number}` for a pull (`state` / `merged` / `merged_at`), issued **before** the subject's follow-up is enqueued so a terminal answer drops it rather than retracting a queued row. Every other clause is kept: terminal state only, the session's outcome never ends it, one-directional, queued follow-ups still deliver. **A fail-closed posture for an unreadable read is now explicit and testable** — an unreadable or ambiguous answer is **not** a terminal state and **not** an open one: no end, no delivery, a recorded reason, the binding's scan failed with the class named and its checkpoint **retained** rather than advanced, and the subject's next detected follow-up asks again. That is the shipped per-item-read precedent (`poller-events.ts`'s `resolveCandidateActor` with `triggers-review.ts:149-151` and `loop.ts:372`), so the owner's reading was checked against the code rather than forced on it |
+| **FR-101** | The `[A-Za-z0-9._~]` claim is narrowed to where it is true: the shipped writer's own shape is `evt-<owner>~…` (`service/poll/events-write.ts:226`) and the `evt-` prefix already carries a hyphen outside that set, so the claim is made of the two new tails — a decimal comment id and a hexadecimal SHA — and not of the id as a whole |
+| **FR-035** | The clause listed **five** audit rows for this feature. **Only two are writable**: `follow_up.observed` (`service/poll/events-enqueue-audit.ts:117`) and `tracking.ended` (`service/poll/loop.ts:263`). `appendAudit` is service-side (`service/audit.ts:457`) and `/v1/audit` is **GET only** (`service/routes/audit.ts`), and FR-104/FR-107 forbid adding a route — so the delivery outcomes live in the panel's own durable record (`src/dispatch-record.ts`'s `FollowUpDeliveryRecord`), which satisfies constitution IV for them exactly as it already does for a dispatch's own attempt outcomes. The obligation is **named and placed**, not dropped |
+| **NFR-003** | Gains one clause: at most one single-item request per subject per detected-follow-up cycle, charged to the same per-account budget and the same backoff ladder as every other read. NFR-002's "NFR-003 is deliberately not amended" sentence is corrected to match |
+| **AC-049** | The request-log claim is split into **detection** (zero added requests, unchanged) and the **one added read**, measured in both directions: one single-item request per subject per cycle that detected a follow-up, zero for every other subject, zero on a cycle that detected nothing, and still one where several comments arrived on one subject in one cycle |
+| **AC-052** | Rewritten. The three terminal facts are now read from the item's own endpoint rather than a list row; the unreadable cases are named with their recorded skip and retained checkpoint; a 404 is the shared `auth-failed` class and produces a stop, never a terminal fact; and the unreachable "a new trigger opens the next ordinal" is replaced by the reachable behaviour the shipped suite already encodes — ordinary detection still fires, the delivery joins the session-carrying run, the ordinal stays `[0]`, and **nothing is delivered** |
+| **SC-016** | "100% of observed subjects" becomes "100% of subjects whose terminal state is read", and the one direction the lazy read cannot cover — an item that concludes quietly, so nothing ever arrives to trigger a read — is **stated rather than hidden**: it costs nothing further and produces nothing further |
+
+Also amended in place: `User Story 7`'s Independent Test and its acceptance scenarios 4 and 5, four
+`## Edge Cases` rows (the two terminal-state rows are re-anchored on the read; two new rows cover an
+unreadable terminal answer and a mention on a concluded item), one new `## Out of Scope` row recording
+the rejected per-subject-per-cycle read **and** the two cheaper-looking wrong readings, one new
+`## Assumptions` row for the read's bound, one new `## Clarifications` answer, and `FR-107`'s
+guard-clause so a reader cannot mistake it for forbidding the one read the section adds.
+
+**Premise verification, before a clause was written.** `research.md` gains **§R12.5** (the two
+single-item terminal reads, read from GitHub's REST API documentation on 2026-10-09 — including the
+finding that the pulls **list** returns the `Pull Request Simple` shape, which carries `merged_at` but
+**no `merged`**, so the single-pull object is the only row that answers *merged* at all) and **§R14.10**
+(eight numbered code premises, each with `file:line`: the per-item read precedent and its page bound;
+the shared 15-second abort, retry ladder and four-class failure vocabulary, with 404 → `auth-failed`
+and 410 falling through to `unavailable`; the shipped precedent that a failed per-item read fails the
+scan and retains the checkpoint; the four terminal members already on `PollIssue` / `PollPull` and the
+readers that populate them; the end machinery already in `tracking.ts`; the two writable audit rows and
+the panel's own record as the third home; the reachability check behind the AC-052 correction; and the
+fixture-shape finding above). §R12.2, §R12.4 and §R14.7 are amended in place so no citation to a
+deleted or reversed finding survives.
+
+**Tasks.** `F-1` – `F-8` are marked delivered — the branch carries
+`feat: deliver a follow-up into the session the run dispatched (issue #13)` and
+`test: prove the follow-up observation reaches the trail once`, `npm run verify` green, both bundles
+rebuilt and committed with them (invariant 1). **`F-9`** builds the lazy terminal read and **`F-10`**
+re-anchors the terminal-state proofs on the object endpoint and asserts the request log in both
+directions. `F-10` edits this wave's own suite; `tests/prose-budget.test.ts` and
+`tests/current-project-default.test.ts` stay untouched.
+
+**Constitution alignment.** **I** holds: the one added read is an outbound read of a documented
+endpoint through the same transport, the same abort, the same failure vocabulary, and the same
+per-account budget as every other read. **II** holds: an unreadable terminal answer is a stop with a
+named class and a retained checkpoint, never a guess in either direction. **III** holds: retention of
+the checkpoint is what makes the skip a one-cycle delay rather than a loss, and the read precedes the
+enqueue so nothing is retracted. **IV** holds: two service rows and the panel's own durable record
+together explain acceptance, non-delivery, retry and conclusion for the whole lifecycle. **VII**
+untouched: no host surface moves. No principle is weakened.
+
+**Deliberately unchanged.** `contracts/panel-service.md` — the terminal read is service-internal, the
+end rides the existing `tracking.ended` row and the existing end filtering, so no wire member moves and
+no route is added. `specs/003-dispatch-integrity/`. The `FollowUpFailure` and `TerminalFact` vocabularies
+already in the tree. And the version number.
+
+#### Addendum 2026-10-10 (second) — delivered, and the follow-up window's blocker closed
+
+**What this is.** A second addendum to the same `### v1.16.0` entry, recording **delivery** and the
+one substantive change delivery surfaced. **The version stays `1.16.0`, section K stays at eight
+requirements, and `FR-016`, `FR-026` and `FR-027` remain byte-identical to `HEAD`** — verified with
+`git diff`. `specs/003-dispatch-integrity/` is untouched and its FR-011 edit and v1.12.0 stay correct
+and load-bearing. Nothing above is rewritten; this is additive to the entry because the entry is the
+record of what v1.16.0 is. **The spec's Status line now reads Implemented.**
+
+**Delivery.** `F-1` – `F-11` are delivered on `issue-13-tracking-lifecycle`; `npm run verify` is green
+with **1627 tests across 114 files** — measured at `9edc3c6`, the branch tip; the **1617** this
+entry first recorded predates the `followUpsFrom` commit — and both bundles were rebuilt and
+committed with the code (invariant 1). `F-9` and `F-10` closed the lazy terminal read; `F-11` closed the blocker below.
+
+**The blocker: the follow-up projection window blocks forever.** `RunHistoryRow.followUps` projected
+the **oldest twenty** queue rows, delivered or not (`service/poll/run-history-project.ts`,
+`MAX_PROJECTED_FOLLOW_UPS = 20`). Delivered follow-ups carry no `state`, so nothing ever pruned them;
+the service holds no record of a delivery and structurally *cannot* prune one, because the panel is
+the only party that calls the host and its durable record lives in host storage. A run whose subject
+accumulated 21+ follow-ups therefore delivered the first 20 and then **silently, permanently never
+delivered the 21st** — the exact failure mode GitHub issue #13 was filed about and exactly what
+constitution III exists to prevent. The module's own docblock said so: the promise it replaced
+("the oldest *undelivered* ones") was one no store member made possible.
+
+**The chosen change, and the three cheaper shapes it replaced.** **One absentable query parameter on
+the existing `GET /v1/events` read** — `followUpsFrom=<deliveryId>` — and no new operation: the
+projection returns the run's follow-ups **at or after that delivery id** in detection order, up to
+the existing bound, and **absence projects from the start exactly as today**, so every caller that
+omits it reads what it always read. The panel, which holds the durable record of what it delivered,
+advances the parameter. Three cheaper shapes were verified and are unavailable, and are recorded in
+FR-104 so they are not re-proposed: **the pagination boundary is a run row's `(detectedAt, id)`**, so
+paging `/v1/events` cannot express a position inside one row's follow-up list; **raising the bound
+moves the wall** without removing it; and **the panel cannot prune service-side state without a
+route**, which FR-107 forbids.
+
+| Requirement | The amendment |
+| --- | --- |
+| **FR-104** | The member is now stated as the **window** it is: a bounded, absentable window of the run's follow-up **queue** rows in detection order — the oldest **twenty**, **delivered or not** — with the structural reason named (the service holds no record of a delivery, so it cannot prune one, and the panel filters what it already delivered against its own record). **`followUpsFrom` is specified here**: absentable, at-or-after in detection order, up to the same bound, absent → from the start as today, the panel advancing it, and the three unavailable cheaper shapes. **The over-budget arm's structure is stated without weakening the rule**: the follow-up's frame is the context's own header rather than a second stacked frame, so the composition is sized by the same bounded renderer against the same `CONTEXT_MAX_CHARS`, and a message inside that budget cannot exceed it — the "measured before any host call, refused rather than truncated" clause is satisfied *more strongly*, and the arm is a guard against a composition path that stops sharing the budget rather than a reachable outcome |
+| **FR-107** | Gains one clause: **the one wire change is a query parameter, and it is not an operation** — no path, method, status code, or error code moves, and a caller that omits it reads the read unchanged, which is what makes it additive within `/v1` |
+| **AC-050** | Gains the window assertion in both directions (present → opens at or after the id; absent → byte-identical to the pre-parameter answer), and the over-budget proof is pinned to a composition that does not share the budget rather than to a path the shipped build reaches |
+| **`## Out of Scope`** | The "any new HTTP operation" row now names `followUpsFrom` as the **only** wire change and states that it is not an operation, so the row is not read as having kept the whole first draft's wire surface out |
+| **`## Assumptions`** | One new row for the window's bound and how it walks |
+
+**Contracts conformed.** `contracts/panel-service.md`'s top amendment note is rewritten — the member
+is a queue window delivered or not, not "the undelivered ones" — and **§2.4 gains the `GET /v1/events`
+row carrying `followUpsFrom`**, with the "no operation added, removed, or re-scoped" clause now saying
+exactly that the parameter is additive and adds no operation. `contracts/events-carry-forward.md` §1's
+rule 1 is conformed to the narrowed alphabet claim: **each of the two new tails** stays inside
+`[A-Za-z0-9._~]`, and the claim is made of the tails and not of the id as a whole, because the
+`evt-` prefix already carries a hyphen outside that set. Its follow-up-delivery section records the
+over-budget arm's guard structure. **005's `contracts/dispatch-list.md` §1** gains the `followUpsFrom`
+row, a `§2` row-member note for `followUps`, a `§3` refusal row, and a **§5 invariant 5a** pinning
+the window walk in both directions; its **version pin stays v1** and is recorded as contract **v1.1**,
+because the change is additive within it. 005's body is untouched. **One contract lie was found and
+corrected in that §1 before it shipped**: a first pass stated that any parameter outside the five is
+refused with `422 validation`. The code does not do that — `listQueryOf`
+(`service/routes/events-page.ts:271-329`) validates the five it knows and silently ignores anything
+else, and no test pins an unknown-parameter refusal — so §1 now states what the shipped read does: an
+unrecognised parameter is **ignored, never refused**, applies no filter, drops no row, and is never
+echoed, so the answer is byte-identical to the parameter-absent answer. No filter is silently applied,
+no row is silently dropped, and the panel never sends an unrecognised parameter
+(`src/dispatches-list.ts:158-173` and `src/follow-up.ts:364-375` build the query from the five
+themselves), so the two readings cannot diverge in the product.
+
+**Citations re-stamped against the delivered tree.** `service/poll/poller-github.ts:159,209` → **226,
+276** (the two `state:open` filters); `service/poll/events-parse.ts:498` → **606-607** (`subjectTypeOf`);
+`service/poll/runs-join.ts:350` → **449**, with the historical line kept and **labelled** as history —
+it is the pre-amendment predicate, and the shipped predicate's second arm (`run.session !== null`) is
+FR-100's fix. **The rest of §R12 – §R14's file-and-line citations were verified against the tree as it
+stood *before* the implementation wave, so they describe that tree; they are re-stamped against the
+delivered tree here** — `events.ts:421` → 440, `events-write.ts:152-166` / `:170-179` / `:186-188` →
+215-229 / 240-255 / 265-267, `run-history-project.ts:130` / `:337-347` → 196 / 426-436, `run-history-project.ts:121-122` → **187-188**
+(the no-excerpt member — `:121-122` is `HistoryFollowUp`'s `fromHeadSha` / `headSha`; the same drifted
+line stood in this entry's Gate 1 F1 paragraph and in `research.md` §R14.6, both re-stamped in place —
+a miss of the pass that first verified the rest, corrected here rather than left to be found), `loop.ts:251-290`
+/ `:523-551` → 253-292 / 639-681, `poller-github.ts:251-279` → 318-346, `tracking.ts`'s nine
+end-machinery ranges, `poller-entries.ts:266-268` → 277-302, `triggers.ts:105-107` → 108-113,
+`src/dispatches.ts:50` → 51, `src/service-calls.ts:79` → 75 (which was wrong at the old baseline too),
+`src/relay.ts:121-127` → 144-148, `current-project-default.test.ts:259-292` → 270-303, and
+`prose-budget.test.ts:178` → 193 with `REDUCED.walkthrough` moved 73 → 76.
+`tests/follow-up-lifecycle.test.ts`'s `:1070-1101`, `:1104-1139` and `:1213-1228` are **pre-`F-10`
+positions**, labelled as such, with the delivered proofs (`:1261-1302`, `:1304-1355`, `:1449-1457`)
+cited beside them. §R11's own `src/app.ts:396` — a second handler table issue #39 removed, leaving a
+367-line file — and `src/app.ts:298` (→ `:253`) are pre-existing and were re-stamped here too.
+
+**One false claim corrected.** `research.md` §R14.1 said the recorded-session predicate is "the same
+one the claim route already uses". It is not: the join and `trackedSubjectsOf` test
+`run.session !== null`, while the claim tests the broader `runHistoryIndicatesSession`
+(`runs-document.ts:158-161`), which also accepts an attempt whose outcome was `dispatched` or whose
+`sessionId` is non-null. **The divergence and its consequence are now recorded**: if it were ever
+reachable — only from a hand-edited store, which `runs-parse.ts`'s session-history gate
+(`:219-221`) quarantines over — the two halves would disagree in the dangerous direction, the claim
+refusing and the join opening a new ordinal. §R14.1's code block is also corrected to the shipped
+predicate.
+
+**Constitution alignment.** **III** holds, and this addendum is its evidence: the blocker was silent
+loss of agent work, and the fix restores delivery without a new store member that could diversify the
+queue. **VII** holds: no host surface moves and the service still holds no host bridge. **I** and
+**VI** hold: the change is a documented, additive wire contract, and the three unavailable cheaper
+shapes were verified against the code rather than argued. No principle is weakened.
+
+**Deliberately unchanged.** The eight-requirement count, FR-016 / FR-026 / FR-027, `specs/003-dispatch-integrity/`,
+the `FollowUpFailure` and `TerminalFact` vocabularies, every event id, the evidence schema, and the
+version number.
