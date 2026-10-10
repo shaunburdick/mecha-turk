@@ -147,8 +147,14 @@ const CEILING = { words: 5_770 } as const;
  * number a reader pastes after the git URL is the one the extension ships. The
  * footer's own version line never reaches this measure — it is component
  * furniture, excluded by construction — so the figure moved by the page alone.
+ *
+ * Moved 478 → **512** with the *What happens after a dispatch: following up*
+ * section on `/use/` (34 lines, 429 words): FR-042 binds the site to the
+ * operator-facing surfaces this feature changes, and the tracking lifecycle
+ * (002 v1.16.0, GitHub issue #13) is one of them. `CEILING.words` is untouched,
+ * so no enforced bound moved with it.
  */
-const PINNED_LINES = 478;
+const PINNED_LINES = 512;
 
 /**
  * The prose each bound document measures now, so growth cannot pass unnoticed.
