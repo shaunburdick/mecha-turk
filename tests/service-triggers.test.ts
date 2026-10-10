@@ -455,6 +455,12 @@ function recordingPoller(feeds: {
 
             return { kind: 'ok', events: feeds.events?.[query.issueNumber] ?? [], exhausted: false };
         },
+        readIssueState: async () => {
+            throw new Error('the terminal read is F-9-only; this suite detects no follow-up');
+        },
+        readPullState: async () => {
+            throw new Error('the terminal read is F-9-only; this suite detects no follow-up');
+        },
     };
 
     return { poller, calls };

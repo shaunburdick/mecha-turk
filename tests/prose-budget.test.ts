@@ -147,8 +147,20 @@ const CEILING = { words: 5_770 } as const;
  * number a reader pastes after the git URL is the one the extension ships. The
  * footer's own version line never reaches this measure — it is component
  * furniture, excluded by construction — so the figure moved by the page alone.
+ *
+ * Moved 478 → **512** with the *What happens after a dispatch: following up*
+ * section on `/use/` (34 lines, 429 words): FR-042 binds the site to the
+ * operator-facing surfaces this feature changes, and the tracking lifecycle
+ * (002 v1.16.0, GitHub issue #13) is one of them. `CEILING.words` is untouched,
+ * so no enforced bound moved with it.
+ *
+ * Moved 512 → **517** with the re-offer clause on `/use/` (5 lines): the parked
+ * paragraph claimed no control re-offers a parked follow-up, which the same
+ * feature's delivery of FR-105's re-offer made false — FR-042 binds the site to
+ * the surfaces this feature changes, so the sentence changed with the panel.
+ * `CEILING.words` is untouched, so no enforced bound moved with it.
  */
-const PINNED_LINES = 478;
+const PINNED_LINES = 517;
 
 /**
  * The prose each bound document measures now, so growth cannot pass unnoticed.
@@ -167,15 +179,24 @@ const PINNED_LINES = 478;
  * that it is bounded with no "all history", that an existing binding **may offer many
  * sessions**, that a recovery replay re-offers work regardless, and the upgrade consequence.
  *
+ * Moved 73 → **76 on 2026-10-09**, for §10 "What happens after a dispatch" (3 prose lines) the
+ * tracking lifecycle amendment (002 v1.16.0, GitHub issue #13) adds: FR-042 binds the walkthrough
+ * to the operator-facing surfaces this feature changes, and the section is a pointer to the
+ * published page that answers in full, so the three lines it keeps are the delta an operator
+ * must know and nothing else — one run and one session per work item, that a delivery may move
+ * their view, and that the item's terminal state is the end. The first draft of the amendment
+ * took this figure to 98; the product owner's scope finding cut it to 25 lines and the reduction
+ * to 3.
+ *
  * **`CEILING.words` is untouched, deliberately.** The walkthrough is not in `spend()`, so
  * adding prose here moves a reported figure and no enforced bound; the reader-burden ceiling
  * the owner protected is not what this constant is.
  *
- * The combined reduction assertion below is **also untouched**: at 26 + 73 = 99 it still
+ * The combined reduction assertion below is **also untouched**: at 26 + 76 = 102 it still
  * clears `BEFORE.lines / 4` (111), so the trimming bought the whole of what was needed and
  * no reduction claim was given up beyond the recorded figure.
  */
-const REDUCED = { readme: 26, walkthrough: 73 } as const;
+const REDUCED = { readme: 26, walkthrough: 76 } as const;
 
 /** The only headings the reduced README may carry (FR-049). */
 const README_HEADINGS: readonly string[] = ['# Mecha Turk', '## Development', '## License'];

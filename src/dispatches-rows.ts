@@ -6,6 +6,9 @@
  * ago it was detected, what the panel reported when it dispatched, which agent
  * the read-back observed, and which prompt tiers the run composed its operator
  * block from — presence, sources, fingerprint, and length, never the text.
+ * A dispatched run also carries its **follow-up queue**: how many follow-ups
+ * reached the session, how many are still waiting, and every parked one with
+ * the cause it parked with (002 FR-105).
  *
  * Four decisions are not visible from the code:
  *
@@ -37,7 +40,9 @@ import { redact } from './redaction.ts';
 import { elapsedSince } from './bindings-rows.ts';
 import { utcStamp } from './ids.ts';
 import { actorPhrase } from './run-actor.ts';
+import { followUpRowView } from './dispatches-detail.ts';
 import { BLOCKED_PREFIX } from './dispatches-service.ts';
+import type { FollowUpDeliveryRecord } from './dispatch-record.ts';
 import type { DispatchesState } from './panel-state.ts';
 import type { PlainRunState, RunReference, RunRow, RunState, RunVerification } from './dispatches-service.ts';
 import type { RunKind } from './dispatches-detail.ts';
@@ -263,6 +268,12 @@ export const RETURN_LABEL = 'Return to waiting';
 /** The same control once armed for its confirm step (the panel's two-step idiom). */
 export const CONFIRM_RETURN_LABEL = 'Confirm: return to waiting';
 
+/** Button label for the re-offer of a parked follow-up (002 FR-105, AC-051). */
+export const REOFFER_LABEL = 'Re-offer parked follow-up';
+
+/** The re-offer once armed for its confirm step. */
+export const CONFIRM_REOFFER_LABEL = 'Confirm: re-offer parked follow-up';
+
 /** Label of the first resolution, before the operator arms it. */
 export const SESSION_CREATED_LABEL = 'Session was created';
 
@@ -442,8 +453,44 @@ function promptPhrase(row: RunRow): string {
     return `prompt set · ${promptSources.join('+')} · ${promptFingerprint} · ${promptLength} chars`;
 }
 
+/**
+ * Compose the follow-up line the panel's own record earns a row (002 FR-105).
+ *
+ * The service projects a follow-up's existence and text; the panel's durable
+ * record is the only home for what happened to each one. The row therefore
+ * names three things — how many reached the session, how many are still
+ * waiting, and every parked one with its cause — and says nothing at all when
+ * the run has no follow-up state, which is the ordinary case.
+ *
+ * @returns The line, or `null` when this row has no follow-up state to report.
+ */
+function followUpPhrase(row: RunRow, records: readonly FollowUpDeliveryRecord[]): string | null {
+    const view = followUpRowView(row, records);
+    if (view === null) {
+        return null;
+    }
+
+    const parts: string[] = [];
+    if (view.delivered > 0) {
+        parts.push(`${view.delivered} delivered`);
+    }
+
+    if (view.waiting > 0) {
+        parts.push(`${view.waiting} waiting`);
+    }
+
+    for (const parked of view.parked) {
+        parts.push(`parked: ${parked.cause}`);
+    }
+
+    return parts.length === 0 ? null : `follow-ups: ${parts.join(' · ')}`;
+}
+
 /** Compose one runs-list row. */
-export function dispatchRow(row: RunRow): ListItem {
+export function dispatchRow(
+    row: RunRow,
+    records: readonly FollowUpDeliveryRecord[] = [],
+): ListItem {
     const reason = row.stateReason;
     const result = resultPhrase(row);
     const verification = row.verification === null ? null : verificationPhrase(row.verification);
@@ -451,6 +498,7 @@ export function dispatchRow(row: RunRow): ListItem {
         row.repository,
         referencePhrase(row),
         reason,
+        followUpPhrase(row, records),
         result === reason ? null : result,
         verification,
         promptPhrase(row),
@@ -476,7 +524,7 @@ export function dispatchRow(row: RunRow): ListItem {
  * @returns The rows, newest detected first (the service caps them at 100).
  */
 export function dispatchRows(runs: DispatchesState): ListItem[] {
-    return runs.rows.map((row) => dispatchRow(row));
+    return runs.rows.map((row) => dispatchRow(row, runs.followUpRecords));
 }
 
 /**

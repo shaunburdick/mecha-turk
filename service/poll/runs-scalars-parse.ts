@@ -71,6 +71,11 @@ export interface RunScalars {
     readonly createdAt: string;
     /** Last-mutation stamp. */
     readonly updatedAt: string;
+    /**
+     * The head SHA the run's establishing cycle observed, or `undefined` when
+     * none was recorded (absent on the row, not a stored `null`).
+     */
+    readonly lastHeadSha: string | undefined;
 }
 
 /**
@@ -177,6 +182,30 @@ function readActorPolicy(raw: Record<string, unknown>): ActorPolicy | null | und
 }
 
 /**
+ * Read the head-SHA seed the establishing cycle recorded.
+ *
+ * Absentable on exactly the terms {@link readActorPolicy} follows, and for the
+ * same two reasons: a run written before the member existed carries none and
+ * must still parse, and **absent is a fact about the run** — *no seed recorded*,
+ * which the follow-up detector reads as "compare nothing this cycle" rather
+ * than as "the head changed" (002 FR-103). A present value that is not usable
+ * text refuses the row instead of being coerced: a seed the parser cannot read
+ * is not a baseline it may compare against (constitution II).
+ *
+ * @param raw - Candidate row, already known to be a record.
+ * @returns The seed, `undefined` when none was recorded, or `null` when a
+ *   present value is unusable.
+ */
+function readHeadSeed(raw: Record<string, unknown>): string | undefined | null {
+    const value = raw.lastHeadSha;
+    if (value === undefined) {
+        return undefined;
+    }
+
+    return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/**
  * Validate one run row's scalar fields as a group.
  *
  * @param raw - Candidate row, already known to be a record.
@@ -185,8 +214,10 @@ function readActorPolicy(raw: Record<string, unknown>): ActorPolicy | null | und
 export function parseRunScalars(raw: Record<string, unknown>): RunScalars | null {
     const line = readStateLine(raw);
     const actorPolicy = readActorPolicy(raw);
+    const lastHeadSha = readHeadSeed(raw);
     const { subjectType } = raw;
-    if (line === null || actorPolicy === undefined || (subjectType !== 'issue' && subjectType !== 'pull_request')) {
+    if (line === null || actorPolicy === undefined || lastHeadSha === null
+        || (subjectType !== 'issue' && subjectType !== 'pull_request')) {
         return null;
     }
 
@@ -216,6 +247,7 @@ export function parseRunScalars(raw: Record<string, unknown>): RunScalars | null
         referencesNotRetained: notRetained as number,
         referencesTruncated: truncated,
         actorPolicy,
+        lastHeadSha,
         createdAt: createdAt as string,
         updatedAt: updatedAt as string,
     };

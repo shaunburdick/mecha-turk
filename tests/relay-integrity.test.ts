@@ -92,10 +92,24 @@ const PENDING_GET = 'GET /v1/events/pending';
 /** `GET /v1/events`, the runs-history read that follows every report. */
 const HISTORY_GET = 'GET /v1/events?limit=25';
 
+/**
+ * `GET /v1/events`, the relay's own follow-up view, refreshed on its clock.
+ *
+ * The delivered runs only, so the pages are dense rather than spent on runs
+ * that can never carry a follow-up. A display read like the M8 refresh: it is
+ * filtered from the dispatch-contract timelines for the same reason.
+ */
+const FOLLOW_UP_ROWS_GET = 'GET /v1/events?state=dispatched&limit=100';
+
 /** The `page` label the history read carries (005 contract §2). */
 const HISTORY_PAGE =
     '{"limit":25,"nextCursor":null,"hasMore":false,"total":0,'
     + `"snapshotAt":"${FIXTURE_TIMESTAMP}","filter":{"bindingId":null,"state":null}}`;
+
+/** The `page` label the relay's own read carries: no delivered runs by default. */
+const FOLLOW_UP_ROWS_PAGE =
+    '{"limit":100,"nextCursor":null,"hasMore":false,"total":0,'
+    + `"snapshotAt":"${FIXTURE_TIMESTAMP}","filter":{"bindingId":null,"state":"dispatched"}}`;
 
 /** Agent the fixture read-back reports; matches the panel's default expectation. */
 const EXPECTED_AGENT = 'project-manager';
@@ -181,6 +195,7 @@ function claimBody(runs: readonly ClaimedRun[], isAuditWritten = true): string {
 const OK_ROUTES: RouteTable = {
     [PENDING_GET]: { status: 200, body: claimBody([claimedRun()]) },
     [HISTORY_GET]: { status: 200, body: `{"events":[],"page":${HISTORY_PAGE}}` },
+    [FOLLOW_UP_ROWS_GET]: { status: 200, body: `{"events":[],"page":${FOLLOW_UP_ROWS_PAGE}}` },
     // The reserve answer echoes whatever the panel asked to authorize, so a
     // second attempt of the same run still reads as an authorization for it.
     [`POST ${RUN_PATH}/reserve`]: {
@@ -347,14 +362,16 @@ function harness(
 /**
  * The timeline entries that make up the dispatch contract itself.
  *
- * The runs-history refresh (M8) rides along after every successful report, so
- * it is filtered out: it is a display read, not part of what the contract
- * orders, and asserting it would couple these tests to the Dispatches section.
+ * The two display reads are filtered out: the runs-history refresh (M8) that
+ * rides along after every successful report, and the relay's own follow-up
+ * view, refreshed on its own clock. Neither is part of what the contract
+ * orders, and asserting them would couple these tests to the Dispatches
+ * section and to the relay's tick shape rather than to the dispatch.
  *
  * @returns The dispatch-contract entries, in order.
  */
 function dispatchTimeline(timeline: readonly string[]): string[] {
-    return timeline.filter((entry) => entry !== HISTORY_GET);
+    return timeline.filter((entry) => entry !== HISTORY_GET && entry !== FOLLOW_UP_ROWS_GET);
 }
 
 /**
@@ -569,7 +586,7 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 
             await pollRelay(relay.rt);
 
-            expect(relay.timeline).toEqual([PENDING_GET]);
+            expect(dispatchTimeline(relay.timeline)).toEqual([PENDING_GET]);
         }
     });
 
@@ -579,7 +596,7 @@ describe('the relay dispatches only what it was offered, leased (FR-035)', () =>
 
             await pollRelay(relay.rt);
 
-            expect(relay.timeline).toEqual([PENDING_GET]);
+            expect(dispatchTimeline(relay.timeline)).toEqual([PENDING_GET]);
             expect(relay.rt.state.relay.lastPollAt).not.toBeNull();
         }
     });
@@ -850,7 +867,11 @@ describe('detection-to-session round trips (NFR-101, AC-127, SC-110)', () => {
 
             await pollRelay(relay.rt);
 
-            expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`, `POST ${RUN_PATH}/blocked`]);
+            expect(dispatchTimeline(relay.timeline)).toEqual([
+                PENDING_GET,
+                `POST ${RUN_PATH}/reserve`,
+                `POST ${RUN_PATH}/blocked`,
+            ]);
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
         }
     });
@@ -864,8 +885,15 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
             await pollRelay(relay.rt);
 
             // The whole call log, in order. Nothing else happened: no result, no
-            // record, no read-back, and above all no host call (FR-028).
-            expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`, `POST ${RUN_PATH}/blocked`]);
+            // record, no read-back, and above all no host call (FR-028). The
+            // relay's own follow-up read is filtered like the M8 refresh: it is
+            // a display read, and the tick's dispatch contract is what is
+            // asserted here.
+            expect(dispatchTimeline(relay.timeline)).toEqual([
+                PENDING_GET,
+                `POST ${RUN_PATH}/reserve`,
+                `POST ${RUN_PATH}/blocked`,
+            ]);
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
         }
     });
@@ -905,7 +933,7 @@ describe('003 v1.8.0 the panel reports the gate through the block report (FR-078
 
             await pollRelay(relay.rt);
 
-            expect(relay.timeline).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+            expect(dispatchTimeline(relay.timeline)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
         }
     });
 
@@ -1311,7 +1339,7 @@ describe('T-027 the relay refuses a claim answer whose sources it cannot read (F
 
             // One refused entry refuses the whole answer: the good entry beside
             // it is never half-applied, and the relay reserves nothing.
-            expect(relay.timeline).toEqual([PENDING_GET]);
+            expect(dispatchTimeline(relay.timeline)).toEqual([PENDING_GET]);
         }
     });
 

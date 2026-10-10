@@ -337,11 +337,16 @@ async function handlePendingEvents(context: RouteContext, request: RouteRequest)
  * contract's only refusal — `503 storage-unavailable` — instead of inventing an
  * empty history a constitution-II reading would forbid.
  *
+ * @param followUpsFrom - Where one run's follow-up window opens, or `null` for
+ *   the start. Passed through unchanged: a `null` reaches the projection as no
+ *   window position at all, which is what every caller that omits the parameter
+ *   has always been answered with.
  * @returns Every retained run's row, newest detected first with the tiebreak.
  */
 async function projectHistory(
     context: RouteContext,
     store: ServiceStore,
+    followUpsFrom: string | null,
 ): Promise<readonly RunHistoryRow[]> {
     const document = await previewRunsDocument({ store, log: context.log });
     const queue = await readEvents({ store, log: context.log });
@@ -351,6 +356,7 @@ async function projectHistory(
         deliveries: new Map(queue.map((event) => [event.id, event])),
         // The whole projection: the cap is a page size now, not a wall.
         cap: document.runs.length,
+        followUpsFrom,
     }).toSorted(newestFirst);
 }
 
@@ -362,8 +368,13 @@ async function projectHistory(
  * validated before any document is read, the order is the retained one, and
  * the answer carries the `page` member beside the rows.
  *
+ * `followUpsFrom` reaches the projection and nothing else: it moves one run's
+ * follow-up window past its bound (002 v1.16.0) and changes no path, method,
+ * status, error code, or answer member, so a caller that omits it reads exactly
+ * what it read before the parameter existed.
+ *
  * @param request - Routed request; the query may carry `limit`, `cursor`,
- *   `bindingId`, and `state`.
+ *   `bindingId`, `state`, and `followUpsFrom`.
  * @returns `200 { events, page }`, or the documented 422/503.
  */
 async function handleEventHistory(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
@@ -378,7 +389,7 @@ async function handleEventHistory(context: RouteContext, request: RouteRequest):
     }
 
     const { query } = parsed;
-    const rows = await projectHistory(context, store);
+    const rows = await projectHistory(context, store, query.followUpsFrom);
 
     const filtered = rows.filter((row) => matchesFilters(row, query));
     const { boundary } = query;

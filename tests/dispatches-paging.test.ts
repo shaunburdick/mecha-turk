@@ -202,6 +202,20 @@ describe('dispatchListPath (005 contract §1)', () => {
             expect(pathFor(advanceDispatchPage(page))).toContain('cursor=a%20b%26c');
         }
     });
+
+    it('never carries the follow-up window: the operator\'s read is not the relay\'s walk', () => {
+        {
+            // `followUpsFrom` exists so the relay can walk one run's follow-up
+            // window past its bound (002 v1.16.0). The operator's list is a
+            // different read with a different job, and it keeps sending the
+            // four parameters it always sent — a walk position is not an
+            // operator's filter, and showing one would change what an operator
+            // sees rather than what the relay delivers.
+            expect(pathFor()).not.toContain('followUpsFrom');
+            expect(pathFor(undefined, { bindingId: 'bnd_one', state: 'dispatched' }))
+                .not.toContain('followUpsFrom');
+        }
+    });
 });
 
 describe('the paging position machine (data-model §3.2)', () => {

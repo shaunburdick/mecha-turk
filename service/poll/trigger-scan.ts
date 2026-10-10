@@ -39,6 +39,7 @@ import type { ServiceLogger } from '../log.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { GitHubIssuePoller, ListPace, PollFailure } from './poller-github.ts';
 import type { QueuedEvent } from './events.ts';
+import type { TrackedSubject, TrackingEnd } from './tracking.ts';
 
 /** Longest body excerpt one event carries (bounded untrusted text). */
 const BODY_EXCERPT_MAX_CHARS = 600;
@@ -69,11 +70,45 @@ export interface TriggerScanInput {
     readonly detectedAt: string;
     /** Page size and retry ladder this cycle's calls run under (006 FR-058/FR-059). */
     readonly pace: ListPace;
+    /**
+     * The subjects this binding and account is following: the ones whose run
+     * carries a recorded session (002 FR-100).
+     *
+     * Read once per cycle from the run document and shared by every branch, so
+     * a follow-up is a property of the **same run document the join reads**
+     * rather than a second index of tracked subjects (FR-107: no persisted
+     * registry). An empty map is the ordinary case for a cycle in which
+     * nothing has dispatched yet, and every branch simply produces no
+     * follow-ups.
+     */
+    readonly tracked: ReadonlyMap<number, TrackedSubject>;
 }
 
 /** What one trigger branch produced: its events, or the failure that ended it. */
 export type TriggerEvents =
-    | { readonly ok: true; readonly events: readonly QueuedEvent[] }
+    | {
+        readonly ok: true;
+        readonly events: readonly QueuedEvent[];
+        /**
+         * The head SHA each tracked pull request was observed carrying, keyed
+         * by pull-request number and carrying only rows GitHub named a SHA
+         * for.
+         *
+         * Reported beside the events because they are the same read: the
+         * establishing cycle of a run with no seed records the head it
+         * observed (002 FR-103(b)), and that write rides the enqueue's own
+         * chain rather than a second one. The cycle maps these onto the run
+         * document's own subject keys, which is the only shape the enqueue
+         * pass reads.
+         */
+        readonly observedHeads?: ReadonlyMap<number, string>;
+        /**
+         * The tracked subjects whose own list row reported a terminal state
+         * (002 FR-106), so the cycle can record the end of tracking with its
+         * fact and date.
+         */
+        readonly ends?: readonly TrackingEnd[];
+    }
     | { readonly ok: false; readonly failure: PollFailure };
 
 /**

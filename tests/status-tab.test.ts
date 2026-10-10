@@ -24,6 +24,7 @@ import {
     actorPolicyLines,
     agentPinLines,
     bindingLines,
+    followUpQueueLine,
     formatUptime,
     noticeStates,
     pollingLines,
@@ -643,6 +644,26 @@ describe('the agent pin (FR-033, AC-106)', () => {
             expect(lines[1]).toContain('executor');
             expect(lines[1]).toContain('without comparison');
             expect(lines.join(' ')).not.toContain('did not match');
+        }
+    });
+});
+
+describe('the follow-up queue (002 FR-036 as amended, FR-105)', () => {
+    it('reports the waiting queue, and never a zero it has not measured', () => {
+        {
+            // Before the relay's first tick the panel has counted nothing, and
+            // a queue line must not claim an empty one it has not read.
+            expect(followUpQueueLine(null)).toContain('Not counted yet this session');
+            expect(followUpQueueLine(0)).toBe('Waiting to be delivered: none.');
+            expect(followUpQueueLine(1)).toBe('Waiting to be delivered: 1.');
+            expect(followUpQueueLine(4)).toBe('Waiting to be delivered: 4.');
+            // And nothing on the line ever describes the queue as work that
+            // has been done.
+            expect(followUpQueueLine(null)).not.toMatch(/\d/);
+            for (const waiting of [0, 1, 4]) {
+                expect(followUpQueueLine(waiting)).toContain('Waiting to be delivered');
+                expect(followUpQueueLine(waiting)).not.toContain('all delivered');
+            }
         }
     });
 });

@@ -115,12 +115,65 @@ export interface ReviewEventSnapshot extends BaseEventSnapshot {
     readonly baseRef: string | null;
 }
 
+/**
+ * A **follow-up**: a comment on a subject whose run already carries a
+ * recorded session (002 FR-102(a)).
+ *
+ * The row **reuses** the closed `EventKind` union rather than widening it —
+ * widening it would make both shipped parsers refuse the row and quarantine
+ * the queue and the run document — so it carries `'mention'`, naming the feed
+ * the detection rides. The `~followup~…` discriminator is what records the
+ * *role*, so the kind says which surface the row came from and never claims
+ * that anyone mentioned the account.
+ */
+export interface FollowUpCommentSnapshot extends BaseEventSnapshot {
+    /** The feed the detection rides: the issue-comment list. */
+    readonly kind: 'mention';
+    /** Marks this row as a follow-up rather than a trigger, and which kind. */
+    readonly followUp: 'comment';
+    /** The comment's id: the id's last segment, and its dedupe key. */
+    readonly commentId: number;
+    /**
+     * The tracked subject's shape, written from the run rather than inferred.
+     *
+     * **Required on a follow-up**, where it is optional on a trigger: the
+     * kind-based fallback would read a head-SHA follow-up on a tracked pull as
+     * an issue, because `'mention'` is the one kind that also rides issues
+     * (002 FR-101).
+     */
+    readonly subjectType: SubjectType;
+}
+
+/**
+ * A **follow-up**: a head-SHA change on a tracked pull request
+ * (002 FR-102(b)).
+ *
+ * `'review'` for the same reason the comment follow-up carries `'mention'`,
+ * naming the pulls list the detection rides. `headSha` is the SHA **observed**
+ * at detection — the follow-up's `to` — and is never `null`: an observation
+ * with no SHA is not a change and produces no row at all.
+ */
+export interface FollowUpHeadSnapshot extends BaseEventSnapshot {
+    /** The feed the detection rides: the pull-request list. */
+    readonly kind: 'review';
+    /** Marks this row as a follow-up rather than a trigger, and which kind. */
+    readonly followUp: 'head';
+    /** The head SHA observed at detection; the follow-up's `to`. */
+    readonly headSha: string;
+    /** `null` always: a movement observation restates no base ref. */
+    readonly baseRef: string | null;
+    /** The tracked subject's shape, required exactly as on a comment follow-up. */
+    readonly subjectType: SubjectType;
+}
+
 /** Inputs used to assemble one queued event, narrowed by trigger kind. */
 export type EventSnapshot =
     | AssignmentEventSnapshot
     | MentionEventSnapshot
     | MentionBodyEventSnapshot
-    | ReviewEventSnapshot;
+    | ReviewEventSnapshot
+    | FollowUpCommentSnapshot
+    | FollowUpHeadSnapshot;
 
 /**
  * Build the deterministic event id for one detection.
@@ -138,6 +191,16 @@ export type EventSnapshot =
  * edited body re-detects to the same id and dedupes), and `~review` keeps a
  * review request distinct from the same PR's assignment. A comment id is
  * always a number, so `~mention~body` can never collide with one.
+ *
+ * **The two follow-up forms (002 FR-101) sit in the same family and change
+ * nothing that was already there.** `~followup~<commentId>` and
+ * `~followup~head~<sha>` are appended after the base exactly as the trigger
+ * discriminators are, so the base and every existing discriminator stay
+ * byte-identical. `followup` opens every follow-up id and no trigger
+ * discriminator can, which is what makes a collision structurally impossible
+ * rather than merely unlikely. A comment id is decimal and a SHA is
+ * hexadecimal, so both stay inside `[A-Za-z0-9._~]` — one URL path segment,
+ * no route ambiguity.
  *
  * `evt-<owner>~<repo>~<issueNumber>~<accountNumericUserId>` plus its optional
  * discriminator — `~mention~<commentId>`, the fixed `~mention~body`, or
@@ -168,9 +231,22 @@ export function buildEventId(input: {
 /**
  * Read the id discriminator one snapshot contributes.
  *
+ * A follow-up's discriminator records its **role**, and the snapshot's `kind`
+ * records which feed the detection rode, so the two are read from two
+ * different members rather than from one overloaded value.
+ *
  * @returns `undefined` for an assignment, the discriminator otherwise.
  */
 function discriminatorOf(snapshot: EventSnapshot): string | undefined {
+    // `followUp` is declared on the two follow-up snapshots alone, so its
+    // presence is what narrows the union — and the trigger snapshots carry no
+    // role member at all, which is why no existing snapshot changed shape.
+    if ('followUp' in snapshot) {
+        return snapshot.followUp === 'head'
+            ? `~followup~head~${snapshot.headSha}`
+            : `~followup~${snapshot.commentId}`;
+    }
+
     if (snapshot.kind === 'mention') {
         return snapshot.origin === 'body' ? '~mention~body' : `~mention~${snapshot.commentId}`;
     }
@@ -180,6 +256,9 @@ function discriminatorOf(snapshot: EventSnapshot): string | undefined {
 
 /**
  * Read the head SHA one snapshot contributes; `null` for the other triggers.
+ *
+ * A follow-up head row carries the SHA it **observed**, which is the only
+ * value on it that is not a fact about a review request.
  *
  * @returns The SHA, or `null`.
  */
@@ -227,6 +306,10 @@ function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
  * An issue observed once before this change and once after it is
  * still **one** event, and tightening a binding's allow-list can never
  * manufacture duplicate work.
+ *
+ * A **follow-up** snapshot writes the same row shape with the role recorded in
+ * its discriminator and its `subjectType` stated from the tracked subject, so
+ * a head-SHA movement on a tracked pull is never read as an issue.
  *
  * @returns A fresh delivery row.
  */

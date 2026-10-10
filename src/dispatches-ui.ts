@@ -33,6 +33,7 @@ import { AUDIT_BUTTON_LABEL, auditItems, auditStatusText } from './audit-view.ts
 import type { PanelRuntime, DispatchesState } from './panel-state.ts';
 import {
     CONFIRM_NO_SESSION_LABEL,
+    CONFIRM_REOFFER_LABEL,
     CONFIRM_RETURN_LABEL,
     CONFIRM_SESSION_CREATED_LABEL,
     NO_SESSION_LABEL,
@@ -40,13 +41,16 @@ import {
     RETRY_LABEL,
     RETURN_LABEL,
     DISPATCHES_HEADING,
+    REOFFER_LABEL,
     SESSION_CREATED_LABEL,
     runAffordance,
     dispatchRows,
     dispatchesStatusText,
     selectedRun,
 } from './dispatches-rows.ts';
+import { reofferableFollowUps } from './dispatches-detail.ts';
 import type { BindingsPaneHandlers } from './bindings-ui.ts';
+import type { RunRow } from './dispatches-service.ts';
 import {
     combineControls,
     createControlGroup,
@@ -89,6 +93,10 @@ export interface DispatchesBoard {
     readonly requeueRunBox: HTMLElement;
     /** Return the selected parked run to waiting. */
     readonly requeueRun: ButtonHandle;
+    /** Wrapper around the follow-up re-offer, hidden unless one is parked. */
+    readonly reofferFollowUpBox: HTMLElement;
+    /** Re-offer the selected dispatch's parked follow-ups (FR-105, AC-051). */
+    readonly reofferFollowUp: ButtonHandle;
     /** Wrapper around FR-027's two resolutions, hidden unless `unconfirmed`. */
     readonly resolveBox: HTMLElement;
     /** The resolution group's heading — the affordance's own label. */
@@ -203,16 +211,21 @@ function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick
 }
 
 /**
- * Mount the two state-gated transitions: retry, and return to waiting.
+ * Mount the state-gated transitions: retry, return to waiting, and the
+ * follow-up re-offer.
  *
  * Each sits in its own group so the group's `hidden` flag can say "not this
- * state" without leaving a greyed-out sibling visible.
+ * state" without leaving a greyed-out sibling visible. The follow-up re-offer
+ * rides the same idiom on the other axis — it is gated by what the panel's own
+ * record says about the row's follow-ups, not by the run's state — so a
+ * dispatched dispatch, which is the only state a follow-up can belong to, is
+ * still where the control appears.
  *
  * @returns The groups and their buttons.
  */
 function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
     DispatchesBoard,
-    'retryRunBox' | 'retryRun' | 'requeueRunBox' | 'requeueRun'
+    'retryRunBox' | 'retryRun' | 'requeueRunBox' | 'requeueRun' | 'reofferFollowUpBox' | 'reofferFollowUp'
 > {
     const retryRunBox = createControlGroup(input.pane);
     retryRunBox.hidden = true;
@@ -230,8 +243,16 @@ function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
         disabled: true,
         onClick: input.handlers.requeueRun,
     });
+    const reofferFollowUpBox = createControlGroup(input.pane);
+    reofferFollowUpBox.hidden = true;
+    const reofferFollowUp = mountButton(reofferFollowUpBox, {
+        label: REOFFER_LABEL,
+        variant: 'outline',
+        disabled: true,
+        onClick: input.handlers.reofferFollowUp,
+    });
 
-    return { retryRunBox, retryRun, requeueRunBox, requeueRun };
+    return { retryRunBox, retryRun, requeueRunBox, requeueRun, reofferFollowUpBox, reofferFollowUp };
 }
 
 /**
@@ -346,6 +367,7 @@ export function disposeDispatchesBoard(board: DispatchesBoard): void {
         board.openDispatch,
         board.retryRun,
         board.requeueRun,
+        board.reofferFollowUp,
         board.resolveHeading,
         board.resolveSession,
         board.resolveNoSession,
@@ -393,6 +415,36 @@ function repaintResolutions(input: {
 }
 
 /**
+ * Repaint the follow-up re-offer group from the panel's own record.
+ *
+ * The gate is the record, not the run's state: a parked follow-up is the only
+ * thing the control clears, so with none parked it is **absent** rather than
+ * greyed out — the same rule the other groups follow — and the confirm label
+ * comes from the same armed state the action module writes.
+ *
+ * @param input - The runs state, the selected row, the label helper, and the board.
+ */
+function repaintReoffer(input: {
+    /** The runs section's state. */
+    readonly runs: DispatchesState;
+    /** The row the operator selected, or `null` when none is. */
+    readonly selected: RunRow | null;
+    /** Names one action label with the selected row. */
+    readonly labelFor: (base: string) => string;
+    /** The mounted runs half. */
+    readonly board: DispatchesBoard;
+}): void {
+    const { runs, selected, labelFor, board } = input;
+    const reofferable = selected === null ? [] : reofferableFollowUps(selected, runs.followUpRecords);
+
+    board.reofferFollowUpBox.hidden = reofferable.length === 0;
+    board.reofferFollowUp.update({
+        label: labelFor(runs.pendingAction === 'reoffer-follow-up' ? CONFIRM_REOFFER_LABEL : REOFFER_LABEL),
+        disabled: runs.busy,
+    });
+}
+
+/**
  * Repaint the runs half of the pane from state.
  *
  * The affordance table decides which transition group exists: one nobody can
@@ -430,6 +482,7 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
         label: labelFor(runs.pendingAction === 'requeue' ? CONFIRM_RETURN_LABEL : RETURN_LABEL),
         disabled: runs.busy,
     });
+    repaintReoffer({ runs, selected, labelFor, board });
     board.resolveBox.hidden = selected?.state !== 'unconfirmed';
     repaintResolutions({ runs, labelFor, board });
     board.dispatchesNote.update({ text: runs.note });

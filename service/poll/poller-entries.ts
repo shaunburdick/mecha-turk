@@ -46,6 +46,24 @@ export interface PollIssue {
     readonly isPullRequest: boolean;
     /** RFC 3339 `updated_at` stamp, or `null` when GitHub sent none. */
     readonly updatedAt: string | null;
+    /**
+     * `closed_at` as GitHub sent it, or `null` while the issue is open.
+     *
+     * Read for the tracking lifecycle's end-of-tracking judgement (002 FR-106):
+     * the date the work item concluded, recorded beside the terminal fact so
+     * *"when did this conclude?"* is answerable from the trail. **Absentable on
+     * read** and read as *no terminal state reported*, which is the direction
+     * that can only fail to end tracking.
+     */
+    readonly closedAt?: string | null;
+    /**
+     * `state_reason` — `completed`, `not_planned`, or `reopened` — or `null`.
+     *
+     * The member that distinguishes a completed issue from one closed as not
+     * planned. Absent on the pull-request object entirely, which is why the
+     * terminal fact a tracking end records is derived rather than quoted.
+     */
+    readonly stateReason?: string | null;
 }
 
 /**
@@ -107,6 +125,17 @@ export interface PollPull {
     readonly headSha: string | null;
     /** Base ref name, or `null` when GitHub sent none. */
     readonly baseRef: string | null;
+    /**
+     * `merged` as GitHub sent it; an absent member reads as `false`.
+     *
+     * Read for FR-106's end-of-tracking judgement, which distinguishes a merged
+     * pull request from one closed unmerged. **Absentable on read**, and `false`
+     * is the reading of an absent member because it is the direction that can
+     * only ever fail to end tracking and never end it on a guess.
+     */
+    readonly merged?: boolean;
+    /** `merged_at` as GitHub sent it, or `null` when it sent none. */
+    readonly mergedAt?: string | null;
     /** RFC 3339 `updated_at` stamp, or `null` when GitHub sent none. */
     readonly updatedAt: string | null;
 }
@@ -235,6 +264,8 @@ export function readIssueEntry(value: unknown): PollIssue | null {
         // GitHub adds a `pull_request` object only to PRs it lists as issues.
         isPullRequest: 'pull_request' in record,
         updatedAt: textOf(record, 'updated_at'),
+        closedAt: textOf(record, 'closed_at'),
+        stateReason: textOf(record, 'state_reason'),
     };
 }
 
@@ -307,6 +338,52 @@ export function readPullEntry(value: unknown): PollPull | null {
         requestedReviewers,
         headSha: head === null ? null : textOf(head, 'sha'),
         baseRef: base === null ? null : textOf(base, 'ref'),
+        merged: record.merged === true,
+        mergedAt: textOf(record, 'merged_at'),
         updatedAt: textOf(record, 'updated_at'),
     };
+}
+
+/**
+ * Read one **single-item** issue object — the terminal read's shape (FR-106).
+ *
+ * The item's own `GET /repos/{owner}/{repo}/issues/{number}` returns the same
+ * Issue object a list row is, so the read reuses {@link readIssueEntry} and the
+ * terminal members it already fills (`state`, `stateReason`, `closedAt`), taking
+ * one object where the page readers took one entry of a page (`research.md`
+ * §R14.10's item 4). What this reader adds is the only thing a `state=open` list
+ * never had to decide: the `state` word is the **whole** terminal fact a read can
+ * carry, so a value outside `open` / `closed` is refused here rather than read as
+ * a silent not-closed. That is what makes an unreadable answer fail the scan
+ * instead of ending — or extending — tracking on a guess (AC-052, invariant 8);
+ * `null` is the direction that can only fail to end tracking.
+ *
+ * @returns The issue with its terminal members, or `null` when the object is
+ *   unrecognizable or its `state` is outside the known vocabulary.
+ */
+export function readIssueObject(value: unknown): PollIssue | null {
+    const issue = readIssueEntry(value);
+
+    return issue !== null && (issue.state === 'open' || issue.state === 'closed') ? issue : null;
+}
+
+/**
+ * Read one **single-item** pull object — the terminal read's shape (FR-106).
+ *
+ * The item's own `GET /repos/{owner}/{repo}/pulls/{number}` returns the full
+ * Pull Request object, which the pulls **list** (`Pull Request Simple`) is not:
+ * the single object carries `merged` as a required boolean, and that is the one
+ * field which tells a merged pull from one closed unmerged — the exact fact the
+ * `state=open` list cannot carry at all (`research.md` §R12.2, §R12.5). The read
+ * reuses {@link readPullEntry}, which already fills `merged` / `mergedAt` /
+ * `state`, and applies the same `open` / `closed` refusal {@link readIssueObject}
+ * does: an unusable `state` word is unreadable, not a guess (AC-052).
+ *
+ * @returns The pull with its terminal members, or `null` when the object is
+ *   unrecognizable or its `state` is outside the known vocabulary.
+ */
+export function readPullObject(value: unknown): PollPull | null {
+    const pull = readPullEntry(value);
+
+    return pull !== null && (pull.state === 'open' || pull.state === 'closed') ? pull : null;
 }

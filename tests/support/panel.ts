@@ -132,6 +132,7 @@ export function fakeHost(overrides: Partial<PanelHost> = {}): PanelHost {
         writeClipboard: () => Promise.resolve(),
         startSession: async () => NO_SESSION,
         openSession: () => Promise.resolve(),
+        prompt: async () => ({ sent: 'sent' }),
         listProjects: async () => PROJECTS,
         listWorktrees: async () => WORKTREES,
         listSessions: async () => SESSIONS,

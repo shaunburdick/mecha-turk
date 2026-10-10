@@ -45,6 +45,9 @@ import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import { actorLoginOf, isAttributableAuthor } from './attribution.ts';
 import { createEvent } from './events.ts';
+import { commentFollowUps } from './follow-up.ts';
+import { trackedIssueEnds, withoutEnded } from './tracking.ts';
+import type { TrackingEnd } from './tracking.ts';
 import { stampInWindow } from './window.ts';
 import { bodyExcerptOf } from './trigger-scan.ts';
 import { assignmentEvents } from './triggers-assignment.ts';
@@ -52,6 +55,7 @@ import { reviewRequestEvents } from './triggers-review.ts';
 import type { QueuedEvent, SubjectType } from './events.ts';
 import type { PollComment, PollIssue } from './poller-entries.ts';
 import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
+import type { IssueListOutcome } from './poller-github.ts';
 
 /**
  * Decide whether one character belongs to GitHub's username alphabet.
@@ -300,6 +304,13 @@ function bodyMentionEvents(input: {
  * List the comment feed the mention switch asks for and collect its events,
  * including the issue-body mentions the issue list already covers (M6).
  *
+ * The same feed answers a second question: which of its rows are a **movement
+ * on a work item already in progress** (002 FR-102(a)). The follow-up branch
+ * rides the read the mention switch already pays for, applies the author
+ * judgement the mention path already applies, and adds no request — so a
+ * binding with the mention switch off lists no comments and therefore detects
+ * no comment follow-ups, which is the honest reading of "no new read".
+ *
  * @returns The events, or the list failure that ends the scan.
  */
 async function mentionEventsOf(input: TriggerScanInput & {
@@ -324,9 +335,77 @@ async function mentionEventsOf(input: TriggerScanInput & {
         // whenever the assignment *or* the mention switch is on.
         ...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }),
         ...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }),
+        ...commentFollowUps({
+            binding,
+            comments: listed.comments,
+            issues,
+            tracked: input.tracked,
+            windowStart,
+            detectedAt,
+        }),
     ];
 
     return { ok: true, events };
+}
+
+/**
+ * List the issues this binding's assignment or mention switch needs.
+ *
+ * A binding with both off lists nothing, so the rate budget only ever pays for
+ * triggers the operator turned on — and the empty answer is a legitimate
+ * `kind: 'ok'`, not a failure.
+ */
+async function listedIssues(input: {
+    readonly poller: TriggerScanInput['poller'];
+    readonly token: string;
+    readonly repository: { readonly owner: string; readonly name: string };
+    readonly windowStart: string;
+    readonly pace: TriggerScanInput['pace'];
+    readonly binding: BindingRecord;
+}): Promise<IssueListOutcome> {
+    const { poller, token, repository, windowStart, pace, binding } = input;
+    if (!binding.triggers.assignment && !binding.triggers.mention) {
+        return { kind: 'ok', issues: [] };
+    }
+
+    return await poller.listOpenIssues({
+        token,
+        owner: repository.owner,
+        name: repository.name,
+        since: windowStart,
+        pace,
+    });
+}
+
+/**
+ * Run the branches the binding's switches ask for, in the queue's fixed order.
+ *
+ * Branch order is also the **event** order the queue sees: assignment, then the
+ * two mention kinds, then the review request. It is not load-bearing for any
+ * rule, and it is fixed rather than incidental so a suite can assert it.
+ *
+ * @returns Each branch's answer in order; the first failure ends the sequence.
+ */
+async function triggerBranches(input: {
+    readonly scan: TriggerScanInput;
+    readonly issues: readonly PollIssue[];
+}): Promise<readonly TriggerEvents[]> {
+    const { scan, issues } = input;
+    const branches: TriggerEvents[] = [];
+
+    if (scan.binding.triggers.assignment) {
+        branches.push(await assignmentEvents({ ...scan, issues }));
+    }
+
+    if (scan.binding.triggers.mention) {
+        branches.push(await mentionEventsOf({ ...scan, issues }));
+    }
+
+    if (scan.binding.triggers.reviewRequest) {
+        branches.push(await reviewRequestEvents(scan));
+    }
+
+    return branches;
 }
 
 /**
@@ -335,13 +414,12 @@ async function mentionEventsOf(input: TriggerScanInput & {
  *
  * A binding with no switch on is a no-op (the cycle still walks it so the scan
  * state stays honest), and no feed is listed for a trigger the operator turned
- * off — the rate budget only ever pays for triggers that are on. The issue-body
- * mention rides the issue list the assignment branch already consumes, so it
- * adds no request of its own.
- *
- * Branch order is also the **event order** the queue sees: assignment, then the
- * two mention kinds, then the review request. It is not load-bearing for any
- * rule, and it is fixed rather than incidental so a suite can assert it.
+ * off — the rate budget only ever pays for triggers that are on. The issue-list
+ * read is where an issue's own state is read, so it is also where the end of
+ * tracking for a tracked issue is observed (002 FR-106); both list feeds the scan
+ * reads are `state=open`, so a closed item normally *leaves* the list rather
+ * than arriving on it — the accepted consequence research §R12.2 records — and
+ * this is the branch that judges one when it is there.
  *
  * The first failure ends the whole scan, whichever branch raised it. A failed
  * per-item events read is such a failure and is treated identically to a failed
@@ -353,47 +431,40 @@ async function mentionEventsOf(input: TriggerScanInput & {
 export async function collectTriggerEvents(input: TriggerScanInput): Promise<TriggerEvents> {
     const { binding, poller, token, windowStart, pace } = input;
     const repository = repositoryRefOf(binding.repository);
-    const events: QueuedEvent[] = [];
-
-    const issues = binding.triggers.assignment || binding.triggers.mention
-        ? await poller.listOpenIssues({
-            token,
-            owner: repository.owner,
-            name: repository.name,
-            since: windowStart,
-            pace,
-        })
-        : { kind: 'ok' as const, issues: [] as readonly PollIssue[] };
+    const issues = await listedIssues({ poller, token, repository, windowStart, pace, binding });
     if (issues.kind !== 'ok') {
         return { ok: false, failure: issues };
     }
 
-    if (binding.triggers.assignment) {
-        const branch = await assignmentEvents({ ...input, issues: issues.issues });
+    const ends: TrackingEnd[] = [...trackedIssueEnds({
+        binding,
+        issues: issues.issues,
+        tracked: input.tracked,
+    })];
+    // The end of tracking stops new detection on the subjects it names, so the
+    // branches below see the view without them: a comment that arrived in the
+    // same cycle as the item's conclusion is not a follow-up (FR-106).
+    const tracked = withoutEnded(input.tracked, ends);
+    const events: QueuedEvent[] = [];
+    let observedHeads: ReadonlyMap<number, string> | undefined;
+
+    const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues });
+    for (const branch of branches) {
         if (!branch.ok) {
             return branch;
         }
 
         events.push(...branch.events);
-    }
-
-    if (binding.triggers.mention) {
-        const branch = await mentionEventsOf({ ...input, issues: issues.issues });
-        if (!branch.ok) {
-            return branch;
+        observedHeads = branch.observedHeads ?? observedHeads;
+        if (branch.ends !== undefined) {
+            ends.push(...branch.ends);
         }
-
-        events.push(...branch.events);
     }
 
-    if (binding.triggers.reviewRequest) {
-        const branch = await reviewRequestEvents(input);
-        if (!branch.ok) {
-            return branch;
-        }
-
-        events.push(...branch.events);
-    }
-
-    return { ok: true, events };
+    return {
+        ok: true,
+        events,
+        ...(observedHeads !== undefined && { observedHeads }),
+        ...(ends.length > 0 && { ends }),
+    };
 }

@@ -23,6 +23,21 @@
  *   which is where GitHub records **who assigned an issue and who requested a
  *   review** (002 FR-049).
  *
+ * And two single-item object reads, **not** list feeds — the one read the
+ * tracking lifecycle adds (002 FR-106):
+ *
+ * - `GET /repos/:owner/:name/issues/:number`, whose `state` / `state_reason` /
+ *   `closed_at` answer an issue's terminal state;
+ * - `GET /repos/:owner/:name/pulls/:number`, whose `state` / `merged` /
+ *   `merged_at` answer a pull's — the only row that carries `merged` at all.
+ *
+ * Each single-item read is issued **only** for a tracked subject that produced a
+ * detected follow-up this cycle, at most once per subject per cycle, never per
+ * subject per cycle and never repository-wide (FR-102): both list feeds above are
+ * filtered `state=open`, so a concluded item *leaves* them rather than arriving
+ * on one, which is why the end of tracking can only be observed here.
+ * Neither sends `per_page` or `page`; each answers with one object.
+ *
  * The fourth is deliberately unlike the other three. It is read **once per
  * matched candidate item** and never repository-wide, because a repository-wide
  * or timeline read would cost a request on every cycle whether or not anything
@@ -43,9 +58,9 @@ import { API_ORIGIN } from '../github.ts';
 import type { FetchLike } from '../github.ts';
 import { ITEM_EVENT_MAX_PAGES, pageEndsWalk, readItemEventEntry } from './poller-events.ts';
 import type { ItemEventsOutcome, ItemEventsQuery, PollItemEvent } from './poller-events.ts';
-import { listPages, listUrl, pollerRuntime, readOnePage } from './poller-transport.ts';
+import { listPages, listUrl, pollerRuntime, readOneObject, readOnePage } from './poller-transport.ts';
 import type { ListPace, PagedList, PollFailure, PollerDeps, PollerRuntime } from './poller-transport.ts';
-import { readCommentEntry, readIssueEntry, readPullEntry } from './poller-entries.ts';
+import { readCommentEntry, readIssueEntry, readIssueObject, readPullEntry, readPullObject } from './poller-entries.ts';
 import type { PollComment, PollIssue, PollPull } from './poller-entries.ts';
 
 /** Entry shapes re-exported so callers keep one import path for the poller. */
@@ -65,6 +80,12 @@ export type CommentListOutcome = PollFailure | { readonly kind: 'ok'; readonly c
 
 /** Outcome of one pulls-list call. */
 export type PullListOutcome = PollFailure | { readonly kind: 'ok'; readonly pulls: readonly PollPull[] };
+
+/** Outcome of the single-item issue terminal read (002 FR-106). */
+export type IssueStateOutcome = PollFailure | { readonly kind: 'ok'; readonly issue: PollIssue };
+
+/** Outcome of the single-item pull terminal read (002 FR-106). */
+export type PullStateOutcome = PollFailure | { readonly kind: 'ok'; readonly pull: PollPull };
 
 /** Credential, repository, and the `since` window a windowed list takes. */
 interface WindowedListQuery {
@@ -95,6 +116,20 @@ interface RepoListQuery {
     readonly owner: string;
     /** Repository name. */
     readonly name: string;
+    /** Page size and retry ladder this call runs under. */
+    readonly pace: ListPace;
+}
+
+/** Credential, coordinates, and pace for a single-item terminal read (002 FR-106). */
+interface ItemStateQuery {
+    /** Account credential presented to GitHub. */
+    readonly token: string;
+    /** Repository owner. */
+    readonly owner: string;
+    /** Repository name. */
+    readonly name: string;
+    /** The issue or pull-request number; one repository, one numbering space. */
+    readonly itemNumber: number;
     /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
@@ -139,6 +174,38 @@ export interface GitHubIssuePoller {
      *   classified failure; upstream detail never escapes as text.
      */
     listIssueEvents(query: ItemEventsQuery): Promise<ItemEventsOutcome>;
+
+    /**
+     * Read **one issue's** own object for its terminal state (002 FR-106).
+     *
+     * Both list feeds the scan reads are filtered `state=open`, so a concluded
+     * issue *leaves* the list rather than arriving on it — this single-item read
+     * is the only source that can observe an issue's `state` / `state_reason` /
+     * `closed_at`. It is the one read the tracking lifecycle adds, and it is lazy:
+     * issued **only** for a tracked subject that produced a detected follow-up
+     * this cycle, at most **once per subject per cycle**, never per subject per
+     * cycle and never repository-wide (FR-102). One object, one request, no page
+     * walk (`research.md` §R12.5).
+     *
+     * @returns The issue with its terminal members, or the classified failure;
+     *   upstream detail never escapes as text.
+     */
+    readIssueState(query: ItemStateQuery): Promise<IssueStateOutcome>;
+
+    /**
+     * Read **one pull request's** own object for its terminal state (FR-106).
+     *
+     * The pulls list returns `Pull Request Simple`, which carries `merged_at` but
+     * **no** `merged` — so a concluded pull leaves the `state=open` list with no
+     * row that can say *merged* at all. The single-pull object carries `merged`
+     * as a required boolean, so this is the only row that answers a merged pull
+     * from a closed-unmerged one. Bounded and issued exactly as
+     * {@link readIssueState}.
+     *
+     * @returns The pull with its terminal members, or the classified failure;
+     *   upstream detail never escapes as text.
+     */
+    readPullState(query: ItemStateQuery): Promise<PullStateOutcome>;
 }
 
 /**
@@ -278,6 +345,61 @@ async function itemEventsList(runtime: PollerRuntime, query: ItemEventsQuery): P
     return { kind: 'ok', events, exhausted: true };
 }
 
+/** Build the single-item issue terminal-read URL (`GET …/issues/{itemNumber}`). */
+function issueStateUrl(input: { readonly owner: string; readonly name: string; readonly itemNumber: number }): URL {
+    return new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/issues/${input.itemNumber}`);
+}
+
+/** Build the single-item pull terminal-read URL (`GET …/pulls/{itemNumber}`). */
+function pullStateUrl(input: { readonly owner: string; readonly name: string; readonly itemNumber: number }): URL {
+    return new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/pulls/${input.itemNumber}`);
+}
+
+/**
+ * Read one issue's own object for its terminal state (002 FR-106).
+ *
+ * `GET /issues/{number}` answers with the Issue object a list row is — the one
+ * whose `state=open` filter a closed issue leaves — so the reader is the same
+ * {@link readIssueEntry} shape the list reader takes, over one object. No
+ * `since`, no `page`, no `per_page`: this is not a walk, it is one object under
+ * the shared transport.
+ *
+ * @returns The issue with its terminal members, or the classified failure.
+ */
+async function issueStateObject(runtime: PollerRuntime, query: ItemStateQuery): Promise<IssueStateOutcome> {
+    const result = await readOneObject({
+        runtime,
+        token: query.token,
+        url: issueStateUrl({ owner: query.owner, name: query.name, itemNumber: query.itemNumber }),
+        pace: query.pace,
+        read: readIssueObject,
+    });
+
+    return result.kind === 'ok' ? { kind: 'ok', issue: result.object } : result;
+}
+
+/**
+ * Read one pull request's own object for its terminal state (002 FR-106).
+ *
+ * `GET /pulls/{number}` answers with the full Pull Request object — the one that
+ * carries `merged` — which the pulls **list**'s `Pull Request Simple` does not,
+ * so this is the only row that can tell a merged pull from a closed-unmerged one
+ * and the only row a concluded pull can be observed on at all.
+ *
+ * @returns The pull with its terminal members, or the classified failure.
+ */
+async function pullStateObject(runtime: PollerRuntime, query: ItemStateQuery): Promise<PullStateOutcome> {
+    const result = await readOneObject({
+        runtime,
+        token: query.token,
+        url: pullStateUrl({ owner: query.owner, name: query.name, itemNumber: query.itemNumber }),
+        pace: query.pace,
+        read: readPullObject,
+    });
+
+    return result.kind === 'ok' ? { kind: 'ok', pull: result.object } : result;
+}
+
 /**
  * Create the GitHub client the poll loop uses.
  *
@@ -298,5 +420,7 @@ export function createGitHubIssuePoller(
         listIssueComments: (query) => commentsList(runtime, query),
         listOpenPulls: (query) => pullsList(runtime, query),
         listIssueEvents: (query) => itemEventsList(runtime, query),
+        readIssueState: (query) => issueStateObject(runtime, query),
+        readPullState: (query) => pullStateObject(runtime, query),
     };
 }

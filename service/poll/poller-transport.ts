@@ -416,3 +416,55 @@ export async function listPages<T>(input: {
 
     return { kind: 'ok', items };
 }
+
+/**
+ * Read **one** object from a single-item endpoint, under the shared transport.
+ *
+ * The single-item terminal read (002 FR-106) is not a paged list: it answers
+ * with one object, not an array, so it borrows {@link requestPage}'s request,
+ * retry ladder, classification, and shared 15-second abort without borrowing the
+ * page walk. It is the same discipline as {@link readOnePage} at "one page, and
+ * the behaviour at the bound is what the spec fixes" — here the bound is
+ * structural, because neither endpoint returns an array (`research.md` §R12.5).
+ *
+ * A body that is not the object the reader accepts — unparseable text, or a
+ * value the reader refuses, including a GitHub `state` word outside the known
+ * vocabulary — answers the same `unavailable`/`upstream` class a page whose
+ * parse failed answers: an unreadable body is not a different kind of problem
+ * from an unreachable one, which is the line `resolveCandidateActor` draws
+ * between a *recorded refusal* and a *read failure* (`poller-events.ts`).
+ * Upstream detail never escapes — the caller learns the class, never a body.
+ *
+ * @returns The normalized object, or the classified failure.
+ */
+export async function readOneObject<T>(input: {
+    /** Transport plus the poller's injectables. */
+    readonly runtime: PollerRuntime;
+    /** Account credential presented to GitHub. */
+    readonly token: string;
+    /** Request URL for this item, carrying no `page` or `per_page`. */
+    readonly url: URL;
+    /** Page size and retry ladder this call runs under. */
+    readonly pace: ListPace;
+    /** One-object reader; `null` reads as unreadable, not as a different kind. */
+    readonly read: (value: unknown) => T | null;
+}): Promise<PollFailure | { readonly kind: 'ok'; readonly object: T }> {
+    const attempt = await requestPage({
+        runtime: input.runtime,
+        token: input.token,
+        url: input.url,
+        pace: input.pace,
+    });
+    if (!('response' in attempt)) {
+        return attempt.failure;
+    }
+
+    try {
+        const parsed = parseJsonText(await attempt.response.text());
+        const object = parsed.ok ? input.read(parsed.value) : null;
+
+        return object === null ? { kind: 'unavailable', detail: 'upstream' } : { kind: 'ok', object };
+    } catch {
+        return { kind: 'unavailable', detail: 'upstream' };
+    }
+}

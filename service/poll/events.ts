@@ -70,11 +70,11 @@ export { inQueueChain };
 export const MAX_DISPATCHED_EVENTS = 500;
 
 /** Re-exported: this module stays the one import path for the queue's readers. */
-export { parseStoredEvent } from './events-parse.ts';
+export { followUpKindOf, parseStoredEvent } from './events-parse.ts';
 export { parseStoredEvents };
 
 /** Row types re-exported alongside them for the routes and the scan loop. */
-export type { EventKind, EventState, SubjectType } from './events-parse.ts';
+export type { EventKind, EventState, FollowUpKind, SubjectType } from './events-parse.ts';
 export type { QueuedEvent };
 // The attribution basis is declared in `attribution.ts` and re-exported by the
 // row's own module, so the queue keeps one import path for it too (002 FR-044).
@@ -85,6 +85,8 @@ export { buildEventId, createEvent } from './events-write.ts';
 export type {
     AssignmentEventSnapshot,
     EventSnapshot,
+    FollowUpCommentSnapshot,
+    FollowUpHeadSnapshot,
     MentionBodyEventSnapshot,
     MentionEventSnapshot,
     MentionOrigin,
@@ -376,6 +378,7 @@ async function enqueueWithinChain(input: {
     readonly log: ServiceLogger;
     readonly incoming: readonly QueuedEvent[];
     readonly prompt?: PromptSnapshot | null;
+    readonly observedHeads?: ReadonlyMap<string, string>;
 }): Promise<readonly QueuedEvent[]> {
     const existing = await readQueue(input);
     const known = new Set(existing.map((event) => event.id));
@@ -387,7 +390,13 @@ async function enqueueWithinChain(input: {
         known.add(event.id);
         return true;
     });
-    if (fresh.length === 0) {
+    const seeds = input.observedHeads ?? new Map<string, string>();
+    // A pass whose only effect is recording a seed still owes its write: the
+    // seed is what stops the *next* cycle from emitting a push follow-up for a
+    // head that already existed at dispatch (002 FR-103(b)). The events file is
+    // only rewritten when something actually appended, so a seed-only cycle
+    // cannot reorder a healthy queue for nothing.
+    if (fresh.length === 0 && seeds.size === 0) {
         return [];
     }
 
@@ -397,12 +406,22 @@ async function enqueueWithinChain(input: {
         deliveries: fresh,
         now: nowIso(),
         ...(input.prompt !== undefined && { prompt: input.prompt }),
+        ...(seeds.size > 0 && { observedHeads: seeds }),
     });
     const appended = fresh.map((event) => {
         const runCorrelationId = outcome.links.get(event.id);
         return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
     });
     const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
+    if (appended.length === 0) {
+        // Nothing reached the queue, so the queue file is already correct and
+        // rewriting it could only put it in a different order than the one the
+        // operator's rows are in.
+        await readRunsDocument(input);
+
+        return [];
+    }
+
     const persistedIds = new Set(persistedRuns.runs.map((run) => run.correlationId));
     await input.store.writeJson(
         EVENTS_FILE,
@@ -437,6 +456,18 @@ export async function enqueueEvents(input: {
      * `buildEventId`, dedupe, and the NDJSON event contract are untouched.
      */
     readonly prompt?: PromptSnapshot | null;
+    /**
+     * The head SHA each tracked pull request was observed carrying this cycle,
+     * keyed by the ordinal-free subject key of a `pull_request` subject
+     * (002 FR-103).
+     *
+     * Read for exactly one purpose: the run that has no seed yet records the
+     * head it observed, so the following cycle compares against a real value.
+     * A run that already holds a seed is not touched, because the seed is the
+     * **dispatch-time baseline** — re-basing it on the latest observation would
+     * lose the from → to pair a later follow-up has to name.
+     */
+    readonly observedHeads?: ReadonlyMap<string, string>;
 }): Promise<readonly QueuedEvent[]> {
     return await inQueueChain(async () => await enqueueWithinChain(input));
 }

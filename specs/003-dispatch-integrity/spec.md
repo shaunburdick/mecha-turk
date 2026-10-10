@@ -6,11 +6,11 @@
 
 **Created**: 2026-09-28
 
-**Last Updated**: 2026-10-03 — see [changelog.md](changelog.md) for what changed and why
+**Last Updated**: 2026-10-09 — see [changelog.md](changelog.md) for what changed and why
 
-**Version**: 1.11.0
+**Version**: 1.12.0
 
-**Status**: Implemented, current at v1.11.0; the requirement history is in [changelog.md](changelog.md)
+**Status**: Implemented, current at v1.12.0; the requirement history is in [changelog.md](changelog.md)
 
 **Dependencies**: Feature 002 `002-agent-event-extension` (v1.2.0 → v1.3.0 → **v1.4.0**) — **amended by this specification, by 004, and by 005**. The trigger set, credential custody, binding model, normalized delivery record, dispatch mechanism (`host.startSession()`), agent pin and post-dispatch read-back, audit durability split, and the read-only-to-GitHub posture all carry forward unchanged. This specification **supersedes** 002's text on the dispatch lifecycle and the correlation id only; every other 002 requirement stands. **Extended by** `004-starting-prompt` v1.0.0 (see changelog.md), which supersedes nothing here. 004 depends on this specification, not the reverse; 005's Dispatches tab depends on both. **Extended by** `005-panel-ia` v1.0.0 (see changelog.md), which supersedes only the `Status` row of `## Wire Surface Delta` and renders — never re-specifies — every state and transition defined here. 005 depends on this specification, not the reverse.
 
@@ -88,7 +88,7 @@ As a repository maintainer, I assign an issue to my configured account identity 
 
 **Why this priority**: This is the product's core promise. A product that answers one issue with two competing agent sessions is not trustworthy enough to leave running overnight, and every other story in this feature is in service of making that promise keep. It is also the defect an operator hits first, in the first hour of real use.
 
-**Independent Test**: With one active binding, create one issue that is assigned to the bound account *and* whose body mentions it, let the service scan past both, and observe exactly one run, exactly one `host.startSession()` call, and one run row listing both the assignment and the mention as the reasons it fired. Then repeat with the mention arriving in a follow-up comment after the first run is already done, and observe exactly one further session — a new, separately explained run, not a silent duplicate.
+**Independent Test**: With one active binding, create one issue that is assigned to the bound account *and* whose body mentions it, let the service scan past both, and observe exactly one run, exactly one `host.startSession()` call, and one run row listing both the assignment and the mention as the reasons it fired. Then repeat with the mention arriving in a follow-up comment after the first run reached a terminal state carrying no recorded session, and observe exactly one further session — a new, separately explained run, not a silent duplicate.
 
 **Acceptance Scenarios**:
 
@@ -179,7 +179,7 @@ As a first-time operator, I add a binding for a project that is not in the proje
 - **Review request and assignment on the same pull request** — one run, two references, one session.
 - **A body mention re-detected on a later scan** — the delivery identifier is unchanged, so it deduplicates at the delivery layer and never reaches run creation; the existing run is untouched.
 - **A body mention re-detected after its row has been evicted from the bounded history** — the residual gap that durable deduplication closes, which is explicitly backlog and is named in `## Out of Scope`. It is recorded here so the risk is documented, not hidden: an old assignment or body mention can, after enough history, be detected again and open a further run. The operator sees it as a new, separately numbered run with a recent detection time, never as a silent duplicate of an old one.
-- **A comment mention arriving after the first run already dispatched** — a new, separately numbered run and a second session, which is the intended behaviour (a new request deserves an answer) and is stated as an assumption and confirmed by the product owner in `## Resolved Gate Questions`.
+- **A comment mention arriving after the first run already dispatched** — joined to that run as a follow-up in the session the run recorded: no second run, no second ordinal, no second session (002 FR-100). The new-run case is a follow-up on a run that reached a terminal state carrying no recorded session, or a `dead-lettered` one — a new request deserves an answer, which is stated as an assumption and confirmed by the product owner in `## Resolved Gate Questions`.
 - **A comment mention arriving while the first run is still open** — joined to that run, flagged as arrived before any session existed.
 - **Panel closed after claiming, before authorizing** — the lease expires on its own, the run returns to waiting, an attempt is consumed, and the reason is audited.
 - **Panel closed after authorizing, before reporting** — the run becomes *unconfirmed*: no re-dispatch, no automatic expiry, resolution by panel reconciliation or by an explicit operator decision.
@@ -214,7 +214,7 @@ As a first-time operator, I add a binding for a project that is not in the proje
 #### B. Runs: one work unit per subject, per attempt
 
 - **FR-010**: A **run** is the unit of dispatch. Its **run key** MUST be the deterministic tuple `provider | accountNumericUserId | repository | subjectType | subjectNumber | runOrdinal`, where `subjectType` is the issue or pull request the work is about, and `runOrdinal` is the number of already-terminal runs for that same subject under that same account.
-- **FR-011**: **Coalescing rule.** A newly detected delivery MUST join the subject's **open** run when one exists, and MUST otherwise create a new run with the next ordinal. A run is *open* from creation until it reaches a terminal state. Terminal states are `dispatched`, `failed-resolved`→`dispatched`, and `dead-lettered`; `unconfirmed` and every `blocked:*` state are **not** terminal, so a further delivery joins them rather than opening a second unit of work.
+- **FR-011**: **Coalescing rule.** A newly detected delivery MUST join the subject's **open** run when one exists, and MUST otherwise create a new run with the next ordinal. A run is *open* from creation until it reaches a terminal state. Terminal states are `dead-lettered`, and `dispatched` **for a run that carries no recorded session**: a dispatched run that *does* carry one is **not terminal for coalescing** — a further delivery for its subject joins it as a **follow-up** (002 FR-100, 002 v1.16.0) rather than opening the next ordinal, because a second run for the same subject would mean a second, disjoint session for work already underway. `failed-resolved`→`dispatched` is terminal on the same terms. `unconfirmed` and every `blocked:*` state are **not** terminal, so a further delivery joins them rather than opening a second unit of work.
 - **FR-012**: **Delivery identity is unchanged.** The deterministic delivery identifier already in use — derived from provider, repository, subject number, and account, plus a trigger discriminator — MUST remain the deduplication key at the delivery layer and MUST remain a single URL path segment. This specification MUST NOT change its format, because it is simultaneously the delivery's dedupe key, its relay path segment, and the reference recorded in existing panel ledgers and audit rows. A new field on the delivery records the run it belongs to.
 - **FR-013**: **Source references.** Each run MUST carry a list of source references, one per delivery that joined it. Each reference MUST record its delivery identifier, trigger kind, origin (assignment, issue body, comment with its comment id, or review), canonical source link, detection time, and whether it was present before the dispatch authorization was issued.
 - **FR-014**: **Bounded context is preserved and widened.** The dispatch's untrusted-content excerpt MUST include every source reference on the run, each individually bounded and the total still within 002 FR-028's limits (≤4,000 characters per source item, ≤12,000 characters per dispatch, with explicit truncation markers and delimiters that prevent source text from altering policy, credentials, approval requirements, or tool scope). Adding a second trigger MUST NOT silently truncate the first one without a visible truncation marker.
@@ -351,8 +351,10 @@ States are the panel's and the service's shared vocabulary for one run. `attempt
     pending | claimed | starting | failed | blocked:* | unconfirmed
       `-- non-terminal: a new delivery JOINS this run --'
 
-    dispatched | dead-lettered
+    dispatched (carrying no recorded session) | dead-lettered
       `-- terminal: a new delivery OPENS the next ordinal --'
+    dispatched (carrying a recorded session)
+      `-- not terminal for coalescing: a new delivery JOINS this run --'
 ```
 
 | State | Meaning | Terminal? | Accepts a new delivery? | Resolution |
@@ -360,7 +362,7 @@ States are the panel's and the service's shared vocabulary for one run. `attempt
 | `pending` | Waiting for a panel. No lease held. | No | Yes — joins this run | Claimed by the next panel |
 | `claimed` | A panel holds the lease; it has not yet said it is about to start. | No | Yes — joins this run | Reservation, lease expiry → `pending`, or a guard refusal |
 | `starting` | The panel holds a single-use token and is about to call the host. | No | Yes — joins, flagged as arriving after authorization | Result report, or result deadline → `unconfirmed` |
-| `dispatched` | A session was created and reported. | **Yes** | No — opens a new run at the next ordinal | Operator retry is refused |
+| `dispatched` | A session was created and reported. | **Yes**, but **not for coalescing** while it carries a recorded session | Joins this run as a follow-up while a recorded session is carried; opens a new run at the next ordinal only when none is (002 FR-100) | Operator retry is refused |
 | `failed` | A dispatch was attempted and produced no session; the cause is recorded. | No | Yes — joins this run | Operator retry under the same run key |
 | `blocked:<reason>` | A fail-closed guard refused the dispatch before any host call. | No | Yes — joins this run | Operator retry once the cause clears |
 | `unconfirmed` | A reservation exists and no result arrived. Fail-closed: no automatic action, ever. | No | Yes — joins this run | Panel reconciliation, or an explicit operator decision |
@@ -373,7 +375,7 @@ States are the panel's and the service's shared vocabulary for one run. `attempt
 | `pending` | `pending` | Carried through unchanged; the row is adopted into a run. |
 | `in-flight` with no reservation recorded | `claimed` with an already-expired lease | The lease cannot be validated, so the expiry sweep requeues it **once** and audits it as a migration recovery, not as a normal expiry. |
 | `in-flight` with a reservation recorded | `starting`, subject to the result deadline | The reservation is honored; if the deadline passes the run becomes `unconfirmed`. |
-| `dispatched` with a session identifier in the result | `dispatched` | Terminal. Carried through unchanged. |
+| `dispatched` with a session identifier in the result | `dispatched` | Carried through unchanged; terminal as the run's outcome, but **not for coalescing** while it carries that session — a follow-up for its subject joins it (FR-011, 002 FR-100). |
 | `dispatched` with a problem string in the result | `failed` | The shipped build recorded these as successes; 003 records them as failures and makes them retryable (FR-040, FR-041). |
 
 Adoption MUST NOT reset any binding's scan window, MUST NOT quarantine any file, and MUST be recorded once per adopted run (FR-005).
@@ -494,7 +496,7 @@ The `GET /v1/dispatches` long-poll with leases described in 002's contract §2.4
 > **`AC-` numbering hygiene (repository-wide).** Acceptance-criterion numbers are **not** unique across specifications: 004 owns an unrelated `AC-130` – `AC-151` and 006 owns an unrelated `AC-101` – `AC-155`. The requirements added at v1.8.0 therefore carry an explicit **`003 ` prefix** — `003 AC-130` and so on — so a citation can never be read against the wrong document. Earlier 003 criteria (`AC-101` – `AC-129`) keep their existing unprefixed spelling for continuity; the prefix is added on new work and is not retrofitted, because retro-fitting would silently change citations other documents already quote.
 
 - [ ] **AC-101**: One issue carrying an assignment and an issue-body mention, under one account, yields exactly one run, exactly one `host.startSession()` call, and one run row listing both triggers with their own kinds, origins, links, and detection times; a trigger detected in a later scan joins the same run and is recorded as such.
-- [ ] **AC-102**: A follow-up comment mentioning the account after the first run reached a terminal state produces a second, separately numbered run and a second session; neither run is presented as a duplicate of the other, and a reference that arrived after authorization is visibly marked.
+- [ ] **AC-102**: A follow-up comment mentioning the account on a subject whose run carries a recorded session joins that run and opens no second run, no further ordinal, and no second session; a follow-up on a run that carries no recorded session opens a new, separately numbered run and a second session, neither run is presented as a duplicate of the other, and a reference that arrived after authorization is visibly marked.
 - [ ] **AC-103**: A pull request that is both assigned to and review-requested from the bound account yields one run, one session, and two source references.
 - [ ] **AC-104**: Delivery identifiers are byte-identical to the previous release's format for the same observations, and a body mention re-detected on a later scan creates neither a new run nor a new delivery.
 - [ ] **AC-105**: The bounded untrusted excerpt passed to `host.startSession()` on a coalesced run contains every source reference, stays within the per-item and per-dispatch bounds, shows explicit truncation markers, and a hostile reference body cannot alter policy, credentials, approval requirements, or tool scope.
@@ -563,7 +565,7 @@ Each assumption below is a documented default chosen where the feature descripti
 - **Result deadline**: 120 seconds by default, configurable within 30–600 seconds, and independent of the lease duration. This is the window between authorization and result; passing it moves the run to `unconfirmed` (FR-023).
 - **Maximum automatic requeues**: 3. Chosen because a requeue is only consumed by an actual claim that then expired, so a panel that is merely closed never burns the budget. Confirmed by the product owner 2026-09-28 (`## Resolved Gate Questions`).
 - **A closed panel is not a fault**: a panel that is closed while events are waiting is normal operator behaviour and must not consume attempts, requeue, or dead-letter (FR-036). Assumption: the operator understands that unattended dispatch requires the panel mounted.
-- **A follow-up trigger after a terminal run opens a new run**: a new comment mentioning the account after the first run finished deserves its own session, numbered as a new ordinal. The alternative — never more than one session per subject, ever — was considered and rejected by the product owner on 2026-09-28 (`## Resolved Gate Questions`).
+- **A follow-up trigger after a terminal run carrying no recorded session opens a new run**: a new comment mentioning the account after the first run finished without a session, or was dead-lettered, deserves its own session, numbered as a new ordinal; a follow-up on a run that dispatched with a recorded session joins that run instead (FR-011, 002 FR-100). The alternative — never more than one session per subject, ever — was considered and rejected by the product owner on 2026-09-28 (`## Resolved Gate Questions`).
 - **A trigger arriving while a run is open is joined to it, not dispatched separately**: the agent working that issue reads the issue, so the new comment is naturally in front of it; starting a competing session on the same issue would be the very defect this feature removes. Such references are marked as not necessarily seen when they arrive after authorization (FR-015).
 - **Delivery identifiers are unchanged**: the deterministic delivery identifier remains the delivery-layer dedupe key and path segment (FR-012). Changing its format would break correlation with existing panel ledgers and audit rows and would gain nothing.
 - **The run's correlation identifier is a deterministic hash of its run key**: this makes it re-derivable by the service, which is what makes reconciliation and attach-identity checks possible, and it matches the attachment-identifier convention 001's contract already established. The run key itself remains human-readable and is displayed alongside it.
