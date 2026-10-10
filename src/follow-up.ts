@@ -55,6 +55,17 @@
  * the relay a view that goes stale the moment the operator navigates away from
  * the page the work is on.
  *
+ * That read **walks the follow-up window** rather than reading its first bound
+ * and stopping. The service holds no record of a delivery — this module is the
+ * only party that calls the host — so the queue's follow-up rows are never
+ * pruned and a run whose subject keeps moving fills the projected window with
+ * follow-ups already sent. The read therefore carries the read's one absentable
+ * parameter, `followUpsFrom`, advanced past the newest id this panel's durable
+ * record says reached a session ({@link newestDeliveredFollowUp}), and omits it
+ * entirely when the panel has delivered nothing or cannot read its own record —
+ * which is the read's pre-parameter answer and the safe direction, since a
+ * window opened early can only ever project a movement sooner than asked.
+ *
  * A failed attempt retries under the ladder the service's existing retry
  * configuration already declares and, on exhaustion, **parks** with the exact
  * cause named. It never waits indefinitely for a session to become free: the
@@ -67,8 +78,8 @@
 
 import type { PromptRequest, PromptResult, SessionSnapshot } from '@openchamber/sdk';
 import { appendEntryAndPersist } from './panel-actions.ts';
-import { recordFollowUpDelivery } from './dispatch-record.ts';
-import type { FollowUpDeliveryRecord, FollowUpFailure } from './dispatch-record.ts';
+import { loadDispatchRecord, recordFollowUpDelivery } from './dispatch-record.ts';
+import type { DispatchRecordDocument, FollowUpDeliveryRecord, FollowUpFailure } from './dispatch-record.ts';
 import { parseDispatchListBody } from './dispatches-list.ts';
 import type { RunFollowUp, RunRow, PlainRunState } from './dispatches-service.ts';
 import type { LedgerDetail } from './ledger.ts';
@@ -289,16 +300,75 @@ const FOLLOW_UP_PAGE_GUARD = 10;
 const DELIVERABLE_RUN_STATE: PlainRunState = 'dispatched';
 
 /**
+ * The newest follow-up the panel's own durable record says reached a session.
+ *
+ * The record is the **only** party that knows: the service holds no record of a
+ * delivery, so it cannot prune a follow-up row from the queue and cannot project
+ * "the undelivered ones" (FR-104). This is the value the relay walks the
+ * projected window past.
+ *
+ * The list is oldest-first by last write — `putFollowUpRecord` replaces an entry
+ * with the same delivery id and appends it — so the last `delivered` entry is
+ * the most recently settled one. A failed attempt on a later follow-up does not
+ * disqualify an earlier delivery: it only means the newest *delivered* id is
+ * further back, which opens the window earlier and therefore never skips a
+ * movement.
+ *
+ * @param document - The panel's durable dispatch record.
+ * @returns The delivery id to walk past, or `null` when this panel has delivered
+ *   nothing — in which case the read carries no parameter at all.
+ */
+export function newestDeliveredFollowUp(document: DispatchRecordDocument): string | null {
+    const records = document.followUps ?? [];
+    let newest: string | null = null;
+    for (const record of records) {
+        if (record.delivered) {
+            newest = record.deliveryId;
+        }
+    }
+
+    return newest;
+}
+
+/**
+ * Where the relay's read should open the window, or `null` for the start.
+ *
+ * An unreadable record answers `null` — no parameter — rather than a guessed
+ * position: the panel would then be walking past a follow-up it had already sent
+ * or, worse, past one it had not, and a duplicate prompt is the failure NFR-002
+ * exists to prevent. Reading from the start is the pre-parameter answer, which
+ * is always the direction that projects **more** of the run's movements, never
+ * fewer.
+ *
+ * @returns The delivery id to send as `followUpsFrom`, or `null`.
+ */
+async function followUpWindowAdvance(rt: PanelRuntime): Promise<string | null> {
+    const read = await loadDispatchRecord(rt);
+
+    return read.ok ? newestDeliveredFollowUp(read.document) : null;
+}
+
+/**
  * The path of one page of the relay's own runs view.
  *
  * The two filters are the documented query surface of the existing route
- * (`state`, `limit`) plus its own cursor when the walk is mid-set — no
+ * (`state`, `limit`) plus its own cursor when the walk is mid-set and the
+ * window's opening when the panel has already delivered something — no
  * parameter the contract does not already define.
+ *
+ * @param cursor - Page boundary to resume from, or `null` for the first page.
+ * @param followUpsFrom - Delivery id the window opens at or after, or `null` to
+ *   read from the start as the read did before the parameter existed.
+ * @returns The request path.
  */
-function followUpRowsPath(cursor: string | null): string {
+function followUpRowsPath(cursor: string | null, followUpsFrom: string | null): string {
     const params = [`state=${DELIVERABLE_RUN_STATE}`, `limit=${FOLLOW_UP_PAGE_LIMIT}`];
     if (cursor !== null) {
         params.push(`cursor=${encodeURIComponent(cursor)}`);
+    }
+
+    if (followUpsFrom !== null) {
+        params.push(`followUpsFrom=${encodeURIComponent(followUpsFrom)}`);
     }
 
     return `${EVENTS_PATH}?${params.join('&')}`;
@@ -313,7 +383,7 @@ function followUpRowsPath(cursor: string | null): string {
  * looking at. This read is the relay's own — `state=dispatched` filtered,
  * newest first, walked to the end of the set through the route's own cursor.
  *
- * Two properties it holds deliberately:
+ * Three properties it holds deliberately:
  *
  * - **A refused or unreadable page keeps the last good view.** A stale row can
  *   only make a delivery *late* — the durable record is what makes one
@@ -321,14 +391,23 @@ function followUpRowsPath(cursor: string | null): string {
  *   follow-ups on the pages it never reached.
  * - **The walk is bounded** ({@link FOLLOW_UP_PAGE_GUARD}) so a non-conforming
  *   `hasMore` cannot spin the tick.
+ * - **The window advances with the record** ({@link followUpWindowAdvance}), so
+ *   a subject that keeps moving past the projected bound is still followed. The
+ *   advance costs one read of the panel's own host storage — never a service
+ *   request — and is omitted entirely when there is nothing delivered to walk
+ *   past.
  *
  * @param rt - Panel runtime whose relay state the view is read into.
  */
 export async function readFollowUpRows(rt: PanelRuntime): Promise<void> {
     const rows: RunRow[] = [];
+    const advance = await followUpWindowAdvance(rt);
     let cursor: string | null = null;
     for (let page = 0; page < FOLLOW_UP_PAGE_GUARD; page += 1) {
-        const fetched = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: followUpRowsPath(cursor) });
+        const fetched = await serviceGet({
+            serviceRequest: rt.host.serviceRequest,
+            path: followUpRowsPath(cursor, advance),
+        });
         if (!fetched.ok || !stillRunning(rt)) {
             rt.state.relay.lastError = 'the relay could not read the runs a follow-up could ride; the last good view'
                 + ' was kept';

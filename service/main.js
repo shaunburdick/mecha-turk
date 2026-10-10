@@ -6565,12 +6565,18 @@ function promptViewOf2(run) {
     promptSources: run.prompt.sources
   };
 }
+function headShaOfRow(row) {
+  if (followUpKindOf(row.id) !== "head") {
+    return;
+  }
+  return row.headSha !== null && row.headSha !== "" ? row.headSha : undefined;
+}
 function followUpOf(row, previousHeadSha) {
   const kind = followUpKindOf(row.id);
   if (kind === null) {
     return null;
   }
-  const head = kind === "head" && row.headSha !== null && row.headSha !== "" ? row.headSha : undefined;
+  const head = headShaOfRow(row);
   return {
     deliveryId: row.id,
     kind,
@@ -6581,20 +6587,29 @@ function followUpOf(row, previousHeadSha) {
     ...head !== undefined && { fromHeadSha: previousHeadSha ?? "", headSha: head }
   };
 }
+function windowStartOf(from, rows) {
+  if (from === null) {
+    return 0;
+  }
+  const found = rows.findIndex((row) => row.id === from);
+  return found === -1 ? 0 : found;
+}
 function followUpsOf(input) {
   const rows = input.queue.filter((row) => row.runCorrelationId === input.run.correlationId && followUpKindOf(row.id) !== null);
   if (rows.length === 0) {
     return;
   }
+  const start = windowStartOf(input.from, rows);
   const followUps = [];
   let previousHeadSha = input.run.lastHeadSha;
-  for (const row of rows.slice(0, MAX_PROJECTED_FOLLOW_UPS)) {
-    const followUp = followUpOf(row, previousHeadSha);
-    if (followUp === null) {
-      continue;
+  for (const [index, row] of rows.entries()) {
+    if (index >= start && followUps.length < MAX_PROJECTED_FOLLOW_UPS) {
+      const followUp = followUpOf(row, previousHeadSha);
+      if (followUp !== null) {
+        followUps.push(followUp);
+      }
     }
-    followUps.push(followUp);
-    previousHeadSha = followUp.headSha ?? previousHeadSha;
+    previousHeadSha = headShaOfRow(row) ?? previousHeadSha;
   }
   return followUps;
 }
@@ -6605,7 +6620,7 @@ function historyRowOf(input) {
   const view = deliveryView2({ run, primary, delivery });
   const lease = leaseViewOf(run);
   const dispatchStamp = run.session === null ? null : run.session.dispatchedAt;
-  const followUps = followUpsOf({ run, queue });
+  const followUps = followUpsOf({ run, queue, from: input.followUpsFrom });
   return withReviewCoordinates({
     id: run.correlationId,
     state: run.state,
@@ -6642,7 +6657,8 @@ function historyRowOf(input) {
 }
 function projectRunHistory(input) {
   const queue = [...input.deliveries.values()];
-  const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries, queue }));
+  const followUpsFrom = input.followUpsFrom ?? null;
+  const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries, queue, followUpsFrom }));
   return rows.toSorted((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, input.cap);
 }
 
@@ -6788,6 +6804,12 @@ function stateFilterOf(raw) {
   }
   return { ok: false };
 }
+function followUpFromFilterOf(raw) {
+  if (raw === null || raw === "") {
+    return { ok: true, followUpsFrom: null };
+  }
+  return followUpKindOf(raw) === null ? { ok: false } : { ok: true, followUpsFrom: raw };
+}
 function listQueryOf(request) {
   const params = request.url.searchParams;
   const limit = pageSizeOf(params.get("limit"));
@@ -6821,9 +6843,25 @@ function listQueryOf(request) {
     };
   }
   const bindingId = params.get("bindingId") ?? "";
+  const followUpsFrom = followUpFromFilterOf(params.get("followUpsFrom"));
+  if (!followUpsFrom.ok) {
+    return {
+      ok: false,
+      response: validationResponse([{
+        field: "followUpsFrom",
+        remediation: "name a follow-up delivery id this run has already projected, or drop the parameter to" + " read the window from the start"
+      }])
+    };
+  }
   return {
     ok: true,
-    query: { limit, boundary: cursor.boundary, state: state.state, bindingId }
+    query: {
+      limit,
+      boundary: cursor.boundary,
+      state: state.state,
+      bindingId,
+      followUpsFrom: followUpsFrom.followUpsFrom
+    }
   };
 }
 function matchesFilters(row, query) {
@@ -6925,13 +6963,14 @@ async function handlePendingEvents(context, request) {
     body: { events: claimed.runs, status: rows, auditWritten: claimed.auditWritten }
   };
 }
-async function projectHistory(context, store) {
+async function projectHistory(context, store, followUpsFrom) {
   const document = await previewRunsDocument({ store, log: context.log });
   const queue = await readEvents({ store, log: context.log });
   return projectRunHistory({
     runs: document.runs,
     deliveries: new Map(queue.map((event) => [event.id, event])),
-    cap: document.runs.length
+    cap: document.runs.length,
+    followUpsFrom
   }).toSorted(newestFirst);
 }
 async function handleEventHistory(context, request) {
@@ -6944,7 +6983,7 @@ async function handleEventHistory(context, request) {
     return parsed.response;
   }
   const { query } = parsed;
-  const rows = await projectHistory(context, store);
+  const rows = await projectHistory(context, store, query.followUpsFrom);
   const filtered = rows.filter((row) => matchesFilters(row, query));
   const { boundary } = query;
   const remaining = boundary === null ? filtered : filtered.filter((row) => afterBoundary(row, boundary));

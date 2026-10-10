@@ -25,7 +25,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { GuestRequest, GuestRequestResult, JsonValue, SessionSnapshot } from '@openchamber/sdk';
+import type { GuestRequest, GuestRequestResult, JsonValue, PromptRequest, SessionSnapshot } from '@openchamber/sdk';
 import { readAuditEntries } from '../service/audit.ts';
 import { writeAccount } from '../service/accounts/store.ts';
 import { writeBindings } from '../service/bindings.ts';
@@ -42,7 +42,8 @@ import { runScanCycle } from '../service/poll/loop.ts';
 import type { BindingScan } from '../service/poll/loop.ts';
 import { createGitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { readIssueObject, readPullObject } from '../service/poll/poller-entries.ts';
-import { projectRunHistory } from '../service/poll/run-history-project.ts';
+import { MAX_PROJECTED_FOLLOW_UPS, projectRunHistory } from '../service/poll/run-history-project.ts';
+import { EVENTS_PATH } from '../service/routes/events.ts';
 import { readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
 import { buildEventId } from '../service/poll/events-write.ts';
 import type { Account } from '../service/accounts/model.ts';
@@ -71,6 +72,8 @@ import type { PanelRuntime } from '../src/panel-state.ts';
 import type { RunFollowUp, RunRow } from '../src/dispatches-service.ts';
 import { scopeResults } from './support/verify.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { startTestService } from './support/service.ts';
+import type { TestService } from './support/service.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
 
 /** Binding id every fixture binds. */
@@ -158,6 +161,9 @@ let dataDir = '';
 /** Open store handle for the tests that read through the real store. */
 let store: ServiceStore;
 
+/** Services the route block started, shut down before the tree goes away. */
+const routed: TestService[] = [];
+
 /** Lines the capturing logger wrote. */
 let logLines: string[] = [];
 
@@ -173,6 +179,10 @@ beforeEach(async (): Promise<void> => {
 
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
+    while (routed.length > 0) {
+        await routed.pop()?.shutdown();
+    }
+
     await removeTempTree(tempRoot);
     logLines = [];
 });
@@ -383,6 +393,40 @@ function reviewSnapshot(headSha: string | null): EventSnapshot {
     };
 }
 
+/**
+ * Build one **head follow-up** snapshot for the fixture pull request.
+ *
+ * Spelled out rather than spread from {@link reviewSnapshot}, because a
+ * follow-up snapshot is a different union member: `headSha` is the head the row
+ * **observed**, `baseRef` is always `null`, and the `followUp` member is what
+ * puts the `~followup~head~…` discriminator on the id.
+ */
+function headFollowUpSnapshot(headSha: string): EventSnapshot {
+    return {
+        bindingId: BINDING,
+        repository: REPO_LABEL,
+        accountNumericUserId: ACCOUNT_ID,
+        accountLogin: ACCOUNT_LOGIN,
+        projectId: PROJECT_ID,
+        worktreeOption: 'none',
+        kind: 'review',
+        followUp: 'head',
+        headSha,
+        baseRef: null,
+        subjectType: 'pull_request',
+        issue: {
+            issueNumber: PULL_NUMBER,
+            issueTitle: ISSUE_TITLE,
+            issueUrl: PULL_URL,
+            issueBodyExcerpt: 'head moved',
+        },
+        actorLogin: HUMAN_LOGIN,
+        actorAttribution: 'direct',
+        triggerNote: `head moved to ${headSha}`,
+        detectedAt: STAMP,
+    };
+}
+
 /** Read every audit row the store holds. */
 async function auditRows(): Promise<readonly AuditEntry[]> {
     return await readAuditEntries(store);
@@ -562,11 +606,18 @@ async function projectRows(handle: ServiceStore): Promise<readonly RunHistoryRow
     });
 }
 
-/** The deterministic id of one follow-up row, spelled the way the writer mints it. */
-function followUpCommentId(commentId: number): string {
+/**
+ * The deterministic id of one follow-up row, spelled the way the writer mints it.
+ *
+ * @param commentId - The comment's id: the row's last segment.
+ * @param issueNumber - The subject the row belongs to; defaults to the fixture
+ *   subject, so a test can name an id from a subject this read never mentions.
+ * @returns The id the queue writer would have produced.
+ */
+function followUpCommentId(commentId: number, issueNumber = 7): string {
     return buildEventId({
         repository: { owner: 'acme', name: 'widget' },
-        issueNumber: 7,
+        issueNumber,
         accountNumericUserId: ACCOUNT_ID,
         discriminator: `~followup~${commentId}`,
     });
@@ -588,9 +639,11 @@ function followUpHeadId(headSha: string): string {
  * The route is the only thing between the store and the panel, so the tests
  * drive the same pure projection it calls rather than re-stating its shape.
  *
+ * @param followUpsFrom - Where one run's follow-up window opens, or `null` for
+ *   the start — the answer every caller that omits the parameter gets.
  * @returns The projected rows.
  */
-async function historyRows(): Promise<readonly RunHistoryRow[]> {
+async function historyRows(followUpsFrom?: string | null): Promise<readonly RunHistoryRow[]> {
     const document = await readRunsDocument({ store, log });
     const queue = await readEvents({ store, log });
 
@@ -598,6 +651,7 @@ async function historyRows(): Promise<readonly RunHistoryRow[]> {
         runs: document.runs,
         deliveries: new Map(queue.map((event) => [event.id, event])),
         cap: document.runs.length,
+        followUpsFrom: followUpsFrom ?? null,
     }).toSorted((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt));
 }
 
@@ -1708,14 +1762,28 @@ interface StoredFollowUp {
 }
 
 /**
+ * What the durable-record reader needs from a host double: its writes.
+ *
+ * A structural subset of {@link HostLog}, so both the delivery doubles and the
+ * walking double hand the same reader what it reads.
+ */
+interface WriteLog {
+    /** Every `storage.set` call the host received, with key and value. */
+    readonly writes: readonly { key: string; value: unknown }[];
+}
+
+/**
  * Read the durable follow-up records the last delivery write left behind.
  *
  * The **last** write, not every write: each write carries the whole list, so
  * counting every write would count a record once per attempt that touched it.
+ *
+ * @param writes - The host double's writes.
+ * @returns The follow-up records the last dispatch-record write carried.
  */
-function storedFollowUps(hostLog: HostLog): readonly StoredFollowUp[] {
-    const writes = hostLog.writes.filter((write) => write.key === 'mecha-turk:dispatches');
-    const document = writes.at(-1)?.value as { followUps?: readonly StoredFollowUp[] } | null;
+function storedFollowUps(writes: WriteLog): readonly StoredFollowUp[] {
+    const recorded = writes.writes.filter((write) => write.key === 'mecha-turk:dispatches');
+    const document = recorded.at(-1)?.value as { followUps?: readonly StoredFollowUp[] } | null;
 
     return document?.followUps ?? [];
 }
@@ -2483,21 +2551,17 @@ describe("the member's absence", () => {
         }
     });
 
-    it('cannot advance the window past a follow-up the panel has delivered, so the 21st is unreachable', async () => {
+    it('walks the window past a follow-up the panel has delivered, so the 21st is reachable', async () => {
         {
-            // The bound the service cannot cross: the window is the queue's
-            // oldest twenty rows **whether or not the panel delivered them**.
-            // The service holds no record of a delivery — the panel is the only
-            // party that calls the host, and its record lives in host storage —
-            // so a delivered follow-up row is never pruned from `events.json`
-            // and this projection cannot skip one. The 21st movement on a live
-            // run is therefore never projected at all, and no panel-side reader
-            // can reach it through this member.
-            //
-            // Pinned as the structural bound it is: the case is asserted rather
-            // than hidden, and the honest fix is a read that can address a
-            // boundary inside one row — a contract change, which is the product
-            // owner's to approve rather than this suite's to make quietly.
+            // The bound the service cannot cross on its own: the window is the
+            // queue's oldest twenty rows **whether or not the panel delivered
+            // them**. The service holds no record of a delivery — the panel is
+            // the only party that calls the host, and its record lives in host
+            // storage — so a delivered follow-up row is never pruned from
+            // `events.json` and this projection cannot skip one. The window
+            // therefore **walks**: `followUpsFrom` moves its opening to the
+            // named id, and the panel advances it as it delivers (FR-104,
+            // FR-107).
             await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
             const comments = Array.from({ length: 21 }, (_unused, index) =>
                 fixtureComment({ commentId: 700 + index }));
@@ -2508,12 +2572,133 @@ describe("the member's absence", () => {
             );
 
             followUpRowsOf(flooded);
-            const rows = await historyRows();
+            const from = await historyRows();
+            const advanced = await historyRows(followUpCommentId(719));
+
+            // **Both directions, in one case.** A projection that ignored the
+            // parameter would answer the first arm again and fail here; one
+            // that treated its absence as an opening would move the first arm
+            // and fail there (dispatch-list invariant 5a).
+            expect(await followUpRows()).toHaveLength(21);
+            expect(from[0]?.followUps).toHaveLength(20);
+            expect(from[0]?.followUps?.map((followUp) => followUp.deliveryId))
+                .not.toContain(followUpCommentId(720));
+            // At or after the named id, in detection order, up to the same
+            // bound — and the named id itself is included, because the panel
+            // filters what it already delivered against its own record.
+            expect(advanced[0]?.followUps?.map((followUp) => followUp.deliveryId)).toEqual([
+                followUpCommentId(719),
+                followUpCommentId(720),
+            ]);
+        }
+    });
+
+    it('advances by one window at a time, so every follow-up past the bound is reached', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            const comments = Array.from({ length: 25 }, (_unused, index) =>
+                fixtureComment({ commentId: 700 + index }));
+
+            const flooded = await runCycle(
+                fixtureBinding(MENTION_ONLY),
+                recordingPoller({ issues: [fixtureIssue()], comments }),
+            );
+
+            followUpRowsOf(flooded);
+
+            // Walk the window the way the relay does: past the newest id each
+            // read delivered, one window at a time, until the queue is spent.
+            const seen: string[] = [];
+            let advance: string | null = null;
+            for (let step = 0; step < 10; step += 1) {
+                const rows = await historyRows(advance);
+                const window = rows[0]?.followUps ?? [];
+                if (window.length === 0) {
+                    break;
+                }
+
+                for (const followUp of window) {
+                    if (!seen.includes(followUp.deliveryId)) {
+                        seen.push(followUp.deliveryId);
+                    }
+                }
+
+                advance = window.at(-1)?.deliveryId ?? null;
+            }
+
+            // Every observation the queue holds, each exactly once, and no id
+            // invented: the walk costs nothing but a different `from`.
+            expect(seen).toHaveLength(25);
+            expect(new Set(seen).size).toBe(25);
+            expect(seen[0]).toBe(followUpCommentId(700));
+            expect(seen.at(-1)).toBe(followUpCommentId(724));
+        }
+    });
+
+    it('never narrows a run whose list does not carry the named id', async () => {
+        {
+            // One read, one value, a whole page of runs: an id belonging to
+            // another subject is not a position in **this** run's window, so
+            // this run reads from the start rather than being silently emptied.
+            // Opening early projects a movement sooner than asked; opening late
+            // would strand one forever — the failure direction FR-003's rule
+            // forbids.
+            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            const comments = Array.from({ length: 21 }, (_unused, index) =>
+                fixtureComment({ commentId: 700 + index }));
+
+            const flooded = await runCycle(
+                fixtureBinding(MENTION_ONLY),
+                recordingPoller({ issues: [fixtureIssue()], comments }),
+            );
+
+            followUpRowsOf(flooded);
+
+            // A legal delivery id — from a subject this read never mentions.
+            const elsewhere = followUpCommentId(1, 999);
+            const rows = await historyRows(elsewhere);
 
             expect(await followUpRows()).toHaveLength(21);
             expect(rows[0]?.followUps).toHaveLength(20);
-            expect(rows[0]?.followUps?.map((followUp) => followUp.deliveryId))
-                .not.toContain(followUpCommentId(720));
+            expect(rows[0]?.followUps?.[0]?.deliveryId).toBe(followUpCommentId(700));
+        }
+    });
+
+    it('keeps the from → to pair exact for the head movement the window opening skips past', async () => {
+        {
+            // The pair is derived, not stored: each head movement names the head
+            // the movement **before** it observed, and the run's seed is never
+            // re-based. A window that opened by slicing the list would give the
+            // first projected movement the run's seed as its `from`, so the walk
+            // steps over every skipped row to keep the chain exact.
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const shas = Array.from({ length: MAX_PROJECTED_FOLLOW_UPS + 2 }, (_unused, index) =>
+                `${String(index + 1).padStart(2, '0')}${'a'.repeat(38)}`);
+            await enqueueEvents({
+                store,
+                log,
+                incoming: shas.map((sha) => createEvent(headFollowUpSnapshot(sha))),
+            });
+
+            const rows = await historyRows();
+            const window = rows[0]?.followUps ?? [];
+            // The last row the absent read projects: the opening the parameter
+            // has to cross for the chain to mean anything.
+            const boundary = MAX_PROJECTED_FOLLOW_UPS - 1;
+            const last = window.at(-1);
+            const advanced = await historyRows(last?.deliveryId ?? null);
+            const after = advanced[0]?.followUps ?? [];
+
+            // The chain the absent read projects, from the seed forward.
+            expect(window.map((entry) => entry.headSha)).toEqual(shas.slice(0, MAX_PROJECTED_FOLLOW_UPS));
+            expect(window[0]?.fromHeadSha).toBe(SEED_SHA);
+            expect(window[1]?.fromHeadSha).toBe(shas[0]);
+            // …and it continues exactly across the opening the parameter moved:
+            // the first projected movement names the head before it observed,
+            // not the run's dispatch-time seed.
+            expect(last?.headSha).toBe(shas[boundary]);
+            expect(after.map((entry) => entry.headSha)).toEqual(shas.slice(boundary));
+            expect(after[0]?.fromHeadSha).toBe(shas[boundary - 1]);
         }
     });
 
@@ -2544,4 +2729,302 @@ describe("the member's absence", () => {
         }
     });
 
+});
+
+/* ------------------------------------------------------------------ *
+ * The read itself — one absentable parameter on the existing route.
+ *
+ * The route block below drives the real loopback service over the same
+ * store the service assertions wrote, so the walk is proven through the
+ * wire rather than through the projection it calls.
+ * ------------------------------------------------------------------ */
+
+/** One delivery id a follow-up row carries, read off a row. */
+function deliveryIdOf(row: RunHistoryRow | undefined, position: number): string {
+    const id = row?.followUps?.[position]?.deliveryId;
+    if (id === undefined) {
+        throw new Error(`the projected row carries no follow-up at ${position}`);
+    }
+
+    return id;
+}
+
+/** One refusal envelope the route block reads. */
+interface RefusalEnvelope {
+    /** The error envelope: catalog code plus the field issues. */
+    readonly error: {
+        readonly code: string;
+        readonly issues: readonly { readonly field: string; readonly remediation: string }[];
+    };
+}
+
+/** One history answer the route block reads. */
+interface HistoryAnswer {
+    /** The page's rows. */
+    readonly events: readonly RunHistoryRow[];
+    /** The page label; read in full so an added member would not pass unseen. */
+    readonly page: {
+        readonly limit: number;
+        readonly nextCursor: string | null;
+        readonly hasMore: boolean;
+        readonly total: number | null;
+        readonly snapshotAt: string;
+        readonly filter: { readonly bindingId: string | null; readonly state: string | null };
+    };
+}
+
+/**
+ * Seed 21 comment follow-ups on one dispatched run and start the service.
+ *
+ * @returns The running instance, over the store the seeds were written through.
+ */
+async function floodedService(): Promise<TestService> {
+    await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+    const comments = Array.from({ length: 21 }, (_unused, index) =>
+        fixtureComment({ commentId: 700 + index }));
+    await runCycle(
+        fixtureBinding(MENTION_ONLY),
+        recordingPoller({ issues: [fixtureIssue()], comments }),
+    );
+
+    const service = await startTestService({ dataDir });
+    routed.push(service);
+
+    return service;
+}
+
+describe('GET /v1/events walks the window by one absentable parameter (AC-050, 005 invariant 5a)', () => {
+    it('opens at or after the named delivery id, and from the start when it is absent', async () => {
+        {
+            const service = await floodedService();
+
+            const plain = await service.call(EVENTS_PATH);
+            const absent = (await plain.json()) as HistoryAnswer;
+            expect(absent.events[0]?.followUps).toHaveLength(MAX_PROJECTED_FOLLOW_UPS);
+            expect(absent.events[0]?.followUps?.[0]?.deliveryId).toBe(followUpCommentId(700));
+
+            // The 20th row's id, URL-encoded exactly as the panel encodes it:
+            // the window opens there and includes it, because the panel is what
+            // filters what it already delivered.
+            const boundary = deliveryIdOf(absent.events[0], MAX_PROJECTED_FOLLOW_UPS - 1);
+            const walked = await service.call(`${EVENTS_PATH}?followUpsFrom=${encodeURIComponent(boundary)}`);
+            const answer = (await walked.json()) as HistoryAnswer;
+
+            expect(walked.status).toBe(200);
+            expect(answer.events[0]?.followUps?.map((entry) => entry.deliveryId)).toEqual([
+                boundary,
+                followUpCommentId(720),
+            ]);
+            // Every other answer member is untouched: no second operation, no
+            // new member, and the page label is the one this route always sent
+            // — the same limit, cursor, flag, total, and filter echo, with only
+            // the read's own stamp moving.
+            expect(answer.page).toEqual({ ...absent.page, snapshotAt: answer.page.snapshotAt });
+            expect(answer.page.filter).toEqual({ bindingId: null, state: null });
+        }
+    });
+
+    it('refuses a value that is not a delivery id, and changes nothing', async () => {
+        {
+            const service = await floodedService();
+
+            const refused = await service.call(`${EVENTS_PATH}?followUpsFrom=not-a-delivery-id`);
+            const envelope = (await refused.json()) as RefusalEnvelope;
+
+            expect(refused.status).toBe(422);
+            expect(envelope.error.code).toBe('validation');
+            expect(envelope.error.issues[0]?.field).toBe('followUpsFrom');
+            // The remediation says how to fix it, and never echoes the value.
+            expect(envelope.error.issues[0]?.remediation).toContain('delivery id');
+            expect(envelope.error.issues[0]?.remediation).not.toContain('not-a-delivery-id');
+
+            // A refusal is a refusal: the stored rows are untouched, and the
+            // same read without the parameter answers as it did before.
+            const after = await service.call(EVENTS_PATH);
+            const answer = (await after.json()) as HistoryAnswer;
+            expect(answer.events[0]?.followUps).toHaveLength(MAX_PROJECTED_FOLLOW_UPS);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------ *
+ * The panel half of the walk: the read carries the parameter and
+ * advances it with the durable record, so each follow-up is delivered
+ * exactly once and none is stranded behind the bound.
+ * ------------------------------------------------------------------ */
+
+/** How many follow-ups the walk fixture gives one run: two bounds and more. */
+const WALK_FOLLOW_UPS = 25;
+
+/** The comment ids the walk fixture's follow-ups carry, in detection order. */
+const WALK_COMMENT_IDS: readonly number[] = Array.from(
+    { length: WALK_FOLLOW_UPS },
+    (_unused, index) => 800 + index,
+);
+
+/** The comment id one composed message names, read off its source URL. */
+const COMMENT_URL = /#issuecomment-(\d+)/;
+
+/** What the walking host double saw while it served the relay. */
+interface WalkLog {
+    /** Every `/v1/events` read it served, in order. */
+    readonly reads: readonly string[];
+    /** Every message text a prompt carried, in order. */
+    readonly prompts: readonly string[];
+    /** Every `storage.set` it received, with key and value. */
+    readonly writes: readonly { key: string; value: unknown }[];
+}
+
+/**
+ * A host double whose runs view answers the **window** the parameter asks for.
+ *
+ * The double mirrors the route's own rule — open at or after the named id in
+ * detection order, up to the same bound, and from the start when the parameter
+ * is absent or names an id this row does not carry. That rule is proven against
+ * the real service in the route block above; what this block proves is the
+ * panel's half: that the parameter is sent at all, that it advances past what
+ * the panel delivered, and that every follow-up reaches the session exactly
+ * once.
+ */
+function walkingHost(): { readonly host: PanelHost; readonly log: WalkLog } {
+    const reads: string[] = [];
+    const prompts: string[] = [];
+    const writes: { key: string; value: unknown }[] = [];
+    const values = new Map<string, JsonValue>();
+    const followUps = WALK_COMMENT_IDS.map((commentId) => commentFollowUp({
+        deliveryId: `evt-acme~widget~7~77331~followup~${commentId}`,
+        sourceUrl: `https://github.com/acme/widget/issues/7#issuecomment-${commentId}`,
+    }));
+
+    return {
+        log: { reads, prompts, writes },
+        host: fakeHost({
+            serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+                if (request.path === '/v1/config') {
+                    return { status: 200, body: '{}' };
+                }
+
+                if (request.path === '/v1/events/pending') {
+                    return {
+                        status: 200,
+                        body: JSON.stringify({ events: [], status: [], auditWritten: true }),
+                    };
+                }
+
+                reads.push(request.path);
+                if (!request.path.startsWith('/v1/events')) {
+                    return { status: 404, body: '{}' };
+                }
+
+                const from = new URL(`http://relay${request.path}`).searchParams.get('followUpsFrom');
+                const opening = from === null ? -1 : followUps.findIndex((entry) => entry.deliveryId === from);
+                const window = opening < 0
+                    ? followUps
+                    : followUps.slice(opening, opening + MAX_PROJECTED_FOLLOW_UPS);
+
+                return {
+                    status: 200,
+                    body: JSON.stringify({
+                        events: [rowWith({ sessionId: SESSION_ID, followUps: window })],
+                        page: {
+                            limit: 100,
+                            nextCursor: null,
+                            hasMore: false,
+                            total: 1,
+                            snapshotAt: '2026-10-09T12:35:00.000Z',
+                            filter: { bindingId: null, state: 'dispatched' },
+                        },
+                    }),
+                };
+            },
+            storage: {
+                get: async (key: string): Promise<JsonValue | undefined> => values.get(key),
+                set: async (key: string, value: JsonValue) => {
+                    writes.push({ key, value });
+                    values.set(key, value);
+                },
+                delete: async (key: string) => {
+                    values.delete(key);
+                },
+                keys: async () => [...values.keys()],
+            },
+            onSession: (listener: (session: SessionSnapshot | null) => void) => {
+                listener({ id: SESSION_ID, title: 't', busy: false });
+
+                return release;
+            },
+            prompt: async (request: PromptRequest) => {
+                prompts.push(request.text);
+
+                return { sent: 'sent' };
+            },
+        }),
+    };
+}
+
+/** The `followUpsFrom` value one relay read carried, or `null` when it sent none. */
+function walkedFrom(path: string): string | null {
+    return new URL(`http://relay${path}`).searchParams.get('followUpsFrom');
+}
+
+describe('the relay walks the window by advancing the parameter (FR-104, NFR-002)', () => {
+    it('advances past what it delivered, so every follow-up past the bound is delivered once', async () => {
+        {
+            const { host, log: walkLog } = walkingHost();
+            const rt = createTestRuntime(host);
+            rt.unsubscribes.push(trackCurrentSession(rt));
+
+            // One delivery per tick under the relay's own gate, then one
+            // settle tick: the walk is driven by the record, not by a loop of
+            // its own, and the settle tick proves the last delivery stayed the
+            // last.
+            for (let tickIndex = 0; tickIndex < WALK_FOLLOW_UPS + 1; tickIndex += 1) {
+                await pollRelay(rt);
+                await tick();
+            }
+
+            // **The parameter is on the wire and it advances.** The first read
+            // carries none — nothing has been delivered, so there is nothing to
+            // walk past — and every later read names exactly the id the tick
+            // before it delivered: the panel's own record, and nobody else's.
+            const expected = WALK_COMMENT_IDS.map((commentId) =>
+                `evt-acme~widget~7~77331~followup~${commentId}`);
+            expect(walkLog.reads).toHaveLength(WALK_FOLLOW_UPS + 1);
+            expect(walkedFrom(walkLog.reads[0] ?? '')).toBeNull();
+            expect(walkLog.reads.slice(1).map((path) => walkedFrom(path))).toEqual(expected);
+
+            // **Each follow-up delivered exactly once**, in detection order:
+            // one prompt per comment id, and the ids are the walk's own.
+            expect(walkLog.prompts).toHaveLength(WALK_FOLLOW_UPS);
+            const prompted = walkLog.prompts.map((message) => COMMENT_URL.exec(message)?.[1] ?? 'none');
+
+            expect(prompted).toEqual(WALK_COMMENT_IDS.map(String));
+            expect(new Set(prompted).size).toBe(WALK_FOLLOW_UPS);
+
+            // The durable record agrees: one delivered entry per delivery id,
+            // which is the evidence a remount reads to stay at-most-once.
+            const records = storedFollowUps(walkLog);
+
+            expect(records).toHaveLength(WALK_FOLLOW_UPS);
+            expect(records.every((record) => record.delivered)).toBe(true);
+            expect(new Set(records.map((record) => record.deliveryId)).size).toBe(WALK_FOLLOW_UPS);
+        }
+    });
+
+    it('sends no parameter while it has delivered nothing, reading from the start', async () => {
+        {
+            const { host, log: walkLog } = walkingHost();
+            const rt = createTestRuntime(host);
+            rt.unsubscribes.push(trackCurrentSession(rt));
+
+            // One tick over an empty durable record: the read is the
+            // pre-parameter one, byte for byte, because there is nothing to
+            // advance past.
+            await pollRelay(rt);
+            await tick();
+
+            expect(walkLog.reads).toHaveLength(1);
+            expect(walkedFrom(walkLog.reads[0] ?? '')).toBeNull();
+        }
+    });
 });
