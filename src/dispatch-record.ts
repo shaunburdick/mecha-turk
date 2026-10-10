@@ -119,6 +119,14 @@ export interface DispatchRecordDocument {
  * is the exact cause an operator reads on the run row and in the trail (002
  * FR-105) — and a second spelling of "the session was busy" would be two answers
  * to one question.
+ *
+ * **A closed panel is not a cause.** A mount that goes away mid-attempt fails
+ * the in-flight host call like any other host refusal (`host-unavailable`), and
+ * a mount that goes away between attempts leaves the record *due*: the durable
+ * record carries the attempt count and the next-attempt stamp, so the remount
+ * resumes the ladder instead of parking on a mount it cannot see (spec.md User
+ * Story 7's third scenario). A "panel closed" park would be the one failure this
+ * panel could never recover from, and the value it would ride has no writer.
  */
 export type FollowUpFailure =
     /** The host reported no open session. */
@@ -129,8 +137,6 @@ export type FollowUpFailure =
     | 'navigation-refused'
     /** The composed message was over the dispatch budget. */
     | 'over-budget'
-    /** The mount went away mid-attempt. */
-    | 'panel-closed'
     /** The host rejected or timed out the prompt, or the transport failed. */
     | 'host-unavailable';
 
@@ -374,7 +380,6 @@ const FOLLOW_UP_FAILURES: ReadonlySet<string> = new Set<FollowUpFailure>([
     'session-busy',
     'navigation-refused',
     'over-budget',
-    'panel-closed',
     'host-unavailable',
 ]);
 
@@ -779,4 +784,86 @@ export async function recordFollowUpDelivery(
     }
 
     return await persist(rt, putFollowUpRecord(read.document, record));
+}
+
+/**
+ * Move parked follow-up deliveries back to due, keyed by delivery id.
+ *
+ * The operator-initiated re-offer FR-105 owes a parked follow-up (AC-051). The
+ * record is the at-most-once authority and this only ever moves a record — it
+ * clears the two members that park a delivery (`parked` and `reason`) and makes
+ * it due again. **`delivered` and `attempt` are untouched**: a delivered
+ * delivery has nothing to re-offer, and an attempt count the re-offer reset
+ * would re-spend the ladder the park had just exhausted, which is the duplicate
+ * direction the record exists to refuse (NFR-002).
+ *
+ * The re-offered record goes through {@link putFollowUpRecord}'s replace, so it
+ * is appended at the end of the list rather than left where it parked. That is
+ * load-bearing for the walk, not tidiness: the read's window opening is derived
+ * from this list ({@link followUpWindowOpening} in `follow-up.ts`), and an owed
+ * record that sits *before* a delivered one would leave the read's window
+ * opening past it — a re-offered follow-up the relay never sees again.
+ *
+ * @param input - The document, the deliveries to re-offer, and the write stamp.
+ * @returns The new document, or `null` when no listed delivery is parked and
+ *   undelivered — there is nothing to re-offer, and the caller writes nothing.
+ */
+export function reofferFollowUpRecords(input: {
+    /** The panel's durable dispatch record. */
+    readonly document: DispatchRecordDocument;
+    /** The deterministic delivery ids to re-offer. */
+    readonly deliveryIds: readonly string[];
+    /** RFC 3339 stamp of the write. */
+    readonly at: string;
+}): DispatchRecordDocument | null {
+    const { document, deliveryIds, at } = input;
+    const existing = document.followUps ?? [];
+    const wanted = new Set(deliveryIds);
+    const reoffered = existing
+        .filter((candidate) => wanted.has(candidate.deliveryId) && candidate.parked && !candidate.delivered)
+        .map((candidate) => ({ ...candidate, parked: false, reason: null, nextAttemptAtMs: null, updatedAt: at }));
+    if (reoffered.length === 0) {
+        return null;
+    }
+
+    let next = document;
+    for (const record of reoffered) {
+        next = putFollowUpRecord(next, record);
+    }
+
+    return next;
+}
+
+/**
+ * Re-offer parked follow-up deliveries through the durable record; never throws.
+ *
+ * The local half of FR-105's re-offer: no route, no service request, no run
+ * state — the panel's own record is the only thing that moves, and the relay's
+ * next tick is what delivers.
+ *
+ * @param input - The runtime and the deterministic delivery ids to re-offer.
+ * @returns `true` when the record landed, `false` when nothing was parked, the
+ *   record could not be read, or the write was refused.
+ */
+export async function reofferFollowUpDelivery(input: {
+    /** Runtime whose storage the record lives in. */
+    readonly rt: PanelRuntime;
+    /** The deterministic delivery ids to re-offer. */
+    readonly deliveryIds: readonly string[];
+}): Promise<boolean> {
+    const read = await loadDispatchRecord(input.rt);
+    if (!read.ok) {
+        return false;
+    }
+
+    const next = reofferFollowUpRecords({
+        document: read.document,
+        deliveryIds: input.deliveryIds,
+        at: nowIso(),
+    });
+    if (next === null) {
+        return false;
+    }
+
+    return await persist(input.rt, next);
 }

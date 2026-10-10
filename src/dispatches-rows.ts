@@ -268,6 +268,12 @@ export const RETURN_LABEL = 'Return to waiting';
 /** The same control once armed for its confirm step (the panel's two-step idiom). */
 export const CONFIRM_RETURN_LABEL = 'Confirm: return to waiting';
 
+/** Button label for the re-offer of a parked follow-up (002 FR-105, AC-051). */
+export const REOFFER_LABEL = 'Re-offer parked follow-up';
+
+/** The re-offer once armed for its confirm step. */
+export const CONFIRM_REOFFER_LABEL = 'Confirm: re-offer parked follow-up';
+
 /** Label of the first resolution, before the operator arms it. */
 export const SESSION_CREATED_LABEL = 'Session was created';
 

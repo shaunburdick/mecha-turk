@@ -19,7 +19,9 @@ import { initialAuditHistory } from './audit-view.ts';
 import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { runAffordance, selectedRun } from './dispatches-rows.ts';
-import { loadDispatchRecord } from './dispatch-record.ts';
+import { reofferableFollowUps } from './dispatches-detail.ts';
+import type { ParkedFollowUp } from './dispatches-detail.ts';
+import { loadDispatchRecord, reofferFollowUpDelivery } from './dispatch-record.ts';
 import { dispatchListPath, parseDispatchListBody } from './dispatches-list.ts';
 import { BLOCKED_PREFIX } from './dispatches-service.ts';
 import { recordDispatchPageMeta } from './dispatch-page.ts';
@@ -203,6 +205,21 @@ function guidanceFor(row: RunRow): string {
 function requeueConfirmCopy(row: RunRow): string {
     return `Confirm: return ${issueRef(row)} to waiting? The attempt count resets to 1 and the automatic `
         + 'requeue budget to 0; source references and every prior attempt record are kept.';
+}
+
+/**
+ * The re-offer confirmation: what the panel clears, and what it keeps.
+ *
+ * @param row - The dispatch the control acts on.
+ * @param parked - How many parked follow-ups the control will re-offer.
+ * @returns The copy the control shows before it acts.
+ */
+function reofferFollowUpCopy(row: RunRow, parked: number): string {
+    const subject = parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`;
+
+    return `Confirm: re-offer ${subject} for ${issueRef(row)}? The panel clears the parked flag and its cause on its`
+        + ' own delivery record, and the next relay poll delivers it once more. Every follow-up that already reached'
+        + ' the session, and the attempt history, are kept.';
 }
 
 /**
@@ -417,6 +434,110 @@ export async function requeueRun(rt: PanelRuntime): Promise<void> {
         body: JSON.stringify({ correlationId: row.correlationId, confirm: true }),
         success: `${issueRef(row)} is waiting again — its attempt count is back to 1.`,
     });
+}
+
+/** The note a refused re-offer leaves: nothing changed, and the cause. */
+const REFUSED_REOFFER_NOTE =
+    'The re-offer did not land: the panel could not read or write its own delivery record, so nothing changed.';
+
+/**
+ * The outcome note: what was re-offered, and what happens next.
+ *
+ * @param row - The dispatch the re-offer acted on.
+ * @param parked - How many parked follow-ups it cleared.
+ * @returns The note.
+ */
+function reofferOutcomeCopy(row: RunRow, parked: number): string {
+    const subject = parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`;
+
+    return `Re-offered ${subject} for ${issueRef(row)} — the next relay poll delivers it once more.`;
+}
+
+/**
+ * Write the re-offer and report what it did; never throws.
+ *
+ * The row's parked line is a fact about this dispatch's own record, so the
+ * re-read after the write is what lets the section show the re-offer instead of
+ * naming a park the operator just cleared — and a record this build cannot read
+ * keeps the last list it held, exactly as the list load does.
+ */
+async function applyReoffer(input: {
+    /** Runtime whose dispatches slice and record are written. */
+    readonly rt: PanelRuntime;
+    /** The dispatch the re-offer acts on. */
+    readonly row: RunRow;
+    /** The parked follow-ups the control is re-offering. */
+    readonly reofferable: readonly ParkedFollowUp[];
+}): Promise<void> {
+    const { rt, row, reofferable } = input;
+    const { dispatches: runs } = rt.state;
+    const wasChanged = await reofferFollowUpDelivery({
+        rt,
+        deliveryIds: reofferable.map((parkedFollowUp) => parkedFollowUp.deliveryId),
+    });
+    if (!stillMounted(rt)) {
+        return;
+    }
+
+    const read = await loadDispatchRecord(rt);
+    if (read.ok) {
+        runs.followUpRecords = read.document.followUps ?? [];
+    }
+
+    runs.pendingAction = null;
+    runs.note = wasChanged ? reofferOutcomeCopy(row, reofferable.length) : REFUSED_REOFFER_NOTE;
+    refresh(rt);
+}
+
+/**
+ * Re-offer the selected dispatch's parked follow-ups (002 FR-105, AC-051).
+ *
+ * The park is not an end. A follow-up that spent the retry ladder returns to
+ * waiting only through this control, and the durable record stays the
+ * at-most-once authority while it does: the re-offer clears the park and its
+ * cause and nothing else, so a follow-up that already reached its session is
+ * never sent twice and one nobody attempted is never touched. It is a **local**
+ * action on the panel's own record — no route, no service request, no run state
+ * (FR-107) — which is why it posts nothing and re-reads the record instead.
+ *
+ * The relay's flags are read before the first `await` for the same reason
+ * `postRunOperation` reads `busy` there: a relay tick is the only other writer
+ * of the follow-up record, and a re-offer that landed mid-tick would persist a
+ * document the tick had already written a delivery outcome into. The two-click
+ * confirm narrows that window further, and the refusal is a note rather than a
+ * silent nothing either way.
+ */
+export async function reofferFollowUp(rt: PanelRuntime): Promise<void> {
+    const { dispatches: runs } = rt.state;
+    const row = selectedRun(runs);
+    if (row === null || runs.busy) {
+        return;
+    }
+
+    if (rt.state.relay.inFlight || rt.state.relay.dispatching) {
+        runs.note = 'A relay tick is in flight — try the re-offer again in a moment.';
+        refresh(rt);
+
+        return;
+    }
+
+    const reofferable = reofferableFollowUps(row, runs.followUpRecords);
+    if (reofferable.length === 0) {
+        // Both absences are facts an operator can act on, so the note names them
+        // rather than refusing silently: a follow-up nobody attempted is already
+        // due, and one that reached its session has nothing to send again.
+        runs.note = 'Nothing to re-offer: this dispatch has no parked follow-up. One that has not been attempted is'
+            + ' already due, and one that already reached its session has nothing to re-offer.';
+        refresh(rt);
+
+        return;
+    }
+
+    if (!armControl({ rt, action: 'reoffer-follow-up', copy: reofferFollowUpCopy(row, reofferable.length) })) {
+        return;
+    }
+
+    await applyReoffer({ rt, row, reofferable });
 }
 
 /**

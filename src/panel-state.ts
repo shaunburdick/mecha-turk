@@ -403,7 +403,7 @@ export interface DispatchesState {
 }
 
 /** The run controls that ask for a confirmation step before they act. */
-export type RunPendingAction = 'requeue' | 'resolve-session' | 'resolve-no-session';
+export type RunPendingAction = 'requeue' | 'resolve-session' | 'resolve-no-session' | 'reoffer-follow-up';
 
 /**
  * Build the mutable state one mount starts with.

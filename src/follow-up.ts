@@ -61,7 +61,7 @@
  * pruned and a run whose subject keeps moving fills the projected window with
  * follow-ups already sent. The read therefore carries the read's one absentable
  * parameter, `followUpsFrom`, advanced past the newest id this panel's durable
- * record says reached a session ({@link newestDeliveredFollowUp}), and omits it
+ * record says reached a session ({@link followUpWindowOpening}), and omits it
  * entirely when the panel has delivered nothing or cannot read its own record —
  * which is the read's pre-parameter answer and the safe direction, since a
  * window opened early can only ever project a movement sooner than asked.
@@ -300,30 +300,46 @@ const FOLLOW_UP_PAGE_GUARD = 10;
 const DELIVERABLE_RUN_STATE: PlainRunState = 'dispatched';
 
 /**
- * The newest follow-up the panel's own durable record says reached a session.
+ * Where the relay's read opens the follow-up window: past everything this panel
+ * has settled, and never past a follow-up it still owes.
  *
- * The record is the **only** party that knows: the service holds no record of a
- * delivery, so it cannot prune a follow-up row from the queue and cannot project
- * "the undelivered ones" (FR-104). This is the value the relay walks the
- * projected window past.
+ * The record is the **only** party that knows a delivery happened: the service
+ * holds no record of one, so it cannot prune a follow-up row from the queue and
+ * cannot project "the undelivered ones" (FR-104). This is the value the relay
+ * walks the projected window past.
  *
  * The list is oldest-first by last write — `putFollowUpRecord` replaces an entry
- * with the same delivery id and appends it — so the last `delivered` entry is
- * the most recently settled one. A failed attempt on a later follow-up does not
- * disqualify an earlier delivery: it only means the newest *delivered* id is
- * further back, which opens the window earlier and therefore never skips a
- * movement.
+ * with the same delivery id and appends it — so a scan that keeps the last
+ * delivered entry opens at the most recently settled delivery, and a failed
+ * attempt on a later follow-up does not disqualify an earlier delivery: the
+ * newest *delivered* id is simply further back, which opens the window earlier
+ * and therefore never skips a movement.
+ *
+ * **The scan also stops at an owed follow-up.** A record that is neither
+ * delivered nor parked is one the relay still owes a session — mid-ladder in its
+ * backoff, or returned to due by an operator's re-offer — and opening the window
+ * past it would hide the very follow-up the next tick is meant to deliver. So
+ * the scan forgets every delivered id once it meets an owed one, which moves the
+ * read's opening *earlier*: reading from the start costs a denser page and can
+ * only project a movement sooner than asked (the read's own pre-parameter
+ * answer), where opening late strands one. A parked record is not owed — it is
+ * excluded from automatic handling until an operator re-offers it (FR-105) — so
+ * it does not stop the walk; and the re-offer appends the record at the end of
+ * the list (`reofferFollowUpRecords`), which is what puts it after the delivered
+ * sibling the walk was about to open past.
  *
  * @param document - The panel's durable dispatch record.
  * @returns The delivery id to walk past, or `null` when this panel has delivered
  *   nothing — in which case the read carries no parameter at all.
  */
-export function newestDeliveredFollowUp(document: DispatchRecordDocument): string | null {
+export function followUpWindowOpening(document: DispatchRecordDocument): string | null {
     const records = document.followUps ?? [];
     let newest: string | null = null;
     for (const record of records) {
         if (record.delivered) {
             newest = record.deliveryId;
+        } else if (!record.parked) {
+            newest = null;
         }
     }
 
@@ -345,7 +361,7 @@ export function newestDeliveredFollowUp(document: DispatchRecordDocument): strin
 async function followUpWindowAdvance(rt: PanelRuntime): Promise<string | null> {
     const read = await loadDispatchRecord(rt);
 
-    return read.ok ? newestDeliveredFollowUp(read.document) : null;
+    return read.ok ? followUpWindowOpening(read.document) : null;
 }
 
 /**

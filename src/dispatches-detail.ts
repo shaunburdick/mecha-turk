@@ -436,7 +436,6 @@ const PARKED_CAUSES: Readonly<Record<FollowUpFailure, string>> = {
     'session-busy': 'the session was mid-turn',
     'navigation-refused': 'the host refused to open the session',
     'over-budget': 'the composed message was over the dispatch budget',
-    'panel-closed': 'the panel closed mid-attempt',
     'host-unavailable': 'the host refused or timed out the prompt',
 };
 
@@ -539,6 +538,28 @@ export function followUpRowView(
             !record.delivered && !record.parked && !projectedIds.has(record.deliveryId)).length;
 
     return { delivered, waiting, parked };
+}
+
+/**
+ * The parked follow-ups on one row that an operator's re-offer would act on.
+ *
+ * Exactly {@link followUpRowView}'s parked set: a follow-up that exhausted the
+ * retry ladder, never reached its session, and is therefore sitting out
+ * automatic handling until someone asks for it again (FR-105). The two halves
+ * of the affordance's honesty are the two absences — a follow-up the panel
+ * already **delivered** is not here, because there is nothing to send it again,
+ * and one it never attempted is not here either, because that one is already
+ * due and the relay's own tick will deliver it without anyone asking.
+ *
+ * @param row - The runs-history row.
+ * @param records - The panel's durable follow-up records.
+ * @returns The re-offerable parked follow-ups, oldest first.
+ */
+export function reofferableFollowUps(
+    row: RunRow,
+    records: readonly FollowUpDeliveryRecord[],
+): readonly ParkedFollowUp[] {
+    return followUpRowView(row, records)?.parked ?? [];
 }
 
 /**

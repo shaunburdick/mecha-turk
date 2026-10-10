@@ -150,8 +150,13 @@ const stateMeaning: Readonly<Record<string, string>> = {
     <p>
         A <strong>parked</strong> follow-up kept failing — the session was mid-turn, no session was
         open, the host refused — and has spent the bounded retry ladder the service declares. It is
-        excluded from automatic handling: no later tick attempts it, and the panel carries no control
-        that re-offers one, so it stays parked. Its cause is what the row and the trail keep.
+        excluded from automatic handling: no later tick attempts it, and it stays parked until you
+        re-offer it. Select its dispatch and <strong>Re-offer parked follow-up</strong> clears the
+        park and its cause on the panel’s own delivery record — never the delivery count and never
+        the attempt history — and the next relay poll delivers it once more. A follow-up that already
+        reached the session is never offered a re-offer, and neither is one that has not been
+        attempted: that one is already due. The park’s cause is what the row and the trail keep until
+        you act.
     </p>
 
     <h3>What this did not add</h3>

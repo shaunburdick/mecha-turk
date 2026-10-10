@@ -153,8 +153,14 @@ const CEILING = { words: 5_770 } as const;
  * operator-facing surfaces this feature changes, and the tracking lifecycle
  * (002 v1.16.0, GitHub issue #13) is one of them. `CEILING.words` is untouched,
  * so no enforced bound moved with it.
+ *
+ * Moved 512 → **517** with the re-offer clause on `/use/` (5 lines): the parked
+ * paragraph claimed no control re-offers a parked follow-up, which the same
+ * feature's delivery of FR-105's re-offer made false — FR-042 binds the site to
+ * the surfaces this feature changes, so the sentence changed with the panel.
+ * `CEILING.words` is untouched, so no enforced bound moved with it.
  */
-const PINNED_LINES = 512;
+const PINNED_LINES = 517;
 
 /**
  * The prose each bound document measures now, so growth cannot pass unnoticed.

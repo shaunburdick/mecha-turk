@@ -167,6 +167,8 @@ export interface BindingsPaneHandlers
     readonly retryRun: () => void;
     /** Operators asked to return the selected parked run to waiting. */
     readonly requeueRun: () => void;
+    /** Operators asked to re-offer the selected dispatch's parked follow-ups. */
+    readonly reofferFollowUp: () => void;
     /** Operators confirmed FR-027's first resolution (a session exists). */
     readonly resolveSessionCreated: () => void;
     /** Operators confirmed FR-027's second resolution (no session exists). */
