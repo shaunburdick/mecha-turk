@@ -1820,6 +1820,29 @@ var ABSENTABLE_FIELDS = ["headSha", "baseRef", "claimedAt", "dispatchedAt", "dis
 var KNOWN_STATES = new Set(["pending", "in-flight", "dispatched"]);
 var KNOWN_KINDS = new Set(["assignment", "mention", "review"]);
 var SUBJECT_TYPES = new Set(["issue", "pull_request"]);
+var ID_BASE_SEGMENTS = 4;
+var FOLLOW_UP_SEGMENT = "followup";
+var DECIMAL_SEGMENT = /^[0-9]+$/;
+var HEAD_TAIL = /^head~[0-9a-f]+$/;
+function discriminatorOfId(id) {
+  const segments = id.split("~");
+  if (segments.length <= ID_BASE_SEGMENTS + 1 || segments[ID_BASE_SEGMENTS] !== FOLLOW_UP_SEGMENT) {
+    return { role: "trigger" };
+  }
+  const tail = segments.slice(ID_BASE_SEGMENTS + 1).join("~");
+  if (DECIMAL_SEGMENT.test(tail)) {
+    const commentId = Number(tail);
+    return commentId > 0 ? { role: "comment", commentId } : { role: "malformed" };
+  }
+  return HEAD_TAIL.test(tail) ? { role: "head", headSha: tail.slice("head~".length) } : { role: "malformed" };
+}
+function followUpKindOf(id) {
+  const read = discriminatorOfId(id);
+  return read.role === "comment" || read.role === "head" ? read.role : null;
+}
+function followUpDiscriminatorHolds(id) {
+  return discriminatorOfId(id).role !== "malformed";
+}
 var RUN_CORRELATION_ID = /^mt-run-[0-9a-f]{24}$/;
 function isUsableTextFieldSet(record, fields) {
   return fields.every((field) => {
@@ -1872,8 +1895,11 @@ function readTrimMarkerField(record) {
   }
   return Number.isNaN(Date.parse(value)) ? null : value;
 }
+function isKnownKind(kind) {
+  return typeof kind === "string" && KNOWN_KINDS.has(kind);
+}
 function fieldsHold(record) {
-  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && typeof record.kind === "string" && KNOWN_KINDS.has(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null && readTrimMarkerField(record) !== null && readActorAttributionField(record) !== null && readActorLoginField(record) !== null;
+  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && isKnownKind(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null && readTrimMarkerField(record) !== null && readActorAttributionField(record) !== null && readActorLoginField(record) !== null && followUpDiscriminatorHolds(record.id);
 }
 function lifecycleOf(record, state) {
   const fields = {};
@@ -1964,6 +1990,11 @@ function parseStoredEvents(raw) {
 }
 
 // service/poll/events-enqueue-audit.ts
+import { createHash as createHash2 } from "node:crypto";
+var FINGERPRINT_CHARS = 24;
+function followUpFingerprint(excerpt) {
+  return `fp-${createHash2("sha256").update(excerpt).digest("hex").slice(0, FINGERPRINT_CHARS)}`;
+}
 async function appendEnqueueAudit(input, row) {
   try {
     await appendAudit(input.store, row);
@@ -2011,7 +2042,30 @@ async function recordDetectedDeliveries(input) {
     });
   }
 }
+async function recordFollowUps(input) {
+  const rows = new Map(input.appended.map((event) => [event.id, event]));
+  for (const joined of input.outcome.followUps) {
+    const row = rows.get(joined.deliveryId);
+    const excerpt = row?.issueBodyExcerpt ?? "";
+    await appendEnqueueAudit(input, {
+      eventType: "follow_up.observed",
+      actorSource: "service",
+      entity: { kind: "delivery", id: joined.deliveryId },
+      correlationId: joined.run.correlationId,
+      decision: null,
+      reason: joined.kind === "head" ? "a tracked pull request head moved" : "a tracked issue or pull request gained a comment",
+      details: {
+        deliveryId: joined.deliveryId,
+        excerptFingerprint: followUpFingerprint(excerpt),
+        excerptLength: excerpt.length,
+        kind: joined.kind,
+        runCorrelationId: joined.run.correlationId
+      }
+    });
+  }
+}
 async function recordEnqueueAudits(input) {
+  await recordFollowUps(input);
   await recordJoinedDeliveries(input);
   await recordDetectedDeliveries(input);
 }
@@ -2028,7 +2082,7 @@ class StorageUnavailableError extends Error {
 }
 
 // service/poll/run-key.ts
-import { createHash as createHash2 } from "node:crypto";
+import { createHash as createHash3 } from "node:crypto";
 var RUN_PROVIDER = "github";
 var ATTACHMENT_ID_MAX = 128;
 var CORRELATION_HEX_CHARS = 24;
@@ -2063,7 +2117,7 @@ function buildSubjectKey(input) {
   return keySegments(input).slice(0, -1).join(KEY_SEPARATOR);
 }
 function digestHex(text, hexChars) {
-  return createHash2("sha256").update(text, "utf8").digest("hex").slice(0, hexChars);
+  return createHash3("sha256").update(text, "utf8").digest("hex").slice(0, hexChars);
 }
 function buildCorrelationId(runKey) {
   return `mt-run-${digestHex(runKey, CORRELATION_HEX_CHARS)}`;
@@ -2446,11 +2500,19 @@ function readActorPolicy(raw) {
   }
   return value === "open" || value === "restricted" ? value : undefined;
 }
+function readHeadSeed(raw) {
+  const value = raw.lastHeadSha;
+  if (value === undefined) {
+    return;
+  }
+  return typeof value === "string" && value !== "" ? value : null;
+}
 function parseRunScalars(raw) {
   const line = readStateLine(raw);
   const actorPolicy = readActorPolicy(raw);
+  const lastHeadSha = readHeadSeed(raw);
   const { subjectType } = raw;
-  if (line === null || actorPolicy === undefined || subjectType !== "issue" && subjectType !== "pull_request") {
+  if (line === null || actorPolicy === undefined || lastHeadSha === null || subjectType !== "issue" && subjectType !== "pull_request") {
     return null;
   }
   const ordinal = readCount(raw.ordinal);
@@ -2478,6 +2540,7 @@ function parseRunScalars(raw) {
     referencesNotRetained: notRetained,
     referencesTruncated: truncated,
     actorPolicy,
+    lastHeadSha,
     createdAt,
     updatedAt
   };
@@ -2608,6 +2671,7 @@ function runFromParts(raw, parts) {
     attempts,
     session: objects.session,
     verification: objects.verification,
+    ...scalars.lastHeadSha !== undefined && { lastHeadSha: scalars.lastHeadSha },
     createdAt: scalars.createdAt,
     updatedAt: scalars.updatedAt
   };
@@ -3294,6 +3358,9 @@ function originOf(delivery) {
   const commentId = Number(suffix);
   return commentId > 0 && String(commentId) === suffix ? `comment:${commentId}` : null;
 }
+function followUpKindOfDelivery(delivery) {
+  return followUpKindOf(delivery.id);
+}
 function referenceOf(delivery, isPresentAtAuthorization) {
   const origin = originOf(delivery);
   if (origin === null) {
@@ -3340,6 +3407,15 @@ function joinReference(input) {
     retained: true
   };
 }
+function headSeedOf(input) {
+  if (input.recorded !== undefined) {
+    return input.recorded;
+  }
+  if (input.established !== undefined && input.established !== null) {
+    return input.established;
+  }
+  return input.observations?.get(input.subjectKey);
+}
 function runForDelivery(input) {
   const { delivery, shape, ordinal, reference, now, prompt } = input;
   const runKey = buildRunKey({
@@ -3350,6 +3426,12 @@ function runForDelivery(input) {
     ordinal
   });
   const correlationId = buildCorrelationId(runKey);
+  const headSha = headSeedOf({
+    recorded: undefined,
+    established: delivery.headSha,
+    observations: input.observedHeads,
+    subjectKey: shape.subjectKey
+  });
   return {
     runKey,
     correlationId,
@@ -3376,6 +3458,7 @@ function runForDelivery(input) {
     reservation: null,
     attempts: [],
     session: null,
+    ...headSha !== undefined && { lastHeadSha: headSha },
     verification: null,
     createdAt: now,
     updatedAt: now
@@ -3390,6 +3473,89 @@ function subjectKeyOfRun2(run) {
     ordinal: 0
   });
 }
+function findJoinableRun(runs, subjectKey) {
+  for (const [index, run] of runs.entries()) {
+    if (subjectKeyOfRun2(run) === subjectKey && (!isTerminalRun(run) || run.session !== null)) {
+      return { index, open: run };
+    }
+  }
+  return;
+}
+function recordHeadSeeds(runs, observations) {
+  for (const [position, run] of runs.entries()) {
+    if (run.session === null) {
+      continue;
+    }
+    const seed = headSeedOf({
+      recorded: run.lastHeadSha,
+      observations,
+      subjectKey: subjectKeyOfRun2(run)
+    });
+    if (seed === undefined) {
+      continue;
+    }
+    runs[position] = { ...run, lastHeadSha: seed };
+  }
+}
+function foldDelivery(input) {
+  const {
+    delivery,
+    runs,
+    subjects,
+    links,
+    created,
+    joins,
+    followUps,
+    now,
+    prompt,
+    observedHeads
+  } = input;
+  const shape = subjectShapeOf(delivery);
+  if (shape === null) {
+    return;
+  }
+  const joinable = findJoinableRun(runs, shape.subjectKey);
+  if (joinable === undefined) {
+    if (followUpKindOfDelivery(delivery) !== null) {
+      return;
+    }
+    const reference = referenceOf(delivery, true);
+    if (reference === null) {
+      return;
+    }
+    const ordinal = subjects[shape.subjectKey] ?? 0;
+    subjects[shape.subjectKey] = ordinal + 1;
+    const run = runForDelivery({
+      delivery,
+      shape,
+      ordinal,
+      reference,
+      now,
+      prompt,
+      ...observedHeads !== undefined && { observedHeads }
+    });
+    runs.push(run);
+    created.push(run);
+    links.set(delivery.id, run.correlationId);
+    return;
+  }
+  const { index, open } = joinable;
+  links.set(delivery.id, open.correlationId);
+  const kind = followUpKindOfDelivery(delivery);
+  if (kind === null) {
+    const reference = referenceOf(delivery, true);
+    if (reference === null) {
+      return;
+    }
+    const authorizedReference = { ...reference, presentAtAuthorization: open.reservation === null };
+    const folded = joinReference({ run: open, reference: authorizedReference, now });
+    runs[index] = folded.run;
+    joins.push({ run: folded.run, reference: authorizedReference, retained: folded.retained });
+    return;
+  }
+  runs[index] = { ...open, updatedAt: now };
+  followUps.push({ run: runs[index], deliveryId: delivery.id, kind });
+}
 function applyEnqueue(input) {
   const prompt = input.prompt ?? null;
   const runs = [...input.document.runs];
@@ -3397,28 +3563,23 @@ function applyEnqueue(input) {
   const links = new Map;
   const created = [];
   const joins = [];
+  const followUps = [];
   for (const delivery of input.deliveries) {
-    const shape = subjectShapeOf(delivery);
-    const reference = shape === null ? null : referenceOf(delivery, true);
-    if (shape === null || reference === null) {
-      continue;
-    }
-    const index = runs.findIndex((run2) => !isTerminalRun(run2) && subjectKeyOfRun2(run2) === shape.subjectKey);
-    const open = index === -1 ? undefined : runs[index];
-    if (open !== undefined) {
-      const authorizedReference = { ...reference, presentAtAuthorization: open.reservation === null };
-      const folded = joinReference({ run: open, reference: authorizedReference, now: input.now });
-      runs[index] = folded.run;
-      joins.push({ run: folded.run, reference: authorizedReference, retained: folded.retained });
-      links.set(delivery.id, folded.run.correlationId);
-      continue;
-    }
-    const ordinal = subjects[shape.subjectKey] ?? 0;
-    subjects[shape.subjectKey] = ordinal + 1;
-    const run = runForDelivery({ delivery, shape, ordinal, reference, now: input.now, prompt });
-    runs.push(run);
-    created.push(run);
-    links.set(delivery.id, run.correlationId);
+    foldDelivery({
+      delivery,
+      runs,
+      subjects,
+      links,
+      created,
+      joins,
+      followUps,
+      now: input.now,
+      prompt,
+      observedHeads: input.observedHeads
+    });
+  }
+  if (input.observedHeads !== undefined) {
+    recordHeadSeeds(runs, input.observedHeads);
   }
   const auditIntents = [
     ...input.document.auditIntents ?? [],
@@ -3428,7 +3589,13 @@ function applyEnqueue(input) {
       deliveryIds: run.sourceReferences.map((reference) => reference.deliveryId)
     }))
   ];
-  return { document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs, auditIntents }, links, created, joins };
+  return {
+    document: { schemaVersion: RUNS_SCHEMA_VERSION, subjects, runs, auditIntents },
+    links,
+    created,
+    joins,
+    followUps
+  };
 }
 
 // service/poll/scan.ts
@@ -3522,6 +3689,9 @@ function buildEventId(input) {
   return input.discriminator === undefined ? base : `${base}${input.discriminator}`;
 }
 function discriminatorOf(snapshot) {
+  if ("followUp" in snapshot) {
+    return snapshot.followUp === "head" ? `~followup~head~${snapshot.headSha}` : `~followup~${snapshot.commentId}`;
+  }
   if (snapshot.kind === "mention") {
     return snapshot.origin === "body" ? "~mention~body" : `~mention~${snapshot.commentId}`;
   }
@@ -3679,7 +3849,8 @@ async function enqueueWithinChain(input) {
     known.add(event.id);
     return true;
   });
-  if (fresh.length === 0) {
+  const seeds = input.observedHeads ?? new Map;
+  if (fresh.length === 0 && seeds.size === 0) {
     return [];
   }
   const document = await readRunsDocument(input);
@@ -3687,13 +3858,18 @@ async function enqueueWithinChain(input) {
     document,
     deliveries: fresh,
     now: nowIso(),
-    ...input.prompt !== undefined && { prompt: input.prompt }
+    ...input.prompt !== undefined && { prompt: input.prompt },
+    ...seeds.size > 0 && { observedHeads: seeds }
   });
   const appended = fresh.map((event) => {
     const runCorrelationId = outcome.links.get(event.id);
     return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
   });
   const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
+  if (appended.length === 0) {
+    await readRunsDocument(input);
+    return [];
+  }
   const persistedIds = new Set(persistedRuns.runs.map((run) => run.correlationId));
   await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended], persistedIds));
   await readRunsDocument(input);
@@ -3807,7 +3983,7 @@ async function runRetentionAtOpen(input) {
 }
 
 // service/auth.ts
-import { createHash as createHash3, timingSafeEqual } from "node:crypto";
+import { createHash as createHash4, timingSafeEqual } from "node:crypto";
 var BEARER_PREFIX = "Bearer ";
 var DIGEST_ALGORITHM = "sha256";
 function bearerCredential(header) {
@@ -3817,8 +3993,8 @@ function bearerCredential(header) {
   return header.startsWith(BEARER_PREFIX) ? header.slice(BEARER_PREFIX.length) : "";
 }
 function digestsMatch(presented, expected) {
-  const left = createHash3(DIGEST_ALGORITHM).update(presented).digest();
-  const right = createHash3(DIGEST_ALGORITHM).update(expected).digest();
+  const left = createHash4(DIGEST_ALGORITHM).update(presented).digest();
+  const right = createHash4(DIGEST_ALGORITHM).update(expected).digest();
   return timingSafeEqual(left, right);
 }
 function isAuthorized(header, token) {
@@ -5993,7 +6169,7 @@ function measureEvents(runs) {
 }
 
 // service/poll/claim.ts
-import { createHash as createHash4 } from "node:crypto";
+import { createHash as createHash5 } from "node:crypto";
 
 // service/poll/claim-project.ts
 function reviewCoordinates(delivery) {
@@ -6145,7 +6321,7 @@ function holderOf(raw) {
   return raw;
 }
 function buildLeaseId(input) {
-  const digest = createHash4("sha256").update(`${input.correlationId}|${input.attempt}|${input.issuedAt}`, "utf8").digest("hex").slice(0, LEASE_ID_HEX_CHARS);
+  const digest = createHash5("sha256").update(`${input.correlationId}|${input.attempt}|${input.issuedAt}`, "utf8").digest("hex").slice(0, LEASE_ID_HEX_CHARS);
   return `lse-${digest}`;
 }
 function deliveriesById(queue) {
@@ -6304,6 +6480,7 @@ async function readCycleConfig(input) {
 
 // service/poll/run-history-project.ts
 var WAITING_REASON = "waiting for a panel";
+var MAX_PROJECTED_FOLLOW_UPS = 20;
 function reviewCoordinates2(delivery) {
   const head = delivery?.headSha ?? null;
   const base = delivery?.baseRef ?? null;
@@ -6388,13 +6565,47 @@ function promptViewOf2(run) {
     promptSources: run.prompt.sources
   };
 }
+function followUpOf(row, previousHeadSha) {
+  const kind = followUpKindOf(row.id);
+  if (kind === null) {
+    return null;
+  }
+  const head = kind === "head" && row.headSha !== null && row.headSha !== "" ? row.headSha : undefined;
+  return {
+    deliveryId: row.id,
+    kind,
+    excerpt: row.issueBodyExcerpt,
+    actorLogin: row.actorLogin ?? "",
+    detectedAt: row.detectedAt,
+    sourceUrl: row.issueUrl,
+    ...head !== undefined && { fromHeadSha: previousHeadSha ?? "", headSha: head }
+  };
+}
+function followUpsOf(input) {
+  const rows = input.queue.filter((row) => row.runCorrelationId === input.run.correlationId && followUpKindOf(row.id) !== null);
+  if (rows.length === 0) {
+    return;
+  }
+  const followUps = [];
+  let previousHeadSha = input.run.lastHeadSha;
+  for (const row of rows.slice(0, MAX_PROJECTED_FOLLOW_UPS)) {
+    const followUp = followUpOf(row, previousHeadSha);
+    if (followUp === null) {
+      continue;
+    }
+    followUps.push(followUp);
+    previousHeadSha = followUp.headSha ?? previousHeadSha;
+  }
+  return followUps;
+}
 function historyRowOf(input) {
-  const { run, deliveries } = input;
+  const { run, deliveries, queue } = input;
   const primary = run.sourceReferences[0];
   const delivery = primary === undefined ? undefined : deliveries.get(primary.deliveryId);
   const view = deliveryView2({ run, primary, delivery });
   const lease = leaseViewOf(run);
   const dispatchStamp = run.session === null ? null : run.session.dispatchedAt;
+  const followUps = followUpsOf({ run, queue });
   return withReviewCoordinates({
     id: run.correlationId,
     state: run.state,
@@ -6425,11 +6636,13 @@ function historyRowOf(input) {
     claimedAt: lease.claimedAt,
     dispatchedAt: dispatchStamp,
     ...promptViewOf2(run),
-    actorPolicy: run.actorPolicy
+    actorPolicy: run.actorPolicy,
+    ...followUps !== undefined && { followUps }
   }, delivery);
 }
 function projectRunHistory(input) {
-  const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries }));
+  const queue = [...input.deliveries.values()];
+  const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries, queue }));
   return rows.toSorted((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt)).slice(0, input.cap);
 }
 
@@ -9229,6 +9442,257 @@ function bodyExcerptOf(body) {
   return `${body.slice(0, BODY_EXCERPT_MAX_CHARS - 1)}…`;
 }
 
+// service/poll/follow-up.ts
+function commentNote(commenter, issueNumber) {
+  return `Comment by ${commenter} on issue #${issueNumber}, on a work item already in progress`;
+}
+function headNote(pullNumber, from, to) {
+  return `Pull request #${pullNumber} head moved from ${from} to ${to}, on a work item already in progress`;
+}
+function commentFollowUp(input) {
+  const { binding, comment, tracked, issue: issue2, detectedAt } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const commenter = actorLoginOf(comment.authorLogin);
+  const fallbackUrl = `https://github.com/${repository.owner}/${repository.name}/issues/${comment.issueNumber}`;
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repository),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "mention",
+    followUp: "comment",
+    commentId: comment.commentId,
+    issue: {
+      issueNumber: comment.issueNumber,
+      issueTitle: issue2?.title ?? `Issue #${comment.issueNumber}`,
+      issueUrl: issue2?.url ?? fallbackUrl,
+      issueBodyExcerpt: bodyExcerptOf(comment.body)
+    },
+    actorLogin: commenter,
+    actorAttribution: "direct",
+    triggerNote: commentNote(commenter, comment.issueNumber),
+    detectedAt,
+    subjectType: tracked.subjectType
+  });
+}
+function headFollowUp(input) {
+  const { binding, pull, tracked, fromHeadSha, detectedAt } = input;
+  const actor = tracked.actorLogin;
+  const attribution = tracked.actorAttribution;
+  if (actor === null || attribution !== "direct") {
+    return null;
+  }
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    followUp: "head",
+    headSha: pull.headSha ?? "",
+    baseRef: null,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: ""
+    },
+    actorLogin: actor,
+    actorAttribution: attribution,
+    triggerNote: headNote(pull.pullNumber, fromHeadSha, pull.headSha ?? ""),
+    detectedAt,
+    subjectType: "pull_request"
+  });
+}
+function commentFollowUps(input) {
+  const { binding, comments, issues, tracked, windowStart, detectedAt } = input;
+  const known = new Map(issues.map((issue2) => [issue2.issueNumber, issue2]));
+  const rows = [];
+  for (const comment of comments) {
+    const subject = tracked.get(comment.issueNumber);
+    if (subject === undefined || !stampInWindow(comment.updatedAt, windowStart) || !isAttributableAuthor(comment.authorLogin, comment.authorType)) {
+      continue;
+    }
+    const row = commentFollowUp({
+      binding,
+      comment,
+      tracked: subject,
+      issue: known.get(comment.issueNumber) ?? null,
+      detectedAt
+    });
+    if (row !== null) {
+      rows.push(row);
+    }
+  }
+  return rows;
+}
+function headFollowUps(input) {
+  const { binding, pulls, tracked, windowStart, detectedAt } = input;
+  const rows = [];
+  const observations = [];
+  for (const pull of pulls) {
+    if (!stampInWindow(pull.updatedAt, windowStart)) {
+      continue;
+    }
+    const subject = tracked.get(pull.pullNumber);
+    if (subject === undefined || pull.headSha === null) {
+      continue;
+    }
+    observations.push({ pullNumber: pull.pullNumber, headSha: pull.headSha });
+    const seed = subject.lastHeadSha;
+    if (seed === null || seed === pull.headSha) {
+      continue;
+    }
+    const row = headFollowUp({ binding, pull, tracked: subject, fromHeadSha: seed, detectedAt });
+    if (row !== null) {
+      rows.push(row);
+    }
+  }
+  return { rows, observations };
+}
+
+// service/poll/tracking.ts
+function subjectKeyOf2(input) {
+  try {
+    return buildSubjectKey({
+      accountNumericUserId: input.accountNumericUserId,
+      repository: input.repository,
+      subjectType: input.subjectType,
+      subjectNumber: input.subjectNumber,
+      ordinal: 0
+    });
+  } catch {
+    return null;
+  }
+}
+function trackedOf(run) {
+  const key = subjectKeyOf2({
+    accountNumericUserId: run.accountNumericUserId,
+    repository: run.repository,
+    subjectType: run.subjectType,
+    subjectNumber: run.subjectNumber
+  });
+  if (key === null) {
+    return null;
+  }
+  const first = run.sourceReferences[0];
+  return {
+    key,
+    subject: {
+      correlationId: run.correlationId,
+      subjectType: run.subjectType,
+      lastHeadSha: run.lastHeadSha ?? null,
+      actorLogin: first?.actorLogin ?? null,
+      actorAttribution: first?.actorAttribution ?? null
+    }
+  };
+}
+function trackedSubjectsOf(input) {
+  const tracked = new Map;
+  for (const run of input.document.runs) {
+    if (run.session === null || run.bindingId !== input.binding.bindingId || run.accountNumericUserId !== input.binding.accountNumericUserId) {
+      continue;
+    }
+    const read = trackedOf(run);
+    if (read !== null) {
+      tracked.set(run.subjectNumber, read.subject);
+    }
+  }
+  return tracked;
+}
+function withoutEnded(tracked, ends) {
+  if (ends.length === 0) {
+    return tracked;
+  }
+  const ended = new Set(ends.map((end) => end.subjectNumber));
+  const kept = new Map([...tracked].filter(([subject]) => !ended.has(subject)));
+  return kept;
+}
+function trackedIssueEnds(input) {
+  const ends = [];
+  for (const issue2 of input.issues) {
+    const subject = input.tracked.get(issue2.issueNumber);
+    if (subject === undefined || issue2.state !== "closed") {
+      continue;
+    }
+    const key = subjectKeyOf2({
+      accountNumericUserId: input.binding.accountNumericUserId,
+      repository: input.binding.repository,
+      subjectType: "issue",
+      subjectNumber: issue2.issueNumber
+    });
+    if (key === null) {
+      continue;
+    }
+    ends.push({
+      subjectKey: key,
+      correlationId: subject.correlationId,
+      subjectType: "issue",
+      subjectNumber: issue2.issueNumber,
+      fact: "closed",
+      state: issue2.state,
+      stateReason: issue2.stateReason ?? null,
+      at: issue2.closedAt ?? null
+    });
+  }
+  return ends;
+}
+function terminalPullFact(pull) {
+  if (pull.merged === true) {
+    return "merged";
+  }
+  return pull.state === "closed" ? "closed-unmerged" : null;
+}
+function trackedPullEnds(input) {
+  const ends = [];
+  for (const pull of input.pulls) {
+    const subject = input.tracked.get(pull.pullNumber);
+    const fact = terminalPullFact(pull);
+    if (subject === undefined || fact === null) {
+      continue;
+    }
+    const key = subjectKeyOf2({
+      accountNumericUserId: input.binding.accountNumericUserId,
+      repository: input.binding.repository,
+      subjectType: "pull_request",
+      subjectNumber: pull.pullNumber
+    });
+    if (key === null) {
+      continue;
+    }
+    ends.push({
+      subjectKey: key,
+      correlationId: subject.correlationId,
+      subjectType: "pull_request",
+      subjectNumber: pull.pullNumber,
+      fact,
+      state: pull.state,
+      stateReason: null,
+      at: pull.mergedAt ?? null
+    });
+  }
+  return ends;
+}
+function observedHeadSeeds(input) {
+  const seeds = new Map;
+  for (const [pullNumber, headSha] of input.observations) {
+    const key = subjectKeyOf2({
+      accountNumericUserId: input.binding.accountNumericUserId,
+      repository: input.binding.repository,
+      subjectType: "pull_request",
+      subjectNumber: pullNumber
+    });
+    if (key !== null) {
+      seeds.set(key, headSha);
+    }
+  }
+  return seeds;
+}
+
 // service/poll/poller-events.ts
 var ITEM_EVENT_MAX_PAGES = 2;
 var NO_ACTOR = { login: "", type: "" };
@@ -9481,7 +9945,20 @@ async function reviewRequestEvents(input) {
       events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
     }
   }
-  return { ok: true, events };
+  const pullEnds = trackedPullEnds({ binding, pulls: listed.pulls, tracked: input.tracked });
+  const heads = headFollowUps({
+    binding,
+    pulls: listed.pulls,
+    tracked: withoutEnded(input.tracked, pullEnds),
+    windowStart,
+    detectedAt
+  });
+  return {
+    ok: true,
+    events: [...events, ...heads.rows],
+    observedHeads: new Map(heads.observations.flatMap((observation) => observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
+    ...pullEnds.length > 0 && { ends: pullEnds }
+  };
 }
 
 // service/poll/triggers.ts
@@ -9610,46 +10087,77 @@ async function mentionEventsOf(input) {
   }
   const events = [
     ...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }),
-    ...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt })
+    ...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }),
+    ...commentFollowUps({
+      binding,
+      comments: listed.comments,
+      issues,
+      tracked: input.tracked,
+      windowStart,
+      detectedAt
+    })
   ];
   return { ok: true, events };
 }
-async function collectTriggerEvents(input) {
-  const { binding, poller, token, windowStart, pace } = input;
-  const repository = repositoryRefOf(binding.repository);
-  const events = [];
-  const issues = binding.triggers.assignment || binding.triggers.mention ? await poller.listOpenIssues({
+async function listedIssues(input) {
+  const { poller, token, repository, windowStart, pace, binding } = input;
+  if (!binding.triggers.assignment && !binding.triggers.mention) {
+    return { kind: "ok", issues: [] };
+  }
+  return await poller.listOpenIssues({
     token,
     owner: repository.owner,
     name: repository.name,
     since: windowStart,
     pace
-  }) : { kind: "ok", issues: [] };
+  });
+}
+async function triggerBranches(input) {
+  const { scan, issues } = input;
+  const branches = [];
+  if (scan.binding.triggers.assignment) {
+    branches.push(await assignmentEvents({ ...scan, issues }));
+  }
+  if (scan.binding.triggers.mention) {
+    branches.push(await mentionEventsOf({ ...scan, issues }));
+  }
+  if (scan.binding.triggers.reviewRequest) {
+    branches.push(await reviewRequestEvents(scan));
+  }
+  return branches;
+}
+async function collectTriggerEvents(input) {
+  const { binding, poller, token, windowStart, pace } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const issues = await listedIssues({ poller, token, repository, windowStart, pace, binding });
   if (issues.kind !== "ok") {
     return { ok: false, failure: issues };
   }
-  if (binding.triggers.assignment) {
-    const branch = await assignmentEvents({ ...input, issues: issues.issues });
+  const ends = [...trackedIssueEnds({
+    binding,
+    issues: issues.issues,
+    tracked: input.tracked
+  })];
+  const tracked = withoutEnded(input.tracked, ends);
+  const events = [];
+  let observedHeads;
+  const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues });
+  for (const branch of branches) {
     if (!branch.ok) {
       return branch;
     }
     events.push(...branch.events);
-  }
-  if (binding.triggers.mention) {
-    const branch = await mentionEventsOf({ ...input, issues: issues.issues });
-    if (!branch.ok) {
-      return branch;
+    observedHeads = branch.observedHeads ?? observedHeads;
+    if (branch.ends !== undefined) {
+      ends.push(...branch.ends);
     }
-    events.push(...branch.events);
   }
-  if (binding.triggers.reviewRequest) {
-    const branch = await reviewRequestEvents(input);
-    if (!branch.ok) {
-      return branch;
-    }
-    events.push(...branch.events);
-  }
-  return { ok: true, events };
+  return {
+    ok: true,
+    events,
+    ...observedHeads !== undefined && { observedHeads },
+    ...ends.length > 0 && { ends }
+  };
 }
 
 // service/poll/loop.ts
@@ -9676,8 +10184,47 @@ function blankScan(binding) {
     skipped: null
   };
 }
+async function recordTrackingEnds(input) {
+  for (const end of input.ends) {
+    try {
+      await appendAudit(input.store, {
+        eventType: "tracking.ended",
+        actorSource: "service",
+        entity: { kind: "run", id: end.correlationId },
+        correlationId: end.correlationId,
+        decision: null,
+        reason: `the GitHub item reached its terminal state (${end.fact}); follow-up detection ends`,
+        details: {
+          bindingId: input.binding.bindingId,
+          subjectKey: end.subjectKey,
+          subjectType: end.subjectType,
+          subjectNumber: end.subjectNumber,
+          kind: end.fact,
+          state: end.state,
+          ...end.stateReason !== null && { reason: end.stateReason },
+          ...end.at !== null && (end.fact === "merged" ? { mergedAt: end.at } : { closedAt: end.at })
+        }
+      });
+    } catch (cause) {
+      input.log.warn("tracking end audit row could not be appended", {
+        subjectNumber: end.subjectNumber,
+        errorKind: cause instanceof Error ? cause.name : typeof cause
+      });
+    }
+  }
+}
+async function previewTrackedDocument(input) {
+  try {
+    return { value: await previewRunsDocument(input) };
+  } catch (cause) {
+    input.log.warn("run document could not be read for this binding's scan; nothing was detected", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return { refused: "runs-unreadable" };
+  }
+}
 async function collectScanEvents(input) {
-  const { deps, binding, windowStart, detectedAt, token, login } = input;
+  const { deps, binding, windowStart, detectedAt, token, login, tracked } = input;
   const collected = await collectTriggerEvents({
     poller: deps.poller,
     log: deps.log,
@@ -9686,9 +10233,18 @@ async function collectScanEvents(input) {
     login,
     windowStart,
     detectedAt,
-    pace: deps.pace
+    pace: deps.pace,
+    tracked
   });
-  return collected.ok ? { ok: true, events: collected.events } : { ok: false, skipped: skipOf(collected.failure) };
+  if (!collected.ok) {
+    return { ok: false, skipped: skipOf(collected.failure) };
+  }
+  return {
+    ok: true,
+    events: collected.events,
+    ...collected.observedHeads !== undefined && { observedHeads: collected.observedHeads },
+    ...collected.ends !== undefined && { ends: collected.ends }
+  };
 }
 async function scanBinding(input) {
   const { deps, scanned, detectedAt, binding } = input;
@@ -9705,13 +10261,19 @@ async function scanBinding(input) {
   if ("refused" in verdict) {
     return { ...blank, skipped: verdict.refused };
   }
+  const document = await previewTrackedDocument({ store, log });
+  if ("refused" in document) {
+    return { ...blank, skipped: document.refused };
+  }
+  const tracked = trackedSubjectsOf({ document: document.value, binding });
   const listed = await collectScanEvents({
     deps,
     binding,
     windowStart: verdict.window,
     detectedAt,
     token: account.credential.token,
-    login: account.login === "" ? binding.accountLogin : account.login
+    login: account.login === "" ? binding.accountLogin : account.login,
+    tracked
   });
   if (!listed.ok) {
     return { ...blank, skipped: listed.skipped };
@@ -9720,8 +10282,12 @@ async function scanBinding(input) {
     store: deps.store,
     log: deps.log,
     incoming: listed.events,
-    prompt: resolvePromptSnapshot({ global: deps.config, account, binding })
+    prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
+    ...listed.observedHeads !== undefined && {
+      observedHeads: observedHeadSeeds({ binding, observations: listed.observedHeads })
+    }
   });
+  await recordTrackingEnds({ store, log, binding, ends: listed.ends ?? [] });
   return { ...blank, enqueued: appended.length, windowFrom: detectedAt, openedFrom: verdict.window };
 }
 async function saveBindingScanState(deps, scan) {
@@ -10070,7 +10636,9 @@ function readIssueEntry(value) {
     authorType: authorTypeOf(user),
     assignees,
     isPullRequest: "pull_request" in record,
-    updatedAt: textOf(record, "updated_at")
+    updatedAt: textOf(record, "updated_at"),
+    closedAt: textOf(record, "closed_at"),
+    stateReason: textOf(record, "state_reason")
   };
 }
 function readCommentEntry(value) {
@@ -10120,6 +10688,8 @@ function readPullEntry(value) {
     requestedReviewers,
     headSha: head === null ? null : textOf(head, "sha"),
     baseRef: base === null ? null : textOf(base, "ref"),
+    merged: record.merged === true,
+    mergedAt: textOf(record, "merged_at"),
     updatedAt: textOf(record, "updated_at")
   };
 }

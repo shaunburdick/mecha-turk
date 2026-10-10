@@ -39,7 +39,8 @@
  */
 
 import type { PromptSource } from '../prompt.ts';
-import type { EventKind, QueuedEvent } from './events-parse.ts';
+import type { EventKind, FollowUpKind, QueuedEvent } from './events-parse.ts';
+import { followUpKindOf } from './events-parse.ts';
 import type { Run, SourceReference } from './runs-types.ts';
 
 /** Why a run that has never moved sits where it does. */
@@ -81,6 +82,55 @@ export interface HistoryVerification {
     /** Extra note on a mismatch, or `null`. */
     readonly note: string | null;
 }
+
+/**
+ * One follow-up, as the run history carries it (002 FR-104).
+ *
+ * **A follow-up is not a source reference on the run**, and that is load-bearing
+ * rather than tidy: 003's actor gate classifies from `sourceReferences`
+ * exclusively, so a follow-up that joined that list would be re-judged by the
+ * allow-list on the run's next authorization. It rides this member and the
+ * queue row, never the run's reference list.
+ *
+ * Every member is the row's own, unchanged: the `excerpt` is the bounded,
+ * delimiter-defused text the panel composes with, and the id is the relay's
+ * handled key and the at-most-once key in one.
+ */
+export interface HistoryFollowUp {
+    /** The deterministic `evt-…~followup~…` id: the relay's at-most-once key. */
+    readonly deliveryId: string;
+    /** Which of the two movement kinds this is. */
+    readonly kind: FollowUpKind;
+    /** Bounded untrusted excerpt the panel composes its message from. */
+    readonly excerpt: string;
+    /** The actor the movement is attributed to; credential-free by construction. */
+    readonly actorLogin: string;
+    /** RFC 3339 detection stamp. */
+    readonly detectedAt: string;
+    /** Canonical link back to the source. */
+    readonly sourceUrl: string;
+    /**
+     * The head the run carried before this movement, for a head change only.
+     *
+     * Derived, never stored: the first head follow-up of a run takes the run's
+     * seed — the dispatch-time baseline — and every later one takes the previous
+     * movement's `headSha`. Absent when neither is known, which a conforming row
+     * cannot be.
+     */
+    readonly fromHeadSha?: string;
+    /** The head this movement observed, for a head change only. */
+    readonly headSha?: string;
+}
+
+/**
+ * How many follow-ups one history row projects (002 FR-104).
+ *
+ * A bound on the **answer**, not on the movement: a comment flood on a busy
+ * subject must not be able to grow one row without limit, so the row carries the
+ * oldest undelivered ones in detection order and the rest stay in the queue for
+ * the next read. The queue is the record; this is the window onto it.
+ */
+export const MAX_PROJECTED_FOLLOW_UPS = 20;
 
 /** One run, as `GET /v1/events` reports it — credential-free by construction. */
 export interface RunHistoryRow {
@@ -197,6 +247,25 @@ export interface RunHistoryRow {
     readonly headSha?: string;
     /** Base ref of that pull request; absent on every other kind. */
     readonly baseRef?: string;
+    /**
+     * The run's follow-ups, in detection order — **absentable, and absent is the
+     * ordinary case**.
+     *
+     * One additive member on the read the panel already performs (`GET
+     * /v1/events`, the read that already projects `session` beside it), so the
+     * follow-up's text and its target session ride one row and no second copy of
+     * the session id exists anywhere (002 FR-104, FR-107). A run that has had
+     * no movement carries no member at all, which is what every run looks like
+     * until something on its subject moves — so a panel reading a row without it
+     * has nothing to deliver.
+     *
+     * The list is the run's **undelivered** follow-ups from the panel's point of
+     * view: the service holds no record of a prompt, because the panel is the
+     * only party that calls the host, so what the panel has already delivered is
+     * filtered against its own durable record rather than asked of the service.
+     * No operation, path, or existing member changes (FR-104).
+     */
+    readonly followUps?: readonly HistoryFollowUp[];
 }
 
 /**
@@ -400,19 +469,87 @@ function promptViewOf(run: Run): {
     };
 }
 
+/**
+ * Project one queue row into its follow-up entry.
+ *
+ * @returns The entry, or `null` when the row carries nothing a delivery can use.
+ */
+function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): HistoryFollowUp | null {
+    const kind = followUpKindOf(row.id);
+    if (kind === null) {
+        return null;
+    }
+
+    const head = kind === 'head' && row.headSha !== null && row.headSha !== '' ? row.headSha : undefined;
+
+    return {
+        deliveryId: row.id,
+        kind,
+        excerpt: row.issueBodyExcerpt,
+        actorLogin: row.actorLogin ?? '',
+        detectedAt: row.detectedAt,
+        sourceUrl: row.issueUrl,
+        ...(head !== undefined && { fromHeadSha: previousHeadSha ?? '', headSha: head }),
+    };
+}
+
+/**
+ * The run's follow-ups, in detection order, head movements carrying their
+ * from → to pair.
+ *
+ * The rows are the queue's own, filtered to the ones that joined this run and
+ * whose id is one of the two follow-up forms (FR-101). Nothing about a follow-up
+ * is stored on the run: its text is the row's existing bounded excerpt, its role
+ * is the id's discriminator, and its from → to pair is derived here from the
+ * run's seed and its own earlier movements — which is why the seed is never
+ * re-based on a later observation.
+ *
+ * @returns The follow-ups, or `undefined` when the run has none — the ordinary
+ *   case, and the reason the member is absent rather than empty.
+ */
+function followUpsOf(input: {
+    /** The run being projected. */
+    readonly run: Run;
+    /** Every queued delivery row, in queue order. */
+    readonly queue: readonly QueuedEvent[];
+}): readonly HistoryFollowUp[] | undefined {
+    const rows = input.queue.filter((row) =>
+        row.runCorrelationId === input.run.correlationId && followUpKindOf(row.id) !== null);
+    if (rows.length === 0) {
+        return undefined;
+    }
+
+    const followUps: HistoryFollowUp[] = [];
+    let previousHeadSha: string | undefined = input.run.lastHeadSha;
+    for (const row of rows.slice(0, MAX_PROJECTED_FOLLOW_UPS)) {
+        const followUp = followUpOf(row, previousHeadSha);
+        if (followUp === null) {
+            continue;
+        }
+
+        followUps.push(followUp);
+        previousHeadSha = followUp.headSha ?? previousHeadSha;
+    }
+
+    return followUps;
+}
+
 /** Project one stored run into its history row. */
 function historyRowOf(input: {
     /** The run being projected. */
     readonly run: Run;
     /** Delivery rows keyed by id, as read from the queue. */
     readonly deliveries: ReadonlyMap<string, QueuedEvent>;
+    /** Every queued delivery row, in queue order, for the follow-up member. */
+    readonly queue: readonly QueuedEvent[];
 }): RunHistoryRow {
-    const { run, deliveries } = input;
+    const { run, deliveries, queue } = input;
     const primary = run.sourceReferences[0];
     const delivery = primary === undefined ? undefined : deliveries.get(primary.deliveryId);
     const view = deliveryView({ run, primary, delivery });
     const lease = leaseViewOf(run);
     const dispatchStamp = run.session === null ? null : run.session.dispatchedAt;
+    const followUps = followUpsOf({ run, queue });
 
     return withReviewCoordinates({
         id: run.correlationId,
@@ -445,6 +582,7 @@ function historyRowOf(input: {
         dispatchedAt: dispatchStamp,
         ...promptViewOf(run),
         actorPolicy: run.actorPolicy,
+        ...(followUps !== undefined && { followUps }),
     }, delivery);
 }
 
@@ -461,7 +599,8 @@ export function projectRunHistory(input: {
     /** Most rows one answer may carry (`MAX_LISTED_EVENTS`). */
     readonly cap: number;
 }): RunHistoryRow[] {
-    const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries }));
+    const queue = [...input.deliveries.values()];
+    const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries, queue }));
 
     return rows
         .toSorted((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt))

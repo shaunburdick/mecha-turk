@@ -33,6 +33,15 @@
  * After a report the relay also (M8) refreshes the runs history the Dispatches
  * section renders and (M9) reads back the dispatched session's agent —
  * warn-only, see `agent-verify.ts`.
+ *
+ * **The follow-up deliveries ride this same tick.** A follow-up is a prompt into
+ * a session the dispatch already created, so it needs no claim and no lease: the
+ * rows arrive on the runs history the relay already re-reads after every report,
+ * and they are delivered behind the same one-host-action-at-a-time gate. One
+ * timer issuing host calls is one scheduler; a second loop would be two
+ * (research §R14.5), and the retry ladder the service's own configuration
+ * declares is what paces the repeats rather than a timer of this panel's
+ * (002 FR-105).
  */
 
 import { refresh } from './panel-ui.ts';
@@ -48,8 +57,17 @@ import {
     stillRunning,
 } from './relay-gates.ts';
 import { closeAttempt, startRunSession } from './relay-attempt.ts';
+import {
+    deliverFollowUp,
+    isFollowUpDue,
+    readFollowUpRetryPolicy,
+    trackCurrentSession,
+} from './follow-up.ts';
+import { followUpRecordOf, loadDispatchRecord } from './dispatch-record.ts';
+import type { DispatchRecordDocument } from './dispatch-record.ts';
 import { nowIso } from './ids.ts';
 import type { PanelRuntime } from './panel-state.ts';
+import type { RunFollowUp, RunRow } from './dispatches-service.ts';
 
 export { RELAY_POLL_INTERVAL_MS };
 
@@ -171,7 +189,99 @@ async function claimRuns(rt: PanelRuntime): Promise<ClaimAnswer | null> {
 }
 
 /**
- * One relay tick: claim, dispatch each, and repaint. Never throws.
+ * Whether one follow-up still needs an attempt from this panel.
+ *
+ * @returns `true` when the record is absent, due, and neither delivered nor parked.
+ */
+function isOutstanding(input: {
+    readonly row: RunRow;
+    readonly followUp: RunFollowUp;
+    readonly document: DispatchRecordDocument;
+    readonly atMs: number;
+}): boolean {
+    const { row, followUp, document, atMs } = input;
+    if (row.session === null) {
+        return false;
+    }
+
+    const record = followUpRecordOf(document, followUp.deliveryId);
+
+    return record === undefined || (!record.delivered && !record.parked && isFollowUpDue(record, atMs));
+}
+
+/**
+ * Deliver one follow-up from the rows the runs history already carries.
+ *
+ * The follow-up rides the row the relay re-reads after every dispatch report, so
+ * this needs no claim and no second read: the target session is the row's own
+ * `session.sessionId`, and the durable record the panel keeps is what stops a
+ * remount from sending the same delivery id twice (NFR-002).
+ */
+async function deliverOneFollowUp(input: {
+    readonly rt: PanelRuntime;
+    readonly row: RunRow;
+    readonly followUp: RunFollowUp;
+    readonly document: DispatchRecordDocument;
+}): Promise<void> {
+    const { rt, row, followUp, document } = input;
+    const record = followUpRecordOf(document, followUp.deliveryId);
+    const policy = await readFollowUpRetryPolicy(rt.host.serviceRequest);
+    await deliverFollowUp({
+        rt,
+        row,
+        followUp,
+        attempt: record?.attempt === undefined ? 1 : record.attempt + 1,
+        policy,
+    });
+}
+
+/**
+ * Deliver the follow-ups the rows this tick holds, one at a time.
+ *
+ * One per tick, behind the same gate a dispatch attempt uses: the host is called
+ * for exactly one thing at a time, and the retry ladder paces the rest across
+ * later ticks rather than a second timer (FR-104, FR-105).
+ */
+async function deliverFollowUps(rt: PanelRuntime): Promise<void> {
+    const read = await loadDispatchRecord(rt);
+    if (!read.ok) {
+        // A record this build cannot read is not a licence to deliver: the panel
+        // would have no way to know it had already sent this follow-up, and a
+        // duplicate prompt is the failure direction the whole design exists to
+        // prevent (NFR-002).
+        rt.state.relay.lastError = 'the panel could not read its own delivery record; no follow-up was delivered';
+
+        return;
+    }
+
+    const atMs = Date.now();
+    const next = rt.state.dispatches.rows
+        .flatMap((row) => (row.followUps ?? []).map((followUp) => ({ row, followUp })))
+        .find((candidate) => isOutstanding({
+            row: candidate.row,
+            followUp: candidate.followUp,
+            document: read.document,
+            atMs,
+        }));
+    if (next === undefined || rt.disposed || rt.state.relay.dispatching || rt.state.busy) {
+        return;
+    }
+
+    rt.state.relay.dispatching = true;
+    rt.state.busy = true;
+    refresh(rt);
+    try {
+        await deliverOneFollowUp({ rt, row: next.row, followUp: next.followUp, document: read.document });
+    } finally {
+        rt.state.relay.dispatching = false;
+        rt.state.busy = false;
+        refresh(rt);
+    }
+}
+
+/**
+ * One relay tick: claim, dispatch each, deliver one follow-up, and repaint.
+ * Never throws.
  */
 export async function pollRelay(rt: PanelRuntime): Promise<void> {
     if (rt.disposed || rt.state.relay.inFlight || rt.state.busy) {
@@ -190,6 +300,10 @@ export async function pollRelay(rt: PanelRuntime): Promise<void> {
         if (stillRunning(rt)) {
             rt.state.relay.lastPollAt = nowIso();
         }
+
+        // The follow-ups ride the rows this tick's reports just refreshed, and
+        // they are delivered only once no dispatch attempt is in flight (FR-104).
+        await deliverFollowUps(rt);
     } finally {
         rt.state.relay.inFlight = false;
         refresh(rt);
@@ -221,6 +335,10 @@ export function startRelayPolling(rt: PanelRuntime): void {
     }
 
     rt.relayArmed = true;
+    // The host's current session is the one fact the follow-up delivery needs and
+    // cannot ask for: it is what makes "no navigation when the target is already
+    // current" a property of the design rather than of luck (002 FR-104).
+    rt.unsubscribes.push(trackCurrentSession(rt));
     rt.state.relay.timer = setInterval(() => {
         void pollRelay(rt);
     }, RELAY_POLL_INTERVAL_MS);

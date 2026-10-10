@@ -48,6 +48,7 @@
 
 import { readAccount } from '../accounts/store.ts';
 import { readBindings, readStoredCreationStamps } from '../bindings-read.ts';
+import { appendAudit } from '../audit.ts';
 import { resolvePromptSnapshot } from '../prompt.ts';
 import { runRetentionPasses } from '../retention.ts';
 import type { ServiceConfig } from '../config.ts';
@@ -58,9 +59,13 @@ import { readCycleConfig } from './cycle-config.ts';
 import { enqueueEvents, readEvents } from './events.ts';
 import type { QueuedEvent } from './events.ts';
 import type { GitHubIssuePoller, ListPace, PollFailure } from './poller-github.ts';
+import { previewRunsDocument } from './runs-document.ts';
 import { bindingScanOf, readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
 import type { BindingScanState, ScanState } from './scan.ts';
 import { collectTriggerEvents } from './triggers.ts';
+import { observedHeadSeeds, trackedSubjectsOf } from './tracking.ts';
+import type { TrackedSubject, TrackingEnd } from './tracking.ts';
+import type { RunsDocument } from './runs-types.ts';
 import { answersCatchUp, baselineFor, bindingsNeedingBaseline, widenBaseline, windowFor } from './window.ts';
 import type { WindowRefusal } from './window.ts';
 
@@ -77,6 +82,9 @@ export type { WindowRefusal, WindowVerdict } from './window.ts';
  * ones are 002 FR-072's refusals and are **not** failures of any call: they are
  * the verdict that this binding's scan window could not be computed, so the
  * cycle lists nothing and the reason is recorded against the binding (FR-024).
+ * The seventh is the run document's own refusal, which the tracking lifecycle's
+ * read made reachable from a scan: a document this build cannot read is a stop
+ * condition, never an empty history (constitution II).
  * They are named in the same vocabulary because they answer the same question an
  * operator asks — *why did this scan do nothing* — and two vocabularies would be
  * two answers (constitution IV).
@@ -88,6 +96,7 @@ export type ScanSkip =
     | 'rate-limited'
     | 'offline'
     | 'upstream'
+    | 'runs-unreadable'
     | WindowRefusal;
 
 /** What one binding's scan produced. */
@@ -225,9 +234,98 @@ function blankScan(binding: BindingRecord): BindingScan {
     };
 }
 
+/**
+ * Record the end of tracking for every tracked subject observed terminal.
+ *
+ * One `tracking.ended` row per subject, carrying the terminal **fact** (which
+ * of the three it was), the date GitHub reported, and the issue's own
+ * `state_reason` when there is one — so *"when did this work item conclude?"*
+ * is answerable from the trail (002 FR-106). The row names the run the subject
+ * was following and never the session: it is the item's own state that ended
+ * tracking, and a completed or failed session has no effect on that decision.
+ *
+ * The write is best-effort on exactly the terms the enqueue's own audit rows
+ * are: the cycle has already done its work, so a failed append is logged rather
+ * than thrown back into a scan that succeeded.
+ */
+async function recordTrackingEnds(input: {
+    /** Open store. */
+    readonly store: ServiceStore;
+    /** Structured logger. */
+    readonly log: ServiceLogger;
+    /** Binding the ended subjects belong to. */
+    readonly binding: BindingRecord;
+    /** The ends this cycle observed. */
+    readonly ends: readonly TrackingEnd[];
+}): Promise<void> {
+    for (const end of input.ends) {
+        try {
+            await appendAudit(input.store, {
+                eventType: 'tracking.ended',
+                actorSource: 'service',
+                entity: { kind: 'run', id: end.correlationId },
+                correlationId: end.correlationId,
+                decision: null,
+                reason: `the GitHub item reached its terminal state (${end.fact}); follow-up detection ends`,
+                details: {
+                    bindingId: input.binding.bindingId,
+                    subjectKey: end.subjectKey,
+                    subjectType: end.subjectType,
+                    subjectNumber: end.subjectNumber,
+                    kind: end.fact,
+                    state: end.state,
+                    ...(end.stateReason !== null && { reason: end.stateReason }),
+                    // data-model §"AuditEntry" names the date member after the
+                    // fact it records: a merge is the only one that reports one.
+                    ...(end.at !== null && (end.fact === 'merged' ? { mergedAt: end.at } : { closedAt: end.at })),
+                },
+            });
+        } catch (cause) {
+            input.log.warn('tracking end audit row could not be appended', {
+                subjectNumber: end.subjectNumber,
+                errorKind: cause instanceof Error ? cause.name : typeof cause,
+            });
+        }
+    }
+}
+
+/**
+ * Read the run document for the tracked-subject view, answering a refusal
+ * rather than throwing one.
+ *
+ * The scan cycle's own contract is that it never throws, and the run layer's
+ * reader is fail-closed by throwing: a `runs.json` that exists but cannot be
+ * read, or one that is absent while the queue already carries post-run-layer
+ * deliveries, is a state no reader may answer with an empty history. This is the
+ * one place a scan has to turn that refusal into a **skip reason**, so the
+ * binding records why it did nothing instead of the cycle unwinding.
+ *
+ * @returns The document, or the refusal that keeps this binding's scan empty.
+ */
+async function previewTrackedDocument(
+    input: { readonly store: ServiceStore; readonly log: ServiceLogger },
+): Promise<{ readonly value: RunsDocument } | { readonly refused: 'runs-unreadable' }> {
+    try {
+        return { value: await previewRunsDocument(input) };
+    } catch (cause) {
+        input.log.warn('run document could not be read for this binding\'s scan; nothing was detected', {
+            errorKind: cause instanceof Error ? cause.name : typeof cause,
+        });
+
+        return { refused: 'runs-unreadable' };
+    }
+}
+
 /** What one binding's listings produced: every event, or the skip reason. */
 type ScanListing =
-    | { readonly ok: true; readonly events: readonly QueuedEvent[] }
+    | {
+        readonly ok: true;
+        readonly events: readonly QueuedEvent[];
+        /** Observed heads keyed by pull-request number (FR-103(b)'s seed source). */
+        readonly observedHeads?: ReadonlyMap<number, string>;
+        /** Tracked subjects whose own list row reported a terminal state (FR-106). */
+        readonly ends?: readonly TrackingEnd[];
+    }
     | { readonly ok: false; readonly skipped: ScanSkip };
 
 /**
@@ -255,8 +353,10 @@ async function collectScanEvents(input: {
     readonly token: string;
     /** The bound account's login, as the account record reports it. */
     readonly login: string;
+    /** Subjects this binding and account is following. */
+    readonly tracked: ReadonlyMap<number, TrackedSubject>;
 }): Promise<ScanListing> {
-    const { deps, binding, windowStart, detectedAt, token, login } = input;
+    const { deps, binding, windowStart, detectedAt, token, login, tracked } = input;
     const collected = await collectTriggerEvents({
         poller: deps.poller,
         log: deps.log,
@@ -266,9 +366,18 @@ async function collectScanEvents(input: {
         windowStart,
         detectedAt,
         pace: deps.pace,
+        tracked,
     });
+    if (!collected.ok) {
+        return { ok: false, skipped: skipOf(collected.failure) };
+    }
 
-    return collected.ok ? { ok: true, events: collected.events } : { ok: false, skipped: skipOf(collected.failure) };
+    return {
+        ok: true,
+        events: collected.events,
+        ...(collected.observedHeads !== undefined && { observedHeads: collected.observedHeads }),
+        ...(collected.ends !== undefined && { ends: collected.ends }),
+    };
 }
 
 /**
@@ -310,6 +419,26 @@ async function scanBinding(input: {
         return { ...blank, skipped: verdict.refused };
     }
 
+    // The tracked-subject view is read from the run document this cycle is about
+    // to mutate, **before** any feed is listed: a follow-up is a property of the
+    // run that already carries a session (FR-100), so what counts as "already
+    // in progress" is the document as it stands at the start of the cycle. The
+    // read is a preview — it takes no write chain and claims nothing, which is
+    // exactly the instrument for an observation that must not consume a
+    // dispatch authorization (research §R14.6).
+    //
+    // A document this build cannot read is a **stop condition**, not an empty
+    // history: answering "nothing is in progress" from a store that cannot say
+    // so is the one reading constitution II forbids, and it is what would let a
+    // second disjoint session open for work already underway. So the refusal
+    // becomes this binding's skip reason and the cycle lists nothing at all.
+    const document = await previewTrackedDocument({ store, log });
+    if ('refused' in document) {
+        return { ...blank, skipped: document.refused };
+    }
+
+    const tracked = trackedSubjectsOf({ document: document.value, binding });
+
     const listed = await collectScanEvents({
         deps,
         binding,
@@ -320,6 +449,7 @@ async function scanBinding(input: {
         detectedAt,
         token: account.credential.token,
         login: account.login === '' ? binding.accountLogin : account.login,
+        tracked,
     });
     if (!listed.ok) {
         return { ...blank, skipped: listed.skipped };
@@ -337,7 +467,20 @@ async function scanBinding(input: {
         // FR-080: resolved once, at detection). A tier the records do not
         // carry is unset and contributes nothing.
         prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
+        // The heads this cycle observed, mapped from the pull-request numbers the
+        // pulls feed reported onto the run document's own subject keys, so a run
+        // with no seed records its baseline inside the same two writes its
+        // follow-up row lands in (FR-103(b)) — never a second write path.
+        ...(listed.observedHeads !== undefined && {
+            observedHeads: observedHeadSeeds({ binding, observations: listed.observedHeads }),
+        }),
     });
+
+    // The end of tracking is recorded for every tracked subject whose own list
+    // row reported a terminal state (FR-106). One-directional by construction:
+    // the row goes to the trail and nothing is withdrawn from the queue, so a
+    // follow-up already queued when the end was observed still delivers.
+    await recordTrackingEnds({ store, log, binding, ends: listed.ends ?? [] });
 
     // The window this scan opened is carried out, because it is the only thing
     // that can widen the retained baseline — and widening it is what keeps a later

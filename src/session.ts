@@ -30,6 +30,14 @@ import type { LedgerDetail, PanelLedger } from './ledger.ts';
  *
  * Building this from `Pick<HostClient, …>` keeps the panel on the documented
  * API surface: adding a method here is a deliberate, reviewable act.
+ *
+ * `'prompt'` is the one method this list gained for the tracking lifecycle
+ * (002 FR-104): a follow-up is delivered by writing into the session the run's
+ * dispatch already created, which is the only addressing the host publishes for
+ * an existing session. It uses the **already-declared** `prompt` capability —
+ * no manifest change and no install-time approval change (AGENTS.md invariant
+ * 3) — and `'openSession'`, which the agent read-back already calls, is what
+ * makes the target session the current one before the write lands.
  */
 export type PanelHost = Pick<
     HostClient,
@@ -40,6 +48,7 @@ export type PanelHost = Pick<
     | 'writeClipboard'
     | 'startSession'
     | 'openSession'
+    | 'prompt'
     | 'listProjects'
     | 'listWorktrees'
     | 'listSessions'

@@ -99,6 +99,61 @@ export interface DispatchRecordDocument {
     readonly schemaVersion: typeof DISPATCH_SCHEMA_VERSION;
     /** Attempts, oldest first, newest last. */
     readonly attempts: readonly DispatchAttemptRecord[];
+    /**
+     * Follow-up delivery state, oldest first.
+     *
+     * **Absentable on read**: a document written before the tracking lifecycle
+     * existed carries none and must still parse, so the reconciliation pass
+     * simply has nothing follow-up-shaped to look at. It is the panel's own
+     * durable record of what it has already delivered and what it has parked —
+     * the half of at-most-once a remount needs, because the service holds no
+     * record of a prompt and cannot be asked for one (002 FR-104, NFR-002).
+     */
+    readonly followUps?: readonly FollowUpDeliveryRecord[];
+}
+
+/**
+ * What one follow-up delivery attempt produced.
+ *
+ * A closed union rather than a free string, because the reason a delivery parks
+ * is the exact cause an operator reads on the run row and in the trail (002
+ * FR-105) — and a second spelling of "the session was busy" would be two answers
+ * to one question.
+ */
+export type FollowUpFailure =
+    /** The host reported no open session. */
+    | 'no-session'
+    /** The session was mid-turn; a retryable refusal, never a queue. */
+    | 'session-busy'
+    /** `host.openSession` was refused. */
+    | 'navigation-refused'
+    /** The composed message was over the dispatch budget. */
+    | 'over-budget'
+    /** The mount went away mid-attempt. */
+    | 'panel-closed'
+    /** The host rejected or timed out the prompt, or the transport failed. */
+    | 'host-unavailable';
+
+/** One follow-up delivery's durable state (002 FR-104, FR-105). */
+export interface FollowUpDeliveryRecord {
+    /** The deterministic event id — the at-most-once key. */
+    readonly deliveryId: string;
+    /** The run the follow-up belongs to. */
+    readonly correlationId: string;
+    /** The session the follow-up is delivered into. */
+    readonly sessionId: string;
+    /** Attempts used so far; `1` is the first. */
+    readonly attempt: number;
+    /** Epoch milliseconds the next attempt may be made at; `null` when it may go now. */
+    readonly nextAttemptAtMs: number | null;
+    /** `true` once the host accepted the prompt. */
+    readonly delivered: boolean;
+    /** The exact cause of the last failed attempt, or `null` when none failed. */
+    readonly reason: FollowUpFailure | null;
+    /** `true` once the retry bound is exhausted and the follow-up is parked. */
+    readonly parked: boolean;
+    /** RFC 3339 stamp of the last write. */
+    readonly updatedAt: string;
 }
 
 /** What a read of `host.storage` answered. */
@@ -304,6 +359,141 @@ function readAttempts(value: JsonValue | undefined): DispatchAttemptRecord[] | n
     return attempts;
 }
 
+/** The failure causes a follow-up delivery parks with, and nothing else. */
+const FOLLOW_UP_FAILURES: ReadonlySet<string> = new Set<FollowUpFailure>([
+    'no-session',
+    'session-busy',
+    'navigation-refused',
+    'over-budget',
+    'panel-closed',
+    'host-unavailable',
+]);
+
+/** Cap on the follow-up delivery records the document holds. */
+export const MAX_FOLLOW_UP_RECORDS = 50;
+
+/**
+ * Read the failure cause of a follow-up delivery record.
+ *
+ * @param record - Parsed follow-up row.
+ * @returns The cause, `null` when none is recorded, or `undefined` when a present
+ *   value is outside the closed union.
+ */
+function readFollowUpReason(record: Record<string, JsonValue>): FollowUpFailure | null | undefined {
+    const value = record.reason;
+    if (value === null || value === undefined) {
+        return null;
+    }
+
+    return typeof value === 'string' && FOLLOW_UP_FAILURES.has(value) ? (value as FollowUpFailure) : undefined;
+}
+
+/** The counting and flag members of one follow-up delivery record. */
+interface FollowUpFlags {
+    readonly attempt: number;
+    readonly delivered: boolean;
+    readonly parked: boolean;
+}
+
+/**
+ * Read the counting and flag members of one follow-up delivery record.
+ *
+ * @returns The members, or `null` when any is malformed.
+ */
+function readFollowUpFlags(record: Record<string, JsonValue>): FollowUpFlags | null {
+    const { attempt, delivered, parked } = record;
+    if (
+        typeof delivered !== 'boolean'
+        || typeof parked !== 'boolean'
+        || typeof attempt !== 'number'
+        || !Number.isSafeInteger(attempt)
+        || attempt < 1
+    ) {
+        return null;
+    }
+
+    return { attempt, delivered, parked };
+}
+
+/**
+ * Read the scheduling member of one follow-up delivery record.
+ *
+ * @returns `null` for "may go now", the epoch milliseconds, or `undefined` when
+ *   the value is present and unusable.
+ */
+function readNextAttemptAtMs(record: Record<string, JsonValue>): number | null | undefined {
+    const value = record.nextAttemptAtMs;
+    if (value === null) {
+        return null;
+    }
+
+    return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * Validate one stored follow-up delivery record.
+ *
+ * @returns The record, or `null` when its shape is unusable.
+ */
+function readFollowUp(value: JsonValue): FollowUpDeliveryRecord | null {
+    const record = asJsonRecord(value);
+    if (record === null) {
+        return null;
+    }
+
+    const deliveryId = readText(record, 'deliveryId');
+    const correlationId = readText(record, 'correlationId');
+    const sessionId = readText(record, 'sessionId');
+    const updatedAt = readText(record, 'updatedAt');
+    const reason = readFollowUpReason(record);
+    const flags = readFollowUpFlags(record);
+    const nextAttemptAtMs = readNextAttemptAtMs(record);
+    if (
+        deliveryId === null
+        || correlationId === null
+        || sessionId === null
+        || updatedAt === null
+        || reason === undefined
+        || flags === null
+        || nextAttemptAtMs === undefined
+    ) {
+        return null;
+    }
+
+    return { deliveryId, correlationId, sessionId, ...flags, nextAttemptAtMs, reason, updatedAt };
+}
+
+/**
+ * Validate the follow-up list of a stored document.
+ *
+ * Absent reads as *no follow-up state recorded*, which is what a document
+ * written before this section existed means — never an error, and never an empty
+ * list that would lose what the panel already delivered.
+ *
+ * @returns The records, or `null` when a present list is unusable.
+ */
+function readFollowUps(value: JsonValue | undefined): readonly FollowUpDeliveryRecord[] | null {
+    if (value === undefined) {
+        return [];
+    }
+
+    if (!Array.isArray(value)) {
+        return null;
+    }
+
+    const records: FollowUpDeliveryRecord[] = [];
+    for (const raw of value) {
+        const record = readFollowUp(raw);
+        if (record === null) {
+            return null;
+        }
+
+        records.push(record);
+    }
+
+    return records;
+}
+
 /**
  * Read the attempt record back from `host.storage`.
  *
@@ -321,8 +511,15 @@ export function readDispatchRecord(value?: JsonValue): DispatchRecordDocument | 
     }
 
     const attempts = readAttempts(record.attempts);
+    const followUps = readFollowUps(record.followUps);
 
-    return attempts === null ? null : { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts };
+    return attempts === null || followUps === null
+        ? null
+        : {
+            schemaVersion: DISPATCH_SCHEMA_VERSION,
+            attempts,
+            ...(followUps.length > 0 && { followUps }),
+        };
 }
 
 /**
@@ -372,7 +569,6 @@ export function appendAttempt(
 
     return { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts };
 }
-
 /**
  * Flip `acknowledged` on exactly one attempt.
  *
@@ -500,4 +696,89 @@ export async function acknowledgeDispatch(input: {
     }
 
     return await persist(rt, next);
+}
+
+/**
+ * Fold one follow-up delivery record into a document, replacing the entry with
+ * the same delivery id.
+ *
+ * The list is bounded the same way the attempts are — oldest first, newest last
+ * — but with one difference that matters: a **delivered** record is the
+ * at-most-once evidence, so it is never the victim. Eviction takes the oldest
+ * record that is neither delivered nor parked, which is the only kind whose loss
+ * costs a retry rather than a duplicate or a missing follow-up.
+ *
+ * @returns The new document.
+ */
+export function putFollowUpRecord(
+    document: DispatchRecordDocument,
+    record: FollowUpDeliveryRecord,
+): DispatchRecordDocument {
+    const existing = document.followUps ?? [];
+    const kept = existing.filter((candidate) => candidate.deliveryId !== record.deliveryId);
+    const followUps = [...kept, record];
+    while (followUps.length > MAX_FOLLOW_UP_RECORDS) {
+        const victim = followUps.findIndex((candidate) => !candidate.delivered && !candidate.parked);
+        if (victim === -1) {
+            break;
+        }
+
+        followUps.splice(victim, 1);
+    }
+
+    return { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts: document.attempts, followUps };
+}
+
+/**
+ * Read one follow-up delivery's durable state.
+ *
+ * @returns The record, or `undefined` when this panel has never touched it.
+ */
+export function followUpRecordOf(
+    document: DispatchRecordDocument,
+    deliveryId: string,
+): FollowUpDeliveryRecord | undefined {
+    return (document.followUps ?? []).find((candidate) => candidate.deliveryId === deliveryId);
+}
+
+/**
+ * Persist one follow-up delivery record; never throws.
+ *
+ * The write happens **before** the host call when the record carries an intent,
+ * and after it when it carries an outcome — the same "durable before you act"
+ * ordering the dispatch record uses, because a delivery whose result never
+ * lands has to leave the truth recoverable on this side.
+ *
+ * @returns `true` when the record landed, `false` when it was refused.
+ */
+export async function recordFollowUpDelivery(
+    rt: PanelRuntime,
+    record: FollowUpDeliveryRecord,
+): Promise<boolean> {
+    const read = await loadDispatchRecord(rt);
+    if (!read.ok) {
+        return false;
+    }
+
+    // Read back what is about to be written: a record the panel could not parse
+    // on remount must never reach storage in the first place. The check goes
+    // through `JsonValue` rather than the typed shape, so it is exactly the
+    // validation a stored row would get on the way back in.
+    const wire: JsonValue | undefined = isJsonValue(record) ? record : undefined;
+    if (wire === undefined || readFollowUp(wire) === null) {
+        return false;
+    }
+
+    return await persist(rt, putFollowUpRecord(read.document, record));
+}
+
+/**
+ * The follow-up deliveries still outstanding after a mount, in delivery order.
+ *
+ * @returns Every record that is neither delivered nor parked.
+ */
+export function outstandingFollowUps(
+    document: DispatchRecordDocument,
+): readonly FollowUpDeliveryRecord[] {
+    return (document.followUps ?? []).filter((record) => !record.delivered && !record.parked);
 }

@@ -175,7 +175,7 @@ describe('T-006 run-aware enqueue', () => {
         }
     });
 
-    it('opens the next ordinal after the prior run has a recorded session', async () => {
+    it('joins the run that carries the recorded session instead of opening the next ordinal', async () => {
         {
             const [delivery] = await enqueue([assignment(16)]);
             const first = await readRunsDocument({ store, log: LOGGER });
@@ -223,12 +223,17 @@ describe('T-006 run-aware enqueue', () => {
             });
             expect(result.status).toBe('applied');
 
+            // 002 v1.16.0 (FR-100): the recorded session — not the state — is
+            // what makes a run un-joinable, so the further delivery joins the
+            // dispatched run rather than opening the next ordinal. The
+            // pre-amendment behaviour (ordinal 1, a second, disjoint session) is
+            // pinned as the failing case in `tests/follow-up-lifecycle.test.ts`.
             const second = await enqueue([commentMention(16, 4_242)]);
             const document = await readRunsDocument({ store, log: LOGGER });
 
             expect(delivery?.runCorrelationId).toBe(first.runs[0]?.correlationId);
-            expect(second[0]?.runCorrelationId).not.toBe(delivery?.runCorrelationId);
-            expect(document.runs.map((run) => run.ordinal)).toEqual([0, 1]);
+            expect(second[0]?.runCorrelationId).toBe(delivery?.runCorrelationId);
+            expect(document.runs.map((run) => run.ordinal)).toEqual([0]);
         }
     });
 

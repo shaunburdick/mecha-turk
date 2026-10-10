@@ -117,6 +117,7 @@ export function initialRelay(): Relay {
         dispatching: false,
         handled: [],
         lastError: null,
+        currentSessionId: null,
     };
 }
 
@@ -201,6 +202,16 @@ export interface Relay {
     handled: readonly string[];
     /** Last relay error line, else empty. */
     lastError: string | null;
+    /**
+     * The session the host is showing right now, or `null` when none is open.
+     *
+     * Tracked from `host.onSession`, which replays the latest value to a late
+     * subscriber, so the follow-up delivery can answer "is the target already
+     * current?" from a fact the panel already holds instead of issuing a host
+     * call of its own (002 FR-104). A navigation only ever happens when this
+     * differs from the run's own session id.
+     */
+    currentSessionId: string | null;
 }
 
 /** Everything the panel's functions share. */

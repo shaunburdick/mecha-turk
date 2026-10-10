@@ -25,7 +25,9 @@
 
 import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
 import { createEvent } from './events.ts';
+import { headFollowUps } from './follow-up.ts';
 import { resolveCandidateActor } from './poller-events.ts';
+import { trackedPullEnds, withoutEnded } from './tracking.ts';
 import { stampInWindow } from './window.ts';
 import type { QueuedEvent } from './events.ts';
 import type { PollPull } from './poller-entries.ts';
@@ -101,6 +103,12 @@ function reviewEvent(input: {
 /**
  * List the review-request feed and collect the events its matches produce (M7).
  *
+ * The same pulls list answers a second question: which tracked pull request's
+ * **head moved** since the run's seed was recorded (002 FR-102(b)). That branch
+ * rides the identical read — one row per pull request, so at most one head
+ * follow-up per subject per cycle — and reports every head it observed so the
+ * establishing cycle of a run with no seed can record one (FR-103(b)).
+ *
  * The list failure ends the branch and is handed up as the cycle's skip, exactly
  * as the assignment branch's read failure is; the per-item reads below report
  * their own outcomes through {@link resolveCandidateActor}, whose two
@@ -147,5 +155,20 @@ export async function reviewRequestEvents(input: TriggerScanInput): Promise<Trig
         }
     }
 
-    return { ok: true, events };
+    const pullEnds = trackedPullEnds({ binding, pulls: listed.pulls, tracked: input.tracked });
+    const heads = headFollowUps({
+        binding,
+        pulls: listed.pulls,
+        tracked: withoutEnded(input.tracked, pullEnds),
+        windowStart,
+        detectedAt,
+    });
+
+    return {
+        ok: true,
+        events: [...events, ...heads.rows],
+        observedHeads: new Map(heads.observations.flatMap((observation) =>
+            observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
+        ...(pullEnds.length > 0 && { ends: pullEnds }),
+    };
 }

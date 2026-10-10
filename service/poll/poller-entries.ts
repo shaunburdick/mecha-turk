@@ -46,6 +46,24 @@ export interface PollIssue {
     readonly isPullRequest: boolean;
     /** RFC 3339 `updated_at` stamp, or `null` when GitHub sent none. */
     readonly updatedAt: string | null;
+    /**
+     * `closed_at` as GitHub sent it, or `null` while the issue is open.
+     *
+     * Read for the tracking lifecycle's end-of-tracking judgement (002 FR-106):
+     * the date the work item concluded, recorded beside the terminal fact so
+     * *"when did this conclude?"* is answerable from the trail. **Absentable on
+     * read** and read as *no terminal state reported*, which is the direction
+     * that can only fail to end tracking.
+     */
+    readonly closedAt?: string | null;
+    /**
+     * `state_reason` — `completed`, `not_planned`, or `reopened` — or `null`.
+     *
+     * The member that distinguishes a completed issue from one closed as not
+     * planned. Absent on the pull-request object entirely, which is why the
+     * terminal fact a tracking end records is derived rather than quoted.
+     */
+    readonly stateReason?: string | null;
 }
 
 /**
@@ -107,6 +125,17 @@ export interface PollPull {
     readonly headSha: string | null;
     /** Base ref name, or `null` when GitHub sent none. */
     readonly baseRef: string | null;
+    /**
+     * `merged` as GitHub sent it; an absent member reads as `false`.
+     *
+     * Read for FR-106's end-of-tracking judgement, which distinguishes a merged
+     * pull request from one closed unmerged. **Absentable on read**, and `false`
+     * is the reading of an absent member because it is the direction that can
+     * only ever fail to end tracking and never end it on a guess.
+     */
+    readonly merged?: boolean;
+    /** `merged_at` as GitHub sent it, or `null` when it sent none. */
+    readonly mergedAt?: string | null;
     /** RFC 3339 `updated_at` stamp, or `null` when GitHub sent none. */
     readonly updatedAt: string | null;
 }
@@ -235,6 +264,8 @@ export function readIssueEntry(value: unknown): PollIssue | null {
         // GitHub adds a `pull_request` object only to PRs it lists as issues.
         isPullRequest: 'pull_request' in record,
         updatedAt: textOf(record, 'updated_at'),
+        closedAt: textOf(record, 'closed_at'),
+        stateReason: textOf(record, 'state_reason'),
     };
 }
 
@@ -307,6 +338,8 @@ export function readPullEntry(value: unknown): PollPull | null {
         requestedReviewers,
         headSha: head === null ? null : textOf(head, 'sha'),
         baseRef: base === null ? null : textOf(base, 'ref'),
+        merged: record.merged === true,
+        mergedAt: textOf(record, 'merged_at'),
         updatedAt: textOf(record, 'updated_at'),
     };
 }

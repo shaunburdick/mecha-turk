@@ -81,6 +81,16 @@ const RETENTION_KNOTS: readonly { readonly field: string; readonly lower: string
 /** Directory the dialog-primitive scan reads, repository-relative. */
 const SRC_DIR = resolve(import.meta.dirname, '..', 'src');
 
+/**
+ * A **bare** call of one of the frame's three dialog primitives.
+ *
+ * The lookbehind is what keeps this from misreading a documented host method as
+ * a dialog: `host.prompt(...)` addresses the current session (002 v1.16.0,
+ * FR-104) while `prompt(...)` opens the frame's box, and only the second is the
+ * primitive this scan exists to keep out of the panel.
+ */
+const DIALOG_CALL = /(?<![.\w])(confirm|alert|prompt)\s*\(/;
+
 /** The irreversibility line every armed retention copy owes (FR-052). */
 const IRREVERSIBLE_MARK = 'Trimming is irreversible';
 
@@ -613,7 +623,7 @@ describe('no dialog primitive reaches the panel (006 T-022, FR-054)', () => {
                     continue;
                 }
 
-                if (/\b(confirm|alert|prompt)\s*\(/.test(line) || /\bwindow\.(confirm|prompt)\b/.test(line)) {
+                if (DIALOG_CALL.test(line) || /\bwindow\.(confirm|prompt)\b/.test(line)) {
                     offenders.push(`${name}: ${trimmed}`);
                 }
             }
@@ -623,7 +633,18 @@ describe('no dialog primitive reaches the panel (006 T-022, FR-054)', () => {
     });
 
     it('bites on a pasted dialog call, and reads comments as comments', () => {
-        expect(/\b(confirm|alert|prompt)\s*\(/.test('const answered = confirm("lower the limit?");')).toBe(true);
+        expect(DIALOG_CALL.test('const answered = confirm("lower the limit?");')).toBe(true);
+        expect(DIALOG_CALL.test('const answered = alert("lower the limit?");')).toBe(true);
+        expect(DIALOG_CALL.test('const answered = prompt("lower the limit?");')).toBe(true);
+        // A **method** call on a host object is not a dialog primitive: the panel
+        // delivers a follow-up through the documented `host.prompt(...)` (002
+        // v1.16.0, FR-104), which is the host's own session addressing and not
+        // the frame's `prompt()` box. Distinguishing the two keeps this scan
+        // biting on the thing it exists to catch while not misreading a host API
+        // as one — and the `window.` spelling is still caught by its own arm.
+        expect(DIALOG_CALL.test('await host.prompt({ text: message, send: true });')).toBe(false);
+        expect(DIALOG_CALL.test('await rt.host.prompt({ text: message, send: true });')).toBe(false);
+        expect(/\bwindow\.(confirm|prompt)\b/.test('window.prompt("x")')).toBe(true);
         // The codebase legitimately *mentions* the primitive in prose; that is
         // a comment line, and the filter above drops it before the scan runs.
         expect(/^(\/\/|\/?\*)/.test('/** Confirm-step label (no `confirm()` in the frame). */')).toBe(true);

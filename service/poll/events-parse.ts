@@ -186,6 +186,100 @@ const KNOWN_KINDS = new Set<string>(['assignment', 'mention', 'review']);
 /** Subject shapes a delivery may carry. */
 const SUBJECT_TYPES: ReadonlySet<string> = new Set(['issue', 'pull_request']);
 
+/**
+ * Which of the two follow-up kinds one row is (002 FR-102).
+ *
+ * A closed two-value union beside the row's own `EventKind`, because the two
+ * answer different questions: the kind names the **feed** the detection rode
+ * (`'mention'` for the comment list, `'review'` for the pulls list) and this
+ * names the **movement** the row records. Neither widens the other.
+ */
+export type FollowUpKind = 'comment' | 'head';
+
+/**
+ * How many `~`-separated segments the id's **base** carries.
+ *
+ * `evt-<owner>~<repo>~<issueNumber>~<accountNumericUserId>` is four, so a
+ * discriminator starts at index 4 and nothing before it can be one. This is
+ * what keeps a repository or owner literally named `followup` from reading as a
+ * follow-up row: its name occupies a base segment, not the discriminator's.
+ */
+const ID_BASE_SEGMENTS = 4;
+
+/** The discriminator segment that opens every follow-up id (FR-101). */
+const FOLLOW_UP_SEGMENT = 'followup';
+
+/** A decimal comment id — what `~followup~<commentId>` carries. */
+const DECIMAL_SEGMENT = /^[0-9]+$/;
+
+/** A head-SHA change's tail: `head~<sha>`, hexadecimal (FR-101). */
+const HEAD_TAIL = /^head~[0-9a-f]+$/;
+
+/** What one id's discriminator segment says about the row's role (FR-101). */
+type IdDiscriminator =
+    /** Not a follow-up: a bare base, or one of the trigger discriminators. */
+    | { readonly role: 'trigger' }
+    /** A comment follow-up, carrying its comment id. */
+    | { readonly role: 'comment'; readonly commentId: number }
+    /** A head-SHA follow-up, carrying the observed SHA. */
+    | { readonly role: 'head'; readonly headSha: string }
+    /** Carries the `followup` segment with a tail outside the family. */
+    | { readonly role: 'malformed' };
+
+/**
+ * Read one id's discriminator segment, at its fixed position after the base.
+ *
+ * @returns What the segment says, including the malformed case a stored row
+ *   can only reach by hand.
+ */
+function discriminatorOfId(id: string): IdDiscriminator {
+    const segments = id.split('~');
+    if (segments.length <= ID_BASE_SEGMENTS + 1 || segments[ID_BASE_SEGMENTS] !== FOLLOW_UP_SEGMENT) {
+        return { role: 'trigger' };
+    }
+
+    const tail = segments.slice(ID_BASE_SEGMENTS + 1).join('~');
+    if (DECIMAL_SEGMENT.test(tail)) {
+        const commentId = Number(tail);
+
+        return commentId > 0 ? { role: 'comment', commentId } : { role: 'malformed' };
+    }
+
+    return HEAD_TAIL.test(tail) ? { role: 'head', headSha: tail.slice('head~'.length) } : { role: 'malformed' };
+}
+
+/**
+ * Read which of the two follow-up kinds one row is, from its deterministic id.
+ *
+ * The id is the only place a follow-up's role lives: the row carries **no**
+ * member for it (002 FR-107), and its `kind` and `subjectType` are the closed
+ * unions every other row uses. Reading the role back from the same string the
+ * writer derived it from is therefore not a shortcut but the only shape that
+ * adds no stored member at all.
+ *
+ * @param id - The row's deterministic id.
+ * @returns `'comment'` or `'head'`, or `null` when the id is not a follow-up
+ *   id — including one whose `followup` tail is outside the family, which is
+ *   refused by the row's own validator rather than half-read here.
+ */
+export function followUpKindOf(id: string): FollowUpKind | null {
+    const read = discriminatorOfId(id);
+
+    return read.role === 'comment' || read.role === 'head' ? read.role : null;
+}
+
+/**
+ * Whether one id's follow-up discriminator, when it carries one, is inside the
+ * family (002 FR-101, FR-024).
+ *
+ * @param id - The row's deterministic id.
+ * @returns `false` only for a stored id whose `followup` tail is neither a
+ *   positive decimal comment id nor `head~<hex sha>`.
+ */
+export function followUpDiscriminatorHolds(id: string): boolean {
+    return discriminatorOfId(id).role !== 'malformed';
+}
+
 /** Correlation ids are service-minted, fixed-format path segments. */
 const RUN_CORRELATION_ID = /^mt-run-[0-9a-f]{24}$/;
 
@@ -304,6 +398,16 @@ function readTrimMarkerField(record: Record<string, unknown>): string | undefine
 }
 
 /**
+ * Whether one stored `kind` is from the closed union the writer emits.
+ *
+ * @param kind - The candidate member.
+ * @returns `true` for `assignment`, `mention`, or `review`.
+ */
+function isKnownKind(kind: unknown): boolean {
+    return typeof kind === 'string' && KNOWN_KINDS.has(kind);
+}
+
+/**
  * Validate every text, lifecycle, and run-link field of one stored row.
  *
  * @returns `true` when all fields hold usable values or are absent.
@@ -312,14 +416,19 @@ function fieldsHold(record: Record<string, unknown>): boolean {
     return (
         isUsableTextFieldSet(record, REQUIRED_FIELDS)
         && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS)
-        && typeof record.kind === 'string'
-        && KNOWN_KINDS.has(record.kind)
+        && isKnownKind(record.kind)
         && readStateField(record) !== null
         && readSubjectTypeField(record) !== null
         && readRunLinkField(record) !== null
         && readTrimMarkerField(record) !== null
         && readActorAttributionField(record) !== null
         && readActorLoginField(record) !== null
+        // A follow-up id's discriminator is validated against the two-form
+        // family the writer mints (FR-101). Only a row whose id carries the
+        // `followup` segment at all can fail it, so every existing row is
+        // unaffected — and a hand-written one outside the family is refused
+        // rather than read as a role it does not have (FR-024).
+        && followUpDiscriminatorHolds(record.id as string)
     );
 }
 
