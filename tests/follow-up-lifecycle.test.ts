@@ -835,7 +835,7 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
 
     it('refuses a bot author and an unnamed author, and admits a readable one', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            const planted = await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
 
             const queue = await runCycle(
                 fixtureBinding(MENTION_ONLY),
@@ -862,6 +862,22 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
             // The shipped `isAttributableAuthor` / `isBotAuthor` judgement,
             // applied unchanged rather than re-spelled (FR-102).
             expect(followUps.map((row) => row.id)).toEqual([followUpCommentId(COMMENT_ID)]);
+
+            // And the observation reaches the trail once, credentialed-free, with
+            // the fingerprint, the length, and the run's correlation id rather
+            // than the comment's text (FR-035, NFR-007).
+            const observed = rowsOfType(await auditRows(), 'follow_up.observed');
+            const excerpt = 'the drift is back';
+
+            expect(observed).toHaveLength(1);
+            expect(observed[0]?.correlationId).toBe(planted.correlationId);
+            expect(observed[0]?.details).toMatchObject({
+                deliveryId: followUpCommentId(COMMENT_ID),
+                excerptLength: excerpt.length,
+                kind: 'comment',
+                runCorrelationId: planted.correlationId,
+            });
+            expect(String(observed[0]?.details.excerptFingerprint)).toMatch(/^fp-[0-9a-f]{24}$/);
         }
     });
 
