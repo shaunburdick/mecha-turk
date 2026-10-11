@@ -240,6 +240,12 @@ function idlePoller(): GitHubIssuePoller {
         listIssueComments: async () => ({ kind: 'ok', comments: [] }),
         listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
         listIssueEvents: async () => ({ kind: 'ok', events: [], exhausted: false }),
+        readIssueState: async () => {
+            throw new Error('the terminal read is F-9-only; the retention fixtures bind no session');
+        },
+        readPullState: async () => {
+            throw new Error('the terminal read is F-9-only; the retention fixtures bind no session');
+        },
     };
 }
 

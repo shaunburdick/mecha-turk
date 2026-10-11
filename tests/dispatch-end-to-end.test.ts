@@ -32,6 +32,16 @@ const ISSUE = 90;
 /** The runs-history refresh that rides along after a report: a display read. */
 const HISTORY_GET = 'GET /v1/events?limit=25';
 
+/**
+ * The relay's own view of the runs a follow-up can ride, refreshed each tick.
+ *
+ * A display read too, and filtered for the same reason the M8 refresh is: the
+ * timeline asserts the dispatch contract's order, and neither read is part of
+ * it. Its presence in the tick at all is what makes a follow-up that lands
+ * while the panel is open deliverable — see `readFollowUpRows`.
+ */
+const FOLLOW_UP_ROWS_GET = 'GET /v1/events?state=dispatched&limit=100';
+
 /** The lifecycle rows a single successful dispatch owes the trail. */
 const RUN_TRAIL: readonly string[] = [
     'run.created',
@@ -70,7 +80,9 @@ describe('T-036 one end-to-end dispatch on this branch', () => {
         // The panel's side, in the order the contract makes non-negotiable:
         // authorization before the host call, the durable record before the
         // report, and the acknowledgement only after the report's own 2xx.
-        const steps = loop.timeline.filter((entry) => entry !== HISTORY_GET);
+        const steps = loop.timeline.filter(
+            (entry) => entry !== HISTORY_GET && entry !== FOLLOW_UP_ROWS_GET,
+        );
         expect(steps).toEqual([
             'GET /v1/events/pending',
             `POST /v1/events/${run.correlationId}/reserve`,

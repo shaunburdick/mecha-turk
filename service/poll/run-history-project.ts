@@ -39,7 +39,8 @@
  */
 
 import type { PromptSource } from '../prompt.ts';
-import type { EventKind, QueuedEvent } from './events-parse.ts';
+import type { EventKind, FollowUpKind, QueuedEvent } from './events-parse.ts';
+import { followUpKindOf } from './events-parse.ts';
 import type { Run, SourceReference } from './runs-types.ts';
 
 /** Why a run that has never moved sits where it does. */
@@ -81,6 +82,71 @@ export interface HistoryVerification {
     /** Extra note on a mismatch, or `null`. */
     readonly note: string | null;
 }
+
+/**
+ * One follow-up, as the run history carries it (002 FR-104).
+ *
+ * **A follow-up is not a source reference on the run**, and that is load-bearing
+ * rather than tidy: 003's actor gate classifies from `sourceReferences`
+ * exclusively, so a follow-up that joined that list would be re-judged by the
+ * allow-list on the run's next authorization. It rides this member and the
+ * queue row, never the run's reference list.
+ *
+ * Every member is the row's own, unchanged: the `excerpt` is the bounded,
+ * delimiter-defused text the panel composes with, and the id is the relay's
+ * handled key and the at-most-once key in one.
+ */
+export interface HistoryFollowUp {
+    /** The deterministic `evt-…~followup~…` id: the relay's at-most-once key. */
+    readonly deliveryId: string;
+    /** Which of the two movement kinds this is. */
+    readonly kind: FollowUpKind;
+    /** Bounded untrusted excerpt the panel composes its message from. */
+    readonly excerpt: string;
+    /** The actor the movement is attributed to; credential-free by construction. */
+    readonly actorLogin: string;
+    /** RFC 3339 detection stamp. */
+    readonly detectedAt: string;
+    /** Canonical link back to the source. */
+    readonly sourceUrl: string;
+    /**
+     * The head the run carried before this movement, for a head change only.
+     *
+     * Derived, never stored: the first head follow-up of a run takes the run's
+     * seed — the dispatch-time baseline — and every later one takes the previous
+     * movement's `headSha`. Absent when neither is known, which a conforming row
+     * cannot be.
+     */
+    readonly fromHeadSha?: string;
+    /** The head this movement observed, for a head change only. */
+    readonly headSha?: string;
+}
+
+/**
+ * How many follow-ups one history row projects (002 FR-104).
+ *
+ * A bound on the **answer**, not on the movement: a comment flood on a busy
+ * subject must not be able to grow one row without limit, so the row carries a
+ * window of the queue and the rest stay there for a later read. The queue is
+ * the record; this is the window onto it.
+ *
+ * **What the window is, stated plainly: the oldest twenty queue rows in
+ * detection order, delivered or not.** The service holds no record of a
+ * delivery — the panel is the only party that calls the host, and its durable
+ * record lives in host storage — so a delivered follow-up row is never pruned
+ * from the queue and this projection cannot skip one. The docblock this
+ * replaces promised "the oldest undelivered ones", which no store member makes
+ * possible.
+ *
+ * **So the bound is a window that walks, not a wall that caps.** A bound that
+ * only counts is exactly the shape a busy subject outgrows: the twentieth
+ * delivered follow-up fills it, and every movement behind it is unreachable
+ * forever. The read therefore accepts `followUpsFrom`, which moves the
+ * window's opening to the named delivery id, and the panel — the only party
+ * holding the record of what it delivered — advances it as it goes (FR-104,
+ * FR-107).
+ */
+export const MAX_PROJECTED_FOLLOW_UPS = 20;
 
 /** One run, as `GET /v1/events` reports it — credential-free by construction. */
 export interface RunHistoryRow {
@@ -197,6 +263,29 @@ export interface RunHistoryRow {
     readonly headSha?: string;
     /** Base ref of that pull request; absent on every other kind. */
     readonly baseRef?: string;
+    /**
+     * The run's follow-ups, in detection order — **absentable, and absent is the
+     * ordinary case**.
+     *
+     * One additive member on the read the panel already performs (`GET
+     * /v1/events`, the read that already projects `session` beside it), so the
+     * follow-up's text and its target session ride one row and no second copy of
+     * the session id exists anywhere (002 FR-104, FR-107). A run that has had
+     * no movement carries no member at all, which is what every run looks like
+     * until something on its subject moves — so a panel reading a row without it
+     * has nothing to deliver.
+     *
+     * The list is a window of the queue's follow-up rows for this run, in
+     * detection order — **the oldest {@link MAX_PROJECTED_FOLLOW_UPS} of them,
+     * delivered or not**, because the service holds no record of a delivery and
+     * so cannot skip one the panel has already sent. The window **walks**: the
+     * read's `followUpsFrom` moves its opening to the named delivery id, so a
+     * busy subject is followable past the bound rather than stalling at it. The
+     * panel filters what it has delivered against its own durable record; this
+     * projection is the movement's existence and text, and nothing about its
+     * fate. No operation, path, or existing member changes (FR-104).
+     */
+    readonly followUps?: readonly HistoryFollowUp[];
 }
 
 /**
@@ -400,19 +489,144 @@ function promptViewOf(run: Run): {
     };
 }
 
+/**
+ * The head SHA one queue row observed, for a head movement only.
+ *
+ * Split out of {@link followUpOf} because the from → to chain has to be
+ * carried **past** the window's opening: a row the window skips still advances
+ * the chain, so the first projected head follow-up names the head the movement
+ * before it observed rather than the run's dispatch-time seed.
+ *
+ * @returns The SHA the row carries, or `undefined` when it is not a head
+ *   movement or names no head.
+ */
+function headShaOfRow(row: QueuedEvent): string | undefined {
+    if (followUpKindOf(row.id) !== 'head') {
+        return undefined;
+    }
+
+    return row.headSha !== null && row.headSha !== '' ? row.headSha : undefined;
+}
+
+/**
+ * Project one queue row into its follow-up entry.
+ *
+ * @returns The entry, or `null` when the row carries nothing a delivery can use.
+ */
+function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): HistoryFollowUp | null {
+    const kind = followUpKindOf(row.id);
+    if (kind === null) {
+        return null;
+    }
+
+    const head = headShaOfRow(row);
+
+    return {
+        deliveryId: row.id,
+        kind,
+        excerpt: row.issueBodyExcerpt,
+        actorLogin: row.actorLogin ?? '',
+        detectedAt: row.detectedAt,
+        sourceUrl: row.issueUrl,
+        ...(head !== undefined && { fromHeadSha: previousHeadSha ?? '', headSha: head }),
+    };
+}
+
+/**
+ * Where one run's follow-up window opens, in the run's own detection order.
+ *
+ * The named id is looked up **in this run's list**: a read carries one value
+ * for a whole page of runs, so an id belonging to a different subject is not a
+ * position in this one and the window stays where an absent read puts it.
+ * Skipping the lookup and starting from the end instead would silently narrow
+ * every other row's answer, which is the failure direction FR-003's rule
+ * forbids; opening from the start can only ever project a run's movements
+ * earlier than asked, never fewer of them.
+ *
+ * @param from - The `followUpsFrom` value, or `null` when the read omitted it.
+ * @returns The index the window opens at; `0` for an absent or unmatched id.
+ */
+function windowStartOf(from: string | null, rows: readonly QueuedEvent[]): number {
+    if (from === null) {
+        return 0;
+    }
+
+    const found = rows.findIndex((row) => row.id === from);
+
+    return found === -1 ? 0 : found;
+}
+
+/**
+ * The run's follow-ups, in detection order, head movements carrying their
+ * from → to pair.
+ *
+ * The rows are the queue's own, filtered to the ones that joined this run and
+ * whose id is one of the two follow-up forms (FR-101). Nothing about a follow-up
+ * is stored on the run: its text is the row's existing bounded excerpt, its role
+ * is the id's discriminator, and its from → to pair is derived here from the
+ * run's seed and its own earlier movements — which is why the seed is never
+ * re-based on a later observation.
+ *
+ * **The window walks.** `from` moves the opening to the named delivery id and
+ * everything behind it stays queued and unprojected, which is what lets a busy
+ * subject be followed past the bound instead of stalling at it. Every row is
+ * still walked so the head chain stays exact; only the projection is gated.
+ *
+ * @returns The follow-ups, or `undefined` when the run has none — the ordinary
+ *   case, and the reason the member is absent rather than empty.
+ */
+function followUpsOf(input: {
+    /** The run being projected. */
+    readonly run: Run;
+    /** Every queued delivery row, in queue order. */
+    readonly queue: readonly QueuedEvent[];
+    /** Where the window opens, or `null` for the start as it was before. */
+    readonly from: string | null;
+}): readonly HistoryFollowUp[] | undefined {
+    const rows = input.queue.filter((row) =>
+        row.runCorrelationId === input.run.correlationId && followUpKindOf(row.id) !== null);
+    if (rows.length === 0) {
+        return undefined;
+    }
+
+    const start = windowStartOf(input.from, rows);
+    const followUps: HistoryFollowUp[] = [];
+    let previousHeadSha: string | undefined = input.run.lastHeadSha;
+    // Every row is walked, not only the projected ones: the from → to pair is
+    // derived from the movement before it, so a row the window skips still
+    // advances the chain.
+    for (const [index, row] of rows.entries()) {
+        if (index >= start && followUps.length < MAX_PROJECTED_FOLLOW_UPS) {
+            const followUp = followUpOf(row, previousHeadSha);
+            if (followUp !== null) {
+                followUps.push(followUp);
+            }
+        }
+
+        previousHeadSha = headShaOfRow(row) ?? previousHeadSha;
+    }
+
+    return followUps;
+}
+
 /** Project one stored run into its history row. */
 function historyRowOf(input: {
     /** The run being projected. */
     readonly run: Run;
     /** Delivery rows keyed by id, as read from the queue. */
     readonly deliveries: ReadonlyMap<string, QueuedEvent>;
+    /** Every queued delivery row, in queue order, for the follow-up member. */
+    readonly queue: readonly QueuedEvent[];
+    /** Where this run's follow-up window opens, or `null` for the start. */
+    readonly followUpsFrom: string | null;
 }): RunHistoryRow {
-    const { run, deliveries } = input;
+    const { run, deliveries, queue } = input;
     const primary = run.sourceReferences[0];
     const delivery = primary === undefined ? undefined : deliveries.get(primary.deliveryId);
     const view = deliveryView({ run, primary, delivery });
     const lease = leaseViewOf(run);
     const dispatchStamp = run.session === null ? null : run.session.dispatchedAt;
+    const followUps = followUpsOf({ run, queue, from: input.followUpsFrom });
 
     return withReviewCoordinates({
         id: run.correlationId,
@@ -445,13 +659,22 @@ function historyRowOf(input: {
         dispatchedAt: dispatchStamp,
         ...promptViewOf(run),
         actorPolicy: run.actorPolicy,
+        ...(followUps !== undefined && { followUps }),
     }, delivery);
 }
 
 /**
  * Project the runs history: newest detected first, capped, never claiming.
  *
- * @returns At most `cap` rows, freshest detection first; oldest runs dropped first.
+ * @param input.runs - Every retained run, in creation order.
+ * @param input.deliveries - Delivery rows keyed by id, for the members a run
+ *   does not store.
+ * @param input.cap - Most rows one answer may carry (`MAX_LISTED_EVENTS`).
+ * @param input.followUpsFrom - Where one run's follow-up window opens, or
+ *   `null`/absent for the start — the answer every caller that omits the
+ *   parameter gets, byte-for-byte what it got before the parameter existed.
+ * @returns At most `cap` rows, freshest detection first; oldest runs dropped
+ *   first.
  */
 export function projectRunHistory(input: {
     /** Every retained run, in creation order. */
@@ -460,8 +683,12 @@ export function projectRunHistory(input: {
     readonly deliveries: ReadonlyMap<string, QueuedEvent>;
     /** Most rows one answer may carry (`MAX_LISTED_EVENTS`). */
     readonly cap: number;
+    /** Where the follow-up window opens, or `null` for the start (FR-104). */
+    readonly followUpsFrom?: string | null;
 }): RunHistoryRow[] {
-    const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries }));
+    const queue = [...input.deliveries.values()];
+    const followUpsFrom = input.followUpsFrom ?? null;
+    const rows = input.runs.map((run) => historyRowOf({ run, deliveries: input.deliveries, queue, followUpsFrom }));
 
     return rows
         .toSorted((left, right) => Date.parse(right.detectedAt) - Date.parse(left.detectedAt))

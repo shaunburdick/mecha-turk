@@ -1,5 +1,6 @@
 /** Run and delivery audit rows written after an enqueue becomes durable. */
 
+import { createHash } from 'node:crypto';
 import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
@@ -16,6 +17,22 @@ interface EnqueueAuditInput {
     readonly outcome: EnqueueOutcome;
     /** Persisted event rows linked to their run ids. */
     readonly appended: readonly QueuedEvent[];
+}
+
+/** How many hex characters of the digest one fingerprint carries. */
+const FINGERPRINT_CHARS = 24;
+
+/**
+ * The credential-free fingerprint of one follow-up's excerpt (002 FR-035).
+ *
+ * A fingerprint and a length, never the text: the trail has to be able to say
+ * *which* comment was observed without becoming its second home.
+ *
+ * @param excerpt - The row's bounded untrusted excerpt.
+ * @returns `fp-` plus the first 24 hex characters of its SHA-256.
+ */
+export function followUpFingerprint(excerpt: string): string {
+    return `fp-${createHash('sha256').update(excerpt).digest('hex').slice(0, FINGERPRINT_CHARS)}`;
 }
 
 /** Append one audit row; durable run and queue writes are not rolled back. */
@@ -83,9 +100,42 @@ async function recordDetectedDeliveries(input: EnqueueAuditInput): Promise<void>
     }
 }
 
+/**
+ * Record one observed follow-up for every follow-up the pass folded.
+ *
+ * The row is the trail's half of NFR-007's chain: the run's correlation id
+ * traces the observation through the delivery into the session, and the row
+ * carries the fingerprint, the length, and the counts rather than the text
+ * (002 FR-035).
+ */
+async function recordFollowUps(input: EnqueueAuditInput): Promise<void> {
+    const rows = new Map(input.appended.map((event) => [event.id, event]));
+    for (const joined of input.outcome.followUps) {
+        const row = rows.get(joined.deliveryId);
+        const excerpt = row?.issueBodyExcerpt ?? '';
+        await appendEnqueueAudit(input, {
+            eventType: 'follow_up.observed',
+            actorSource: 'service',
+            entity: { kind: 'delivery', id: joined.deliveryId },
+            correlationId: joined.run.correlationId,
+            decision: null,
+            reason: joined.kind === 'head'
+                ? 'a tracked pull request head moved'
+                : 'a tracked issue or pull request gained a comment',
+            details: {
+                deliveryId: joined.deliveryId,
+                excerptFingerprint: followUpFingerprint(excerpt),
+                excerptLength: excerpt.length,
+                kind: joined.kind,
+                runCorrelationId: joined.run.correlationId,
+            },
+        });
+    }
+}
+
 /** Append coalescing and detection audit records after durable enqueue writes. */
-// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function recordEnqueueAudits(input: EnqueueAuditInput): Promise<void> {
+    await recordFollowUps(input);
     await recordJoinedDeliveries(input);
     await recordDetectedDeliveries(input);
 }

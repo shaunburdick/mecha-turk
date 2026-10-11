@@ -330,6 +330,58 @@ Amendments to this specification follow the same procedure and shape as the proj
 
 **Version**: 1.11.0 | **Approved at**: 1.0.0 | **Last Amended**: 2026-10-03
 
+---
+
+### v1.12.0 — 2026-10-09 (conforming amendment; the coalescing rule meets the tracking lifecycle, GitHub issue #13)
+
+**Why**: 002 v1.16.0 amends the production spec to carry a dispatched work item through its lifecycle — a
+follow-up on a subject whose run has already dispatched **joins that run** instead of opening the next
+ordinal, so the agent's original session receives the item's continuing discussion and no second,
+disjoint session is ever created. While it was a draft, 002 recorded the conforming edit this document
+would need as a deferred obligation; the product owner confirmed on 2026-10-09 that it is made **in this
+package** rather than left as a note. The obligation was real: **FR-011's third sentence**
+(`Terminal states are `dispatched`, …`) is exactly the clause the shipped join predicate implemented —
+`runs-join.ts:350` before the modules grew, the shipped two-arm predicate now at `:449` (`!isTerminalRun(run) || run.session !== null`) — so the build 002's amendment describes and the text 003 states were
+about to disagree in the one place an implementer reads first. Editing it here, in the document that
+owns the coalescing rule, is the triage rule applied: **amend in place, no "superseded by" note.**
+
+**Requirement-by-requirement record**:
+
+| Requirement | v1.11.0 text | v1.12.0 effect | Status |
+| --- | --- | --- | --- |
+| **FR-011** | *"Terminal states are `dispatched`, `failed-resolved`→`dispatched`, and `dead-lettered`"* | The `dispatched` arm is narrowed to **a run that carries no recorded session** — a dispatched run that holds one is **not terminal for coalescing** and a further delivery for its subject joins it as a follow-up (002 FR-100). `failed-resolved`→`dispatched` follows the same narrowing. The `unconfirmed` / `blocked:*` clause is unchanged and still joins | **Amended in place** |
+
+**No requirement is added, renumbered, deleted, or repurposed**; `FR-001` – `FR-080` keep their numbers
+and their meanings. **Nothing else in this document moves**: the run key, the lease, the single-use
+dispatch token, the impossibility requirement (FR-028 — a session remains creatable only for a run
+with no recorded session, which is the same fact read from the other side), the state model, the
+correlation id, the audit vocabulary, the wire surface, and every acceptance criterion stand exactly as
+written. 002's follow-up delivery is a **new action on an existing run**, not a new run state, so this
+document's states and transitions need no addition: the follow-up rides the existing event queue and the
+run row, and it mints **no token and no lease of its own** — the first draft's
+`contracts/follow-up-lifecycle.md` (with its `GET /v1/follow-ups` mint step) was cut with that draft and
+the file is **deleted** in the delivered package, and grep finds no follow-up token or lease anywhere in
+`service/` or `src/`. This document's single-use dispatch token is therefore untouched.
+
+**Principles reviewed, unchanged in substance**: **III (durable and idempotent work)** is strengthened —
+the ordinal no longer advances for a subject whose work is already underway, which is one more path on
+which two sessions for one subject become impossible rather than unlikely. **VII (thin orchestration
+boundary)** is unaffected: the follow-up is delivered by the host's own `prompt` into a session the host
+is showing, and nothing here addresses a session by id. **II, IV, I, V, VI** are untouched. No principle
+is weakened.
+
+**Migration impact**: none. No stored run, audit row, lease, or panel state changes: a run already in
+`dispatched` with a recorded session is simply no longer treated as terminal-for-coalescing, which is a
+reading of existing state, not a rewrite of it. The pre-1.0.0, unreleased, no-tag conditions 003's
+earlier entries record still hold.
+
+**Approval status**: part of the 002 v1.16.0 Gate-1 package, drafted 2026-10-09 for product-owner
+approval with GitHub issue #13. **Zero `[NEEDS CLARIFICATION]` markers remain in this document.**
+
+**Conforming edit in the delivered package (2026-10-10)**: **AC-102** was rewritten in place to the delivered behaviour — a follow-up on a subject whose run carries a recorded session joins that run and opens no second run, ordinal, or session, the second-run and second-session case being a run that carries none — and the same narrowing was applied to the four body sites the old reading survived: the `dispatched` row, legend, and shipped-vocabulary migration row of `## Dispatch State Model`, the `### Edge Cases` entry, the `## Assumptions` entry, and User Story 1's Independent Test in `## User Scenarios & Testing`; the dated Phase 3 clarification and gate-question records keep their 2026-09-28 wording as history, and this entry's "nothing else moves" claim is read against the sites named here.
+
+**Version**: 1.12.0 | **Approved at**: 1.0.0 | **Last Amended**: 2026-10-09
+
 ### Amendments-in-force banner (compressed out of spec.md)
 
 This block stood above the requirements, naming every amendment and what it
@@ -343,7 +395,7 @@ re-cut. It is the same history the entries below record, kept once.
 >
 > **v1.3.0 (2026-09-28) — record amendment.** Feature 006 (`specs/006-settings-crud/spec.md`, v1.0.0) makes the service configuration operator-editable from the panel, and in doing so **reads** this document rather than changing it. It reads FR-033 and this document's `## Resolved Gate Questions` entry 3, which confirms a maximum of `3` automatic requeues and adds that "the value is operator configuration, so it remains adjustable without a behavioural change" — and it records a **decision about** that sentence: the requeue budget is **not** added as a configuration field, because no field, bound, default, store location, or consumer is named anywhere in this document or in the shipped code, and the lease-expiry sweep that would consume one (FR-030 – FR-032) is not implemented. That decision, its full reading, and the condition for lifting it are recorded in 006's `## Deferred` section, not here. **Nothing in this document is superseded**: FR-030 – FR-033, FR-036, the dispatch state model, the dead-letter semantics, the correlation model, and `## Audit Vocabulary` — including `run.dead_lettered` with its "attempts consumed" detail — all stand exactly as written below, and the recorded decision needs no change to any of them. Where the documents could be read as disagreeing about the run model or the state machine, **this document remains authoritative**.
 >
-> changelog.md at the end of this file is the index of all eight, in the shape the project's constitution requires.
+> changelog.md at the end of this file is the index of all nine, in the shape the project's constitution requires.
 >
 > **v1.4.0 (2026-09-29) — conformance amendment.** Two independent reviews of the first Wave 2 implementation commit returned findings, and this amendment records the one that touches a requirement. The finding: the `dispatch.unconfirmed` row embedded the **live `dispatchToken`** in `audit.ndjson`. An unconsumed dispatch token is an open authorization to report a result, the file is operator-facing, and it is retained for months. **FR-061 already forbade exactly this** — "A row MUST NOT carry a credential under any circumstances" — and the implementation did not meet it. The recorded change is the **removal of a live authorization capability from a retained file**, which is FR-061 conformance, **not a weakening**: the row now records a service-derived `tokfp-…` fingerprint, so it still answers *which* token was outstanding, and a standing scan asserts that no audit row anywhere carries a `dtk-` value. **No requirement text in this document changes**, no gate is added, no scope changes, and FR-035, FR-063, and every claim/lease requirement keep their full force. The other Wave 2 findings were **implementation defects against requirements this document already states** (a claim answer that could exceed the transport ceiling after its leases were durable; a pending count derived from deliveries rather than runs; a sweep trail that could be lost; a lease id accepted as any string) and are recorded as fixes in the task list, not as amendments here.
 

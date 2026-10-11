@@ -322,6 +322,24 @@ export interface Run {
     readonly attempts: readonly DispatchAttempt[];
     /** The session this run produced, at most one ever. */
     readonly session: SessionRef | null;
+    /**
+     * The head SHA this run's establishing cycle observed, so the next cycle
+     * can tell a push from the state that already existed at dispatch.
+     *
+     * **Absentable and validated when present** — the same pattern
+     * {@link SourceReference}'s actor members use — so a run written before
+     * this member existed parses unchanged. **Absent means *no seed recorded*,
+     * never *the head changed*** (002 FR-103): a run whose establishing
+     * delivery row carried no `headSha` starts without one, and the first
+     * cycle that observes its subject's head records it. The seed is the
+     * **dispatch-time baseline**, never re-based on a later observation, which
+     * is what makes the from → to pair a follow-up names recoverable from the
+     * run's own history rather than from a value a later push overwrote.
+     *
+     * An **issue** subject carries no seed and never produces a head
+     * follow-up at all, so the member is absent on every issue run forever.
+     */
+    readonly lastHeadSha?: string;
     /** Recorded verification outcome, or `null` when none was reported. */
     readonly verification: RunVerification | null;
     /** RFC 3339 creation stamp. */

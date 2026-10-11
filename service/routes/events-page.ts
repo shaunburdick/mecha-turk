@@ -10,8 +10,19 @@
  *
  * Nothing here reaches the store, and nothing here parses a cursor it did not
  * issue — the token stays opaque to every caller but this module.
+ *
+ * **The five accepted parameters are the whole grammar** (005 contract §1):
+ * `limit`, `cursor`, `bindingId`, `state`, and — added with 002 v1.16.0's
+ * tracking lifecycle — the absentable `followUpsFrom`, which moves one run's
+ * follow-up window past its bound. The last one is deliberately **not** echoed
+ * in the answer's `filter` member: that member is what the operator's runs tab
+ * shows as its own visible filter state, and the walk is the relay's private
+ * read rather than anything an operator chose. Leaving it out keeps the answer
+ * byte-identical to what it was, which is the same property that makes the
+ * parameter additive within `/v1` rather than a second operation.
  */
 
+import { followUpKindOf } from '../poll/events-parse.ts';
 import { validationResponse } from '../http.ts';
 import type { HttpResponse } from '../http.ts';
 import type { RunHistoryRow } from '../poll/run-history-project.ts';
@@ -84,6 +95,15 @@ export interface ListQuery {
     readonly state: string | null;
     /** Raw binding filter; `''` means none, anything else is matched exactly. */
     readonly bindingId: string;
+    /**
+     * Where one run's follow-up window opens, or `null` when the read omitted it.
+     *
+     * **The one additive query parameter this route carries (002 v1.16.0,
+     * FR-104).** It is not an operation: the path, the method, every status code,
+     * and every error code are the ones they were, and a read that omits it is
+     * answered exactly as it was before the parameter existed.
+     */
+    readonly followUpsFrom: string | null;
 }
 
 /**
@@ -208,12 +228,44 @@ export function stateFilterOf(
 }
 
 /**
+ * Validate the `followUpsFrom` value against the follow-up delivery id family.
+ *
+ * A follow-up's id is **the only place its role lives** (`events-parse.ts`'s
+ * `followUpKindOf`), so the same reader the queue validates a stored row with is
+ * what decides whether a caller named one. Spelling the shape a second time
+ * here would be a second rule to keep in agreement with the writer's — and the
+ * rule is what makes the value fail closed rather than being read as a position
+ * the service cannot honour.
+ *
+ * An empty value reads as **absent**, exactly as `limit`, `cursor`, and `state`
+ * read an empty one: a parameter with no value in it is not a value outside the
+ * vocabulary, and a caller that sends `?followUpsFrom=` gets the pre-parameter
+ * answer rather than a refusal that would strand a walk mid-set.
+ *
+ * @param raw - The query parameter as it arrived, or `null` when absent.
+ * @returns `ok: false` for a value that is not a delivery id, so the route can
+ *   answer `422` instead of silently projecting from the start.
+ */
+export function followUpFromFilterOf(
+    raw: string | null,
+): { readonly ok: true; readonly followUpsFrom: string | null } | { readonly ok: false } {
+    if (raw === null || raw === '') {
+        return { ok: true, followUpsFrom: null };
+    }
+
+    return followUpKindOf(raw) === null ? { ok: false } : { ok: true, followUpsFrom: raw };
+}
+
+/**
  * Validate the query string, or hand back the refusal it earned.
  *
  * Every parameter is checked before a document is read, so a bad query never
  * reaches the store — and a refusal changes nothing (contract §3).
+ * `followUpsFrom` is checked **last**: a read carrying both a bad `state` and a
+ * bad window position answers exactly the refusal it answered before the
+ * parameter existed, so no caller's error surface moves.
  *
- * @param request - Routed request whose query may carry the four parameters.
+ * @param request - Routed request whose query may carry the five parameters.
  * @returns The validated query, or the `422` that beat it.
  */
 export function listQueryOf(
@@ -255,9 +307,24 @@ export function listQueryOf(
 
     const bindingId = params.get('bindingId') ?? '';
 
+    const followUpsFrom = followUpFromFilterOf(params.get('followUpsFrom'));
+    if (!followUpsFrom.ok) {
+        return {
+            ok: false,
+            response: validationResponse([{
+                field: 'followUpsFrom',
+                remediation: 'name a follow-up delivery id this run has already projected, or drop the parameter to'
+                    + ' read the window from the start',
+            }]),
+        };
+    }
+
     return {
         ok: true,
-        query: { limit, boundary: cursor.boundary, state: state.state, bindingId },
+        query: {
+            limit, boundary: cursor.boundary, state: state.state, bindingId,
+            followUpsFrom: followUpsFrom.followUpsFrom,
+        },
     };
 }
 

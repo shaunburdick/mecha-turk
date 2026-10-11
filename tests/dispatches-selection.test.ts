@@ -30,6 +30,7 @@ import { mountDispatchesBoard } from '../src/dispatches-ui.ts';
 import type { DispatchesBoard } from '../src/dispatches-ui.ts';
 import { initialDispatches } from '../src/panel-state.ts';
 import type { DispatchesState, PanelRuntime } from '../src/panel-state.ts';
+import type { FollowUpDeliveryRecord } from '../src/dispatch-record.ts';
 import type { RunRow } from '../src/dispatches-service.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeDom } from './support/dom.ts';
@@ -164,6 +165,21 @@ function runsState(input: { readonly state: RunRow['state']; readonly open: bool
     };
 }
 
+/** One parked follow-up record, as the panel's own store holds it. */
+function parkedFollowUp(): FollowUpDeliveryRecord {
+    return {
+        deliveryId: 'evt-acme~widget~7~77331~followup~501',
+        correlationId: RUN_ID,
+        sessionId: 'ses_1',
+        attempt: 3,
+        nextAttemptAtMs: null,
+        delivered: false,
+        reason: 'session-busy',
+        parked: true,
+        updatedAt: '2026-10-09T12:00:00.000Z',
+    };
+}
+
 /**
  * Mount the Dispatches body against a fresh fake document.
  *
@@ -291,6 +307,29 @@ describe('a selected dispatch keeps every control its row opens', () => {
             expect(isOutOfLayout(parents, board.resolveBox)).toBe(false);
             expect(isOutOfLayout(parents, textIn(dom, SELECTED_HEADING))).toBe(false);
             expect(board.retryRunBox.hidden).toBe(true);
+        }
+    });
+
+    it('offers the follow-up re-offer for a row whose record parks one, and nothing otherwise', () => {
+        {
+            // The re-offer's gate is the panel's own record, not the row's
+            // state: a dispatched dispatch with a parked follow-up carries the
+            // control, and every other row does not — absent, never greyed out.
+            const { board } = mountBoard((rt) => {
+                rt.state.dispatches = {
+                    ...runsState({ state: 'dispatched', open: true }),
+                    followUpRecords: [parkedFollowUp()],
+                };
+            });
+
+            expect(board.reofferFollowUpBox.hidden).toBe(false);
+        }
+        {
+            const { board } = mountBoard((rt) => {
+                rt.state.dispatches = runsState({ state: 'dispatched', open: true });
+            });
+
+            expect(board.reofferFollowUpBox.hidden).toBe(true);
         }
     });
 });

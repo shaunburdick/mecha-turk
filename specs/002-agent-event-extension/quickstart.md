@@ -100,3 +100,8 @@ boundary — so a binding you add today will not open dispatches for last month'
 completed its first scan keeps the behaviour it always had: it starts at its creation boundary
 and skips its backlog. Choosing the look-back on it afterwards is the supported way to ask for
 that window, and the upgrade itself writes nothing.
+
+## 10. What happens after a dispatch (002 v1.16.0, GitHub issue #13)
+
+Published documentation, and the canonical source for this section:
+<https://shaunburdick.github.io/mecha-turk/use/> — the tracking lifecycle after a dispatch: one run and one session per work item and never a second one; delivering a follow-up may switch your view to the session and closes the panel, which the run's ledger records why; and the item's terminal state is the end, never the session's own outcome.

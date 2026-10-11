@@ -309,11 +309,15 @@ function occurrences(source: string, pattern: RegExp): number {
  * button … exists anywhere in the panel").
  *
  * A census over *every* `mountButton` would be red on arrival — the panel
- * mounts 31 buttons across nine modules — so the surface is stated as this
+ * mounts 32 buttons across nine modules — so the surface is stated as this
  * enumerated record: which files mount a button, and how many times each
  * does today. A button added anywhere, in any module, is then a reported
  * change to a closed set rather than a judgement call, which is the same
  * discipline `PanelHost`'s Pick list applies to the host surface.
+ *
+ * `src/dispatches-ui.ts`'s eighth is the follow-up re-offer the parked cause
+ * earned (002 FR-105, AC-051): the one control that clears a park on the
+ * panel's own record, gated by the record rather than by the row's state.
  */
 const BUTTON_MOUNT_SITES: Readonly<Record<string, number>> = {
     'src/about-tab.ts': 2,
@@ -322,7 +326,7 @@ const BUTTON_MOUNT_SITES: Readonly<Record<string, number>> = {
     'src/bindings-body.ts': 2,
     'src/bindings-editor.ts': 5,
     'src/dispatches-controls.ts': 5,
-    'src/dispatches-ui.ts': 7,
+    'src/dispatches-ui.ts': 8,
     'src/settings-mount.ts': 5,
     'src/status-tab.ts': 1,
 };
@@ -496,7 +500,7 @@ describe('the panel-level picker is gone and no second button took its place (AC
 
         expect(buttonMountSites(sources)).toEqual(BUTTON_MOUNT_SITES);
         const total = Object.values(BUTTON_MOUNT_SITES).reduce((sum, count) => sum + count, 0);
-        expect(total).toBe(31);
+        expect(total).toBe(32);
 
         // Bite-check, on the same counting function: a planted second button
         // beside the form's project controls is reported, so a green census
@@ -536,7 +540,7 @@ describe('the panel-level picker is gone and no second button took its place (AC
         // and none of them is a pin-style control (G3-2's one-line
         // broadening of this census).
         const labels = sources.flatMap((file) => buttonLabels(file.text));
-        expect(labels).toHaveLength(31);
+        expect(labels).toHaveLength(32);
         expect(labels.filter((label) => /\bpin\b/iu.test(label))).toEqual([]);
     });
 });

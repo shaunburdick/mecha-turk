@@ -216,6 +216,16 @@ const DIRECTORY_REGISTRATION = /onDirectory\s*\(/;
  * A grep only proves today's spelling of a call; pinning the list proves the
  * negative about the *set*, so widening it becomes a visible edit to this
  * array instead of a silent new capability.
+ *
+ * **`prompt` joined at v1.16.0** (002 FR-104, GitHub issue #13): a follow-up is
+ * delivered by writing into the session the run's dispatch already created,
+ * which is the only addressing the host publishes for an existing session. It
+ * uses the **already-declared** `prompt` capability, so the manifest and the
+ * install-time approval are unchanged — and 002 FR-107 names it as the one new
+ * host call site this amendment adds. The clause this pin originally encoded
+ * ("no host method it did not call at v1.13.3") therefore moves by exactly that
+ * one method and by nothing else, which is what makes it a recorded edit rather
+ * than a silent widening.
  */
 const PANEL_HOST_MEMBERS: readonly string[] = [
     'dispose',
@@ -232,6 +242,7 @@ const PANEL_HOST_MEMBERS: readonly string[] = [
     'onWorktrees',
     'openSession',
     'openUrl',
+    'prompt',
     'request',
     'serviceRequest',
     'startSession',
