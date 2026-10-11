@@ -386,9 +386,9 @@ const ESLINT_BIN = resolve(ROOT, 'node_modules/.bin/eslint');
 const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
 
 /**
- * `package.json`'s sha256 — re-derived, not carried, on each deliberate change
- * (#17's Node floor, the `0.1.0` version bump, then the `0.1.1` and `0.1.2`
- * patch bumps — the last one carrying issue #39's rail-icon fix).
+ * `package.json`'s sha256 — re-derived, not carried, on each deliberate change:
+ * #17's Node floor, and every invariant-2 version bump, which moves `version`
+ * and nothing else.
  *
  * AC-017 asks for the root manifest to be **byte-identical**, so this is a digest
  * rather than a list of the fields that must not move. That is also what keeps
@@ -400,10 +400,11 @@ const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
  * operative clause still holds: 007 added nothing to the root manifest, and the
  * `declares no workspaces and no script that reaches the site` case below is the
  * assertion that survives a floor change. The same reading covers every
- * version bump since: invariant 2's `0.1.0`, `0.1.1` and `0.1.2` each move
- * `version` (and 0.1.2 the panel icon) and nothing else.
+ * deliberate version bump under invariant 2: it moves `version` and nothing
+ * else in the root manifest, so the digest is re-derived deliberately rather
+ * than carried.
  */
-const ROOT_MANIFEST_SHA256 = '7b22ae77b85726249e5eddc2f634a316ed2aa46b9ac3f517349222ecf8b98c62';
+const ROOT_MANIFEST_SHA256 = 'af0050d8e31dabdb79b772474590981254c8f1957c67add53fa40ef4e62485c2';
 
 /**
  * `.github/workflows/verify.yml`'s sha256, for the same reason and the same
