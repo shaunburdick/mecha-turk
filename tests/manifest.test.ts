@@ -400,10 +400,10 @@ const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
  * operative clause still holds: 007 added nothing to the root manifest, and the
  * `declares no workspaces and no script that reaches the site` case below is the
  * assertion that survives a floor change. The same reading covers every
- * version bump since: invariant 2's `0.1.0`, `0.1.1` and `0.1.2` each move
+ * version bump since: invariant 2's `0.1.0`, `0.1.1`, `0.1.2` and `0.2.0` each move
  * `version` (and 0.1.2 the panel icon) and nothing else.
  */
-const ROOT_MANIFEST_SHA256 = '7b22ae77b85726249e5eddc2f634a316ed2aa46b9ac3f517349222ecf8b98c62';
+const ROOT_MANIFEST_SHA256 = 'af0050d8e31dabdb79b772474590981254c8f1957c67add53fa40ef4e62485c2';
 
 /**
  * `.github/workflows/verify.yml`'s sha256, for the same reason and the same
