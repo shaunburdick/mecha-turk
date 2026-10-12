@@ -31,7 +31,7 @@ import {
     tick,
 } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
-import { stubPaints, stubPanelUi, stubProjectPickerUi, stubBindingsPane } from './support/ui-stubs.ts';
+import { stubPaints, stubPanelUi, stubBindingsPane } from './support/ui-stubs.ts';
 
 /** Repository the draft patches and the loaded fixture row both name. */
 const REPOSITORY = 'acme/widget';
@@ -49,10 +49,10 @@ function paintsOf(handle: Parameters<typeof stubPaints>[0]): number {
 }
 
 /**
- * Register the Bindings body's stubbed views on a runtime.
+ * Register the Bindings body's stubbed view on a runtime.
  *
  * The shell owns visibility now, so what a test needs from the mount is the
- * pair of views `refresh()` repaints: the pane and the picker.
+ * view `refresh()` repaints: the pane.
  *
  * @returns The pane stub and its body element.
  */
@@ -63,7 +63,6 @@ function attachStubBody(rt: PanelRuntime): {
     const paneBody = fakeDom().root;
     rt.ui = stubPanelUi();
     rt.bindingsUi = stubBindingsPane(paneBody);
-    rt.pickerUi = stubProjectPickerUi();
 
     return { bindings: rt.bindingsUi, paneBody };
 }
@@ -211,7 +210,7 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
 });
 
 describe('refresh (the repaint path a mounted Bindings body takes)', () => {
-    it('repaints the pane and the picker the shell mounted', () => {
+    it('repaints the pane the shell mounted, project status line included', () => {
         {
             const rt = createTestRuntime(fakeHost());
             const { bindings } = attachStubBody(rt);
@@ -221,9 +220,9 @@ describe('refresh (the repaint path a mounted Bindings body takes)', () => {
             expect(paintsOf(bindings.status)).toBe(1);
             expect(paintsOf(bindings.bindingsList)).toBe(1);
             expect(paintsOf(bindings.note)).toBe(1);
-            expect(rt.pickerUi).not.toBeNull();
-            const picker = rt.pickerUi;
-            expect(picker === null ? 0 : paintsOf(picker.projectStatus)).toBe(1);
+            // Issue #39: the project list's status line moved into the form,
+            // so the pane's repaint is what carries it.
+            expect(paintsOf(bindings.projectStatus)).toBe(1);
         }
         {
             const rt = createTestRuntime(fakeHost());
@@ -233,7 +232,6 @@ describe('refresh (the repaint path a mounted Bindings body takes)', () => {
             }).not.toThrow();
             expect(rt.bindingsUi).toBeNull();
             expect(rt.dispatchesUi).toBeNull();
-            expect(rt.pickerUi).toBeNull();
             expect(rt.aboutUi).toBeNull();
         }
         {

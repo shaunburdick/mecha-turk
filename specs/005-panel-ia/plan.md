@@ -978,9 +978,9 @@ No amendment or exception. Principle I and III are untouched because no contract
 
 The amendment changes CSS and verification fixtures only. It creates no panel state, entity, API, service DTO, storage, route, event, or wire change. No `data-model.md` or `contracts/` amendment is needed; creating one would describe a nonexistent boundary change.
 
-# Amendment plan — 005 v1.20.0 startup rendering and recovery (2026-10-07)
+# Amendment plan — 005 v1.21.0 startup rendering and recovery (2026-10-07)
 
-> The preceding plan and its amendments remain the historical plan for the six-tab IA. This appended plan implements the separately approved FR-140–FR-141 startup-render requirements; the normative source is the current `spec.md` v1.20.0.
+> The preceding plan and its amendments remain the historical plan for the six-tab IA. This appended plan implements the separately approved FR-140–FR-141 startup-render requirements; the normative source is the current `spec.md` v1.21.0.
 
 ## Scope
 
@@ -996,7 +996,8 @@ Keep the shipped panel visibly informative from the first HTML paint through suc
 ## Verification and delivery gates
 
 - **Passed**: isolated Node `24.15.0` and Bun `1.4.2` were installed under `/tmp/opencode/mecha-toolchain` after SHA-256 verification; `npm ci` used a `/tmp`-local cache. System Node and user-wide configuration were unchanged.
-- **Passed**: focused startup tests and `npm run verify` (build, lint, typecheck, 1,549 tests across 113 files).
+- **Passed (original PR record)**: focused startup tests and `npm run verify` (build, lint, typecheck, 1,549 tests across 113 files). The original raw log was not retained; tasks.md, research.md, and the original changelog instead record 1,550 tests across 113 files, so that one-test historical discrepancy remains unresolved.
+- **Integrated resolution verification (2026-10-12)**: after integrating PR head `4fd086a` with current `main` `6149804`, `npm run verify` passed (build, lint, typecheck, 1,654 tests across 116 files) using Node 24.15.0 and Bun 1.3.14. The screenshot task below remains open.
 - **Passed**: rebuilt and committed-output candidates `panel/main.js` and `service/main.js` were generated with the source change per AGENTS.md invariant 1. The service bundle has only bundler-generated local identifier renames; no service source changed.
 - **Still open**: Run `npm run shot` for all six tabs at 720px and 560px. The attempt failed before Chrome startup because the environment reported `No usable sandbox`; do not pass `--no-sandbox` or weaken browser isolation. Leave visual capture explicitly unverified until a safe browser is available.
 - Keep changes on `fix/panel-startup-render`; submit a PR from an `aliza-agent` fork after tests. Do not merge.

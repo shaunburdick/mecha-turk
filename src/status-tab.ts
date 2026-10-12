@@ -38,6 +38,7 @@ import {
     agentPinLines,
     bindingLines,
     cadenceLine,
+    followUpQueueLine,
     noticeStates,
     pollingLines,
     projectGuidanceLines,
@@ -64,6 +65,9 @@ const BINDINGS_HEADING = 'Bindings';
 
 /** Heading above the agent-pin block. */
 const AGENT_PIN_HEADING = 'Agent pin';
+
+/** Heading above the follow-up queue block (002 FR-036, as amended). */
+const FOLLOW_UPS_HEADING = 'Follow-ups';
 
 /**
  * The tab title: the heading of the block every Status control lives in.
@@ -138,7 +142,17 @@ export interface StatusTabUi {
     readonly bindings: StatusRowGroup;
     /** The Default Agent pin's three shapes. */
     readonly agentPin: StatusRowGroup;
+    /**
+     * The follow-ups waiting to be delivered (002 FR-036, as amended).
+     *
+     * Its own block rather than a line inside another group: the amendment
+     * requires the queue to be reported *as a queue*, and a queue folded into
+     * the service's health block reads as a service fact rather than as work
+     * the panel owes.
+     */
+    readonly followUps: StatusRowGroup;
 }
+
 
 /**
  * Whether the runtime has been torn down.
@@ -294,6 +308,9 @@ export function repaintStatusTab(rt: PanelRuntime): void {
         // because an operator who cannot see it cannot tell a missing warning
         // from a panel that did not check.
         paintRowGroup(ui.bindings, actorPolicyLines(view));
+        // The follow-up queue is panel state, not part of the status document,
+        // so it paints the same whether or not a document has landed.
+        paintRowGroup(ui.followUps, [followUpQueueLine(rt.state.relay.waitingFollowUps)]);
 
         return;
     }
@@ -307,6 +324,7 @@ export function repaintStatusTab(rt: PanelRuntime): void {
         ...projectGuidanceLines({ bindings: view.bindings, registeredProjectIds: registeredProjects(rt) }),
     ]);
     paintRowGroup(ui.agentPin, agentPinLines(view));
+    paintRowGroup(ui.followUps, [followUpQueueLine(rt.state.relay.waitingFollowUps)]);
 }
 
 /**
@@ -516,6 +534,7 @@ export function mountStatusTab(input: {
         accounts: mountRowGroup(parent, { heading: ACCOUNTS_HEADING, keyClass: SUBJECT_KEY_CLASS }),
         bindings: mountRowGroup(parent, { heading: BINDINGS_HEADING, keyClass: SUBJECT_KEY_CLASS }),
         agentPin: mountRowGroup(parent, { heading: AGENT_PIN_HEADING }),
+        followUps: mountRowGroup(parent, { heading: FOLLOW_UPS_HEADING }),
     };
     rt.statusUi = ui;
     repaintStatusTab(rt);
@@ -545,6 +564,7 @@ export function disposeStatusTab(rt: PanelRuntime): void {
     disposeRowGroup(ui.accounts);
     disposeRowGroup(ui.bindings);
     disposeRowGroup(ui.agentPin);
+    disposeRowGroup(ui.followUps);
     rt.statusUi = null;
     stopStatusRefresh(rt);
 }

@@ -48,7 +48,6 @@ import { ACCOUNTS_STORAGE_KEY } from '../src/account-mirror.ts';
 import type { ScopeResult } from '../src/account-mirror.ts';
 import { initialBindings } from '../src/panel-state.ts';
 import type { BindingsTabState, PanelRuntime } from '../src/panel-state.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { AccountScopeMatrix, PanelAccount, PanelBinding } from '../src/bindings-service.ts';
 import { parseAccountsBody } from '../src/bindings-service.ts';
 import { ACCOUNTS_PATH } from '../src/service-calls.ts';
@@ -144,7 +143,7 @@ describe('rendering (contract §4 rule 5, SEC-17)', () => {
 });
 
 describe('silent account adoption (MVP blocker 2)', () => {
-    it('adopts a service-side account after a reinstall and hides the paste form', async () => {
+    it('adopts a service-side account after a reinstall and renders its identity', async () => {
         const accountsBody = JSON.stringify({
             accounts: [
                 {
@@ -169,10 +168,8 @@ describe('silent account adoption (MVP blocker 2)', () => {
 
         expect(host.rt.state.handoff.connected).toEqual({ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN });
         expect(host.record.connected).toBe(`Connected as ${CONNECTED_LOGIN}`);
-        expect(host.record.pasteVisible).toBe(false);
-        // The paste row stays hidden because the service already holds the
-        // account; the disclaimer beneath the Accounts list has no visibility
-        // rule at all — it is always there (002 v1.9.0).
+        // The add form stays available alongside the connected line (issue
+        // #35) — its DOM-level proof lives in `tests/handoff-dom.test.ts`.
         // The adoption rewrote the mirror the reinstall deleted, so the
         // next mount adopts from storage without touching the service.
         const mirrored = host.storage.values.get(ACCOUNTS_STORAGE_KEY);
@@ -180,13 +177,6 @@ describe('silent account adoption (MVP blocker 2)', () => {
         expect(JSON.stringify(mirrored)).toContain(CONNECTED_ID);
     });
 });
-
-/** The picker callbacks the shell takes; none is exercised by this suite. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
-};
 
 /** Every lifecycle state FR-062 names, in the order the DTO lists them. */
 const LIFECYCLE_STATES = [
@@ -317,7 +307,7 @@ function mountAccountsTab(setup?: (rt: PanelRuntime) => void): {
     const rt = createTestRuntime(fakeHost());
     setup?.(rt);
     const dom = fakeDom();
-    const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'accounts');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'accounts');
     if (spec === undefined) {
         throw new Error('the Accounts tab spec is missing from the shell');
     }

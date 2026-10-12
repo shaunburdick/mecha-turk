@@ -15,10 +15,11 @@
 
 import type { GuestRequest, GuestRequestResult, HostRequestErrorCode } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
-import { mountHandoffDom, refreshHandoff, submitHandoffAndRepaint } from '../src/accounts-ui.ts';
+import { mountHandoffDom, preflightAndRepaint, refreshHandoff, submitHandoffAndRepaint } from '../src/accounts-ui.ts';
 import { VERIFY_PATH } from '../src/handoff.ts';
 import type { HandoffHandlers } from '../src/accounts-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
+import { ACCOUNTS_PATH } from '../src/service-calls.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import {
@@ -68,6 +69,13 @@ interface ExitSpec {
     readonly verify: GuestRequestResult | { readonly throws: HostRequestErrorCode };
     /** Optional status body for the pre-flight (and the F4 re-read). */
     readonly status?: string;
+    /**
+     * Full scripted answer, when the status+verify script is too narrow.
+     *
+     * The adoption read needs a `GET /v1/accounts` answer of its own, which
+     * `serviceScript` (everything-but-status → verify) cannot express.
+     */
+    readonly script?: (request: GuestRequest) => GuestRequestResult;
 }
 
 /** A mounted handoff group over the fake document, plus its runtime. */
@@ -102,7 +110,7 @@ interface MountedHandoff {
  * @returns The mounted input, button, and runtime.
  */
 async function mountHandoff(spec: ExitSpec): Promise<MountedHandoff> {
-    const handler = serviceScript(spec.verify, spec.status);
+    const handler = spec.script ?? serviceScript(spec.verify, spec.status);
     const storage = createStorageDouble({});
     const requests: GuestRequest[] = [];
     const host = fakeHost({
@@ -396,4 +404,105 @@ describe('the expected-login supply surface (005 FR-006, AC-141)', () => {
         }
     });
 
+});
+
+/* ------------------------------------------------------------------------- *
+ * GitHub issue #35 — the add form must survive a connection.
+ *
+ * The old render step hid the paste row (credential input, expected-login
+ * input, submit) as soon as `connected` was set, so any install that already
+ * held an account showed only "Refresh accounts": 002 FR-006 (N accounts)
+ * and 005 US4 scenario 3 (the second account's flow is identical) both
+ * demand the same paste → connect flow the whole time.
+ * ------------------------------------------------------------------------- */
+
+/**
+ * Locate the credential row the old render step hid.
+ *
+ * Group and row are the only `div.oc-sdk` elements the adapter creates, in
+ * creation order — the group first, then the row that holds both inputs —
+ * so the row is the second of the two.
+ *
+ * @param created - Every element the adapter created, in order.
+ * @returns The row, or `undefined` when the structure changed.
+ */
+function credentialRow(created: readonly FakeElement[]): FakeElement | undefined {
+    const divs = created.filter((node) => node.tagName === 'div' && node.className === 'oc-sdk');
+
+    return divs[1];
+}
+
+/**
+ * Assert the add form is fully present and usable.
+ *
+ * @param mounted - The mounted group under test.
+ * @param context - What produced this state, for failure labels.
+ */
+function expectFormAvailable(mounted: MountedHandoff, context: string): void {
+    expect(credentialRow(mounted.created)?.hidden, `${context}: credential row hidden`).toBe(false);
+    expect(mounted.submit.hidden, `${context}: submit hidden`).toBe(false);
+    expect(mounted.input.disabled, `${context}: credential input disabled`).toBe(false);
+    expect(mounted.submit.disabled, `${context}: submit disabled`).toBe(false);
+}
+
+describe('the add form survives a connection (GitHub issue #35)', () => {
+    /** The accounts answer the adoption read: the service holds one already. */
+    const HELD_ACCOUNTS = JSON.stringify({
+        accounts: [{ numericUserId: CONNECTED_ID, login: CONNECTED_LOGIN, state: 'active' }],
+    });
+
+    it('stays available after a 201 connect, and a second submit sends a second verify', async () => {
+        const mounted = await mountHandoff({
+            name: 'a second account after a success',
+            verify: { status: 201, body: VERIFY_BODY },
+        });
+
+        mounted.input.value = PANEL_TOKEN;
+        mounted.submit.click();
+        await mounted.submitted();
+
+        expectFormAvailable(mounted, 'post-connect');
+        expect(mounted.renderedText()).toContain(`Connected as ${CONNECTED_LOGIN}`);
+
+        // The second paste must reach the credential route — exactly what
+        // the hidden row made impossible (issue #35).
+        mounted.input.value = PANEL_TOKEN;
+        mounted.submit.click();
+        await mounted.submitted();
+
+        expect(mounted.requests.filter((request) => request.path === VERIFY_PATH)).toHaveLength(2);
+        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+    });
+
+    it('stays available after adoption, and pastes still send verify', async () => {
+        const base = serviceScript({ status: 201, body: VERIFY_BODY });
+        const mounted = await mountHandoff({
+            name: 'a paste after adoption',
+            verify: { status: 201, body: VERIFY_BODY },
+            script: (request) =>
+                request.path === ACCOUNTS_PATH ? { status: 200, body: HELD_ACCOUNTS } : base(request),
+        });
+
+        // The mount's own sequence — adoption, pre-flight, repaint — is what
+        // used to leave the operator with only "Refresh accounts".
+        await preflightAndRepaint(mounted.rt);
+
+        expect(mounted.rt.state.handoff.connected).toEqual({
+            numericUserId: CONNECTED_ID,
+            login: CONNECTED_LOGIN,
+        });
+        expect(mounted.renderedText()).toContain(`Connected as ${CONNECTED_LOGIN}`);
+        expectFormAvailable(mounted, 'post-adoption');
+
+        mounted.input.value = PANEL_TOKEN;
+        mounted.submit.click();
+        await mounted.submitted();
+        expect(mounted.requests.filter((request) => request.path === VERIFY_PATH)).toHaveLength(1);
+
+        mounted.input.value = PANEL_TOKEN;
+        mounted.submit.click();
+        await mounted.submitted();
+        expect(mounted.requests.filter((request) => request.path === VERIFY_PATH)).toHaveLength(2);
+        expect(mounted.renderedText()).not.toContain(PANEL_TOKEN);
+    });
 });

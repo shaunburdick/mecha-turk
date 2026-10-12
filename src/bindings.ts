@@ -20,6 +20,7 @@
 
 import { nowIso } from './ids.ts';
 import { refresh } from './panel-ui.ts';
+import { currentProjectDefault } from './project-picker.ts';
 import { redact } from './redaction.ts';
 import { armRelayForBindings, grantBindings } from './bindings-grant.ts';
 import { readDraft } from './bindings-draft.ts';
@@ -67,32 +68,40 @@ export function editBindings(rt: PanelRuntime, patch: Partial<BindingsTabState>)
  * Exported for [`bindings-edit.ts`](./bindings-edit.ts), which clears the
  * same draft when an edit is saved or cancelled: two resets of one draft are
  * two places the defaults could drift, so there is one.
+ *
+ * `displayed` prefills the project field with the current-project default
+ * when one resolves, so an untouched add saves the project the operator is
+ * already in (002 FR-097(b)).
  */
-export function resetDraft(bindings: BindingsTabState): void {
+export function resetDraft(bindings: BindingsTabState, displayed: string | null): void {
     bindings.repoInput = '';
     bindings.accountSelection = null;
-    bindings.repoProjectSelection = null;
+    bindings.repoProjectSelection = displayed;
     bindings.triggerAssignment = true;
     bindings.triggerMention = false;
     bindings.triggerReviewRequest = true;
     bindings.worktreeSelection = 'none';
 }
-function resetCoveredDraft(bindings: BindingsTabState, repository: string): void {
+function resetCoveredDraft(bindings: BindingsTabState, repository: string, displayed: string | null): void {
     const draft = bindings.repoInput.trim().toLowerCase();
     if (draft === '' || draft !== repository.toLowerCase()) {
         return;
     }
 
-    resetDraft(bindings);
+    resetDraft(bindings, displayed);
 }
-function clearDraftIfCovered(bindings: BindingsTabState, stored: readonly PanelBinding[]): void {
+function clearDraftIfCovered(
+    bindings: BindingsTabState,
+    stored: readonly PanelBinding[],
+    displayed: string | null,
+): void {
     const draft = bindings.repoInput.trim().toLowerCase();
     const isCovered = draft !== '' && stored.some((binding) => binding.repository.toLowerCase() === draft);
     if (!isCovered) {
         return;
     }
 
-    resetDraft(bindings);
+    resetDraft(bindings, displayed);
 }
 /**
  * Whether the mount still runs; a function call the analyzer never narrows.
@@ -130,7 +139,7 @@ async function fetchBindings(rt: PanelRuntime): Promise<BindingsSnapshot | null>
         return null;
     }
 
-    clearDraftIfCovered(rt.state.bindings, parsed.bindings);
+    clearDraftIfCovered(rt.state.bindings, parsed.bindings, currentProjectDefault(rt.state));
 
     return parsed;
 }
@@ -263,7 +272,7 @@ export async function bindRepository(rt: PanelRuntime): Promise<void> {
         // scanned (002 FR-084).
         historyScope: { bindingId: draft.bindingId, historyScope: draft.historyScope },
     });
-    resetCoveredDraft(bindings, draft.repository);
+    resetCoveredDraft(bindings, draft.repository, currentProjectDefault(rt.state));
     if (answer.ok) {
         bindings.editorOpen = false;
         bindings.startingPromptDirty = false;

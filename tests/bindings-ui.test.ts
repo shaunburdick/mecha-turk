@@ -37,7 +37,6 @@ import { stopRelayPolling } from '../src/relay.ts';
 import { selectedBindingDetail } from '../src/bindings-rows.ts';
 import { PROJECT_REGISTRATION_ROUTES } from '../src/project-picker.ts';
 import { initialBindings } from '../src/panel-state.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { BindingsTabState } from '../src/panel-state.ts';
 import type { BindingStatusRow, PanelAccount, PanelBinding } from '../src/bindings-service.ts';
 import { fakeDom } from './support/dom.ts';
@@ -46,7 +45,6 @@ import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost } from './support/panel.
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
     log: [] as { readonly key: string; readonly props: unknown }[],
-    inert: 0,
     paints: 0,
     disposes: 0,
 }));
@@ -90,19 +88,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/** The picker callbacks the Bindings body takes; none is exercised here. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => {
-        mounts.inert += 1;
-    },
-    selectProject: (): void => {
-        mounts.inert += 1;
-    },
-    copyProjectId: (): void => {
-        mounts.inert += 1;
-    },
-};
 
 /** Service configuration field names; none of them belongs to this tab (FR-059). */
 const CONFIG_FIELDS: readonly string[] = [
@@ -182,7 +167,7 @@ function mountBindingsTab(options: {
     const rt = createTestRuntime(options.host ?? fakeHost());
     options.setup?.(rt);
     const dom = fakeDom();
-    const spec = tabSpecs(rt, inertHandlers).find((entry) => entry.id === 'bindings');
+    const spec = tabSpecs(rt).find((entry) => entry.id === 'bindings');
     if (spec === undefined) {
         throw new Error('the Bindings tab spec is missing from the shell');
     }

@@ -29,7 +29,6 @@ import { loadVersion } from '../src/about-tab.ts';
 import { pollRelay, startRelayPolling, stopRelayPolling } from '../src/relay.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
@@ -70,13 +69,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
 /** The six tabs FR-010 puts in the strip, in strip order. */
 const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
-
-/** The picker callbacks the bodies take; none is exercised by a mount. */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => undefined,
-    selectProject: (): void => undefined,
-    copyProjectId: (): void => undefined,
-};
 
 /** Body the unrouted paths answer with. */
 const UNROUTED = '{"error":{"code":"not-found","message":"unrouted"}}';
@@ -135,7 +127,7 @@ async function visitAllTabs(): Promise<LifecycleRun> {
     });
     const rt = createTestRuntime(host);
     const dom = fakeDom();
-    mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
+    mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt) });
     for (const id of TAB_IDS) {
         rt.shell?.activate(id);
     }
@@ -235,7 +227,7 @@ describe('AC-136 / SC-108 one loop and one session across a mid-flight switch', 
             await loop.enqueue({ issueNumber: 7 });
             const rt = loop.mount();
             const dom = fakeDom();
-            mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
+            mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt) });
 
             startRelayPolling(rt);
             const armed = rt.state.relay.timer;

@@ -227,5 +227,11 @@ export function offlinePoller(): GitHubIssuePoller {
         listIssueComments: async () => ({ kind: 'ok', comments: [] }),
         listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
         listIssueEvents: async () => ({ kind: 'ok', events: [], exhausted: false }),
+        readIssueState: async () => {
+            throw new Error('the terminal read is F-9-only; this suite detects no follow-up');
+        },
+        readPullState: async () => {
+            throw new Error('the terminal read is F-9-only; this suite detects no follow-up');
+        },
     };
 }

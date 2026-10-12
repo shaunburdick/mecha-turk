@@ -325,6 +325,10 @@ function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run 
         attempts,
         session: objects.session,
         verification: objects.verification,
+        // Absent stays absent: the writer never fills in a seed the row did not
+        // hold, because a fabricated baseline would let the next cycle compare
+        // against a value no observation ever produced (002 FR-103).
+        ...(scalars.lastHeadSha !== undefined && { lastHeadSha: scalars.lastHeadSha }),
         createdAt: scalars.createdAt,
         updatedAt: scalars.updatedAt,
     };

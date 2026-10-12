@@ -56,8 +56,6 @@ export interface HandoffView {
     setNote(text: string): void;
     /** Render `Connected as <login>`, or hide the line with `null`. */
     setConnected(text: string | null): void;
-    /** Show or hide the paste row (credential input and submit). */
-    setPasteVisible(isVisible: boolean): void;
     /** Enable or disable the submit button. */
     setSubmitEnabled(isEnabled: boolean): void;
     /** Remove every node this view created. */
@@ -79,13 +77,15 @@ export function handoffInputEnabled(state: HandoffState): boolean {
 /**
  * Apply the handoff state to a view.
  *
- * A connected account — adopted from the service or handed off one-shot —
- * hides the paste row: the paste field must not offer a credential the
- * service already holds (MVP blocker 2).
+ * The add form is never hidden. A connected account — adopted from the
+ * service or handed off one-shot — renders on the connected line while the
+ * paste row stays available, so an install that already holds an account can
+ * still add the next one through the same flow (002 FR-006, 005 US4
+ * scenario 3; GitHub issue #35 — hiding the row here left only "Refresh
+ * accounts" on screen). Only the storage pre-flight and the busy flag ever
+ * disable the inputs.
  */
 export function renderHandoff(state: HandoffState, view: HandoffView): void {
-    const isConnected = state.connected !== null;
-    view.setPasteVisible(!isConnected);
     const isEnabled = handoffInputEnabled(state);
     view.setTokenEnabled(isEnabled);
     view.setSubmitEnabled(isEnabled);
@@ -110,8 +110,10 @@ export function refreshHandoff(rt: PanelRuntime): void {
  *
  * The pre-flight is preceded by the silent account adoption: a service-side
  * account the mirror lost (extension reinstall) is adopted from
- * `GET /v1/accounts` before the operator is shown a paste form that could
- * only end in the service's duplicate refusal (MVP blocker 2).
+ * `GET /v1/accounts` so its identity renders as connected before the
+ * operator acts. The paste form itself is never gated on that outcome — a
+ * genuinely second account is pasted through the same flow (GitHub issue
+ * #35), and a duplicate paste routes back to adoption through the 409.
  */
 export async function preflightAndRepaint(rt: PanelRuntime): Promise<void> {
     await adoptServiceAccounts(rt);
@@ -181,7 +183,7 @@ interface DomInput {
 
 /** Where the credential row was mounted, for later repaints. */
 interface CredentialField {
-    /** Container holding both inputs, hidden together once connected. */
+    /** Container holding both inputs. */
     readonly field: HTMLElement;
     /** The dedicated credential input (`type="password"`, SEC-17). */
     readonly input: HTMLInputElement;
@@ -272,8 +274,9 @@ function mountExpectedLoginField(doc: Document): {
  * The input is `type="password"` with `autocomplete="new-password"`
  * (token-handoff §2 step ①/SEC-17) so the browser's credential manager offers
  * to *save* what was typed rather than to autofill a stored secret. The
- * expected-login field sits in the same row so the two hide together once an
- * account is connected (the paste row is then pointless for both).
+ * expected-login field sits in the same row because both belong to the one
+ * add form (005 FR-006); the row stays mounted whether or not an account is
+ * connected (GitHub issue #35).
  *
  * @returns The row's container, both inputs, and the note node.
  */
@@ -368,10 +371,6 @@ export function mountHandoffDom(input: DomInput): HandoffView {
         setConnected: (text: string | null): void => {
             connected.textContent = text ?? '';
             connected.hidden = text === null;
-        },
-        setPasteVisible: (isVisible: boolean): void => {
-            credential.field.hidden = !isVisible;
-            submit.hidden = !isVisible;
         },
         setSubmitEnabled: (isEnabled: boolean): void => {
             submit.disabled = !isEnabled;

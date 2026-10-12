@@ -95,7 +95,6 @@ import {
     stubBindingsPane,
     stubLastProps,
     stubPanelUi,
-    stubProjectPickerUi,
 } from './support/ui-stubs.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { scopeResults } from './support/verify.ts';
@@ -389,7 +388,6 @@ function mountedBindingsPane(input: {
     ];
     rt.state.bindings.editorOpen = true;
     rt.ui = stubPanelUi();
-    rt.pickerUi = stubProjectPickerUi();
     // The pane is registered **before** the entry point runs, because that entry
     // point's own `refresh` is the first paint this case asserts on.
     const pane = stubBindingsPane(fakeDom().root);
@@ -499,6 +497,12 @@ function recordingPoller(issues: readonly PollIssue[]): {
                     }],
                 };
         },
+        readIssueState: async () => {
+            throw new Error('the terminal read is F-9-only; this fixture binds no session');
+        },
+        readPullState: async () => {
+            throw new Error('the terminal read is F-9-only; this fixture binds no session');
+        },
     };
 
     return { poller, seen: () => ({ offered: [...offered], windows: [...windows] }) };
@@ -521,6 +525,8 @@ function failingPoller(): GitHubIssuePoller {
         listIssueComments: async () => failure,
         listOpenPulls: async () => failure,
         listIssueEvents: async () => failure,
+        readIssueState: async () => failure,
+        readPullState: async () => failure,
     };
 }
 
@@ -2666,9 +2672,8 @@ describe('§5.21 the panel renders the mode once, unreadable when unusable, defa
 
         // Which also makes the single-rendering claim countable: the mode's control is
         // the **one** select this wave added, so every other panel select is one that
-        // predates it — the bindings editor's account and worktree fields, the
-        // dispatches toolbar's three, the project picker's, and the Settings enum
-        // row's.
+        // predates it — the bindings editor's account, dispatch-project and worktree
+        // fields, the dispatches toolbar's three, and the Settings enum row's.
         const otherSelects = panelFiles
             .map((file) => [file, readFileSync(join(REPO, 'src', file), 'utf8')] as const)
             .map(([file, source]) => [file, source.match(/mountSelect\(/g)?.length ?? 0] as const)
@@ -2678,7 +2683,6 @@ describe('§5.21 the panel renders the mode once, unreadable when unusable, defa
         expect(otherSelects).toEqual([
             ['bindings-body.ts', 3],
             ['dispatches-controls.ts', 3],
-            ['panel-ui.ts', 1],
             ['settings-rows.ts', 1],
         ]);
     });

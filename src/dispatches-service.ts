@@ -33,8 +33,8 @@ import { asRecord, fieldsHoldText, parseJsonObject, textOrNull } from './json.ts
 import { readPromptReference } from './prompt-wire.ts';
 import { eventKindOf, issueNumberFrom } from './bindings-service.ts';
 import { readActorPolicy } from './run-actor.ts';
-import { parseReferences, parseSession, parseVerification } from './dispatches-detail.ts';
-import type { RunKind, RunReference, RunSession, RunVerification } from './dispatches-detail.ts';
+import { parseFollowUps, parseReferences, parseSession, parseVerification } from './dispatches-detail.ts';
+import type { RunFollowUp, RunKind, RunReference, RunSession, RunVerification } from './dispatches-detail.ts';
 import { runStateOf } from './run-state.ts';
 import type { ActorPolicy } from './run-actor.ts';
 import type { PromptReference } from './prompt.ts';
@@ -46,7 +46,7 @@ export type { PlainRunState, RunState } from './run-state.ts';
 
 
 /** The runs row's structured members and their readers, one module per concern. */
-export type { RunKind, RunReference, RunSession, RunVerification } from './dispatches-detail.ts';
+export type { RunFollowUp, RunKind, RunReference, RunSession, RunVerification } from './dispatches-detail.ts';
 
 /**
  * The two closed vocabularies a runs row adds, read from
@@ -131,6 +131,16 @@ export interface RunRow extends PromptReference {
     readonly headSha: string | null;
     /** Base ref of that pull request; `null` on every other kind. */
     readonly baseRef: string | null;
+    /**
+     * The run's follow-ups, in detection order — **absentable, and absent is the
+     * ordinary case** (002 FR-104).
+     *
+     * One additive member on the read the panel already performs (`GET
+     * /v1/events`), so a follow-up's text and the session it is delivered into
+     * ride one row. A run that has had no movement on its subject carries no
+     * member at all, so a panel reading a row without it has nothing to deliver.
+     */
+    readonly followUps?: readonly RunFollowUp[];
 }
 
 /**
@@ -178,6 +188,7 @@ type RunDetail = Pick<
     | 'dispatchedAt'
     | 'headSha'
     | 'baseRef'
+    | 'followUps'
 >;
 
 /** Fields one runs-history row must carry as plain strings. */
@@ -304,8 +315,19 @@ function readRunDetail(record: Record<string, unknown>): RunDetail | null {
     const sourceReferences = parseReferences(record.sourceReferences);
     const session = parseSession(record.session);
     const verification = parseVerification(record.verification);
+    // Read fail-closed like every other structured member: an unusable list
+    // refuses the whole row rather than delivering from a half-read follow-up
+    // (AGENTS invariant 8). Absent is the ordinary case and reads as *nothing
+    // to deliver*.
+    const followUps = parseFollowUps(record.followUps);
     const actorPolicy = readActorPolicy(record);
-    if (sourceReferences === null || session === undefined || verification === undefined || !actorPolicy.usable) {
+    if (
+        sourceReferences === null
+        || followUps === null
+        || session === undefined
+        || verification === undefined
+        || !actorPolicy.usable
+    ) {
         return null;
     }
 
@@ -322,6 +344,7 @@ function readRunDetail(record: Record<string, unknown>): RunDetail | null {
         dispatchedAt: textOrNull(record, 'dispatchedAt'),
         headSha: textOrNull(record, 'headSha'),
         baseRef: textOrNull(record, 'baseRef'),
+        ...(followUps !== undefined && { followUps }),
     };
 }
 

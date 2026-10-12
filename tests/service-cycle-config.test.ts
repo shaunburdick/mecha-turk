@@ -259,6 +259,12 @@ function recordingPoller(issues: readonly PollIssue[]): {
                 exhausted: false,
             };
         },
+        readIssueState: async () => {
+            throw new Error('the terminal read is F-9-only; this fixture binds no session');
+        },
+        readPullState: async () => {
+            throw new Error('the terminal read is F-9-only; this fixture binds no session');
+        },
     };
 
     return { poller, calls };

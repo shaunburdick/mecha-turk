@@ -67,7 +67,6 @@ import { dispatchRow } from '../src/dispatches-rows.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import { stopRelayPolling } from '../src/relay.ts';
-import type { PanelHandlers } from '../src/panel-ui.ts';
 import type { BindingsTabState, PanelRuntime } from '../src/panel-state.ts';
 import type { PanelBinding, PanelTriggers } from '../src/bindings-service.ts';
 import type { StatusView } from '../src/status-document.ts';
@@ -88,7 +87,6 @@ import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost, tick } from './support/
 const mounts = vi.hoisted(() => ({
     log: [] as { readonly key: string; readonly props: unknown }[],
     updates: [] as { readonly key: string; readonly id: number; readonly props: unknown }[],
-    inert: 0,
 }));
 
 /** The SDK primitive the allow-list field and the repository input both are. */
@@ -220,24 +218,6 @@ const POLICY_MATCHERS: readonly (readonly [string, RegExp])[] = [
 
 /** The same three words, for the composed-string assertions. */
 const POLICY_WORDS: readonly string[] = POLICY_MATCHERS.map(([word]) => word);
-
-/**
- * The picker callbacks the shell's bodies take; none is exercised here.
- *
- * They count rather than no-op so an accidental invocation during a mount would
- * show up as a number instead of as silence.
- */
-const inertHandlers: PanelHandlers = {
-    refreshProjects: (): void => {
-        mounts.inert += 1;
-    },
-    selectProject: (): void => {
-        mounts.inert += 1;
-    },
-    copyProjectId: (): void => {
-        mounts.inert += 1;
-    },
-};
 
 /**
  * Build one binding as `GET /v1/bindings` serializes it.
@@ -841,7 +821,7 @@ describe('AC-143 twelve permitted logins render exactly once, and the row reads 
             createBindingsHandlers(rt).selectBinding(EDITED_ID);
 
             const dom = fakeDom();
-            mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt, inertHandlers) });
+            mountTabShell({ rt, root: dom.root, specs: tabSpecs(rt) });
             for (const id of TAB_IDS) {
                 rt.shell?.activate(id);
             }

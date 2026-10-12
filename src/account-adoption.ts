@@ -8,8 +8,8 @@
  * module closes that gap from the panel side: every account `GET /v1/accounts`
  * reports as usable (`state: 'active'`) that the mirror does not know is
  * adopted silently — the identity is rendered from the service's own answer
- * and the mirror is rewritten, so the paste field is not offered for an
- * account the service already holds.
+ * and the mirror is rewritten, so the mount shows which account the service
+ * already holds instead of a blank add form.
  *
  * The same read answers the duplicate refusal mid-flow (operator re-paste):
  * {@link isDuplicateRefusal} is the envelope check the handoff uses to route
@@ -21,10 +21,12 @@
  * skip (002 v1.9.0) — and the one-shot paste path stays untouched for
  * genuinely new tokens.
  *
- * MVP-DEBT: with a usable account connected, the paste form stays hidden for
- * the whole mount — handing off a genuinely second account needs a panel
- * reload, or the bindings pane's "Remove account" affordance to clear the path.
- * Multi-account adoption renders the first usable account.
+ * MVP-DEBT: multi-account adoption renders only the first usable account's
+ * identity on the connected line (every usable account is still mirrored).
+ * The paste form is not gated on adoption — it stays available through the
+ * whole mount, so a second account is added through the same paste →
+ * connect flow (GitHub issue #35, which the old "hide the form once
+ * connected" rule broke: a reload raced adoption or found no form at all).
  */
 
 import type { GuestRequestResult } from '@openchamber/sdk';
@@ -169,8 +171,9 @@ async function writeMissingMirrors(rt: PanelRuntime, usable: readonly ServiceAcc
  * Adopt the service's usable accounts the panel mirror is missing.
  *
  * Reads `GET /v1/accounts`, writes a mirror for every usable account the
- * mirror lacks, and connects the first usable one so the paste form
- * is not offered for an account the service already holds. Never throws and
+ * mirror lacks, and connects the first usable one so its identity renders on
+ * the connected line — the paste form is not gated on it (GitHub issue #35).
+ * Never throws and
  * never touches the one-shot paste path: a failed read or an unreadable body
  * simply leaves the flow exactly as it was. There is nothing to ask the
  * operator here: the service already holds the credential, and the consent

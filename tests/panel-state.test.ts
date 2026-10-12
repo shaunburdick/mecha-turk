@@ -46,7 +46,6 @@ describe('createPanelRuntime (the shell starts on Status, FR-012, FR-015)', () =
             expect(rt.ui).toBeNull();
             expect(rt.bindingsUi).toBeNull();
             expect(rt.dispatchesUi).toBeNull();
-            expect(rt.pickerUi).toBeNull();
             expect(rt.aboutUi).toBeNull();
             expect(rt.handoffView).toBeNull();
         }

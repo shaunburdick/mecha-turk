@@ -75,8 +75,6 @@ export interface RecordingView {
     note: string;
     /** The connected line, when one is shown. */
     connected: string | null;
-    /** Whether the paste row (credential input and submit) shows. */
-    pasteVisible: boolean;
     /** Whether the submit button is enabled. */
     submitEnabled: boolean;
     /** Whether the view was disposed. */
@@ -107,9 +105,6 @@ export function recordingView(): RecordingView {
                     record.rendered.push(text);
                 }
             },
-            setPasteVisible: (isVisible: boolean): void => {
-                record.pasteVisible = isVisible;
-            },
             setSubmitEnabled: (isEnabled: boolean): void => {
                 record.submitEnabled = isEnabled;
             },
@@ -122,7 +117,6 @@ export function recordingView(): RecordingView {
         tokenValue: '',
         note: '',
         connected: null,
-        pasteVisible: true,
         submitEnabled: false,
         disposed: false,
     };

@@ -9,7 +9,7 @@
  */
 
 import type { Handle } from '@openchamber/sdk/ui';
-import type { PanelUi, ProjectPickerUi } from '../../src/panel-state.ts';
+import type { PanelUi } from '../../src/panel-state.ts';
 import type { BindingsPane } from '../../src/bindings-ui.ts';
 
 /**
@@ -98,21 +98,6 @@ export function stubPanelUi(): PanelUi {
 }
 
 /**
- * Build a `ProjectPickerUi` whose handles are recording stubs.
- *
- * @returns A complete stub picker, as the Bindings body would mount it.
- */
-export function stubProjectPickerUi(): ProjectPickerUi {
-    return {
-        projectSelect: stubHandle(),
-        projectStatus: stubHandle(),
-        projectDetail: stubHandle(),
-        projectRefresh: stubHandle(),
-        projectCopy: stubHandle(),
-    };
-}
-
-/**
  * Build a `BindingsPane` whose handles are recording stubs.
  *
  * The repaint step only calls `update` on these handles and reads `pane` for
@@ -146,6 +131,8 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
         accountSelect: stubHandle(),
         mentionToken: stubHandle(),
         projectSelect: stubHandle(),
+        projectRefresh: stubHandle(),
+        projectStatus: stubHandle(),
         assignmentCheck: stubHandle(),
         mentionCheck: stubHandle(),
         reviewRequestCheck: stubHandle(),

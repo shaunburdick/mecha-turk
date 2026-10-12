@@ -25,7 +25,7 @@ import {
     selectedRun,
     stateLabel,
 } from '../src/dispatches-rows.ts';
-import { referenceDetailLines } from '../src/dispatches-detail.ts';
+import { referenceDetailLines, followUpRowView, waitingFollowUps } from '../src/dispatches-detail.ts';
 import { SUBJECT_AUTHOR_BASIS } from '../src/run-actor.ts';
 import type { RunAffordance } from '../src/dispatches-rows.ts';
 import {
@@ -52,7 +52,8 @@ import {
 import type { AuditViewState } from '../src/audit-view.ts';
 import { EVENTS_PATH, auditPath, requeuePath, resolvePath, retryPath } from '../src/service-calls.ts';
 import type { PanelRuntime, DispatchesState } from '../src/panel-state.ts';
-import type { RunReference, RunRow } from '../src/dispatches-service.ts';
+import type { FollowUpDeliveryRecord } from '../src/dispatch-record.ts';
+import type { RunFollowUp, RunReference, RunRow } from '../src/dispatches-service.ts';
 import type { PromptSource } from '../src/prompt.ts';
 import {
     DEFAULT_BODY,
@@ -500,6 +501,147 @@ describe('dispatchRows / dispatchesStatusText (the copy the list renders)', () =
                 // carries the order and the selection hint only.
                 'newest first · select a row to open or retry',
             );
+        }
+    });
+});
+
+/* ------------------------------------------------------------------ *
+ * The follow-up queue on the surfaces (002 FR-036 as amended, FR-105).
+ * ------------------------------------------------------------------ */
+
+/** One durable follow-up record, as the panel's own store holds it. */
+function recordFixture(overrides: Partial<FollowUpDeliveryRecord> = {}): FollowUpDeliveryRecord {
+    return {
+        deliveryId: 'evt-acme~widget~7~77331~followup~501',
+        correlationId: RUN_ID,
+        sessionId: SESSION_RESULT,
+        attempt: 1,
+        nextAttemptAtMs: null,
+        delivered: false,
+        reason: null,
+        parked: false,
+        updatedAt: FIXTURE_TIMESTAMP,
+        ...overrides,
+    };
+}
+
+/** One comment follow-up, as the runs-history projection carries it. */
+function followUpFixture(): RunFollowUp {
+    return {
+        deliveryId: 'evt-acme~widget~7~77331~followup~501',
+        kind: 'comment',
+        excerpt: 'the drift is back',
+        actorLogin: 'alice',
+        detectedAt: '2026-09-28T09:00:00.000Z',
+        sourceUrl: ISSUE_URL,
+    };
+}
+
+describe('the follow-up queue on the surfaces (002 FR-036, FR-105)', () => {
+    it('names a parked follow-up and its cause on the run row, and counts what is waiting', () => {
+        {
+            // A dispatched run with one follow-up the panel has delivered, one
+            // it is still waiting on, and one that parked after the bound.
+            const row = runFixture({
+                state: 'dispatched',
+                dispatchResult: SESSION_RESULT,
+                session: {
+                    sessionId: SESSION_RESULT,
+                    attachmentId: RUN_ID,
+                    dispatchedAt: FIXTURE_TIMESTAMP,
+                },
+                followUps: [
+                    followUpFixture(),
+                    { ...followUpFixture(), deliveryId: 'evt-acme~widget~7~77331~followup~502' },
+                    { ...followUpFixture(), deliveryId: 'evt-acme~widget~7~77331~followup~503' },
+                ],
+            });
+            const records = [
+                recordFixture({ delivered: true }),
+                recordFixture({ deliveryId: 'evt-acme~widget~7~77331~followup~502', attempt: 2 }),
+                recordFixture({
+                    deliveryId: 'evt-acme~widget~7~77331~followup~503',
+                    attempt: 3,
+                    parked: true,
+                    reason: 'session-busy',
+                }),
+            ];
+
+            const [rendered] = dispatchRows(runsState({ rows: [row], status: 'ready', followUpRecords: records }));
+
+            // The row carries the queue: what reached the session, what is
+            // still owed, and the parked one with its cause — never as
+            // delivered work.
+            expect(rendered?.subtitle).toContain(
+                'follow-ups: 1 delivered · 1 waiting · parked: the session was mid-turn',
+            );
+            // And the surfaces' count is the same arithmetic, so the Status
+            // line and the row cannot disagree about the queue.
+            expect(waitingFollowUps([row], records)).toBe(1);
+        }
+    });
+
+    it('says nothing about a run with no follow-up state, which is the ordinary case', () => {
+        {
+            const [rendered] = rowsForRun();
+
+            expect(rendered?.subtitle).toBe(
+                'acme/widget · waiting for a panel · not dispatched yet · prompt not set',
+            );
+            expect(waitingFollowUps([runFixture()], [])).toBe(0);
+        }
+    });
+
+    it('counts a follow-up whose row left the projection window, and a parked one never as waiting', () => {
+        {
+            // A follow-up the panel attempted on a run it no longer holds is
+            // still waiting: understating the queue by the work the operator
+            // cannot see is the claim FR-036 forbids.
+            const orphan = recordFixture({
+                deliveryId: 'evt-acme~widget~99~77331~followup~900',
+                correlationId: 'mt-run-999999999999999999999999',
+                attempt: 1,
+            });
+            const parked = recordFixture({
+                deliveryId: 'evt-acme~widget~98~77331~followup~901',
+                correlationId: 'mt-run-888888888888888888888888',
+                attempt: 3,
+                parked: true,
+                reason: 'host-unavailable',
+            });
+
+            expect(waitingFollowUps([], [orphan, parked])).toBe(1);
+            // And with the run back in view, the same counts hold.
+            const row = runFixture({
+                state: 'dispatched',
+                dispatchResult: SESSION_RESULT,
+                session: {
+                    sessionId: SESSION_RESULT,
+                    attachmentId: RUN_ID,
+                    dispatchedAt: FIXTURE_TIMESTAMP,
+                },
+            });
+
+            expect(waitingFollowUps([row], [recordFixture({ delivered: true })])).toBe(0);
+        }
+    });
+
+    it('reads a record with no session as an attempt, not as a session that existed', () => {
+        {
+            // The `NO_SESSION` arm records `null`: inventing the run's
+            // attachment id as a session would put an id in the record that no
+            // host ever created.
+            const view = followUpRowView(
+                runFixture({ state: 'dispatched', followUps: [followUpFixture()] }),
+                [recordFixture({ sessionId: null, parked: true, reason: 'no-session', attempt: 3 })],
+            );
+
+            expect(view?.parked).toEqual([{
+                deliveryId: 'evt-acme~widget~7~77331~followup~501',
+                attempt: 3,
+                cause: 'no session was open for the run',
+            }]);
+            expect(view?.waiting).toBe(0);
         }
     });
 });
