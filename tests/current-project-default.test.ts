@@ -58,6 +58,7 @@ import {
     testConfig,
     tick,
 } from './support/panel.ts';
+import { jsonHeaders, headerMap } from './support/service-routes.ts';
 
 /**
  * The recording double one stubbed `mount*` primitive answers with.
@@ -932,15 +933,6 @@ afterEach(async (): Promise<void> => {
 });
 
 /** Build a header map without writing HTTP header names as object keys. */
-function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
-    return Object.fromEntries(pairs);
-}
-
-/** Headers for the routes that take a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return headerMap([['content-type', 'application/json']]);
-}
-
 /**
  * Start the real service on a temp dir against a fake GitHub, and register
  * the fixture account so the bindings route will accept a grant.

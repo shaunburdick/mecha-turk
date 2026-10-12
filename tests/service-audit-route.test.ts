@@ -31,15 +31,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { newCorrelationId } from '../src/ids.ts';
 import { AUDIT_FILE, appendAudit, readAuditEntries } from '../service/audit.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
-import { createLogger } from '../service/log.ts';
 import { AUDIT_PATH } from '../service/routes/audit.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** A well-formed run id the route must answer for even with no run behind it. */
 const SEEDED_RUN_ID = `mt-run-${'a'.repeat(24)}`;
@@ -76,11 +75,8 @@ const BEARER = 'Bearer ';
 /** A method no route declares, for the `405` assertion. */
 const WRONG_METHOD = 'PATCH';
 
-/** Log lines the fixture logger keeps out of the test output. */
-const LOG_LINES: string[] = [];
-
-/** Logger every direct store call in this suite reports through. */
-const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
+/** The capturing logger every direct store call reports through, and its lines. */
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('error');
 
 /** One answer, with its status and parsed body. */
 interface AuditAnswer {

@@ -29,7 +29,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { EVENTS_FILE, createEvent, readEvents } from '../service/poll/events.ts';
 import { trimExcerpts } from '../service/poll/excerpt-trim.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
@@ -38,9 +37,9 @@ import { openStore } from '../service/store/index.ts';
 import type { EventState, QueuedEvent } from '../service/poll/events.ts';
 import type { RunState } from '../service/poll/runs-types.ts';
 import type { ServiceConfig } from '../service/config.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Injected service clock: every fixture ages against this instant. */
 const NOW = Date.parse('2026-09-30T00:00:00.000Z');
@@ -90,23 +89,6 @@ beforeEach(async (): Promise<void> => {
 afterEach(async (): Promise<void> => {
     await removeTempTree(tempRoot);
 });
-
-/**
- * Build a capturing logger, so the pass's own line can be asserted.
- *
- * @returns The logger plus the lines it received.
- */
-function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
-    const lines: string[] = [];
-    const log = createLogger({
-        level: 'debug',
-        sink: (line: string) => {
-            lines.push(line);
-        },
-    });
-
-    return { log, lines };
-}
 
 /** Inputs one seeded queue row is built from. */
 interface QueueSeed {

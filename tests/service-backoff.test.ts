@@ -32,30 +32,26 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
 import { writeBindings } from '../service/bindings.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
 import { backoffDelayMs, nextWait, waitForRetry } from '../service/poll/backoff.ts';
 import { createGitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { SCAN_STATE_FILE, readScanState } from '../service/poll/scan.ts';
 import { startPollLoop } from '../service/poll/timer.ts';
 import { openStore } from '../service/store/index.ts';
-import type { Account } from '../service/accounts/model.ts';
-import type { BindingRecord } from '../service/bindings.ts';
+import type { BindingTriggers } from '../service/bindings.ts';
 import type { RetryPolicy, WaitRecord } from '../service/poll/backoff.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, ListPace } from '../service/poll/poller-github.ts';
 import type { ServiceStore } from '../service/store/index.ts';
-import { scopeResults } from './support/verify.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { capturingLogger } from './support/service-routes.ts';
+import { fixtureAccount } from './support/account-fixture.ts';
 
 /** Fixture credential — never a real one, and never expected in a log line. */
 const FIXTURE_TOKEN = 'fixture-token-not-a-real-credential';
 
 /** First fixture binding. */
 const BINDING_A = 'bnd-backoff-a';
-
-/** GitHub numeric user id of the fixture account. */
-const ACCOUNT_ID = '77331';
 
 /** Login the fixture account carries. */
 const ACCOUNT_LOGIN = 'octocat-mt';
@@ -116,61 +112,15 @@ afterEach(async (): Promise<void> => {
     await removeTempTree(tempRoot);
 });
 
-/**
- * Build a logger that records every line it is asked to write.
- */
-function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
-    const lines: string[] = [];
-    const log = createLogger({
-        level: 'debug',
-        sink: (line: string) => {
-            lines.push(line);
-        },
-    });
+/** Trigger set every fixture binding carries: assignment polling only. */
+const ASSIGNMENT_ONLY: BindingTriggers = { assignment: true, mention: false, reviewRequest: false };
 
-    return { log, lines };
-}
-
-/**
- * Build one active binding with only the assignment trigger on.
- *
- * @returns A complete stored binding record.
- */
-function fixtureBinding(): BindingRecord {
-    return {
-        bindingId: BINDING_A,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: 'acme/widget',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-    };
-}
-
-/**
- * Build the active account the fixture binding polls under.
- */
-function fixtureAccount(): Account {
-    return {
-        numericUserId: ACCOUNT_ID,
-        login: ACCOUNT_LOGIN,
-        expectedLogin: null,
-        displayName: null,
-        startingPrompt: null,
-        credential: { token: FIXTURE_TOKEN, kind: 'classic', verifiedAt: CREATED_AT },
-        scopeCheck: { checkedAt: CREATED_AT, results: scopeResults('ok') },
-        state: 'active',
-        connectionState: 'connected',
-        verifiedAt: CREATED_AT,
-        errorReason: null,
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-    };
-}
+/** The one active binding the backoff fixtures poll under. */
+const FIXTURE_BINDING = fixtureBindingRow(BINDING_A, {
+    accountLogin: ACCOUNT_LOGIN,
+    triggers: ASSIGNMENT_ONLY,
+    stamp: CREATED_AT,
+});
 
 /**
  * Write one scan-state document carrying the recorded checkpoint.
@@ -424,8 +374,8 @@ async function cycleOver(answers: readonly (() => Response)[]): Promise<{
     readonly sleeps: readonly RecordedSleep[];
     readonly lastScanAt: string | null;
 }> {
-    await writeBindings({ store, bindings: [fixtureBinding()] });
-    await writeAccount(store, fixtureAccount());
+    await writeBindings({ store, bindings: [FIXTURE_BINDING] });
+    await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
     await store.writeJson(CONFIG_FILE, {
         ...DEFAULT_CONFIG,
         retryMaxAttempts: STORED_LADDER.maxAttempts,
@@ -486,8 +436,8 @@ describe('the wait delays the schedule instead of being caught up (002 FR-022)',
         vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
 
         try {
-            await writeBindings({ store, bindings: [fixtureBinding()] });
-            await writeAccount(store, fixtureAccount());
+            await writeBindings({ store, bindings: [FIXTURE_BINDING] });
+            await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
             await store.writeJson(CONFIG_FILE, {
                 ...DEFAULT_CONFIG,
                 intervalMs: INTERVAL_MS,

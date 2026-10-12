@@ -46,7 +46,6 @@ import { MAX_PROJECTED_FOLLOW_UPS, projectRunHistory } from '../service/poll/run
 import { EVENTS_PATH } from '../service/routes/events.ts';
 import { readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
 import { buildEventId } from '../service/poll/events-write.ts';
-import type { Account } from '../service/accounts/model.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { BindingRecord, BindingTriggers } from '../service/bindings.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
@@ -78,11 +77,12 @@ import type { FollowUpRetryPolicy } from '../src/follow-up.ts';
 import type { PanelHost } from '../src/session.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { RunFollowUp, RunRow } from '../src/dispatches-service.ts';
-import { scopeResults } from './support/verify.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { fixtureAccount } from './support/account-fixture.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Binding id every fixture binds. */
 const BINDING = 'bnd-follow-up';
@@ -195,40 +195,12 @@ afterEach(async (): Promise<void> => {
     logLines = [];
 });
 
-/** Build one stored binding with the given trigger set. */
-function fixtureBinding(triggers: BindingTriggers): BindingRecord {
-    return {
-        bindingId: BINDING,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: REPO_LABEL,
-        projectId: PROJECT_ID,
-        worktreeOption: 'none',
-        triggers,
-        state: 'active',
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-    };
-}
-
-/** Build the active account every fixture binds. */
-function fixtureAccount(): Account {
-    return {
-        numericUserId: ACCOUNT_ID,
-        login: ACCOUNT_LOGIN,
-        expectedLogin: null,
-        displayName: null,
-        startingPrompt: null,
-        credential: { token: 'fixture-token-not-a-real-credential', kind: 'classic', verifiedAt: STAMP },
-        scopeCheck: { checkedAt: STAMP, results: scopeResults('ok') },
-        state: 'active',
-        connectionState: 'connected',
-        verifiedAt: STAMP,
-        errorReason: null,
-        createdAt: STAMP,
-        updatedAt: STAMP,
-    };
-}
+/**
+ * One active binding under this suite's fixture stamp, carrying whatever
+ * trigger set the case is about.
+ */
+const fixtureBinding = (triggers: BindingTriggers): BindingRecord =>
+    fixtureBindingRow(BINDING, { accountLogin: ACCOUNT_LOGIN, triggers, stamp: CREATED_AT });
 
 /** Build one open issue the mention scan resolves titles against. */
 function fixtureIssue(overrides: Partial<PollIssue> = {}): PollIssue {
@@ -511,7 +483,7 @@ async function runCycle(
     recorded: RecordedPoller,
 ): Promise<readonly QueuedEvent[]> {
     await writeBindings({ store, bindings: [binding] });
-    await writeAccount(store, fixtureAccount());
+    await writeAccount(store, fixtureAccount({ stamp: STAMP }));
 
     const cycle = await runScanCycle({ store, log, poller: recorded.poller });
     expect(cycle.bindings).toHaveLength(1);
@@ -533,7 +505,7 @@ async function driveCycle(
     recorded: RecordedPoller,
 ): Promise<BindingScan> {
     await writeBindings({ store, bindings: [binding] });
-    await writeAccount(store, fixtureAccount());
+    await writeAccount(store, fixtureAccount({ stamp: STAMP }));
 
     const cycle = await runScanCycle({ store, log, poller: recorded.poller });
     expect(cycle.bindings).toHaveLength(1);
@@ -788,7 +760,7 @@ describe('FR-100 the join predicate (AC-048)', () => {
             });
             const binding = fixtureBinding({ assignment: true, mention: true, reviewRequest: false });
             await writeBindings({ store, bindings: [binding] });
-            await writeAccount(store, fixtureAccount());
+            await writeAccount(store, fixtureAccount({ stamp: STAMP }));
 
             await runScanCycle({ store, log, poller: recorded.poller });
             await runScanCycle({ store, log, poller: recorded.poller });

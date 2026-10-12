@@ -2,7 +2,6 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
-import { createLogger } from '../service/log.ts';
 import { claimPendingRuns } from '../service/poll/claim.ts';
 import {
     EVENTS_FILE,
@@ -28,6 +27,8 @@ import type { EventSnapshot } from '../service/poll/events.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const HOLDER = 'panel-mount-1';
@@ -43,8 +44,7 @@ const DELIVERY_DETECTED = 'delivery.detected';
 const RUN_CREATED_EVENT = 'run.created';
 const RUN_COALESCED_EVENT = 'run.coalesced';
 const CLAIM_EXPIRY = '2026-09-28T12:05:00.000Z';
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER } = capturingLogger('error');
 
 let tempRoot = '';
 let dataDir = '';
@@ -65,28 +65,14 @@ afterEach(async (): Promise<void> => {
     await removeTempTree(tempRoot);
 });
 
-/** Build an assignment fixture for one issue. */
-function assignment(issueNumber: number): EventSnapshot {
-    return {
-        bindingId: 'bnd-run-tests',
-        repository: 'acme/widget',
-        accountNumericUserId: '77331',
-        accountLogin: 'octocat',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `${ISSUE_URL_PREFIX}${issueNumber}`,
-            issueBodyExcerpt: 'body excerpt',
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: STAMP,
-    };
-}
+/**
+ * An assignment detection for one issue, under this suite's binding and stamp.
+ */
+const assignment = (issueNumber: number): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: 'bnd-run-tests',
+    excerpt: 'body excerpt',
+    detectedAt: STAMP,
+});
 
 /** Build a comment mention fixture, with a unique deterministic delivery id. */
 function commentMention(issueNumber: number, commentId: number): EventSnapshot {

@@ -45,7 +45,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { claimPendingRuns } from '../service/poll/claim.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { buildDispatchToken } from '../service/poll/run-key.ts';
@@ -61,6 +60,8 @@ import type { EventSnapshot } from '../service/poll/events.ts';
 import type { Run } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 const DETECTED_AT = '2026-09-28T12:00:00.000Z';
 const ONE_HOUR_LATER = '2026-09-28T13:00:00.000Z';
@@ -82,8 +83,7 @@ const UNCONFIRMED = 'dispatch.unconfirmed';
 const DEAD_LETTERED = 'run.dead_lettered';
 /** A stored dispatch token, used only where a run must record having reserved. */
 const FIXTURE_DISPATCH_TOKEN = 'dtk-0123456789abcdef0123456789abcdef';
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('debug');
 
 let tempRoot = '';
 let dataDir = '';
@@ -101,28 +101,14 @@ afterEach(async (): Promise<void> => {
     await removeTempTree(tempRoot);
 });
 
-/** Build an assignment detection for one issue on the fixture binding. */
-function assignment(issueNumber: number, bindingId = BINDING_ID): EventSnapshot {
-    return {
-        bindingId,
-        repository: REPOSITORY,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: 'octocat',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
-            issueBodyExcerpt: `body ${issueNumber}`,
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: DETECTED_AT,
-    };
-}
+/**
+ * An assignment detection for one issue, defaulting to this suite's binding.
+ */
+const assignment = (issueNumber: number, bindingId = BINDING_ID): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId,
+    excerpt: `body ${issueNumber}`,
+    detectedAt: DETECTED_AT,
+});
 
 /** Enqueue detections, one per issue. */
 async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {

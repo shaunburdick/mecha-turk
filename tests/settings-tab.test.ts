@@ -31,6 +31,7 @@ import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { configEnvelope } from './support/service-routes.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -65,14 +66,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
 /** A value that is outside `intervalMs`'s bounds, so the service refuses it. */
 const OUT_OF_RANGE = 999_999_999;
-
-/** The configuration as stored, with every field at its default. */
-const STORED_CONFIG = { ...DEFAULT_CONFIG };
-
-/** One `GET /v1/config` body, assembled the way the service sends it. */
-function envelopeBody(config: Record<string, unknown> = STORED_CONFIG): string {
-    return JSON.stringify({ config, fields: configSchema(), source: 'stored', defaultsApplied: [] });
-}
 
 /** One `422 validation` body, shaped the way the service sends it. */
 function refusalBody(
@@ -269,7 +262,7 @@ function scriptedAnswer(input: {
 }): (request: GuestRequest) => GuestRequestResult {
     return (request) => {
         if (request.method === 'GET' && request.path === '/v1/config') {
-            return { status: 200, body: input.config ?? envelopeBody() };
+            return { status: 200, body: input.config ?? configEnvelope() };
         }
 
         if (request.method === 'PUT' && request.path === '/v1/config') {
@@ -293,7 +286,7 @@ const ONE_ISSUE_REFUSAL = refusalBody(THREE_ISSUES.slice(0, 1));
 describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC-125)', () => {
     it('sends every field and renders the configuration the service returned', async () => {
         {
-            const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 46_000 });
+            const returned = configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 46_000 } });
             const view = await mountSettings({
                 answer: scriptedAnswer({ put: { status: 200, body: returned } }),
             });
@@ -316,7 +309,7 @@ describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC
             view.dispose();
         }
         {
-            const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 46_000 });
+            const returned = configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 46_000 } });
             const view = await mountSettings({
                 answer: scriptedAnswer({ put: { status: 200, body: returned } }),
             });
@@ -329,7 +322,7 @@ describe('one activation sends one whole document (006 T-020, FR-040, FR-044, AC
             view.dispose();
         }
         {
-            const returned = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 120_000 });
+            const returned = configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 120_000 } });
             const view = await mountSettings({
                 answer: scriptedAnswer({ put: { status: 200, body: returned } }),
             });
@@ -444,7 +437,7 @@ describe('nothing is written by looking; one activation writes once (AC-123, AC-
         }
         {
             const view = await mountSettings({
-                answer: scriptedAnswer({ put: { status: 200, body: envelopeBody() } }),
+                answer: scriptedAnswer({ put: { status: 200, body: configEnvelope() } }),
             });
             typeInto('intervalMs', '45000');
 
@@ -525,7 +518,9 @@ describe('the twelfth row rides the descriptor (004 T-030; 006 FR-010, FR-014, F
         {
             const prompt = 'Review every change against the ticket before approving.';
             const view = await mountSettings({
-                answer: scriptedAnswer({ config: envelopeBody({ ...DEFAULT_CONFIG, startingPrompt: prompt }) }),
+                answer: scriptedAnswer({
+                    config: configEnvelope({ config: { ...DEFAULT_CONFIG, startingPrompt: prompt } }),
+                }),
             });
 
             expect(fieldProps('startingPrompt').value).toBe(prompt);

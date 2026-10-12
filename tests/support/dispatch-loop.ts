@@ -53,6 +53,7 @@ import {
     bindEnqueue,
 } from './fixture-enqueue.ts';
 import type { EnqueueInput } from './fixture-enqueue.ts';
+import { jsonHeaders } from './service-routes.ts';
 import {
     hasNothingToRelease,
     PROJECT_ID,
@@ -76,9 +77,6 @@ const EXPIRED_LEASE_STAMP = '2000-01-01T00:00:00.000Z';
 
 /** Agent the fixture host's read-back reports; the loop's config pins it as the baseline. */
 export const EXPECTED_AGENT = 'project-manager';
-
-/** Header name a forwarded JSON body carries, as a computed object key. */
-const CONTENT_TYPE_HEADER = 'content-type';
 
 /** Error body a lost report answers with (contract §1 envelope). */
 const LOST_REPORT_BODY = JSON.stringify({ error: { code: 'storage-unavailable', message: 'store down' } });
@@ -194,7 +192,7 @@ async function forward(input: {
 
     const init: RequestInit = { method: request.method };
     if (request.body !== undefined) {
-        init.headers = { [CONTENT_TYPE_HEADER]: 'application/json' };
+        init.headers = jsonHeaders();
         init.body = request.body;
     }
     const response = await service.call(request.path, init);

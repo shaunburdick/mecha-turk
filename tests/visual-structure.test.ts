@@ -40,6 +40,7 @@ import type { FakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
 import { mediaVariants, parseStylesheet, styleText } from './support/stylesheet.ts';
 import type { StyleRule } from './support/stylesheet.ts';
+import { stringsIn } from './support/ui-stubs.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -248,42 +249,6 @@ async function renderSixTabs(): Promise<{ readonly dom: FakeDom; readonly log: r
     return { dom, log };
 }
 
-/**
- * Every string one SDK mount was handed, at any depth.
- *
- * @returns The strings among them, in property order.
- */
-function stringsIn(log: readonly MountRecord[]): readonly string[] {
-    const found: string[] = [];
-    const walk = (value: unknown): void => {
-        if (typeof value === 'string') {
-            found.push(value);
-
-            return;
-        }
-
-        if (Array.isArray(value)) {
-            for (const item of value) {
-                walk(item);
-            }
-
-            return;
-        }
-
-        if (typeof value === 'object' && value !== null) {
-            for (const item of Object.values(value)) {
-                walk(item);
-            }
-        }
-    };
-
-    for (const entry of log) {
-        walk(entry.props);
-    }
-
-    return found;
-}
-
 describe('every tab is a stack of blocks with a real heading', () => {
     it('mounts at least one heading per section, and never skips a level', async () => {
         {
@@ -301,7 +266,7 @@ describe('every tab is a stack of blocks with a real heading', () => {
     it('hands each section heading to the SDK text path, so the scans still see it', async () => {
         {
             const { log } = await renderSixTabs();
-            const strings = stringsIn(log);
+            const strings = log.flatMap((entry) => stringsIn(entry.props));
 
             for (const heading of SECTION_HEADINGS) {
                 expect(strings, `${heading} never reached the SDK`).toContain(heading);

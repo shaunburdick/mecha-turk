@@ -74,7 +74,9 @@ import type { RunRow } from '../src/dispatches-service.ts';
 import { BINDINGS_PATH } from '../src/service-calls.ts';
 import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { propsOf } from './support/ui-stubs.ts';
 
 /**
  * Every SDK mount the six tab bodies performed, and the props it carried.
@@ -226,7 +228,7 @@ const POLICY_WORDS: readonly string[] = POLICY_MATCHERS.map(([word]) => word);
  * both (005 v1.14.0) and a fixture that could not vary them could not reach four
  * of its eight rows.
  */
-function bindingRow(input: {
+const bindingRow = (input: {
     /** Panel-generated id. */
     readonly bindingId: string;
     /** `owner/name`. */
@@ -243,21 +245,15 @@ function bindingRow(input: {
      * a leftover switch silently joining the clause.
      */
     readonly triggers?: PanelTriggers;
-}): Record<string, unknown> {
-    return {
-        bindingId: input.bindingId,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: LOGIN,
-        repository: input.repository,
-        projectId: PROJECT_ID,
-        worktreeOption: 'generated',
-        triggers: input.triggers ?? { assignment: true, mention: false, reviewRequest: false },
-        state: input.state ?? 'active',
-        createdAt: FIXTURE_TIMESTAMP,
-        updatedAt: FIXTURE_TIMESTAMP,
-        ...(input.allowedUsers !== undefined && { allowedUsers: input.allowedUsers }),
-    };
-}
+}): Record<string, unknown> => fixtureBindingRow(input.bindingId, {
+    accountLogin: LOGIN,
+    repository: input.repository,
+    worktreeOption: 'generated',
+    triggers: input.triggers ?? ASSIGNMENT_ONLY,
+    state: input.state,
+    stamp: FIXTURE_TIMESTAMP,
+    allowedUsers: input.allowedUsers ?? null,
+});
 
 /**
  * Read fixture rows through the panel's own fail-closed reader (002 FR-047).
@@ -372,23 +368,6 @@ function release(mounted: Editor): void {
     stopRelayPolling(mounted.rt);
     mounted.rt.bindingsUi?.dispose();
     mounted.rt.bindingsUi = null;
-}
-
-/**
- * Read one mount's props as the object a count compares over.
- *
- * @returns The props as a plain record (a bare string prop reads as `text`).
- */
-function propsOf(raw: unknown): Record<string, unknown> {
-    if (typeof raw === 'string') {
-        return { text: raw };
-    }
-
-    if (typeof raw === 'object' && raw !== null) {
-        return { ...(raw as Record<string, unknown>) };
-    }
-
-    return {};
 }
 
 /**

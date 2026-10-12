@@ -30,11 +30,11 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { configSchema } from '../service/config-schema.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { configEnvelope } from './support/service-routes.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -150,23 +150,13 @@ async function renderAllTabs(rt: PanelRuntime): Promise<readonly TabRender[]> {
     return renders;
 }
 
-/** One `GET /v1/config` body, assembled the way the service sends it. */
-function envelopeBody(): string {
-    return JSON.stringify({
-        config: { ...DEFAULT_CONFIG },
-        fields: configSchema(),
-        source: 'stored',
-        defaultsApplied: [],
-    });
-}
-
 /** The one runtime these renders share: every path answers, `/v1/config` well. */
 function runtime(): PanelRuntime {
     return createTestRuntime(
         fakeHost({
             serviceRequest: async (request) =>
                 request.path === '/v1/config'
-                    ? { status: 200, body: envelopeBody() }
+                    ? { status: 200, body: configEnvelope() }
                     : { status: 404, body: '{}' },
         }),
     );

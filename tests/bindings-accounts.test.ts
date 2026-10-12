@@ -73,6 +73,7 @@ import { fakeDom } from './support/dom.ts';
 import type { FakeDom, FakeElement } from './support/dom.ts';
 import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost, tick } from './support/panel.ts';
 import { byText } from './support/sort.ts';
+import { propsOf } from './support/ui-stubs.ts';
 
 /**
  * Every SDK mount the bodies performed, and the props each handle received.
@@ -346,19 +347,6 @@ function freshJournal(): void {
     mounts.log.length = 0;
     mounts.updates.length = 0;
     mounts.disposes.length = 0;
-}
-
-/**
- * Read one mount's props as the object an assertion compares over.
- *
- * @returns The props as a plain record (a bare string prop reads as `text`).
- */
-function propsOf(raw: unknown): Record<string, unknown> {
-    if (typeof raw === 'object' && raw !== null) {
-        return { ...(raw as Record<string, unknown>) };
-    }
-
-    return typeof raw === 'string' ? { text: raw } : {};
 }
 
 /**

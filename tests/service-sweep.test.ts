@@ -26,7 +26,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { claimPendingRuns } from '../service/poll/claim.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { buildDispatchTokenFingerprint } from '../service/poll/run-key.ts';
@@ -41,6 +40,8 @@ import type { ServiceStore } from '../service/store/index.ts';
 import type { SweepOutcome } from '../service/poll/sweep.ts';
 import { byText } from './support/sort.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Detections use this stamp; the sweep uses whatever the test injects. */
 const DETECTED_AT = '2026-09-28T12:00:00.000Z';
@@ -67,8 +68,7 @@ const RUNS_FILE = 'runs.json';
 const LEASE_EXPIRED = 'dispatch.lease-expired';
 const DEAD_LETTERED = 'run.dead_lettered';
 const UNCONFIRMED = 'dispatch.unconfirmed';
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('debug');
 
 let tempRoot = '';
 let dataDir = '';
@@ -86,28 +86,14 @@ afterEach(async (): Promise<void> => {
     await removeTempTree(tempRoot);
 });
 
-/** Build an assignment detection for one issue. */
-function assignment(issueNumber: number): EventSnapshot {
-    return {
-        bindingId: 'bnd-sweep',
-        repository: 'acme/widget',
-        accountNumericUserId: '77331',
-        accountLogin: 'octocat',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
-            issueBodyExcerpt: '',
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: DETECTED_AT,
-    };
-}
+/**
+ * An assignment detection with no body at all, under the sweep fixture binding.
+ */
+const assignment = (issueNumber: number): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: 'bnd-sweep',
+    excerpt: '',
+    detectedAt: DETECTED_AT,
+});
 
 /** An attempt record as a claim leaves it: open, no token, no outcome. */
 function openAttempt(attempt: number): DispatchAttempt {

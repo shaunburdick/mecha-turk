@@ -42,6 +42,7 @@ import { fakeGitHub, offlineVerifier, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { jsonHeaders, headerMap } from './support/service-routes.ts';
 
 /** Credential registered with this suite; never appears in any answer. */
 const REGISTERED_TOKEN = `runs-history-credential-${'q'.repeat(32)}`;
@@ -102,15 +103,6 @@ const PROJECTED_FIELDS = [
 ] as const;
 
 /** Build a header map without writing HTTP header names as object keys. */
-function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
-    return Object.fromEntries(pairs);
-}
-
-/** Headers for the routes that take a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return headerMap([['content-type', 'application/json']]);
-}
-
 /** Data directories this suite planted outside the harness's own temp home. */
 const plantedRoots: string[] = [];
 

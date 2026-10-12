@@ -36,19 +36,18 @@ import { AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
 import { writeBindings } from '../service/bindings.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG, NUMERIC_BOUNDS } from '../service/config.ts';
 import { isRecord } from '../service/json.ts';
-import { createLogger } from '../service/log.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
 import { createGitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { SCAN_STATE_FILE, emptyBindingScan, readScanState } from '../service/poll/scan.ts';
 import { openStore } from '../service/store/index.ts';
-import type { Account } from '../service/accounts/model.ts';
 import type { AuditEntry } from '../service/audit.ts';
-import type { BindingRecord } from '../service/bindings.ts';
-import type { ServiceLogger } from '../service/log.ts';
+import type { BindingRecord, BindingTriggers } from '../service/bindings.ts';
 import type { GitHubIssuePoller, ListPace, PollIssue } from '../service/poll/poller-github.ts';
 import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
-import { scopeResults } from './support/verify.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { capturingLogger } from './support/service-routes.ts';
+import { fixtureAccount } from './support/account-fixture.ts';
 
 /** First fixture binding. */
 const BINDING_A = 'bnd-cycle-a';
@@ -58,9 +57,6 @@ const BINDING_B = 'bnd-cycle-b';
 
 /** Third fixture binding. */
 const BINDING_C = 'bnd-cycle-c';
-
-/** GitHub numeric user id of the fixture account. */
-const ACCOUNT_ID = '77331';
 
 /** Login the fixture issues are assigned to. */
 const ACCOUNT_LOGIN = 'octocat-mt';
@@ -121,63 +117,15 @@ afterEach(async (): Promise<void> => {
     await removeTempTree(tempRoot);
 });
 
-/**
- * Build a logger that records every line it is asked to write.
- */
-function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
-    const lines: string[] = [];
-    const log = createLogger({
-        level: 'debug',
-        sink: (line: string) => {
-            lines.push(line);
-        },
-    });
+/** Trigger set every fixture binding carries: assignment polling only. */
+const ASSIGNMENT_ONLY: BindingTriggers = { assignment: true, mention: false, reviewRequest: false };
 
-    return { log, lines };
-}
-
-/**
- * Build one active binding with only the assignment trigger on.
- *
- * @returns A complete stored binding record.
- */
-function fixtureBinding(bindingId: string): BindingRecord {
-    return {
-        bindingId,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: 'acme/widget',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-    };
-}
-
-/**
- * Build the active account every fixture binding polls under.
- *
- * @returns A complete stored account record (a fixture token, never a real one).
- */
-function fixtureAccount(): Account {
-    return {
-        numericUserId: ACCOUNT_ID,
-        login: ACCOUNT_LOGIN,
-        expectedLogin: null,
-        displayName: null,
-        startingPrompt: null,
-        credential: { token: FIXTURE_TOKEN, kind: 'classic', verifiedAt: CREATED_AT },
-        scopeCheck: { checkedAt: CREATED_AT, results: scopeResults('ok') },
-        state: 'active',
-        connectionState: 'connected',
-        verifiedAt: CREATED_AT,
-        errorReason: null,
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-    };
-}
+/** One active, assignment-only binding under this suite's fixture stamp. */
+const fixtureBinding = (bindingId: string): BindingRecord => fixtureBindingRow(bindingId, {
+    accountLogin: ACCOUNT_LOGIN,
+    triggers: ASSIGNMENT_ONLY,
+    stamp: CREATED_AT,
+});
 
 /**
  * Build one open issue assigned to the fixture account.
@@ -358,7 +306,7 @@ describe('one configuration read per cycle (006 T-007, FR-055)', () => {
                 store,
                 bindings: [fixtureBinding(BINDING_A), fixtureBinding(BINDING_B), fixtureBinding(BINDING_C)],
             });
-            await writeAccount(store, fixtureAccount());
+            await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
             await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, perPage: SAVED_PER_PAGE });
             const { log } = capturingLogger();
             const { poller, calls } = recordingPoller([assignmentIssue(7, UPDATED_IN_WINDOW)]);
@@ -388,7 +336,7 @@ describe('one configuration read per cycle (006 T-007, FR-055)', () => {
     it('degrades an unreadable document to the documented defaults, with one warn line', async () => {
         {
             await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
-            await writeAccount(store, fixtureAccount());
+            await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
             const { log, lines } = capturingLogger();
             const { poller, calls } = recordingPoller([assignmentIssue(7, UPDATED_IN_WINDOW)]);
 
@@ -407,7 +355,7 @@ describe('one configuration read per cycle (006 T-007, FR-055)', () => {
 describe('the window is widened by the saved overlap (006 T-008, FR-059(a), AC-149)', () => {
     it('opens since at lastScanAt minus overlapMs, and the widened replay queues nothing twice', async () => {
         await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
-        await writeAccount(store, fixtureAccount());
+        await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
         await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, overlapMs: SAVED_OVERLAP_MS });
         const { log } = capturingLogger();
         const issue = assignmentIssue(7, UPDATED_IN_WINDOW);

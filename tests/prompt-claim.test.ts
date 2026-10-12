@@ -24,7 +24,6 @@
 import { GUEST_REQUEST_RESPONSE_MAX } from '@openchamber/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
-import { createLogger } from '../service/log.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { AUDIT_PATH } from '../service/routes/audit.ts';
 import { DISPATCHED_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
@@ -36,6 +35,8 @@ import type { AuditEntry } from '../service/audit.ts';
 import { startTestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
 import type { TestService } from './support/service.ts';
+import { jsonHeaders, capturingLogger } from './support/service-routes.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
 
 /** Stamp every fixture uses, so no test ever waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -64,21 +65,11 @@ interface Attempt {
  *
  * @returns The headers as `fetch` accepts them.
  */
-function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
-    return Object.fromEntries(pairs);
-}
-
-/** Headers for the routes that take a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return headerMap([['content-type', 'application/json']]);
-}
-
 /** The two rows that record what was sent (004 `### Audit Vocabulary Delta`). */
 const SENT_ROWS = ['dispatch.reserved', 'dispatch.result'] as const;
 
 /** Log sink for the enqueue calls; nothing here asserts on it. */
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER } = capturingLogger('error');
 
 /** Running harness instances, drained between tests. */
 const running: TestService[] = [];
@@ -114,28 +105,14 @@ async function startService(): Promise<TestService> {
     return service;
 }
 
-/** Build an assignment detection for one issue. */
-function assignment(issueNumber: number): EventSnapshot {
-    return {
-        bindingId: BINDING_ID,
-        repository: 'acme/widget',
-        accountNumericUserId: '77331',
-        accountLogin: 'octocat',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
-            issueBodyExcerpt: `body of issue ${issueNumber}`,
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: STAMP,
-    };
-}
+/**
+ * An assignment detection for one issue, under this suite's binding and stamp.
+ */
+const assignment = (issueNumber: number): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: BINDING_ID,
+    excerpt: `body of issue ${issueNumber}`,
+    detectedAt: STAMP,
+});
 
 /** What one seeding of this suite performs. */
 interface SeedInput {

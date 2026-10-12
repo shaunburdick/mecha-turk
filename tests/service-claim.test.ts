@@ -22,7 +22,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { UNKNOWN_HOLDER, buildLeaseId, claimPendingRuns, holderOf } from '../service/poll/claim.ts';
 import { CLAIM_EVENTS_BUDGET_CHARS, MAX_CLAIMED_RUNS, measureEvents } from '../service/poll/claim-bounds.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
@@ -39,6 +38,8 @@ import { byText, byTextLoose } from './support/sort.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Stamp every fixture uses, so no test ever waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -50,8 +51,7 @@ const ACCOUNT_LOGIN = 'octocat';
 const SUBJECT_KEY = `github|${ACCOUNT_ID}|${REPOSITORY}|issue|`;
 const CLAIM_PATH = '/v1/events/pending';
 const CLAIMED_EVENT = 'dispatch.claimed';
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('error');
 
 let tempRoot = '';
 let dataDir = '';
@@ -72,28 +72,14 @@ afterEach(async (): Promise<void> => {
     await removeTempTree(tempRoot);
 });
 
-/** Build an assignment detection for one issue. */
-function assignment(issueNumber: number): EventSnapshot {
-    return {
-        bindingId: BINDING_ID,
-        repository: REPOSITORY,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
-            issueBodyExcerpt: `body of issue ${issueNumber}`,
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: STAMP,
-    };
-}
+/**
+ * An assignment detection for one issue, under this suite's binding and stamp.
+ */
+const assignment = (issueNumber: number): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: BINDING_ID,
+    excerpt: `body of issue ${issueNumber}`,
+    detectedAt: STAMP,
+});
 
 /** Enqueue one detection, creating its run. */
 async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {

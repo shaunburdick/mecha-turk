@@ -58,6 +58,77 @@ export function stubLastProps(handle: Handle<never>): Record<string, unknown> | 
 }
 
 /**
+ * Every string reachable from one mount's props, at any depth, in walk order.
+ *
+ * The whole-shell proofs and the secret-surface scans read what rendered by
+ * collecting strings, because an instruction or a retired noun can only hide
+ * in one. Shared so all of them search the same way.
+ *
+ * @param value - Props (or any nested structure) to walk.
+ * @returns The strings among them: the value itself when it is a string,
+ *   else every string beneath it.
+ */
+export function stringsIn(value: unknown): readonly string[] {
+    if (typeof value === 'string') {
+        return [value];
+    }
+
+    if (Array.isArray(value)) {
+        return value.flatMap((entry) => stringsIn(entry));
+    }
+
+    if (typeof value === 'object' && value !== null) {
+        return Object.values(value).flatMap((entry) => stringsIn(entry));
+    }
+
+    return [];
+}
+
+/**
+ * Read one mount's props as the object an assertion compares over.
+ *
+ * A bare string prop reads as `text` — the label the SDK wrapper would build —
+ * so a count or a membership check sees the same shape whatever the primitive
+ * was handed.
+ *
+ * @param raw - The props one mount or repaint received.
+ * @returns The props as a plain record; `{}` for a non-object.
+ */
+export function propsOf(raw: unknown): Record<string, unknown> {
+    if (typeof raw === 'string') {
+        return { text: raw };
+    }
+
+    if (typeof raw === 'object' && raw !== null) {
+        return { ...raw };
+    }
+
+    return {};
+}
+
+/**
+ * The direct string values one mount was handed — no descent, property order.
+ *
+ * A props bag the panel paints is flat, and the suites that assert over it
+ * count **top-level** values: descending would count a string nested under a
+ * member the assertion never meant to open.
+ *
+ * @param props - The props object (or bare string) to read.
+ * @returns The direct string values.
+ */
+export function shallowStringsIn(props: unknown): readonly string[] {
+    if (typeof props === 'string') {
+        return [props];
+    }
+
+    if (typeof props !== 'object' || props === null) {
+        return [];
+    }
+
+    return Object.values(props).filter((value): value is string => typeof value === 'string');
+}
+
+/**
  * Build a `Handle` double that records how often it repainted, and with what.
  *
  * `Handle<P>` needs only `update` and `dispose`, so a recording stub type

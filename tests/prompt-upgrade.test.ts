@@ -51,7 +51,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { appendAudit, readAuditEntries } from '../service/audit.ts';
 import { BINDINGS_FILE } from '../service/bindings.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { createEvent, enqueueEvents, readEvents, EVENTS_FILE } from '../service/poll/events.ts';
 import { SCAN_STATE_FILE } from '../service/poll/scan.ts';
 import { readRunsDocument } from '../service/poll/runs.ts';
@@ -68,6 +67,7 @@ import { scopeResults } from './support/handoff.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Stamp every seeded row carries, so nothing here waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -110,8 +110,7 @@ const PROMPT_FENCE_MARKER = 'OPERATOR STARTING PROMPT';
 const NO_STORE = 'the harness started without a store';
 
 /** Log sink shared by the seeding handle and the booted service. */
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('error');
 
 let tempRoot = '';
 let dataDir = '';

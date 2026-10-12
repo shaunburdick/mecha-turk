@@ -47,7 +47,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { accountPath, BINDINGS_FILE } from '../service/accounts/store.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { claimPendingRuns } from '../service/poll/claim.ts';
 import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
@@ -57,12 +56,14 @@ import { BINDINGS_PATH, putBindingsRoute } from '../service/routes/bindings.ts';
 import { createVerifyThrottle } from '../service/throttle.ts';
 import { openStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { RouteContext, RouteRequest } from '../service/routes/types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import type { ServiceLogger } from '../service/log.ts';
 import { offlineVerifier } from './support/github.ts';
 import { CAPABILITIES } from './support/verify.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Stamp every fixture uses; no test waits on a clock (NFR-112). */
 const STAMP = '2026-10-03T09:00:00.000Z';
@@ -234,8 +235,7 @@ let tempRoot = '';
 let store: ServiceStore;
 
 /** Capture sink; this suite asserts on locking, not on log text. */
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('debug');
 
 /** Per-test setup: a fresh store, a live lease window, and no log noise. */
 beforeEach(async (): Promise<void> => {
@@ -288,21 +288,8 @@ async function seedAccount(): Promise<void> {
  *
  * @returns The row exactly as the panel's whole-file grant sends it.
  */
-function bindingRow(allowedUsers: readonly string[]): Record<string, unknown> {
-    return {
-        bindingId: BINDING_ID,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: REPOSITORY,
-        projectId: PROJECT_ID,
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: true, reviewRequest: false },
-        state: 'active',
-        createdAt: STAMP,
-        updatedAt: STAMP,
-        allowedUsers: [...allowedUsers],
-    };
-}
+const bindingRow = (allowedUsers: readonly string[]): Record<string, unknown> =>
+    fixtureBindingRow(BINDING_ID, { accountLogin: ACCOUNT_LOGIN, allowedUsers, stamp: STAMP });
 
 /**
  * Write the stored bindings document directly.

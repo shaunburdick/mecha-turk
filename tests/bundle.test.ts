@@ -29,6 +29,7 @@ import { startDispatchLoop } from './support/dispatch-loop.ts';
 import { BINDING_ID, REPOSITORY } from './support/fixture-enqueue.ts';
 import { PROJECT_ID } from './support/panel.ts';
 import type { DispatchLoop } from './support/dispatch-loop.ts';
+import { jsonHeaders } from './support/service-routes.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
@@ -621,15 +622,6 @@ function containmentBinding(): Record<string, unknown> {
  *
  * @returns The headers as `fetch` accepts them.
  */
-function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
-    return Object.fromEntries(pairs);
-}
-
-/** Headers for the routes that take a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return headerMap([['content-type', 'application/json']]);
-}
-
 /** One whole-file `PUT /v1/bindings` against the running service. */
 async function putBindings(loop: DispatchLoop, binding: Record<string, unknown>): Promise<Response> {
     return await loop.service.call(BINDINGS_PATH, {

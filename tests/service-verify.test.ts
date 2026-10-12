@@ -28,13 +28,13 @@ import {
     USER_OK,
     auditRows,
     errorOf,
-    headerMap,
     postVerify,
     scopeResults,
     startWithGitHub,
     stopAllServices,
     verifyBody,
 } from './support/verify.ts';
+import { headerMap } from './support/service-routes.ts';
 
 afterEach(stopAllServices);
 

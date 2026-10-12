@@ -31,7 +31,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { RESPONSE_BODY_MAX_CHARS } from '../service/http.ts';
 import {
     CLAIM_EVENTS_BUDGET_CHARS,
@@ -51,15 +50,14 @@ import type { EventSnapshot } from '../service/poll/events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { byText } from './support/sort.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Stamp every fixture uses, so no test ever waits on a clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
 const HOLDER = 'panel-bounds';
 const BINDING_ID = 'bnd-bounds';
-const REPOSITORY = 'acme/widget';
-const ACCOUNT_ID = '77331';
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('error');
 
 /**
  * Time budget for the two-full-reference-run proof, sized to its measured
@@ -124,34 +122,13 @@ const closeFixture = async (): Promise<void> => {
 afterEach(closeFixture);
 
 /**
- * Build one assignment detection, with a body excerpt of the given size.
- *
- * The excerpt length matters here: the run's identity fields are fixed, so the
- * excerpt is the member that decides how large a run projects.
- *
- * @returns The detection snapshot.
+ * An assignment detection whose issue body is exactly `excerptChars` long.
  */
-function assignment(issueNumber: number, excerptChars = 40): EventSnapshot {
-    return {
-        bindingId: BINDING_ID,
-        repository: REPOSITORY,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: 'octocat',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
-            issueBodyExcerpt: 'x'.repeat(excerptChars),
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: STAMP,
-    };
-}
+const assignment = (issueNumber: number, excerptChars = 40): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: BINDING_ID,
+    excerpt: 'x'.repeat(excerptChars),
+    detectedAt: STAMP,
+});
 
 /** Enqueue detections, one per issue. */
 async function seed(count: number, excerptChars = 40): Promise<void> {

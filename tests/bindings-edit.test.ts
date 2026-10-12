@@ -31,6 +31,7 @@ import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { jsonHeaders, headerMap } from './support/service-routes.ts';
 
 /** Credential registered with this suite; never appears in any answer. */
 const REGISTERED_TOKEN = `bindings-edit-credential-${'p'.repeat(32)}`;
@@ -74,15 +75,6 @@ afterEach(async (): Promise<void> => {
 });
 
 /** Build a header map without writing HTTP header names as object keys. */
-function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
-    return Object.fromEntries(pairs);
-}
-
-/** Headers for the routes that take a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return headerMap([['content-type', 'application/json']]);
-}
-
 /**
  * Bridge one panel runtime onto the loopback service.
  *

@@ -35,16 +35,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, appendAudit, readAuditEntries } from '../service/audit.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
 import { isRecord } from '../service/json.ts';
-import { createLogger } from '../service/log.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
 import { AUDIT_PATH } from '../service/routes/audit.ts';
 import { openStore } from '../service/store/index.ts';
 import type { AuditEntry } from '../service/audit.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Path of the configuration resource. */
 const CONFIG_PATH = '/v1/config';
@@ -215,21 +214,6 @@ function changesOf(row: AuditEntry | undefined): readonly ChangeTriple[] {
  */
 async function rawTrail(): Promise<string> {
     return await readFile(join(dataDir, AUDIT_FILE), 'utf8');
-}
-
-/**
- * Build a logger that records every line it is asked to write.
- */
-function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
-    const lines: string[] = [];
-    const log = createLogger({
-        level: 'debug',
-        sink: (line: string) => {
-            lines.push(line);
-        },
-    });
-
-    return { log, lines };
 }
 
 /**

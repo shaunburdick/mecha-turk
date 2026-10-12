@@ -41,6 +41,8 @@ import type { BindingsTabState } from '../src/panel-state.ts';
 import type { BindingStatusRow, PanelAccount, PanelBinding } from '../src/bindings-service.ts';
 import { fakeDom } from './support/dom.ts';
 import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost } from './support/panel.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
+import { shallowStringsIn } from './support/ui-stubs.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -122,29 +124,12 @@ const ACCOUNT_SELECT_LABEL = 'Poll as account';
 const TWO_MINUTES_AGO = new Date(Date.now() - 120_000).toISOString();
 
 /**
- * Read the string values one mount was handed.
- *
- * @returns The strings among them, in property order.
- */
-function stringsIn(props: unknown): readonly string[] {
-    if (typeof props === 'string') {
-        return [props];
-    }
-
-    if (typeof props !== 'object' || props === null) {
-        return [];
-    }
-
-    return Object.values(props).filter((value): value is string => typeof value === 'string');
-}
-
-/**
  * Read every string the mounted Bindings body handed to the SDK.
  *
  * @returns The rendered strings, in mount order.
  */
 function renderedStrings(): readonly string[] {
-    return mounts.log.flatMap((entry) => stringsIn(entry.props));
+    return mounts.log.flatMap((entry) => shallowStringsIn(entry.props));
 }
 
 /**
@@ -237,21 +222,15 @@ function lastPropsOf(
 /**
  * Build one binding for the row and detail copy.
  */
-function bindingFixture(overrides: Partial<PanelBinding> = {}): PanelBinding {
-    return {
-        bindingId: 'bnd-1',
-        accountNumericUserId: '77331',
+const bindingFixture = (overrides: Partial<PanelBinding> = {}): PanelBinding => ({
+    ...fixtureBindingRow('bnd-1', {
         accountLogin: LOGIN,
-        repository: 'acme/widget',
-        projectId: 'prj_42',
         worktreeOption: 'generated',
         triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: FIXTURE_TIMESTAMP,
-        updatedAt: FIXTURE_TIMESTAMP,
-        ...overrides,
-    };
-}
+        stamp: FIXTURE_TIMESTAMP,
+    }),
+    ...overrides,
+});
 
 /**
  * Build one scan-status row for the selected binding's line.

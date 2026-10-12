@@ -34,7 +34,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AUDIT_FILE, appendAudit, readAuditEntries } from '../service/audit.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { createEvent, enqueueEvents, readEvents, EVENTS_FILE } from '../service/poll/events.ts';
 import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
 import { reportDispatch } from '../service/poll/dispatch-report.ts';
@@ -59,6 +58,7 @@ import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { jsonHeaders, capturingLogger } from './support/service-routes.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const NOW = '2026-09-28T12:30:00.000Z';
@@ -67,8 +67,7 @@ const SCAN_STATE_FILE = 'scan-state.json';
 /** A panel-minted lease id in the one shape `parseLease` accepts (T-040e). */
 const MIGRATION_TEST_LEASE_ID = `lse-${'c'.repeat(24)}`;
 const MIGRATED_EVENT = 'run.migrated';
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER } = capturingLogger('error');
 
 /** Account numeric id the shipped binding and its credential file share. */
 const ACCOUNT_ID = '77331';
@@ -89,9 +88,6 @@ const SHIPPED_LOGIN = 'octocat';
  * the binding parses and the store reads as an operator's store would.
  */
 const SHIPPED_CREDENTIAL = `upgrade-fixture-credential-${'s'.repeat(24)}`;
-
-/** Header name the POST helper sends, spelled as a computed object key. */
-const CONTENT_TYPE_HEADER = 'content-type';
 
 /** The two shipped audit event types the upgrade must retain verbatim. */
 const SHIPPED_CONSENT_EVENT = 'consent';
@@ -478,7 +474,7 @@ async function answer(input: {
         ? {}
         : {
             method: 'POST',
-            headers: { [CONTENT_TYPE_HEADER]: 'application/json' },
+            headers: jsonHeaders(),
             body: JSON.stringify(input.body),
         };
     const response = await input.service.call(input.path, init);
@@ -606,7 +602,7 @@ describe('T-030 the shipped store boots through the upgraded service (NFR-103, A
             RETRY_PATH.replace(':correlationId', () => textOf(dispatched, 'correlationId')),
             {
                 method: 'POST',
-                headers: { [CONTENT_TYPE_HEADER]: 'application/json' },
+                headers: jsonHeaders(),
                 body: JSON.stringify({ correlationId: dispatched.correlationId, attempt: dispatched.attempt }),
             },
         );

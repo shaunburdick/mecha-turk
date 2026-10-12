@@ -26,7 +26,6 @@ import { findSecretLeak } from '../src/redaction.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { projectRunHistory } from '../service/poll/run-history-project.ts';
 import { applyEnqueue, emptyRunsDocument, MAX_SOURCE_REFERENCES, readRunsDocument } from '../service/poll/runs.ts';
-import { createLogger } from '../service/log.ts';
 import { resolvePromptSnapshot } from '../service/prompt.ts';
 import { DISPATCHED_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
 import { EVENTS_PATH, EVENTS_PENDING_PATH, MAX_LISTED_EVENTS } from '../service/routes/events.ts';
@@ -35,13 +34,13 @@ import { VERIFY_PATH } from '../service/routes/verify.ts';
 import type { EventKind, EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
 import type { Run } from '../service/poll/runs-types.ts';
 import type { RunHistoryRow } from '../service/poll/run-history-project.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { PromptSnapshot } from '../service/prompt.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
+import { jsonHeaders, capturingLogger } from './support/service-routes.ts';
 
 /** Credential registered with this suite; must never reach an answer. */
 const REGISTERED_TOKEN = `run-history-credential-${'q'.repeat(32)}`;
@@ -141,14 +140,6 @@ const CONTRACT_MEMBERS = [
     'dispatchResult',
 ] as const;
 
-/** The header carrying a JSON body, spelled as HTTP requires it. */
-const CONTENT_TYPE_HEADER = 'content-type';
-
-/** Headers for a request carrying a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return { [CONTENT_TYPE_HEADER]: 'application/json' };
-}
-
 /** One response, with its status and parsed body. */
 interface WireAnswer {
     /** HTTP status. */
@@ -157,11 +148,8 @@ interface WireAnswer {
     readonly json: Record<string, unknown>;
 }
 
-/** Log lines the fixture logger keeps out of the test output. */
-const LOG_LINES: string[] = [];
-
-/** Logger every direct store call in this suite reports through. */
-const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
+/** The capturing logger every direct store call reports through, and its lines. */
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('error');
 
 let running: TestService | null = null;
 let store: ServiceStore;

@@ -28,6 +28,7 @@ import type { Run } from '../../service/poll/runs-types.ts';
 import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
 import { startTestService } from './service.ts';
+import { jsonHeaders } from './service-routes.ts';
 import type { TestService } from './service.ts';
 import { writeOpenBinding } from './binding-fixture.ts';
 
@@ -84,9 +85,6 @@ export const BLOCKED_CAUSE = 'project-missing';
 /** In-panel guidance the block report offers with its detail. */
 export const BLOCK_GUIDANCE = 'register the project in OpenChamber, then retry';
 
-/** Header carrying a JSON body, spelled as HTTP requires it. */
-const CONTENT_TYPE_HEADER = 'content-type';
-
 /** Log lines the corpus keeps out of the test output. */
 const LOG_LINES: string[] = [];
 
@@ -123,11 +121,6 @@ export interface DispatchCorpus {
     readonly createdRunId: string;
     /** One refusal per refusing operation, in the order they were taken. */
     readonly refusals: readonly RefusalObservation[];
-}
-
-/** Headers for a request carrying a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return { [CONTENT_TYPE_HEADER]: 'application/json' };
 }
 
 /** The detection behind one fixture delivery. */
