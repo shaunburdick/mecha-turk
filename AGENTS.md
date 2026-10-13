@@ -173,6 +173,25 @@ exiting non-zero on any finding.
     and the NDJSON event contract are compatibility surfaces — change them
     deliberately (and version them), never as a rename.
 
+## Comment discipline (issue #41)
+
+`project-health`'s `commentRatio` counts **product source only** — comments
+added under `tests/` are invisible to the ratchet, so they are exactly where
+bloat silently returns. The rules that keep it down apply everywhere:
+
+- **A moved or extracted function keeps its original comment volume, or
+  less.** Consolidating three copies into one factory is a *reduction*: delete
+  the duplicates, do not author new prose for the survivor. (`propsOf` shipped
+  a 6-line doc and returned a 10-line one — that is the failure this rule
+  exists to prevent.)
+- **New modules get a one-line header** saying what the module is for; product
+  module headers may carry the load-bearing facts they had before. No essays.
+- **No JSDoc that mirrors the signature** — `@param`/`@returns` restating the
+  type is deletion-worthy. Keep a doc line only where omission actively
+  misleads a future author.
+- Before committing a refactor, count: if the diff's comment lines went **up**,
+  you are done editing, not done.
+
 ## Testing philosophy
 
 Everything deterministic runs offline: manifest validation against the
