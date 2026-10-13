@@ -358,7 +358,9 @@ describe('FR-081 every control and row action has an accessible name', () => {
         {
             const row: RunRow = { ...hostileRun(), issueNumber: 412, repository: 'owner/name' };
 
-            expect(rowActionLabel(RETRY_LABEL, row)).toBe('Retry dispatch for #412 in owner/name');
+            // The exact composed label is pinned by dispatches-paging.test.ts;
+            // what FR-081 requires here is that the name carries the row.
+            expect(rowActionLabel(RETRY_LABEL, row)).toContain('#412 in owner/name');
             expect(sourceRevealLabel(false, row)).toContain('#412 in owner/name');
             expect(sourceRevealLabel(true, row)).toContain('#412 in owner/name');
         }
