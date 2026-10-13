@@ -79,16 +79,6 @@ export interface FixtureBindingOptions {
 }
 
 /**
- * `value` when a suite supplied one, else the fixture's fallback.
- *
- * Named so each default reads without a `??` branch of its own: a row builder
- * this wide would otherwise trip the complexity ceiling with plain defaults.
- */
-function orDefault<T>(value: T | undefined, fallback: T): T {
-    return value ?? fallback;
-}
-
-/**
  * The members a fixture carries only when a suite supplied them.
  *
  * Absent keys are meaningful here: `allowedUsers` absent is the open policy
@@ -117,17 +107,19 @@ export function fixtureBindingRow(
     bindingId: string,
     options: FixtureBindingOptions = {},
 ): FixtureBindingRow {
+    const stamp = options.stamp ?? FIXTURE_BINDING_STAMP;
+
     return {
         bindingId,
-        accountNumericUserId: orDefault(options.accountNumericUserId, '77331'),
-        accountLogin: orDefault(options.accountLogin, 'octocat'),
-        repository: orDefault(options.repository, 'acme/widget'),
-        projectId: orDefault(options.projectId, 'prj_42'),
-        worktreeOption: orDefault(options.worktreeOption, 'none'),
-        triggers: orDefault(options.triggers, { assignment: true, mention: true, reviewRequest: false }),
-        state: orDefault(options.state, 'active'),
-        createdAt: orDefault(options.stamp, FIXTURE_BINDING_STAMP),
-        updatedAt: orDefault(options.stamp, FIXTURE_BINDING_STAMP),
+        accountNumericUserId: options.accountNumericUserId ?? '77331',
+        accountLogin: options.accountLogin ?? 'octocat',
+        repository: options.repository ?? 'acme/widget',
+        projectId: options.projectId ?? 'prj_42',
+        worktreeOption: options.worktreeOption ?? 'none',
+        triggers: options.triggers ?? { assignment: true, mention: true, reviewRequest: false },
+        state: options.state ?? 'active',
+        createdAt: stamp,
+        updatedAt: stamp,
         ...optionalMembers(options),
     };
 }

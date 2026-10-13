@@ -74,6 +74,7 @@ import {
 } from './support/panel.ts';
 import type { StorageDouble } from './support/panel.ts';
 import { stringsIn } from './support/ui-stubs.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Correlation id every fixture run shares. */
 const CORRELATION = 'mt-run-0123456789abcdef01234567';
@@ -226,20 +227,12 @@ const OK_ROUTES: RouteTable = {
 };
 
 /** One enabled binding row, exactly as the service stores it. */
-function activeBinding(): PanelBinding {
-    return {
-        bindingId: 'bnd-relay-1',
-        accountNumericUserId: '77331',
-        accountLogin: LOGIN,
-        repository: 'acme/widget',
-        projectId: PROJECT_ID,
-        worktreeOption: 'generated',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: FIXTURE_TIMESTAMP,
-        updatedAt: FIXTURE_TIMESTAMP,
-    };
-}
+const activeBinding = (): PanelBinding => fixtureBindingRow('bnd-relay-1', {
+    accountLogin: LOGIN,
+    worktreeOption: 'generated',
+    triggers: { assignment: true, mention: false, reviewRequest: false },
+    stamp: FIXTURE_TIMESTAMP,
+});
 
 /**
  * Whether a value written to the dispatch record already carries an

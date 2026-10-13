@@ -59,6 +59,7 @@ import type { TestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 import { jsonHeaders, capturingLogger } from './support/service-routes.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
 
 const STAMP = '2026-09-28T12:00:00.000Z';
 const NOW = '2026-09-28T12:30:00.000Z';
@@ -129,27 +130,12 @@ afterEach(async (): Promise<void> => {
 });
 
 /** Build a complete assignment detection for a migration case. */
-function snapshot(issueNumber: number): EventSnapshot {
-    return {
-        bindingId: BINDING_ID,
-        repository: 'acme/widget',
-        accountNumericUserId: '77331',
-        accountLogin: 'octocat',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
-            issueBodyExcerpt: '',
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned to account',
-        detectedAt: STAMP,
-    };
-}
+const snapshot = (issueNumber: number): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: BINDING_ID,
+    excerpt: '',
+    triggerNote: 'assigned to account',
+    detectedAt: STAMP,
+});
 
 /** Build one legacy assignment row, optionally with old lifecycle fields. */
 function legacyRow(input: {

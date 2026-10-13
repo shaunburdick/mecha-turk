@@ -47,7 +47,7 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { DispatchAttempt, Run, RunState } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
-import { writeOpenBinding } from './support/binding-fixture.ts';
+import { fixtureBindingRow, writeOpenBinding } from './support/binding-fixture.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 import { assignmentSnapshot } from './support/event-snapshot.ts';
 import { capturingLogger } from './support/service-routes.ts';
@@ -141,20 +141,10 @@ const assignment = (issueNumber: number): EventSnapshot => assignmentSnapshot(is
 });
 
 /** One stored binding record. */
-function binding(bindingId: string): BindingRecord {
-    return {
-        bindingId,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: 'octocat',
-        repository: REPOSITORY,
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: true, reviewRequest: true },
-        state: 'active',
-        createdAt: STAMP,
-        updatedAt: STAMP,
-    };
-}
+const binding = (bindingId: string): BindingRecord => fixtureBindingRow(bindingId, {
+    triggers: { assignment: true, mention: true, reviewRequest: true },
+    stamp: STAMP,
+});
 
 /**
  * Persist the bindings the corroboration re-check reads.

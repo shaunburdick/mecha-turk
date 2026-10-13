@@ -19,8 +19,6 @@ import { scopeResults } from './verify.ts';
 export interface FixtureAccountOptions {
     /** GitHub numeric user id — the durable key. */
     readonly numericUserId?: string;
-    /** Display login. */
-    readonly login?: string;
     /** Credential body stored for the account. */
     readonly token?: string;
     /** RFC 3339 stamp every recorded time carries. */
@@ -34,13 +32,12 @@ export interface FixtureAccountOptions {
  */
 export function fixtureAccount(options: FixtureAccountOptions = {}): Account {
     const numericUserId = options.numericUserId ?? '77331';
-    const login = options.login ?? 'octocat-mt';
     const token = options.token ?? 'fixture-token-not-a-real-credential';
     const stamp = options.stamp ?? FIXTURE_BINDING_STAMP;
 
     return {
         numericUserId,
-        login,
+        login: 'octocat-mt',
         expectedLogin: null,
         displayName: null,
         startingPrompt: null,

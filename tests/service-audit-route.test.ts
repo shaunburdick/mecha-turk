@@ -39,6 +39,7 @@ import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 import { capturingLogger } from './support/service-routes.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
 
 /** A well-formed run id the route must answer for even with no run behind it. */
 const SEEDED_RUN_ID = `mt-run-${'a'.repeat(24)}`;
@@ -64,10 +65,9 @@ const FAT_DETAIL_CHARS = 6_000;
 /** Rows the size-guard fixture needs to cross `RESPONSE_BODY_MAX_CHARS`. */
 const FAT_ROWS = 50;
 
-/** Binding, repository, and account the fixture detection names. */
+/** Binding and repository the fixture detection names. */
 const BINDING_ID = 'bnd-audit-route';
 const REPOSITORY = 'acme/audit-route';
-const ACCOUNT_ID = '77331';
 
 /** Bearer prefix every request below carries. */
 const BEARER = 'Bearer ';
@@ -204,27 +204,13 @@ async function seedRows(input: {
 /**
  * The one detection this suite's real run is enqueued from.
  */
-function detection(): EventSnapshot {
-    return {
-        bindingId: BINDING_ID,
-        repository: REPOSITORY,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: 'octocat',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber: 9,
-            issueTitle: 'Audit route fixture',
-            issueUrl: `https://github.com/${REPOSITORY}/issues/9`,
-            issueBodyExcerpt: '',
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: '2026-09-28T12:00:00.000Z',
-    };
-}
+const detection = (): EventSnapshot => assignmentSnapshot(9, {
+    bindingId: BINDING_ID,
+    repository: REPOSITORY,
+    issueTitle: 'Audit route fixture',
+    excerpt: '',
+    detectedAt: '2026-09-28T12:00:00.000Z',
+});
 
 /**
  * Enqueue one delivery so a real run exists, and return its correlation id.

@@ -77,6 +77,7 @@ import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 import { capturingLogger } from './support/service-routes.ts';
 import { fixtureAccount } from './support/account-fixture.ts';
 import { fixtureBindingRow } from './support/binding-fixture.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
 
 /** First fixture binding. */
 const BINDING_A = 'bnd-recover-a';
@@ -181,27 +182,15 @@ const LEGACY_BASIS = 'subject-author';
  *
  * @param excerpt - Issue body excerpt (`''` is a legal stored value).
  */
-function fixtureSnapshot(issueNumber: number, excerpt: string): EventSnapshot {
-    return {
-        bindingId: BINDING_A,
-        repository: 'acme/widget',
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Ticket #${issueNumber}`,
-            issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
-            issueBodyExcerpt: excerpt,
-        },
-        actorLogin: 'alice',
-        actorAttribution: LEGACY_BASIS,
-        triggerNote: 'Issue assigned to the bound account',
-        detectedAt: DETECTED_AT,
-    };
-}
+const fixtureSnapshot = (issueNumber: number, excerpt: string): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: BINDING_A,
+    accountLogin: ACCOUNT_LOGIN,
+    issueTitle: `Ticket #${issueNumber}`,
+    excerpt,
+    actorAttribution: LEGACY_BASIS,
+    triggerNote: 'Issue assigned to the bound account',
+    detectedAt: DETECTED_AT,
+});
 
 /** Trigger set every fixture binding carries: assignment polling only. */
 const ASSIGNMENT_ONLY: BindingTriggers = { assignment: true, mention: false, reviewRequest: false };

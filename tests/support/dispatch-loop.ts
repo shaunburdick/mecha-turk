@@ -44,19 +44,16 @@ import type { PanelHost } from '../../src/session.ts';
 import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
 import {
-    ACCOUNT_ID,
     ACCOUNT_LOGIN,
     BINDING_ID,
     FIXTURE_STAMP,
     REPOSITORY,
-    WORKTREE_OPTION,
     bindEnqueue,
 } from './fixture-enqueue.ts';
 import type { EnqueueInput } from './fixture-enqueue.ts';
 import { jsonHeaders } from './service-routes.ts';
 import {
     hasNothingToRelease,
-    PROJECT_ID,
     PROJECTS,
     SESSION_CREATED,
     createStorageDouble,
@@ -67,7 +64,7 @@ import type { StorageDouble } from './panel.ts';
 import { removeTempTree } from './temp-tree.ts';
 import { startTestService } from './service.ts';
 import type { TestService } from './service.ts';
-import { writeLoopBinding } from './binding-fixture.ts';
+import { fixtureBindingRow, writeLoopBinding } from './binding-fixture.ts';
 
 /** Prefix under the system temp directory for one loop. */
 const TEMP_PREFIX = 'mecha-turk-loop-';
@@ -153,20 +150,12 @@ export interface DispatchLoop {
 }
 
 /** The one active binding the mounts install, matching the fixture runs. */
-function loopBinding(): PanelBinding {
-    return {
-        bindingId: BINDING_ID,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: REPOSITORY,
-        projectId: PROJECT_ID,
-        worktreeOption: WORKTREE_OPTION,
-        triggers: { assignment: true, mention: true, reviewRequest: false },
-        state: 'active',
-        createdAt: FIXTURE_STAMP,
-        updatedAt: FIXTURE_STAMP,
-    };
-}
+const loopBinding = (): PanelBinding => fixtureBindingRow(BINDING_ID, {
+    accountLogin: ACCOUNT_LOGIN,
+    repository: REPOSITORY,
+    triggers: { assignment: true, mention: true, reviewRequest: false },
+    stamp: FIXTURE_STAMP,
+});
 
 /** Forward one panel request to whichever instance is running. */
 async function forward(input: {

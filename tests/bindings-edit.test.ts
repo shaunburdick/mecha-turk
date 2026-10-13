@@ -32,6 +32,7 @@ import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
 import { jsonHeaders, headerMap } from './support/service-routes.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Credential registered with this suite; never appears in any answer. */
 const REGISTERED_TOKEN = `bindings-edit-credential-${'p'.repeat(32)}`;
@@ -129,21 +130,13 @@ async function startWithAccount(): Promise<TestService> {
 }
 
 /** The row as the service stores it before any edit. */
-function panelRow(): PanelBinding {
-    return {
-        bindingId: BINDING_ID,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: REPOSITORY,
-        projectId: PROJECT_ID,
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: true },
-        state: 'active',
-        createdAt: STAMP,
-        updatedAt: STAMP,
-        startingPrompt: STORED_PROMPT,
-    };
-}
+const panelRow = (): PanelBinding => fixtureBindingRow(BINDING_ID, {
+    accountLogin: ACCOUNT_LOGIN,
+    repository: REPOSITORY,
+    triggers: { assignment: true, mention: false, reviewRequest: true },
+    stamp: STAMP,
+    startingPrompt: STORED_PROMPT,
+});
 
 /**
  * Write the fixture row through the real `PUT /v1/bindings`.
@@ -382,9 +375,12 @@ function recordingHost(): { readonly host: PanelHost; readonly puts: string[] } 
 }
 
 /** A second ready row, so "another row" is a real selection. */
-function otherRow(): PanelBinding {
-    return { ...panelRow(), bindingId: 'bnd-other', repository: 'acme/other', startingPrompt: undefined };
-}
+const otherRow = (): PanelBinding => fixtureBindingRow('bnd-other', {
+    accountLogin: ACCOUNT_LOGIN,
+    repository: 'acme/other',
+    triggers: { assignment: true, mention: false, reviewRequest: true },
+    stamp: STAMP,
+});
 
 describe('the row click is the Edit affordance (FR-050, FR-081)', () => {
     it('loads on a row click, and another row click swaps the edit to that row', async () => {

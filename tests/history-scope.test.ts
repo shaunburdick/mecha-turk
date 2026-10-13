@@ -99,6 +99,7 @@ import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { fixtureAccount } from './support/account-fixture.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Credential registered with this suite; never appears in any answer. */
 const REGISTERED_TOKEN = `history-scope-credential-${'h'.repeat(32)}`;
@@ -226,24 +227,15 @@ const QUIET: ServiceLogger = createLogger({
  * Build one stored binding row.
  *
  * @param bindingId - The row's id.
- * @param scope - The mode to store, or `null` to store none at all.
+ * @param scope - The mode to store, or absent to store none at all.
  * @returns A complete binding record.
  */
-function binding(bindingId: string, scope?: HistoryScope): BindingRecord {
-    return {
-        bindingId,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: 'acme/widget',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-        ...(scope !== undefined && { historyScope: scope }),
-    };
-}
+const binding = (bindingId: string, scope?: HistoryScope): BindingRecord => fixtureBindingRow(bindingId, {
+    accountLogin: ACCOUNT_LOGIN,
+    triggers: { assignment: true, mention: false, reviewRequest: false },
+    stamp: CREATED_AT,
+    historyScope: scope,
+});
 
 /**
  * A bindings service that echoes back exactly what it was sent, recording the

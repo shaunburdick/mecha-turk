@@ -64,6 +64,7 @@ import { CAPABILITIES } from './support/verify.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
 import { fixtureBindingRow } from './support/binding-fixture.ts';
 import { capturingLogger } from './support/service-routes.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
 
 /** Stamp every fixture uses; no test waits on a clock (NFR-112). */
 const STAMP = '2026-10-03T09:00:00.000Z';
@@ -74,17 +75,11 @@ const WINDOW_MS = 120_000;
 /** Binding every case in this suite dispatches through. */
 const BINDING_ID = 'bnd-serialized';
 
-/** Repository the binding watches. */
-const REPOSITORY = 'acme/widget';
-
 /** Account the binding is bound to. */
 const ACCOUNT_ID = '77331';
 
 /** Login the fixture account and the binding both carry. */
 const ACCOUNT_LOGIN = 'octocat-serialized';
-
-/** Project the dispatch targets. */
-const PROJECT_ID = 'prj_42';
 
 /** Mount holding the claim, as the panel's own host identity would be. */
 const HOLDER = 'panel-serialized';
@@ -304,30 +299,18 @@ async function seedBindings(allowedUsers: readonly string[]): Promise<void> {
     await store.writeJson(BINDINGS_FILE, [bindingRow(allowedUsers)]);
 }
 
-/** The assignment detection the one run is enqueued from. */
-function detection(): EventSnapshot {
-    return {
-        bindingId: BINDING_ID,
-        repository: REPOSITORY,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        projectId: PROJECT_ID,
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber: ISSUE,
-            issueTitle: `Issue ${ISSUE}`,
-            issueUrl: `https://github.com/${REPOSITORY}/issues/${ISSUE}`,
-            issueBodyExcerpt: 'body',
-        },
-        // Attributed the way an assignment is: GitHub records the issue author,
-        // not who assigned it (002 FR-044).
-        actorLogin: RUN_ACTOR,
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: STAMP,
-    };
-}
+/**
+ * The assignment detection the one run is enqueued from.
+ *
+ * Attributed the way an assignment is: GitHub records the issue author,
+ * not who assigned it (002 FR-044).
+ */
+const detection = (): EventSnapshot => assignmentSnapshot(ISSUE, {
+    bindingId: BINDING_ID,
+    accountLogin: ACCOUNT_LOGIN,
+    excerpt: 'body',
+    detectedAt: STAMP,
+});
 
 /**
  * Enqueue one detection and claim it, as the panel would.

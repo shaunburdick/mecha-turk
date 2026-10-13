@@ -62,6 +62,7 @@ import type { ServiceStore } from '../service/store/index.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 import { assignmentSnapshot } from './support/event-snapshot.ts';
 import { capturingLogger } from './support/service-routes.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 const DETECTED_AT = '2026-09-28T12:00:00.000Z';
 const ONE_HOUR_LATER = '2026-09-28T13:00:00.000Z';
@@ -72,8 +73,6 @@ const LAPSED_LEASE = '2026-09-28T12:01:00.000Z';
 const HOLDER = 'panel-honesty';
 const BINDING_ID = 'bnd-honesty';
 const OTHER_BINDING_ID = 'bnd-other';
-const REPOSITORY = 'acme/widget';
-const ACCOUNT_ID = '77331';
 const RUNS_FILE = 'runs.json';
 /** The one audit row the lease-expiry recovery writes. */
 const LEASE_EXPIRED = 'dispatch.lease-expired';
@@ -116,20 +115,10 @@ async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
 }
 
 /** One stored binding record for the status-row reader. */
-function binding(bindingId: string): BindingRecord {
-    return {
-        bindingId,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: 'octocat',
-        repository: REPOSITORY,
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: true, reviewRequest: true },
-        state: 'active',
-        createdAt: DETECTED_AT,
-        updatedAt: DETECTED_AT,
-    };
-}
+const binding = (bindingId: string): BindingRecord => fixtureBindingRow(bindingId, {
+    triggers: { assignment: true, mention: true, reviewRequest: true },
+    stamp: DETECTED_AT,
+});
 
 /** Persist the bindings the status reader is given, so the store agrees. */
 async function storeBindings(...ids: readonly string[]): Promise<void> {

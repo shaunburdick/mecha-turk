@@ -574,7 +574,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             expect(row?.text).not.toContain('project-manager');
         }
         {
-            const rows = rowsFor(configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 'soon', perPage: 12 } }));
+            const rows = rowsFor(configEnvelope({ config: { intervalMs: 'soon', perPage: 12 } }));
             const interval = rows.find((row) => row.field === 'intervalMs');
 
             expect(interval?.text).toContain(
