@@ -59,7 +59,7 @@ interface IntegrationBlock {
 /** Package whose pin these tests compare across manifests. */
 const SDK_PACKAGE = '@openchamber/sdk';
 
-/** Engine floor the contract requires for this spike (raised with the SDK 2.x re-pin, issue #48). */
+/** Engine floor the contract requires for this spike. */
 const ENGINE_FLOOR = '>=2.0.0';
 
 /** Capabilities the spike is allowed to request, in manifest order. */
@@ -69,7 +69,7 @@ const ALLOWED_CAPABILITIES = ['sessions', 'prompt'];
 const SUPPORTED_BUILD = '2.0.0';
 
 /** OpenChamber build below the declared engine floor. */
-const UNSUPPORTED_BUILD = '1.23.0';
+const UNSUPPORTED_BUILD = '1.24.0';
 
 /** Service entry the manifest declares; also the file that must ship beside it. */
 const SERVICE_ENTRY = 'service/main.js';
