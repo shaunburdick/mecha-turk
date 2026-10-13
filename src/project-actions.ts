@@ -1,5 +1,6 @@
 /**
- * Host-facing actions behind the project list: `host.listProjects()` seeds the form; nothing stores a pick (#39).
+ * Host-facing actions behind the project list: `host.listProjects()` seeds the form.
+ * Nothing stores a pick (#39): the `mecha-turk:project` key is dead.
  */
 
 import {
