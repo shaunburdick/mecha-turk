@@ -1,25 +1,6 @@
 /**
- * Service configuration: the operator-tunable polling, retry, and retention
- * knobs, validated with field-level remediation.
- *
- * Four decisions are not visible from the code:
- *
- * - **Validation is additive-reporting.** Every bad field is collected in one
- *   pass so `PUT /v1/config` can answer 422 with a complete list instead of
- *   failing one field at a time, and remediation names the field and its
- *   accepted range without ever echoing the submitted value — "list field +
- *   remediation, never values that could be secret".
- * - **`PUT` is a full replacement**: the body must be a complete
- *   `ServiceConfig` with no unknown keys, so a typo'd or hand-invented field is
- *   refused rather than silently ignored.
- * - **The read is more forgiving in exactly one direction.** A document
- *   written before a field existed takes that field's default instead of being
- *   quarantined, because a strict read would set aside every configuration an
- *   operator already had. An unknown key, a bad value, or a non-object still
- *   quarantines.
- * - **The automatic requeue budget is deliberately not a field here.** That
- *   decision is recorded in 006's `## Deferred`, and the bound lives in the run
- *   store as a module constant.
+ * Service configuration: the operator-tunable polling, retry, and
+ * retention knobs, validated with field-level remediation.
  */
 
 import { join } from 'node:path';
@@ -36,17 +17,12 @@ import type { LogLevel, ServiceLogger } from './log.ts';
 export const CONFIG_FILE = 'config.json';
 
 /**
- * Every log level the service accepts, in increasing severity.
- *
- * The ordered tuple is the single declaration of *which* levels exist;
- * {@link LOG_LEVELS} is derived from it for membership tests and
- * {@link configSchema} projects it as an enum descriptor's `values`, so a
- * level added here changes the validator and the wire together.
- *
- * Exported for one reader besides the projection: the Settings-tab cross-check
- * (`tests/settings-rows.test.ts`) asserts the panel's row declaration matches
- * the service's own enum set, so a level added here fails the build instead of
- * printing a stale set to the operator.
+ * Every log level the service accepts, in increasing severity: the ordered
+ * tuple is the single declaration of *which* levels exist, so a level added
+ * here changes {@link LOG_LEVELS}, {@link configSchema} and the wire
+ * together. It is exported for one reader besides the projection — the
+ * Settings-tab cross-check (`tests/settings-rows.test.ts`) — so a level added
+ * here fails the build instead of printing a stale set to the operator.
  */
 export const LOG_LEVEL_VALUES = ['debug', 'info', 'warn', 'error'] as const satisfies readonly LogLevel[];
 
@@ -88,33 +64,24 @@ export interface ServiceConfig {
     readonly logLevel: LogLevel;
     /**
      * Comparison baseline the observed agent is evaluated against after every
-     * dispatch.
-     *
-     * The service only serves it — `GET /v1/config` hands the value to the
-     * panel, which posts it with each verification read-back. The value is a
-     * single token (never credential-shaped), trimmed on write, and **empty is
-     * a first-class value**: it is the documented *no baseline configured*
-     * state, in which verification records the observed agent and compares
-     * nothing. The documented default is the empty string, so a fresh store
-     * starts with no baseline rather than presuming one.
+     * dispatch. The service only serves it — `GET /v1/config` hands the value
+     * to the panel, which posts it with each read-back. It is a single token
+     * (never credential-shaped), trimmed on write, and **empty is a
+     * first-class value**: the documented *no baseline configured* state, in
+     * which verification records the observed agent and compares nothing. The
+     * default is the empty string, so a fresh store starts with no baseline
+     * rather than presuming one.
      */
     readonly expectedAgent: string;
     /**
-     * The **global tier** of the layered starting prompt.
-     *
-     * The service serves it through the document `GET /v1/config` already
-     * returns and refuses it through the single validator every tier shares:
-     * `collectIssues` routes the member through
-     * {@link startingPromptIssue}, whose only rule is
-     * {@link validateStartingPrompt}, so a whole-document `PUT` answers the
-     * same additive `422` — `field: 'startingPrompt'`, a remediation, and
-     * **never a character of the submission** — as any other field.
-     *
-     * The **empty string is the documented default and means *unset***: an
-     * operator who has not chosen a global instruction has none, and the
-     * stored read fills a document predating the member with that blank
-     * rather than quarantining it, reporting the fill in `defaultsApplied` as
-     * a default, never as a configured value.
+     * The **global tier** of the layered starting prompt, served through the
+     * document `GET /v1/config` already returns and refused through the single
+     * validator every tier shares, so a whole-document `PUT` answers the same
+     * additive `422` — a remediation and **never a character of the
+     * submission**. The **empty string is the documented default and means
+     * *unset***: a document predating the member is filled rather than
+     * quarantined, reported in `defaultsApplied` as a default and never as a
+     * configured value.
      */
     readonly startingPrompt: string;
 }
@@ -214,7 +181,6 @@ function numericIssue(raw: Record<string, unknown>, field: NumericField): readon
 }
 
 /**
- * @returns An issue when the retry ceiling sits below the retry base.
  */
 function retryOrderIssue(raw: Record<string, unknown>): readonly ConfigIssue[] {
     const base = raw.retryBaseMs;
@@ -262,7 +228,6 @@ function isKnownField(key: string): boolean {
 }
 
 /**
- * @returns All issues, in field order followed by unknown keys.
  */
 function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
     // First, mirroring `DEFAULT_CONFIG`'s own key order, so this list stays
@@ -291,9 +256,6 @@ function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
 }
 
 /**
- * @throws {TypeError} When the value is missing — unreachable: validation runs
- *   first, and this guard exists so a future refactor cannot build a config
- *   from an unchecked document.
  */
 function readNumber(raw: Record<string, unknown>, field: NumericField): number {
     const value = raw[field];
@@ -305,7 +267,6 @@ function readNumber(raw: Record<string, unknown>, field: NumericField): number {
 }
 
 /**
- * @throws {Error} When the value is missing; see {@link readNumber}.
  */
 function readLogLevel(raw: Record<string, unknown>): LogLevel {
     const value = raw.logLevel;
@@ -319,8 +280,6 @@ function readLogLevel(raw: Record<string, unknown>): LogLevel {
 /**
  * The stored value is the **trimmed** one, so a save/load round trip is
  * stable and the audit `from`/`to` pair records the value as it stands.
- *
- * @throws {Error} When the value is missing; see {@link readNumber}.
  */
 function readExpectedAgent(raw: Record<string, unknown>): string {
     const value = raw.expectedAgent;
@@ -339,8 +298,6 @@ function readExpectedAgent(raw: Record<string, unknown>): string {
  * re-run rather than a second trimming rule being written here: one rule set at
  * three save boundaries means the read cannot disagree with the write about
  * what the text is.
- *
- * @throws {Error} When the value is unusable; see {@link readNumber}.
  */
 function readStartingPrompt(raw: Record<string, unknown>): string {
     const verdict = validateStartingPrompt(raw.startingPrompt);
@@ -412,23 +369,14 @@ export interface ConfigRead {
 }
 
 /**
- * Store-side validator: accept a valid document, filling every documented key
- * the file predates.
- *
- * A hand-edited `config.json` that fails validation is quarantined by the
- * store (never fail-stuck) and the service answers with defaults until the
- * operator PUTs a valid document. A document that is merely *older* than this
- * build must not be treated that way: a missing **documented** key is filled
- * from {@link DEFAULT_CONFIG} and reported, so schema evolution never costs an
- * operator their other values — while an unknown key, a bad value, or a
- * non-object still quarantines exactly as before.
- *
- * The write path is deliberately stricter: `PUT` stays a full replacement, so
- * a body missing a field is a refusal with a remediation, never a silent
- * default.
- *
- * @returns The typed config plus the keys this read filled, or `null` to
- *   trigger quarantine.
+ * Store-side validator: accept a valid document, filling every documented
+ * key the file predates. A hand-edited document that fails validation is
+ * quarantined and the service answers with defaults until the operator
+ * PUTs a valid one; a document that is merely *older* must not be, so a
+ * missing documented key is filled from {@link DEFAULT_CONFIG} and reported,
+ * while an unknown key, a bad value or a non-object still quarantines
+ * exactly as before. The write path is stricter: `PUT` stays a full
+ * replacement, so a missing field is a refusal, never a silent default.
  */
 export function parseStoredConfig(raw: unknown): StoredConfigRead | null {
     if (!isRecord(raw)) {
@@ -479,14 +427,13 @@ export function configFromStore(result: JsonReadResult<StoredConfigRead>, log: S
 }
 
 /**
- * Prefix every quarantined copy of the configuration keeps.
- *
- * The store renames an unusable document to `<CONFIG_FILE>.corrupt-<stamp>-<uuid>`
+ * Prefix every quarantined copy of the configuration keeps. The store
+ * renames an unusable document to `<CONFIG_FILE>.corrupt-<stamp>-<uuid>`
  * beside its target, so this prefix is the durable record of a set-aside
- * document — the same shape, and the same spelling, as the queue's evidence in
+ * document — the same shape and spelling as the queue's evidence in
  * `service/poll/events.ts`. It is written out rather than imported so this
- * module keeps no runtime dependency on the store: the naming rule belongs to
- * whoever writes the file, and a reader only has to agree with it.
+ * module keeps no runtime dependency on the store: the naming rule belongs
+ * to whoever writes the file, and a reader only has to agree with it.
  */
 const QUARANTINE_EVIDENCE_PREFIX = `${CONFIG_FILE}.corrupt-`;
 
@@ -497,9 +444,6 @@ const QUARANTINE_EVIDENCE_PREFIX = `${CONFIG_FILE}.corrupt-`;
  *
  * @returns Absolute path of the newest quarantined copy, or `null` when the
  *   store has never set one aside.
- * @throws {StorageUnavailableError} When the store directory cannot be listed,
- *   which is a setup failure the route answers `503` for — never the absence
- *   this function is asked to confirm.
  */
 async function latestQuarantineEvidence(store: ServiceStore): Promise<string | null> {
     const entries = await store.listDir('.');
@@ -512,22 +456,14 @@ async function latestQuarantineEvidence(store: ServiceStore): Promise<string | n
 }
 
 /**
- * Read the effective configuration, keeping a set-aside document a fact.
- *
- * A quarantine **renames** the file, so every read arriving after the winning
- * reader's rename finds nothing at all — and answering `default` there would
- * tell the operator that nothing was ever wrong, which is the one account the
- * contract's *invalid file ⇒ `quarantined`* rule refuses. The evidence the
- * quarantine left beside the target says what happened and is still on disk, so
- * it stands in for the observation: whichever of this service's several readers
- * reaches the unusable document first, every reader reports the same thing.
- *
- * This is the event queue's own rule for the same shape
- * (`service/poll/events.ts`, *recover a queue loss this process never saw
- * happen*), scoped to the one read whose `source` is observable. The service's
- * internal readers take the effective document only, which is `DEFAULT_CONFIG`
- * under either answer, so scanning for them would cost a directory listing per
- * cycle and repeat a warn line per cycle for nothing.
+ * Read the effective configuration, keeping a set-aside document a fact. A
+ * quarantine **renames** the file, so every later reader finds nothing — and
+ * answering `default` there would claim nothing was ever wrong, which the
+ * contract's *invalid file ⇒ `quarantined`* rule refuses. The evidence left
+ * beside the target stands in for the observation, so whichever reader
+ * arrives first reports the same thing. Scoped to the one read whose
+ * `source` is observable: the internal readers would cost a directory
+ * listing and a warn line per cycle for nothing.
  */
 export async function readStoredConfig(input: {
     readonly store: ServiceStore;

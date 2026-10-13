@@ -1,14 +1,5 @@
 /**
  * Host-provided environment for the service process.
- *
- * `GUEST_SERVICES.md` documents exactly what the host sets: the loopback port
- * to bind, the shared bearer token, and — for a socket-declaring service —
- * the resolved socket map. Everything else the process receives is a bare
- * `PATH`/`HOME`/temp/locale environment, so this module reads only the two
- * documented variables and refuses to start without them: a service that came
- * up on the wrong port or with a weak token would answer the host's readiness
- * probe over an unauthenticated listener, and that failure is worth failing
- * closed for.
  */
 
 /** Variable carrying the loopback port the host already reserved. */
@@ -45,9 +36,7 @@ export class ServiceEnvError extends Error {
 /**
  * Validate the host-provided port variable.
  *
- * @param value - Raw `OPENCHAMBER_SERVICE_PORT` value.
  * @returns The port as a number; `0` is accepted for OS-assigned test ports.
- * @throws {ServiceEnvError} When the value is not an integer in range.
  */
 function readPort(value: string | undefined): number {
     if (value === undefined || !/^\d+$/.test(value)) {
@@ -65,10 +54,6 @@ function readPort(value: string | undefined): number {
 /**
  * Validate the host-provided bearer token.
  *
- * @param value - Raw `OPENCHAMBER_SERVICE_TOKEN` value.
- * @returns The token, unchanged.
- * @throws {ServiceEnvError} When the value is missing or shorter than the
- *   documented minimum; the value itself is never echoed.
  */
 function readToken(value: string | undefined): string {
     if (value === undefined || value.length < MIN_TOKEN_LENGTH) {
@@ -81,9 +66,6 @@ function readToken(value: string | undefined): string {
 /**
  * Read and validate the service environment.
  *
- * @param env - Environment to read, normally `process.env`.
- * @returns The validated bind port and bearer token.
- * @throws {ServiceEnvError} When either documented variable is unusable.
  */
 export function readServiceEnv(env: Readonly<Record<string, string | undefined>>): ServiceEnv {
     return { port: readPort(env[PORT_VARIABLE]), token: readToken(env[TOKEN_VARIABLE]) };

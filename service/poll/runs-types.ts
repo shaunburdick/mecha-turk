@@ -1,16 +1,5 @@
 /**
  * The type vocabulary of the run document.
- *
- * Every shape `runs.json` holds is declared here and nowhere else: the run
- * row, the document, and the sub-objects a run carries (source reference,
- * attempt record, lease, reservation, session ref, verification). The parser
- * that validates those shapes lives beside this module in `runs-parse.ts`,
- * and the run store (`runs.ts`) imports both, so the schema has exactly one
- * home even as the transitions grow.
- *
- * The split is a file-length requirement, not a design flourish: types plus
- * validators together pass the 500-line gate only by documenting neither
- * properly.
  */
 
 import type { PromptSnapshot } from '../prompt.ts';
@@ -40,16 +29,13 @@ export interface SourceReference {
     /** `false` iff the run already held a reservation when this arrived. */
     readonly presentAtAuthorization: boolean;
     /**
-     * The actor this delivery is attributed to, copied from the
-     * queue row at join.
-     *
-     * **Absentable on read, validated when present.** A run stored before
-     * attribution existed carries neither actor member and still parses: it is
-     * history, and refusing it would quarantine the whole document. Absence
-     * means *no attribution was recorded*, which is a third thing — not an empty
-     * actor and not a guessed one — and it is exactly what makes the gate's own
-     * refusal reachable: it refuses such a run rather than admitting
-     * it on the strength of the binding's list.
+     * The actor this delivery is attributed to, copied from the queue row at
+     * join. **Absentable on read, validated when present**: a run stored
+     * before attribution existed carries neither actor member and still
+     * parses, because it is history. Absence means *no attribution was
+     * recorded* — not an empty actor and not a guessed one — which is exactly
+     * what makes the gate's own refusal reachable rather than an admission
+     * on the strength of the binding's list.
      */
     readonly actorLogin?: string;
     /**
@@ -76,18 +62,13 @@ export interface SourceReference {
 export type ActorPolicy = 'open' | 'restricted';
 
 /**
- * The gate's extra `dispatch.refused` details.
- *
- * A refusal a reader cannot attribute is not an explainable refusal, so the row
- * names **every denied login and each one's basis** — including where that basis
- * was a proxy. What it never carries is a *permitted* login: the
- * detail set is built from the run's own references and the policy's **shape**,
- * never from the stored list, so there is no path by which the permitted set
- * reaches the trail.
- *
- * Declared here rather than beside the gate because the shared chain
- * ([`run-chain.ts`](./run-chain.ts)) threads it to the row builder, and the run
- * vocabulary is the one module both already import.
+ * The gate's extra `dispatch.refused` details: every denied login and each
+ * one's basis, because a refusal a reader cannot attribute is not an
+ * explainable refusal — but never a *permitted* login, since the detail set
+ * is built from the run's own references and the policy's **shape**, never
+ * from the stored list. Declared here because the shared chain threads it to
+ * the row builder, and the run vocabulary is the one module both already
+ * import.
  */
 export interface ActorGateRefusal {
     readonly bindingId: string;
@@ -137,17 +118,13 @@ export interface DispatchAttempt {
 }
 
 /**
- * Which path minted a lease (FR-030, data-model §1).
- *
- * A lease is a **fencing/consistency token, not a capability**: its id carries
- * no authority of its own, is a deterministic function of answer-visible inputs
- * (the run's correlation id, the attempt, and the service clock), and gates
- * nothing. The service's bearer token is the only authentication gate, and the
- * single-use dispatch token is the only authorization to start a
- * session. Provenance is recorded as a typed member rather than as a naming
- * convention inside the id so {@link parseLease} can refuse an id shape no path
- * in this build mints, and so the sweep's migration-recovery accounting reads a
- * field instead of a string prefix.
+ * Which path minted a lease (FR-030, data-model §1). A lease is a
+ * fencing/consistency token and not a capability: its id carries no authority
+ * of its own, is a deterministic function of answer-visible inputs, and gates
+ * nothing — the bearer token authenticates and the single-use dispatch token
+ * authorizes. Provenance is a typed member rather than a naming convention
+ * inside the id so {@link parseLease} can refuse an id shape no path in this
+ * build mints.
  */
 export type LeaseProvenance =
     /** A panel's live claim through `GET /v1/events/pending`. */
@@ -250,14 +227,13 @@ export interface Run {
     readonly prompt: PromptSnapshot | null;
     /**
      * The shape of the binding's allow-list **in force when this run was
-     * authorized**, snapshotted by the gate from the same read that
-     * made its decision so `dispatch.reserved` and `dispatch.result` provably
-     * describe one policy.
-     *
-     * `null` means **no authorization has been recorded yet** — a freshly
-     * enqueued run, an adopted pre-`actorPolicy` row, or one the gate refused
-     * (a refusal writes nothing to the run at all). It is a statement about the
-     * run, never a default of `'open'`, and it is never a permitted login.
+     * authorized**, snapshotted by the gate from the same read that made its
+     * decision so `dispatch.reserved` and `dispatch.result` provably
+     * describe one policy. `null` means **no authorization has been recorded
+     * yet** — a freshly enqueued run, an adopted pre-`actorPolicy` row, or
+     * one the gate refused (a refusal writes nothing to the run). It is a
+     * statement about the run, never a default of `'open'`, and never a
+     * permitted login.
      */
     readonly actorPolicy: ActorPolicy | null;
     /** Current state: one of the eight model states, or `blocked:<reason>`. */
@@ -298,19 +274,12 @@ export interface Run {
     /**
      * The head SHA this run's establishing cycle observed, so the next cycle
      * can tell a push from the state that already existed at dispatch.
-     *
-     * **Absentable and validated when present** — the same pattern
-     * {@link SourceReference}'s actor members use — so a run written before
-     * this member existed parses unchanged. **Absent means *no seed recorded*,
-     * never *the head changed*** (002 FR-103): a run whose establishing
-     * delivery row carried no `headSha` starts without one, and the first
-     * cycle that observes its subject's head records it. The seed is the
+     * **Absentable and validated when present** — absent means *no seed
+     * recorded*, never *the head changed*** (002 FR-103). The seed is the
      * **dispatch-time baseline**, never re-based on a later observation, which
-     * is what makes the from → to pair a follow-up names recoverable from the
-     * run's own history rather than from a value a later push overwrote.
-     *
+     * is what makes the from → to pair recoverable from the run's own history.
      * An **issue** subject carries no seed and never produces a head
-     * follow-up at all, so the member is absent on every issue run forever.
+     * follow-up, so the member is absent on every issue run forever.
      */
     readonly lastHeadSha?: string;
     readonly verification: RunVerification | null;

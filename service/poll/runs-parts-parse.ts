@@ -1,17 +1,5 @@
 /**
  * Validators for the sub-objects a run row carries (003 data-model §2.3–§2.5).
- *
- * A run row is mostly scalars, but four lifecycle sub-objects and two lists
- * each carry their own vocabulary: the source references a delivery joined
- * with, the recorded attempt history, and the nullable lease, reservation,
- * session, and verification the dispatch model hangs off a run. Those live
- * apart from `runs-parse.ts` (document + row orchestration) purely because
- * the file-length gate will not hold types, sub-validators, and the document
- * validator in one file — this is the same contract, read side.
- *
- * Everything here is fail-closed like the rest of the read path: a present
- * value that cannot be understood answers `null`, and the row parser turns
- * that into a refused row rather than a partially trusted one.
  */
 
 import { isRecord, readFlag, readPositiveInt, readStamp, readString, readText } from '../json.ts';
@@ -41,16 +29,12 @@ const ATTEMPT_OUTCOMES: ReadonlySet<string> = new Set([
 ]);
 /**
  * Narrow a value to a trigger kind.
- *
- * @returns `true` for the three documented kinds.
  */
 function isEventKind(value: unknown): value is EventKind {
     return typeof value === 'string' && EVENT_KINDS.has(value);
 }
 /**
  * Narrow a value to a reference origin.
- *
- * @returns `true` for the four documented shapes, including `comment:<id>`.
  */
 function isValidOrigin(origin: string): origin is ReferenceOrigin {
     return origin === 'assignment' || origin === 'body' || origin === 'review'
@@ -59,25 +43,19 @@ function isValidOrigin(origin: string): origin is ReferenceOrigin {
 
 /**
  * Narrow a value to an attempt outcome (`null` while in flight).
- *
- * @returns `true` for `null` or one of the documented outcomes.
  */
 function isOutcome(value: unknown): value is DispatchAttempt['outcome'] {
     return value === null || (typeof value === 'string' && ATTEMPT_OUTCOMES.has(value));
 }
 
 /**
- * Validate the reference sub-object.
- *
- * The two actor members are **absentable and validated when present** (002
- * FR-043, FR-044): a run stored before attribution existed carries neither and
- * still parses, because refusing it would quarantine the whole document for
- * history that is perfectly readable. A member that *is* present must be
- * usable — an unrecognized basis refuses the reference rather than defaulting
- * to a guess, and that refusal is what makes the run
- * unreadable rather than silently unattributed.
- *
- * @returns The reference, or `null` when any field is missing or malformed.
+ * Validate the reference sub-object. The two actor members are **absentable
+ * and validated when present** (002 FR-043, FR-044): a run stored before
+ * attribution existed carries neither and must still parse, because refusing
+ * it would quarantine a perfectly readable document; a present member must
+ * be usable — an unrecognized basis refuses the reference rather than
+ * defaulting to a guess, which is what makes the run unreadable rather than
+ * silently unattributed.
  */
 export function parseReference(raw: unknown): SourceReference | null {
     if (!isRecord(raw)) {
@@ -113,8 +91,6 @@ export function parseReference(raw: unknown): SourceReference | null {
 
 /**
  * Validate one recorded attempt.
- *
- * @returns The attempt record, or `null` when malformed.
  */
 export function parseAttempt(raw: unknown): DispatchAttempt | null {
     if (!isRecord(raw)) {
@@ -151,8 +127,6 @@ export function parseAttempt(raw: unknown): DispatchAttempt | null {
  * any non-empty string would let a stored value this build could never have
  * written decide the sweep's migration-recovery accounting. A panel claim
  * mints `lse-<24 hex>`; adoption mints `migration-<correlation id>`.
- *
- * @returns The identifier, or `null` when it is neither legal shape.
  */
 function readLeaseId(leaseId: unknown): string | null {
     const value = readText(leaseId);
@@ -198,8 +172,6 @@ export function parseLease(raw: unknown): RunLease | null {
 
 /**
  * Validate the reservation sub-object.
- *
- * @returns The reservation, or `null` when malformed.
  */
 export function parseReservation(raw: unknown): RunReservation | null {
     if (!isRecord(raw)) {
@@ -225,8 +197,6 @@ export function parseReservation(raw: unknown): RunReservation | null {
 
 /**
  * Validate one worktree pointer.
- *
- * @returns The worktree, or `null` when it carries no directory and branch.
  */
 function parseWorktree(raw: unknown): { readonly directory: string; readonly branch: string } | null {
     if (!isRecord(raw)) {
@@ -241,8 +211,6 @@ function parseWorktree(raw: unknown): { readonly directory: string; readonly bra
 
 /**
  * Validate the session reference, including its optional worktree.
- *
- * @returns The session ref, or `null` when malformed.
  */
 export function parseSession(raw: unknown): SessionRef | null {
     if (!isRecord(raw)) {
@@ -284,8 +252,6 @@ export function parseSession(raw: unknown): SessionRef | null {
  * blank value is the documented *no baseline configured* a read-back against
  * an unpinned baseline records (002 FR-029 as amended), and a run document
  * must never be quarantined over it.
- *
- * @returns The verification, or `null` when malformed.
  */
 export function parseVerification(raw: unknown): RunVerification | null {
     if (!isRecord(raw)) {

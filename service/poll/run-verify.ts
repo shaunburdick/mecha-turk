@@ -1,24 +1,6 @@
 /**
  * The post-dispatch verification report (003 FR-043, AC-125;
- * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md) §5).
- *
- * Split out of [`run-operate.ts`](./run-operate.ts) so that file stays within
- * the size bound, and it is the operation that most deserves its own name: the
- * verification report is the **only** run-scoped operation that changes nothing
- * about the run's state. It reads the session back, records what it saw, and
- * stops — warn-only by requirement, so a mismatch is a visible warning and
- * never a block, a kill, or a trigger for further automated handling.
- *
- * Two properties this module owes:
- *
- * - **Warn-only is enforced by omission.** `state`, `attempt`, `lease`, and
- *   `reservation` are spread through unchanged; the read-back lands as data on
- *   the run, not as a transition of it. A mismatch receiving *any* further
- *   handling would be a requirement failure, not a feature.
- * - **The attempt is validated before anything else** (contract's common body
- *   fields). A read-back filed against an attempt the run has already left
- *   would record a fact about a dispatch the caller can no longer see — a
- *   partial apply of exactly the kind §5's "never a partial apply" rule refuses.
+ * dispatch-authorization contract §5).
  */
 
 import type { ServiceLogger } from '../log.ts';
@@ -65,23 +47,14 @@ function judgeVerification(input: {
 }
 
 /**
- * Record a post-dispatch agent read-back — and change nothing else.
- *
- * The stored outcome is what makes a mismatch *visible* on the run row, and the
- * row is what makes it auditable; neither may promote a warning into a block, so
- * this writes `run.verification` and leaves `state`, `attempt`, lease, and
- * reservation exactly as they stood. A mismatch receives no further automated
- * handling, ever.
- *
- * A report whose `expectedAgent` is `""` is a read-back against **no configured
- * baseline** (002 FR-029 case (ii)): nothing was compared, and this stores the
- * observed agent beside the empty baseline so the absence — not a fabricated
- * match — is what the row says, under `agent.uncompared` rather than
- * `agent.mismatch`. Verdict, note, and state rules are otherwise
- * untouched.
- *
- * @returns The run with its recorded read-back, or the refusal.
- * @throws {StorageUnavailableError} When the run document cannot be read or written.
+ * Record a post-dispatch agent read-back — and change nothing else. The
+ * stored outcome makes a mismatch visible on the run row and therefore
+ * auditable, but neither may promote a warning into a block, so `state`,
+ * `attempt`, lease and reservation stand exactly as they were and a
+ * mismatch receives no further automated handling, ever. A report whose
+ * `expectedAgent` is `""` is a read-back against **no configured baseline**
+ * (002 FR-029 case (ii)), stored as `agent.uncompared` beside the empty
+ * baseline so the absence — not a fabricated match — is what the row says.
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function recordVerification(input: {

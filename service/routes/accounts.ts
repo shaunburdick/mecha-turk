@@ -1,30 +1,6 @@
 /**
- * Account routes: list, rotation, and operator-driven delete (contract §2.2,
- * FR-010/FR-012, token-handoff §6).
- *
- * - `GET /v1/accounts` returns **credential-free DTOs by construction**: the
- *   handler serialises {@link toAccountDto}, which names every field it
- *   returns, so a future credential field on the record cannot leak by spread.
- * - `POST /v1/accounts/:numericUserId/token` verifies the *new* token before
- *   anything is written. Its numeric id must equal the path id — a mismatch is
- *   `422 account-rejected` with a byte-identical store (SEC-06) — and a
- *   successful rotation refreshes `login`/`scopeCheck`/`verifiedAt` (plus the
- *   credential) while `numericUserId`, checkpoints, deliveries, runs, and audit
- *   history stay untouched (FR-012). State is restored only when the account
- *   is *not* already `active`, so a revoked credential can come back into
- *   service without a second data path.
- * - `DELETE /v1/accounts/:numericUserId` refuses while a repository binding
- *   references the account (`409`) unless `?force=1`, which disables those
- *   bindings and audits every one of them. The force path exists only for an
- *   operator-confirmed UI action (§4 rule 7) — never for an automatic retry.
- *
- * The fourth operation on this surface — the profile `PUT` on the same
- * `ACCOUNT_PATH` — lives in
- * [`account-profile.ts`](./account-profile.ts), which owns its closed body and
- * its prompt observation. This module keeps the shared path constant and the
- * two refusal/path helpers that write needs (`unknownAccountResponse`,
- * `pathAccountId`), so the dependency runs one way and the two files cannot
- * form a cycle.
+ * Account routes: list, rotation, and operator-driven delete (contract
+ * §2.2, FR-010/FR-012, token-handoff §6).
  */
 
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
@@ -115,9 +91,6 @@ function bindingsRefusalResponse(count: number): HttpResponse {
 
 /**
  * Read the numeric account id out of the matched path.
- *
- * @returns The id, or `null` when the segment cannot name an account — which
- *   is answered as `404 unknown-account`, never as a storage path.
  */
 export function pathAccountId(request: RouteRequest): string | null {
     const raw = request.params.numericUserId;
@@ -127,8 +100,6 @@ export function pathAccountId(request: RouteRequest): string | null {
 
 /**
  * Answer `GET /v1/accounts` with the credential-free projections.
- *
- * @returns `200 { accounts: [...] }`, or the documented 503.
  */
 async function handleListAccounts(context: RouteContext): Promise<HttpResponse> {
     const { store } = context;
@@ -148,8 +119,6 @@ async function handleListAccounts(context: RouteContext): Promise<HttpResponse> 
  * freshness marker as `verifiedAt`, and its contract test asserts the stored
  * document differs in **exactly** the credential, `login`, `scopeCheck`, and
  * `verifiedAt` fields for an account that was already `active`.
- *
- * @returns The document to persist.
  */
 function rotatedAccount(input: {
     /** The stored account. */
@@ -198,9 +167,6 @@ async function recordRotationRejection(subject: RotationSubject, reason: string)
 
 /**
  * Classify a rotation's GitHub outcome into a response.
- *
- * @returns The response; a matching `ok` outcome returns `null` for the
- *   caller to persist, anything else is a documented refusal.
  */
 async function rotationRefusal(subject: RotationSubject, outcome: VerifyOutcome): Promise<HttpResponse | null> {
     if (outcome.kind === 'rate-limited') {
@@ -328,8 +294,6 @@ async function prepareRotation(input: {
 
 /**
  * Run `POST /v1/accounts/:numericUserId/token` from body to response.
- *
- * @returns The documented response for this outcome.
  */
 async function handleRotateToken(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;

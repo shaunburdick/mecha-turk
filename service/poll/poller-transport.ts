@@ -1,33 +1,6 @@
 /**
- * The poller's shared transport: one request, classified (002 FR-007, FR-020,
- * FR-022; 006 FR-058, FR-059).
- *
- * Split out of `poller-github.ts` so that module can stay a **catalogue of
- * endpoints** while this one owns *how a request is made and what a failure
- * means*. Both halves are needed by every feed the scan lists — the issues list,
- * the comments list, the pulls list, and the per-item events read 002 v1.12.0
- * added — and each of them was about to become a second copy of the same request
- * path, the same retry ladder, and the same failure vocabulary.
- *
- * Four properties are load-bearing, and each is a decision rather than a default:
- *
- * - **Transport rules are imported, never restated.** The API origin, headers,
- *   and the shared 15-second abort come from `../github.ts` — the same module the
- *   credential verifier uses — so the two clients cannot drift apart on a header
- *   or a timeout (002 FR-007).
- * - **Upstream text never leaves this module.** A failure is one of four shapes:
- *   `auth-failed`, `rate-limited`, `unavailable`. An upstream body or message is
- *   never carried into one, so nothing that GitHub said can reach a log line, an
- *   audit row, or the panel (SEC-11; 002 NFR-004).
- * - **`auth-failed` stops immediately** and every other class is retried up to
- *   the configured `maxAttempts` **including the first** (006 FR-058). A
- *   credential GitHub refuses is a stop condition, not a transient error
- *   (constitution II); a rate limit honours `retry-after`, and each wait is
- *   reported **before** it starts so an operator can see the delay begin.
- * - **Page 2 is asked for only when page 1 filled its cap**, so a scan cannot
- *   burst its budget (002 FR-020), and a page whose parse fails reports the same
- *   class as a page that could not be fetched — an unreadable body is not a
- *   different kind of problem from an unreachable one.
+ * The poller's shared transport: one request, classified (002 FR-007,
+ * FR-020, FR-022; 006 FR-058, FR-059).
  */
 
 import { parseJsonText } from '../json.ts';
@@ -166,8 +139,6 @@ export function listUrl(input: {
 
 /**
  * Parse one list page body, skipping entries the shape check refuses.
- *
- * @throws {Error} When the body is not a JSON array.
  */
 function parseListPage<T>(input: {
     /** The body text as the response carried it. */
@@ -214,14 +185,10 @@ interface WaitContext {
 }
 
 /**
- * Sleep the ladder's next wait, reporting it first.
- *
- * The report happens before the sleep so an operator can see the delay start,
- * and it carries the path, the attempt, the length, and the source — never a
- * header value and never a credential (FR-058's log requirement; 002 FR-007).
- *
- * @param wait - The attempt the wait precedes (the first is never waited for)
- *   and the rate-limit guidance in seconds, or `null`.
+ * Sleep the ladder's next wait, reporting it first. The report happens
+ * before the sleep so an operator can see the delay start, and it carries
+ * the path, the attempt, the length and the source — never a header value
+ * and never a credential (FR-058's log requirement; 002 FR-007).
  */
 async function waitBeforeNextAttempt(
     context: WaitContext,
@@ -247,14 +214,11 @@ async function waitBeforeNextAttempt(
 
 /**
  * Issue one page request, retrying under the configured ladder.
- *
  * `auth-failed` returns immediately — a credential GitHub refuses is a stop
- * condition, not a transient error (constitution II) — and every other class
- * may be attempted up to `retryMaxAttempts` times **including the first**.
- * Each wait is reported before it starts, naming its length and its source,
- * with no header value and no credential in the line.
- *
- * @returns The response, or the failure the last attempt produced.
+ * condition, not a transient error (constitution II) — and every other
+ * class may be attempted up to `retryMaxAttempts` times **including the
+ * first**. Each wait is reported before it starts, naming its length and
+ * its source, with no header value and no credential in the line.
  */
 async function requestPage(input: {
     readonly runtime: PollerRuntime;
@@ -301,14 +265,12 @@ async function requestPage(input: {
 }
 
 /**
- * Read **one** page of a paged endpoint, without deciding whether to ask for
- * another.
- *
- * Split out of {@link listPages} so both walks over this transport share one
- * request-and-parse path, and one failure classification: the list feeds stop
- * when a page under-fills their cap, while the item-events walk stops when a
- * page falls entirely outside the scan window. Two callers, one
- * page reader.
+ * Read **one** page of a paged endpoint, without deciding whether to ask
+ * for another. Split out of {@link listPages} so both walks over this
+ * transport share one request-and-parse path and one failure
+ * classification: the list feeds stop when a page under-fills their cap,
+ * while the item-events walk stops when a page falls entirely outside the
+ * scan window.
  */
 export async function readOnePage<T>(input: {
     readonly runtime: PollerRuntime;
@@ -381,22 +343,15 @@ export async function listPages<T>(input: {
 }
 
 /**
- * Read **one** object from a single-item endpoint, under the shared transport.
- *
- * The single-item terminal read (002 FR-106) is not a paged list: it answers
- * with one object, not an array, so it borrows {@link requestPage}'s request,
- * retry ladder, classification, and shared 15-second abort without borrowing the
- * page walk. It is the same discipline as {@link readOnePage} at "one page, and
- * the behaviour at the bound is what the spec fixes" — here the bound is
- * structural, because neither endpoint returns an array (`research.md` §R12.5).
- *
- * A body that is not the object the reader accepts — unparseable text, or a
- * value the reader refuses, including a GitHub `state` word outside the known
- * vocabulary — answers the same `unavailable`/`upstream` class a page whose
- * parse failed answers: an unreadable body is not a different kind of problem
- * from an unreachable one, which is the line `resolveCandidateActor` draws
- * between a *recorded refusal* and a *read failure* (`poller-events.ts`).
- * Upstream detail never escapes — the caller learns the class, never a body.
+ * Read **one** object from a single-item endpoint, under the shared
+ * transport. The terminal read (002 FR-106) is not a paged list, so it
+ * borrows {@link requestPage}'s request, retry ladder, classification and
+ * shared 15-second abort without borrowing the page walk — the bound is
+ * structural, because neither endpoint returns an array (research §R12.5).
+ * A body the reader refuses answers the same `unavailable`/`upstream` class
+ * as a page whose parse failed: an unreadable body is not a different kind
+ * of problem from an unreachable one. Upstream detail never escapes — the
+ * caller learns the class, never a body.
  */
 export async function readOneObject<T>(input: {
     readonly runtime: PollerRuntime;

@@ -1,27 +1,6 @@
 /**
  * The starting-prompt domain: validation, fingerprint, snapshot, and the
  * three-tier resolution that feeds one.
- *
- * One function — {@link validateStartingPrompt} — is the save boundary *and*
- * the read boundary for a binding's prompt, so a hand-edited `bindings.json`
- * and a panel `PUT` can never disagree about what is usable. Its step order is
- * normative because two edge cases depend on it: line endings normalise
- * **before** the control-character test (so a CRLF paste is a line ending, not
- * a refusal) and empty-after-trim resolves to *unset* **before** the cap (so an
- * empty instruction is never a refusal — it is a clear).
- *
- * The refusal set is closed at four content rules — length, well-formedness,
- * reserved marker, credential shape — plus the type check that decides whether
- * the value is text at all. There is no content policy: nothing here reads what
- * the operator *says*.
- *
- * Every refusal names the field and a remediation and **never quotes the
- * submitted value**. That is what lets the credential refusal be a refusal
- * rather than a warning: the value never reaches a log line, an audit row, or
- * an error body, so it never becomes a durable credential at rest.
- *
- * The fingerprint is service-side on purpose — `node:crypto` cannot reach the
- * panel bundle — and computed by the service, from the text alone.
  */
 
 import { createHash } from 'node:crypto';
@@ -114,21 +93,13 @@ function refuse(remediation: string): PromptValidation {
 }
 
 /**
- * Validate a stored or submitted starting prompt.
- *
- * The order is normative and is the order the specification fixes:
- *
- * 1. **Type** — absent or explicit `null` is unset; text continues; anything
- *    else is refused, never coerced, cast, or dropped.
- * 2. **Trim** the two ends only.
- * 3. **Empty after trim** resolves to unset — "an empty instruction" is not a
- *    state the product has.
- * 4. **Normalise** line endings, *before* the control-character
- *    test so a CRLF paste is a line ending and not a refusal.
- * 5. **Cap** at {@link STARTING_PROMPT_MAX_CODE_POINTS} code points.
- * 6. **Well-formedness** — no control character but tab and newline.
- * 7. **Reserved markers** — no line beginning with a reserved prefix.
- * 8. **Credential shape** — the shipped detector's own labels.
+ * Validate a stored or submitted starting prompt. The order is normative and
+ * is the order the specification fixes: type (absent or `null` is unset,
+ * never coerced), trim the two ends, empty-after-trim resolves to unset,
+ * normalise line endings **before** the control-character test so a CRLF
+ * paste is a line ending and not a refusal, cap at
+ * {@link STARTING_PROMPT_MAX_CODE_POINTS}, then well-formedness, reserved
+ * markers, and credential shape.
  */
 export function validateStartingPrompt(raw: unknown): PromptValidation {
     if (raw === undefined || raw === null) {
@@ -166,13 +137,12 @@ export function validateStartingPrompt(raw: unknown): PromptValidation {
 }
 
 /**
- * Derive a prompt's fingerprint from its normalised text alone.
- *
- * `mtp-` + the first 32 hex characters of `sha256(utf8(text))`: fixed length,
- * `[0-9a-f]` only, URL-safe, and a pure function of the bytes — no salt, no
- * configuration, no clock, no binding id — so the same text fingerprints
- * identically across restarts, builds, and machines.
- * Because a credential-shaped prompt is refused before it is ever stored, a
+ * Derive a prompt's fingerprint from its normalised text alone: `mtp-` plus
+ * the first 32 hex characters of `sha256(utf8(text))` — fixed length,
+ * `[0-9a-f]` only, URL-safe, and a pure function of the bytes (no salt, no
+ * configuration, no clock, no binding id), so the same text fingerprints
+ * identically across restarts, builds and machines. Because a
+ * credential-shaped prompt is refused before it is ever stored, a
  * fingerprint can never be a hash of a secret.
  */
 export function promptFingerprint(text: string): string {
@@ -214,23 +184,11 @@ export interface PromptSnapshot {
 /**
  * Build one **tier's** triple for a record that may carry a prompt — the
  * shape per-tier change rows record, so no caller can mistake a tier for a
- * run's stacked snapshot (a run's snapshot comes from
- * {@link resolvePromptSnapshot}).
- *
- * Structural on purpose — it names only the member it reads, so this module
- * never imports `bindings.ts` (or the account and configuration records) and
- * none of them can form a cycle. The member is typed `string | null` so the
- * account record — which stores the tier as an explicit `null` when unset —
- * reads through the same helper as a binding's absent key: one rule set, three
- * stores.
- *
- * @returns The tier's triple, or `null` when the prompt is unset **or** unusable.
- *
- * The unusable case cannot reach here in practice — the read path quarantines
- * a file whose prompt fails validation before the poll loop ever sees a
- * binding — so `null` is the fail-safe answer of last resort rather than a
- * coercion: nothing is stored, nothing is dispatched, and no fingerprint is
- * derived from text the validator refused.
+ * run's stacked snapshot (which comes from {@link resolvePromptSnapshot}).
+ * Structural on purpose: it names only the member it reads, so this module
+ * never imports `bindings.ts` and no cycle can form. `null` is the fail-safe
+ * answer for unusable text as well as unset, so nothing is stored, nothing is
+ * dispatched, and no fingerprint is derived from text the validator refused.
  */
 export function promptTierOf(record: {
     /** The stored prompt, when the record carries one; `null` reads as unset. */
@@ -250,17 +208,13 @@ export function promptTierOf(record: {
 const TIER_GAP = '\n\n';
 
 /**
- * Stack the set tiers into one block body.
- *
- * Exactly one blank line between **consecutive set** tiers, in the fixed
- * order global → account → binding; a tier that is `null` contributes
- * nothing — no empty line, no placeholder, no note. The body is
- * **built, never parsed**: tier boundaries come from these three named
- * members and never from searching the text, so a tier's
- * own internal blank lines are ordinary operator text and nothing ever
- * re-splits the result.
- *
- * Inputs must already be validated and normalised — that is
+ * Stack the set tiers into one block body: exactly one blank line between
+ * **consecutive set** tiers in the fixed order global → account → binding,
+ * and a tier that is `null` contributes nothing — no empty line, no
+ * placeholder, no note. The body is **built, never parsed**: tier boundaries
+ * come from these three named members and never from searching the text, so a
+ * tier's own internal blank lines are ordinary operator text. Inputs must
+ * already be validated and normalised — that is
  * {@link resolvePromptSnapshot}'s job; this function only stacks.
  */
 export function composePromptBody(tiers: {
@@ -316,24 +270,13 @@ function resolveTier(record: unknown): ResolvedTier {
 }
 
 /**
- * Resolve the three tiers into the one snapshot a queued record stores.
- *
- * Called at detection with **the same records that produced the run's
- * `projectId`/`worktreeOption`** — the cycle's effective configuration, the
- * account the scan already read, the binding being scanned — so resolution
- * and project resolution are one moment rather than a timing assumption.
- * Each tier validates on its own through {@link validateStartingPrompt} —
- * never coerced, never substituted — the set tiers stack in order
- * ({@link composePromptBody}), one fingerprint is derived over the body, and
- * `sources` follows the set tiers **by construction**: a filter of
- * {@link PROMPT_SOURCE_ORDER}, so ordered and duplicate-free before any reader
- * checks it.
- *
- * Returns `null` when **no** tier is set — no body, no fingerprint, no sources:
- * the composition then emits no fence and the message is the pre-tiering bytes
- * — and also when a passed tier is unusable: the last resort, nothing composed
- * from text the validator refused, which the stores' own read paths quarantine
- * long before this runs.
+ * Resolve the three tiers into the one snapshot a queued record stores,
+ * called at detection with the same records that produced the run's
+ * `projectId`/`worktreeOption` so the two are one moment rather than a
+ * timing assumption (004 FR-015). Each tier validates on its own and is
+ * never coerced or substituted; `sources` follows the set tiers by
+ * construction. `null` when no tier is set **or** a passed tier is unusable:
+ * nothing composed from text the validator refused.
  */
 export function resolvePromptSnapshot(tiers: {
     /** This cycle's effective configuration (the global tier's record). */
@@ -464,19 +407,14 @@ function readStoredSnapshot(candidate: Record<string, unknown>): PromptSnapshot 
 }
 
 /**
- * Read a prompt snapshot back out of a stored document.
- *
- * Shape only — the fingerprint is checked against its format rather than
- * recomputed, because recompute-on-read would turn any future algorithm change
- * into a quarantine of every stored run. The stored text still answers the
- * secret rule the save boundary applied, so a hand-edited run row cannot smuggle
- * a credential onto the claim answer, and `sources` must be present, non-empty,
- * ordered, and duplicate-free, with `length` inside the stack bound it names: a
- * present `prompt` without `sources` refuses the document, never defaults one
- * (AGENTS.md invariant 8).
- *
- * @returns The reading, or `null` when a **present** value is unusable —
- *   which the caller turns into a document refusal rather than a half-read run.
+ * Read a prompt snapshot back out of a stored document. Shape only — the
+ * fingerprint is checked against its format rather than recomputed, because
+ * recompute-on-read would turn any future algorithm change into a quarantine
+ * of every stored run. The stored text still answers the secret rule the save
+ * boundary applied, so a hand-edited run row cannot smuggle a credential onto
+ * the claim answer, and `sources` must be present, non-empty, ordered and
+ * duplicate-free: a present `prompt` without `sources` refuses the document,
+ * never defaults one (invariant 8).
  */
 export function parseStoredPromptSnapshot(raw: unknown): StoredPromptSnapshot | null {
     if (raw === undefined || raw === null) {

@@ -1,27 +1,5 @@
 /**
  * `GET /v1/status` — the health model the panel renders (contract §2.1).
- *
- * The service reports itself, where its data lives, why it is or is not
- * polling, the registered accounts with their connection state, and one row
- * per stored binding — each projected without credential material.
- *
- * Three members used to be literals a running process contradicted
- * (005 FR-031–FR-033): `polling` said it was paused with no next poll no
- * matter what the scheduler was doing, `repositories` was always `[]`, and
- * `agentPin.lastVerification` was always `null`. They are now computed —
- * `polling` from a read-only view of the live scheduler
- * ([`poll/view.ts`](../poll/view.ts)), `repositories` from the **same**
- * `readStatusRows` the Bindings tab reads, and the verification from the run
- * document the service already holds.
- *
- * `service.storage.writable` is the handoff pre-flight the panel reads before
- * it enables the token input (SEC-08/F10), and `surface.supported` is `true`
- * by construction: a service process only runs where the host spawns services
- * (desktop and web), so an answering process cannot be on an unsupported
- * surface — the panel owns the unsupported-surface banner (AC-017).
- *
- * The document answers `200` even when the store is down: that is exactly when
- * the operator needs to read it (contract §1).
  */
 
 import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from '../config.ts';
@@ -103,15 +81,13 @@ export interface StatusRepositoryRow {
      */
     readonly readable: boolean;
     /**
-     * The **shape** of this binding's actor allow-list (005 FR-093).
-     *
-     * `'open'` when the binding carries no `allowedUsers` member and
-     * `'restricted'` when it carries one — derived from the **binding**, not
-     * from the scan projection, so it stays truthful on a row that is otherwise
-     * unreadable (contract `status-projection.md`). It never carries a login:
-     * the permitted set's home is `bindings.json`, and a copy of it in a
-     * document the panel renders is the liability, not the control (003
-     * NFR-113, 005 FR-091).
+     * The **shape** of this binding's actor allow-list (005 FR-093): `'open'`
+     * when the binding carries no `allowedUsers` member, `'restricted'` when
+     * it carries one — derived from the **binding**, not the scan projection,
+     * so it stays truthful on a row that is otherwise unreadable (contract
+     * `status-projection.md`). It never carries a login: the permitted set's
+     * home is `bindings.json`, and a copy of it in a document the panel
+     * renders is the liability, not the control (003 NFR-113, 005 FR-091).
      */
     readonly actorPolicy: ActorPolicy;
 }
@@ -193,14 +169,12 @@ export interface ServiceStatusBody {
 }
 
 /**
- * Project one account into the status document's account row.
- *
- * The rate block reports the honest pre-poll baseline (data-model RateState
- * with `null` budget fields and zero usage): the poller that fills it lands
- * with T-014, and a truthful "not measured yet" beats a plausible-looking
- * number for a system that has never polled.
- *
- * @returns The status row; no credential material crosses this boundary.
+ * Project one account into the status document's account row. The rate
+ * block reports the honest pre-poll baseline (data-model RateState with
+ * `null` budget fields and zero usage): the poller that fills it lands with
+ * T-014, and a truthful *not measured yet* beats a plausible-looking number
+ * for a system that has never polled. No credential material crosses this
+ * boundary.
  */
 function statusAccountRow(account: Account): StatusAccount {
     return {
@@ -222,9 +196,6 @@ function statusAccountRow(account: Account): StatusAccount {
 
 /**
  * Read the account rows for the status document.
- *
- * @returns The rows, or none when the store is down or unreadable — the
- *   status route answers with the storage signal instead of failing.
  */
 async function statusAccounts(context: RouteContext): Promise<readonly StatusAccount[]> {
     if (context.store === null) {
@@ -246,9 +217,6 @@ async function statusAccounts(context: RouteContext): Promise<readonly StatusAcc
 
 /**
  * Read the bindings the repository rows are keyed by.
- *
- * @returns The stored bindings, or none when they cannot be read — a row list
- *   built from bindings nobody can name would invent rows, not report them.
  */
 async function storedBindings(context: RouteContext): Promise<readonly BindingRecord[]> {
     if (context.store === null) {
@@ -267,15 +235,12 @@ async function storedBindings(context: RouteContext): Promise<readonly BindingRe
 }
 
 /**
- * The row reported for a binding whose scan projection could not be read.
- *
- * Identity members come from the binding file (which was read), every
- * scan-derived member is `null`/`0`, and `readable: false` tells the panel not
- * to believe them (AC-105; FR-003: a missing value never reads as a healthy
- * one). `actorPolicy` is **not** scan-derived: it comes from the binding, so it
- * is as truthful here as on a readable row.
- *
- * @returns The unreadable row; present, never omitted.
+ * The row reported for a binding whose scan projection could not be read:
+ * identity members come from the binding file (which was read), every
+ * scan-derived member is `null`/`0`, and `readable: false` tells the panel
+ * not to believe them (AC-105; FR-003: a missing value never reads as a
+ * healthy one). `actorPolicy` is **not** scan-derived — it comes from the
+ * binding, so it is as truthful here as on a readable row.
  */
 function unreadableRepositoryRow(binding: BindingRecord): StatusRepositoryRow {
     return {
@@ -301,9 +266,6 @@ function unreadableRepositoryRow(binding: BindingRecord): StatusRepositoryRow {
  * Takes the structural view of a run it actually needs — `verification` — so
  * the projection can be driven by a one-field fixture instead of a whole
  * stored run.
- *
- * @returns The freshest read-back by its own stamp, or `null` when no dispatch
- *   has ever been verified.
  */
 export function mostRecentVerification(
     runs: readonly { readonly verification: RunVerification | null }[],
@@ -345,8 +307,6 @@ function notAvailableVerification(): StatusVerification {
  * degrade to an explicit *unreadable* answer rather than to an empty one — the
  * store being unable to describe its runs is exactly when a reassuring `[]`
  * would be a lie (constitution II).
- *
- * @returns The rows plus the verification member.
  */
 async function runDerivedProjection(
     context: RouteContext,
@@ -382,8 +342,6 @@ async function runDerivedProjection(
 
 /**
  * Read the configuration the status reports the polling interval from.
- *
- * @returns The effective configuration, or defaults when the store is down.
  */
 async function readConfig(context: RouteContext): Promise<ServiceConfig> {
     if (context.store === null) {
@@ -397,9 +355,6 @@ async function readConfig(context: RouteContext): Promise<ServiceConfig> {
 
 /**
  * Assemble the status document.
- *
- * @returns The health model, with every member computed from what the service
- *   actually knows.
  */
 async function buildStatusBody(context: RouteContext): Promise<ServiceStatusBody> {
     const config = await readConfig(context);
@@ -442,9 +397,6 @@ async function buildStatusBody(context: RouteContext): Promise<ServiceStatusBody
 
 /**
  * Answer `GET /v1/status`.
- *
- * @returns The status document; works even when the store is unavailable,
- *   because that is exactly when the operator needs to read it.
  */
 async function handleGetStatus(context: RouteContext): Promise<HttpResponse> {
     const body = await buildStatusBody(context);

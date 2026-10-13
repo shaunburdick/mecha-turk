@@ -1,23 +1,6 @@
 /**
  * Reading the optional members of a run-scoped request body (003 FR-051;
- * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md)).
- *
- * Split out of [`run-scope.ts`](./run-scope.ts) so that file owns *how a
- * request is read and answered* — path guard, shared members, response mapping,
- * the refusal row — while this one owns *what a body member may be*. Both route
- * modules import from here, and neither has to re-derive a bound that four
- * operations already share.
- *
- * Two rules hold for everything below, and neither is negotiable:
- *
- * - **A received value is never echoed.** A rejection is always
- *   `{ field, remediation }`: the member is named and the fix is stated, and
- *   what arrived appears nowhere (SEC-11 / contract §1).
- * - **A bound is a refusal, not a truncation.** Text is cut with a visible
- *   marker only where a row must still be written; a *request* whose optional
- *   text does not fit is answered `422` naming the field, because storing half a
- *   cause as though it were the whole one is the dishonest direction
- *   (`textMember`'s own contract, T-043e).
+ * dispatch-authorization contract).
  */
 
 import { validationResponse } from '../http.ts';
@@ -49,8 +32,6 @@ const MAX_SESSION_ID_CHARS = 128;
  * unbounded panel string out of a durable audit row; for an **optional** member
  * that is only half the job — the operation then owes a `422` naming the field
  * rather than a silently absent value, which is {@link readOptionalText}'s step.
- *
- * @returns The trimmed text, or `null`.
  */
 export function textMember(value: unknown, bound: number = MAX_BODY_TEXT_CHARS): string | null {
     if (typeof value !== 'string') {
@@ -64,16 +45,12 @@ export function textMember(value: unknown, bound: number = MAX_BODY_TEXT_CHARS):
 
 /**
  * Read a verification report's comparison baseline (002 FR-029 as amended).
- *
- * Unlike {@link textMember}, an **empty** value is a real answer rather than an
- * absent one: `""` is the documented *no baseline configured*, and the report
- * must still file so the read-back's observed agent reaches the run and the
- * trail with its absence named instead of papered over. Absent, non-string, and
- * over-long members are still the contract §5 refusal — the member is required,
- * only its emptiness is permitted.
- *
- * @returns The trimmed text, possibly empty, or `null` when the member is
- *   absent, not a string, or over the bound.
+ * Unlike {@link textMember}, an **empty** value is a real answer rather than
+ * an absent one: `""` is the documented *no baseline configured*, and the
+ * report must still file so the observed agent reaches the run and the trail
+ * with its absence named instead of papered over. Absent, non-string and
+ * over-long members are still the contract §5 refusal — the member is
+ * required, only its emptiness is permitted.
  */
 export function baselineMember(value: unknown, bound: number = MAX_BODY_TEXT_CHARS): string | null {
     if (typeof value !== 'string') {
@@ -103,8 +80,6 @@ const BASELINE_PROVENANCES = ['configured', 'defaulted', 'unset'] as const;
  * else — absent, not a string, or outside the three — answers `null`, which
  * {@link readProvenance} turns into the `422` this member owes: without the
  * word, an `agent.uncompared` row could not say *why* no baseline was in force.
- *
- * @returns The provenance, or `null` when it is absent or out of vocabulary.
  */
 function provenanceMember(value: unknown): BaselineProvenance | null {
     return BASELINE_PROVENANCES.find((candidate) => candidate === value) ?? null;
@@ -112,16 +87,12 @@ function provenanceMember(value: unknown): BaselineProvenance | null {
 
 /**
  * The `422` a provenance that contradicts its own baseline owes, or `null`
- * when the two agree.
- *
- * The pair is a single fact stated twice — a baseline exists iff the
- * provenance that admits to reading one (`configured`) was sent — so a report
- * claiming `configured` against an empty baseline (or `defaulted`/`unset`
- * against a real one) would record a reason its own body disproves. Fail
- * closed: name the field and state the rule, never pick the half that seems
- * likelier (AGENTS invariant 8).
- *
- * @returns The issue naming the rule, or `null` when the two agree.
+ * when the two agree. The pair is one fact stated twice — a baseline exists
+ * iff the provenance that admits to reading one (`configured`) was sent — so
+ * a report claiming `configured` against an empty baseline (or
+ * `defaulted`/`unset` against a real one) would record a reason its own body
+ * disproves. Fail closed: name the field and state the rule, never pick the
+ * half that seems likelier (invariant 8).
  */
 function provenanceIssue(provenance: BaselineProvenance, expectedAgent: string): FieldIssue | null {
     const isConfigured = provenance === 'configured';
@@ -145,8 +116,6 @@ function provenanceIssue(provenance: BaselineProvenance, expectedAgent: string):
  * it is closed to three words, and it must agree with the emptiness of
  * `expectedAgent` it arrived beside.
  *
- * @param expectedAgent - The baseline the same body carried.
- * @returns The provenance, or the `422` issue naming what was wrong with it.
  */
 export function readProvenance(
     fields: Readonly<Record<string, unknown>>,
@@ -162,8 +131,6 @@ export function readProvenance(
 
 /**
  * Read one boolean member, answering the fallback when it is absent.
- *
- * @returns The boolean, or the fallback.
  */
 export function flagMember(value: unknown, isAbsent: boolean): boolean {
     return typeof value === 'boolean' ? value : isAbsent;
@@ -177,8 +144,6 @@ export function flagMember(value: unknown, isAbsent: boolean): boolean {
  * the path-safe form this build's host mints, bounded, is accepted — anything
  * else is a `422` naming the field rather than text the durable trail then
  * carries.
- *
- * @returns The issue, or `null` when the value is absent or well-formed.
  */
 export function sessionIdIssue(value: string | null): FieldIssue | null {
     if (value === null) {
@@ -197,23 +162,12 @@ export function sessionIdIssue(value: string | null): FieldIssue | null {
 }
 
 /**
- * The `422` an over-long optional free-text member owes, or `null` when every
- * named member fit.
- *
- * `textMember` bounds the value rather than accepting whatever arrived — right
- * for keeping an unbounded panel string out of a durable audit row, and
- * incomplete on its own: a caller reading only `null` cannot tell an absent
- * member from one it had to cut, so the reader's own promise that "the operation
- * then answers `422` naming the field" went unkept for `causeReport`, `note`,
- * `guidance`, and `observedAgent` (T-043e). This is that step, returned beside
- * the values rather than instead of them so a caller can still run its
- * *required* checks first and report the more fundamental failure before this
- * one — one body, one round trip, ordered by severity.
- *
- * A blank member stays absent: nothing was said, so there is nothing to refuse.
- *
- * @param names - The optional free-text names this operation reads.
- * @returns The `422` naming whichever member was too long, else `null`.
+ * The `422` an over-long optional free-text member owes, or `null` when
+ * every named member fit. Returned **beside** the values rather than instead
+ * of them, so a caller can still run its *required* checks first and report
+ * the more fundamental failure — one body, one round trip, ordered by
+ * severity. A blank member stays absent: nothing was said, so there is
+ * nothing to refuse (T-043e).
  */
 export function overLongTextResponse(
     fields: Readonly<Record<string, unknown>>,

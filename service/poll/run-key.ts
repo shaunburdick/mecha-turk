@@ -1,37 +1,5 @@
 /**
  * Run identity derivation (003 FR-010, FR-020, FR-029, FR-050).
- *
- * Everything a run is *called* is derived here, and derived deterministically
- * from the run key alone, so the service can re-derive an identity it has
- * already minted without storing a table of ids:
- *
- * - **run key** (FR-010) — the human-readable tuple
- *   `github|<account>|<owner/name>|<issue|pull_request>|<number>|<ordinal>`,
- *   displayed to the operator next to the correlation id;
- * - **correlation id** (FR-050) — `mt-run-<sha256(runKey) hex[0:24]>`, the
- *   single path-safe segment every hop of the chain carries;
- * - **attachment id** (FR-029) — the correlation id itself (identity
- *   derivation), so one copyable string finds the audit chain *and* the
- *   session in OpenChamber's list;
- * - **dispatch token** (FR-020) — `dtk-<sha256(runKey|attempt) hex[0:32]>`,
- *   minted **only when a reservation asks for it** (plan D4), never at claim.
- *
- * The token field is named `dispatchToken` everywhere it is persisted (plan
- * D6 / research §R3) so the credential-key guard never strips it while the
- * secret-shape scans still find zero credential occurrences; this module only
- * ever produces `dtk-<hex>`, which matches none of {@link findSecretLeak}'s
- * credential shapes.
- *
- * A row that must **name** a token without carrying it uses
- * {@link buildDispatchTokenFingerprint} instead: an unconsumed token is a live
- * authorization to report a result, and the audit trail is operator-facing and
- * retained for months, so the trail records a one-way `tokfp-…` identifier and
- * never the `dtk-…` value.
- *
- * The attachment bound is mirrored from the SDK's `GUEST_ATTACH_ID_MAX`
- * rather than imported: the service bundle must stay stdlib-only (AGENTS.md
- * invariant 6 keeps `@openchamber/sdk` a panel-side dependency), and a
- * mismatch is caught by the byte-format assertions in `tests/service-run-key`.
  */
 
 import { createHash } from 'node:crypto';
@@ -83,16 +51,11 @@ export interface RunKeyInput {
 
 /**
  * Read the tuple's ordered segments, refusing any that would make it
- * ambiguous.
- *
- * The run key is displayed, re-derived, and hashed, so a segment carrying the
- * tuple's own separator would silently join two different subjects into one
- * key (constitution II: ambiguity is a stop condition, never a guess), and a
- * non-integer number or ordinal would make the key impossible to round-trip.
- *
- * @returns The five segments, provider first and ordinal last.
- * @throws {Error} When a segment is empty or carries the `|` separator, or
- *   when the subject number or ordinal is not the integer its field names.
+ * ambiguous: the run key is displayed, re-derived and hashed, so a segment
+ * carrying the tuple's own separator would silently join two different
+ * subjects into one key (constitution II: ambiguity is a stop condition,
+ * never a guess), and a non-integer number or ordinal would make the key
+ * impossible to round-trip.
  */
 function keySegments(input: RunKeyInput): readonly string[] {
     if (!Number.isSafeInteger(input.subjectNumber) || input.subjectNumber < 1) {
@@ -121,8 +84,6 @@ function keySegments(input: RunKeyInput): readonly string[] {
 /**
  * Build the run key: FR-010's deterministic tuple.
  *
- * @returns `github|<account>|<owner/name>|<subjectType>|<number>|<ordinal>`.
- * @throws {Error} When a segment would make the tuple ambiguous.
  */
 export function buildRunKey(input: RunKeyInput): string {
     return keySegments(input).join(KEY_SEPARATOR);
@@ -136,9 +97,6 @@ export function buildRunKey(input: RunKeyInput): string {
  * shares it, so the counter survives terminal-run eviction and ordinals are
  * never reused (data-model §2.6).
  *
- * @param input - Subject coordinates; `ordinal` is ignored.
- * @returns `github|<account>|<owner/name>|<subjectType>|<number>`.
- * @throws {Error} When a segment would make the tuple ambiguous.
  */
 export function buildSubjectKey(input: RunKeyInput): string {
     return keySegments(input).slice(0, -1).join(KEY_SEPARATOR);
@@ -146,8 +104,6 @@ export function buildSubjectKey(input: RunKeyInput): string {
 
 /**
  * Hex-encode the prefix of one SHA-256 digest.
- *
- * @returns The lower-case hex prefix.
  */
 function digestHex(text: string, hexChars: number): string {
     return createHash('sha256').update(text, 'utf8').digest('hex').slice(0, hexChars);
@@ -155,8 +111,6 @@ function digestHex(text: string, hexChars: number): string {
 
 /**
  * Derive a run's correlation id from its run key.
- *
- * @returns `mt-run-<24 hex characters>` — one path-safe URL segment.
  */
 export function buildCorrelationId(runKey: string): string {
     return `mt-run-${digestHex(runKey, CORRELATION_HEX_CHARS)}`;
@@ -165,8 +119,6 @@ export function buildCorrelationId(runKey: string): string {
 /**
  * Derive a run's attachment id: the correlation id, verbatim.
  *
- * @returns The same string, as the attachment id.
- * @throws {Error} When the id is not a single path-safe segment or exceeds
  *   {@link ATTACHMENT_ID_MAX} — a derivation bug must fail loudly rather than
  *   ship an attachment the host will reject or a segment a route cannot take.
  */
@@ -186,9 +138,6 @@ export function buildAttachmentId(correlationId: string): string {
  * attempt reset re-derives a *fresh* token for the reset attempt.
  * Callers mint it **at reservation only** — never at claim.
  *
- * @param attempt - The attempt number the token is for (starts at 1).
- * @returns `dtk-<32 hex characters>` — one path-safe URL segment.
- * @throws {Error} When the attempt is not a positive integer.
  */
 export function buildDispatchToken(runKey: string, attempt: number): string {
     if (!Number.isSafeInteger(attempt) || attempt < 1) {
@@ -199,19 +148,14 @@ export function buildDispatchToken(runKey: string, attempt: number): string {
 }
 
 /**
- * Fingerprint one dispatch token for a row that must name it without carrying
- * it (003 FR-061; the `dispatch.unconfirmed` row).
- *
- * An unconsumed dispatch token is a live authorization to report a result, and
- * `audit.ndjson` is operator-facing and retained for months — so a row may name
- * *which* token was outstanding, never its value. This is a one-way digest of
- * the token bytes, not of the run key: two different tokens for one run (a
- * re-mint under a new attempt) produce two different fingerprints, so the row
- * still identifies the exact authorization, and the digest cannot be inverted
- * to recover a 256-bit token.
- *
- * @param dispatchToken - The token as recorded on the run's reservation.
- * @returns `tokfp-<16 hex characters>` — one path-safe segment.
+ * Fingerprint one dispatch token for a row that must name it without
+ * carrying it (003 FR-061; the `dispatch.unconfirmed` row). An unconsumed
+ * token is a live authorization to report a result, and `audit.ndjson` is
+ * operator-facing and retained for months — so a row may name *which* token
+ * was outstanding, never its value. The digest is of the token bytes rather
+ * than the run key, so a re-mint under a new attempt yields a different
+ * fingerprint, the row still identifies the exact authorization, and it
+ * cannot be inverted to recover a 256-bit token.
  */
 export function buildDispatchTokenFingerprint(dispatchToken: string): string {
     return `${FINGERPRINT_PREFIX}${digestHex(dispatchToken, FINGERPRINT_HEX_CHARS)}`;

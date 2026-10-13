@@ -1,47 +1,5 @@
 /**
  * The excerpt retention pass over `events.json` (006 FR-057).
- *
- * The stored payload excerpt — `QueuedEvent.issueBodyExcerpt`, the truncated
- * issue body captured at detection — used to live as long as the queue did.
- * This pass ages it out under `excerptRetentionDays`, and it is deliberately
- * narrower than the dispatched-tail cap beside it:
- *
- * - **Eligible rows only, decided on the run's authority.** A pre-003 legacy
- *   row is terminal exactly when it carries the shipped `dispatched` state —
- *   the *same* predicate the tail cap partitions on (plan D6) — and such a row
- *   answers `409` to a retry, so its text can never be reached again. 003
- *   froze that field, though: nothing this build enqueues writes `state`, so
- *   `state === 'dispatched'` alone matches only rows an earlier build wrote
- *   and the pass would clear **nothing, ever** on a store this build creates —
- *   while the destructive-confirmation copy promises it will (FR-052, and
- *   FR-084's "no setting is inert"). A post-003 row therefore takes its
- *   eligibility from its linked run: `dispatched` clears, and `pending`,
- *   `claimed`, `starting`, `blocked:*`, `unconfirmed`, `failed`, and
- *   `dead-lettered` are **ineligible at any age**, because the relay still
- *   reads this excerpt to dispatch, retry, or return that run to waiting
- *   (`src/relay.ts`) and clearing it would silently degrade live work. A row
- *   with no usable link is left alone — its run was evicted and it was pruned
- *   with it, or it never had one — and so is every post-003 row when the run
- *   document itself cannot be read: unknown keeps its text (invariant 8).
- * - **Only the text goes.** id, state, claim and dispatch stamps, repository
- *   and issue identity, and the correlation identifier are copied through
- *   untouched, so dedupe, history, and correlation are unaffected.
- * - **The clearing is marked.** `excerptTrimmedAt` sits beside the now-empty
- *   excerpt so a reader can tell *trimmed* from *never had a body* (FR-057's
- *   round-trip distinction); a row the pass already cleared is skipped, so the
- *   pass is idempotent and never re-records a removal.
- * - **The row follows the removal.** One `audit.trimmed` row with
- *   `limitReached: 'excerpt-days'` is appended **after** the rewrite
- *   succeeds, and a pass that clears nothing appends nothing (FR-053).
- *
- * The rewrite runs on the queue's own chain (`inQueueChain`), so it cannot
- * interleave with an enqueue or a claim, and it writes the rows it read in the
- * order it read them — no tail cap, no pruning, no field is dropped or added
- * beyond the marker above. The run document is **read** inside that same slot
- * and never written: this pass opens no runs file, joins no chain of its own,
- * and adopts nothing. Every deterministic input (the clock, the configuration)
- * is supplied by the caller, so the whole pass is testable on seeded fixtures
- * with no waiting of its own.
  */
 
 import { appendAudit, CONFIGURATION_ENTITY_ID } from '../audit.ts';
@@ -82,20 +40,14 @@ export interface TrimExcerptsInput {
 }
 
 /**
- * Read `runs.json` for the run-layer half of the eligibility rule.
- *
- * Read only, and read without the run layer's own readers on purpose: those
- * adopt the legacy queue and flush the audit-intent outbox, and a retention
- * pass must not become a second writer of a document it has no business
- * changing. Fail closed on the two shapes that are not an answer:
- *
- * - **absent** — a store that has never enqueued a run has no post-003 rows
- *   either, so the empty map is the truth rather than a guess;
- * - **quarantined or unparseable** — unknown, so *no* post-003 row is
- *   eligible; the legacy `state === 'dispatched'` rows keep their own answer
- *   from their own field, which needs no run document at all.
- *
- * @returns correlation id → run state, or an empty map when unknown.
+ * Read `runs.json` for the run-layer half of the eligibility rule. Read
+ * only, and without the run layer's own readers on purpose: those adopt the
+ * legacy queue and flush the audit-intent outbox, and a retention pass must
+ * not become a second writer of a document it has no business changing.
+ * Fail closed on the two shapes that are not an answer — **absent** is an
+ * empty map (the truth rather than a guess), and **quarantined or
+ * unparseable** means no post-003 row is eligible while legacy
+ * `state === 'dispatched'` rows keep their answer from their own field.
  */
 async function readRunStates(input: {
     /** Open store holding the run document. */
@@ -120,10 +72,6 @@ async function readRunStates(input: {
  * Decide whether one row's dispatch is finished, on the authority its schema
  * gives it.
  *
- * @param runStates - correlation id → run state, as {@link readRunStates}
- *   read them (empty when unknown).
- * @returns `true` for a legacy row in the terminal `dispatched` state, or a
- *   post-003 row whose linked run is `dispatched`.
  */
 function dispatchFinished(event: QueuedEvent, runStates: ReadonlyMap<string, string>): boolean {
     if (isDispatchedTerminal(event)) {
@@ -139,9 +87,6 @@ function dispatchFinished(event: QueuedEvent, runStates: ReadonlyMap<string, str
 
 /**
  * Decide whether one row's payload text is this pass's to clear.
- *
- * @returns `true` for an untouched, eligible row older than the window that
- *   still carries text to clear.
  */
 function clearable(input: {
     /** One stored queue row. */
@@ -164,10 +109,6 @@ function clearable(input: {
 /**
  * One pass: clear the eligible excerpts, then record what was cleared.
  *
- * @returns How many rows this pass cleared; `0` means nothing was touched.
- * @throws {StorageUnavailableError} When the queue cannot be rewritten; the
- *   caller (store open, cycle boundary) logs the failure and moves on, and the
- *   file still holds its pre-pass bytes.
  */
 export async function trimExcerpts(input: TrimExcerptsInput): Promise<TrimExcerptsOutcome> {
     const now = input.now ?? Date.now();

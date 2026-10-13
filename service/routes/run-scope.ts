@@ -1,31 +1,7 @@
 /**
- * Shared request handling for every **run-scoped** operation under
+ * Shared request handling for every run-scoped operation under
  * `/v1/events/:correlationId/…` (003 FR-051;
  * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md)).
- *
- * Eight routes across two modules answer this shape, and three things must be
- * identical across all of them or the panel cannot rely on any of them:
- *
- * - **What identifies the run.** The path segment is the run's correlation id,
- *   and the body echoes it (FR-051: the service mints it, the panel must not
- *   substitute it). A body that contradicts the path is a validation failure,
- *   never a silently-preferred one of the two.
- * - **What a refusal is worth afterwards.** Every refusal about a run that
- *   *exists* writes exactly one `dispatch.refused` row (FR-003) — the state
- *   verdicts from their operation modules, and a body that never reached one
- *   from [`run-answer.ts`](./run-answer.ts), which reads the run for the row's
- *   `priorState` and `attempt`. This module stops at the verdict; turning it
- *   into a status, an envelope, and a row is that module's job, which is also
- *   where "one code → one status, one envelope, no per-route drift" is
- *   enforced for all eight routes at once.
- *
- * The two refusals with no row are `unknown-run` and a `422` about a run this
- * service does not hold, and both are deliberate rather than an oversight: there
- * is no run, so there is no entity, no prior state, and no attempt for the row
- * to name, and the contract's rule that the row's entity and correlation are the
- * run's would have to be faked to write one. The panel is told the run is gone
- * or the body is malformed; the trail records nothing rather than a fabricated
- * entity.
  */
 
 import { validationResponse } from '../http.ts';
@@ -54,7 +30,6 @@ export const RUN_SCOPE_PREFIX = '/v1/events/:correlationId';
  * the one shape the service itself mints, which no escape sequence can produce.
  *
  * @param raw - The captured segment, or `undefined` for a non-parameterised path.
- * @returns The correlation id, or `null` when the segment is not one.
  */
 export function pathCorrelationId(raw: string | undefined): string | null {
     if (raw === undefined || raw.length === 0 || raw.length > MAX_CORRELATION_ID_CHARS) {
@@ -115,8 +90,6 @@ const ECHO_REMEDIATION = 'echo the run correlation id exactly as the path names 
 /**
  * Whether a received body is the plain JSON object every run-scoped contract
  * shape is written as.
- *
- * @returns `true` for a non-array, non-null object (or no body at all).
  */
 function isBodyObject(raw: unknown): boolean {
     return raw === undefined || (typeof raw === 'object' && raw !== null && !Array.isArray(raw));
@@ -125,8 +98,6 @@ function isBodyObject(raw: unknown): boolean {
 /**
  * The one rejected body member, and what would fix it.
  *
- * @param correlationId - The run the path named.
- * @returns The `correlationId` issue when the echo disagrees, else `null`.
  */
 function echoIssue(record: Readonly<Record<string, unknown>>, correlationId: string): FieldIssue | null {
     // FR-051: the service mints the id and the panel must not substitute it, so
@@ -138,8 +109,6 @@ function echoIssue(record: Readonly<Record<string, unknown>>, correlationId: str
 
 /**
  * Read one optional member, refusing anything that is not the shape minted.
- *
- * @returns The member, or `null` when absent or malformed.
  */
 function readMember(value: unknown, pattern: RegExp): string | null {
     return typeof value === 'string' && pattern.test(value) ? value : null;
@@ -155,8 +124,6 @@ type MemberIssue = FieldIssue;
 
 /**
  * Read one shared member and collect its issue, when the operation requires it.
- *
- * @returns The member as received.
  */
 function requiredMember(input: {
     /** The body's members. */
@@ -187,8 +154,6 @@ function requiredMember(input: {
  * first problem: a panel that fixed one field at a time would need four round
  * trips to learn what is wrong, and the 422 is the one place that can say all of
  * it at once.
- *
- * @returns The members as received, plus every issue found.
  */
 function parseRunScopeRequest(input: {
     /** Parsed body, or `undefined` when the request carried none. */
@@ -257,8 +222,6 @@ export function readRunScopeRequest(input: ReadRequest & {
 
 /**
  * Read an operation's body when it required a dispatch token.
- *
- * @returns The request with a non-null token, or the `422`.
  */
 export function readRunScopeRequest(input: ReadRequest & {
     /** Declares the token as required. */
@@ -267,8 +230,6 @@ export function readRunScopeRequest(input: ReadRequest & {
 
 /**
  * Read an operation's body when it required neither optional member.
- *
- * @returns The request, or the `422`.
  */
 export function readRunScopeRequest(input: ReadRequest & {
     /** Declares neither member as required. */
@@ -297,16 +258,13 @@ export interface RunScopeBody {
 }
 
 /**
- * Read an operation's body when the contract names the correlation echo but no
- * shared attempt member — §7 (requeue) and §8 (resolve) are written that way,
- * and a field those request bodies do not carry must not become a required one.
- *
- * What *is* common to every call in this directory is FR-051's echo, so it is
- * checked here with exactly the rule {@link readRunScopeRequest} applies: a body
- * that contradicts the path is a validation failure, never a silently-preferred
- * one of the two.
- *
- * @returns The body's members, or the `422`.
+ * Read an operation's body when the contract names the correlation echo
+ * but no shared attempt member — §7 (requeue) and §8 (resolve) are written
+ * that way, and a field those request bodies do not carry must not become a
+ * required one. What *is* common to every call is FR-051's echo, so it is
+ * checked here with exactly the rule {@link readRunScopeRequest} applies: a
+ * body that contradicts the path is a validation failure, never a
+ * silently-preferred one of the two.
  */
 export function readRunScopeBody(input: ReadRequest): RunScopeBody | HttpResponse {
     const { raw, correlationId } = input;
@@ -329,8 +287,6 @@ export function readRunScopeBody(input: ReadRequest): RunScopeBody | HttpRespons
 /**
  * Narrow a parse result to the validation response it may have produced.
  *
- * @param parsed - Whatever {@link readRunScopeRequest} or {@link readRunScopeBody} answered.
- * @returns The response to write, or `null` when the request parsed cleanly.
  */
 export function isRefusal(parsed: RunScopeRequest | RunScopeBody | HttpResponse): parsed is HttpResponse {
     return 'status' in parsed;

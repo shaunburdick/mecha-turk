@@ -1,20 +1,5 @@
 /**
  * Stored schema and parser for one relay event.
- *
- * `events.json` is one flat array of {@link QueuedEvent} rows, and this module
- * owns the whole read side of that contract: the row type, the field
- * vocabulary the writer emits, and the validator the store runs before it
- * trusts a file. The parse block lives apart from `events.ts` (chain, enqueue,
- * claim, dispatch) so each module stays inside the file-length gate; the queue
- * module re-exports everything here so callers keep one import path.
- *
- * `issueNumber` is a **number** on both the writer and the wire, so it is
- * deliberately *not* in {@link REQUIRED_FIELDS}: that list is the text set,
- * validated with `typeof value === 'string'`, and requiring text there made the
- * writer's own output fail validation — every `events.json` was quarantined on
- * first read and the pending queue was silently lost. The field keeps its own
- * presence-and-shape check in {@link parseStoredEvent} via `positiveIntOf`, so
- * a missing, string, zero, or fractional value still quarantines the file.
  */
 
 import { isRecord } from '../json.ts';
@@ -100,29 +85,21 @@ export interface QueuedEvent {
     /** Session id or failure text the panel reported; absent on a run-layer row. */
     readonly dispatchResult?: string | null;
     /**
-     * RFC 3339 stamp the retention pass cleared `issueBodyExcerpt` at, absent on
-     * every row that pass has not touched.
-     *
-     * This is the distinction a reader has to be able to make: a cleared row
-     * (`issueBodyExcerpt: ''` **with** this stamp) is not a row that never
-     * carried a body (`issueBodyExcerpt: ''` without it). Absentable and
-     * additive — older rows parse identically, and the marker survives a store
-     * round trip because it is parsed back with the rest of the row.
+     * RFC 3339 stamp the retention pass cleared `issueBodyExcerpt` at, absent
+     * on every row that pass has not touched. This is the distinction a reader
+     * has to be able to make: a cleared row (`issueBodyExcerpt: ''` **with**
+     * this stamp) is not a row that never carried one. Absentable and
+     * additive — older rows parse identically, and the marker survives a
+     * store round trip.
      */
     readonly excerptTrimmedAt?: string;
     /**
-     * The GitHub login this delivery is attributed to.
-     *
-     * **Absentable on read, validated when present**, and both rules live in
-     * [`attribution.ts`](./attribution.ts) beside the basis's own vocabulary.
-     * A row enqueued before this member existed carries none and keeps none:
-     * requiring it would quarantine every pre-existing row, which is a
-     * migration by side effect. Absence is not a permission — the
-     * authorization gate refuses a run whose references name no readable actor
-     * rather than reading absence as allowed.
-     *
-     * Public repository identity, never a credential, so the member is
-     * credential-free by construction.
+     * The GitHub login this delivery is attributed to. **Absentable on read,
+     * validated when present**, both rules living beside the basis's own
+     * vocabulary in `attribution.ts`: a row enqueued before the member existed
+     * must still parse, and absence is not permission — the gate refuses a run
+     * whose references name no readable actor. Public repository identity,
+     * never a credential.
      */
     readonly actorLogin?: string;
     /**
@@ -158,15 +135,11 @@ const REQUIRED_FIELDS = [
 
 /**
  * Fields a row may carry as text, as literal `null`, or omit entirely: the
- * pull-request coordinates *and* the frozen legacy lifecycle stamps (a row the
- * run layer enqueued carries neither).
- *
- * The queue file outlives the build that wrote it: a file written before the
- * coordinates existed has no `headSha`/`baseRef` at all, a row written before
- * the run layer has all four lifecycle fields, and every row written after it
- * has none — all three shapes must keep parsing, because an unreadable file
- * would quarantine a healthy queue and reset every binding's window for
- * nothing.
+ * pull-request coordinates *and* the frozen legacy lifecycle stamps. The
+ * queue file outlives the build that wrote it — all three shapes
+ * (pre-coordinates, pre-run-layer, post-run-layer) must keep parsing,
+ * because an unreadable file would quarantine a healthy queue and reset
+ * every binding's window for nothing.
  */
 const ABSENTABLE_FIELDS = ['headSha', 'baseRef', 'claimedAt', 'dispatchedAt', 'dispatchResult'] as const;
 
@@ -215,8 +188,6 @@ type IdDiscriminator =
     | { readonly role: 'malformed' };
 
 /**
- * @returns What the segment says, including the malformed case a stored row
- *   can only reach by hand.
  */
 function discriminatorOfId(id: string): IdDiscriminator {
     const segments = id.split('~');
@@ -240,10 +211,6 @@ function discriminatorOfId(id: string): IdDiscriminator {
  * unions every other row uses. Reading the role back from the same string the
  * writer derived it from is therefore not a shortcut but the only shape that
  * adds no stored member at all.
- *
- * @returns `'comment'` or `'head'`, or `null` when the id is not a follow-up
- *   id — including one whose `followup` tail is outside the family, which is
- *   refused by the row's own validator rather than half-read here.
  */
 export function followUpKindOf(id: string): FollowUpKind | null {
     const read = discriminatorOfId(id);
@@ -295,7 +262,6 @@ function positiveIntOf(value: unknown): number | null {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 /**
- * @returns The state name, or `null` when it is from another vocabulary.
  */
 function knownStateOf(value: unknown): string | null {
     if (typeof value !== 'string' || !KNOWN_STATES.has(value)) {
@@ -306,9 +272,6 @@ function knownStateOf(value: unknown): string | null {
 }
 
 /**
- * @returns `undefined` when the row carries no state (a row the run layer
- *   enqueued), the state when it is from the shipped vocabulary, or `null` when
- *   it is not.
  */
 function readStateField(record: Record<string, unknown>): EventState | undefined | null {
     if (record.state === undefined) {
@@ -319,8 +282,6 @@ function readStateField(record: Record<string, unknown>): EventState | undefined
 }
 
 /**
- * @returns `undefined` when the row predates it, the subject shape, or `null`
- *   when the value is neither shape.
  */
 function readSubjectTypeField(record: Record<string, unknown>): SubjectType | undefined | null {
     const value = record.subjectType;
@@ -332,8 +293,6 @@ function readSubjectTypeField(record: Record<string, unknown>): SubjectType | un
 }
 
 /**
- * @returns `undefined` when the row has no run yet, the id, or `null` when
- *   the value is not a service-minted id.
  */
 function readRunLinkField(record: Record<string, unknown>): string | undefined | null {
     const value = record.runCorrelationId;
@@ -345,10 +304,6 @@ function readRunLinkField(record: Record<string, unknown>): string | undefined |
 }
 
 /**
- * @returns `undefined` when the row carries no marker (a literal `null`
- *   counts as absent), the stamp when it parses as a date, or `null` when the
- *   value cannot be trusted — which refuses the row rather than guessing at
- *   what it meant (invariant 8).
  */
 function readTrimMarkerField(record: Record<string, unknown>): string | undefined | null {
     const value = record.excerptTrimmedAt;
@@ -463,7 +418,6 @@ function trimMarkerOf(record: Record<string, unknown>): TrimMarkerFields {
 }
 
 /**
- * @returns The coordinates, normalized to `null` when absent.
  */
 function coordinatesOf(
     record: Record<string, unknown>,
@@ -475,22 +429,14 @@ function coordinatesOf(
 }
 
 /**
- * Parse one stored event row.
- *
- * The writer's own output is the shape this must accept: every text field
- * non-empty, `issueNumber` a positive integer, a `state` from the shipped
- * vocabulary **when the row carries one**, and an excerpt that may
- * legitimately be `''` (an issue with no body). The coordinates (`headSha`,
- * `baseRef`) may be missing outright — an older row still parses, with both
- * read as `null` — and the legacy lifecycle stamps may be missing too, which
- * is how a row the run layer enqueued reads. The two actor members
- * (`actorLogin`, `actorAttribution`) may be missing outright as well: they are
- * **absentable on read and validated when present**, so an older row still
- * parses and reads as *no attribution recorded* — never as a default basis,
- * because a defaulted basis states an inference as a fact. Anything else —
- * including a row missing `issueNumber` outright, a `state` outside the shipped
- * three, or an unrecognized attribution basis — answers `null`, which the store
- * turns into a quarantine.
+ * Parse one stored event row: the writer's own output is the shape this must
+ * accept. Text fields non-empty, `issueNumber` a positive integer, a `state`
+ * from the shipped vocabulary **when the row carries one**, coordinates and
+ * legacy lifecycle stamps missing-able, and the two actor members
+ * **absentable on read and validated when present** — an absent basis reads
+ * as *no attribution recorded*, never a default, because a defaulted basis
+ * states an inference as a fact. Anything else answers `null`, which the
+ * store turns into a quarantine.
  */
 export function parseStoredEvent(raw: unknown): QueuedEvent | null {
     const record = isRecord(raw) ? raw : null;
@@ -534,14 +480,11 @@ export function parseStoredEvent(raw: unknown): QueuedEvent | null {
 }
 
 /**
- * Read the subject shape of one delivery, falling back the way adoption does.
- *
- * A row written before the run layer carries no `subjectType`, and the run key
- * still needs one: a review trigger is the only detection that *knows* it is
- * about a pull request, so every other kind reads as an issue (the adopted-row
- * rule, reused for rows detection could not classify).
- *
- * @returns `issue` or `pull_request`, never absent.
+ * Read the subject shape of one delivery, falling back the way adoption
+ * does. A row written before the run layer carries no `subjectType`, and the
+ * run key still needs one: a review trigger is the only detection that *
+ * knows* it is about a pull request, so every other kind reads as an issue
+ * (the adopted-row rule, reused for rows detection could not classify).
  */
 export function subjectTypeOf(delivery: QueuedEvent): SubjectType {
     return delivery.subjectType ?? (delivery.kind === 'review' ? 'pull_request' : 'issue');

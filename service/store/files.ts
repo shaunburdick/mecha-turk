@@ -13,7 +13,6 @@ import { StorageUnavailableError } from './errors.ts';
 /**
  * Recognise the "no such file" errno Node throws for filesystem calls.
  *
- * @param error - Caught value from a filesystem call.
  * @returns `true` only for `ENOENT`; permission and I/O errors return `false`
  *   so they surface as storage-unavailable instead of silent absence.
  */
@@ -24,10 +23,6 @@ export function isMissingFile(error: unknown): boolean {
 /**
  * Read a UTF-8 file, treating a missing file as absence rather than failure.
  *
- * @param filePath - Absolute path of the file to read.
- * @returns The file's text, or `null` when the file does not exist.
- * @throws {StorageUnavailableError} When the file exists but cannot be read
- *   (permissions, an I/O error, or an unreadable parent directory).
  */
 export async function readTextFile(filePath: string): Promise<string | null> {
     try {
@@ -46,8 +41,6 @@ export async function readTextFile(filePath: string): Promise<string | null> {
  *
  * Used for temporary-file cleanup, where the original write failure is the
  * error worth reporting and a secondary unlink error would only mask it.
- *
- * @param filePath - Absolute path of the file to remove.
  */
 export async function removeIfPresent(filePath: string): Promise<void> {
     try {

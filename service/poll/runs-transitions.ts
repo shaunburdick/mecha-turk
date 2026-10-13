@@ -1,21 +1,5 @@
 /**
  * The run store's pure state transitions (003 §1, FR-030–FR-033).
- *
- * Every transition is a function from one run to the next, or `null` when the
- * run is not in a state that transition accepts. The async transitions in
- * `runs.ts` are these functions wrapped in the store's chain and write; the
- * batch paths — the claim route and the sweep — call them directly, because a
- * batch must read and write `runs.json` once, which means it cannot afford one
- * chain round trip per run.
- *
- * Keeping the definitions here is what stops those two from drifting: there is
- * exactly one definition of "a lease expired with no reservation", and the
- * batch that reclaims a hundred stranded claims applies the same rule the
- * single-run path does.
- *
- * Refusals are silent by design — the run simply does not change — and the
- * caller names the reason in its own audit row, so every refusal is recorded
- * exactly once, by whoever refused it (FR-044, FR-063).
  */
 
 import {
@@ -56,10 +40,6 @@ export interface LeaseCoordinates {
  * Claiming is a lease, not a bare state flip: the run records who
  * holds it and until when, and the current attempt's record is opened so the
  * outcome transitions have something to close.
- *
- * @returns The claimed run, or `null` when the run is not claimable — a state
- *   other than `pending`, or a history that already records a session
- *   (FR-037's "under any condition" clause).
  */
 export function leaseRun(input: {
     readonly run: Run;
@@ -84,22 +64,14 @@ export function leaseRun(input: {
 }
 
 /**
- * The `claimed` → `pending` lease-expiry requeue.
- *
- * FR-032: lease expiry **while no reservation was made** is the only automatic
- * requeue trigger, and it is the only thing that consumes an attempt and one
- * unit of the automatic requeue budget (plan D5 — an operator retry increments
- * the attempt without touching the budget). A run whose history already
- * records a session is never requeued: a second dispatch is impossible by
- * construction.
- *
- * `chargeBudget` is the caller's policy, not the transition's: a real panel
- * that let its lease lapse always pays, while the one-shot migration recovery
- * of an adopted claim does not (data-model §1 — the budget bounds a
- * crashed-panel loop, and an adoption cannot loop).
- *
- * @returns The waiting run, or `null` when the run is not an expired,
- *   unreserved claim.
+ * The `claimed` → `pending` lease-expiry requeue. FR-032: lease expiry
+ * **while no reservation was made** is the only automatic requeue trigger,
+ * and the only thing that consumes an attempt and one unit of the automatic
+ * requeue budget (an operator retry increments the attempt without touching
+ * the budget); a run whose history already records a session is never
+ * requeued. `chargeBudget` is the caller's policy rather than the
+ * transition's: a real panel that let its lease lapse always pays, while the
+ * one-shot adoption recovery cannot loop (data-model §1).
  */
 export function expireLease(input: {
     /** The run whose claim expired. */
@@ -139,9 +111,6 @@ export function expireLease(input: {
 
 /**
  * The `dead-lettered` park.
- *
- * @returns The parked run, or `null` when the run is terminal or already
- *   produced a session.
  */
 export function parkRun(input: { readonly run: Run; readonly now: string; readonly reason: string }): Run | null {
     const { run, now, reason } = input;
@@ -172,9 +141,6 @@ export function parkRun(input: { readonly run: Run; readonly now: string; readon
  *
  * The fail-closed state: once a reservation exists and its result is
  * late, the run is never re-dispatched, re-leased, or retried automatically.
- *
- * @returns The wedged run, or `null` when the run is not an authorized attempt
- *   waiting on a result.
  */
 export function wedgeUnconfirmed(input: { readonly run: Run; readonly now: string }): Run | null {
     const { run, now } = input;

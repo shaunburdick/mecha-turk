@@ -27,7 +27,6 @@ const FINGERPRINT_CHARS = 24;
  * *which* comment was observed without becoming its second home.
  *
  * @param excerpt - The row's bounded untrusted excerpt.
- * @returns `fp-` plus the first 24 hex characters of its SHA-256.
  */
 export function followUpFingerprint(excerpt: string): string {
     return `fp-${createHash('sha256').update(excerpt).digest('hex').slice(0, FINGERPRINT_CHARS)}`;

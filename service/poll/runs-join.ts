@@ -1,17 +1,5 @@
 /**
  * Coalescing: folding fresh deliveries into runs (003 FR-011–FR-013, T-003/T-006).
- *
- * The enqueue pass needs three answers per delivery — *which subject is this*,
- * *is a run open for it*, and *what does this delivery contribute* — and this
- * module owns all three so `runs.ts` stays the domain façade and `events.ts`
- * sees one pure function to call inside its chain task. The purity is the
- * point: the caller owns the chain, the two writes, and the audit rows, in
- * the order research §R4 fixes (runs first, deliveries second, audit last).
- *
- * Ambiguity never creates a run: a delivery whose subject or origin cannot be
- * derived unambiguously is enqueued **unlinked** rather than folded into a
- * wrong subject (003 Key Entities: a run is "never created implicitly for an
- * ambiguous or incomplete observation").
  */
 
 import type { PromptSnapshot } from '../prompt.ts';
@@ -54,20 +42,14 @@ function subjectShapeOf(delivery: QueuedEvent): SubjectShape | null {
 }
 
 /**
- * Read where one delivery matched (FR-013's `origin`).
- *
- * The queue does not store an origin — the deterministic delivery id carries
- * it (`~mention~body`, `~mention~<commentId>`, `~review`), which is also how
- * an adopted legacy row gets its origin without being rewritten.
- *
- * **A follow-up id carries no origin, and answers `null` here on purpose**: a
- * follow-up is not a source reference on the run (003's actor gate classifies
- * from `sourceReferences` exclusively, so a follow-up that joined that list
- * would be re-judged by the allow-list on the run's next authorization). It
- * still *joins* the run and is still linked to it — {@link foldDelivery} reads
- * that distinction — it simply leaves the reference list alone.
- *
- * @returns The origin, or `null` when the id carries one the parser trusts.
+ * Read where one delivery matched (FR-013's `origin`). The queue does not
+ * store an origin — the deterministic delivery id carries it
+ * (`~mention~body`, `~mention~<commentId>`, `~review`), which is also how an
+ * adopted legacy row gets one without being rewritten. **A follow-up id
+ * carries no origin and answers `null` on purpose**: a follow-up is not a
+ * source reference on the run (003's actor gate classifies from
+ * `sourceReferences` exclusively), so it still joins the run and is still
+ * linked to it, but leaves the reference list alone.
  */
 function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
     if (delivery.kind === 'assignment') {
@@ -100,18 +82,13 @@ function followUpKindOfDelivery(delivery: QueuedEvent): 'comment' | 'head' | nul
 }
 
 /**
- * Build the source reference one delivery contributes.
- *
- * The delivery's **actor members ride the reference verbatim** (002 FR-043,
- * FR-044): the gate later judges one of them, and a run that recorded the
- * delivery but not who it was attributed to would leave the gate nothing to
- * judge. They are read through the attribution module's own absentable
- * readers, so a delivery stored before attribution contributed one reference
- * with neither member rather than an empty login.
- *
- * @param isPresentAtAuthorization - `false` when the run already held a
- *   reservation when this delivery arrived.
- * @returns The reference, or `null` when the delivery's origin is unusable.
+ * Build the source reference one delivery contributes. The delivery's **actor
+ * members ride the reference verbatim** (002 FR-043, FR-044), because the gate
+ * later judges one of them and a run that recorded the delivery but not its
+ * attribution would leave the gate nothing to judge. They are read through the
+ * attribution module's absentable readers, so a delivery stored before
+ * attribution contributes a reference with neither member rather than an
+ * empty login.
  */
 export function referenceOf(delivery: QueuedEvent, isPresentAtAuthorization: boolean): SourceReference | null {
     const origin = originOf(delivery);
@@ -148,16 +125,13 @@ export interface JoinResult {
 
 /**
  * Fold one reference into a run: append it, recognise it as already folded, or
- * count it as not retained when the cap is full.
- *
- * Re-folding a delivery the run already references is the self-heal research
- * §R4 depends on: a crash between the run write and the queue write leaves a
- * run referencing a delivery that was never stored, and the re-detect must
- * link it without adding a second reference (FR-013: one per delivery). The
- * list is capped at {@link MAX_SOURCE_REFERENCES} retained references; past
- * the cap the run keeps counting (`referenceCount`), counts what it could not
- * keep (`referencesNotRetained`), and says so (`referencesTruncated`), while
- * every overflow delivery still earns its own audit row.
+ * count it as not retained when the cap is full. Re-folding a delivery the run
+ * already references is the self-heal research §R4 depends on — a crash
+ * between the run write and the queue write leaves a run referencing a
+ * delivery that was never stored (FR-013: one reference per delivery). Past
+ * {@link MAX_SOURCE_REFERENCES} the run keeps counting, counts what it could
+ * not keep, and says so, while every overflow delivery still earns its audit
+ * row.
  */
 export function joinReference(input: {
     readonly run: Run;
@@ -196,25 +170,13 @@ export function joinReference(input: {
 }
 
 /**
- * Read the head-SHA seed one run should carry after this pass.
- *
- * The seed is the **dispatch-time baseline** and is never re-based on a later
- * observation (002 FR-103), which is why the arms are ordered the way they
- * are:
- *
- * - a run that already holds a seed keeps it, because re-basing would make the
- *   from → to pair a follow-up names unrecoverable — the earlier value would
- *   have been overwritten;
- * - otherwise the establishing delivery row's own `headSha` is the baseline,
- *   which a review-request or review-assignment row carries (FR-103(a));
- * - otherwise the head this same cycle observed for the subject becomes the
- *   baseline, which is FR-103(b): a `null`-seed run's first cycle records a
- *   real value so the following cycle has something to compare against.
- *
- * The observation is looked up under the run's own {@link subjectKeyOfRun},
- * and the observations are keyed with `pull_request` as the shape — so an
- * issue run's key finds nothing there and no seed is ever recorded for an
- * issue subject, which never produces a push follow-up at all.
+ * Read the head-SHA seed one run should carry after this pass: the
+ * **dispatch-time baseline**, never re-based on a later observation (002
+ * FR-103), which is why the arms are ordered — a run that already holds a
+ * seed keeps it (re-basing would destroy the from → to pair a follow-up
+ * names), else the establishing delivery row's `headSha` (FR-103(a)), else
+ * this cycle's observation (FR-103(b)). The lookup is keyed with
+ * `pull_request`, so an issue subject finds nothing and never gets a seed.
  */
 function headSeedOf(input: {
     readonly recorded: string | undefined;
@@ -320,8 +282,6 @@ function runForDelivery(input: RunCreationInput): Run {
 
 /**
  * Read the ordinal-free subject key a run belongs to.
- *
- * @returns `github|<account>|<repository>|<subjectType>|<subjectNumber>`.
  */
 function subjectKeyOfRun(run: Run): string {
     return buildSubjectKey({
@@ -386,32 +346,23 @@ export interface EnqueueInput {
     readonly prompt?: PromptSnapshot | null;
     /**
      * The head SHA each tracked pull request was observed carrying this cycle,
-     * keyed by the ordinal-free subject key of a `pull_request` subject.
-     *
-     * Read for **one** purpose: the establishing cycle of a run that carries no
-     * seed yet records the head it observed, so the following cycle compares
-     * against a real value rather than against a `null` that would read as
-     * *the head changed* (002 FR-103(b)). A run that already holds a seed — and
-     * every issue subject, whose key is not in this map — is untouched by it.
-     *
-     * Absent reads as *no head was observed*, which is what every caller
-     * outside the poll loop behaves like.
+     * keyed by the ordinal-free subject key of a `pull_request` subject. Read
+     * for **one** purpose: the establishing cycle of a run with no seed records
+     * the head it observed, so the next cycle compares against a real value
+     * rather than a `null` that would read as *the head changed* (002
+     * FR-103(b)). Absent reads as *no head was observed*.
      */
     readonly observedHeads?: ReadonlyMap<string, string>;
 }
 
 /**
- * Find the run one delivery joins, or `undefined` when it opens the next ordinal.
- *
- * **The join is the one coalescing rule** (003 FR-011, 002 FR-100). A delivery
- * joins its subject's run when that run is non-terminal — 003's original rule,
- * unchanged — **or** when the run carries a recorded session, which is the
- * recorded-session predicate `run.session !== null`. That second arm is the
- * whole of the tracking lifecycle's correction: the moment a run dispatches, a
- * further delivery for its subject joins it as a follow-up instead of opening
- * the next ordinal and a second, disjoint session. A `dead-lettered` run holds
- * no session and is therefore still terminal for coalescing, so a new delivery
- * for its subject opens the next ordinal exactly as it always did.
+ * Find the run one delivery joins, or `undefined` when it opens the next
+ * ordinal. **The join is the one coalescing rule** (003 FR-011, 002 FR-100): a
+ * delivery joins when the subject's run is non-terminal, **or** when the run
+ * carries a recorded session — the second arm is the whole tracking
+ * lifecycle's correction, so a dispatched run absorbs a further delivery as a
+ * follow-up instead of opening a second, disjoint session. A `dead-lettered`
+ * run holds no session and stays terminal.
  */
 function findJoinableRun(
     runs: readonly Run[],
@@ -427,17 +378,13 @@ function findJoinableRun(
 }
 
 /**
- * Record the head-SHA seed on every run this pass touched that has none.
- *
- * This is the establishing cycle for a run whose delivery row carried no
- * `headSha`: the pass writes the head it observed, so the following cycle
- * compares against a real value rather than against a `null` that would read as
- * *the head changed* (FR-103(b)). Only a run that **carries a session** is
- * seeded, because only such a run can produce a push follow-up at all.
- *
- * The write rides the same two writes the deliveries do, so a crash between the
- * seed and a follow-up row cannot produce a second one: the row's id is
- * deterministic and the queue's own dedupe absorbs the repeat.
+ * Record the head-SHA seed on every run this pass touched that has none: the
+ * establishing cycle writes the head it observed, so the following cycle
+ * compares against a real value rather than a `null` that reads as *the head
+ * changed* (FR-103(b)). Only a run that **carries a session** is seeded,
+ * because only such a run can produce a push follow-up. The write rides the
+ * same two writes the deliveries do, and the row's id is deterministic, so a
+ * crash cannot produce a second one.
  */
 function recordHeadSeeds(
     runs: Run[],

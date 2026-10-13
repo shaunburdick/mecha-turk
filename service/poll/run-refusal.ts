@@ -1,27 +1,6 @@
 /**
- * The refusal vocabulary every run-scoped operation answers with (003 FR-003,
- * FR-022; [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md)
- *
- * Two properties this module exists to hold, and which cannot be held from
- * either operation module alone:
- *
- * 1. **Each refusal carries its own distinct reason.** FR-003 requires every
- *    refusal to name the exact cause, and FR-041 requires the retry refusals for
- *    `pending`, `dispatched`, and `unconfirmed` to be three different verdicts
- *    rather than one "no". The codes are one closed union here, so the
- *    authorization family and the operator actions cannot drift into reusing
- *    each other's vocabulary.
- * 2. **A refusal is data, not transport.** The HTTP status and the operator's
- *    prose live in the route layer; what the run layer knows is the machine
- *    code and the secret-free cause, which is also exactly what the
- *    `dispatch.refused` row records (contract §9: "reason = the same secret-free
- *    cause the response carries"). One source for both is what makes the trail
- *    and the wire provably agree.
- *
- * The outcome shapes below are also what every operation returns, so a caller
- * cannot forget the two members that matter: a refusal names the run it was
- * refused on (for the refusal row) and reports whether the row it owed actually
- * reached the trail (FR-063).
+ * The refusal vocabulary every run-scoped operation answers with (003
+ * FR-003, FR-022; dispatch-authorization contract).
  */
 
 import type { Run } from './runs-types.ts';
@@ -70,27 +49,14 @@ export type RunRefusalCode =
     | 'validation';
 
 /**
- * How much of a run's trigger history an authorization decision could actually
- * see.
- *
- * A **closed word rather than the run's boolean**, for three reasons that all
- * point the same way:
- *
- * - **Absence is meaningful.** A reader handed `false` cannot tell *"the
- *   decision saw the whole list"* from *"this build does not report a
- *   window"*; an absent member is unambiguously the second thing, which is
- *   what lets a reader fail closed instead of defaulting a fact it was never
- *   told.
- * - **It states the decision, not the document.** The gate's quantifier runs
- *   over the retained list it read inside its own chain task, so the window
- *   belongs to *that judgement* rather than to a run record a reader might
- *   re-read at a different moment and get a different answer from.
- * - **The vocabulary can widen.** `actor-not-allowed` is the only code that
- *   judges a window today; a second one adds a word rather than a second wire
- *   shape or a boolean that would mean two different things per code.
- *
- * **Value-free by construction** — two words about a list, never a login — so
- * it can ride the envelope without becoming a second copy of the access policy.
+ * How much of a run's trigger history an authorization decision could
+ * actually see — a closed word rather than the run's boolean. Absence means
+ * *this build does not report a window* rather than `false`, which is what
+ * lets a reader fail closed instead of defaulting a fact it was never told;
+ * it states the decision rather than a document a reader could re-read at a
+ * different moment; and the vocabulary can widen without a second wire shape.
+ * Two words about a list, never a login, so it cannot become a second copy of
+ * the access policy.
  */
 export type ReferenceWindow = 'complete' | 'truncated';
 
@@ -122,7 +88,6 @@ export const STALE_LEASE_CODE = 'stale-lease';
  * which is what keeps the `dispatch.refused` row and the response envelope
  * provably the same cause (contract §9).
  *
- * @param code - Stable code from the wire catalog.
  * @param message - Secret-free cause; the same string the response carries.
  * @returns The refusal.
  */
@@ -131,19 +96,13 @@ export function refuse(code: RunRefusalCode, message: string): RunRefusal {
 }
 
 /**
- * Build the one refusal that also states the window its gate judged.
- *
- * **A second constructor rather than a third argument**, and that is a
- * readability decision as much as a lint one: every other refusal in the family
- * is `refuse(code, message)`, and twenty-odd call sites should keep reading like
- * that. The actor gate is the single caller that has a third fact, and it has
- * exactly one per refusal, so it gets a name.
- *
- * It **delegates** rather than forming the pair again, so the two refusals
- * cannot disagree about anything but the window.
- *
- * @param input - The same code and cause {@link refuse} takes, plus the window.
- * @returns The refusal, carrying the window.
+ * Build the one refusal that also states the window its gate judged: **a
+ * second constructor rather than a third argument**, because every other
+ * refusal in the family is `refuse(code, message)` and twenty-odd call sites
+ * should keep reading like that, while the actor gate is the single caller
+ * with a third fact and exactly one per refusal. It **delegates** rather
+ * than forming the pair again, so the two refusals cannot disagree about
+ * anything but the window.
  */
 export function refuseOnWindow(input: {
     /** Stable code from the wire catalog. */
@@ -163,8 +122,6 @@ export function refuseOnWindow(input: {
  * (contract §6 retry, §5 verification) so a panel sees one wording for one
  * verdict, whatever operation raised it.
  *
- * @param attempt - Attempt the request named.
- * @param current - Attempt the run actually stands on.
  * @returns The secret-free cause; it echoes only numbers, never a payload.
  */
 export function staleAttemptMessage(attempt: number, current: number): string {

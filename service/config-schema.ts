@@ -1,27 +1,6 @@
 /**
- * The configuration's **schema projection**: the declaration `config.ts`
+ * The configuration's schema projection: the declaration `config.ts`
  * holds, projected onto the wire (006 FR-020 – FR-022, contract §2).
- *
- * This module exists to keep `config.ts` inside the file-length gate while
- * preserving the property that matters: there is still exactly **one**
- * declaration. Every descriptor below is built from `NUMERIC_BOUNDS`,
- * `LOG_LEVEL_VALUES`, `EXPECTED_AGENT_RULE`, `DEFAULT_CONFIG`, and the
- * prompt tier's cap constant — the same objects `validateConfig` and
- * `validateStartingPrompt` read — plus `TAKE_EFFECT`, the exhaustive class
- * table. Nothing here restates a bound, a default, or an accepted value, so a
- * number cannot move in the validator and stay put on the wire (SC-101).
- * The one member that is prose rather than projection is `startingPrompt`'s
- * `format`: the guidance an operator needs about that field is part of the
- * field (004 FR-063), and research **R-4** places it in this declaration
- * rather than in a panel-authored helper — its cap is still the validator's
- * own constant, never a retyped number. The other addition to a string
- * descriptor is `multiline`, an affordance flag rather than a value: it
- * declares *how* the row is edited, never what is in it (product-owner
- * ruling, PR #12; 004 FR-060 leaves the control's shape to 005).
- *
- * `config.ts` deliberately does **not** import this module: the dependency
- * runs one way, projection ← declaration, which is what keeps the pair free of
- * a cycle and the validator free of wire concerns.
  */
 
 import { DEFAULT_CONFIG, LOG_LEVEL_VALUES, NUMERIC_BOUNDS } from './config.ts';
@@ -47,17 +26,12 @@ const NEXT_CYCLE = 'next-cycle';
 
 /**
  * The class each documented field declares, projected onto the wire.
- *
- * `Record<ServiceConfigField, TakeEffect>` is exhaustive by construction:
- * adding a member to `ServiceConfig` without declaring a class
- * fails `tsc --noEmit`, so "a field gained no consumer" cannot survive a
- * typecheck. `leaseMs` and `resultDeadlineMs` are 003's fields
- * and are declared `next-cycle` by 006 count-dynamics rule.
- *
- * `startingPrompt` is 004's global prompt tier (004 FR-081): the poll loop
- * re-reads configuration once per cycle and the snapshot resolves at
- * detection, so a save is in force for events detected from the next cycle
- * on, while a queued run keeps the snapshot it was queued with.
+ * `Record<ServiceConfigField, TakeEffect>` is exhaustive by construction, so
+ * adding a member without declaring a class fails `tsc --noEmit` and *a
+ * field gained no consumer* cannot survive a typecheck. `startingPrompt`
+ * (004 FR-081) is in force for events detected from the next cycle on,
+ * because the loop re-reads configuration once per cycle while a queued run
+ * keeps the snapshot it was queued with.
  */
 export const TAKE_EFFECT = {
     intervalMs: NEXT_CYCLE,
@@ -130,15 +104,11 @@ export interface StringFieldDescriptor {
     /**
      * Present only when the value is prose written across several lines, so
      * the panel mounts a textarea instead of a one-line input (product-owner
-     * UI ruling on PR #12 — 004 FR-060 leaves the affordances to 005, and no
-     * requirement names a control type).
-     *
-     * **Absent means single-line**, and `true` is the only value this
-     * declaration ever emits, so the panel's closed reader accepts the member
-     * in exactly the shape it can be sent in — every other value refuses the
-     * envelope rather than being dropped, because an affordance the panel
-     * half-reads is a row it would render wrong (invariant 8). The control's
-     * height is panel copy — it is a presentation constant, not a bound.
+     * UI ruling on PR #12). **Absent means single-line**, and `true` is the
+     * only value this declaration ever emits, so every other value refuses the
+     * envelope rather than being dropped — an affordance the panel half-reads
+     * is a row it would render wrong (invariant 8). The control's height is
+     * panel copy, not a bound.
      */
     readonly multiline?: true;
 }
@@ -153,20 +123,12 @@ export type FieldDescriptor = IntegerFieldDescriptor | EnumFieldDescriptor | Str
 
 /**
  * The global prompt tier's **format** prose (004 FR-081, FR-063, FR-089;
- * 006 FR-014, FR-021; research **R-4**, plan D23).
- *
- * The Settings row renders this text instead of a panel-authored helper: the
- * guidance an operator needs about a field is part of the field, and a
- * sentence typed into the panel would drift from the validator the moment
- * either moved (006 FR-014 — none of the row's copy from a value typed into
- * the panel).
- *
- * It carries FR-063's guidance in the operator's terms — sent to the agent
- * verbatim, no placeholders, a length cap, a credential-shaped value refused
- * rather than stored, and the pinned Default Agent this text cannot change —
- * beside this validator's own rules (trim, the cap, the three refusal shapes,
- * and empty meaning *unset*). The one number it quotes is interpolated from
- * {@link STARTING_PROMPT_MAX_CODE_POINTS}, so the cap cannot move in the
+ * 006 FR-014, FR-021; research R-4, plan D23). The Settings row renders this
+ * instead of a panel-authored helper: guidance about a field belongs to the
+ * field, and a sentence typed into the panel would drift from the validator
+ * (006 FR-014). It carries FR-063's guidance in the operator's terms beside
+ * this validator's own rules, and the one number it quotes is interpolated
+ * from {@link STARTING_PROMPT_MAX_CODE_POINTS} so the cap cannot move in the
  * validator and stay put on the wire.
  */
 const STARTING_PROMPT_FORMAT = 'text sent to the agent verbatim, with no placeholders; '
@@ -176,16 +138,11 @@ const STARTING_PROMPT_FORMAT = 'text sent to the agent verbatim, with no placeho
     + 'which this text cannot change';
 
 /**
- * Project the declaration onto the wire.
- *
- * Descriptor order equals `Object.keys(DEFAULT_CONFIG)` and `collectIssues`
- * order — `startingPrompt` first, then the bounds table in its own key
- * order, then `logLevel`, then `expectedAgent` — so the panel's rows and a
- * refusal's issue list share one order. The prompt row leads the
- * list by product-owner ruling on PR #12 ("move it to the top of the list");
- * the numerics keep their relative order and no validator moved with it.
- *
- * @returns One descriptor per documented field, in declaration order.
+ * Project the declaration onto the wire. Descriptor order equals
+ * `Object.keys(DEFAULT_CONFIG)` and `collectIssues` order, so the panel's
+ * rows and a refusal's issue list share one order; the prompt row leads by
+ * product-owner ruling on PR #12, the numerics keep their relative order,
+ * and no validator moved with it.
  */
 export function configSchema(): readonly FieldDescriptor[] {
     const numericFields = Object.keys(NUMERIC_BOUNDS) as readonly (keyof typeof NUMERIC_BOUNDS)[];

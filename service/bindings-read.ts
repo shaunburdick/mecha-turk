@@ -1,37 +1,6 @@
 /**
- * The bindings **read** path: file parsing, quarantine reporting, and the two
+ * The bindings read path: file parsing, quarantine reporting, and the two
  * readers (004 FR-019, FR-051; plan C3).
- *
- * This lives beside [`bindings.ts`](./bindings.ts) rather than inside it for
- * one reason: the read path is where a stored document is *refused*. It has to
- * capture why, log it without echoing a byte of the value, and — for the
- * observed reader — funnel the document through the prompt-change chain. Those
- * are reading concerns; the write path never runs them.
- *
- * Three readers, and the differences between them are load-bearing:
- *
- * - {@link readBindingsUnobserved} is the plain read. The `PUT` route calls it
- *   **while holding** the prompt-observation chain, so it must not take that
- *   chain itself (plan D8: "the chain cannot self-deadlock").
- * - {@link readBindings} is the observation funnel the poll loop, the claim
- *   route, and the `GET` route all use: same bytes, plus one diff against the
- *   baseline so a prompt edited in the store file is recorded exactly once,
- *   with actor `service`.
- * - {@link readBindingsForAuthorization} answers a *different question*: not
- *   "what bindings does the operator have?" but "can this binding's actor
- *   policy be judged at all?". It is the one reader that keeps the difference
- *   between **no bindings** and **an unreadable document** visible, because the
- *   authorization gate denies on the second and cannot deny on the first for a
- *   reason it would have to invent (003 FR-076, FR-077, plan D15; constitution
- *   II: a policy that cannot be read is never permissive).
- *
- * A fourth reader joined at v1.13.0: {@link readStoredCreationStamps}. It asks
- * neither of those questions — it reads each row's `createdAt` **as stored**, so
- * a scan window's baseline can tell *no stamp stored* from *a stamp the clock
- * cannot read*. The assembled record cannot answer that, because
- * `assembleBinding` runs `stampOrKeep` and reads a clock reading for both cases
- * alike; deriving a baseline from it would turn FR-072's refusal into a window of
- * `now − overlapMs` (002 FR-072; plan H3).
  */
 
 import { BINDINGS_FILE } from './accounts/store.ts';
@@ -76,7 +45,6 @@ function noteFirstRefusal(note: RefusalNote, issues: readonly BindingIssue[]): v
 /**
  * Validate a whole bindings file, as the store's read path wants.
  *
- * @param raw - Parsed file.
  * @param note - Sink the first field-level refusal is captured into, so the
  *   caller can log *why* the file was quarantined without ever logging a byte
  *   of what it held.
@@ -105,8 +73,6 @@ function parseBindingsFile(raw: unknown, note: RefusalNote): BindingRecord[] | n
  * Read the stored bindings without running the prompt-change observer.
  *
  * This is the reader the chain-holding write path uses.
- *
- * @returns The bindings, or `[]` when the file is absent/unusable.
  */
 export async function readBindingsUnobserved(input: {
     readonly store: ServiceStore;
@@ -139,15 +105,11 @@ export async function readBindingsUnobserved(input: {
 
 /**
  * Read the stored bindings, best-effort, recording any prompt change the
- * document carries.
- *
- * A quarantined file is skipped rather than aborting the poll: the store logs
- * its quarantine path and the loop simply has nothing to scan this cycle. This
- * reader is also the **observation funnel** for a prompt edited outside the
- * panel — it runs inside the per-store prompt chain, so a hand edit is
- * recorded exactly once, by whoever actually made it.
- *
- * @returns The bindings, or `[]` when the file is absent/unusable.
+ * document carries. A quarantined file is skipped rather than aborting the
+ * poll: the store logs its quarantine path and the loop has nothing to scan
+ * this cycle. This reader is also the **observation funnel** for a prompt
+ * edited outside the panel — it runs inside the per-store prompt chain, so
+ * a hand edit is recorded exactly once, by whoever actually made it.
  */
 export async function readBindings(input: {
     readonly store: ServiceStore;
@@ -197,19 +159,13 @@ export type AuthorizationBindings =
 
 /**
  * Read the stored bindings for one authorization decision (003 FR-076, plan
- * D13/D15).
- *
- * **No prompt observation here.** This reader answers "may this run start a
- * session?", and the observation funnel exists to record a prompt edit exactly
- * once at the cadence the poll loop already gives it;
- * running it per authorization would put a second writer on that chain for a
- * decision that has nothing to do with prompts. The gate reads the live
- * document exactly as it stands at this instant, which is the point of D13:
- * **no cache**, because `ServiceStore` exposes no `stat`, so a cache invalidated
- * only by `writeBindings` would never see a hand edit — and a gate reading a
- * stale policy is worse than no gate.
- *
- * @returns The parsed bindings, or the `unreadable` verdict that denies.
+ * D13/D15). **No prompt observation here**: the funnel exists to record a
+ * prompt edit exactly once at the poll loop's cadence, and running it per
+ * authorization would put a second writer on that chain for a decision that
+ * has nothing to do with prompts. **No cache** either — `ServiceStore`
+ * exposes no `stat`, so a cache invalidated only by `writeBindings` would
+ * never see a hand edit, and a gate reading a stale policy is worse than no
+ * gate.
  */
 export async function readBindingsForAuthorization(input: {
     readonly store: ServiceStore;
@@ -268,8 +224,6 @@ const NOT_ESTABLISHED: StoredCreationStamp = { kind: 'unreadable' };
 /**
  * Read one raw row's creation stamp into its three-state verdict.
  *
- * @param entry - One entry of the stored array, already known to be a record.
- * @returns The stamp's verdict.
  */
 function creationStampOf(entry: Record<string, unknown>): StoredCreationStamp {
     const stored = storedStampOf(entry.createdAt);
@@ -281,20 +235,13 @@ function creationStampOf(entry: Record<string, unknown>): StoredCreationStamp {
 }
 
 /**
- * Read the stored creation stamps of the bindings this cycle needs (002 FR-072).
- *
- * A fourth reader over the same file, and the narrowest: it answers one
- * provenance question about the raw rows and **nothing else**. It parses neither
+ * Read the stored creation stamps of the bindings this cycle needs (002
+ * FR-072) — a fourth reader over the same file and the narrowest: one
+ * provenance question about the raw rows and nothing else. It parses neither
  * the records nor the history scope, because the answer has to survive the
- * assembly — which substitutes a clock reading for exactly the case FR-072 names.
- * A row the bindings reader would refuse still answers here with its own stamp,
- * and that reader's refusal has already kept the row out of every scan.
- *
- * Called **only** in a cycle where some binding has no baseline yet, so nothing
- * in steady state pays for the extra read (plan H3, FR-064: no new surface, no
- * new route — this is a reader over the file the loop already reads).
- *
- * @returns The verdict per `bindingId`, for every id asked about.
+ * assembly, which substitutes a clock reading for exactly the case FR-072
+ * names. Called only in a cycle where some binding has no baseline yet, so
+ * nothing in steady state pays for the extra read (plan H3, FR-064).
  */
 export async function readStoredCreationStamps(input: {
     readonly store: ServiceStore;

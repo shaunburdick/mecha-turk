@@ -1,26 +1,5 @@
 /**
  * Stored schema and parser for `runs.json` (003 data-model §2.2–§2.6).
- *
- * This module owns the read side of the run document: the vocabulary the
- * eight-state model accepts and the validator the store runs before it trusts
- * a file. The shapes themselves live beside it in `runs-types.ts`, the way
- * the queue's row type sits in `events-parse.ts`, so each module stays inside
- * the file-length gate and the run store keeps one import path.
- *
- * The parser is fail-closed in the AGENTS.md sense: it answers `null` for
- * anything it cannot fully understand — an unknown state, a `blocked:` with
- * no reason, a missing field, a wrong type, an out-of-bounds list — and the
- * store turns that `null` into a quarantine rather than handing a half-read
- * run to a decision that could dispatch twice (constitution II).
- *
- * Two shapes are deliberately *wide* so they can never quarantine a healthy
- * file: `state` accepts the `blocked:<reason>` family as prefix + non-empty
- * kebab reason (never a fixed enum — `blocked:project-missing` and a declared
- * but not-yet-produced `blocked:policy` both parse), and every lifecycle
- * sub-object (`lease`, `reservation`, `session`, `verification`) is nullable
- * because most runs sit without one. Panel- and host-reported *display text*
- * (session title, source link, verification note) is type-checked only: a
- * cosmetic value must never be able to quarantine the run store.
  */
 
 import { isRecord, readCount } from '../json.ts';
@@ -123,8 +102,6 @@ interface RunPart<T> {
  * read is exactly the ambiguity that must never reach a dispatch decision
  * (constitution II).
  *
- * @param parse - Validator for the sub-object's shape.
- * @returns The parsed part, flagged when a present value was unusable.
  */
 function parsePart<T>(stored: unknown, parse: (candidate: unknown) => T | null): RunPart<T> {
     if (stored === undefined || stored === null) {
@@ -139,8 +116,6 @@ function parsePart<T>(stored: unknown, parse: (candidate: unknown) => T | null):
 /**
  * Validate one run row's nullable lifecycle sub-objects as a group.
  *
- * @param raw - Candidate row, already known to be a record.
- * @returns The sub-objects, or `null` when a present one is malformed.
  */
 function parseRunObjects(raw: Record<string, unknown>): RunObjects | null {
     const lease = parsePart(raw.lease, parseLease);
@@ -162,9 +137,6 @@ function parseRunObjects(raw: Record<string, unknown>): RunObjects | null {
 
 /**
  * Parse a bounded list of sub-objects.
- *
- * @returns The parsed rows, or `null` when the value is not an array, holds
- *   an unusable row, or exceeds the cap.
  */
 function parseList<T>(
     raw: unknown,
@@ -293,8 +265,6 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
 /**
  * Project validated storage fields into the run model.
  *
- * @param raw - The stored row, already known to carry its identity members.
- * @returns The run.
  */
 function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run {
     const { scalars, objects, references, attempts, prompt } = parts;
@@ -339,8 +309,6 @@ function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run 
  *
  * The `prompt` member is validated with the rest of the row's parts, through
  * the prompt domain's own stored-shape reader (data-model §3).
- *
- * @returns The run, or `null` when the row cannot be trusted.
  */
 export function parseRun(raw: unknown): Run | null {
     if (!isRecord(raw) || !runTextFieldsHold(raw)) {
@@ -354,10 +322,6 @@ export function parseRun(raw: unknown): Run | null {
 
 /**
  * Validate the ordinal counters map.
- *
- * @returns The counters, or `null` when any value is not a non-negative
- *   integer (an empty key is unusable too — it is what the run key is
- *   re-derived from).
  */
 function parseSubjects(raw: unknown): Record<string, number> | null {
     if (!isRecord(raw)) {

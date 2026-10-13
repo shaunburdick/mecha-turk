@@ -1,45 +1,6 @@
 /**
- * The event relay routes (003; MVP tasks M2/M8 re-cut 2026-09-27).
- *
- * `GET /v1/events/pending` is no longer the MVP cut's bare state flip. It
- * **claims runs**: every run the service alone finds waiting moves `pending →
- * claimed` under a fresh lease (id, attempt, issue stamp, expiry, holder), and
- * the answer is the run projection the contract lists, bounded and paginated so
- * a lease is never written for a run the answer cannot carry (FR-030, FR-037,
- * T-039). The lease is a fencing token, not a capability — the service's bearer
- * token is the only authentication gate — and the sweep recovers an expired
- * lease with no panel action.
- *
- * `GET /v1/events` projects **runs** — the widened history row of
- * [contracts/run-history-audit.md](../../specs/003-dispatch-integrity/contracts/run-history-audit.md)
- * §1: state and reason, run key, ordinal, attempt, attachment id, the
- * snapshotted target, lease expiry, source references with their counting
- * members, session pointer, verification outcome — newest detected first,
- * capped, without claiming anything (T-016). The projection itself lives in
- * [`run-history-project.ts`](../poll/run-history-project.ts) beside the claim's,
- * so this file stays a route; the delivery queue is read only for the members a
- * run does not store (title, canonical link, PR coordinates).
- *
- * **The two delivery-scoped mutations this file used to hold are gone.** 003's
- * wire delta addresses a dispatch outcome and an operator retry **by the run, not
- * the delivery** (`contracts/dispatch-authorization.md`): a post-003 delivery
- * carries no lifecycle field of its own — its truth lives on the run
- * (data-model §2.1) — so `POST /v1/events/:eventId/dispatched` could only ever
- * answer `404` for real work, and `POST /v1/events/:eventId/retry` had nothing to
- * reset. They are answered instead by [`dispatch.ts`](./dispatch.ts) and
- * [`run-ops.ts`](./run-ops.ts), under `/v1/events/:correlationId/…`.
- *
- * The same `GET /v1/events/pending` response carries the per-binding scan status
- * the panel's status line renders, because the panel polls this route on its
- * own clock and the status has no other surface yet (the contract's
- * `/v1/status` repositories section is 005's work). Its `pendingCount` counts
- * runs, not deliveries (T-040a).
- *
- * Those rows also carry each binding's **actor-policy shape** (005 FR-093,
- * added at v1.11.0) — `'open' | 'restricted'`, never a login. It is derived in
- * the same projection from the same binding the row is already built from, so
- * the claim answer, the Bindings tab, and `/v1/status` cannot disagree about a
- * binding's policy (005 plan D17; contract `status-projection.md` §8).
+ * The event relay routes (003; MVP tasks M2/M8): the run claim, the run
+ * projection behind `GET /v1/events`, and the per-binding scan status.
  */
 
 import { effectiveHistoryScope } from '../bindings-history-scope.ts';
@@ -104,25 +65,21 @@ export interface BindingStatusRow {
     readonly pendingCount: number;
     /**
      * The **shape** of this binding's actor allow-list, never its contents.
-     *
-     *
      * Derived here, from the binding this row is already built from, so the
-     * Status route, the claim answer, and the Bindings tab all read one
-     * projection and one source for the fact. `'restricted'`
-     * therefore always means *at least one* login: the service refuses an empty
-     * list on write **and** on read, so no permitted login is
-     * needed — or permitted — to answer it.
+     * Status route, the claim answer and the Bindings tab all read one
+     * projection. `'restricted'` therefore always means *at least one* login:
+     * the service refuses an empty list on write **and** on read, so no
+     * permitted login is needed — or permitted — to answer it.
      */
     readonly actorPolicy: ActorPolicy;
     /**
      * The lower bound the binding's next scan will open at, as the service
-     * computed it (002 FR-092, FR-065).
-     *
-     * **Derived state, never configured**: the operator sets the history scope
-     * and this row reports what the service made of it. `null` means the binding
-     * has no window yet — no completed scan and no derivable baseline — and the
-     * refusal that caused it is on {@link BindingStatusRow.lastError}. Both ends
-     * of the window are then readable together: this, and `lastScanAt`.
+     * computed it (002 FR-092, FR-065). **Derived state, never configured**:
+     * the operator sets the history scope, this row reports what the service
+     * made of it. `null` means no window yet (no completed scan and no
+     * derivable baseline), with the refusal on
+     * {@link BindingStatusRow.lastError}; both window ends are readable
+     * together: this, and `lastScanAt`.
      */
     readonly windowStart: string | null;
     /**
@@ -152,24 +109,18 @@ export interface BindingStatusRow {
  * configured" state, meaning any human actor may trigger this repository.
  * A present member is a non-empty list by the same rule that
  * refuses `[]`, so it is always `'restricted'`.
- *
- * @returns `'open'` when the binding carries no list, `'restricted'` when it does.
  */
 function actorPolicyOf(binding: BindingRecord): ActorPolicy {
     return binding.allowedUsers === undefined ? 'open' : 'restricted';
 }
 
 /**
- * Read the claim's `limit` parameter, refusing anything over the cap.
- *
- * The cap is the service's, not the caller's: a limit above
- * {@link MAX_CLAIMED_RUNS} is a request this answer could never satisfy, and
- * answering it as though it could is exactly the T-039 failure in a new dress.
- * Absent or unparseable values take the documented default; an out-of-range one
- * is a client error naming the field and the fix, never the received value
- * (SEC-10/11).
- *
- * @returns The page size to ask for, or `null` when it exceeds the cap.
+ * Read the claim's `limit` parameter, refusing anything over the cap: the
+ * cap is the service's, not the caller's, and answering a larger one as
+ * though it could be satisfied is exactly the T-039 failure in a new dress.
+ * Absent or unparseable values take the documented default; an out-of-range
+ * one is a client error naming the field and the fix, never the received
+ * value (SEC-10/11).
  */
 function claimLimitOf(raw: string | null): number | null {
     if (raw === null || raw === '') {
@@ -186,38 +137,13 @@ function claimLimitOf(raw: string | null): number | null {
 }
 
 /**
- * Read the per-binding status rows.
- *
- * One row per stored binding, built from the scan state and the **run**
- * document, so every route that reports status (the relay's pending answer and
- * the bindings collection) answers the panel's parser with the same shape. The
- * caller passes the bindings it already read, so one collection read never
- * happens twice inside a single request.
- *
- * `pendingCount` counts runs in `state === 'pending'` and nothing else (T-040a).
- * It used to count delivery rows, which is wrong in two directions after the
- * run layer landed: a post-003 delivery carries no lifecycle state of its own,
- * so every completed run's deliveries kept counting and the number grew with
- * finished work while never falling below the truth. The contract promised a
- * count derived from runs, and that is what this reads — the same document the
- * claim answers from, so the two can never disagree.
- *
- * **The window in force** came with 002 v1.13.0 (FR-092, FR-078). The row carries
- * `windowStart`, `historyScope`, and `forceReplay` beside the `lastScanAt` it
- * already had, so both ends of the window can be read together and the two facts
- * that answer *"why was this event never offered?"* are **derived state the
- * service computed** — not something the operator set, and not something this
- * route recomputes from a different rule than the loop's.
- *
- * The three members come from the **same** {@link windowFor} verdict the scan
- * itself opens under, and from the slot the loop derived the baseline into, which
- * is what keeps the two answers unable to disagree: the row says what the next
- * scan will do, because it reads the same rule. `null` on each of the three means
- * *this binding has no window yet* — no completed scan and no derivable baseline —
- * which is a state the operator can see and the refusal that caused it is already
- * on `lastError`.
- *
- * @throws {StorageUnavailableError} When the run document cannot be read.
+ * Read the per-binding status rows: one row per stored binding, built from
+ * the scan state and the **run** document so every status-reporting route
+ * answers the same shape, with `pendingCount` counting runs in `state ===
+ * 'pending'` only (T-040a). `windowStart`, `historyScope` and `forceReplay`
+ * come from the same {@link windowFor} verdict the scan opens under, so the
+ * row cannot disagree with the loop (002 FR-092, FR-078); a `null` on each
+ * means no window yet, and the refusal is already on `lastError`.
  */
 export async function readStatusRows(input: {
     readonly store: ServiceStore;
@@ -263,26 +189,13 @@ export async function readStatusRows(input: {
 }
 
 /**
- * Answer `GET /v1/events/pending` with claimed runs and status.
- *
- * The claim is a lease, not a bare state flip: every run this page
- * offers moves to `claimed` under a fresh lease whose expiry comes from the
- * service's own clock, and the sweep recovers it if this panel never answers.
- * Eligibility is the service's alone, so a run that is not waiting —
- * or that already produced a session — is simply absent from the answer.
- *
- * The answer is **bounded and paginated**: the claim leases at most
- * `MAX_CLAIMED_RUNS` runs and at most the documented byte budget, and anything
- * beyond that stays `pending` and unleased for the panel's next call. The
- * status rows carry the true per-binding pending count, so a panel can see
- * that more work is waiting without the lease burning.
- *
- * `auditWritten` reports FR-063's operator-visible surfacing: `false` means the
- * leases are durable and the `dispatch.claimed` rows are not, and the panel
- * warns rather than implying traceability it does not have.
- *
- * @param request - Routed request; the query may carry `holder` and `limit`.
- * @returns `200 { events, status, auditWritten }`, or the documented 422/503.
+ * Answer `GET /v1/events/pending` with claimed runs and status. The claim is
+ * a lease, not a state flip, and it is **bounded and paginated**: at most
+ * `MAX_CLAIMED_RUNS` runs and the documented byte budget, so anything beyond
+ * stays `pending` and unleased for the next call. Eligibility is the
+ * service's alone. `auditWritten: false` means the leases are durable and
+ * the `dispatch.claimed` rows are not, so the panel warns rather than
+ * implying traceability it does not have (FR-063).
  */
 async function handlePendingEvents(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;
@@ -319,20 +232,14 @@ async function handlePendingEvents(context: RouteContext, request: RouteRequest)
 }
 
 /**
- * Project the whole history in the retained order.
- *
- * The run document is read **first and directly**: it is the reader that runs
- * the one-shot legacy adoption, so a store upgraded moments ago
- * answers with its adopted rows rather than with an empty list. An unreadable
- * document throws `StorageUnavailableError`, which the pipeline maps to the
- * contract's only refusal — `503 storage-unavailable` — instead of inventing an
- * empty history a constitution-II reading would forbid.
- *
- * @param followUpsFrom - Where one run's follow-up window opens, or `null` for
- *   the start. Passed through unchanged: a `null` reaches the projection as no
- *   window position at all, which is what every caller that omits the parameter
- *   has always been answered with.
- * @returns Every retained run's row, newest detected first with the tiebreak.
+ * Project the whole history in the retained order. The run document is read
+ * **first and directly**, because that is the reader that runs the one-shot
+ * legacy adoption — a store upgraded moments ago must answer with its
+ * adopted rows rather than an empty list — and an unreadable document throws
+ * `StorageUnavailableError`, which the pipeline maps to the contract's only
+ * refusal, `503 storage-unavailable`, instead of an empty history a
+ * constitution-II reading forbids. `followUpsFrom` is passed through
+ * unchanged: a `null` reaches the projection as no window position at all.
  */
 async function projectHistory(
     context: RouteContext,
@@ -352,21 +259,13 @@ async function projectHistory(
 }
 
 /**
- * Answer `GET /v1/events` with one page of the runs history.
- *
- * The read is read-only: it never flips a state, so it can be polled as often
- * as the operator likes without stealing runs from a live relay. The query is
- * validated before any document is read, the order is the retained one, and
- * the answer carries the `page` member beside the rows.
- *
- * `followUpsFrom` reaches the projection and nothing else: it moves one run's
- * follow-up window past its bound (002 v1.16.0) and changes no path, method,
- * status, error code, or answer member, so a caller that omits it reads exactly
- * what it read before the parameter existed.
- *
- * @param request - Routed request; the query may carry `limit`, `cursor`,
- *   `bindingId`, `state`, and `followUpsFrom`.
- * @returns `200 { events, page }`, or the documented 422/503.
+ * Answer `GET /v1/events` with one page of the runs history. The read never
+ * flips a state, so it can be polled as often as the operator likes without
+ * stealing runs from a live relay; the query is validated before any
+ * document is read and the order is the retained one. `followUpsFrom`
+ * reaches the projection and nothing else (002 v1.16.0): no path, method,
+ * status, error code, or answer member changes, so a caller that omits it
+ * reads exactly what it read before the parameter existed.
  */
 async function handleEventHistory(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;

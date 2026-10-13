@@ -1,19 +1,7 @@
 /**
- * Entry normalization for the poller's three list feeds (Slice 2, split out
- * of `poller-github.ts` the way `events-parse.ts` sits beside `events.ts` —
- * each module stays inside the file-length gate).
- *
- * Every reader fails soft per entry: a malformed row answers `null` and the
- * page skips it, because a list endpoint is a feed, not a transaction. No
- * upstream text leaves this module either — the shapes below carry only the
- * fields the triggers need, and the loop never sees a raw GitHub body
- * (SEC-11).
- *
- * The fourth feed the poller reads — one item's own event list — is **not** a
- * list feed and its reader lives in `poller-events.ts`, beside the rules that
- * decide which of its rows answers a candidate. The split is along the line of
- * what the row is for: these three rows *are* the observations the triggers act
- * on, and an event row is evidence about an observation already detected.
+ * Entry normalization for the poller's three list feeds (Slice 2, split
+ * out of `poller-github.ts` so each module stays inside the file-length
+ * gate).
  */
 
 import { isRecord } from '../json.ts';
@@ -88,25 +76,13 @@ export interface PollComment {
 }
 
 /**
- * Minimal pull-request shape the poller normalizes (M7).
- *
- * Only what the review-request trigger needs: who is asked to review, and the
- * head/base coordinates the event carries for the dispatch context.
- *
- * **There is deliberately no author member here, and its absence is the record
- * of a correction.** Two builds ago this shape gained `authorLogin` /
- * `authorType` to make a `subject-author` attribution possible for the review
- * trigger, on the premise — taken from the two *list* feeds this poller calls —
- * that GitHub records no requester. That premise was false, and 002 v1.12.0
- * struck the sentence that required these fields: GitHub records the requester
- * in `review_requester` on the item's own `review_requested` event, which the
- * per-item read in `poller-events.ts` now consults. The
- * proxy was their only consumer, so with the proxy retired they are gone rather
- * than left as a second, unread answer to "who asked" (research §R8, rewritten).
- *
- * `PollIssue` and `PollComment` **keep** their author members: a comment is the
- * act that carried the mention, and an issue body that names the account is a
- * mention the same way — so their authors are facts, not stand-ins.
+ * Minimal pull-request shape the poller normalizes (M7): who is asked to
+ * review, and the head/base coordinates the event carries. **Deliberately no
+ * author member** — the two builds that carried `authorLogin` / `authorType`
+ * rested on the false premise that GitHub records no requester, and with the
+ * proxy retired they are gone rather than a second, unread answer to *who
+ * asked* (research §R8, rewritten). `PollIssue` and `PollComment` keep
+ * theirs: their authors are facts, not stand-ins.
  */
 export interface PollPull {
     /** Pull-request number within the repository. */
@@ -139,8 +115,6 @@ export interface PollPull {
 
 /**
  * Narrow a value to a record.
- *
- * @returns The record, or `null` for anything else.
  */
 function asRecord(value: unknown): Record<string, unknown> | null {
     return isRecord(value) ? value : null;
@@ -148,8 +122,6 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 /**
  * Read one positive integer field.
- *
- * @returns The integer, or `null` when the value is not one.
  */
 function positiveIntOf(value: unknown): number | null {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
@@ -157,8 +129,6 @@ function positiveIntOf(value: unknown): number | null {
 
 /**
  * Read one string field.
- *
- * @returns The text, or `null` when the field is not text.
  */
 function textOf(record: Record<string, unknown>, field: string): string | null {
     const value = record[field];
@@ -168,8 +138,6 @@ function textOf(record: Record<string, unknown>, field: string): string | null {
 
 /**
  * Read a list of logins out of one list field.
- *
- * @returns The logins, or `null` when the field is not an array of text.
  */
 function readLogins(value: unknown): readonly string[] | null {
     if (!Array.isArray(value)) {
@@ -192,8 +160,6 @@ function readLogins(value: unknown): readonly string[] | null {
 
 /**
  * Read one entry author's login, answering `''` when there is none.
- *
- * @returns The login, or `''`.
  */
 function authorLoginOf(user: Record<string, unknown> | null): string {
     return user === null ? '' : (textOf(user, 'login') ?? '');
@@ -201,8 +167,6 @@ function authorLoginOf(user: Record<string, unknown> | null): string {
 
 /**
  * Read one entry author's type, answering `''` when there is none.
- *
- * @returns The type (`User`, `Bot`, …), or `''`.
  */
 function authorTypeOf(user: Record<string, unknown> | null): string {
     return user === null ? '' : (textOf(user, 'type') ?? '');
@@ -211,8 +175,6 @@ function authorTypeOf(user: Record<string, unknown> | null): string {
 /**
  * Read the issue number out of a comment's `issue_url`.
  *
- * @param value - Candidate URL (`…/repos/:owner/:name/issues/:number`).
- * @returns The issue number, or `null` when the URL carries none.
  */
 function issueNumberOf(value: unknown): number | null {
     if (typeof value !== 'string') {
@@ -225,8 +187,6 @@ function issueNumberOf(value: unknown): number | null {
 
 /**
  * Parse one issues-list entry, failing soft per entry.
- *
- * @returns The normalized issue, or `null`.
  */
 export function readIssueEntry(value: unknown): PollIssue | null {
     const record = asRecord(value);
@@ -268,8 +228,6 @@ export function readIssueEntry(value: unknown): PollIssue | null {
 
 /**
  * Parse one issue-comments-list entry, failing soft per entry.
- *
- * @returns The normalized comment, or `null`.
  */
 export function readCommentEntry(value: unknown): PollComment | null {
     const record = asRecord(value);
@@ -300,8 +258,6 @@ export function readCommentEntry(value: unknown): PollComment | null {
 
 /**
  * Parse one pulls-list entry, failing soft per entry.
- *
- * @returns The normalized pull request, or `null`.
  */
 export function readPullEntry(value: unknown): PollPull | null {
     const record = asRecord(value);
@@ -343,20 +299,12 @@ export function readPullEntry(value: unknown): PollPull | null {
 
 /**
  * Read one **single-item** issue object — the terminal read's shape (FR-106).
- *
- * The item's own `GET /repos/{owner}/{repo}/issues/{number}` returns the same
- * Issue object a list row is, so the read reuses {@link readIssueEntry} and the
- * terminal members it already fills (`state`, `stateReason`, `closedAt`), taking
- * one object where the page readers took one entry of a page (`research.md`
- * §R14.10's item 4). What this reader adds is the only thing a `state=open` list
- * never had to decide: the `state` word is the **whole** terminal fact a read can
- * carry, so a value outside `open` / `closed` is refused here rather than read as
- * a silent not-closed. That is what makes an unreadable answer fail the scan
- * instead of ending — or extending — tracking on a guess (AC-052, invariant 8);
- * `null` is the direction that can only fail to end tracking.
- *
- * @returns The issue with its terminal members, or `null` when the object is
- *   unrecognizable or its `state` is outside the known vocabulary.
+ * It reuses {@link readIssueEntry} for the same Issue object a list row is,
+ * and adds the one thing a `state=open` list never had to decide: the `state`
+ * word is the whole terminal fact a read can carry, so a value outside `open`
+ * / `closed` is refused rather than read as a silent not-closed — an
+ * unreadable answer fails the scan instead of ending, or extending, tracking
+ * on a guess (AC-052, invariant 8).
  */
 export function readIssueObject(value: unknown): PollIssue | null {
     const issue = readIssueEntry(value);
@@ -366,18 +314,12 @@ export function readIssueObject(value: unknown): PollIssue | null {
 
 /**
  * Read one **single-item** pull object — the terminal read's shape (FR-106).
- *
- * The item's own `GET /repos/{owner}/{repo}/pulls/{number}` returns the full
- * Pull Request object, which the pulls **list** (`Pull Request Simple`) is not:
- * the single object carries `merged` as a required boolean, and that is the one
- * field which tells a merged pull from one closed unmerged — the exact fact the
- * `state=open` list cannot carry at all (`research.md` §R12.2, §R12.5). The read
- * reuses {@link readPullEntry}, which already fills `merged` / `mergedAt` /
- * `state`, and applies the same `open` / `closed` refusal {@link readIssueObject}
- * does: an unusable `state` word is unreadable, not a guess (AC-052).
- *
- * @returns The pull with its terminal members, or `null` when the object is
- *   unrecognizable or its `state` is outside the known vocabulary.
+ * The full Pull Request object carries `merged` as a required boolean, which
+ * the pulls **list** (`Pull Request Simple`) is not — and that is the one
+ * field that tells a merged pull from one closed unmerged, the exact fact a
+ * `state=open` list cannot carry at all (research §R12.2, §R12.5). It reuses
+ * {@link readPullEntry} and the same `open` / `closed` refusal: an unusable
+ * `state` word is unreadable, not a guess (AC-052).
  */
 export function readPullObject(value: unknown): PollPull | null {
     const pull = readPullEntry(value);

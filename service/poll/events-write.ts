@@ -1,16 +1,5 @@
 /**
  * Assembling one queued event (the write side of the queue contract).
- *
- * `events.ts` owns the queue's chain, dedupe, claim, and dispatch; the row
- * schema and validator sit beside it in `events-parse.ts`; this module is
- * the third slice of that contract — the detection snapshots each trigger
- * produces and the deterministic id built from one. The split keeps every
- * module inside the file-length gate, and `events.ts` re-exports {@link
- * createEvent} so callers keep a single import path.
- *
- * The id is the dedupe key, so it must be derivable from the detection
- * alone: the same assignment, the same comment, the same issue-body mention,
- * or the same review request must produce the same bytes on every scan.
  */
 
 import type { ActorAttribution, QueuedEvent, SubjectType } from './events-parse.ts';
@@ -109,14 +98,12 @@ export interface ReviewEventSnapshot extends BaseEventSnapshot {
 
 /**
  * A **follow-up**: a comment on a subject whose run already carries a
- * recorded session (002 FR-102(a)).
- *
- * The row **reuses** the closed `EventKind` union rather than widening it —
- * widening it would make both shipped parsers refuse the row and quarantine
- * the queue and the run document — so it carries `'mention'`, naming the feed
- * the detection rides. The `~followup~…` discriminator is what records the
- * *role*, so the kind says which surface the row came from and never claims
- * that anyone mentioned the account.
+ * recorded session (002 FR-102(a)). The row **reuses** the closed
+ * `EventKind` union rather than widening it — widening it would make both
+ * shipped parsers refuse the row and quarantine the queue and the run
+ * document — so it carries `'mention'`, naming the feed the detection
+ * rides, while the `~followup~…` discriminator records the *role* and never
+ * claims anyone mentioned the account.
  */
 export interface FollowUpCommentSnapshot extends BaseEventSnapshot {
     /** The feed the detection rides: the issue-comment list. */
@@ -166,41 +153,12 @@ export type EventSnapshot =
     | FollowUpHeadSnapshot;
 
 /**
- * Build the deterministic event id for one detection.
- *
- * The id doubles as the dedupe key and the relay path segment, so the join
- * character is `~` — GitHub owners and repositories (pattern
- * `A-Za-z0-9_-`) joined with `~` never collide — and the result stays inside
- * `[A-Za-z0-9._~]`, which is one URL path segment and no route ambiguity.
- *
- * The base (owner, repository, issue number, account) is enough for an
- * assignment and must stay byte-identical to the rows the queue already
- * holds. The optional discriminator extends it for the Slice-2 triggers:
- * `~mention~<commentId>` makes two comments on one issue two events,
- * `~mention~body` is the fixed suffix of an issue-body mention (fixed, so an
- * edited body re-detects to the same id and dedupes), and `~review` keeps a
- * review request distinct from the same PR's assignment. A comment id is
- * always a number, so `~mention~body` can never collide with one.
- *
- * **The two follow-up forms (002 FR-101) sit in the same family and change
- * nothing that was already there.** `~followup~<commentId>` and
- * `~followup~head~<sha>` are appended after the base exactly as the trigger
- * discriminators are, so the base and every existing discriminator stay
- * byte-identical. `followup` opens every follow-up id and no trigger
- * discriminator can, which is what makes a collision structurally impossible
- * rather than merely unlikely. A comment id is decimal and a SHA is
- * hexadecimal, so both stay inside `[A-Za-z0-9._~]` — one URL path segment,
- * no route ambiguity.
- *
- * `evt-<owner>~<repo>~<issueNumber>~<accountNumericUserId>` plus its optional
- * discriminator — `~mention~<commentId>`, the fixed `~mention~body`, or
- * `~review` — is **unchanged by this amendment**, for the reason 003 FR-012
- * already gives for the same identifier: it is simultaneously the delivery's
- * dedupe key, its relay path segment, and the reference recorded in existing
- * panel ledgers, audit rows, and the run history. The actor therefore
- * **rides the record and never its identity**.
- *
- * @returns A `[A-Za-z0-9._~]`-only id of one path segment.
+ * Build the deterministic event id for one detection — the dedupe key, the
+ * relay path segment, and the reference already recorded in ledgers, so the
+ * actor rides the record and never its identity (003 FR-012). `~` joins the
+ * `A-Za-z0-9_-` owner and repository parts; the fixed discriminators
+ * (`~mention~body`, `~followup~head~<sha>`) keep every form inside one URL
+ * path segment with no route ambiguity (002 FR-101).
  */
 export function buildEventId(input: {
     readonly repository: { readonly owner: string; readonly name: string };
@@ -221,8 +179,6 @@ export function buildEventId(input: {
  * A follow-up's discriminator records its **role**, and the snapshot's `kind`
  * records which feed the detection rode, so the two are read from two
  * different members rather than from one overloaded value.
- *
- * @returns `undefined` for an assignment, the discriminator otherwise.
  */
 function discriminatorOf(snapshot: EventSnapshot): string | undefined {
     // `followUp` is declared on the two follow-up snapshots alone, so its
@@ -271,26 +227,14 @@ function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
 }
 
 /**
- * Assemble one queued event from a fresh detection.
- *
- * The row carries **no legacy lifecycle fields**: `state`, `claimedAt`,
- * `dispatchedAt`, and `dispatchResult` belong to the shipped three-state
- * queue, and a row 003 enqueues gets its state from the run it joins
- * (data-model §2.1 — still parsed as migration input, never written again by
- * a fresh detection). `runCorrelationId` is added by the enqueue pass, which
- * is the only place the ordinal — and therefore the run — is known.
- *
- * The two actor members ride beside the other optional snapshot members
- * (`subjectType`), **not** the id: `buildEventId` is untouched, because that
- * id is simultaneously the dedupe key, the relay path segment, and the
- * reference already recorded in panel ledgers, audit rows, and the run history.
- * An issue observed once before this change and once after it is
- * still **one** event, and tightening a binding's allow-list can never
- * manufacture duplicate work.
- *
- * A **follow-up** snapshot writes the same row shape with the role recorded in
- * its discriminator and its `subjectType` stated from the tracked subject, so
- * a head-SHA movement on a tracked pull is never read as an issue.
+ * Assemble one queued event from a fresh detection. The row carries **no
+ * legacy lifecycle fields** — a post-003 row gets its state from the run it
+ * joins (data-model §2.1) — and the two actor members ride the optional
+ * snapshot members, never the id: `buildEventId` is untouched because that id
+ * is already the dedupe key, the relay path segment, and the reference in
+ * ledgers and audit rows, so tightening an allow-list can never manufacture
+ * duplicate work. A follow-up snapshot records its role in the discriminator
+ * so a head-SHA movement is never read as an issue.
  */
 export function createEvent(snapshot: EventSnapshot): QueuedEvent {
     const separatorIndex = snapshot.repository.indexOf('/');

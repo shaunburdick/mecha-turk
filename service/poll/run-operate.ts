@@ -1,40 +1,7 @@
 /**
- * The operator operations: retry, return-to-waiting, and resolve (003 FR-027,
- * FR-033, FR-041;
- * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md) §6–§8).
- * The fourth operator operation — the verification report (FR-043, §5) — lives
- * in [`run-verify.ts`](./run-verify.ts), split out to keep this file inside the
- * size bound, and borrows this module's refusal writer so the family keeps
- * exactly one place where a `dispatch.refused` row is produced.
- *
- * These are the paths that make a stuck run move again, and every one of them is
- * an **explicit human decision**, never an automatic recovery — the automatic
- * handler is the sweep, and the sweep's two rules are the only two (FR-036).
- * Keeping the two families in separate modules is what keeps that separation
- * legible: nothing in this file runs on a timer.
- *
- * Four properties they share:
- *
- * - **Each refusal is a distinct verdict, not one "no".** FR-041 requires the
- *   retry refusals for `pending`, `dispatched`, and `unconfirmed` to be three
- *   different answers, and adds two more states that need their own wording;
- *   005 renders these messages verbatim, so they are written once, here, and
- *   never composed from a generic template.
- * - **Attempt discipline is exact.** A retry and a resolve-to-*no-session* each
- *   increment the attempt exactly once; a verification report (in
- *   `run-verify.ts`) increments nothing and changes no state at all; the
- *   dead-letter return resets both counters (contract invariant 5).
- * - **The service corroborates what it can and records what it cannot.**
- *   `blocked:binding-missing` and `blocked:actor-not-allowed` are re-checked
- *   against the live store, because the service *can* check them;
- *   `blocked:project-missing` depends on a host API the service may not call
- *   (002's architecture), so the panel's same-mount check is the only evidence and
- *   is audited as *reported*, never as proof. Conflating the two would let a row
- *   claim a verification the service never performed (constitution IV).
- * - **A resolution is the only way out of `unconfirmed`, and it is recorded as a
- *   human decision.** The row names the decision, the prior state, the operator's
- *   note, and the guidance they were shown, because the service records what it
- *   was told and cannot verify it.
+ * The operator operations: retry, return-to-waiting, and resolve (003
+ * FR-027, FR-033, FR-041; contract §6–§8). The verification report lives
+ * in `run-verify.ts`.
  */
 
 import { readBindings } from '../bindings-read.ts';
@@ -136,15 +103,12 @@ export async function refused(input: RefusalTarget & {
 }
 
 /**
- * Judge a retry (contract §6).
- *
- * The presented attempt is checked **before** the state: §6's body carries it,
- * and the contract's common-body rule is that a mismatch is a refusal rather
- * than a partial apply. A retry judged against a state the run has already left
- * would increment a counter the caller never saw, which is precisely the
- * half-apply that rule exists to prevent.
- *
- * @returns The refusal, or how the cause was shown to have cleared.
+ * Judge a retry (contract §6). The presented attempt is checked **before**
+ * the state: §6's body carries it, and the contract's common-body rule is
+ * that a mismatch is a refusal rather than a partial apply — a retry judged
+ * against a state the run has already left would increment a counter the
+ * caller never saw, which is precisely the half-apply that rule exists to
+ * prevent.
  */
 function judgeRetry(input: {
     /** The run the operator acted on. */
@@ -234,8 +198,6 @@ interface RetryRowInput {
  *
  * `reset` is what makes the dead-letter return legible in the trail, because it
  * is the action that starts a fresh token-consumption chain.
- *
- * @returns `true` when the row reached the trail.
  */
 async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
     const { run, store, log, ...rest } = input;
@@ -260,7 +222,6 @@ async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
  * automatic requeue budget is untouched: only an expired claim consumes it.
  *
  * @returns The waiting run, or the distinct refusal naming why it did not move.
- * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
 export async function retryDispatch(input: {
     readonly store: ServiceStore;
@@ -310,16 +271,12 @@ export async function retryDispatch(input: {
 }
 
 /**
- * Return a dead-lettered run to waiting with the attempt and requeue counters
- * reset — the single control that resolves it.
- *
- * The reset is also what starts a fresh token-consumption chain:
- * consumption is scoped per attempt, and `attempt = 1` re-derives a token no
- * earlier report could have consumed. The history rows survive untouched, which
- * is what makes the boundary legible to an operator reading the trail.
- *
- * @returns The waiting run, or the refusal naming its state.
- * @throws {StorageUnavailableError} When the run document cannot be read or written.
+ * Return a dead-lettered run to waiting with the attempt and requeue
+ * counters reset — the single control that resolves it. The reset is also
+ * what starts a fresh token-consumption chain: consumption is scoped per
+ * attempt, and `attempt = 1` re-derives a token no earlier report could
+ * have consumed. The history rows survive untouched, which is what makes
+ * the boundary legible to an operator reading the trail.
  */
 export async function requeueDispatch(input: {
     readonly store: ServiceStore;
@@ -394,8 +351,6 @@ function judgeResolve(input: { readonly run: Run }): RunRefusal | null {
  * document this build could not read back. `null` returns the run to waiting with
  * the attempt incremented and is **the only path that re-dispatches an
  * `unconfirmed` run**, ever.
- *
- * @returns The resolved run.
  */
 function resolvedRun(input: {
     /** The `unconfirmed` run. */
@@ -446,7 +401,6 @@ function resolvedRun(input: {
  * Resolve an `unconfirmed` run on the operator's explicit word.
  *
  * @returns The resolved run, or the refusal naming why it did not move.
- * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
 export async function resolveDispatch(input: {
     readonly store: ServiceStore;

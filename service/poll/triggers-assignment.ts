@@ -1,29 +1,5 @@
 /**
- * The **assignment** trigger (002 FR-015, FR-049 – FR-052).
- *
- * Split out of `loop.ts` for the file-length gate, and because this is the one
- * trigger whose *detection* and whose *actor* come from different places: the
- * list feed answers "is this item assigned to the bound account", and the item's
- * own event list answers "who did it". Getting that second half from the feed
- * that asked the first question is what v1.11.0 did, and it is the defect this
- * trigger's shape exists to correct.
- *
- * Two stages, and neither substitutes for the other:
- *
- * 1. **Detect**, from the issues list the cycle already fetched: an open issue
- *    whose `assignees` names the bound account. No request of its own.
- * 2. **Attribute**, from one per-item events read for that issue and no other
- *    (002 FR-049): the naming `assigned` event, whose `assignee` is the bound
- *    account, whose `assigner` is the actor.
- *
- * The attribution stage can answer *nothing*, and that is a real outcome rather
- * than an error (002 FR-050, FR-051, FR-052). A missing or stale naming event, an
- * actor GitHub sent no login for, and a bot assigner all yield **no event for
- * this cycle** — never a row carrying the issue author, the `actor` member, or
- * the `assignee` — because a stale assignment is not new work and a guessed
- * actor is worse than a missing one. What *does* end the scan is a failure of the
- * read itself, which the cycle turns into its usual skip: see
- * {@link resolveCandidateActor} for why that distinction is load-bearing.
+ * The assignment trigger (002 FR-015, FR-049 – FR-052).
  */
 
 import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
@@ -43,8 +19,6 @@ import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
  * which is why the event read behind it is not optional. Pull-request assignment
  * and the review trigger can both fire on one pull request; the run layer
  * coalesces them on the same subject key.
- *
- * @returns `true` when the issue is open and assigned to that account.
  */
 export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boolean {
     if (issue.state !== 'open') {
@@ -62,8 +36,6 @@ export function isIssueAssignment(issue: PollIssue, bindingLogin: string): boole
  * row to disclose. The legacy `subject-author` basis stays in the
  * union and stays readable for rows written before this correction; **nothing
  * here writes it**, and no fallback path below reaches for it.
- *
- * @returns The event, with the event-named attribution.
  */
 function assignmentEvent(input: {
     /** The binding that produced the window. */
@@ -104,16 +76,13 @@ function assignmentEvent(input: {
 }
 
 /**
- * Collect the assignment events one binding's issues matched.
- *
- * Candidates are filtered by the window **twice**, deliberately: the listing's
- * `updated_at` says the *item* moved recently (the pre-existing rule, unchanged),
- * and the event's `created_at` says the *assignment* is new (002 FR-051). Only
- * the second makes this a trigger rather than a re-detection of old work, and
- * requiring both is what stops a merely-touched issue from re-firing on a
- * months-old assignment.
- *
- * @returns The assignment events, or the failure that ended the read.
+ * Collect the assignment events one binding's issues matched. Candidates are
+ * filtered by the window **twice**, deliberately: the listing's `updated_at`
+ * says the *item* moved recently (the pre-existing rule, unchanged), and the
+ * event's `created_at` says the *assignment* is new (002 FR-051). Only the
+ * second makes this a trigger rather than a re-detection of old work, so
+ * requiring both stops a merely-touched issue re-firing on a months-old
+ * assignment.
  */
 export async function assignmentEvents(input: TriggerScanInput & {
     /** Issues the cycle's own issue list yielded. */

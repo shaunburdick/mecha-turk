@@ -1,14 +1,6 @@
 /**
- * Durable service store: directory lifecycle, schema version, and the typed
- * file operations every service module shares.
- *
- * The store is the authoritative home for configuration, checkpoints, runs,
- * and audit history: it lives under the
- * operator's own data directory, outside `host.storage`, so it survives an
- * extension uninstall by construction. Paths handed to the
- * store are relative names inside that directory — anything absolute or
- * climbing out with `..` is refused, so no caller can write outside the store
- * even if a value arrives from the panel.
+ * Durable service store: directory lifecycle, schema version, and the
+ * typed file operations every service module shares.
  */
 
 import { promises as fs } from 'node:fs';
@@ -56,14 +48,10 @@ export interface ServiceStore {
     readJson<T>(relativePath: string, validate: (raw: unknown) => T | null): Promise<JsonReadResult<T>>;
     /**
      * Write one JSON document atomically.
-     *
-     * @param value - Any JSON-serialisable value.
      */
     writeJson(relativePath: string, value: unknown): Promise<void>;
     /**
      * Append one NDJSON line.
-     *
-     * @param entry - Any JSON-serialisable entry.
      */
     appendLine(relativePath: string, entry: unknown): Promise<void>;
     /**
@@ -73,15 +61,11 @@ export interface ServiceStore {
      * (the retention trim): the file becomes the new set of entries in one
      * rename, so a crash leaves either the old file or the new one and never a
      * torn half-write.
-     *
-     * @param entries - JSON-serialisable entries, written one per line in order.
      */
     writeLines(relativePath: string, entries: readonly unknown[]): Promise<void>;
     /**
      * Read every usable line of an NDJSON file.
      *
-     * @param parse - Shape check; `null` counts the line as malformed.
-     * @returns The entries plus the malformed-line count.
      */
     readLines<T>(relativePath: string, parse: (raw: unknown) => T | null): Promise<NdjsonReadResult<T>>;
     /**
@@ -96,8 +80,6 @@ export interface ServiceStore {
 
 /**
  * Validate a parsed `state.json` document.
- *
- * @returns The state, or `null` when the schema marker is missing or invalid.
  */
 function parseServiceState(raw: unknown): ServiceState | null {
     if (!isRecord(raw)) {
@@ -120,8 +102,6 @@ function parseServiceState(raw: unknown): ServiceState | null {
  * `state.json` is a marker, not operator data: if it is missing, torn, or was
  * written by a build this one cannot understand, it is replaced rather than
  * quarantined-and-stuck — the history files beside it are untouched either way.
- *
- * @returns The store's schema version.
  */
 async function readOrCreateSchemaVersion(dataDir: string): Promise<number> {
     const statePath = resolve(dataDir, STATE_FILE);
@@ -139,9 +119,6 @@ async function readOrCreateSchemaVersion(dataDir: string): Promise<number> {
 /**
  * Resolve a relative store path inside the data directory, refusing escape.
  *
- * @returns The absolute path.
- * @throws {Error} When the path is empty, absolute, or climbs out — a
- *   programming error, not a storage failure, so it is not disguised as one.
  */
 function resolveStorePath(dataDir: string, relativePath: string): string {
     if (relativePath === '' || isAbsolute(relativePath) || relativePath.includes('..')) {
@@ -154,9 +131,6 @@ function resolveStorePath(dataDir: string, relativePath: string): string {
 /**
  * List the entries of a directory inside the data directory.
  *
- * @returns Entry names, or an empty list when the directory does not exist
- *   yet (a fresh store has no `accounts/` until the first handoff).
- * @throws {StorageUnavailableError} When the directory exists but cannot be read.
  */
 async function listStoreDir(dataDir: string, relativePath: string): Promise<readonly string[]> {
     const target = resolveStorePath(dataDir, relativePath);
@@ -173,8 +147,6 @@ async function listStoreDir(dataDir: string, relativePath: string): Promise<read
 
 /**
  * Remove a file inside the data directory.
- *
- * @throws {StorageUnavailableError} When the file exists but cannot be removed.
  */
 async function removeStoreFile(dataDir: string, relativePath: string): Promise<void> {
     const target = resolveStorePath(dataDir, relativePath);
@@ -214,10 +186,7 @@ function createStore(dataDir: string, schemaVersion: number): ServiceStore {
  * {@link ensureDir}, and sweeps temporary debris an interrupted write left
  * behind so a crash can never leave stale partial files lying around.
  *
- * @param options - `dataDir` is absolute, typically from `resolveDataDir`.
  * @returns A handle bound to that directory with `state.json` initialised.
- * @throws {StorageUnavailableError} When the directory cannot be made
- *   owner-only or `state.json` cannot be written.
  */
 export async function openStore(options: { readonly dataDir: string }): Promise<ServiceStore> {
     const { dataDir } = options;

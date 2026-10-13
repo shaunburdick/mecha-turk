@@ -1,33 +1,6 @@
 /**
  * The tracked-subject view the follow-up detectors read, and the terminal
  * facts that end tracking (002 FR-100 – FR-106).
- *
- * Two questions live here because they are the two halves of one fact — *which
- * subjects is this scan following, and has any of them concluded?* — and a
- * detector that answered either on its own would be a second reading of the run
- * document and of GitHub's own state words.
- *
- * **What "tracked" means, and what it does not.** A subject is tracked when a
- * run under **this binding and this account** carries a recorded session —
- * FR-100's recorded-session predicate, read from the same stored
- * `run.session` the join and the claim route both read. Nothing here invents a
- * tracked set of its own: there is no second index, no persisted registry, and
- * no per-account cap (FR-107), so the view is a pure function of the run
- * document this cycle already reads.
- *
- * **How the end of tracking is observed, and what the shipped feeds can and
- * cannot see.** Both list feeds the scan reads are filtered `state=open`, so a
- * closed issue or a merged pull request **leaves the list** rather than
- * arriving on it in a terminal state. That is a real limit of the two existing
- * reads and it is stated rather than designed around (`research.md` §R12.2): a
- * list row is therefore never the source of an end in production. The one read
- * that can observe an end is the **lazy per-item terminal read** FR-102 admits
- * and FR-106 fixes (001 FR-106): `GET …/issues/{number}` and `GET …/pulls/{number}`,
- * issued only when a follow-up has been detected on the subject, routed here
- * through the same {@link trackedIssueEnds} / {@link trackedPullEnds} builders a
- * (never-in-production) terminal list row would take. This module owns the
- * reader-side capability and its audit row; the timing and the failure posture
- * of the read live in `loop.ts`.
  */
 
 import type { BindingRecord } from '../bindings.ts';
@@ -92,8 +65,6 @@ export interface TrackingEnd {
 
 /**
  * Read the ordinal-free subject key one tracked subject is filed under.
- *
- * @returns The key, or `null` when the stored coordinates cannot produce one.
  */
 function subjectKeyOf(input: {
     readonly accountNumericUserId: string;
@@ -154,8 +125,6 @@ function trackedOf(run: Run): { readonly key: string; readonly subject: TrackedS
  * space, and the subject's **shape** rides the entry — which is what lets a
  * comment row whose issue list entry is missing still write the tracked
  * subject's own shape rather than a kind-derived guess (FR-101).
- *
- * @returns The tracked subjects, keyed by issue or pull-request number.
  */
 export function trackedSubjectsOf(input: {
     /** Run document this cycle read. */
@@ -192,8 +161,6 @@ export function trackedSubjectsOf(input: {
  * item's conclusion is not a follow-up, because the conclusion has already been
  * observed. A follow-up already queued keeps its place — the queue is not read
  * here at all.
- *
- * @returns The view without the ended subjects.
  */
 export function withoutEnded(
     tracked: ReadonlyMap<number, TrackedSubject>,
@@ -210,17 +177,12 @@ export function withoutEnded(
 }
 
 /**
- * Read the ends of tracking one cycle's **issue** rows report.
- *
- * Only a subject the scan is following can end tracking. The list rows a
- * `state=open` feed carries are never terminal, so in production the rows this
- * is called with are the single read objects the lazy terminal read produced
- * (FR-106) rather than list rows; it is the same builder either way, because a
- * concluded issue and a list row would carry the same `state` / `state_reason` /
- * `closed_at`. An open row reports nothing, and a closed one reports the fact,
- * the date, and the reason.
- *
- * @returns The ends, in issue-list order.
+ * Read the ends of tracking one cycle's **issue** rows report. Only a
+ * subject the scan is following can end tracking, and the rows in production
+ * are the single read objects the lazy terminal read produced (FR-106) rather
+ * than list rows — it is the same builder either way, because both carry the
+ * same `state` / `state_reason` / `closed_at`. An open row reports nothing;
+ * a closed one reports the fact, the date, and the reason.
  */
 export function trackedIssueEnds(input: {
     /** The binding being scanned; its coordinates key the ends. */
@@ -270,8 +232,6 @@ export function trackedIssueEnds(input: {
  * done, and a closed unmerged one was abandoned. An absent `merged` reads as
  * `false`, which is the direction that can only fail to end tracking and never
  * end it on a guess.
- *
- * @returns The fact, or `null`.
  */
 function terminalPullFact(pull: PollPull): TerminalFact | null {
     if (pull.merged === true) {
@@ -288,8 +248,6 @@ function terminalPullFact(pull: PollPull): TerminalFact | null {
  * carry and they are different conclusions, so both are named distinctly.
  * An absent `merged` reads as `false`, which is the direction that can only
  * fail to end tracking and never end it on a guess.
- *
- * @returns The ends, in pulls-list order.
  */
 export function trackedPullEnds(input: {
     /** The binding being scanned; its coordinates key the ends. */
@@ -333,10 +291,6 @@ export function trackedPullEnds(input: {
 
 /**
  * Map the heads a cycle observed onto the run document's own key space.
- *
- * @returns The heads keyed by the ordinal-free subject key of a
- *   `pull_request` subject; a coordinates pair that cannot produce a key leaves
- *   its observation out rather than guessing one.
  */
 export function observedHeadSeeds(input: {
     readonly binding: BindingRecord;

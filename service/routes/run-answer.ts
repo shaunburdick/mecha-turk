@@ -1,23 +1,7 @@
 /**
- * Turning a run-scoped operation's answer into the response the panel sees, and
- * into the row the trail owes it (003 FR-003, FR-063;
- * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md)).
- *
- * Split out of [`run-scope.ts`](./run-scope.ts), which reads a request, so that
- * one module owns *reading* and this one owns *answering*: a refusal must look
- * the same whichever of the eight routes produced it, and "one code → one
- * status, one envelope, no per-route drift" is only checkable when there is one
- * place that makes the mapping. Three things live here:
- *
- * - **`REFUSAL_STATUS`** — the whole `RunRefusalCode` union mapped to its HTTP
- *   status, so a new code is a compile-time omission rather than a silent `409`.
- * - **`runOutcomeResponse` / `runAnswer`** — the `200` every run-scoped mutation
- *   answers with, plus FR-063's degraded-trail warn, which runs for a refusal
- *   exactly as it runs for a success.
- * - **`refuseRunRequest`** — the `dispatch.refused` row a `422` owes when the
- *   path names a run that exists (contract §9 as T-044 narrows it), reading the
- *   run inside the chain so the row's `priorState` and `attempt` are this
- *   request's.
+ * Turning a run-scoped operation's answer into the response the panel
+ * sees, and into the row the trail owes it (003 FR-003, FR-063;
+ * dispatch-authorization contract).
  */
 
 import { errorResponse, STATUS } from '../http.ts';
@@ -62,18 +46,13 @@ export function unknownRunResponse(): HttpResponse {
 }
 
 /**
- * Turn one operation's answer into the response the panel sees.
- *
- * The refusal message is the operation's own, verbatim (contract: 005 renders
- * these strings), and it is the same string the `dispatch.refused` row records —
- * which is why this function only ever *copies* it and never composes one.
- *
- * A degraded trail is logged here rather than in each route, because FR-063's
- * "must not be swallowed" obligation is the same obligation for all eight
- * operations and one log line is what makes it observable in the service log.
- *
- * @param success - Builds the `200` body from the run; a duplicate gets the same
- *   body, because a repeat changed nothing and must look like it.
+ * Turn one operation's answer into the response the panel sees. The refusal
+ * message is the operation's own, verbatim (contract: 005 renders these
+ * strings) and the same string the `dispatch.refused` row records — which is
+ * why this function only ever *copies* it and never composes one. A degraded
+ * trail is logged here rather than in each route, because FR-063's *must not
+ * be swallowed* is the same obligation for all eight operations and one log
+ * line is what makes it observable in the service log.
  */
 export function runOutcomeResponse(input: {
     /** Route context, for the log a degraded trail leaves. */
@@ -150,17 +129,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * The secret-free cause a `422` response already carries, read from its own
- * envelope.
- *
- * Derived rather than passed in so the trail and the wire cannot drift: the
- * `dispatch.refused` row records "the same secret-free cause the response
- * carries" (contract §9), and one source for both is what makes that claim
- * checkable instead of aspirational. Two refusal shapes exist —
- * {@link validationResponse}'s `field: remediation` list, restated into
- * `message`, and the free-prose `errorResponse` — and both put their cause in
- * `error.message`, which is all this reads.
- *
- * @returns The cause, or a fixed one when the envelope carries none.
+ * envelope. Derived rather than passed in so the trail and the wire cannot
+ * drift: contract §9 says the row records *the same secret-free cause the
+ * response carries*, and one source for both makes that claim checkable
+ * instead of aspirational. Two refusal shapes exist —
+ * {@link validationResponse}'s `field: remediation` list restated into
+ * `message`, and the free-prose {@link errorResponse} — and both put their
+ * cause in `error.message`, which is all this reads.
  */
 function refusalReason(response: HttpResponse): string {
     const { body } = response;
@@ -174,26 +149,13 @@ function refusalReason(response: HttpResponse): string {
 }
 
 /**
- * Answer a run-scoped request that failed validation, recording the row the run
- * is owed first.
- *
- * Contract §9 promises a `dispatch.refused` row for every `4xx` an operation in
- * this directory answers — narrowed to the state verdicts **plus** a
- * `422` on a run that exists, because a state verdict is refused inside its
- * operation module while a malformed body never reaches one. The run is read
- * inside the chain the operation modules use, so the row's `priorState` and
- * `attempt` are the run's as of this request rather than a snapshot taken
- * before it, and nothing is written when no run carries the id: there is no
- * entity to attach a row to (contract §9's own scope reading).
- *
- * A failed append is logged by {@link appendRunRow} itself, naming the run and
- * the event type, so FR-063's surfacing holds here too even though a `422`
- * envelope has nowhere to carry `auditWritten`.
- *
- * @param operation - The operation name the row records (`reserve`, `result`, …).
- * @param correlationId - The run the path named.
- * @param response - The `422` to answer with; its message is the row's reason.
- * @returns The response unchanged, once the row has been attempted.
+ * Answer a run-scoped request that failed validation, recording the row the
+ * run is owed first. Contract §9 promises a `dispatch.refused` row for every
+ * `4xx` this directory answers, but a state verdict is refused inside its
+ * operation module while a malformed body never reaches one — so the run is
+ * read inside the same chain the operations use (the row's `priorState` and
+ * `attempt` are as of this request) and nothing is written when no run carries
+ * the id, because there is no entity to attach a row to.
  */
 export async function refuseRunRequest(input: {
     /** Route context, carrying the open store and logger. */

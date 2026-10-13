@@ -1,12 +1,5 @@
 /**
  * Loopback HTTP transport rules shared by the pipeline and every route.
- *
- * The numbers here are the pinned guest-contract legs (`contract.d.ts` via
- * 002 research R4) restated for the service side: path ≤ 2,000 characters,
- * request body ≤ 60,000 characters (the host caps at 64,000 and the service
- * keeps a margin), response ≤ 256,000 characters with pagination rather than
- * truncation, methods `GET`/`POST`/`PUT`/`DELETE`. Errors always use the
- * `{ error: { code, message, correlationId? } }` envelope from contract §1.
  */
 
 /** The single interface the service binds; never `0.0.0.0`. */
@@ -33,15 +26,13 @@ export const RESPONSE_BODY_MAX_CHARS = 256_000;
 export const JSON_CONTENT_TYPE = 'application/json; charset=utf-8';
 
 /**
- * Longest unknown **field name** a `422` echoes back.
- *
- * A member name is submitted input too, so the envelope that restates every
- * `field: remediation` pair bounds it: a name longer than this is cut rather
- * than carried whole into `issues[].field` and the `message` built from it.
- * It lives here — beside {@link validationResponse}, the builder that restates
- * the name — so the configuration document and the account profile body read
- * one bound instead of two that could drift (006's unknown-field rule,
- * mirrored by the profile route's closed-body rule).
+ * Longest unknown **field name** a `422` echoes back. A member name is
+ * submitted input too, so the envelope that restates every `field:`
+ * `remediation` pair bounds it: a longer name is cut rather than carried
+ * whole into `issues[].field` and the `message` built from it. It lives
+ * beside {@link validationResponse} so the configuration document and the
+ * account profile body read one bound instead of two that could drift (006's
+ * unknown-field rule, mirrored by the profile route's closed-body rule).
  */
 export const MAX_ECHOED_FIELD_CHARS = 64;
 
@@ -49,8 +40,6 @@ export const MAX_ECHOED_FIELD_CHARS = 64;
  * Bound one unknown field name before it is echoed back.
  *
  * @param name - The offending key, exactly as it arrived.
- * @returns The name cut to {@link MAX_ECHOED_FIELD_CHARS} with a trailing
- *   ellipsis when it is longer, otherwise the name unchanged.
  */
 export function truncatedFieldName(name: string): string {
     return name.length > MAX_ECHOED_FIELD_CHARS ? `${name.slice(0, MAX_ECHOED_FIELD_CHARS)}…` : name;
@@ -140,8 +129,6 @@ export interface FieldIssue {
  * Optional members are copied through only when present, so `exactOptional`
  * types and the JSON wire shape agree: an absent `correlationId`, `issues`, or
  * `reasonClass` is omitted from the body rather than written as `null`.
- *
- * @returns The envelope body.
  */
 export function errorBody(details: ErrorDetails): ErrorBody {
     return {
@@ -163,14 +150,11 @@ export function errorResponse(status: number, details: ErrorDetails): HttpRespon
 }
 
 /**
- * Build the contract's `422 validation` response for a list of field issues.
- *
- * The body is the ratified superset of the §1 error envelope: `message`
- * restates every `field: remediation` pair so an envelope-only consumer can
- * render it verbatim, while `issues` carries the structured list. No submitted
- * value appears anywhere in either form.
- *
- * @returns The `validation` error response (contract §4).
+ * Build the contract's `422 validation` response for a list of field
+ * issues. The body is the ratified superset of the §1 error envelope:
+ * `message` restates every `field: remediation` pair so an envelope-only
+ * consumer can render it verbatim, while `issues` carries the structured
+ * list. No submitted value appears anywhere in either form.
  */
 export function validationResponse(issues: readonly FieldIssue[]): HttpResponse {
     return errorResponse(STATUS.validation, {
@@ -201,8 +185,6 @@ export interface ThrottleOptions {
  * The body stays inside the error envelope so the panel can render its delay
  * copy from a code rather than from prose (contract §4 `rate-limited` /
  * `verify-busy`), and the wait travels in the documented `retry-after` header.
- *
- * @returns The response carrying the `retry-after` header.
  */
 export function throttleResponse(options: ThrottleOptions): HttpResponse {
     const headers: Record<string, string> = { [RETRY_AFTER_HEADER]: String(options.retryAfterSeconds) };
@@ -220,8 +202,6 @@ export function throttleResponse(options: ThrottleOptions): HttpResponse {
  * Missing, malformed, and wrong tokens all reach this function, which is what
  * makes the refusal byte-identical across them (contract §3 invariant 1: no
  * authentication oracle).
- *
- * @returns The uniform unauthorized response.
  */
 export function unauthorizedResponse(): HttpResponse {
     return errorResponse(STATUS.unauthorized, {
@@ -249,9 +229,6 @@ export function storageUnavailableResponse(): HttpResponse {
 /**
  * Parse and confine a request target to this service.
  *
- * @param raw - `req.url`, normally an origin-form path with an optional query.
- * @returns The parsed URL, or `null` when the target is absolute-form,
- *   protocol-relative, overlong, or aimed at another host.
  */
 export function parseRequestTarget(raw: string | undefined): URL | null {
     if (raw === undefined || !raw.startsWith('/') || raw.length > MAX_TARGET_CHARS) {
@@ -274,7 +251,6 @@ export function parseRequestTarget(raw: string | undefined): URL | null {
  * silently: contract §1 says the service measures before writing and never
  * ships half a payload.
  *
- * @param body - JSON-serialisable response body.
  * @returns The serialized text, or a small fallback response to send instead.
  */
 export function serializeBody(body: unknown): SerializedBody {

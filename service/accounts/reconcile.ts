@@ -1,24 +1,6 @@
 /**
  * Startup reconciliation for accounts left mid-handoff by a crash (F13,
  * contract §5/SEC-05).
- *
- * The verify route persists only after `/user` succeeds and answers only
- * after the persist, so a *normal* crash window cannot produce a transient
- * account — but a crash from an earlier build, a hand-edited file, or a
- * future flow that writes `pending_handoff`/`verifying` can. On startup this
- * pass finds those records and does both things the contract allows, in this
- * order:
- *
- * 1. **Mark first** — the account is rewritten as `error` with
- *    `errorReason: 'interrupted-handoff'` and an `account.error` audit row, so
- *    the record is never left transient at rest, whatever happens next.
- * 2. **Re-verify second** — the stored credential is presented to `/user`
- *    again (bounded by the client's 15 s abort). A matching identity restores
- *    the account to `active` and audits the recovery; anything else leaves the
- *    honest error state for the operator to act on.
- *
- * Nothing here can log a token: the credential is passed straight to the
- * verifier, and every log line carries ids, states, and error *kinds*.
  */
 
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
@@ -56,8 +38,6 @@ export interface ReconcileDeps {
 
 /**
  * Mark one stranded account as an interrupted handoff, audited (F13).
- *
- * @returns The rewritten account.
  */
 async function markInterrupted(input: {
     readonly store: ServiceStore;
@@ -88,8 +68,6 @@ async function markInterrupted(input: {
 
 /**
  * Apply a successful re-verification to a marked account.
- *
- * @returns The restored account.
  */
 async function restoreAccount(input: {
     readonly store: ServiceStore;
@@ -129,8 +107,6 @@ async function restoreAccount(input: {
 /**
  * Reconcile one stranded account: mark it, then try to re-verify it.
  *
- * @param account - The account in a transient state.
- * @returns What happened to this account, for the summary.
  */
 async function reconcileAccount(
     deps: ReconcileDeps,
@@ -179,8 +155,6 @@ async function reconcileAccount(
 
 /**
  * Run the startup reconciliation pass.
- *
- * @returns How many accounts were examined, marked, and restored.
  */
 export async function reconcileInterruptedAccounts(deps: ReconcileDeps): Promise<ReconcileSummary> {
     if (deps.store === null) {

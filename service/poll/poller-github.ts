@@ -1,57 +1,7 @@
 /**
- * GitHub poller for the service loop (M1 re-cut, the "small poller client"
- * the cut allows on top of the credential verifier), extended in Slice 2 for
- * the M6 mention and M7 review-request triggers, and at 002 v1.12.0 for the
- * per-item actor read.
- *
- * **This module is the catalogue of endpoints; it is not the transport.** How a
- * request is made, retried, and classified lives beside it in
- * [`poller-transport.ts`](./poller-transport.ts), and the per-row readers for
- * the three list feeds live in [`poller-entries.ts`](./poller-entries.ts). What
- * is left here is what only this module can answer: which endpoints the scan
- * calls, what query each sends, and what each returns.
- *
- * Four of them:
- *
- * - `GET /repos/:owner/:name/issues` (`state=open`, `sort=updated`), the M1
- *   assignment scan and the mention scan's issue-body pass;
- * - `GET /repos/:owner/:name/issues/comments` (`sort=updated`), the M6
- *   comment scan that looks for `@<login>`;
- * - `GET /repos/:owner/:name/pulls` (`state=open`, `sort=updated`), the M7
- *   review-request scan;
- * - `GET /repos/:owner/:name/issues/:number/events`, the item's own event list,
- *   which is where GitHub records **who assigned an issue and who requested a
- *   review** (002 FR-049).
- *
- * And two single-item object reads, **not** list feeds — the one read the
- * tracking lifecycle adds (002 FR-106):
- *
- * - `GET /repos/:owner/:name/issues/:number`, whose `state` / `state_reason` /
- *   `closed_at` answer an issue's terminal state;
- * - `GET /repos/:owner/:name/pulls/:number`, whose `state` / `merged` /
- *   `merged_at` answer a pull's — the only row that carries `merged` at all.
- *
- * Each single-item read is issued **only** for a tracked subject that produced a
- * detected follow-up this cycle, at most once per subject per cycle, never per
- * subject per cycle and never repository-wide (FR-102): both list feeds above are
- * filtered `state=open`, so a concluded item *leaves* them rather than arriving
- * on one, which is why the end of tracking can only be observed here.
- * Neither sends `per_page` or `page`; each answers with one object.
- *
- * The fourth is deliberately unlike the other three. It is read **once per
- * matched candidate item** and never repository-wide, because a repository-wide
- * or timeline read would cost a request on every cycle whether or not anything
- * matched; and it sends `per_page` and `page` **only** — GitHub's OpenAPI
- * description accepts exactly those two on this path, so the scan window has to
- * be a client-side comparison on `created_at` rather than a `since` parameter
- * (002 FR-051). Its rules live in [`poller-events.ts`](./poller-events.ts); this
- * module owns only the URL and the page walk.
- *
- * Every list reads at most two pages of the configured size, newest-updated
- * first, so one binding's scan stays inside its rate budget; the page size and
- * the bounded retry ladder arrive per call from the cycle's configuration (006
- * FR-058, FR-059). Failures are classified at the transport boundary and no
- * upstream text ever leaves this module: the loop turns the class into a skip.
+ * GitHub poller for the service loop: the catalogue of endpoints the scan
+ * calls, the query each sends, and what each returns (002 FR-049, FR-051;
+ * 006 FR-058, FR-059).
  */
 
 import { API_ORIGIN } from '../github.ts';
@@ -145,48 +95,35 @@ export interface GitHubIssuePoller {
     /**
      * Read **one item's** own event list — the per-item events feed, and the
      * only read that names who assigned an issue or requested a review (002
-     * FR-049).
-     *
-     * Called **once per matched candidate item**, never for a whole repository
-     * and never through the timeline, so a cycle in which nothing matched costs
-     * zero requests. It sends `per_page` and `page` only: this
-     * endpoint has no `since` parameter, so the caller's window is compared
-     * against `created_at` here rather than sent.
-     *
-     * @returns The events read plus whether the page bound was reached, or the
-     *   classified failure; upstream detail never escapes as text.
+     * FR-049). Called once per matched candidate, never repository-wide and
+     * never through the timeline, so a cycle in which nothing matched costs
+     * zero requests; it sends `per_page` and `page` only, because the endpoint
+     * has no `since` and the caller's window is compared against `created_at`
+     * here.
      */
     listIssueEvents(query: ItemEventsQuery): Promise<ItemEventsOutcome>;
 
     /**
      * Read **one issue's** own object for its terminal state (002 FR-106).
-     *
      * Both list feeds the scan reads are filtered `state=open`, so a concluded
-     * issue *leaves* the list rather than arriving on it — this single-item read
-     * is the only source that can observe an issue's `state` / `state_reason` /
-     * `closed_at`. It is the one read the tracking lifecycle adds, and it is lazy:
-     * issued **only** for a tracked subject that produced a detected follow-up
-     * this cycle, at most **once per subject per cycle**, never per subject per
-     * cycle and never repository-wide (FR-102). One object, one request, no page
-     * walk (`research.md` §R12.5).
-     *
-     * @returns The issue with its terminal members, or the classified failure;
-     *   upstream detail never escapes as text.
+     * issue *leaves* the list rather than arriving on it — this single-item
+     * read is the only source that can observe its `state` / `state_reason` /
+     * `closed_at`. It is the one read the tracking lifecycle adds, and it is
+     * lazy: issued only for a tracked subject that produced a detected
+     * follow-up this cycle, at most once per subject per cycle, never
+     * repository-wide (FR-102). One object, one request, no page walk
+     * (research §R12.5). Upstream detail never escapes as text.
      */
     readIssueState(query: ItemStateQuery): Promise<IssueStateOutcome>;
 
     /**
      * Read **one pull request's** own object for its terminal state (FR-106).
-     *
-     * The pulls list returns `Pull Request Simple`, which carries `merged_at` but
-     * **no** `merged` — so a concluded pull leaves the `state=open` list with no
-     * row that can say *merged* at all. The single-pull object carries `merged`
-     * as a required boolean, so this is the only row that answers a merged pull
-     * from a closed-unmerged one. Bounded and issued exactly as
+     * The pulls list is `Pull Request Simple` — `merged_at` but **no** `merged`
+     * — so a concluded pull leaves the `state=open` list with no row that can
+     * say *merged*; the single-pull object carries `merged` as a required
+     * boolean, which is the only row that answers a merged pull from a
+     * closed-unmerged one. Bounded and issued exactly as
      * {@link readIssueState}.
-     *
-     * @returns The pull with its terminal members, or the classified failure;
-     *   upstream detail never escapes as text.
      */
     readPullState(query: ItemStateQuery): Promise<PullStateOutcome>;
 }
@@ -264,34 +201,27 @@ async function pullsList(runtime: PollerRuntime, query: RepoListQuery): Promise<
 }
 
 /**
- *
- * The query string carries **`per_page` and `page` and nothing else**, which is
- * not a style choice: GitHub's own OpenAPI description for this path accepts
- * exactly those two, so a `since` parameter would be silently ignored rather
- * than honoured, and a window applied server-side would be a fiction. This is
- * why it does **not** go through {@link listUrl}, whose `since` parameter exists
- * for the two list feeds that genuinely accept one. The scan window is therefore
- * a **client-side comparison on `created_at`**, made by `poller-events.ts`.
- *
- * @returns The request URL, before paging parameters are set.
+ * The query string carries **`per_page` and `page` and nothing else**,
+ * which is not a style choice: GitHub's own OpenAPI description for this
+ * path accepts exactly those two, so a `since` parameter would be silently
+ * ignored rather than honoured and a server-side window would be a fiction.
+ * This is why it does **not** go through {@link listUrl}, and why the scan
+ * window is a **client-side comparison on `created_at`** made by
+ * `poller-events.ts`.
  */
 function itemEventsUrl(input: { readonly owner: string; readonly name: string; readonly issueNumber: number }): URL {
     return new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/issues/${input.issueNumber}/events`);
 }
 
 /**
- * Read one item's event list, page by page (002 FR-049 – FR-051).
- *
- * The walk stops on a page that **under-fills its cap** — GitHub's own "no more
- * pages" answer — or on a page whose events are **all** older than the window
- * start, which is the one-directional rule that makes a wrong assumption about
- * GitHub's ordering cost budget rather than visibility. Reaching
- * {@link ITEM_EVENT_MAX_PAGES} without either is reported as `exhausted` rather
- * than as a completed read: the caller may be holding events this walk never
- * saw, and a candidate with nothing qualifying among them must produce **no**
- * event rather than one attributed from a partial list.
- *
- * @returns The events the walk saw, whether it exhausted its bound, or the class.
+ * Read one item's event list, page by page (002 FR-049 – FR-051). The walk
+ * stops on a page that under-fills its cap (GitHub's own *no more pages*) or
+ * on a page whose events are **all** older than the window start — the
+ * one-directional rule that makes a wrong ordering assumption cost budget
+ * rather than visibility. Hitting {@link ITEM_EVENT_MAX_PAGES} reports
+ * `exhausted`, never a completed read: a candidate with nothing qualifying
+ * among unseen events must produce **no** event rather than one attributed
+ * from a partial list.
  */
 async function itemEventsList(runtime: PollerRuntime, query: ItemEventsQuery): Promise<ItemEventsOutcome> {
     const url = itemEventsUrl({ owner: query.owner, name: query.name, issueNumber: query.issueNumber });
@@ -375,8 +305,6 @@ async function pullStateObject(runtime: PollerRuntime, query: ItemStateQuery): P
 /**
  * Create the GitHub client the poll loop uses.
  *
- * @param deps - Logger every wait is reported through, plus the optional
- *   injected `sleep` and `random` a deterministic test supplies.
  * @param fetchImpl - Injectable `fetch`; defaults to the process global so
  *   production uses Node's built-in client and tests supply a fake.
  */

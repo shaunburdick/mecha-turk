@@ -1,25 +1,7 @@
 /**
- * The query, order, and page machinery behind `GET /v1/events` (005 FR-042,
- * FR-043;
+ * The query, order, and page machinery behind `GET /v1/events` (005
+ * FR-042, FR-043;
  * [contracts/dispatch-list.md](../../specs/005-panel-ia/contracts/dispatch-list.md)).
- *
- * It lives beside the route rather than inside it for one reason: the route is
- * a sequence of refusals, and every one of them is a pure function of the query
- * string. Keeping them here makes the 422 vocabulary testable without a socket
- * and keeps the handler itself short enough to read in one pass.
- *
- * Nothing here reaches the store, and nothing here parses a cursor it did not
- * issue — the token stays opaque to every caller but this module.
- *
- * **The five accepted parameters are the whole grammar** (005 contract §1):
- * `limit`, `cursor`, `bindingId`, `state`, and — added with 002 v1.16.0's
- * tracking lifecycle — the absentable `followUpsFrom`, which moves one run's
- * follow-up window past its bound. The last one is deliberately **not** echoed
- * in the answer's `filter` member: that member is what the operator's runs tab
- * shows as its own visible filter state, and the walk is the relay's private
- * read rather than anything an operator chose. Leaving it out keeps the answer
- * byte-identical to what it was, which is the same property that makes the
- * parameter additive within `/v1` rather than a second operation.
  */
 
 import { followUpKindOf } from '../poll/events-parse.ts';
@@ -113,8 +95,6 @@ export interface ListQuery {
  * refusal rather than a guess, because a silently clamped page size would tell
  * the tab it is showing a different number of rows than it is (contract §1).
  *
- * @param raw - The query parameter as it arrived, or `null` when absent.
- * @returns The page size, or `null` when the value is not one this route takes.
  */
 export function pageSizeOf(raw: string | null): number | null {
     if (raw === null || raw === '') {
@@ -131,16 +111,11 @@ export function pageSizeOf(raw: string | null): number | null {
 }
 
 /**
- * Decode an opaque page boundary.
- *
- * The token is base64url JSON so an operator can see *that* it is a boundary
- * without the panel ever parsing it; anything that is not a boundary this
- * service issued is a refusal, never a silent restart at page one — a silent
- * reset would strand the operator's position behind a "successful" answer
- * (contract §1).
- *
- * @param raw - The query parameter as it arrived, or `null` when absent.
- * @returns `ok: false` when the token is not decodable as a boundary.
+ * Decode an opaque page boundary. The token is base64url JSON so an
+ * operator can see *that* it is a boundary without the panel ever parsing
+ * it; anything this service did not issue is a refusal, never a silent
+ * restart at page one — a silent reset would strand the operator's position
+ * behind a *successful* answer (contract §1).
  */
 export function boundaryOf(
     raw: string | null,
@@ -172,8 +147,6 @@ export function boundaryOf(
 
 /**
  * Encode a page boundary for the next answer.
- *
- * @returns The opaque token the next request carries back.
  */
 export function encodeBoundary(row: RunHistoryRow): string {
     const payload: Record<string, string> = { detectedAt: row.detectedAt, id: row.id };
@@ -188,8 +161,6 @@ export function encodeBoundary(row: RunHistoryRow): string {
  * pieces are checked one at a time, so a long hostile reason cannot make the
  * matcher backtrack.
  *
- * @param value - The text after the `blocked:` prefix.
- * @returns `true` for `project-missing`, and for one a later build declares.
  */
 function isKebabReason(value: string): boolean {
     if (value === '') {
@@ -202,9 +173,6 @@ function isKebabReason(value: string): boolean {
 /**
  * Validate the `state` filter against the dispatch vocabulary.
  *
- * @param raw - The query parameter as it arrived, or `null` when absent.
- * @returns `ok: false` for a value outside the vocabulary, so the route can
- *   answer `422` instead of silently widening or narrowing the set.
  */
 export function stateFilterOf(
     raw: string | null,
@@ -228,23 +196,13 @@ export function stateFilterOf(
 }
 
 /**
- * Validate the `followUpsFrom` value against the follow-up delivery id family.
- *
- * A follow-up's id is **the only place its role lives** (`events-parse.ts`'s
- * `followUpKindOf`), so the same reader the queue validates a stored row with is
- * what decides whether a caller named one. Spelling the shape a second time
- * here would be a second rule to keep in agreement with the writer's — and the
- * rule is what makes the value fail closed rather than being read as a position
- * the service cannot honour.
- *
- * An empty value reads as **absent**, exactly as `limit`, `cursor`, and `state`
- * read an empty one: a parameter with no value in it is not a value outside the
- * vocabulary, and a caller that sends `?followUpsFrom=` gets the pre-parameter
- * answer rather than a refusal that would strand a walk mid-set.
- *
- * @param raw - The query parameter as it arrived, or `null` when absent.
- * @returns `ok: false` for a value that is not a delivery id, so the route can
- *   answer `422` instead of silently projecting from the start.
+ * Validate the `followUpsFrom` value against the follow-up delivery id
+ * family. A follow-up's id is the only place its role lives, so the queue's
+ * own reader decides the shape rather than spelling the rule twice — and the
+ * rule is what makes the value fail closed instead of being read as a
+ * position the service cannot honour. An empty value reads as absent, as
+ * `limit`, `cursor` and `state` do, so `?followUpsFrom=` gets the
+ * pre-parameter answer rather than a refusal that strands a walk mid-set.
  */
 export function followUpFromFilterOf(
     raw: string | null,
@@ -257,16 +215,12 @@ export function followUpFromFilterOf(
 }
 
 /**
- * Validate the query string, or hand back the refusal it earned.
- *
- * Every parameter is checked before a document is read, so a bad query never
- * reaches the store — and a refusal changes nothing (contract §3).
- * `followUpsFrom` is checked **last**: a read carrying both a bad `state` and a
- * bad window position answers exactly the refusal it answered before the
- * parameter existed, so no caller's error surface moves.
- *
- * @param request - Routed request whose query may carry the five parameters.
- * @returns The validated query, or the `422` that beat it.
+ * Validate the query string, or hand back the refusal it earned. Every
+ * parameter is checked before a document is read, so a bad query never
+ * reaches the store and a refusal changes nothing (contract §3).
+ * `followUpsFrom` is checked **last**: a read carrying both a bad `state`
+ * and a bad window position answers exactly the refusal it answered before
+ * the parameter existed, so no caller's error surface moves.
  */
 export function listQueryOf(
     request: RouteRequest,
@@ -330,8 +284,6 @@ export function listQueryOf(
 
 /**
  * Whether a row belongs to the filtered set the query describes.
- *
- * @returns `true` when the row survives both filters.
  */
 export function matchesFilters(row: RunHistoryRow, query: ListQuery): boolean {
     if (query.bindingId !== '' && row.bindingId !== query.bindingId) {
@@ -352,8 +304,6 @@ export function matchesFilters(row: RunHistoryRow, query: ListQuery): boolean {
  * detection stamp — without it a page boundary could drop or duplicate a row,
  * which SC-106/AC-121 forbid.
  *
- * @param right - Second row.
- * @returns Negative when `left` sorts first.
  */
 export function newestFirst(left: RunHistoryRow, right: RunHistoryRow): number {
     const byStamp = Date.parse(right.detectedAt) - Date.parse(left.detectedAt);
@@ -370,8 +320,6 @@ export function newestFirst(left: RunHistoryRow, right: RunHistoryRow): number {
 
 /**
  * Whether a row sits after the page boundary in the retained order.
- *
- * @returns `true` when the row belongs to a later page.
  */
 export function afterBoundary(row: RunHistoryRow, boundary: PageBoundary): boolean {
     const byStamp = Date.parse(row.detectedAt) - Date.parse(boundary.detectedAt);
@@ -388,8 +336,6 @@ export function afterBoundary(row: RunHistoryRow, boundary: PageBoundary): boole
  * `total` is passed through exactly as the caller computed it: a withheld total
  * stays `null` rather than being replaced by the page size, which is the one
  * substitution that would turn "25 rows shown" into "25 rows exist".
- *
- * @returns The member as it goes on the wire.
  */
 export function buildEventPage(input: {
     /** Effective page size. */

@@ -1,41 +1,6 @@
 /**
  * The run-history projection behind `GET /v1/events`
  * ([contracts/run-history-audit.md](../../specs/003-dispatch-integrity/contracts/run-history-audit.md)).
- *
- * The shipped route projected **delivery** rows: three queue states, no lease,
- * no attempt, no session. The contract's widened row projects **runs**, and it
- * is a widening — every member the shipped row carried is still present (the
- * contract's own "additive-within-v1" rule), beside the run's state, reason,
- * key, ordinal, attempt, attachment id, snapshotted target, lease expiry,
- * source references with their three counting members, session pointer,
- * verification outcome, and the live reservation's result deadline.
- *
- * This module sits beside [`claim-project.ts`](./claim-project.ts) for the same
- * reason that one does: the projection is a pure function of stored records, so
- * it can be tested without a socket, and [`routes/events.ts`](../routes/events.ts)
- * stays a route rather than growing a second wire shape of its own.
- *
- * Four properties it owes, worst-first:
- *
- * - **Credential-free by construction.** No dispatch token (the row says *that*
- *   an authorization exists and when it dies, never *what* it is), no account
- *   login, no numeric account id — only the run's own identity, which an
- *   operator already sees everywhere else.
- * - **Hostile source text is copied, never interpreted.** The issue title,
- *   repository, and state reason are untrusted text; the panel renders them
- *   through its non-HTML path, so this module's whole job is to hand them back
- *   byte-identical.
- * - **Degradation is explicit, never silent.** The delivery row a title or PR
- *   coordinate came from can be evicted with its terminal run, so each of those
- *   falls back to a value derived from the run itself rather than to an empty
- *   string the panel's parser reads as an unusable record.
- * - **The permitted set is structurally unreachable from here.** The row carries
- *   each reference's own `actorLogin`/`actorAttribution` — the
- *   facts about who was attributed to this run, which every joining delivery
- *   records and the gate judges — beside the two-word `actorPolicy` shape. What
- *   it never carries is the *list*: this projection is a pure function of stored
- *   runs, it is handed no binding and reads no file, so a second copy of an
- *   access policy has no path into it at all.
  */
 
 import type { PromptSource } from '../prompt.ts';
@@ -46,17 +11,13 @@ import type { Run, SourceReference } from './runs-types.ts';
 const WAITING_REASON = 'waiting for a panel';
 
 /**
- * A source reference as the run history carries it.
- *
- * Exactly the stored shape: the excerpt a dispatch context is built from is
- * **not** stored on the run — it lives on the delivery, which the run points at
- * — so there is nothing here that could be omitted by accident. The three
- * counting members below the list are what keep a row from
- * being silently lossy at the 200-reference cap.
- *
- * Each entry also carries the two **actor members** exactly as stored —
- * absentable on a reference written before attribution existed, because a run is
- * history and refusing one would quarantine the whole document for it.
+ * A source reference as the run history carries it — exactly the stored
+ * shape: the excerpt a dispatch context is built from is **not** stored on
+ * the run (it lives on the delivery the run points at), so nothing here can
+ * be omitted by accident, and the three counting members below the list keep
+ * a row from being silently lossy at the 200-reference cap. The two **actor
+ * members** ride exactly as stored, absentable because a run is history and
+ * refusing one would quarantine the whole document for it.
  */
 export type HistoryReference = SourceReference;
 
@@ -79,17 +40,13 @@ export interface HistoryVerification {
 }
 
 /**
- * One follow-up, as the run history carries it (002 FR-104).
- *
- * **A follow-up is not a source reference on the run**, and that is load-bearing
- * rather than tidy: 003's actor gate classifies from `sourceReferences`
- * exclusively, so a follow-up that joined that list would be re-judged by the
- * allow-list on the run's next authorization. It rides this member and the
- * queue row, never the run's reference list.
- *
- * Every member is the row's own, unchanged: the `excerpt` is the bounded,
- * delimiter-defused text the panel composes with, and the id is the relay's
- * handled key and the at-most-once key in one.
+ * One follow-up, as the run history carries it (002 FR-104). **A follow-up is
+ * not a source reference on the run**, and that is load-bearing: 003's actor
+ * gate classifies from `sourceReferences` exclusively, so one that joined
+ * that list would be re-judged by the allow-list on the run's next
+ * authorization. Every member is the queue row's own, unchanged — the
+ * bounded, delimiter-defused `excerpt` the panel composes with, and the id
+ * that is both the relay's handled key and the at-most-once key.
  */
 export interface HistoryFollowUp {
     /** The deterministic `evt-…~followup~…` id: the relay's at-most-once key. */
@@ -116,28 +73,12 @@ export interface HistoryFollowUp {
 }
 
 /**
- * How many follow-ups one history row projects (002 FR-104).
- *
- * A bound on the **answer**, not on the movement: a comment flood on a busy
- * subject must not be able to grow one row without limit, so the row carries a
- * window of the queue and the rest stay there for a later read. The queue is
- * the record; this is the window onto it.
- *
- * **What the window is, stated plainly: the oldest twenty queue rows in
- * detection order, delivered or not.** The service holds no record of a
- * delivery — the panel is the only party that calls the host, and its durable
- * record lives in host storage — so a delivered follow-up row is never pruned
- * from the queue and this projection cannot skip one. The docblock this
- * replaces promised "the oldest undelivered ones", which no store member makes
- * possible.
- *
- * **So the bound is a window that walks, not a wall that caps.** A bound that
- * only counts is exactly the shape a busy subject outgrows: the twentieth
- * delivered follow-up fills it, and every movement behind it is unreachable
- * forever. The read therefore accepts `followUpsFrom`, which moves the
- * window's opening to the named delivery id, and the panel — the only party
- * holding the record of what it delivered — advances it as it goes (FR-104,
- * FR-107).
+ * How many follow-ups one history row projects (002 FR-104): a window that
+ * walks, not a wall that caps — a count-only bound is what a busy subject
+ * outgrows. The window is the oldest {@link MAX_PROJECTED_FOLLOW_UPS} queue
+ * rows in detection order, **delivered or not**, because the service holds no
+ * record of a delivery and cannot skip one the panel has already sent;
+ * `followUpsFrom` moves its opening as the panel delivers (FR-104, FR-107).
  */
 export const MAX_PROJECTED_FOLLOW_UPS = 20;
 
@@ -165,15 +106,12 @@ export interface RunHistoryRow {
     /** Live lease expiry, else `null` (the lease is fencing, not authority). */
     readonly leaseExpiresAt: string | null;
     /**
-     * Live reservation's result deadline, else `null`.
-     *
-     * Additive beyond contract §1's table and beside the reserve answer's own
-     * member of the same name (contract, dispatch-authorization §1): a reader
-     * looking at a `starting` run learns when the authorization wedges into
-     * `unconfirmed`, which is the one deadline an operator cannot infer from
-     * anything else on the row. It reads `null` once the reservation
-     * has been consumed or cleared, because a deadline that can no longer fire
-     * is not a fact worth projecting.
+     * Live reservation's result deadline, else `null`. Additive beyond
+     * contract §1's table: a reader looking at a `starting` run learns when
+     * the authorization wedges into `unconfirmed`, the one deadline an
+     * operator cannot infer from anything else on the row. It reads `null`
+     * once the reservation has been consumed or cleared, because a deadline
+     * that can no longer fire is not a fact worth projecting.
      */
     readonly resultDeadlineAt: string | null;
     /** Every retained reference, in join order; excerpts never projected. */
@@ -200,14 +138,13 @@ export interface RunHistoryRow {
     /** Session id once one exists, else the recorded cause of a failure, else `null`. */
     readonly dispatchResult: string | null;
     /**
-     * Issue stamp of the lease held **right now**, else `null`.
-     *
-     * The run model keeps no claim history — a lease that was spent or expired
-     * is cleared — so this is the one claim stamp the stored record can state
-     * truthfully. It exists because the shipped row carried the member and the
-     * contract's rule is additive-within-v1: removing it would be the wire
-     * change the contract forbids, while inventing a stamp for a claim the run
-     * no longer holds would be worse than the honest `null`.
+     * Issue stamp of the lease held **right now**, else `null`. The run model
+     * keeps no claim history — a lease that was spent or expired is cleared
+     * — so this is the one claim stamp the stored record can state
+     * truthfully. It exists because the shipped row carried the member and
+     * the contract's rule is additive-within-v1: removing it would be the
+     * wire change the contract forbids, while inventing a stamp for a claim
+     * the run no longer holds would be worse than the honest `null`.
      */
     readonly claimedAt: string | null;
     /** RFC 3339 dispatch stamp once a session exists, else `null` (shipped member). */
@@ -224,26 +161,23 @@ export interface RunHistoryRow {
     /** Code points of the normalised prompt, or `null` when none. */
     readonly promptLength: number | null;
     /**
-     * The ordered tiers that contributed, or `null` when no tier was set.
-     *
-     * It rides beside the fingerprint — never the text — so the row itself
-     * answers *which tiers produced this run* under any retention, while the
-     * projection still carries no prompt text at all. The value
-     * is the snapshot's own list, copied rather than derived: ordered
+     * The ordered tiers that contributed, or `null` when no tier was set. It
+     * rides beside the fingerprint — never the text — so the row itself
+     * answers *which tiers produced this run* under any retention while the
+     * projection still carries no prompt text at all. The value is the
+     * snapshot's own list, copied rather than derived: ordered
      * `global → account → binding`, duplicate-free, and `null` exactly when
      * there is no snapshot to read it from.
      */
     readonly promptSources: readonly PromptSource[] | null;
     /**
-     * The **shape** of the binding's allow-list at the moment of authorization,
-     * snapshotted from `run.actorPolicy`.
-     *
-     * `null` is *no authorization recorded yet* — a freshly enqueued or adopted
-     * run — and never a silent `'open'`. It is the only policy fact this
-     * projection carries: the permitted set is configuration in
-     * `bindings.json`, this projection is a pure function of stored runs that
-     * reads no binding, and so it is structurally unable to carry a permitted
-     * login however the gate judged one.
+     * The **shape** of the binding's allow-list at the moment of
+     * authorization, snapshotted from `run.actorPolicy`. `null` is *no
+     * authorization recorded yet* — a freshly enqueued or adopted run — and
+     * never a silent `'open'`. It is the only policy fact this projection
+     * carries: the permitted set is configuration in `bindings.json`, this
+     * projection reads no binding, and so it is structurally unable to carry
+     * a permitted login however the gate judged one.
      */
     readonly actorPolicy: Run['actorPolicy'];
     /** Head SHA of a review-origin pull request; absent on every other kind. */
@@ -251,26 +185,13 @@ export interface RunHistoryRow {
     /** Base ref of that pull request; absent on every other kind. */
     readonly baseRef?: string;
     /**
-     * The run's follow-ups, in detection order — **absentable, and absent is the
-     * ordinary case**.
-     *
-     * One additive member on the read the panel already performs (`GET
-     * /v1/events`, the read that already projects `session` beside it), so the
-     * follow-up's text and its target session ride one row and no second copy of
-     * the session id exists anywhere (002 FR-104, FR-107). A run that has had
-     * no movement carries no member at all, which is what every run looks like
-     * until something on its subject moves — so a panel reading a row without it
-     * has nothing to deliver.
-     *
-     * The list is a window of the queue's follow-up rows for this run, in
-     * detection order — **the oldest {@link MAX_PROJECTED_FOLLOW_UPS} of them,
-     * delivered or not**, because the service holds no record of a delivery and
-     * so cannot skip one the panel has already sent. The window **walks**: the
-     * read's `followUpsFrom` moves its opening to the named delivery id, so a
-     * busy subject is followable past the bound rather than stalling at it. The
-     * panel filters what it has delivered against its own durable record; this
-     * projection is the movement's existence and text, and nothing about its
-     * fate. No operation, path, or existing member changes (FR-104).
+     * The run's follow-ups, in detection order — **absentable, and absent is
+     * the ordinary case**: a run that has had no movement carries no member, so
+     * a panel reading a row without it has nothing to deliver. The list is the
+     * oldest {@link MAX_PROJECTED_FOLLOW_UPS} of this run's queue rows,
+     * delivered or not, and the window walks with `followUpsFrom` so a busy
+     * subject stays followable past the bound (002 FR-104, FR-107). No
+     * operation, path, or existing member changes.
      */
     readonly followUps?: readonly HistoryFollowUp[];
 }
@@ -427,11 +348,6 @@ function verificationViewOf(run: Run): HistoryVerification | null {
 /**
  * The prompt reference the run history carries — presence, fingerprint,
  * length, sources, and never the text.
- *
- * @returns The four reference members; `promptSources` is the snapshot's own
- *   list when one exists and `null` when no tier was set — there is nothing to
- *   default from, because the absence case is a statement about the run rather
- *   than a hole in the record.
  */
 function promptViewOf(run: Run): {
     readonly promptPresent: boolean;
@@ -463,9 +379,6 @@ function promptViewOf(run: Run): {
  * carried **past** the window's opening: a row the window skips still advances
  * the chain, so the first projected head follow-up names the head the movement
  * before it observed rather than the run's dispatch-time seed.
- *
- * @returns The SHA the row carries, or `undefined` when it is not a head
- *   movement or names no head.
  */
 function headShaOfRow(row: QueuedEvent): string | undefined {
     if (followUpKindOf(row.id) !== 'head') {
@@ -476,7 +389,6 @@ function headShaOfRow(row: QueuedEvent): string | undefined {
 }
 
 /**
- * @returns The entry, or `null` when the row carries nothing a delivery can use.
  */
 function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): HistoryFollowUp | null {
     const kind = followUpKindOf(row.id);
@@ -498,17 +410,13 @@ function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): Hist
 }
 
 /**
- * Where one run's follow-up window opens, in the run's own detection order.
- *
- * The named id is looked up **in this run's list**: a read carries one value
- * for a whole page of runs, so an id belonging to a different subject is not a
- * position in this one and the window stays where an absent read puts it.
- * Skipping the lookup and starting from the end instead would silently narrow
- * every other row's answer, which is the failure direction FR-003's rule
- * forbids; opening from the start can only ever project a run's movements
- * earlier than asked, never fewer of them.
- *
- * @returns The index the window opens at; `0` for an absent or unmatched id.
+ * Where one run's follow-up window opens, in the run's own detection order:
+ * the named id is looked up **in this run's list**, because one read carries
+ * a value for a whole page of runs and an id belonging to a different
+ * subject is not a position in this one. Skipping the lookup and starting
+ * from the end would silently narrow every other row's answer, which FR-003's
+ * rule forbids; opening from the start can only ever project a run's
+ * movements earlier than asked, never fewer of them.
  */
 function windowStartOf(from: string | null, rows: readonly QueuedEvent[]): number {
     if (from === null) {
@@ -522,22 +430,13 @@ function windowStartOf(from: string | null, rows: readonly QueuedEvent[]): numbe
 
 /**
  * The run's follow-ups, in detection order, head movements carrying their
- * from → to pair.
- *
- * The rows are the queue's own, filtered to the ones that joined this run and
- * whose id is one of the two follow-up forms (FR-101). Nothing about a follow-up
- * is stored on the run: its text is the row's existing bounded excerpt, its role
- * is the id's discriminator, and its from → to pair is derived here from the
- * run's seed and its own earlier movements — which is why the seed is never
- * re-based on a later observation.
- *
- * **The window walks.** `from` moves the opening to the named delivery id and
- * everything behind it stays queued and unprojected, which is what lets a busy
- * subject be followed past the bound instead of stalling at it. Every row is
- * still walked so the head chain stays exact; only the projection is gated.
- *
- * @returns The follow-ups, or `undefined` when the run has none — the ordinary
- *   case, and the reason the member is absent rather than empty.
+ * from → to pair. The rows are the queue's own, filtered to the two
+ * follow-up id forms (FR-101); nothing about a follow-up is stored on the
+ * run, so the pair is derived from the seed and the row's own earlier
+ * movements — which is why the seed is never re-based. `from` walks the
+ * window while every row is still walked, so the head chain stays exact and
+ * only the projection is gated. `undefined` when the run has none: the
+ * ordinary case, and the reason the member is absent rather than empty.
  */
 function followUpsOf(input: {
     readonly run: Run;

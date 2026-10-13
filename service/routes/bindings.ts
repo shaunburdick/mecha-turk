@@ -1,36 +1,5 @@
 /**
- * Binding management routes (MVP task M3 — re-cut 2026-09-27).
- *
- * The panel keeps the bindings list and grants it whole: `GET /v1/bindings`
- * returns the stored list plus the per-binding scan status (credential-free
- * by construction — bindings carry account identities, never tokens, and the
- * status rows carry scan stamps, skip reasons, and pending counts),
- * `PUT /v1/bindings` replaces it after field validation and an
- * account-existence check. The account-delete guard in `accounts/store.ts`
- * reads the same file, so a binding disabled there stays disabled here.
- *
- * The status rows are the same shape the relay's pending answer carries, so
- * one panel parser reads both (the field set is the contract's status row, plus
- * the window-in-force members 002 v1.13.0 added).
- *
- * **`historyScope` rides this grant and adds no route, method, or error code**
- * (002 FR-056, FR-064). Three things this file does for it, each decided rather
- * than defaulted:
- *
- * - **Omission preserves** (FR-057), read from the **raw** submission — the same
- *   rule and the same reason 004's prompt follows, so a client that does not know
- *   the member cannot erase a deliberate choice on an unrelated save, while an
- *   explicit `null` still clears it back to the documented default (FR-062);
- * - **the read path projects the documented default** for a binding that stores
- *   no member, so the operator's surface renders from one source of truth and
- *   never invents a reading of an absent key (FR-055, FR-058; plan H13);
- * - **a mode edit into the look-back arms a bounded catch-up** through FR-023's
- *   one rescan mechanism, and nothing else does (FR-084, FR-085; plan H5, H6).
- *
- * MVP-DEBT: the contract's per-binding `PATCH /v1/bindings/:bindingId` state
- * machine is not implemented — this whole-file grant is the simplest honest
- * surface for a single operator with one panel, and 002 v1.13.0 explicitly does
- * not reopen it.
+ * Binding management routes (MVP task M3).
  */
 
 import { observeAccountPromptChanges } from '../account-prompt-audit.ts';
@@ -85,8 +54,6 @@ function withEffectiveScopes(bindings: readonly BindingRecord[]): readonly Bindi
  * status rows are what makes the service-side failures (an unusable
  * credential, a scan that never ran) visible on the binding rows instead of
  * only in the service log.
- *
- * @returns `200 { bindings, status }`, or the documented 503.
  */
 async function handleGetBindings(context: RouteContext): Promise<HttpResponse> {
     const { store } = context;
@@ -105,24 +72,12 @@ async function handleGetBindings(context: RouteContext): Promise<HttpResponse> {
 
 /**
  * Which submitted rows **omitted** a member entirely, keyed by binding id.
- *
- * Omission is the only signal a whole-file surface has for "I did not change
- * this", and it means **two different things** here — one per member — so one
- * reader answers both rather than two readers answering the same question:
- *
- * - **`startingPrompt`** — omission means *leave this one alone* (004 FR-014,
- *   gate default #4): the shipped panel builds its rows field-by-field and
- *   cannot know the member exists, so a save from it must never erase an
- *   operator's typed instruction.
- * - **`historyScope`** — omission also means *leave this one alone* (002
- *   FR-057), for the same reason and by the same reasoning. An explicit `null`
- *   is the way to **clear** it back to the documented default (FR-062), so the
- *   two must be told apart.
- *
- * Both have to be read from the **raw** submission: by the time validation has
- * normalised a row, "omitted" and "explicitly cleared" have collapsed to the same
- * absent key, and the whole-file replacement would then erase a deliberate choice
- * on an unrelated save.
+ * Omission means *leave this one alone* for both `startingPrompt` (004
+ * FR-014, gate default #4) and `historyScope` (002 FR-057), while an
+ * explicit `null` clears the latter (FR-062) — so both are read from the
+ * **raw** submission, before validation collapses omitted and explicitly
+ * cleared into the same absent key and the replacement would erase a
+ * deliberate choice on an unrelated save.
  */
 function omittedMemberIds(submitted: readonly unknown[]): {
     readonly prompt: ReadonlySet<string>;
@@ -194,33 +149,12 @@ function mergeOmittedMembers(input: {
 
 /**
  * Arm the bounded look-back catch-up for every binding this grant moved into
- * the look-back mode (002 FR-084, FR-023).
- *
- * **The one caller of this route's half of the rescan mechanism.** The mechanism
- * is `rescanFrom` — a durable chosen lower bound for one binding's next scan, in
- * the scan-state slot beside `lastScanAt` (plan H5). What this function does is
- * write it, and every decision about *whether* is load-bearing:
- *
- * - **Only for a binding that has completed a scan** (plan H6). A binding with no
- *   completed scan follows its own baseline, which the mode edit changes and
- *   which is the **wider** of the two bounds — `createdAt − 7 days` against
- *   `now − 7 days` — so arming it would narrow a window FR-079 forbids narrowing.
- *   Arming it for the never-scanned case would also be a second rule for one edit.
- * - **Only when the mode actually moved** into `recent-history`. A submission
- *   that resends the mode in force writes **nothing** here — no flag, no window,
- *   no checkpoint (002 FR-085, FR-086).
- * - **Editing to `new-only` writes nothing at all**: no checkpoint cleared, no
- *   window opened, no queued or dispatched run touched. Editing to stop looking
- *   back must not itself cause a look-back (002 FR-085).
- * - **Bounded by construction**: the arm is `now − 604,800,000 ms`, a stamp, and
- *   a member that must hold a parseable stamp cannot ask for everything
- *   (002 FR-060). It deduplicates through the unchanged delivery key and is
- *   page-bounded exactly as a creation-time sweep is (002 FR-019, FR-083).
- *
- * A failed arming is a logged `warn` naming the binding and **never** a rollback
- * of the operator's saved mode: the mode is the durable fact, the catch-up is a
- * consequence of it, and a window rule that reads the mode on the next scan covers
- * the one case the arming exists for (plan H14).
+ * the look-back mode (002 FR-084, FR-023). Only for a binding that has
+ * completed a scan and only when the mode actually moved (plan H6; FR-085,
+ * FR-086) — editing to `new-only` writes nothing, because editing to stop
+ * looking back must not itself cause a look-back (FR-085). A failed arming
+ * warns and never rolls back the operator's saved mode: the mode is the
+ * durable fact (plan H14).
  */
 async function armCatchUps(input: {
     readonly store: ServiceStore;
@@ -286,15 +220,13 @@ interface CustodyVerdict {
 }
 
 /**
- * Read the account custody and validate the submitted body against it.
- *
- * The directory read runs **before** validation — an account the custody
- * never verified is one of the rules being checked — but it is deliberately
- * the *unobserved* reader: the prompt-change observation a plain
- * `listAccounts` would fold in is an audit append, and a refusal writes
- * nothing (004 AC-133; the same order the account profile route keeps, which
- * validates before it observes). The observation the read implies belongs to
- * the caller, and runs only once the write is certain to happen.
+ * Read the account custody and validate the submitted body against it. The
+ * directory read runs **before** validation — an account the custody never
+ * verified is one of the rules being checked — but it is deliberately the
+ * *unobserved* reader: the prompt-change observation `listAccounts` would
+ * fold in is an audit append, and a refusal writes nothing (004 AC-133).
+ * The observation belongs to the caller and runs only once the write is
+ * certain to happen.
  */
 async function readCustodyAndValidate(input: {
     readonly store: ServiceStore;
@@ -316,33 +248,14 @@ async function readCustodyAndValidate(input: {
 }
 
 /**
- * Persist one whole-file grant, on the queue chain the gate shares.
- *
- * **Two chains, outermost first, and the order is load-bearing** (003 FR-076,
- * constitution II). `inQueueChain` is the chain every queue-or-run mutation
- * serializes onto — including the authorization gate, whose read-policy →
- * mint-token → persist sequence runs as one task inside it. Joining that chain
- * here is what makes an operator's policy change and the gate's read-and-mint
- * **one serialized pair**: a tightening can no longer land between the gate's
- * read of `allowedUsers` and the reservation that read authorizes, which was the
- * window in which `host.startSession()` could fire under a list the operator had
- * just revoked. The prompt-observation chain nests inside it, never the other
- * way round, so there is no lock order to invert.
- *
- * Inside, one task on the prompt-observation chain: read the stored
- * document fresh, record any hand edit it carries with actor `service`, merge
- * the preserved members, write, then record this submission's own changes with
- * actor `operator`. Reading, writing, and diffing inside one chain is what makes
- * SC-125's "exactly one row per change" hold under a race rather than by luck.
- *
- * **The document is written before the catch-up is armed**, and that order is the
- * one H14 fixes. The operator's saved mode is the durable fact and must stand on
- * its own; the catch-up is a *consequence* of it, computed by the next scan's
- * window rule and merely requested here. Rolling the document back because a
- * derived write failed would discard a choice the operator can see and keep, so
- * a failed arming is recorded rather than raised — and the binding's first scan
- * after the edit still opens at the look-back the mode implies (002 FR-084;
- * plan H6).
+ * Persist one whole-file grant, on the queue chain the gate shares — two
+ * chains, outermost first, and the order is load-bearing (003 FR-076,
+ * constitution II). Joining the gate's chain is what makes an operator's
+ * policy change and the gate's read-and-mint one serialized pair, so a
+ * tightening can no longer land between the read of `allowedUsers` and the
+ * reservation it authorizes. The document is written before the catch-up is
+ * armed, so a failed arming is recorded rather than discarding a choice the
+ * operator can see and keep (002 FR-084; plan H14).
  */
 async function writeGrant(input: {
     readonly store: ServiceStore;
@@ -382,24 +295,12 @@ async function writeGrant(input: {
 
 /**
  * Answer `PUT /v1/bindings` by replacing the stored bindings, validated.
- *
- * Every field the poll loop needs is validated before one byte is written:
- * the repository is a GitHub `owner/name`, the project id is parseable, the
- * worktree option is one of the documented shapes, every referenced account
- * actually exists in the custody directory, and any submitted starting prompt
- * passes the one prompt validator. Binding ids must be unique; the list is
- * capped. A refusal names the field and the remediation, never the received
- * value — and a refusal writes **nothing**: no file, no prompt change row, no
- * account observation row either — the custody read that validates account
- * existence observes only once the write is certain to happen (004 FR-027,
- * AC-132/AC-133).
- *
- * The write itself is one task on the queue chain, which nests one task on the
- * prompt-observation chain (plan C2, {@link writeGrant}) — and the **outer**
- * chain is what keeps an operator's allow-list edit and the authorization gate's
- * read-and-mint from interleaving.
- *
- * @returns `200 { bindings, status }` after the write, or the field-level 422.
+ * A refusal names the field and the remediation, never the received value,
+ * and writes **nothing** — the custody read that validates account existence
+ * observes only once the write is certain to happen (004 FR-027,
+ * AC-132/AC-133). The write is one task on the queue chain, and the outer
+ * chain is what keeps an allow-list edit and the authorization gate's
+ * read-and-mint from interleaving (plan C2, {@link writeGrant}).
  */
 async function handlePutBindings(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;

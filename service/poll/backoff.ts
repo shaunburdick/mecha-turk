@@ -1,29 +1,5 @@
 /**
  * HTTP-poll request backoff — 006 FR-058 (plan N4, decisions D7 and D8).
- *
- * **What this module is, in the vocabulary the requirement fixes.** This is
- * *poll request* retry: how often one GitHub list **request** may be attempted
- * and how long to wait between attempts. It is **not** 003's run requeue, not
- * the operator's per-run retry, and not the requeue budget — those belong to
- * the run model and to 003 (FR-058's disambiguation clause). One label
- * covering two of them is exactly how a reader comes to believe a dial does
- * something it does not, so nothing here is named `requeue`, `run attempt`, or
- * `retry budget`.
- *
- * **The arithmetic** (normative, restated from FR-058):
- *
- * ```text
- * delay(n) = min(retryMaxMs, retryBaseMs × 2^(n − 2)) × jitter,  jitter ∈ [0.5, 1.0]
- * guidance = the rate limit's own `retry-after`/reset answer
- * wait     = max(delay(n), guidance)      // guidance wins, even above retryMaxMs
- * attempts ≤ retryMaxAttempts, the first attempt included
- * ```
- *
- * The computed delay is clamped to the ceiling so no ladder step can exceed
- * it; rate-limit guidance is not, because waiting longer than the operator's
- * ceiling is what a secondary rate limit punishes. Both injectables — `sleep`
- * and `random` — arrive from the caller, so a test records every delay without
- * sleeping (SC-116, AC-148: no real timers, no flaky jitter).
  */
 
 /** The three knobs one request's ladder runs on, read at the cycle boundary. */
@@ -101,8 +77,6 @@ export function backoffDelayMs(input: {
 
 /**
  * Choose the wait that precedes the next attempt.
- *
- * @returns The wait the driver should perform.
  */
 export function nextWait(input: {
     /** Ladder parameters read at the cycle boundary. */
@@ -135,8 +109,6 @@ export function nextWait(input: {
  * The report happens **before** the sleep so an operator can see the delay
  * start, and it carries the length and the source only — never a header
  * value, never a credential (FR-058's log requirement; 002 FR-007).
- *
- * @returns The wait that was performed.
  */
 export async function waitForRetry(input: {
     /** Ladder parameters read at the cycle boundary. */

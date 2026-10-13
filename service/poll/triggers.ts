@@ -1,44 +1,7 @@
 /**
- * The Slice-2 trigger scan: one binding's feeds listed under its own switches,
- * and every event they match (M6's mentions in comments and issue bodies, M7's
- * review requests, and the M1 assignment).
- *
- * This module is the **coordinator** of a scan's four branches and the home of
- * the mention detectors, which need no feed of their own beyond the two the cycle
- * already lists. The other two branches live beside it —
- * [`triggers-assignment.ts`](./triggers-assignment.ts) and
- * [`triggers-review.ts`](./triggers-review.ts) — because each is a two-stage
- * trigger whose *detection* comes from a list feed and whose *actor* comes from
- * that item's own event list (002 FR-049), and that pairing deserves its own file
- * rather than a corner of the coordinator. The shape all three take is
- * `trigger-scan.ts`'s.
- *
- * Detection posture, in one place:
- *
- * - a mention is `@<login>` in the comment body *or* the issue body, matched
- *   case-insensitively and bounded on both sides so `@octocat` cannot match
- *   inside `@octocat-mt`;
- * - text authored by bots is ignored — a bot mentioning the account is noise,
- *   and bots mention each other for a living — and an entry with no readable
- *   author is refused rather than dispatched. One exported predicate,
- *   `isAttributableAuthor`, makes that judgement for **all four** trigger kinds
- *   (002 FR-045, plan D3), and at v1.12.0 it also judges the actor the per-item
- *   events read names;
- * - every match still has to fall inside the scan window, exactly like an
- *   assignment (a replay scan has no window, so a first scan sees everything the
- *   feed returns).
- *
- * **Attribution after 002 v1.12.0.** Every row this file writes is
- * `actorAttribution: 'direct'`, for all four kinds, because GitHub names the
- * actor in every case: the author of the text for the two mention kinds, and —
- * since v1.12.0 — the `assigner` of the naming `assigned` event and the
- * `review_requester` of the naming `review_requested` event for the other two.
- * The earlier `subject-author` basis, which stood the issue or pull-request
- * author in for an actor the *list* feeds could not name, is **readable and no
- * longer produced**: rows written before the correction carry it in
- * `events.json`, and a vocabulary a stored file still holds cannot be deleted
- * without invalidating that file. Research §R8 recorded the false premise that
- * produced it, and §R8 at v1.12.0 records the correction.
+ * One binding's feeds listed under its own switches, and every event they
+ * match: M6 mentions in comments and issue bodies, M7 review requests, and
+ * the M1 assignment.
  */
 
 import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
@@ -60,8 +23,6 @@ import type { IssueListOutcome } from './poller-github.ts';
 /**
  * Decide whether one character belongs to GitHub's username alphabet.
  *
- * @param character - One character (or `''` at an edge of the text).
- * @returns `true` when the character could be part of a login.
  */
 function isLoginCharacter(character: string): boolean {
     return /^[A-Za-z0-9_-]$/.test(character);
@@ -76,8 +37,6 @@ function isLoginCharacter(character: string): boolean {
  * is written out rather than compiled from the login, so no untrusted string
  * ever reaches a regular-expression engine.
  *
- * @param body - Comment or issue body; untrusted source text.
- * @returns `true` when the body mentions that account.
  */
 export function mentionsLogin(body: string, login: string): boolean {
     if (login === '') {
@@ -102,8 +61,6 @@ export function mentionsLogin(body: string, login: string): boolean {
 
 /**
  * Decide whether one comment is a mention the binding should react to.
- *
- * @returns `true` when a human commented `@<login>` on this issue.
  */
 export function isMentionComment(comment: PollComment, bindingLogin: string): boolean {
     if (!isAttributableAuthor(comment.authorLogin, comment.authorType)) {
@@ -120,8 +77,6 @@ export function isMentionComment(comment: PollComment, bindingLogin: string): bo
  * `@<login>` in an issue body means the same thing as one in a comment):
  * bot-authored and unreadable-author text never triggers, and the token
  * match is the same bounded, case-insensitive one.
- *
- * @returns `true` when a human opened this issue with `@<login>` in its body.
  */
 export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): boolean {
     if (!isAttributableAuthor(issue.authorLogin, issue.authorType)) {
@@ -134,8 +89,6 @@ export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): bool
 /**
  * Translate one listing entry's `pull_request` marker into the subject shape
  * the run key stores.
- *
- * @returns The subject shape for the row this detection produces.
  */
 function subjectShapeOf(isPullRequest: boolean): SubjectType {
     return isPullRequest ? 'pull_request' : 'issue';
@@ -148,8 +101,6 @@ function subjectShapeOf(isPullRequest: boolean): SubjectType {
  * already read; a comment on an issue that list did not carry (closed, or
  * past the page cap) still gets an honest fallback: the issue number the
  * comment reports and a URL assembled from the bound repository.
- *
- * @returns The event, in `pending` state.
  */
 function mentionEvent(input: {
     /** The binding that produced the window. */
@@ -199,8 +150,6 @@ function mentionEvent(input: {
 
 /**
  * Build one `mention` event per matching comment.
- *
- * @returns The mention events, in comment order.
  */
 function mentionEvents(input: {
     /** The binding that produced the window. */
@@ -235,17 +184,14 @@ function mentionEvents(input: {
 }
 
 /**
- * Build one `mention` event per issue whose *body* mentions the account.
- *
- * The body path rides the issue list the assignment branch already consumed, so
- * it adds no feed and no request to the cycle (product decision, 2026-09-28):
- * window, authorship, and the bounded token match are the only gates. The id's
- * fixed `~mention~body` suffix never changes, so an edited body re-detects to the
- * same row and the queue's id dedupe absorbs it — one body mention per issue per
- * account, ever — while staying distinct from the assignment id and from every
- * `~mention~<commentId>` row.
- *
- * @returns The mention events, in issue order.
+ * Build one `mention` event per issue whose *body* mentions the account. The
+ * body path rides the issue list the assignment branch already consumed, so
+ * it adds no feed and no request to the cycle (product decision,
+ * 2026-09-28): window, authorship and the bounded token match are the only
+ * gates. The id's fixed `~mention~body` suffix never changes, so an edited
+ * body re-detects to the same row and the queue's id dedupe absorbs it — one
+ * body mention per issue per account, ever — while staying distinct from the
+ * assignment id and every `~mention~<commentId>` row.
  */
 function bodyMentionEvents(input: {
     /** The binding that produced the window. */
@@ -302,16 +248,12 @@ function bodyMentionEvents(input: {
 
 /**
  * List the comment feed the mention switch asks for and collect its events,
- * including the issue-body mentions the issue list already covers (M6).
- *
- * The same feed answers a second question: which of its rows are a **movement
- * on a work item already in progress** (002 FR-102(a)). The follow-up branch
- * rides the read the mention switch already pays for, applies the author
- * judgement the mention path already applies, and adds no request — so a
- * binding with the mention switch off lists no comments and therefore detects
- * no comment follow-ups, which is the honest reading of "no new read".
- *
- * @returns The events, or the list failure that ends the scan.
+ * including the issue-body mentions the issue list already covers (M6). The
+ * same feed answers a second question — which of its rows are a **movement
+ * on a work item already in progress** (002 FR-102(a)) — riding a read the
+ * mention switch already pays for, so a binding with that switch off lists
+ * no comments and therefore detects no comment follow-ups: the honest
+ * reading of *no new read*.
  */
 async function mentionEventsOf(input: TriggerScanInput & {
     /** Issues the cycle's own issue list yielded. */
@@ -409,24 +351,14 @@ async function triggerBranches(input: {
 }
 
 /**
- * List the feeds this binding's switches ask for and collect every event they
- * match.
- *
- * A binding with no switch on is a no-op (the cycle still walks it so the scan
- * state stays honest), and no feed is listed for a trigger the operator turned
- * off — the rate budget only ever pays for triggers that are on. The issue-list
- * read is where an issue's own state is read, so it is also where the end of
- * tracking for a tracked issue is observed (002 FR-106); both list feeds the scan
- * reads are `state=open`, so a closed item normally *leaves* the list rather
- * than arriving on it — the accepted consequence research §R12.2 records — and
- * this is the branch that judges one when it is there.
- *
- * The first failure ends the whole scan, whichever branch raised it. A failed
- * per-item events read is such a failure and is treated identically to a failed
- * list call — see `poller-events.ts`'s `resolveCandidateActor` for why, and for
- * the difference between that and a candidate that simply produced no event.
- *
- * @returns The events, or the first failure's class for the cycle's skip.
+ * List the feeds this binding's switches ask for and collect every event
+ * they match. A switch that is off lists nothing — the rate budget only
+ * ever pays for triggers the operator turned on — and the first failure ends
+ * the whole scan, a failed per-item events read included, treated exactly
+ * like a failed list call (see `poller-events.ts`'s
+ * `resolveCandidateActor`). The issue-list read is also where the end of
+ * tracking for a tracked issue is observed (002 FR-106), since both feeds
+ * the scan reads are `state=open`.
  */
 export async function collectTriggerEvents(input: TriggerScanInput): Promise<TriggerEvents> {
     const { binding, poller, token, windowStart, pace } = input;

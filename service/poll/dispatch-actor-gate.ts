@@ -1,60 +1,6 @@
 /**
- * The actor allow-list gate — **one membership comparison, in one place, that
- * leaves a refusal behind.**
- *
- * The authorization module owns the decide → apply → record chain and the token.
- * This module owns the answer to *"may this run start a session at all?"* and
- * answers it purely, so the caller owns the store read and the write and the
- * retry path can re-run the **same predicate** against its own live read.
- *
- * Six rules are load-bearing, and each is a decision rather than a default:
- *
- * - **The gate is the authorization decision; detection-time filtering is
- *   forbidden.** A poll-loop filter is cheaper and writes **no audit row**, so
- *   *"why was this not dispatched?"* would have no answer — the exact defect 003
- *   exists to end, repeated in a new place. Detection records the actor and
- *   decides nothing.
- * - **At least one** reference naming an allowed actor admits the run. Both
- *   obvious alternatives wedge permanently, because a `blocked:*` run is
- *   non-terminal and new deliveries **join** it: refusing when *any* reference
- *   is disallowed lets one stranger's comment disable every dispatch on that
- *   issue forever, and judging only the **opening** reference lets a stranger
- *   open a run an allowed user's later mention can then never authorize. The
- *   rule is a set quantifier over the retained references, so it does not depend
- *   on join order.
- * - **A bot is never admitted, and this gate adds no second bot test.** The
- *   single judgement lives in `attribution.ts` beside the detection filters that
- *   already apply it; here it only refuses. An absent, empty, or bot-shaped
- *   actor is refused **regardless of the policy** — an open policy is permission
- *   for a named human actor, not for nobody — because the fail-closed reading of
- *   an unreadable actor is *no actor*, never *the list says yes*.
- * - **The refusal names the denial; the record names the policy's shape only.**
- *   Every denied login and its attribution basis go on the `dispatch.refused`
- *   row, because a refusal a reader cannot attribute is not an explainable
- *   refusal. A basis is stated as the provenance it is: for the one legacy
- *   basis, the rule that was in force when the row was written, and nothing at
- *   all about GitHub's capabilities — GitHub records both the assigner and the
- *   reviewer. No **permitted** login appears anywhere: an audit trail listing who
- *   may trigger a repository is a second copy of the access policy in a file
- *   retained for months.
- * - **A truncated reference list is said out loud, not admitted around.** The
- *   quantifier above runs over the *retained* references, and the run layer stops
- *   retaining at {@link MAX_SOURCE_REFERENCES}. A run that reached the cap can
- *   therefore be carrying an allowed actor among the dropped references —
- *   invisible to this gate under **every** policy, which is the permanent wedge
- *   the quantifier exists to prevent arriving by the other door. The gate
- *   **refuses** on the truncated list, because admitting would be admitting an
- *   authorization nobody granted (constitution II), and the message, the
- *   `dispatch.refused` detail, and the retry's own refusal all say the decision
- *   was made on an incomplete list and that widening `allowedUsers` cannot clear
- *   it (constitution IV).
- * - **Placement is load-bearing: after `judgeReserve` has answered `null` and
- *   before any token is derived.** A policy check placed first would pre-empt
- *   `already-dispatched` — which names the session — and
- *   `stale-lease`, making both unreachable on the paths they exist for.
- *
- * Contract: §1 of
- * [`dispatch-authorization.md`](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md).
+ * The actor allow-list gate — one membership comparison, in one place,
+ * that leaves a refusal behind (003 dispatch-authorization contract §1).
  */
 
 import { isActorAllowed } from '../bindings-allow-list.ts';
@@ -70,14 +16,12 @@ import type { ActorGateRefusal, ActorPolicy, Run } from './runs-types.ts';
 export const ACTOR_NOT_ALLOWED = 'actor-not-allowed';
 
 /**
- * The declared `blocked:<reason>` cause a refused run waits in.
- *
- * Exported, and spelled once here, because this is the **only** place the gate
- * exists: the block report's declared set
- * ([`dispatch-block.ts`](./dispatch-block.ts)) admits it, the retry re-check
- * ([`run-operate.ts`](./run-operate.ts)) re-judges it against the live policy,
- * and the panel's affordance table reads the same word off the state. Four
- * modules naming one string is exactly why it is one exported constant.
+ * The declared `blocked:<reason>` cause a refused run waits in. Exported,
+ * and spelled once here, because this is the **only** place the gate
+ * exists: the block report's declared set admits it, the retry re-check
+ * re-judges it against the live policy, and the panel's affordance table
+ * reads the same word off the state. Four modules naming one string is
+ * exactly why it is one exported constant.
  */
 export const ACTOR_BLOCKED_REASON = ACTOR_NOT_ALLOWED;
 
@@ -200,36 +144,25 @@ function refusalDetails(input: {
 }
 
 /**
- * The window this decision saw, as the wire states it.
- *
- * Read through {@link judgedWindow} — the same helper the detail set records
- * `referencesTruncated` from — so the word on the envelope and the flag on the
- * `dispatch.refused` row are two expressions of **one** read and cannot
- * disagree. It is also the only reader of the fact that reaches a *panel*: the
- * panel has no way to see the gate's chain task, so without this member it
- * would either re-derive the window from a document read at another moment or
- * match the message's prose, and both are a second opinion about a decision
- * this service made (constitution IV).
- *
- * Names no login — the permitted set's rule is absolute, and this word is about
- * a list.
+ * The window this decision saw, as the wire states it. Read through
+ * {@link judgedWindow} — the same helper the detail set records
+ * `referencesTruncated` from — so the envelope's word and the row's flag are
+ * two expressions of **one** read that cannot disagree, and the panel gets
+ * the fact rather than re-deriving it from a document read at another moment
+ * or matching message prose (constitution IV). Names no login: this word is
+ * about a list.
  */
 function judgedWindowWord(run: Run): ReferenceWindow {
     return judgedWindow(run).truncated ? 'truncated' : 'complete';
 }
 
 /**
- * The clause naming an incomplete reference list, and what cannot clear it.
- *
- * **The operator-facing half of the liveness rule** the module header states:
- * the decision was made on a partial list, and the remedy is **not** an
- * allow-list edit.
- *
- * The sentence and {@link judgedWindowWord} are that one fact in two forms,
- * built from the same boolean on purpose, so neither derives the other by
- * parsing.
- *
- * @returns The clause, or the empty string when the list is complete.
+ * The clause naming an incomplete reference list, and what cannot clear it:
+ * the decision was made on a partial list, so the remedy is **not** an
+ * allow-list edit — the operator-facing half of the liveness rule the module
+ * header states. The sentence and {@link judgedWindowWord} are that one fact
+ * in two forms, built from the same boolean on purpose so neither derives
+ * the other by parsing.
  */
 function truncatedNote(run: Run): string {
     if (!run.referencesTruncated) {
@@ -242,20 +175,14 @@ function truncatedNote(run: Run): string {
 }
 
 /**
- * Name every denied login with its basis, as the refusal message reads it.
- *
- * Each basis is spelled in the vocabulary the attribution union defines, so a
- * login is named with the provenance of its attribution and never as a claim
- * that a denied actor caused anything.
- *
- * The `subject-author` clause is the one string here that had to change when the
- * attribution premise was corrected. It used to say *"a proxy, GitHub does not
- * record who assigned or requested"*, which was **false** — GitHub records
- * both, in `assigner` and `review_requester` on the item's own event list. What
- * a `subject-author` row still needs an operator to know is narrower: *this
- * login was whatever the rule in force at write time could name*. That stays
- * true whatever GitHub supports now, so the clause states the row's provenance
- * and asserts nothing about the provider.
+ * Name every denied login with its basis, as the refusal message reads it:
+ * each basis is spelled in the attribution union's vocabulary, so a login is
+ * named with the provenance of its attribution and never as a claim that a
+ * denied actor caused anything. The `subject-author` clause states only the
+ * row's provenance — *whatever the rule in force at write time could name* —
+ * and asserts nothing about the provider, after the earlier wording's false
+ * premise was corrected (GitHub records both actors, in `assigner` and
+ * `review_requester`).
  */
 function namedActors(actors: readonly Extract<ClassifiedActor, { readonly readable: true }>[]): string {
     return actors
@@ -313,16 +240,13 @@ function deniedPolicyRefusal(input: {
 }
 
 /**
- * An unreadable actor is refused **regardless** of the policy, so the admitted
- * case requires at least one reference naming a readable login the list allows.
- * Under an **open** policy every readable login is allowed, so the condition
- * reduces to "some reference names a readable actor" — and a run with no
- * readable actor at all is refused under either policy.
- *
- * Pure: the caller owns the store read and the write, so the same predicate can
- * re-judge a `blocked:actor-not-allowed` run against a live read on the retry
- * path. That is what makes "a run cannot be retried into a dispatch this gate
- * would refuse again" a property rather than a hope.
+ * An unreadable actor is refused **regardless** of the policy, so admission
+ * requires at least one reference naming a readable login the list allows;
+ * under an **open** policy that reduces to *some reference names a readable
+ * actor*. Pure, so the caller owns the store read and the write and the same
+ * predicate can re-judge a `blocked:actor-not-allowed` run on the retry path
+ * — which is what makes *cannot be retried into a dispatch this gate would
+ * refuse again* a property rather than a hope.
  */
 export function judgeActorPolicy(input: {
     readonly run: Run;
@@ -363,23 +287,15 @@ export type UnreadablePolicyCause =
     | 'binding-absent';
 
 /**
- * The gate's verdict when the policy could not be read at all.
- *
- * **One code, not a new one.** A vocabulary addition is a compatibility tax,
- * paid twice already, and this decision needs no new one: an absent document, an
- * unusable one, and a document that simply no longer carries the binding leave
- * the run in the same place and are repaired the same way. What they are **not**
- * the same is the operator's next action, so the message names which of the
- * three it was — "the allow-list for binding X could not be read" is exactly the
- * sentence an operator cannot act on, and pointing somebody at a file that is
- * perfectly readable is worse than saying nothing.
- *
- * `actorPolicy` is `null` rather than a guessed `'open'`, because there was no
- * policy to shape: the row says what it knows, which is that it knows nothing.
- * The **denial** members are omitted for the same reason — nothing was compared,
- * so there is no denial to record, and `[]` would read as *every actor was
- * refused* (constitution IV). The counts the run alone answers **are** recorded,
- * because they are facts about the run and not about a policy nobody read.
+ * The gate's verdict when the policy could not be read at all — **one code,
+ * not a new one**: an absent document, an unusable one, and one that no
+ * longer carries the binding leave the run in the same place and are
+ * repaired the same way, and a vocabulary addition is a compatibility tax.
+ * The message names which it was, because *the allow-list for binding X
+ * could not be read* is a sentence an operator cannot act on. `actorPolicy`
+ * is `null` rather than a guessed `'open'`, the denial members are omitted
+ * (nothing was compared, so `[]` would read as *every actor was refused*),
+ * and the run's own counts are still recorded (constitution IV).
  */
 export function unreadablePolicyRefusal(run: Run, cause: UnreadablePolicyCause): ActorPolicyVerdict {
     const { unreadableReferences } = classifyRun(run);
@@ -413,16 +329,14 @@ export type LivePolicy =
     | { readonly readable: false; readonly cause: UnreadablePolicyCause };
 
 /**
- * Read the binding's live allow-list, fail-closed.
- *
- * Called **inside the one chain task**, so an operator's edit takes effect on the
- * next authorization with no re-scan, no restart, and **no cache**:
- * `ServiceStore` exposes no `stat`, so a cache invalidated only by
- * `writeBindings` would never see a hand edit — and a gate reading a stale policy
- * is worse than no gate at all. The **bindings write** joins that same chain
- * (see `routes/bindings.ts`), so an operator's tightening and this read cannot
- * interleave: a token is never minted against a list the operator has just
- * revoked.
+ * Read the binding's live allow-list, fail-closed. Called **inside the one
+ * chain task**, so an operator's edit takes effect on the next
+ * authorization with no re-scan, no restart and **no cache**: `ServiceStore`
+ * exposes no `stat`, so a cache invalidated only by `writeBindings` would
+ * never see a hand edit, and a stale-policy gate is worse than no gate. The
+ * bindings write joins that same chain, so a tightening can never
+ * interleave with this read — a token is never minted against a list the
+ * operator has just revoked.
  */
 export async function readLivePolicy(input: {
     readonly store: ServiceStore;

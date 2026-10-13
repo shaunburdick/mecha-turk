@@ -1,25 +1,6 @@
 /**
- * Service entry point — the file the host spawns.
- *
- * OpenChamber starts `service/main.js` with the app runtime itself
- * (`process.execPath` + `ELECTRON_RUN_AS_NODE`, `GUEST_SERVICES.md`), so this
- * module must be committed already built and must start serving as soon as it
- * runs. It also has to stay importable: the bundle tests load this file to
- * prove it is ESM rather than an IIFE, and loading it must not open a port.
- * The {@link isEntryPoint} guard is what keeps those two behaviours apart —
- * only a process whose `argv[1]` *is* this module starts the server.
- *
- * Shutdown follows the documented lifecycle: the host sends `SIGTERM` on
- * uninstall and on host quit, the service drains in-flight requests, persists
- * through the store's atomic writes, and exits; a watchdog forces the exit if
- * something keeps the loop alive past the drain window.
- *
- * Starting the service also starts its two timers, and the ordering between
- * them and the listener is the dispatch-recovery guarantee (003 FR-032): the
- * lease/deadline sweep runs **once before the HTTP server accepts a claim**, so
- * a claim stranded by a crash or a restart is already recovered when a panel
- * reconnects, and the sweep then keeps its own unref'd timer. Both timers are
- * unref'd and both stop on shutdown.
+ * Service entry point — the file the host spawns, committed already built
+ * and importable without opening a port.
  */
 
 import { resolve } from 'node:path';
@@ -36,9 +17,6 @@ const FORCE_EXIT_MS = 5_000;
 
 /**
  * Detect whether this module is the process entry point.
- *
- * @returns `true` when `argv[1]` resolves to this file, i.e. the host spawned
- *   it directly rather than a test importing it.
  */
 function isEntryPoint(): boolean {
     const entry = process.argv[1];
@@ -51,8 +29,6 @@ function isEntryPoint(): boolean {
  *
  * The timer is unref'd, so it never keeps an otherwise-idle process alive —
  * it only fires when something else is still holding the event loop open.
- *
- * @param log - Logger used to record the forced exit.
  */
 function scheduleForceExit(log: ServiceLogger): void {
     const watchdog = setTimeout(() => {
@@ -82,8 +58,6 @@ async function stopService(handle: ServiceHandle, log: ServiceLogger): Promise<v
 
 /**
  * Build the listener for one shutdown signal.
- *
- * @returns A listener taking the signal's label for the log entry.
  */
 function createShutdownHandler(handle: ServiceHandle, log: ServiceLogger): (label: string) => void {
     return (label: string): void => {
@@ -111,8 +85,6 @@ function installSignalHandlers(handle: ServiceHandle, log: ServiceLogger): void 
  * Every failure is caught, logged as one structured line, and reflected in
  * `process.exitCode`, so the host sees a crashed start as `SERVICE_FAILED`
  * instead of a silent hang.
- *
- * @param env - Environment to read; defaults to `process.env`.
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function runService(env: NodeJS.ProcessEnv = process.env): Promise<void> {

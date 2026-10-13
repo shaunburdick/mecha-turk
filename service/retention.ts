@@ -1,26 +1,6 @@
 /**
  * The two retention passes, wired at the two boundaries they run at (006
  * FR-055, FR-057, FR-036, FR-047).
- *
- * Both passes are configuration consumers with the same `next-cycle` story, so
- * both run (a) **once when the store opens** — before the listener accepts, so
- * a stopped service's first start applies the limits it was saved under — and
- * (b) **at every poll-cycle boundary**, from the configuration the cycle
- * already read once (006 T-007's single read). This module is the only place
- * that knows about both boundaries, which is what keeps `server.ts` and
- * `loop.ts` to a single call apiece and keeps the near-gate modules from
- * growing a second copy of the wiring.
- *
- * Two rules this wiring exists to hold:
- *
- * - **A configuration write runs no trim** (FR-047): nothing here is reachable
- *   from the route, so a save changes the limit and the *next* boundary
- *   applies it. A `PUT` that lowers a retention knob therefore writes no trim
- *   row of its own.
- * - **A boundary never fails and never skips silently**: each pass is guarded
- *   independently (one failure still runs the other), and an unreadable
- *   configuration degrades to the documented defaults with a warn line rather
- *   than to a pass that quietly did nothing (invariant 8).
  */
 
 import { CONFIG_FILE, DEFAULT_CONFIG, configFromStore, parseStoredConfig } from './config.ts';
@@ -92,7 +72,6 @@ export async function runRetentionPasses(input: RetentionInput): Promise<void> {
  * the operator one pass at default limits rather than a service that never
  * trims at all (invariant 8).
  *
- * @param log - Logger used when the document cannot be read.
  * @returns The effective configuration for this boundary.
  */
 async function readOpenConfig(store: ServiceStore, log: ServiceLogger): Promise<ServiceConfig> {

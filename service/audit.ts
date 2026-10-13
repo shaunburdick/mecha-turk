@@ -1,25 +1,5 @@
 /**
  * Append-only audit trail for the service.
- *
- * One JSON object per line, `seq` monotonic, appended with the store's
- * fsync'd NDJSON writer so an entry reaches disk whole or not at all
- * (constitution Principle IV). Everything written here goes
- * through {@link redactValue} first: the writer's *input* is already a
- * token-free structure by construction — routes never hand a credential to
- * this module — and the redaction pass is the second, independent guard that
- * makes "no token material in audit" executable rather than promised.
- *
- * Sequence numbers are seeded from the file
- * **once per store handle** and then counted in memory, and appends run
- * through a per-store chain — a write never re-reads the trail it is
- * extending, which is what lets the poller append a row on every tick.
- *
- * This module ships the write path — `account.verified`/`rejected`/`error`/
- * `rotated`, and every row the run and dispatch layers append. Retention
- * trimming lives in `audit-trim.ts` and does **not** rewrite this module: it
- * joins this module's chain through {@link serializeAudit} and composes its row
- * through {@link composeAudit}, so `redactDeep` and `seq` assignment keep
- * exactly one implementation.
  */
 
 import { newCorrelationId, nowIso } from '../src/ids.ts';
@@ -190,9 +170,6 @@ function readRedaction(raw: unknown): { readonly redacted: boolean; readonly fie
 
 /**
  * Parse a stored line back into an entry, rejecting anything malformed.
- *
- * @returns The entry, or `null` when the line does not carry the required
- *   shape (counted as malformed by the reader, never thrown).
  */
 export function parseAuditEntry(raw: unknown): AuditEntry | null {
     if (!isRecord(raw) || !isAuditHeader(raw) || !isAuditEntity(raw.entity) || !isRecord(raw.details)) {
@@ -239,10 +216,6 @@ export async function readAuditTrail(store: ServiceStore): Promise<AuditTrailRea
 
 /**
  * Read every usable audit entry, in file order.
- *
- * @returns The entries; unreadable lines are skipped. A reader that goes on to
- *   **rewrite** the trail must use {@link readAuditTrail} instead, so the skip
- *   can be counted before the rewrite erases it.
  */
 export async function readAuditEntries(store: ServiceStore): Promise<readonly AuditEntry[]> {
     const trail = await readAuditTrail(store);
@@ -259,14 +232,12 @@ interface AuditCache {
 }
 
 /**
- * One cache per store handle, seeded once from the audit file.
- *
- * A `WeakMap` keyed by the handle is the ownership unit: a restarted service
- * opens a fresh handle and re-seeds from disk, while every write through the
- * same handle shares one counter. The poller appends an audit
- * row on every poll — without this cache each append would re-read the whole
- * trail to rediscover the last `seq`, so the write cost would grow with the
- * file's own history.
+ * One cache per store handle, seeded once from the audit file: a `WeakMap`
+ * keyed by the handle is the ownership unit, so a restarted service re-seeds
+ * from disk while every write through the same handle shares one counter.
+ * The poller appends an audit row on every poll — without this cache each
+ * append would re-read the whole trail to rediscover the last `seq`, and the
+ * write cost would grow with the file's own history.
  */
 const auditCaches = new WeakMap<ServiceStore, Promise<AuditCache>>();
 
@@ -276,9 +247,6 @@ const auditCaches = new WeakMap<ServiceStore, Promise<AuditCache>>();
  * Every stored line counts toward the next `seq` — including the legacy
  * `consent` rows builds before 2026-10-01 wrote, which no writer emits any
  * more but which remain ordinary, readable history.
- *
- * @throws {StorageUnavailableError} When the trail cannot be read — a write
- *   that cannot establish its own sequence number must fail, not guess.
  */
 async function seedAuditCache(store: ServiceStore): Promise<AuditCache> {
     const entries = await readAuditEntries(store);
@@ -296,8 +264,6 @@ async function seedAuditCache(store: ServiceStore): Promise<AuditCache> {
  * The seed promise is memoised synchronously, so concurrent first writers
  * share a single file read; a failed seed is dropped from the map so the next
  * attempt reads the file again instead of serving a half-built cache.
- *
- * @throws {StorageUnavailableError} When the trail cannot be read.
  */
 function auditCacheFor(store: ServiceStore): Promise<AuditCache> {
     let cached = auditCaches.get(store);
@@ -313,16 +279,11 @@ function auditCacheFor(store: ServiceStore): Promise<AuditCache> {
 }
 
 /**
- * Run one audit write after every write queued before it.
- *
- * Serialising the appends keeps the file in `seq` order and makes the
- * reservation below race-free: two routes appending at once (a verify and an
- * operator delete, say) each get their own number and their own line. The
- * chain carries the previous write's *outcome*, and this write attaches both
- * handlers, so a rejection is consumed here (it can never wedge the chain)
- * while still reaching this write's own caller.
- *
- * @returns This write's result or rejection, exactly as the task produced it.
+ * Run one audit write after every write queued before it: serialising the
+ * appends keeps the file in `seq` order and makes the reservation race-free,
+ * and the chain carries the previous write's *outcome* so a rejection is
+ * consumed here — it can never wedge the chain — while still reaching this
+ * write's own caller.
  */
 function inWriteChain<T>(cache: AuditCache, task: () => Promise<T>): Promise<T> {
     // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs task on its own rejection; this runs once.
@@ -333,22 +294,14 @@ function inWriteChain<T>(cache: AuditCache, task: () => Promise<T>): Promise<T> 
 }
 
 /**
- * Run one audit-side task after every append queued before it.
- *
- * The retention passes join the **same** chain `appendAudit` writes on, which
- * is what makes "a pass can never remove a row appended while it was computing"
- * true by construction rather than by timing: the trail read, the removal
- * decision, and the one atomic rewrite all happen inside a slot no append can
- * interleave with. The join carries the previous write's outcome the
- * same way {@link inWriteChain} does, so a failed append is consumed here
- * (it can never wedge the chain) while still reaching this task's caller.
- *
- * @param task - Work to run once the chain reaches it; it should hold its
- *   whole read-decide-write sequence, because anything it awaits outside the
- *   task would run after later appends have already landed.
- * @returns This task's result or rejection, exactly as the task produced it.
- * @throws {StorageUnavailableError} When seeding the chain's `seq` counter
- *   fails — the trail cannot be read, so nothing can be composed against it.
+ * Run one audit-side task after every append queued before it: the retention
+ * passes join the **same** chain `appendAudit` writes on, so *a pass can
+ * never remove a row appended while it was computing* is true by
+ * construction rather than timing — the read, the decision and the one
+ * atomic rewrite happen in a slot no append can interleave with. Hold the
+ * whole read-decide-write sequence inside the task; anything awaited outside
+ * runs after later appends have landed. A failed append is consumed here so
+ * it can never wedge the chain.
  */
 export function serializeAudit<T>(store: ServiceStore, task: () => Promise<T>): Promise<T> {
     return auditCacheFor(store).then((cache) => inWriteChain(cache, task));
@@ -356,27 +309,13 @@ export function serializeAudit<T>(store: ServiceStore, task: () => Promise<T>): 
 
 /**
  * Compose an entry exactly the way {@link appendAudit} builds one, **without
- * writing it**.
- *
- * Redaction, `seq`, `timestamp`, and the generated correlation id all come from
- * the one implementation the writer uses, so a row a pass embeds in its own
- * atomic rewrite is indistinguishable from an appended one — the trim row is
- * composed here and written by the pass in the same rename as the removals it
- * describes: no crash can leave a removal without its record, and a
- * restart cannot re-seed `nextSeq` below a number already used.
- *
- * **Precondition**: call it while holding the chain via {@link serializeAudit}.
- * The reservation reads and advances the shared `seq` counter, and every other
- * writer mutates that counter inside its own chain task; a composer called
- * outside the chain could therefore reserve the same number an in-flight
- * append is writing. A number reserved by a pass whose rewrite then fails is
- * simply never used — the gap a trim leaves is already an expected, readable
- * fact.
- *
- * @param input - Caller-supplied entry (token-free by construction).
- * @returns The composed entry, with `seq` and `timestamp` assigned.
- * @throws {StorageUnavailableError} When the trail cannot be read to seed the
- *   sequence counter.
+ * writing it** — redaction, `seq`, `timestamp` and the correlation id all
+ * come from the one implementation the writer uses, so a row a pass embeds in
+ * its own atomic rewrite is indistinguishable from an appended one. **Hold
+ * the chain** ({@link serializeAudit}) while calling: outside it two writers
+ * can reserve the same `seq` number. A number reserved by a pass whose rewrite
+ * then fails is never used, and the gap a trim leaves is already an expected,
+ * readable fact.
  */
 export async function composeAudit(store: ServiceStore, input: AuditInput): Promise<AuditEntry> {
     const cache = await auditCacheFor(store);
@@ -400,14 +339,11 @@ export async function composeAudit(store: ServiceStore, input: AuditInput): Prom
 }
 
 /**
- * Append one entry, assigning the next sequence number.
- *
- * The number is reserved inside the write chain and advanced **only** after
- * the line is durable, so concurrent writers never share a `seq`, a failed
- * append reuses its number (no gaps), and appends never re-read the file to
+ * Append one entry, assigning the next sequence number. The number is
+ * reserved inside the write chain and advanced **only** after the line is
+ * durable, so concurrent writers never share a `seq`, a failed append
+ * reuses its number (no gaps), and appends never re-read the file to
  * discover where the trail ended.
- *
- * @throws {StorageUnavailableError} When the append or the seed read fails.
  */
 export async function appendAudit(store: ServiceStore, input: AuditInput): Promise<AuditEntry> {
     const cache = await auditCacheFor(store);

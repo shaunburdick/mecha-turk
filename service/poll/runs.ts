@@ -1,40 +1,6 @@
 /**
  * The run store's façade: CRUD, coalescing effects, and the claim (003
  * data-model §2.2–§2.4, T-003).
- *
- * This module is the one import path `events.ts`, the routes, and the sweep take
- * for run plumbing, and the home of the transitions that are *store* concerns
- * rather than authorization concerns. The mechanical halves live beside it
- * because the 500-line gate will not hold types, validators, persistence,
- * coalescing, **and** a state machine in one file, and because each has one
- * responsibility:
- *
- * - [`runs-document.ts`](./runs-document.ts) — the shared queue+run chain,
- *   the atomic write with its terminal-run eviction, and the one-shot
- *   adoption pass (FR-005);
- * - [`runs-join.ts`](./runs-join.ts) — folding deliveries into runs (FR-011);
- * - [`runs-transitions.ts`](./runs-transitions.ts) — the pure state
- *   transitions themselves, shared with the batch claim and the sweep;
- * - [`runs-parse.ts`](./runs-parse.ts) / [`runs-types.ts`](./runs-types.ts) /
- *   [`runs-parts-parse.ts`](./runs-parts-parse.ts) / [`run-key.ts`](./run-key.ts)
- *   — schema, validation, and identity derivation.
- *
- * **The authorization and terminal transitions do not live here.** Reserve,
- * result, abandon, block, retry, requeue, resolve, and the park they share were
- * moved to the routed operation modules (`dispatch-authorize.ts`,
- * `dispatch-report.ts`, `dispatch-block.ts`, `run-operate.ts`, `sweep.ts`) in
- * Wave 3 (T-043g), because this file had a **second** minting site beside the
- * route's and one of its transitions — `applyResult` — performed *no token check
- * at all*. One import away from re-creating the bypass this wave closes is not a
- * safety margin; the store now offers exactly two transitions, `claimRun` and
- * `deadLetterRun`, and neither mints or spends an authorization.
- *
- * Every mutation below serializes onto the one chain both stores share, and
- * **none of them writes an audit row**: the operation that performs a
- * transition appends its row after this call returns, so a failed audit can
- * never roll back a durable state change (FR-063's posture, data-model §4.3).
- * Refusals answer {@link RunChange} with the run's current state, so a caller
- * can name the exact cause in its `dispatch.refused` row (FR-003).
  */
 
 import { nowIso } from '../../src/ids.ts';
@@ -94,7 +60,6 @@ function leaseCoordinatesOf(input: ClaimInput): LeaseCoordinates {
  *
  * @param apply - The transition; returns `null` to refuse it (the run is not
  *   in a state this transition accepts) without writing anything.
- * @returns What the transition did.
  */
 async function changeRun(
     input: RunTransitionInput,
@@ -125,8 +90,6 @@ async function changeRun(
 
 /**
  * Claim one waiting run for one panel: lease issued, attempt opened.
- *
- * @returns The claimed run, or why it was not claimable.
  */
 export async function claimRun(input: ClaimInput): Promise<RunChange> {
     return await changeRun(input, (run, now) => leaseRun({

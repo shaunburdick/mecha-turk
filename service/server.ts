@@ -1,13 +1,5 @@
 /**
  * Loopback HTTP server lifecycle: bind, serve, drain, close.
- *
- * `startService` opens the durable store (a failed open is not fatal — the
- * process must stay up so the panel can show *why* setup is incomplete), wires
- * the pipeline, and binds `127.0.0.1` on the port the host reserved. Shutdown
- * is graceful in three bounded steps: stop accepting, let in-flight requests
- * finish (the drain the contract's SIGTERM path expects), then drop idle
- * keep-alive sockets and finally any connection that outlived the deadline —
- * so checkpoints and audit writes are never cut off mid-flight.
  */
 
 import { createServer } from 'node:http';
@@ -125,9 +117,6 @@ interface HandleParts {
 
 /**
  * Open the durable store, degrading instead of failing the process.
- *
- * @returns The open store, or `null` when the directory is unusable (the
- *   reason is logged; store-backed routes then answer `503`).
  */
 async function openStoreSafe(options: StartServiceOptions): Promise<ServiceStore | null> {
     try {
@@ -189,8 +178,6 @@ function listen(server: Server, port: number): Promise<void> {
 /**
  * Read the bound port from a listening server.
  *
- * @returns The TCP port number.
- * @throws {Error} When the server is listening on something other than TCP.
  */
 function boundPort(server: Server): number {
     const address = server.address();
@@ -277,8 +264,6 @@ async function performShutdown(input: ShutdownInput): Promise<void> {
 
 /**
  * Build the handle callers use to stop this instance.
- *
- * @returns The handle; `shutdown()` is idempotent across concurrent calls.
  */
 function createHandle(parts: HandleParts): ServiceHandle {
     let closing: Promise<void> | null = null;
@@ -329,15 +314,13 @@ function startReconciliation(input: {
 }
 
 /**
- * Recover stranded claims before the first claim can be served.
- *
- * The pass is **awaited** here, between opening the store and binding the
- * listener: a panel that closed mid-dispatch must find its work already
- * waiting again when it reconnects, and a run whose lease expired while the
- * service was down must never be offered under a lease that is already stale.
- * A failure is logged and answered with an empty summary rather than thrown —
- * an unreadable store is a degraded start (the routes answer `503`), not a
- * process that refuses to boot.
+ * Recover stranded claims before the first claim can be served. The pass is
+ * **awaited** between opening the store and binding the listener: a panel
+ * that closed mid-dispatch must find its work waiting again on reconnect,
+ * and a run whose lease expired while the service was down must never be
+ * offered under a stale lease. A failure is logged and answered with an
+ * empty summary rather than thrown — an unreadable store is a degraded start
+ * (the routes answer `503`), not a process that refuses to boot.
  */
 function startBootSweep(input: {
     /** Open store, or `null` when the directory is unusable. */
@@ -361,8 +344,6 @@ function startBootSweep(input: {
  * The poll loop starts first and is observed into the status route's view
  * before the listener can serve a request, so no read of `GET /v1/status`
  * can find a scheduler it cannot see.
- *
- * @returns The two handles; each is `null` when there was no store to run one.
  */
 function startSchedulers(input: {
     /** Open store, or `null` when the data directory is unusable. */
@@ -413,7 +394,6 @@ function buildContext(input: {
 /**
  * Start the loopback service.
  *
- * @returns A handle to the listening instance.
  * @throws When the port cannot be bound; store failures do *not* throw — the
  *   instance starts degraded so the panel can report them.
  */

@@ -1,19 +1,6 @@
 /**
  * `POST /v1/accounts/verify` — the credential handoff (token-handoff §2
  * steps ④–⑦, contract §2.2).
- *
- * Order is the contract's, and each step refuses before the next one runs:
- * storage availability → body shape → throttle slot → GitHub
- * `/user` (15 s abort, service-owned `fetch`) → identity rules (case-insensitive
- * `expectedLogin` fail-closed, duplicate id `409`) → persist → respond. The
- * credential file is written **only after `/user` succeeds** and the success
- * body is produced **only after the persist completes**, so a crash in between
- * leaves a complete account rather than a half-registered one (SEC-05/F13).
- *
- * Nothing here logs or echoes a token: the audit writer is handed identities
- * and reason classes only, and the whole route runs behind
- * {@link guardCredentialRoute}, which converts any unexpected throw into a
- * `500` whose log line carries an error *kind* rather than a message (SEC-11).
  */
 
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
@@ -98,8 +85,6 @@ async function recordRejection(input: {
 /**
  * Classify a non-`ok` outcome into its documented response.
  *
- * @param attempt - The handoff attempt, GitHub's answer already classified.
- * @returns The response; nothing has been persisted at this point.
  */
 async function refusalFor(attempt: VerifyAttempt): Promise<HttpResponse> {
     const { outcome, deps, correlationId } = attempt;
@@ -256,8 +241,6 @@ async function acceptVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
 
 /**
  * Run one handoff from body to response.
- *
- * @returns The documented response for this outcome.
  */
 async function handleVerify(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;

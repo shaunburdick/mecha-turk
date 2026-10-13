@@ -1,13 +1,5 @@
 /**
  * Structured, secret-free logging for the service.
- *
- * Lines are single JSON objects with a static message and dynamic values in a
- * separate fields object, so the output is grep-able and machine-readable
- * without string interpolation. Before anything reaches the sink it passes
- * through the extension's redaction helpers (NFR-004): a token that ever ends
- * up in a field is replaced with `[redacted:<label>]` on the way out, making
- * "secrets never appear in logs" an executable property rather than a promise
- * (constitution Principle IV).
  */
 
 import { redact } from '../src/redaction.ts';
@@ -70,8 +62,6 @@ export interface LoggerOptions {
 
 /**
  * Turn a caught value into a log-safe one-line description.
- *
- * @returns The error's message, or a stringified fallback for non-errors.
  */
 export function describeError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
@@ -80,8 +70,6 @@ export function describeError(error: unknown): string {
 /**
  * Serialize one entry as a JSON line, redacting secret-shaped text.
  *
- * @param entry - The entry that passed the level filter.
- * @returns The line, terminated by a newline.
  */
 function serialize(entry: PendingEntry): string {
     const raw = JSON.stringify({
@@ -96,14 +84,11 @@ function serialize(entry: PendingEntry): string {
 
 /**
  * Create a level-filtered logger whose threshold can be moved at runtime.
- *
- * The emit path reads the **current** threshold per entry rather than a value
- * captured at construction, so `setLevel` changes the very next line with no
- * restart. The redaction pass runs after the filter, unchanged:
- * a level change can decide *whether* a line is written, never *what* it says.
- *
- * @param options - Level plus an optional sink (tests capture lines here).
- * @returns The logger handed to routes and the pipeline.
+ * The emit path reads the **current** threshold per entry rather than a
+ * value captured at construction, so `setLevel` changes the very next line
+ * with no restart. The redaction pass runs after the filter, unchanged: a
+ * level change can decide *whether* a line is written, never *what* it
+ * says.
  */
 export function createLogger(options: LoggerOptions): ServiceLogger {
     const sink =

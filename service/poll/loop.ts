@@ -1,49 +1,7 @@
 /**
- * The service's minimal poll loop (MVP task M1 — re-cut 2026-09-27, grown
- * for the Slice-2 triggers M6 mention and M7 review request).
- *
- * Once per configured interval (existing `ServiceConfig.intervalMs`, default
- * 60 s) the loop walks every *enabled* binding carrying at least one trigger
- * this loop implements. Each scan presents the bound account's credential and
- * turns the scan over to `triggers.ts`, which lists only the feeds those
- * switches ask for — open issues newest-updated first for the assignment, for
- * the mention scan's issue-body pass, and for the titles comment mentions
- * resolve against; issue comments for M6; open pull requests for M7 — each
- * capped per the cut (two pages at ≤ 30 items each, inside
- * `poller-github.ts`). Every match becomes one queued event: one observation
- * (an assignment, a comment or issue-body mention, a review request) can only
- * ever produce one event, because the event id is deterministic.
- *
- * Two of those observations are now attributed from a **second** read, one per
- * matched candidate: the item's own `…/issues/{number}/events` list, which is
- * where GitHub records who assigned an issue and who requested a review (002
- * FR-049). What this loop contributes to that is the rule that a **failure**
- * there behaves like a list failure — one honest skip reason per binding, and a
- * checkpoint that is retained rather than advanced (006 FR-058) — so a read that
- * could not name the actor cannot slide the window past the assignment it could
- * not attribute. A candidate that simply produced no event is a different
- * outcome, recorded by the read itself and never a skip.
- *
- * **Every scan opens at a computable lower bound** (002 FR-065, added at
- * v1.13.0). What a binding's *first* window starts at is what its **history
- * scope** fixes: the binding's own creation boundary widened by the configured
- * overlap under the documented default, or one fixed seven-day look-back before
- * that boundary when the operator asked for it (FR-066, FR-067). Every scan
- * after the first is incremental from the recorded `lastScanAt` widened by the
- * same overlap, in **both** modes — the mode is not consulted again at all
- * (FR-068). A queue-recovery reset re-offers the binding's in-window work
- * whatever its mode is (FR-073), deduplicating through the unchanged
- * deterministic event id (FR-075, FR-082). The pre-v1.13.0 rule — a binding
- * with no recorded stamp replays *everything* — is retired as a window source,
- * together with the "an unreadable stamp is the same as no window" fallback;
- * neither is reachable any more (FR-065).
- *
- * A scan window that cannot be computed at all **refuses** rather than falling
- * open: no listing, no event, and the reason recorded against that binding
- * (FR-072, FR-024). Queued events reach the panel through the relay (M2); the
- * panel dispatches (M4). MVP-DEBT: the production plan's checkpoint machinery
- * (overlap windows, run keys, lease renewal) is deliberately not here — this is
- * the simple stand-in the MVP cut asked for.
+ * The service's minimal poll loop (MVP task M1; 002 FR-065 – FR-073): each
+ * enabled binding with an on trigger is scanned once per interval, and one
+ * observation can only ever produce one queued event.
  */
 
 import { readAccount } from '../accounts/store.ts';
@@ -79,17 +37,11 @@ export type { WindowRefusal, WindowVerdict } from './window.ts';
 
 /**
  * Short machine reasons a scan was skipped, logged instead of upstream text.
- *
- * The six upstream ones are classifications of a `PollFailure`. The three window
- * ones are 002 FR-072's refusals and are **not** failures of any call: they are
- * the verdict that this binding's scan window could not be computed, so the
- * cycle lists nothing and the reason is recorded against the binding (FR-024).
- * The seventh is the run document's own refusal, which the tracking lifecycle's
- * read made reachable from a scan: a document this build cannot read is a stop
- * condition, never an empty history (constitution II).
- * They are named in the same vocabulary because they answer the same question an
- * operator asks — *why did this scan do nothing* — and two vocabularies would be
- * two answers (constitution IV).
+ * Six are `PollFailure` classifications, three are 002 FR-072's window
+ * refusals — verdicts rather than failures of any call (FR-024) — and the
+ * seventh is the run document's own refusal, a stop condition rather than an
+ * empty history (constitution II). One vocabulary, because two would be two
+ * answers to *why did this scan do nothing* (constitution IV).
  */
 export type ScanSkip =
     | 'missing-account'
@@ -215,18 +167,13 @@ function blankScan(binding: BindingRecord): BindingScan {
 }
 
 /**
- * Record the end of tracking for every tracked subject observed terminal.
- *
- * One `tracking.ended` row per subject, carrying the terminal **fact** (which
- * of the three it was), the date GitHub reported, and the issue's own
- * `state_reason` when there is one — so *"when did this work item conclude?"*
- * is answerable from the trail (002 FR-106). The row names the run the subject
- * was following and never the session: it is the item's own state that ended
- * tracking, and a completed or failed session has no effect on that decision.
- *
- * The write is best-effort on exactly the terms the enqueue's own audit rows
- * are: the cycle has already done its work, so a failed append is logged rather
- * than thrown back into a scan that succeeded.
+ * Record the end of tracking for every tracked subject observed terminal: one
+ * `tracking.ended` row carrying the terminal fact, GitHub's date, and the
+ * issue's `state_reason`, so *when did this work item conclude?* is
+ * answerable from the trail (002 FR-106). The row names the run and never the
+ * session — the item's own state ended tracking. The write is best-effort on
+ * the enqueue's terms: a failed append is logged, not thrown back into a scan
+ * that succeeded.
  */
 async function recordTrackingEnds(input: {
     readonly store: ServiceStore;
@@ -267,16 +214,11 @@ async function recordTrackingEnds(input: {
 
 /**
  * Read the run document for the tracked-subject view, answering a refusal
- * rather than throwing one.
- *
- * The scan cycle's own contract is that it never throws, and the run layer's
- * reader is fail-closed by throwing: a `runs.json` that exists but cannot be
- * read, or one that is absent while the queue already carries post-run-layer
- * deliveries, is a state no reader may answer with an empty history. This is the
- * one place a scan has to turn that refusal into a **skip reason**, so the
- * binding records why it did nothing instead of the cycle unwinding.
- *
- * @returns The document, or the refusal that keeps this binding's scan empty.
+ * rather than throwing one: the scan cycle never throws, while the run layer's
+ * reader is fail-closed by throwing, and a `runs.json` that exists but cannot
+ * be read — or is absent while the queue already carries post-run-layer
+ * deliveries — is a state no reader may answer with an empty history. This is
+ * the one place a scan turns that refusal into a **skip reason**.
  */
 async function previewTrackedDocument(
     input: { readonly store: ServiceStore; readonly log: ServiceLogger },
@@ -305,30 +247,13 @@ type ScanListing =
 
 /**
  * Observe the terminal state of every subject that produced a follow-up this
- * cycle, and drop the follow-ups whose subject ended (002 FR-106).
- *
- * FR-102 admits exactly one read — FR-106's — and bounds it: issued only for a
- * subject that produced at least one detected follow-up in this cycle, at most
- * **once per subject per cycle**, and **before** the enqueue so a terminal
- * answer drops the follow-up from this cycle rather than retracting a queued
- * row. A cycle in which nothing arrived therefore issues **no** read at all, so
- * the added cost scales with detections rather than with tracked subjects
- * (NFR-003). Both feeds the scan reads are filtered `state=open`, so a concluded
- * item leaves them rather than arriving on one — this per-item read is the only
- * source that can observe the end, and it routes each answer through the same
- * {@link trackedIssueEnds} / {@link trackedPullEnds} builders a terminal list row
- * (never produced in production) would reach.
- *
- * **The failure posture is the scan's own, copied from the per-item actor read**
- * (`resolveCandidateActor`), not a per-subject skip: a read that could not answer
- * — a transport failure (a `404` arrives as the shared `auth-failed` class,
- * `poller-transport.ts:210`), or a body/`state` the reader refuses — refuses the
- * **whole binding's** detection for this cycle and stops the scan with its class,
- * the checkpoint **retained** rather than advanced so the next cycle's detected
- * follow-up asks again. It never ends tracking on a guess: an unreadable answer
- * is neither a terminal state nor an open one, and a `404` that is really a
- * revoked credential must not be read as a deletion. Dropping only the candidate
- * would advance the window past work nobody judged.
+ * cycle, and drop the follow-ups whose subject ended (002 FR-106). FR-102
+ * admits exactly one read and bounds it: only for a subject that produced a
+ * detected follow-up, at most once per subject per cycle, and before the
+ * enqueue so a terminal answer drops the row instead of retracting a queued
+ * one (NFR-003). Its failure is the scan's own — the whole binding's
+ * detection refuses and the checkpoint is retained, so tracking never ends
+ * on a guess a `404` might have been a deletion.
  */
 async function terminalFollowUpState(input: {
     readonly deps: ScanContext;
@@ -392,13 +317,11 @@ async function terminalFollowUpState(input: {
 /**
  * List every feed this binding's triggers ask for and collect its events,
  * applying FR-106's terminal read before the events leave for the enqueue.
- *
- * The work itself belongs to `triggers.ts`, which owns each branch's detection
- * and its per-item actor read; what this function contributes is the cycle's own
- * rule — **the first failure of any call ends the listing and becomes the loop's
- * one skip reason for the binding**, FR-106's terminal read included. A binding
- * with none of its switches on lists nothing at all, so the rate budget only ever
- * pays for triggers the operator turned on.
+ * The work belongs to `triggers.ts`; what this function contributes is the
+ * cycle's own rule — **the first failure of any call ends the listing and
+ * becomes the loop's one skip reason for the binding**, the terminal read
+ * included. A binding with none of its switches on lists nothing at all, so
+ * the rate budget only pays for triggers the operator turned on.
  */
 async function collectScanEvents(input: {
     readonly deps: ScanContext;
@@ -491,18 +414,12 @@ async function scanBinding(input: {
     }
 
     // The tracked-subject view is read from the run document this cycle is about
-    // to mutate, **before** any feed is listed: a follow-up is a property of the
-    // run that already carries a session (FR-100), so what counts as "already
-    // in progress" is the document as it stands at the start of the cycle. The
-    // read is a preview — it takes no write chain and claims nothing, which is
-    // exactly the instrument for an observation that must not consume a
-    // dispatch authorization (research §R14.6).
-    //
-    // A document this build cannot read is a **stop condition**, not an empty
-    // history: answering "nothing is in progress" from a store that cannot say
-    // so is the one reading constitution II forbids, and it is what would let a
-    // second disjoint session open for work already underway. So the refusal
-    // becomes this binding's skip reason and the cycle lists nothing at all.
+    // to mutate, before any feed is listed: a follow-up is a property of the run
+    // that already carries a session (FR-100), so *already in progress* is the
+    // document as it stands at the start of the cycle — and the read is a preview
+    // that takes no write chain and claims nothing (research §R14.6). An
+    // unreadable document is a stop condition, never an empty history
+    // (constitution II), so the refusal becomes this binding's skip reason.
     const document = await previewTrackedDocument({ store, log });
     if ('refused' in document) {
         return { ...blank, skipped: document.refused };
@@ -563,34 +480,13 @@ async function scanBinding(input: {
 
 /**
  * Persist per-binding scan state: the stamp on completion, the skip reason
- * otherwise — and, on completion, the clearing of the two one-shot facts.
- *
- * **One atomic write per scan** (002 FR-018), which is what makes the three
- * facts agree with each other rather than merely being stored near one another:
- *
- * - a scan that **completes** advances `lastScanAt` and clears `forceReplay`,
- *   because the lost work has been re-detected (002 FR-075);
- * - `rescanFrom` is cleared **only by a scan whose window covered the armed
- *   bound** (`answersCatchUp`), which is a stricter test than completion: a
- *   recovery replay outranks the arming, so a replay at a *narrower* baseline than
- *   `now − 7 days` completes without having reached the ground the operator asked
- *   for, and the request must survive to be the next scan's window (002 FR-076,
- *   FR-084; plan H7);
- * - a scan that **does not complete** leaves `lastScanAt` where it was (006
- *   FR-058: an incomplete scan neither advances past data that was never
- *   durably represented nor clears to a replay) **and leaves both one-shots
- *   armed** — a transient failure must not silently consume a recovery replay
- *   (002 FR-076) or an operator's explicit catch-up request (plan H7).
- *
- * `baselineAt` is **widened, never narrowed** (002 FR-073, FR-066). It is derived
- * once, before the binding's first scan, from the creation boundary — which is
- * what FR-066's stability rests on — and every scan that opened a window wider
- * than the one already retained moves it **earlier** and never later. That is
- * what makes a recovery replay re-cover *at least* everything some earlier scan
- * covered: an armed `rescanFrom` bound (`now − 7 days` on a binding younger than
- * that) is narrower than the binding's own creation boundary on a fresh default,
- * and a replay opening at the un-widened baseline would silently drop the older
- * rows the catch-up had already queued.
+ * otherwise, and — in one atomic write per scan (002 FR-018) — the three
+ * facts that must agree. A completed scan advances `lastScanAt` and clears
+ * `forceReplay`; `rescanFrom` clears only when the window covered the armed
+ * bound, so a narrower recovery replay keeps the request alive (002 FR-076,
+ * FR-084; plan H7); an incomplete scan retains its stamp and leaves both
+ * one-shots armed (006 FR-058). `baselineAt` widens, never narrows
+ * (002 FR-073, FR-066).
  */
 async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promise<void> {
     await serializeScan(async () => {
@@ -637,34 +533,15 @@ async function saveBindingScanState(deps: ScanContext, scan: BindingScan): Promi
 }
 
 /**
- * Derive and retain the baseline for every binding that needs one (002 FR-066).
- *
- * **Once per cycle, once per binding, and only when needed.** A binding whose
- * slot already carries a `baselineAt` — or a completed scan — is not touched, so
- * a steady-state cycle pays nothing here and no `bindings.json` read happens at
- * all (plan H3: the extra `readJson` exists *only* in a cycle where some binding
- * has no baseline yet, which is the first cycle and the one after a recovery
- * reset).
- *
- * The derivation reads each row's **stored** creation stamp, because the
- * assembled record substitutes a clock reading for a stamp the clock cannot read
- * and FR-072 requires that case to **refuse** rather than silently become
- * `now − overlapMs` (plan H3, AC-038). A refusal writes no baseline, so the
- * binding keeps refusing on every cycle until an operator repairs the stamp — the
- * honest direction, and never a widening.
- *
- * The read and the write happen **inside one `serializeScan` task**, which is why
- * this is not a bare read-then-write: the slots are re-read inside the chain and
- * `needing` is recomputed against that fresh read, so a `PUT /v1/bindings` that
- * arms `rescanFrom` — or a recovery reset that sets `forceReplay` — landing
- * between this cycle's scan-state read and its write cannot be reverted by a stale
- * map written back over it (002 FR-018, FR-076; plan H7).
- *
- * The write is one atomic scan-state write for every binding that derived
- * something, and it happens **before** any scan so the scan's own window reads a
- * slot that already carries its baseline (FR-018).
- *
- * @returns The scan state to scan under, with any newly derived baselines in it.
+ * Derive and retain the baseline for every binding that needs one (002
+ * FR-066): once per cycle, once per binding, and only when needed, so a
+ * steady-state cycle pays nothing here. The derivation reads each row's
+ * **stored** creation stamp, because an unreadable one must refuse rather
+ * than silently become `now − overlapMs` (FR-072, plan H3, AC-038). Read and
+ * write happen inside one `serializeScan` task so a `PUT /v1/bindings` or a
+ * recovery reset landing in between cannot be reverted by a stale map
+ * (FR-018, FR-076; plan H7), and the write lands before any scan reads a
+ * window.
  */
 async function ensureBaselines(
     deps: ScanContext,
@@ -768,18 +645,14 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     //  Nothing below may throw because a pass failed: each one is
     // guarded inside `runRetentionPasses`.
     await runRetentionPasses({ store: context.store, log: context.log, config: context.config });
-    // Health pass before this cycle reads its windows: a queue file that has
-    // to be quarantined clears every binding's `lastScanAt` **and sets its
-    // `forceReplay` flag** inside that read, so the scan-state read below must
-    // see the cleared slots rather than the stamps a pre-recovery read would
-    // have cached. A cleared binding then opens from its **retained baseline** —
-    // the widest window it has ever scanned from, widened by every scan that
-    // opened one — so a recovery re-offers the binding's in-window work **whatever
-    // its history scope is and whatever catch-up was armed** (002 FR-073; plan H8,
-    // corrected 2026-10-05). What the flag adds beyond precedence is visibility,
-    // and the guarantee that no reader mistakes this for a first scan (FR-074,
-    // FR-078). Deterministic event ids keep the re-detection duplicate-free
-    // (002 FR-075, FR-082).
+    // Health pass before this cycle reads its windows: a quarantined queue
+    // file clears every binding's `lastScanAt` **and sets `forceReplay`**
+    // inside that read, so the scan-state read below sees the cleared slots
+    // rather than cached stamps. A cleared binding then opens from its
+    // **retained baseline** and re-offers in-window work whatever its history
+    // scope or catch-up (002 FR-073; plan H8); the flag's job beyond
+    // precedence is visibility (FR-074, FR-078), and deterministic event ids
+    // keep the re-detection duplicate-free (002 FR-075, FR-082).
     await readEvents({ store: context.store, log: context.log });
     const bindings = await readBindings({ store: context.store, log: context.log });
     // Any baseline a binding still lacks is derived **once**, before the first

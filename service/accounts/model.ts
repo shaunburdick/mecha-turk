@@ -1,14 +1,5 @@
 /**
  * Account record: shape, validation, and the credential-free projection.
- *
- * The record is the **only** place a credential lives at rest
- * (`accounts/<numericUserId>.json`, `0600`), so this module draws the line
- * between the two projections explicitly: {@link Account} carries
- * `credential` and is never serialised into a response, while
- * {@link toAccountDto} builds the credential-free DTO every API surface
- * returns — by construction, not by discipline. `tests/service-accounts.test.ts`
- * asserts at the type level
- * that the DTO cannot carry a `credential` member.
  */
 
 import { isRecord } from '../json.ts';
@@ -49,18 +40,13 @@ export interface Account {
      */
     readonly displayName: string | null;
     /**
-     * The account's starting-prompt tier, or `null` when unset.
-     *
-     * The record is the tier's only home, so it lives and dies with the
-     * account: `DELETE ?force=1` removes both together, rotation, login rename,
-     * and credential refresh leave it byte-identical, and a re-added account
-     * starts unset — no tier is ever seeded. Absent in every record
-     * this build wrote before the field, which reads as `null` without a
-     * migration — again, the upgrade writes nothing.
-     *
-     * A stored value that fails the one `validateStartingPrompt` refuses the
-     * whole record rather than being coerced or dropped — the store
-     * quarantines the file.
+     * The account's starting-prompt tier, or `null` when unset. The record is
+     * the tier's only home: `DELETE ?force=1` removes both together, rotation
+     * and credential refresh leave it byte-identical, a re-added account starts
+     * unset, and an older record reads as `null` with no migration — the
+     * upgrade writes nothing. A stored value that fails the one
+     * `validateStartingPrompt` refuses the whole record rather than being
+     * coerced or dropped.
      */
     readonly startingPrompt: string | null;
     /** Credential at rest; excluded from every response by {@link toAccountDto}. */
@@ -168,10 +154,6 @@ function isScopeCheck(raw: unknown): raw is ScopeCheck {
 
 /**
  * Validate the credential block of a stored record.
- *
- * @returns `true` when the block is complete; a record without it is
- *   unusable and the store quarantines it rather than serving a token-less
- *   account as if it had a credential.
  */
 function isCredentialRecord(raw: unknown): raw is CredentialRecord {
     return (
@@ -226,8 +208,6 @@ function isNullableString(value: unknown): value is string | null {
  * `null` without a migration — the upgrade writes nothing; a
  * present-but-not-text value is refused like every other malformed member
  * (invariant 8) rather than silently dropped.
- *
- * @returns `true` for a string, `null`, or an absent key.
  */
 function isOptionalNullableString(value: unknown): value is string | null | undefined {
     return value === undefined || value === null || typeof value === 'string';
@@ -235,8 +215,6 @@ function isOptionalNullableString(value: unknown): value is string | null | unde
 
 /**
  * Read and check the record's string fields in one pass.
- *
- * @returns The checked strings, or `null` when any of them is unusable.
  */
 function readAccountStrings(raw: Record<string, unknown>): StoredAccountStrings | null {
     const { login, expectedLogin, displayName, verifiedAt, errorReason, createdAt, updatedAt } = raw;
@@ -265,21 +243,14 @@ function readAccountStrings(raw: Record<string, unknown>): StoredAccountStrings 
 }
 
 /**
- * Parse a stored document into an account.
- *
- * Every member is checked before the record is handed back, and the account
- * tier goes through the **one** `validateStartingPrompt`: a document
- * carrying a non-text, oversized, credential-shaped, or marker-bearing
- * `startingPrompt` is refused **as a whole record** rather than read with a
- * coerced, defaulted, or dropped member. The refusal's
- * `field: remediation` is captured in `note` so the store can log why the file
- * was set aside — never a byte of what it held.
- *
- * Absence and `null` are the complete "unset" state: both read as `null`, the
- * file is neither quarantined nor rewritten.
- *
- * @returns The account, or `null` when the document does not match the
- *   stored shape (the store then quarantines it — never fail-stuck).
+ * Parse a stored document into an account: every member is checked before
+ * the record is handed back, and the account tier goes through the **one**
+ * `validateStartingPrompt` — a document carrying a non-text, oversized,
+ * credential-shaped or marker-bearing `startingPrompt` is refused **as a
+ * whole record** rather than read with a coerced, defaulted or dropped
+ * member. The refusal's `field: remediation` is captured in `note` so the
+ * store can log why the file was set aside, never a byte of what it held.
+ * Absence and `null` are both the complete *unset* state.
  */
 export function parseStoredAccount(raw: unknown, note: AccountRefusalNote): Account | null {
     if (!isRecord(raw) || !isNumericUserId(raw.numericUserId)) {
@@ -398,16 +369,13 @@ export type DisplayNameValidation =
 
 /**
  * Validate one candidate display name, in the six-step order the
- * display-name contract names.
- *
- * Type → trim → empty-or-null clears → cap → credential shape → control
- * characters. The order matters: the cap is checked *before* the detector, so
- * an oversized credential-shaped value is refused on its length alone and the
- * refusal cannot leak a single character of what was submitted. No content
- * policy beyond these steps — it is a label, and the
- * service does not decide what an operator may call their own account.
- *
- * @returns The trimmed name (`null` to clear), or the refusal that beat it.
+ * display-name contract names: type → trim → empty-or-null clears → cap →
+ * credential shape → control characters. The order matters: the cap is
+ * checked *before* the detector, so an oversized credential-shaped value is
+ * refused on its length alone and the refusal cannot leak a single character
+ * of what was submitted. No content policy beyond these steps — it is a
+ * label, and the service does not decide what an operator may call their own
+ * account.
  */
 export function validateDisplayName(raw: unknown): DisplayNameValidation {
     if (raw !== null && typeof raw !== 'string') {

@@ -1,13 +1,5 @@
 /**
  * Request-body reading for the loopback API.
- *
- * The host only proxies JSON bodies it has already capped, but the service
- * enforces its own limit on its own listener (contract §1: 60,000 characters
- * against the host's 64,000). Reading stops early if a caller streams past
- * the byte ceiling that no legal 60,000-character body can reach, and the
- * result always reports whether the bytes were consumed — the pipeline closes
- * the connection whenever it answers without draining the body, so a refused
- * request can never be mistaken for the start of the next keep-alive one.
  */
 
 import type { IncomingMessage } from 'node:http';
@@ -38,8 +30,6 @@ export interface BodyReadResult {
 
 /**
  * Drain the request stream into memory, bounded by the byte ceiling.
- *
- * @returns The collected chunks, or why collection stopped.
  */
 function readBytes(request: IncomingMessage): Promise<BufferOutcome> {
     return new Promise((resolve) => {
@@ -81,9 +71,6 @@ function readBytes(request: IncomingMessage): Promise<BufferOutcome> {
 
 /**
  *
- * @param request - Incoming message from the host proxy.
- * @returns The parsed value, an empty/invalid/too-large marker, and whether
- *   the stream was fully consumed.
  */
 export async function readJsonBody(request: IncomingMessage): Promise<BodyReadResult> {
     const outcome = await readBytes(request);

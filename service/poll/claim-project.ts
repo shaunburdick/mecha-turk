@@ -1,20 +1,6 @@
 /**
  * The claim answer's wire shapes and the projection that builds them
- * (003 T-007, T-039; [contracts/claim-lease.md](../../specs/003-dispatch-integrity/contracts/claim-lease.md)).
- *
- * The projection is pure and happens **before** any lease is persisted, which
- * is the property T-039 exists to establish: a run the answer cannot carry is
- * never leased, so it never burns an attempt and a unit of the automatic
- * requeue budget waiting for a panel that was never told about it (FR-032,
- * FR-033). The bounds that decide what "can carry" means live beside this in
- * [`claim-bounds.ts`](./claim-bounds.ts).
- *
- * Every member here is credential-free by construction: a run identifier, a
- * lease coordinate, a snapshotted dispatch target, or source text the operator
- * already sees on the run row. Excerpts ride along because FR-014 requires the
- * dispatch to carry *every* retained source reference, bounded per reference;
- * the run row deliberately does not store them (untrusted text lives on the
- * claim answer, data-model §2.3).
+ * (003 T-007, T-039; claim-lease contract).
  */
 
 import type { PromptSource } from '../prompt.ts';
@@ -110,14 +96,12 @@ export interface ClaimedRun {
     /** Code points of the normalised prompt, or `null` when none. */
     readonly promptLength: number | null;
     /**
-     * The tiers that contributed, most general first.
-     *
-     * A duplicate-free subsequence of `global, account, binding` whenever a
-     * prompt is present, and an explicit `null` whenever it is not — the two
-     * are the same fact stated twice (FR-087's invariant), and the projection
-     * never has to reconcile them because the run reader already refused any
-     * snapshot that could disagree with itself. Like every other member here
-     * it is credential-free by construction: names of tiers, never their text.
+     * The tiers that contributed, most general first: a duplicate-free
+     * subsequence of `global, account, binding` whenever a prompt is
+     * present, and an explicit `null` whenever it is not — the same fact
+     * stated twice (FR-087's invariant), which the run reader already
+     * guarantees cannot disagree. Like every other member here it is
+     * credential-free by construction: names of tiers, never their text.
      */
     readonly promptSources: readonly PromptSource[] | null;
     /**
@@ -146,8 +130,6 @@ export interface ClaimRecord {
  * neither, and a member that is absent stays absent rather than becoming an
  * empty string the panel cannot tell apart from a real value.
  *
- * @param delivery - The delivery that opened the run, when the queue holds it.
- * @returns The members this delivery actually has.
  */
 function reviewCoordinates(delivery: QueuedEvent | undefined): { headSha?: string; baseRef?: string } {
     const head = delivery?.headSha ?? null;
@@ -162,8 +144,6 @@ function reviewCoordinates(delivery: QueuedEvent | undefined): { headSha?: strin
  * degrades to an empty or absent member when the queue row is gone, so a
  * missing delivery can never blank the run's own identity.
  *
- * @param input - The delivery that opened the run and the run's first link.
- * @returns The delivery-derived members of the claim answer row.
  */
 function deliveryView(input: {
     /** The delivery that opened the run, when the queue still holds it. */
@@ -195,22 +175,15 @@ function deliveryView(input: {
 }
 
 /**
- * The prompt members of a claim entry, read off the run's own snapshot.
- *
- * An unset run answers all five **explicitly** (`false`, `null`, `null`,
- * `null`, `null`): the co-ship build parses them, and an explicit `null` is a
- * truer answer than an absent key for a boolean the panel has to act on — and
- * for the ordered source list beside it (004 FR-087: `promptPresent === true`
- * ⇔ a non-empty `promptSources`, `false` ⇔ `null`).
- *
- * `promptSources` is the snapshot's own list, passed through rather than
- * re-derived: [`service/prompt.ts`](../prompt.ts)'s stored-shape reader
- * refused any present snapshot without a well-formed one, so the two members
- * cannot disagree by the time a run reaches the answer.
- *
- * @returns The five members, credential-free by construction — tier names and
- *   scalars on the wire, never the instruction's text except as claim
- *   transport (004 FR-053, data-model §3.1).
+ * The prompt members of a claim entry, read off the run's own snapshot. An
+ * unset run answers all five **explicitly**: an explicit `null` is a truer
+ * answer than an absent key for a boolean the panel has to act on, and for
+ * the ordered source list beside it (004 FR-087: `promptPresent === true` ⇔
+ * a non-empty `promptSources`, `false` ⇔ `null`). `promptSources` is the
+ * snapshot's own list, passed through rather than re-derived, so the two
+ * cannot disagree by the time a run reaches the answer. Credential-free by
+ * construction: tier names and scalars, never the instruction's text (004
+ * FR-053, data-model §3.1).
  */
 function promptViewOf(run: Run): {
     /** Whether a starting prompt was set when this run was queued. */
@@ -244,15 +217,12 @@ function promptViewOf(run: Run): {
 }
 
 /**
- * Project one claimed run for the wire.
- *
- * The run is the record; the delivery rows supply only the things the run
- * deliberately does not store (untrusted excerpt text, the title the operator
- * reads, and the PR coordinates the trigger layer captured). Excerpt text is
- * bounded by [`claim-bounds.ts`](./claim-bounds.ts) so one run's sources cannot
- * crowd out the rest of the answer.
- *
- * @returns The claim answer row; every member is credential-free.
+ * Project one claimed run for the wire: the run is the record, and the
+ * delivery rows supply only the things the run deliberately does not store
+ * (untrusted excerpt text, the title the operator reads, and the PR
+ * coordinates the trigger layer captured). Excerpt text is bounded by
+ * [`claim-bounds.ts`](./claim-bounds.ts) so one run's sources cannot crowd
+ * out the rest of the answer.
  */
 export function projectClaimedRun(input: {
     readonly run: Run;
