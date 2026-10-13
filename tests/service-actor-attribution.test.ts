@@ -749,7 +749,8 @@ describe('FR-050 the correlation names the actor from the other field, and only 
             throw new Error('the naming event must be selected');
         }
 
-        expect(actorOfNamingEvent({ kind: 'assignment', event: naming })).toEqual({ usable: true, login: ASSIGNER });
+        expect(actorOfNamingEvent({ kind: 'assignment', event: naming, boundLogin: ACCOUNT_LOGIN }))
+            .toEqual({ usable: true, login: ASSIGNER });
     });
 
     it('answers a review candidate from `review_requester`, never from a naming event for another reviewer', () => {
@@ -771,7 +772,8 @@ describe('FR-050 the correlation names the actor from the other field, and only 
             throw new Error('the naming event must be selected');
         }
 
-        expect(actorOfNamingEvent({ kind: 'review', event: naming })).toEqual({ usable: true, login: REQUESTER });
+        expect(actorOfNamingEvent({ kind: 'review', event: naming, boundLogin: ACCOUNT_LOGIN }))
+            .toEqual({ usable: true, login: REQUESTER });
     });
 
     it('takes the greatest `created_at` among the rows that do qualify (bulk assignment)', () => {
@@ -1006,13 +1008,13 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
         ];
 
         for (const { label, row } of cases) {
-            const outcome = actorOfNamingEvent({ kind: 'assignment', event: row });
+            const outcome = actorOfNamingEvent({ kind: 'assignment', event: row, boundLogin: ACCOUNT_LOGIN });
 
             expect(outcome.usable, label).toBe(false);
             expect(!outcome.usable && outcome.reason, label).toMatch(/actor/);
         }
         // And a readable, non-bot actor is admitted.
-        expect(actorOfNamingEvent({ kind: 'assignment', event: assignedBy(ASSIGNER) }))
+        expect(actorOfNamingEvent({ kind: 'assignment', event: assignedBy(ASSIGNER), boundLogin: ACCOUNT_LOGIN }))
             .toEqual({ usable: true, login: ASSIGNER });
     });
 
@@ -1092,6 +1094,57 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
 
         expect(third.enqueued).toBe(0);
         expect(await readEvents({ store, log })).toHaveLength(1);
+    });
+});
+
+/* -------------------------------------------------------------------- *
+ * FR-052 (v1.17.0) — the self-actor refusal: the bound account naming itself (issue #45)
+ * -------------------------------------------------------------------- */
+
+describe('FR-052 an actor that is the bound account yields no event (self-actor)', () => {
+    it('refuses a self-assignment, recorded with the reason', async () => {
+        const github = fakeGitHub({ [EVENTS_PATH]: { body: assignedPage(ACCOUNT_LOGIN) } });
+        const lines: string[] = [];
+        const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
+
+        const outcome = await resolveCandidateActor({
+            poller: pollerOver(github, log),
+            log,
+            token: TOKEN,
+            repository: REPOSITORY,
+            issueNumber: ISSUE_NUMBER,
+            kind: 'assignment',
+            boundLogin: ACCOUNT_LOGIN,
+            windowStart: EARLIEST_WINDOW,
+            pace: PACE,
+        });
+
+        expect(outcome).toEqual({ kind: 'refused', reason: 'self-actor' });
+        // Recorded with its reason, not dropped silently (constitution IV).
+        expect(lines.join('\n')).toContain('self-actor');
+    });
+
+    it('refuses a self review-request for the review kind too', () => {
+        expect(actorOfNamingEvent({
+            kind: 'review',
+            event: requestedBy(ACCOUNT_LOGIN),
+            boundLogin: ACCOUNT_LOGIN,
+        })).toEqual({ usable: false, reason: 'self-actor' });
+    });
+
+    it('compares actor and bound account case-insensitively, and admits a different human', () => {
+        // Logins compare case-insensitively, as `isIssueAssignment` and `qualifies` do.
+        expect(actorOfNamingEvent({
+            kind: 'assignment',
+            event: assignedBy('Prompt-It-So'),
+            boundLogin: 'prompt-it-so',
+        })).toEqual({ usable: false, reason: 'self-actor' });
+        // The refusal names the **actor**, never the subject: a human still attributes.
+        expect(actorOfNamingEvent({
+            kind: 'assignment',
+            event: assignedBy(ASSIGNER),
+            boundLogin: ACCOUNT_LOGIN,
+        })).toEqual({ usable: true, login: ASSIGNER });
     });
 });
 

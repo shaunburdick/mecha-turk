@@ -1191,3 +1191,54 @@ order on a key the panel already owns — no route, no request, no read. No prin
 **The `FollowUpFailure` vocabulary is unchanged by `9cafed7`** — its `panel-closed` removal was
 `ce93e5c`'s, recorded in the third addendum above, and neither B1 nor I1 adds, removes, or renames a
 reason word. No earlier addendum's `Deliberately unchanged` line is reopened.
+
+---
+### v1.17.0 — 2026-10-13 (the self-actor refusal; GitHub issue #45)
+
+**Why**: issue #45 asks that a bot user assigning **itself** to an issue or PR not trigger a
+dispatch, and the product owner settled that the refusal covers **both** the assignment kind and
+the review-request kind — one rule in the shared actor-resolution layer (`actorOfNamingEvent`,
+`service/poll/poller-events.ts`). The reasoning is the one the unreadable and bot refusals already
+rest on: an actor exists to vouch for a decision someone else made, and the bound account naming
+**itself** records no one else's decision — enqueuing it would dispatch a session whose audit
+trail says the bot started its own work. The refusal is a third recorded reason, `self-actor`,
+beside `unreadable-actor` and `bot-actor`: no event this cycle, the reason written through the
+same `recordNoEvent` path, and the overlapping window keeping the candidate re-detectable, so a
+later legitimate human assignment still fires exactly once. The check sits **after** the existing
+`isAttributableAuthor` judgement, so a bound account GitHub itself reports as `Bot` (or spells
+`[bot]`) is refused earlier as `bot-actor`; `self-actor` is the equality rule that holds whatever
+the type says. The comparison is case-insensitive, matching how `isIssueAssignment` and
+`qualifies` already compare logins.
+
+**Requirement-by-requirement record**:
+
+| 002 v1.16.0 requirement | Effect of v1.17.0 | Status | Authoritative text |
+| --- | --- | --- | --- |
+| **FR-052** — a refused actor produces no event this cycle | The refusal list gains the **self-actor** clause: an actor whose login equals the bound account's is not a vouching actor, so the candidate produces no event with reason `self-actor` — both kinds, one rule, in the shared layer. The substitutes list, the recorded-reason posture, and the overlapping-window self-healing argument are unchanged | **Amended** | 002 FR-052 |
+| **Edge case — an assignment or review request performed by a bot** | A sibling edge case added: the bound account assigning itself, or requesting its own review — refused and recorded under `self-actor`, with no binding field, setting, or escape hatch that re-admits it | **Added** | 002 `## Edge Cases` |
+| **AC-031** — fail closed on the actor, and ask again | Extended with the self-actor clause: self-assignment and self-review-request each produce no event, run, or work under `self-actor`; a human actor assigning the bound account still attributes; the equality is case-insensitive; and the overlapping window means a later legitimate human assignment fires exactly once | **Amended** | 002 AC-031 |
+
+**Principles reviewed, unchanged in substance**: **II** — refusing a self-vouch is the
+conservative direction; the bound account's own word is not the authorization of anyone else.
+**IV** — the refusal is recorded with its reason, so an operator can explain a missing trigger.
+**III** — no self-started work, and the overlapping window still re-detects. **VI** — the
+behaviour and its criteria are stated here and in `spec.md` against the code that ships with them.
+No principle is weakened by this amendment.
+
+**Requirements explicitly unchanged**: FR-049 – FR-051 (the read, the correlation, the window),
+FR-044/FR-045's attribution model, and the whole mention path — a bound account's own comment
+containing its mention token is a **different code path and explicitly out of scope** for issue
+#45. No binding field, setting, capability, contract member, or escape hatch is added;
+NFR-003's request figure is untouched (the refusal costs no added request); `ActorRefusal` grows
+by the one word `self-actor`, which is a recorded reason and not a wire surface.
+
+**Migration impact**: none. The refusal lives at detection, upstream of the queue, so
+already-queued event rows are untouched and are never withdrawn by this change; no store file,
+schema, storage key, or panel code moves (`src/` and `panel/` are untouched — both bundles are
+rebuilt only because `service/main.js` must ship the fix, AGENTS.md invariant 1).
+`package.json`'s `version` does **not** move: releases are the product owner's call (AGENTS.md
+invariant 2).
+
+**Approval status**: product-owner decision recorded on GitHub issue #45 (the refusal covers both
+the assignment kind and the review-request kind — one rule in the shared actor-resolution layer);
+implemented the same day, `npm run verify` green.

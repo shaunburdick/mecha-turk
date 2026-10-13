@@ -9822,6 +9822,9 @@ function actorOfNamingEvent(input) {
   if (!isAttributableAuthor(named.login, named.type)) {
     return { usable: false, reason: named.login === "" ? "unreadable-actor" : "bot-actor" };
   }
+  if (named.login.toLowerCase() === input.boundLogin.toLowerCase()) {
+    return { usable: false, reason: "self-actor" };
+  }
   return { usable: true, login: actorLoginOf(named.login) };
 }
 function recordNoEvent(input) {
@@ -9865,7 +9868,7 @@ async function resolveCandidateActor(request) {
     recordNoEvent({ request, reason: "no-qualifying-event" });
     return { kind: "refused", reason: "no-qualifying-event" };
   }
-  const actor = actorOfNamingEvent({ kind: request.kind, event });
+  const actor = actorOfNamingEvent({ kind: request.kind, event, boundLogin: request.boundLogin });
   if (!actor.usable) {
     recordNoEvent({ request, reason: actor.reason });
     return { kind: "refused", reason: actor.reason };
