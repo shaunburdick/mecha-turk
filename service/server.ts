@@ -317,7 +317,6 @@ function startReconciliation(input: {
     readonly store: ServiceStore | null;
     /** Verifier used for the re-verification step. */
     readonly github: GitHubVerifier;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }): Promise<ReconcileSummary> {
     return reconcileInterruptedAccounts(input).catch((error: unknown) => {
@@ -343,7 +342,6 @@ function startReconciliation(input: {
 function startBootSweep(input: {
     /** Open store, or `null` when the directory is unusable. */
     readonly store: ServiceStore | null;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }): Promise<SweepOutcome> {
     if (input.store === null) {

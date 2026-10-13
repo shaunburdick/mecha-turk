@@ -41,9 +41,7 @@ export const MAX_TERMINAL_RUNS = 500;
 
 /** Store and logger every run operation reads. */
 export interface RunsStoreInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }
 

@@ -66,7 +66,6 @@ export type PanelHost = Pick<
 /** Maximum characters of bounded context sent as the session's first message (FR-014: ≤12,000 per dispatch). */
 export const CONTEXT_MAX_CHARS = 12_000;
 
-/** Line separator used by the bounded context. */
 const NEWLINE = '\n';
 
 /** Re-exported: the context builder stays the one import path for these. */
@@ -82,11 +81,9 @@ export { SOURCE_EXCERPT_MAX_CHARS } from './context-blocks.ts';
 export interface ContextSource {
     /** Where it matched: `assignment`, `body`, `comment:<id>`, or `review`. */
     readonly origin: string;
-    /** Trigger kind the reference was detected under. */
     readonly kind: 'assignment' | 'mention' | 'review';
     /** RFC 3339 detection stamp. */
     readonly detectedAt: string;
-    /** Canonical link back to the source. */
     readonly url: string;
     /** Bounded untrusted excerpt. */
     readonly excerpt: string;
@@ -94,8 +91,6 @@ export interface ContextSource {
 
 /**
  * Render a human-readable error without echoing provider payloads.
- *
- * @returns A short description safe for the ledger.
  */
 export function describeError(cause: unknown): string {
     if (cause instanceof Error) {
@@ -105,7 +100,6 @@ export function describeError(cause: unknown): string {
     return String(cause);
 }
 
-/** Result of resolving the configured project reference. */
 export type ProjectResolution =
     | { readonly ok: true; readonly project: GuestProject }
     | { readonly ok: false; readonly problem: string; readonly available: readonly string[] };
@@ -167,7 +161,6 @@ function contextBlocks(input: {
         : [{ head: null, excerpt: input.issue.body ?? '' }];
 }
 
-/** Everything the shared bounded-context renderer needs. */
 export interface BoundedContextRender {
     /**
      * The frame's own lines, above `BEGIN_UNTRUSTED`.
@@ -180,7 +173,6 @@ export interface BoundedContextRender {
     readonly header: readonly string[];
     /** The run's source references, in join order; absent quotes the issue body. */
     readonly sources?: readonly ContextSource[];
-    /** The matched issue the body falls back to. */
     readonly issue: GitHubIssue;
     /** Optional character budget; defaults to {@link CONTEXT_MAX_CHARS}. */
     readonly maxChars?: number;
@@ -220,15 +212,12 @@ export function renderBoundedContext(input: BoundedContextRender): string {
     return `${frame}${body}${END_UNTRUSTED}`;
 }
 
-/** Everything one bounded context is built from. */
 export interface BoundedContextInput {
     /** `owner/name` of the repository. */
     readonly repository: string;
-    /** Matched issue. */
     readonly issue: GitHubIssue;
     /** Login discovered from `GET /user`. */
     readonly authenticatedLogin: string;
-    /** Correlation identifier for this dispatch. */
     readonly correlationId: string;
     /**
      * The run's source references, in join order.
@@ -237,7 +226,6 @@ export interface BoundedContextInput {
      * legacy single-source dispatch and every non-run caller use.
      */
     readonly sources?: readonly ContextSource[];
-    /** Optional character budget; defaults to {@link CONTEXT_MAX_CHARS}. */
     readonly maxChars?: number;
     /**
      * Characters already spoken for by the operator's prompt block and its
@@ -272,8 +260,6 @@ export interface BoundedContextInput {
  * The budget is spent on the sources, never on the frame: the frame is
  * counted in full first, so a shortened quotation can never cut the closing
  * delimiter. The context never contains a token or Authorization material.
- *
- * @returns Context truncated to `maxChars` characters, markers intact.
  */
 export function buildBoundedContext(input: BoundedContextInput): string {
     const header = [
@@ -335,13 +321,9 @@ const NO_PROMPT: PromptReference = {
  * @returns The request exactly as it will be sent to the host.
  */
 export function buildStartSessionRequest(input: {
-    /** Validated binding context. */
     readonly config: BindingContext;
-    /** Evidence record for the matched issue. */
     readonly evidence: PanelEvidence;
-    /** Matched issue. */
     readonly issue: GitHubIssue;
-    /** Bounded first-message context. */
     readonly context: string;
     /**
      * The prompt reference for the machine-readable `data`.
@@ -387,7 +369,6 @@ export function buildStartSessionRequest(input: {
 /** `startSession` result variant that reports a partial bootstrap failure. */
 type StartSessionFailure = Extract<StartSessionResult, { failure: 'bootstrap-failed' | 'session-create-failed' }>;
 
-/** `startSession` result variant that created a session. */
 type StartSessionSuccess = Exclude<StartSessionResult, StartSessionFailure>;
 
 /**

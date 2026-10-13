@@ -15,17 +15,13 @@
 
 import type { ActorAttribution, QueuedEvent, SubjectType } from './events-parse.ts';
 
-/** Fields every trigger's detection snapshot carries. */
 interface BaseEventSnapshot {
-    /** Binding that produced the detection. */
     readonly bindingId: string;
     /** Issued repository in `owner/name` form. */
     readonly repository: string;
     /** The account's durable key. */
     readonly accountNumericUserId: string;
-    /** The account's login. */
     readonly accountLogin: string;
-    /** Project the binding dispatches to. */
     readonly projectId: string;
     /** Worktree option copied verbatim from the binding. */
     readonly worktreeOption: string;
@@ -56,9 +52,7 @@ interface BaseEventSnapshot {
      * readable and is written by nothing.
      */
     readonly actorAttribution: ActorAttribution;
-    /** The panel-rendered trigger phrase. */
     readonly triggerNote: string;
-    /** Detection stamp. */
     readonly detectedAt: string;
     /**
      * Whether the subject is an issue or a pull request, captured from the
@@ -89,7 +83,6 @@ interface MentionEventSnapshotBase extends BaseEventSnapshot {
 
 /** A comment that mentioned the bound account (M6). */
 export interface MentionEventSnapshot extends MentionEventSnapshotBase {
-    /** The comment carried the mention. */
     readonly origin: 'comment';
     /** The comment's id: two comments on one issue are two events. */
     readonly commentId: number;
@@ -101,7 +94,6 @@ export interface MentionEventSnapshot extends MentionEventSnapshotBase {
  * comment).
  */
 export interface MentionBodyEventSnapshot extends MentionEventSnapshotBase {
-    /** The issue body carried the mention. */
     readonly origin: 'body';
 }
 
@@ -156,7 +148,6 @@ export interface FollowUpCommentSnapshot extends BaseEventSnapshot {
 export interface FollowUpHeadSnapshot extends BaseEventSnapshot {
     /** The feed the detection rides: the pull-request list. */
     readonly kind: 'review';
-    /** Marks this row as a follow-up rather than a trigger, and which kind. */
     readonly followUp: 'head';
     /** The head SHA observed at detection; the follow-up's `to`. */
     readonly headSha: string;
@@ -166,7 +157,6 @@ export interface FollowUpHeadSnapshot extends BaseEventSnapshot {
     readonly subjectType: SubjectType;
 }
 
-/** Inputs used to assemble one queued event, narrowed by trigger kind. */
 export type EventSnapshot =
     | AssignmentEventSnapshot
     | MentionEventSnapshot
@@ -213,11 +203,8 @@ export type EventSnapshot =
  * @returns A `[A-Za-z0-9._~]`-only id of one path segment.
  */
 export function buildEventId(input: {
-    /** Repository the issue belongs to. */
     readonly repository: { readonly owner: string; readonly name: string };
-    /** Matched issue (or pull request) number. */
     readonly issueNumber: number;
-    /** The account the issue is assigned to. */
     readonly accountNumericUserId: string;
     /** Extra id segment; absent for an assignment, whose id never changes. */
     readonly discriminator?: string | undefined;
@@ -259,8 +246,6 @@ function discriminatorOf(snapshot: EventSnapshot): string | undefined {
  *
  * A follow-up head row carries the SHA it **observed**, which is the only
  * value on it that is not a fact about a review request.
- *
- * @returns The SHA, or `null`.
  */
 function headShaOf(snapshot: EventSnapshot): string | null {
     return snapshot.kind === 'review' ? snapshot.headSha : null;
@@ -268,8 +253,6 @@ function headShaOf(snapshot: EventSnapshot): string | null {
 
 /**
  * Read the base ref one snapshot contributes; `null` for the other triggers.
- *
- * @returns The ref, or `null`.
  */
 function baseRefOf(snapshot: EventSnapshot): string | null {
     return snapshot.kind === 'review' ? snapshot.baseRef : null;
@@ -278,8 +261,6 @@ function baseRefOf(snapshot: EventSnapshot): string | null {
 /**
  * Read the subject shape one snapshot carries, defaulting the way a row
  * written before the run layer reads (data-model §2.1).
- *
- * @returns The subject shape this row stores.
  */
 function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
     if (snapshot.subjectType !== undefined) {
@@ -310,8 +291,6 @@ function subjectTypeOfSnapshot(snapshot: EventSnapshot): SubjectType {
  * A **follow-up** snapshot writes the same row shape with the role recorded in
  * its discriminator and its `subjectType` stated from the tracked subject, so
  * a head-SHA movement on a tracked pull is never read as an issue.
- *
- * @returns A fresh delivery row.
  */
 export function createEvent(snapshot: EventSnapshot): QueuedEvent {
     const separatorIndex = snapshot.repository.indexOf('/');

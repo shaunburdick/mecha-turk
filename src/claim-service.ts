@@ -58,11 +58,9 @@ export interface ClaimedLease {
 export interface ClaimedReference {
     /** The joining delivery's unchanged id (FR-012). */
     readonly deliveryId: string;
-    /** Trigger kind the reference was detected under. */
     readonly kind: EventKind;
     /** Where it matched: `assignment`, `body`, `comment:<id>`, or `review`. */
     readonly origin: string;
-    /** Canonical link back to the source. */
     readonly sourceUrl: string;
     /** RFC 3339 detection stamp. */
     readonly detectedAt: string;
@@ -80,7 +78,6 @@ export interface ClaimedRun {
     readonly runKey: string;
     /** 0-based ordinal of this run for its subject. */
     readonly ordinal: number;
-    /** Attempt this lease is issued under. */
     readonly attempt: number;
     /** The claim itself; its absence refuses the run. */
     readonly lease: ClaimedLease;
@@ -88,7 +85,6 @@ export interface ClaimedRun {
     readonly state: 'pending';
     /** Why the run was waiting, rendered as the row's reason line (FR-074). */
     readonly stateReason: string;
-    /** Binding the run dispatches through. */
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
@@ -98,9 +94,7 @@ export interface ClaimedRun {
     readonly projectId: string;
     /** Worktree option, snapshotted at enqueue. */
     readonly worktreeOption: string;
-    /** Whether the subject is an issue or a pull request. */
     readonly subjectType: SubjectType;
-    /** Issue or pull request number. */
     readonly issueNumber: number;
     /** Issue title; untrusted source text, copied verbatim. */
     readonly issueTitle: string;
@@ -118,13 +112,11 @@ export interface ClaimedRun {
     readonly referenceCount: number;
     /** How many joining triggers the cap kept off the list. */
     readonly referencesNotRetained: number;
-    /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
     /** Primary subject excerpt (the field the context builder already reads). */
     readonly issueBodyExcerpt: string;
     /** Earliest source reference's detection stamp (row age). */
     readonly detectedAt: string;
-    /** Whether the run queued with a starting prompt. */
     readonly promptPresent: boolean;
     /** Its `mtp-…` fingerprint, or `null` when none. */
     readonly promptFingerprint: string | null;
@@ -163,9 +155,7 @@ export interface ClaimAnswer {
 export interface ReserveAnswer {
     /** Echo of the run the path named. */
     readonly correlationId: string;
-    /** Attempt the reservation was made under. */
     readonly attempt: number;
-    /** The single-use authorization the result report presents. */
     readonly dispatchToken: string;
     /** RFC 3339 stamp of the lease the reservation was made under. */
     readonly tokenExpiresAt: string | null;
@@ -227,8 +217,6 @@ function atLeast(value: number | null, min: number): number | null {
  * A run the answer does not lease is a run the panel must not dispatch,
  * so an absent or malformed lease refuses the row rather than being
  * defaulted — the guard keys off this member, never off `state`.
- *
- * @returns The lease, or `null`.
  */
 function parseLease(value: unknown): ClaimedLease | null {
     const record = asRecord(value);
@@ -254,8 +242,6 @@ function parseLease(value: unknown): ClaimedLease | null {
 
 /**
  * Read one retained source reference off the claim answer.
- *
- * @returns The reference, or `null` when its shape is unusable.
  */
 function parseClaimReference(value: unknown): ClaimedReference | null {
     const record = asRecord(value);
@@ -283,8 +269,6 @@ function parseClaimReference(value: unknown): ClaimedReference | null {
 
 /**
  * Read the `sourceReferences` list, or `null` when any element is unusable.
- *
- * @returns The references, or `null`.
  */
 function parseClaimReferences(value: unknown): ClaimedReference[] | null {
     if (!Array.isArray(value)) {
@@ -306,8 +290,6 @@ function parseClaimReferences(value: unknown): ClaimedReference[] | null {
 
 /**
  * Check the answer's three reference-counting members against each other.
- *
- * @returns `true` when they reconcile.
  */
 function claimCountsReconcile(counts: ClaimNumbers, retained: number): boolean {
     if (counts.referenceCount !== retained + counts.referencesNotRetained) {
@@ -332,13 +314,11 @@ type ClaimScalars = Pick<
     | 'issueTitle'
 >;
 
-/** The counting members of one offered run. */
 type ClaimNumbers = Pick<
     ClaimedRun,
     'ordinal' | 'attempt' | 'referenceCount' | 'referencesNotRetained' | 'referencesTruncated'
 >;
 
-/** The subject coordinates of one offered run. */
 type ClaimSubject = Pick<ClaimedRun, 'subjectType' | 'issueNumber' | 'headSha' | 'baseRef'>;
 
 /**

@@ -18,7 +18,6 @@ import type { ActorAttribution } from './attribution.ts';
 import type { EventKind } from './events-parse.ts';
 import type { RunSubjectType } from './run-key.ts';
 
-/** One run's state: the eight-state vocabulary of the dispatch model. */
 export type RunState =
     | 'pending'
     | 'claimed'
@@ -29,20 +28,14 @@ export type RunState =
     | 'dead-lettered'
     | `blocked:${string}`;
 
-/** A reference's origin: where the delivery matched. */
 export type ReferenceOrigin = 'assignment' | 'body' | 'review' | `comment:${number}`;
 
-/** One delivery's membership in a run. */
 export interface SourceReference {
     /** The joining delivery's unchanged id. */
     readonly deliveryId: string;
-    /** Trigger kind the delivery was detected under. */
     readonly kind: EventKind;
-    /** Where it matched: assignment, issue body, a comment id, or review. */
     readonly origin: ReferenceOrigin;
-    /** Canonical link back to the source. */
     readonly sourceUrl: string;
-    /** That delivery's detection stamp. */
     readonly detectedAt: string;
     /** `false` iff the run already held a reservation when this arrived. */
     readonly presentAtAuthorization: boolean;
@@ -97,7 +90,6 @@ export type ActorPolicy = 'open' | 'restricted';
  * vocabulary is the one module both already import.
  */
 export interface ActorGateRefusal {
-    /** The binding whose policy refused the dispatch. */
     readonly bindingId: string;
     /** Shape of the allow-list in force, or `null` when it could not be read. */
     readonly actorPolicy: ActorPolicy | null;
@@ -113,7 +105,6 @@ export interface ActorGateRefusal {
     readonly deniedLogins?: readonly string[] | undefined;
     /** Each denied login's basis, index-parallel to {@link deniedLogins}. */
     readonly deniedAttributions?: readonly string[] | undefined;
-    /** How many references named no readable actor at all. */
     readonly unreadableReferences: number;
     /**
      * How many references the gate actually judged.
@@ -125,15 +116,12 @@ export interface ActorGateRefusal {
      * invisible to the gate under **every** policy.
      */
     readonly retainedReferences: number;
-    /** How many joining triggers the cap refused to retain. */
     readonly referencesNotRetained: number;
-    /** Whether the retained list was cut at the cap. */
     readonly referencesTruncated: boolean;
 }
 
 /** One recorded dispatch attempt (003 Key Entities: DispatchAttempt). */
 export interface DispatchAttempt {
-    /** Attempt number this record is for. */
     readonly attempt: number;
     /** Token minted at reservation, or `null` when nothing was reserved. */
     readonly dispatchToken: string | null;
@@ -141,7 +129,6 @@ export interface DispatchAttempt {
     readonly reservedAt: string | null;
     /** What the attempt produced, or `null` while it is in flight. */
     readonly outcome: 'dispatched' | 'failed' | 'abandoned' | 'expired' | 'blocked' | 'unconfirmed' | null;
-    /** Session created by this attempt, else `null`. */
     readonly sessionId: string | null;
     /** Failure, expiry, or block reason, else `null`. */
     readonly reason: string | null;
@@ -172,7 +159,6 @@ export type LeaseProvenance =
 export interface RunLease {
     /** Lease identifier; one path-safe segment, `lse-` or `migration-` shaped. */
     readonly leaseId: string;
-    /** Attempt the lease was issued under. */
     readonly attempt: number;
     /** Opaque mount id holding the lease; informational, never authorization. */
     readonly holder: string;
@@ -188,39 +174,30 @@ export interface RunLease {
 export interface RunReservation {
     /** The single-use token handed to the panel. */
     readonly dispatchToken: string;
-    /** Attempt the reservation was made under. */
     readonly attempt: number;
     /** RFC 3339 reservation stamp. */
     readonly reservedAt: string;
     /** RFC 3339 result deadline; passing it moves the run to `unconfirmed`. */
     readonly resultDeadlineAt: string;
-    /** Whether a result has consumed this reservation's token. */
     readonly consumed: boolean;
 }
 
 /** Where a run's dispatch pointed (002 Key Entities: SessionRef). */
 export interface SessionRef {
-    /** Host-owned session id. */
     readonly sessionId: string;
-    /** Attachment id the session was started with. */
     readonly attachmentId: string;
     /** RFC 3339 dispatch stamp. */
     readonly dispatchedAt: string;
     /** Session title as the host reported it. */
     readonly title: string;
-    /** Source link the session opened from. */
     readonly sourceUrl: string;
-    /** Worktree the session runs in, or `null` when it has none. */
     readonly worktree: { readonly directory: string; readonly branch: string } | null;
 }
 
-/** The recorded outcome of the post-dispatch agent read-back. */
 export interface RunVerification {
     /** Agent the read-back observed, or `null` when it was unreadable. */
     readonly observedAgent: string | null;
-    /** Agent the binding expected. */
     readonly expectedAgent: string;
-    /** Whether the two matched. */
     readonly ok: boolean;
     /** Extra note on a mismatch, or `null`. */
     readonly note: string | null;
@@ -250,15 +227,12 @@ export interface Run {
     readonly attachmentId: string;
     /** 0-based ordinal of this run for its subject. */
     readonly ordinal: number;
-    /** Whether the subject is an issue or a pull request. */
     readonly subjectType: RunSubjectType;
-    /** Issue or pull request number. */
     readonly subjectNumber: number;
     /** Repository in `owner/name` form. */
     readonly repository: string;
     /** GitHub numeric user id of the account the work is under. */
     readonly accountNumericUserId: string;
-    /** Binding this run dispatches through. */
     readonly bindingId: string;
     /** Project snapshotted at enqueue. */
     readonly projectId: string;
@@ -312,7 +286,6 @@ export interface Run {
      * so the operator can see that a row is lossy instead of inferring it.
      */
     readonly referencesNotRetained: number;
-    /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
     /** The live lease, or `null` when no panel holds the run. */
     readonly lease: RunLease | null;
@@ -340,7 +313,6 @@ export interface Run {
      * follow-up at all, so the member is absent on every issue run forever.
      */
     readonly lastHeadSha?: string;
-    /** Recorded verification outcome, or `null` when none was reported. */
     readonly verification: RunVerification | null;
     /** RFC 3339 creation stamp. */
     readonly createdAt: string;
@@ -356,19 +328,15 @@ export type RunAuditIntent =
     | {
         /** A newly created run needs its creation row. */
         readonly eventType: 'run.created';
-        /** The service-minted run identity. */
         readonly correlationId: string;
-        /** Deliveries folded into the initial run. */
         readonly deliveryIds: readonly string[];
     }
     | {
         /** A legacy run needs its one migration row. */
         readonly eventType: 'run.migrated';
-        /** The service-minted run identity. */
         readonly correlationId: string;
         /** Legacy deliveries represented by the adopted run. */
         readonly deliveryIds: readonly string[];
-        /** Classification branches used during adoption. */
         readonly stateBranches: readonly string[];
         /** Adopted state at the moment of migration. */
         readonly state: RunState;
@@ -384,7 +352,6 @@ export type RunAuditIntent =
         readonly eventType: 'dispatch.lease-expired' | 'run.dead_lettered' | 'dispatch.unconfirmed';
         /** The run's identity, never a fresh identifier. */
         readonly correlationId: string;
-        /** The decision the row records. */
         readonly decision: string;
         /** Secret-free reason naming the exact cause. */
         readonly reason: string;

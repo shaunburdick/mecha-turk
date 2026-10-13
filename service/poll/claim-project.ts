@@ -69,7 +69,6 @@ export interface ClaimedRun {
     readonly state: 'pending';
     /** Why the run was waiting, rendered as the row's reason line (FR-074). */
     readonly stateReason: string;
-    /** Binding the run dispatches through. */
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
@@ -85,7 +84,6 @@ export interface ClaimedRun {
     readonly issueNumber: number;
     /** Issue title; untrusted source text. */
     readonly issueTitle: string;
-    /** Canonical issue URL. */
     readonly issueUrl: string;
     /** Head SHA of a review-origin pull request; absent otherwise. */
     readonly headSha?: string;
@@ -136,7 +134,6 @@ export interface ClaimedRun {
 export interface ClaimRecord {
     /** The run as it now stands in `runs.json`. */
     readonly run: Run;
-    /** The lease issued for it. */
     readonly lease: ClaimedLease;
     /** The answer row, projected before the lease was persisted. */
     readonly claimed: ClaimedRun;
@@ -178,7 +175,6 @@ function deliveryView(input: {
     readonly accountLogin: string;
     /** Issue title; untrusted source text. */
     readonly issueTitle: string;
-    /** Canonical issue URL. */
     readonly issueUrl: string;
     /** Primary subject excerpt, the field the existing context builder reads. */
     readonly issueBodyExcerpt: string;
@@ -259,9 +255,7 @@ function promptViewOf(run: Run): {
  * @returns The claim answer row; every member is credential-free.
  */
 export function projectClaimedRun(input: {
-    /** The claimed run. */
     readonly run: Run;
-    /** The lease issued for it. */
     readonly lease: ClaimedLease;
     /** Delivery rows keyed by id, as read from the queue. */
     readonly deliveries: ReadonlyMap<string, QueuedEvent>;

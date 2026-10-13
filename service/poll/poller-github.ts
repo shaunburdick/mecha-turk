@@ -75,10 +75,8 @@ const NEWEST_UPDATED_FIRST = { sort: 'updated', direction: 'desc' } as const;
 /** Outcome of one issues-list call (classified at the boundary, like `verify`). */
 export type IssueListOutcome = PollFailure | { readonly kind: 'ok'; readonly issues: readonly PollIssue[] };
 
-/** Outcome of one issue-comments-list call. */
 export type CommentListOutcome = PollFailure | { readonly kind: 'ok'; readonly comments: readonly PollComment[] };
 
-/** Outcome of one pulls-list call. */
 export type PullListOutcome = PollFailure | { readonly kind: 'ok'; readonly pulls: readonly PollPull[] };
 
 /** Outcome of the single-item issue terminal read (002 FR-106). */
@@ -89,11 +87,8 @@ export type PullStateOutcome = PollFailure | { readonly kind: 'ok'; readonly pul
 
 /** Credential, repository, and the `since` window a windowed list takes. */
 interface WindowedListQuery {
-    /** Account credential presented to GitHub. */
     readonly token: string;
-    /** Repository owner. */
     readonly owner: string;
-    /** Repository name. */
     readonly name: string;
     /**
      * Window start, sent as `since`.
@@ -104,42 +99,31 @@ interface WindowedListQuery {
      * (plan H11).
      */
     readonly since: string;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 
 /** Credential and repository for a list that has no `since` window (pulls). */
 interface RepoListQuery {
-    /** Account credential presented to GitHub. */
     readonly token: string;
-    /** Repository owner. */
     readonly owner: string;
-    /** Repository name. */
     readonly name: string;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 
 /** Credential, coordinates, and pace for a single-item terminal read (002 FR-106). */
 interface ItemStateQuery {
-    /** Account credential presented to GitHub. */
     readonly token: string;
-    /** Repository owner. */
     readonly owner: string;
-    /** Repository name. */
     readonly name: string;
     /** The issue or pull-request number; one repository, one numbering space. */
     readonly itemNumber: number;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 
-/** The surface the poll loop drives. */
 export interface GitHubIssuePoller {
     /**
      * List the open issues of one repository, newest-updated first.
      *
-     * @param query - Token, repository, optional `since` filter.
      * @returns The classified outcome; upstream detail never escapes as text.
      */
     listOpenIssues(query: WindowedListQuery): Promise<IssueListOutcome>;
@@ -147,7 +131,6 @@ export interface GitHubIssuePoller {
     /**
      * List the issue comments of one repository, newest-updated first (M6).
      *
-     * @param query - Token, repository, optional `since` filter.
      * @returns The classified outcome; upstream detail never escapes as text.
      */
     listIssueComments(query: WindowedListQuery): Promise<CommentListOutcome>;
@@ -211,7 +194,6 @@ export interface GitHubIssuePoller {
 /**
  * Run the M1 issue list and answer it under the field the interface promises.
  *
- * @param runtime - Transport plus the poller's injectables.
  * @returns The classified outcome; upstream detail never escapes as text.
  */
 async function issuesList(runtime: PollerRuntime, query: WindowedListQuery): Promise<IssueListOutcome> {
@@ -236,7 +218,6 @@ async function issuesList(runtime: PollerRuntime, query: WindowedListQuery): Pro
 /**
  * Run the M6 issue-comments list and answer it under its promised field.
  *
- * @param runtime - Transport plus the poller's injectables.
  * @returns The classified outcome; upstream detail never escapes as text.
  */
 async function commentsList(runtime: PollerRuntime, query: WindowedListQuery): Promise<CommentListOutcome> {
@@ -261,7 +242,6 @@ async function commentsList(runtime: PollerRuntime, query: WindowedListQuery): P
 /**
  * Run the M7 pulls list and answer it under its promised field.
  *
- * @param runtime - Transport plus the poller's injectables.
  * @returns The classified outcome; upstream detail never escapes as text.
  */
 async function pullsList(runtime: PollerRuntime, query: RepoListQuery): Promise<PullListOutcome> {
@@ -284,7 +264,6 @@ async function pullsList(runtime: PollerRuntime, query: RepoListQuery): Promise<
 }
 
 /**
- * Build the per-item events URL.
  *
  * The query string carries **`per_page` and `page` and nothing else**, which is
  * not a style choice: GitHub's own OpenAPI description for this path accepts
@@ -312,7 +291,6 @@ function itemEventsUrl(input: { readonly owner: string; readonly name: string; r
  * saw, and a candidate with nothing qualifying among them must produce **no**
  * event rather than one attributed from a partial list.
  *
- * @param runtime - Transport plus the poller's injectables.
  * @returns The events the walk saw, whether it exhausted its bound, or the class.
  */
 async function itemEventsList(runtime: PollerRuntime, query: ItemEventsQuery): Promise<ItemEventsOutcome> {
@@ -356,15 +334,12 @@ function pullStateUrl(input: { readonly owner: string; readonly name: string; re
 }
 
 /**
- * Read one issue's own object for its terminal state (002 FR-106).
  *
  * `GET /issues/{number}` answers with the Issue object a list row is — the one
  * whose `state=open` filter a closed issue leaves — so the reader is the same
  * {@link readIssueEntry} shape the list reader takes, over one object. No
  * `since`, no `page`, no `per_page`: this is not a walk, it is one object under
  * the shared transport.
- *
- * @returns The issue with its terminal members, or the classified failure.
  */
 async function issueStateObject(runtime: PollerRuntime, query: ItemStateQuery): Promise<IssueStateOutcome> {
     const result = await readOneObject({
@@ -379,14 +354,11 @@ async function issueStateObject(runtime: PollerRuntime, query: ItemStateQuery): 
 }
 
 /**
- * Read one pull request's own object for its terminal state (002 FR-106).
  *
  * `GET /pulls/{number}` answers with the full Pull Request object — the one that
  * carries `merged` — which the pulls **list**'s `Pull Request Simple` does not,
  * so this is the only row that can tell a merged pull from a closed-unmerged one
  * and the only row a concluded pull can be observed on at all.
- *
- * @returns The pull with its terminal members, or the classified failure.
  */
 async function pullStateObject(runtime: PollerRuntime, query: ItemStateQuery): Promise<PullStateOutcome> {
     const result = await readOneObject({
@@ -407,7 +379,6 @@ async function pullStateObject(runtime: PollerRuntime, query: ItemStateQuery): P
  *   injected `sleep` and `random` a deterministic test supplies.
  * @param fetchImpl - Injectable `fetch`; defaults to the process global so
  *   production uses Node's built-in client and tests supply a fake.
- * @returns The poller bound to that transport and those injectables.
  */
 export function createGitHubIssuePoller(
     deps: PollerDeps,

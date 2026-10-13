@@ -72,7 +72,6 @@ import {
 } from './events-page.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
 
-/** Path the panel polls for queued events. */
 export const EVENTS_PENDING_PATH = '/v1/events/pending';
 
 /** Path of the runs history: every event, every state, newest detected first. */
@@ -87,18 +86,13 @@ export const EVENTS_PATH = '/v1/events';
  */
 export const MAX_LISTED_EVENTS = MAX_PAGE_SIZE;
 
-/** Shape of a stored queue row the status reader needs. */
 type QueueRow = Pick<QueuedEvent, 'id' | 'bindingId' | 'state'>;
 
-/** One binding's scan status row for the panel's status line. */
 export interface BindingStatusRow {
-    /** Binding the row describes. */
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
-    /** The binding's project id. */
     readonly projectId: string;
-    /** The account login this binding polls under. */
     readonly accountLogin: string;
     /** `true` when the binding is enabled right now. */
     readonly active: boolean;
@@ -175,7 +169,6 @@ function actorPolicyOf(binding: BindingRecord): ActorPolicy {
  * is a client error naming the field and the fix, never the received value
  * (SEC-10/11).
  *
- * @param raw - The query parameter as it arrived, or `null` when absent.
  * @returns The page size to ask for, or `null` when it exceeds the cap.
  */
 function claimLimitOf(raw: string | null): number | null {
@@ -227,9 +220,7 @@ function claimLimitOf(raw: string | null): number | null {
  * @throws {StorageUnavailableError} When the run document cannot be read.
  */
 export async function readStatusRows(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Stored bindings, as the route itself read them. */
     readonly bindings: readonly BindingRecord[];
@@ -429,5 +420,4 @@ export const eventHistoryRoute: Route = {
     handler: (context, request) => handleEventHistory(context, request),
 };
 
-/** Type used to note the queue shape the status row counts from. */
 export type { QueueRow, BindingRecord };

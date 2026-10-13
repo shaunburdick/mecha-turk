@@ -33,7 +33,6 @@ export type AccountScopeMatrix = Readonly<Record<ScopeCapability, ScopeResult>>;
 export interface PanelAccount {
     /** GitHub numeric user id. */
     readonly numericUserId: string;
-    /** Display login. */
     readonly login: string;
     /**
      * Operator display label as the service stored it, or `null` when unset.

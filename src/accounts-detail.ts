@@ -87,11 +87,9 @@ export interface DetailControls {
 function mountMemberControls(input: {
     /** Runtime whose state the field mounts from. */
     readonly rt: PanelRuntime;
-    /** Detail box the controls mount into. */
     readonly pane: HTMLElement;
     /** Which profile member this field edits. */
     readonly member: AccountMember;
-    /** Callbacks the field invokes. */
     readonly handlers: AccountsHandlers;
 }): MemberControls {
     const { rt, pane, member, handlers } = input;
@@ -122,9 +120,7 @@ function mountMemberControls(input: {
  * @returns The two handles and their disposer.
  */
 function mountRowControls(input: {
-    /** Detail box the controls mount into. */
     readonly pane: HTMLElement;
-    /** Callbacks the controls invoke. */
     readonly handlers: AccountsHandlers;
 }): {
     /** Two-step rotation control. */
@@ -169,9 +165,7 @@ function mountRowControls(input: {
 export function mountDetailControls(input: {
     /** Runtime whose state the fields mount from. */
     readonly rt: PanelRuntime;
-    /** Detail box the controls mount into. */
     readonly pane: HTMLElement;
-    /** Callbacks the controls invoke. */
     readonly handlers: AccountsHandlers;
 }): DetailControls {
     const mount = (member: AccountMember): MemberControls =>

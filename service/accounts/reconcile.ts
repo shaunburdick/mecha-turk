@@ -51,7 +51,6 @@ export interface ReconcileDeps {
     readonly store: ServiceStore | null;
     /** GitHub verifier used for the re-verification step. */
     readonly github: GitHubVerifier;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }
 
@@ -61,11 +60,9 @@ export interface ReconcileDeps {
  * @returns The rewritten account.
  */
 async function markInterrupted(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     /** The account in a transient state. */
     readonly account: Account;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }): Promise<Account> {
     const { store, account, correlationId } = input;
@@ -95,13 +92,11 @@ async function markInterrupted(input: {
  * @returns The restored account.
  */
 async function restoreAccount(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     /** The account after {@link markInterrupted}. */
     readonly marked: Account;
     /** The accepted GitHub outcome. */
     readonly outcome: Extract<VerifyOutcome, { kind: 'ok' }>;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }): Promise<Account> {
     const { store, marked, outcome, correlationId } = input;

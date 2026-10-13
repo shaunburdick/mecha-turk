@@ -63,7 +63,6 @@ export interface RateStateReport {
 export interface StatusAccount {
     /** GitHub numeric user id. */
     readonly numericUserId: string;
-    /** Display login. */
     readonly login: string;
     /** Last observed connection state. */
     readonly connectionState: ConnectionState;
@@ -83,13 +82,10 @@ export interface StatusAccount {
  * and is **never omitted**, because an omitted binding reads as a deleted one.
  */
 export interface StatusRepositoryRow {
-    /** Binding the row describes. */
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
-    /** The binding's project id. */
     readonly projectId: string;
-    /** The account login this binding polls under. */
     readonly accountLogin: string;
     /** `true` when the binding is enabled right now. */
     readonly active: boolean;

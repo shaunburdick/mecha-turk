@@ -61,7 +61,6 @@ export interface PipelineDeps {
     readonly context: RouteContext;
     /** Exact method + path table. */
     readonly routes: readonly Route[];
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** In-flight counter this pipeline maintains. */
     readonly state: PipelineState;

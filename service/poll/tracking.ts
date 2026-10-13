@@ -227,7 +227,6 @@ export function trackedIssueEnds(input: {
     readonly binding: BindingRecord;
     /** Issues the cycle's own issue list carried. */
     readonly issues: readonly PollIssue[];
-    /** Subjects this binding and account is following. */
     readonly tracked: ReadonlyMap<number, TrackedSubject>;
 }): readonly TrackingEnd[] {
     const ends: TrackingEnd[] = [];
@@ -297,7 +296,6 @@ export function trackedPullEnds(input: {
     readonly binding: BindingRecord;
     /** Pull requests the cycle's own pulls list carried. */
     readonly pulls: readonly PollPull[];
-    /** Subjects this binding and account is following. */
     readonly tracked: ReadonlyMap<number, TrackedSubject>;
 }): readonly TrackingEnd[] {
     const ends: TrackingEnd[] = [];
@@ -341,7 +339,6 @@ export function trackedPullEnds(input: {
  *   its observation out rather than guessing one.
  */
 export function observedHeadSeeds(input: {
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
     /** Observed heads keyed by pull-request number. */
     readonly observations: ReadonlyMap<number, string>;

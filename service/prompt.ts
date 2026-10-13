@@ -58,7 +58,6 @@ export type { PromptSource };
  */
 export const STARTING_PROMPT_MAX_CODE_POINTS = 2_000;
 
-/** Wire and storage shape of a prompt fingerprint (004 FR-016; data-model §2.2). */
 
 /** Prefix every fingerprint carries, so it reads as an identity in a log line. */
 export const PROMPT_FINGERPRINT_PREFIX = 'mtp-';
@@ -79,7 +78,6 @@ const REMEDIATION_TYPE =
 const REMEDIATION_CAP = `startingPrompt must be at most ${STARTING_PROMPT_MAX_CODE_POINTS}`
     + ' characters (Unicode code points) after trimming';
 
-/** The remediation for a control character. */
 const REMEDIATION_CONTROL =
     'startingPrompt must not contain null or control characters other than newline and tab';
 
@@ -88,16 +86,12 @@ const REMEDIATION_MARKER = 'startingPrompt must not contain a line beginning wit
     + ' "--- BEGIN " or "--- END " (reserved composition markers)';
 
 /**
- * The remediation for credential-shaped material.
- *
  * @param label - The shipped detector's stable label, never the matched text.
- * @returns The remediation naming the shape and not the value.
  */
 export function credentialRemediation(label: string): string {
     return `startingPrompt must not contain credential-shaped material (matched shape: ${label})`;
 }
 
-/** One refused prompt, in the `field` + remediation voice every refusal shares. */
 export interface PromptIssue {
     /** Always the prompt field, so a client can render the refusal in place. */
     readonly field: 'startingPrompt';
@@ -114,8 +108,6 @@ export type PromptValidation =
 
 /**
  * Refuse a candidate prompt with a field-level remediation.
- *
- * @returns The refusal verdict.
  */
 function refuse(remediation: string): PromptValidation {
     return { ok: false, issue: { field: 'startingPrompt', remediation } };
@@ -137,8 +129,6 @@ function refuse(remediation: string): PromptValidation {
  * 6. **Well-formedness** — no control character but tab and newline.
  * 7. **Reserved markers** — no line beginning with a reserved prefix.
  * 8. **Credential shape** — the shipped detector's own labels.
- *
- * @returns The normalised text, `null` for unset, or the one refusal.
  */
 export function validateStartingPrompt(raw: unknown): PromptValidation {
     if (raw === undefined || raw === null) {
@@ -184,8 +174,6 @@ export function validateStartingPrompt(raw: unknown): PromptValidation {
  * identically across restarts, builds, and machines.
  * Because a credential-shaped prompt is refused before it is ever stored, a
  * fingerprint can never be a hash of a secret.
- *
- * @returns `mtp-<sha256 hex[0:32]>`.
  */
 export function promptFingerprint(text: string): string {
     const digest = createHash('sha256').update(text, 'utf8').digest('hex');
@@ -274,8 +262,6 @@ const TIER_GAP = '\n\n';
  *
  * Inputs must already be validated and normalised — that is
  * {@link resolvePromptSnapshot}'s job; this function only stacks.
- *
- * @returns The composed body; `''` when no tier is set.
  */
 export function composePromptBody(tiers: {
     /** The global tier's text (`config.json`), or `null` when unset. */
@@ -295,7 +281,6 @@ export function composePromptBody(tiers: {
     return set.join(TIER_GAP);
 }
 
-/** What one tier resolved to: set with text, unset, or refused. */
 type ResolvedTier =
     /** Absent or empty: contributes nothing to the composition. */
     | { readonly state: 'unset' }
@@ -305,8 +290,6 @@ type ResolvedTier =
     | { readonly state: 'refused' };
 
 /**
- * Resolve one tier's store record to its state.
- *
  * The member is read **structurally**: all three stores hold the tier under the
  * same `startingPrompt` name, so the resolver imports neither `ServiceConfig`,
  * `Account`, nor `BindingRecord`, and every tier passes the single
@@ -314,8 +297,6 @@ type ResolvedTier =
  * without the member, is *unset* — a complete state that contributes nothing;
  * anything that is not a record at all is a refusal, never a default
  * (AGENTS.md invariant 8).
- *
- * @returns The tier's state.
  */
 function resolveTier(record: unknown): ResolvedTier {
     if (record === undefined || record === null) {
@@ -353,8 +334,6 @@ function resolveTier(record: unknown): ResolvedTier {
  * — and also when a passed tier is unusable: the last resort, nothing composed
  * from text the validator refused, which the stores' own read paths quarantine
  * long before this runs.
- *
- * @returns The composed snapshot, or `null` when nothing usable is set.
  */
 export function resolvePromptSnapshot(tiers: {
     /** This cycle's effective configuration (the global tier's record). */
@@ -389,8 +368,6 @@ export function resolvePromptSnapshot(tiers: {
 }
 
 /**
- * The stack bound for a body that stacks `sourceCount` tiers.
- *
  * `n × cap + 2 × (n − 1)`: every set tier is capped at
  * {@link STARTING_PROMPT_MAX_CODE_POINTS} code points on its own, and the body
  * joins consecutive set tiers with exactly one 2-code-point blank line per gap —
@@ -399,8 +376,6 @@ export function resolvePromptSnapshot(tiers: {
  * `length` against this figure and the row's own `sources` count, which is
  * how a hand-edited row is held to the bound **without ever re-splitting the
  * body** (structure is built, never parsed).
- *
- * @returns The most code points that body may hold.
  */
 export function promptStackMaxCodePoints(sourceCount: number): number {
     return sourceCount * STARTING_PROMPT_MAX_CODE_POINTS + 2 * (sourceCount - 1);
@@ -413,14 +388,12 @@ export type StoredPromptSnapshot =
     /** A snapshot the shape checks accepted. */
     | { readonly status: 'set'; readonly snapshot: PromptSnapshot };
 
-/** Read the stored text member, refusing anything that is not non-empty text. */
 function storedText(candidate: Record<string, unknown>): string | null {
     const { text } = candidate;
 
     return typeof text === 'string' && text !== '' ? text : null;
 }
 
-/** Read the stored fingerprint member, refusing anything outside the fixed format. */
 function storedFingerprint(candidate: Record<string, unknown>): string | null {
     const { fingerprint } = candidate;
 
@@ -429,7 +402,6 @@ function storedFingerprint(candidate: Record<string, unknown>): string | null {
         : null;
 }
 
-/** Read the stored length member, refusing anything that is not a positive integer. */
 function storedLength(candidate: Record<string, unknown>): number | null {
     const { length } = candidate;
 
@@ -437,15 +409,11 @@ function storedLength(candidate: Record<string, unknown>): number | null {
 }
 
 /**
- * Read the stored `sources` member: a non-empty, ordered, duplicate-free
- * list of known tiers.
  *
  * Absent, `null`, empty, non-array, out-of-order, duplicated, or unknown all
  * **refuse** — there is no defaulting branch, because the feature has never
  * been released: no legitimate record can lack the member, and one that arrived
  * anyway is refused rather than completed on its behalf (AGENTS.md invariant 8).
- *
- * @returns The list, or `null` when it cannot stand as `promptSources`.
  */
 function storedSources(candidate: Record<string, unknown>): readonly PromptSource[] | null {
     const { sources } = candidate;
@@ -460,9 +428,6 @@ function storedSources(candidate: Record<string, unknown>): readonly PromptSourc
 /**
  * Validate the stored members against each other and against the secret
  * rule the save boundary applied.
- *
- * @param candidate - The stored `prompt` member, already known to be a record.
- * @returns The snapshot, or `null` when any member is unusable.
  */
 function readStoredSnapshot(candidate: Record<string, unknown>): PromptSnapshot | null {
     const text = storedText(candidate);

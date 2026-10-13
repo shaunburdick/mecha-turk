@@ -43,7 +43,6 @@ import type { EventKind, FollowUpKind, QueuedEvent } from './events-parse.ts';
 import { followUpKindOf } from './events-parse.ts';
 import type { Run, SourceReference } from './runs-types.ts';
 
-/** Why a run that has never moved sits where it does. */
 const WAITING_REASON = 'waiting for a panel';
 
 /**
@@ -61,9 +60,7 @@ const WAITING_REASON = 'waiting for a panel';
  */
 export type HistoryReference = SourceReference;
 
-/** The session pointer as the run history carries it. */
 export interface HistorySession {
-    /** Host-owned session id. */
     readonly sessionId: string;
     /** `= correlationId`; the id the session was started with. */
     readonly attachmentId: string;
@@ -71,11 +68,9 @@ export interface HistorySession {
     readonly dispatchedAt: string;
 }
 
-/** The recorded agent read-back as the run history carries it. */
 export interface HistoryVerification {
     /** Agent the read-back observed, or `null` when it was unreadable. */
     readonly observedAgent: string | null;
-    /** Agent the binding expected. */
     readonly expectedAgent: string;
     /** Whether the two matched; a mismatch is a warning, never a state. */
     readonly ok: boolean;
@@ -99,7 +94,6 @@ export interface HistoryVerification {
 export interface HistoryFollowUp {
     /** The deterministic `evt-…~followup~…` id: the relay's at-most-once key. */
     readonly deliveryId: string;
-    /** Which of the two movement kinds this is. */
     readonly kind: FollowUpKind;
     /** Bounded untrusted excerpt the panel composes its message from. */
     readonly excerpt: string;
@@ -107,7 +101,6 @@ export interface HistoryFollowUp {
     readonly actorLogin: string;
     /** RFC 3339 detection stamp. */
     readonly detectedAt: string;
-    /** Canonical link back to the source. */
     readonly sourceUrl: string;
     /**
      * The head the run carried before this movement, for a head change only.
@@ -160,7 +153,6 @@ export interface RunHistoryRow {
     readonly runKey: string;
     /** 0-based ordinal of this run for its subject. */
     readonly ordinal: number;
-    /** Current attempt count. */
     readonly attempt: number;
     /** Same value as {@link RunHistoryRow.id}; the panel's copy affordance reads it. */
     readonly correlationId: string;
@@ -188,9 +180,7 @@ export interface RunHistoryRow {
     readonly sourceReferences: readonly HistoryReference[];
     /** How many triggers have joined, retained or not. */
     readonly referenceCount: number;
-    /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
-    /** How many joining triggers the cap kept off the list; `0` when none. */
     readonly referencesNotRetained: number;
     /** Session pointer, or `null` when this run never produced one. */
     readonly session: HistorySession | null;
@@ -200,15 +190,12 @@ export interface RunHistoryRow {
     readonly kind: EventKind;
     /** Repository in `owner/name` form. */
     readonly repository: string;
-    /** Issue (or pull request) number. */
     readonly issueNumber: number;
     /** Issue title; untrusted source text, copied verbatim. */
     readonly issueTitle: string;
-    /** Canonical issue URL. */
     readonly issueUrl: string;
     /** RFC 3339 stamp of the earliest reference; the row's age derives from it. */
     readonly detectedAt: string;
-    /** Binding this run dispatches through. */
     readonly bindingId: string;
     /** Session id once one exists, else the recorded cause of a failure, else `null`. */
     readonly dispatchResult: string | null;
@@ -310,8 +297,6 @@ function reviewCoordinates(delivery: QueuedEvent | undefined): { headSha?: strin
  * attempt record for its failure, so its stored state reason is the same fact
  * in the same place. Anything else reports `null`: a run that is waiting,
  * blocked, or wedged has no *result*, and saying otherwise would invent one.
- *
- * @returns The recorded cause, or `null`.
  */
 function recordedCause(run: Run): string | null {
     for (let index = run.attempts.length - 1; index !== -1; index -= 1) {
@@ -326,8 +311,6 @@ function recordedCause(run: Run): string | null {
 
 /**
  * The session id or failure text the shipped `dispatchResult` member carried.
- *
- * @returns The session id when one exists, else the recorded cause, else `null`.
  */
 function dispatchResultOf(run: Run): string | null {
     if (run.session !== null) {
@@ -346,7 +329,6 @@ function dispatchResultOf(run: Run): string | null {
  * has to project.
  */
 function deliveryView(input: {
-    /** The run being projected. */
     readonly run: Run;
     /** The run's earliest source reference, when it has one. */
     readonly primary: SourceReference | undefined;
@@ -372,8 +354,6 @@ function deliveryView(input: {
 
 /**
  * Attach the review-origin coordinates, keeping an absent member absent.
- *
- * @returns The row, carrying `headSha`/`baseRef` only when that delivery does.
  */
 function withReviewCoordinates(row: RunHistoryRow, delivery: QueuedEvent | undefined): RunHistoryRow {
     const coordinates = reviewCoordinates(delivery);
@@ -392,8 +372,6 @@ function withReviewCoordinates(row: RunHistoryRow, delivery: QueuedEvent | undef
  * would invite exactly the confusion the reserve answer's own `resultDeadlineAt`
  * member exists to prevent. The member answers one question: *by when
  * must this run report, or wedge into `unconfirmed`?*
- *
- * @returns The deadline while the reservation is live, else `null`.
  */
 function liveResultDeadlineOf(run: Run): string | null {
     if (run.reservation === null || run.reservation.consumed) {
@@ -404,9 +382,6 @@ function liveResultDeadlineOf(run: Run): string | null {
 }
 
 /**
- * The lease members of the history row: expiry, and the one claim stamp the
- * stored record can state.
- *
  * @returns The live lease's issue and expiry stamps, both `null` when no lease
  *   is held (the run model keeps no claim history — see {@link RunHistoryRow}).
  */
@@ -420,8 +395,6 @@ function leaseViewOf(run: Run): { readonly leaseExpiresAt: string | null; readon
 
 /**
  * The session pointer, reduced to the three members the contract names.
- *
- * @returns The pointer, or `null` when the run never produced a session.
  */
 function sessionViewOf(run: Run): HistorySession | null {
     if (run.session === null) {
@@ -437,8 +410,6 @@ function sessionViewOf(run: Run): HistorySession | null {
 
 /**
  * The recorded agent read-back, reduced to the four members the contract names.
- *
- * @returns The read-back, or `null` when none was filed.
  */
 function verificationViewOf(run: Run): HistoryVerification | null {
     if (run.verification === null) {
@@ -463,13 +434,9 @@ function verificationViewOf(run: Run): HistoryVerification | null {
  *   than a hole in the record.
  */
 function promptViewOf(run: Run): {
-    /** Whether a starting prompt was set when this run was queued. */
     readonly promptPresent: boolean;
-    /** The fingerprint, or `null` when none. */
     readonly promptFingerprint: string | null;
-    /** The length, or `null` when none. */
     readonly promptLength: number | null;
-    /** The contributing tiers in order, or `null` when no tier was set. */
     readonly promptSources: readonly PromptSource[] | null;
 } {
     if (run.prompt === null) {
@@ -509,8 +476,6 @@ function headShaOfRow(row: QueuedEvent): string | undefined {
 }
 
 /**
- * Project one queue row into its follow-up entry.
- *
  * @returns The entry, or `null` when the row carries nothing a delivery can use.
  */
 function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): HistoryFollowUp | null {
@@ -543,7 +508,6 @@ function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): Hist
  * forbids; opening from the start can only ever project a run's movements
  * earlier than asked, never fewer of them.
  *
- * @param from - The `followUpsFrom` value, or `null` when the read omitted it.
  * @returns The index the window opens at; `0` for an absent or unmatched id.
  */
 function windowStartOf(from: string | null, rows: readonly QueuedEvent[]): number {
@@ -576,7 +540,6 @@ function windowStartOf(from: string | null, rows: readonly QueuedEvent[]): numbe
  *   case, and the reason the member is absent rather than empty.
  */
 function followUpsOf(input: {
-    /** The run being projected. */
     readonly run: Run;
     /** Every queued delivery row, in queue order. */
     readonly queue: readonly QueuedEvent[];
@@ -609,9 +572,7 @@ function followUpsOf(input: {
     return followUps;
 }
 
-/** Project one stored run into its history row. */
 function historyRowOf(input: {
-    /** The run being projected. */
     readonly run: Run;
     /** Delivery rows keyed by id, as read from the queue. */
     readonly deliveries: ReadonlyMap<string, QueuedEvent>;
@@ -666,13 +627,6 @@ function historyRowOf(input: {
 /**
  * Project the runs history: newest detected first, capped, never claiming.
  *
- * @param input.runs - Every retained run, in creation order.
- * @param input.deliveries - Delivery rows keyed by id, for the members a run
- *   does not store.
- * @param input.cap - Most rows one answer may carry (`MAX_LISTED_EVENTS`).
- * @param input.followUpsFrom - Where one run's follow-up window opens, or
- *   `null`/absent for the start — the answer every caller that omits the
- *   parameter gets, byte-for-byte what it got before the parameter existed.
  * @returns At most `cap` rows, freshest detection first; oldest runs dropped
  *   first.
  */

@@ -194,7 +194,6 @@ function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRu
  */
 export function runRequestOf(input: {
     readonly rt: PanelRuntime;
-    /** The offered run. */
     readonly run: ClaimedRun;
     /** Project the host confirmed. */
     readonly project: GuestProject;
@@ -262,7 +261,6 @@ export function runRequestOf(input: {
  */
 export async function startRunSession(input: {
     readonly rt: PanelRuntime;
-    /** The offered run. */
     readonly run: ClaimedRun;
     /** Project the host confirmed. */
     readonly project: GuestProject;
@@ -308,7 +306,6 @@ export async function startRunSession(input: {
  */
 export async function reportAndAcknowledge(input: {
     readonly rt: PanelRuntime;
-    /** The offered run. */
     readonly run: ClaimedRun;
     /** The single-use token the reservation holds. */
     readonly token: string;
@@ -363,11 +360,9 @@ export async function reportAndAcknowledge(input: {
  */
 export async function closeAttempt(input: {
     readonly rt: PanelRuntime;
-    /** The offered run. */
     readonly run: ClaimedRun;
     /** The single-use token the reservation holds. */
     readonly token: string;
-    /** What the host call produced. */
     readonly started: HostCall;
 }): Promise<void> {
     const { rt, run, token, started } = input;

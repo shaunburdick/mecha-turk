@@ -162,9 +162,7 @@ function lowers(current: string, proposed: string): boolean {
  * @returns The lowerings, in the service's field order; empty when none.
  */
 export function loweredRetention(input: {
-    /** The last read. */
     readonly envelope: ConfigEnvelope;
-    /** The draft being proposed. */
     readonly draft: Readonly<Record<string, string>>;
 }): readonly RetentionLowering[] {
     const found: RetentionLowering[] = [];
@@ -216,9 +214,7 @@ function loweringBlock(input: {
  * @returns The lines, empty when the draft lowers no retention knob.
  */
 function loweringLines(input: {
-    /** The last read. */
     readonly envelope: ConfigEnvelope;
-    /** The draft being proposed. */
     readonly draft: Readonly<Record<string, string>>;
 }): readonly string[] {
     return loweredRetention(input).flatMap((lowering) => {
@@ -248,9 +244,7 @@ interface DraftChange {
  * @returns The changes, in the service's field order.
  */
 function changesIn(input: {
-    /** The last read. */
     readonly envelope: ConfigEnvelope;
-    /** The draft being proposed. */
     readonly draft: Readonly<Record<string, string>>;
 }): readonly DraftChange[] {
     const changes: DraftChange[] = [];
@@ -275,7 +269,6 @@ function changesIn(input: {
  * @returns The confirmation, or `null` when this save deletes nothing.
  */
 export function saveConfirmation(input: {
-    /** The last read. */
     readonly envelope: ConfigEnvelope;
     /** The draft a save would write. */
     readonly draft: Readonly<Record<string, string>>;
@@ -301,7 +294,6 @@ export function saveConfirmation(input: {
  * @returns The confirmation naming every field the write will change.
  */
 export function restoreConfirmation(input: {
-    /** The last read. */
     readonly envelope: ConfigEnvelope;
     /** The draft after the declared defaults were staged into it. */
     readonly draft: Readonly<Record<string, string>>;

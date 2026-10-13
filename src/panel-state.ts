@@ -74,7 +74,6 @@ export const TAB_IDS: readonly TabId[] = ['status', 'dispatches', 'bindings', 'a
  */
 export const STATUS_TAB: TabId = 'status';
 
-/** Banner content shown at the top of the panel. */
 export interface PanelStatus {
     readonly tone: BannerTone;
     /** One-line headline. */
@@ -85,8 +84,6 @@ export interface PanelStatus {
 
 /**
  * Build the empty Dispatches-section state (M8).
- *
- * @returns The state before the first read.
  */
 export function initialDispatches(): DispatchesState {
     return {
@@ -106,11 +103,6 @@ export function initialDispatches(): DispatchesState {
     };
 }
 
-/**
- * Build the empty relay state.
- *
- * @returns The state before the loop starts.
- */
 export function initialRelay(): Relay {
     return {
         timer: null,
@@ -125,9 +117,7 @@ export function initialRelay(): Relay {
     };
 }
 
-/** Mutable panel state. */
 export interface PanelState {
-    /** Ledger being built for this mount. */
     ledger: PanelLedger;
     /**
      * Dispatch context derived from the first enabled binding, or `null`
@@ -156,11 +146,8 @@ export interface PanelState {
      * in memory only (002 FR-095).
      */
     hostDirectory: string | null;
-    /** Project list the binding form's project select renders from. */
     projects: ProjectPickerState;
-    /** Evidence record for the current match. */
     evidence: PanelEvidence | null;
-    /** Banner content. */
     status: PanelStatus;
     /** Whether an action is running; blocks concurrent dispatches. */
     busy: boolean;
@@ -184,13 +171,10 @@ export interface PanelState {
 
 /** The event-relay loop's runtime state (M4, widened by 003 T-021). */
 export interface Relay {
-    /** Timer handle while the loop runs. */
     timer: ReturnType<typeof setInterval> | null;
-    /** Whether a relay request is in flight. */
     inFlight: boolean;
     /** RFC 3339 stamp of the last completed poll. */
     lastPollAt: string | null;
-    /** Whether a dispatch is being processed right now. */
     dispatching: boolean;
     /**
      * Attempts this mount has already handed to the dispatch path,
@@ -238,19 +222,14 @@ export interface Relay {
     currentSessionId: string | null;
 }
 
-/** Everything the panel's functions share. */
 export interface PanelRuntime {
     /** Documented host client. */
     readonly host: PanelHost;
     /** Frame window, used for the unload hook. */
     readonly panelWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>;
-    /** Mutable panel state. */
     readonly state: PanelState;
-    /** Host subscription disposers collected during wiring. */
     readonly unsubscribes: (() => void)[];
-    /** UI handles once mounted. */
     ui: PanelUi | null;
-    /** Mounted handoff group, when this surface shows one. */
     handoffView: HandoffView | null;
     /**
      * The six-tab shell the panel root owns.
@@ -271,7 +250,6 @@ export interface PanelRuntime {
     settingsUi: SettingsTabUi | null;
     /** About body's diagnostics list, `null` until that tab first activates. */
     aboutUi: AboutTabUi | null;
-    /** `true` once the panel has been torn down. */
     disposed: boolean;
     /** `true` once the first `onReady` snapshot has been handled. */
     started: boolean;
@@ -284,7 +262,6 @@ export interface PanelRuntime {
     activeTab: TabId;
     /** Tabs whose bodies have mounted; each mounts once, on first activation. */
     tabMounted: Set<TabId>;
-    /** When each tab last landed a read; `null` until one does. */
     tabLastRead: Map<TabId, string | null>;
     /** Registered unload listener, so teardown can remove exactly what it added. */
     pagehideListener: (() => void) | null;
@@ -304,7 +281,6 @@ export interface PanelRuntime {
      * last landed status document carried — or `null` while nothing is armed.
      */
     statusRefreshMs: number | null;
-    /** Whether the event relay loop is armed on this runtime. */
     relayArmed: boolean;
     /**
      * Whether mount-time reconciliation has settled for this runtime.
@@ -317,7 +293,6 @@ export interface PanelRuntime {
      * first.
      */
     reconcileSettled: boolean;
-    /** Relay arming requested while reconciliation was still running. */
     relayArmPending: boolean;
     /**
      * Verification read-backs this mount started and has not seen settle.
@@ -329,7 +304,6 @@ export interface PanelRuntime {
     readonly pendingVerifications: Promise<void>[];
 }
 
-/** Per-binding event counts from the last relay poll. */
 export type { BindingStatusRow } from './bindings-service.ts';
 
 /** Lifecycle of the runs list the Dispatches section renders (M8). */
@@ -355,11 +329,9 @@ export type DispatchesStatus =
 export interface DispatchesState {
     /** Rows as the last successful read reported them (newest first). */
     rows: readonly RunRow[];
-    /** Where the list read stands. */
     status: DispatchesStatus;
     /** Operator-facing note about the list or the last retry; redacted. */
     note: string;
-    /** The row the operator last clicked, for the open/retry buttons. */
     selectedRun: string | null;
     /**
      * Post-dispatch agent-verification banner (M9), or `null` before the
@@ -413,7 +385,6 @@ export type RunPendingAction = 'requeue' | 'resolve-session' | 'resolve-no-sessi
  * module shares, and it deserves to be readable in one pass.
  *
  * @param createdAt - RFC 3339 stamp pinned at construction.
- * @returns The state object the runtime carries.
  */
 function initialState(createdAt: string): PanelState {
     return {
@@ -444,9 +415,6 @@ function initialState(createdAt: string): PanelState {
 
 /**
  * Create the runtime with a fresh, unmounted state.
- *
- * @param panelWindow - Frame window for the unload hook.
- * @returns The shared panel runtime.
  */
 export function createPanelRuntime(
     host: PanelHost,
@@ -483,9 +451,6 @@ export function createPanelRuntime(
     };
 }
 
-/**
- * Replace the banner content.
- */
 export function setStatus(rt: PanelRuntime, next: PanelStatus): void {
     rt.state.status = next;
 }

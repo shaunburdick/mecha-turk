@@ -78,7 +78,6 @@ export const TAKE_EFFECT = {
 
 /** A bounded numeric field, projected. */
 export interface IntegerFieldDescriptor {
-    /** Documented key. */
     readonly name: keyof typeof NUMERIC_BOUNDS;
     /** Closed kind discriminator. */
     readonly kind: 'integer';
@@ -90,13 +89,11 @@ export interface IntegerFieldDescriptor {
     readonly max: number;
     /** Documented default. */
     readonly default: number;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffect;
 }
 
 /** A closed enum field, projected. */
 export interface EnumFieldDescriptor {
-    /** Documented key. */
     readonly name: 'logLevel';
     /** Closed kind discriminator. */
     readonly kind: 'enum';
@@ -106,7 +103,6 @@ export interface EnumFieldDescriptor {
     readonly values: readonly LogLevel[];
     /** Documented default. */
     readonly default: LogLevel;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffect;
 }
 
@@ -119,7 +115,6 @@ export interface EnumFieldDescriptor {
  * this type, and the panel's parser meets only names the service declared.
  */
 export interface StringFieldDescriptor {
-    /** Documented key. */
     readonly name: 'expectedAgent' | 'startingPrompt';
     /** Closed kind discriminator. */
     readonly kind: 'string';
@@ -131,7 +126,6 @@ export interface StringFieldDescriptor {
     readonly maxLength: number;
     /** Documented default. */
     readonly default: string;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffect;
     /**
      * Present only when the value is prose written across several lines, so

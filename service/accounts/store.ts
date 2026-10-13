@@ -50,7 +50,6 @@ export function accountPath(numericUserId: string): string {
 
 /** One read of a stored account. */
 interface ReadAccountInput {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Key of the account to read. */
     readonly numericUserId: string;

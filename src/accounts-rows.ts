@@ -44,7 +44,6 @@ export const HANDOFF_REMEDIATION = 'Complete or replace the handoff to finish co
 
 /** What one lifecycle state reads as: its words and the way out of it. */
 interface LifecycleCopy {
-    /** The words the row shows for the state. */
     readonly label: string;
     /** The remediation line, or `null` when the state needs none. */
     readonly remediation: string | null;
@@ -98,7 +97,6 @@ export function accountTitle(account: PanelAccount): string {
     return account.displayName ?? account.login;
 }
 
-/** Read one lifecycle state's words and remediation. */
 export function lifecycleCopy(account: PanelAccount): LifecycleCopy {
     const { state } = account;
     if (state === undefined) {
@@ -181,8 +179,6 @@ export function verifiedPhrase(account: PanelAccount): string {
  *
  * A matrix the DTO did not carry reads *not checked* — never *ok*: an
  * absent matrix is no evidence, and no evidence is not a pass.
- *
- * @returns The scope phrase.
  */
 export function scopePhrase(account: PanelAccount): string {
     const matrix = account.scopeMatrix;
@@ -195,7 +191,6 @@ export function scopePhrase(account: PanelAccount): string {
     return `scope: ${verdicts.join(' · ')}`;
 }
 
-/** Count the bindings one account backs. */
 export function bindingsBacked(bindings: BindingsTabState, account: PanelAccount): number {
     return bindings.bindings.filter(
         (binding) => binding.accountNumericUserId === account.numericUserId,
@@ -223,7 +218,6 @@ export function accountPromptSummary(account: PanelAccount): string {
     return `prompt set · ${[...startingPrompt].length} chars`;
 }
 
-/** Compose one account row. */
 export function accountRow(bindings: BindingsTabState, account: PanelAccount): ListItem {
     const lifecycle = lifecycleCopy(account);
     const parts = [
@@ -332,11 +326,8 @@ export function rotationRetained(login: string): string {
  *   on this row is armed.
  */
 export function armStatement(input: {
-    /** The Accounts tab's working state. */
     readonly accounts: AccountsTabState;
-    /** The Bindings tab's state, for the count. */
     readonly bindings: BindingsTabState;
-    /** The row being described. */
     readonly account: PanelAccount;
 }): string | null {
     const id = input.account.numericUserId;
@@ -351,13 +342,9 @@ export function armStatement(input: {
     return null;
 }
 
-/** Compose the detail line for whatever row is open. */
 export function detailText(input: {
-    /** The Bindings tab's state, for counts and the row itself. */
     readonly bindings: BindingsTabState;
-    /** The Accounts tab's working state, for the armed controls. */
     readonly accounts: AccountsTabState;
-    /** The open row, or `undefined` when nothing is selected. */
     readonly selected: PanelAccount | undefined;
 }): string {
     if (input.selected === undefined) {
@@ -371,15 +358,11 @@ export function detailText(input: {
     return arm === null ? detail : `${detail} · ${arm}`;
 }
 
-/** Which label a two-step control carries right now. */
 export function armLabel(input: {
-    /** The row whose control is armed, or `null`. */
     readonly armed: string | null;
     /** The row the control acts on, or `null` when nothing is open. */
     readonly id: string | null;
-    /** What the control reads once armed. */
     readonly armedLabel: string;
-    /** What it reads otherwise. */
     readonly idleLabel: string;
 }): string {
     return input.id !== null && input.armed === input.id ? input.armedLabel : input.idleLabel;
@@ -392,7 +375,6 @@ const DISPLAY_NAME_LABEL = 'Display name for this account';
 const DISPLAY_NAME_HINT = 'Shown in the list instead of the login';
 
 /**
- * The account-tier field's label.
  *
  * The binding tier's label says *from this repository*; this one says *from
  * this account*, so two fields carrying two different values never read as
@@ -425,7 +407,6 @@ export const ACCOUNT_PROMPT_GUIDANCE =
  */
 export const ACCOUNT_PROMPT_NOT_SET = 'not set';
 
-/** What one profile member's field renders right now. */
 export interface AccountFieldView {
     /** The field's accessible name. */
     readonly label: string;
@@ -453,9 +434,7 @@ export interface AccountFieldView {
 export function accountFieldView(
     member: AccountMember,
     input: {
-        /** The Accounts tab's working state. */
         readonly accounts: AccountsTabState;
-        /** The open row, or `undefined` when nothing is selected. */
         readonly account: PanelAccount | undefined;
     },
 ): AccountFieldView {

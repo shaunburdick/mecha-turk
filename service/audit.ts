@@ -53,16 +53,10 @@ const AUDIT_ENTITY_KINDS: ReadonlySet<string> = new Set<AuditEntityKind>([
     'delivery',
 ]);
 
-/**
- * Narrow an unknown value to an entity kind.
- *
- * @returns `true` only for one of the documented kinds.
- */
 function isAuditEntityKind(value: unknown): value is AuditEntityKind {
     return typeof value === 'string' && AUDIT_ENTITY_KINDS.has(value);
 }
 
-/** One durable audit record. */
 export interface AuditEntry {
     /** Monotonic sequence number assigned by the writer. */
     readonly seq: number;
@@ -74,9 +68,7 @@ export interface AuditEntry {
     readonly eventType: string;
     /** Who caused the event: `panel`, `service`, or `operator`. */
     readonly actorSource: string;
-    /** The entity this entry is about. */
     readonly entity: { readonly kind: AuditEntityKind; readonly id: string };
-    /** Decision recorded with the event, when it is a decision. */
     readonly decision: string | null;
     /** Secret-free reason text. */
     readonly reason: string | null;
@@ -88,17 +80,12 @@ export interface AuditEntry {
 
 /** What a caller supplies; `seq` and `timestamp` are assigned by the writer. */
 export interface AuditInput {
-    /** Event vocabulary name. */
     readonly eventType: string;
-    /** Who caused the event. */
     readonly actorSource: string;
-    /** The entity this entry is about. */
     readonly entity: { readonly kind: AuditEntityKind; readonly id: string };
     /** Correlation id; a fresh one is generated when omitted. */
     readonly correlationId?: string;
-    /** Decision, when the event records one. */
     readonly decision?: string | null;
-    /** Secret-free reason text. */
     readonly reason?: string | null;
     /** Event payload; must already be token-free. */
     readonly details?: Readonly<Record<string, unknown>>;
@@ -106,20 +93,13 @@ export interface AuditInput {
 
 /** Outcome of the redaction pass: the cleaned values plus the paths touched. */
 interface RedactedFields {
-    /** Details with every secret-shaped string replaced. */
     readonly details: Record<string, unknown>;
-    /** Reason with every secret-shaped string replaced. */
     readonly reason: string | null;
-    /** Whether the pass changed anything, and which paths it rewrote. */
     readonly redaction: { readonly redacted: boolean; readonly fields: readonly string[] };
 }
 
 /**
  * Redact every string inside a JSON-ish value, collecting what changed.
- *
- * @param input - Candidate value (already token-free by design), its dotted
- *   path, and the accumulator collecting rewritten paths.
- * @returns The value with secret-shaped strings replaced.
  */
 // eslint-disable-next-line llm-core/no-unknown-returns -- input is `unknown` by design; four branches, no union.
 function redactDeep(input: { readonly value: unknown; readonly path: string; readonly fields: string[] }): unknown {
@@ -151,8 +131,6 @@ function redactDeep(input: { readonly value: unknown; readonly path: string; rea
 
 /**
  * Apply the redaction pass to an audit input.
- *
- * @returns The entry with redacted details/reason and the changed field list.
  */
 function redactInput(input: AuditInput): RedactedFields {
     const fields: string[] = [];
@@ -171,24 +149,14 @@ function redactInput(input: AuditInput): RedactedFields {
 
 /** Scalar header fields every stored audit line must carry. */
 interface AuditHeader {
-    /** Monotonic sequence number. */
     readonly seq: number;
     /** RFC 3339 timestamp. */
     readonly timestamp: string;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
-    /** Event vocabulary name. */
     readonly eventType: string;
-    /** Who caused the event. */
     readonly actorSource: string;
 }
 
-/**
- * Check and narrow the scalar header fields of a stored line.
- *
- * @param raw - Parsed document already known to be a record.
- * @returns `true` when every header field has its documented type.
- */
 function isAuditHeader(raw: Record<string, unknown>): raw is AuditHeader & Record<string, unknown> {
     return (
         typeof raw.seq === 'number' &&
@@ -199,11 +167,6 @@ function isAuditHeader(raw: Record<string, unknown>): raw is AuditHeader & Recor
     );
 }
 
-/**
- * Check and narrow the entity of a stored line.
- *
- * @returns `true` for a documented kind plus a string id.
- */
 function isAuditEntity(raw: unknown): raw is { readonly kind: AuditEntityKind; readonly id: string } {
     return isRecord(raw) && isAuditEntityKind(raw.kind) && typeof raw.id === 'string';
 }
@@ -228,7 +191,6 @@ function readRedaction(raw: unknown): { readonly redacted: boolean; readonly fie
 /**
  * Parse a stored line back into an entry, rejecting anything malformed.
  *
- * @param raw - One parsed NDJSON document.
  * @returns The entry, or `null` when the line does not carry the required
  *   shape (counted as malformed by the reader, never thrown).
  */
@@ -251,7 +213,6 @@ export function parseAuditEntry(raw: unknown): AuditEntry | null {
     };
 }
 
-/** One read of the trail: the usable rows, plus the lines the reader refused. */
 export interface AuditTrailRead {
     /** The entries, in file order. */
     readonly entries: readonly AuditEntry[];
@@ -269,8 +230,6 @@ export interface AuditTrailRead {
 /**
  * Read every usable audit entry **and** the count of lines that could not be
  * used, in file order.
- *
- * @returns The entries plus the unreadable-line count.
  */
 export async function readAuditTrail(store: ServiceStore): Promise<AuditTrailRead> {
     const result = await store.readLines(AUDIT_FILE, parseAuditEntry);
@@ -318,7 +277,6 @@ const auditCaches = new WeakMap<ServiceStore, Promise<AuditCache>>();
  * `consent` rows builds before 2026-10-01 wrote, which no writer emits any
  * more but which remain ordinary, readable history.
  *
- * @returns The seeded cache: the first free `seq`.
  * @throws {StorageUnavailableError} When the trail cannot be read — a write
  *   that cannot establish its own sequence number must fail, not guess.
  */
@@ -339,7 +297,6 @@ async function seedAuditCache(store: ServiceStore): Promise<AuditCache> {
  * share a single file read; a failed seed is dropped from the map so the next
  * attempt reads the file again instead of serving a half-built cache.
  *
- * @returns The cache, seeded from the audit file.
  * @throws {StorageUnavailableError} When the trail cannot be read.
  */
 function auditCacheFor(store: ServiceStore): Promise<AuditCache> {
@@ -450,8 +407,6 @@ export async function composeAudit(store: ServiceStore, input: AuditInput): Prom
  * append reuses its number (no gaps), and appends never re-read the file to
  * discover where the trail ended.
  *
- * @param input - Caller-supplied entry (token-free by construction).
- * @returns The stored entry, including its assigned `seq` and `timestamp`.
  * @throws {StorageUnavailableError} When the append or the seed read fails.
  */
 export async function appendAudit(store: ServiceStore, input: AuditInput): Promise<AuditEntry> {

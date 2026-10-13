@@ -33,8 +33,6 @@ import type { RunRow } from './dispatches-service.ts';
 
 /**
  * Whether the mount still runs; a function call the analyzer never narrows.
- *
- * @returns `true` while the panel is alive.
  */
 function stillMounted(rt: PanelRuntime): boolean {
     return !rt.disposed;
@@ -180,8 +178,6 @@ interface CauseMembers {
 
 /**
  * The operator's own reference to one run: `#<issue number>`.
- *
- * @returns The reference every confirmation and outcome note leads with.
  */
 function issueRef(row: RunRow): string {
     return `#${row.issueNumber}`;
@@ -199,8 +195,6 @@ function guidanceFor(row: RunRow): string {
 
 /**
  * The return-to-waiting confirmation: what resets, and what is kept.
- *
- * @returns The copy the control shows before it acts.
  */
 function requeueConfirmCopy(row: RunRow): string {
     return `Confirm: return ${issueRef(row)} to waiting? The attempt count resets to 1 and the automatic `
@@ -215,10 +209,6 @@ function requeueConfirmCopy(row: RunRow): string {
  * So the re-offer buys one more attempt and a second failure parks the
  * follow-up again at once, which is what the copy has to say (the site's own
  * wording, mirrored here rather than claimed more softly).
- *
- * @param row - The dispatch the control acts on.
- * @param parked - How many parked follow-ups the control will re-offer.
- * @returns The copy the control shows before it acts.
  */
 function reofferFollowUpCopy(row: RunRow, parked: number): string {
     const subject = parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`;
@@ -232,9 +222,6 @@ function reofferFollowUpCopy(row: RunRow, parked: number): string {
 /**
  * A resolve confirmation: what the operator is asked to verify, and the
  * warning FR-027 requires before either answer.
- *
- * @param decision - Which of the two resolutions this confirmation leads to.
- * @returns The copy the control shows before it acts.
  */
 function resolveConfirmCopy(row: RunRow, decision: ResolveDecision): string {
     const question = decision === SESSION_CREATED ? 'does a session exist' : 'does no session exist';
@@ -253,8 +240,6 @@ function resolveConfirmCopy(row: RunRow, decision: ResolveDecision): string {
  * The envelope's `message` *is* the verdict — each state refusal words itself
  * distinctly (contract §6) — so the panel reports it rather than paraphrasing
  * it into something the operator has to translate back into the run's state.
- *
- * @returns The redacted note.
  */
 function verdictNote(result: Extract<ServiceErrorResult, { readonly ok: false }>): string {
     if (result.message !== null) {
@@ -272,8 +257,6 @@ function verdictNote(result: Extract<ServiceErrorResult, { readonly ok: false }>
  * same-mount project list is the only evidence available for a project the
  * host no longer resolves (the service cannot call host APIs), and any other
  * cause is the operator's assertion on this mount — which is what gets audited.
- *
- * @returns The members to add to the retry body.
  */
 async function causeMembers(rt: PanelRuntime, row: RunRow): Promise<CauseMembers> {
     if (!row.state.startsWith(BLOCKED_PREFIX)) {
@@ -311,7 +294,6 @@ function armControl(input: {
     readonly rt: PanelRuntime;
     /** Which control the click belongs to; a different arm is replaced. */
     readonly action: RunPendingAction;
-    /** The confirmation copy for this control. */
     readonly copy: string;
 }): boolean {
     const { dispatches: runs } = input.rt.state;
@@ -333,8 +315,6 @@ function armControl(input: {
  * the operator cannot send two of them at once, and the run state is only ever
  * what the service answers: the list is re-read after the call and the note is
  * written afterwards, so a refresh can never clobber the explanation.
- *
- * @returns The outcome the tab renders once the answer is accepted.
  */
 async function postRunOperation(input: {
     readonly rt: PanelRuntime;
@@ -342,7 +322,6 @@ async function postRunOperation(input: {
     readonly path: string;
     /** Serialized body the contract for that operation requires. */
     readonly body: string;
-    /** Note for a 200 answer. */
     readonly success: string;
 }): Promise<void> {
     const { dispatches: runs } = input.rt.state;
@@ -443,7 +422,6 @@ export async function requeueRun(rt: PanelRuntime): Promise<void> {
     });
 }
 
-/** The note a refused re-offer leaves: nothing changed, and the cause. */
 const REFUSED_REOFFER_NOTE =
     'The re-offer did not land: the panel could not read or write its own delivery record, so nothing changed.';
 
@@ -453,10 +431,6 @@ const REFUSED_REOFFER_NOTE =
  * One more attempt, not a fresh ladder: the re-offer clears the park and its
  * cause and leaves the count alone, so a second failure parks it again at
  * once — the same promise the confirmation made.
- *
- * @param row - The dispatch the re-offer acted on.
- * @param parked - How many parked follow-ups it cleared.
- * @returns The note.
  */
 function reofferOutcomeCopy(row: RunRow, parked: number): string {
     const subject = parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`;
@@ -474,11 +448,8 @@ function reofferOutcomeCopy(row: RunRow, parked: number): string {
  * keeps the last list it held, exactly as the list load does.
  */
 async function applyReoffer(input: {
-    /** Runtime whose dispatches slice and record are written. */
     readonly rt: PanelRuntime;
-    /** The dispatch the re-offer acts on. */
     readonly row: RunRow;
-    /** The parked follow-ups the control is re-offering. */
     readonly reofferable: readonly ParkedFollowUp[];
 }): Promise<void> {
     const { rt, row, reofferable } = input;
@@ -602,19 +573,14 @@ async function resolveRun(rt: PanelRuntime, decision: ResolveDecision): Promise<
     });
 }
 
-/** Confirm the first resolution: the dispatch did create a session. */
 export async function resolveSessionCreated(rt: PanelRuntime): Promise<void> {
     await resolveRun(rt, SESSION_CREATED);
 }
 
-/** Confirm the second resolution: the dispatch created no session. */
 export async function resolveNoSession(rt: PanelRuntime): Promise<void> {
     await resolveRun(rt, 'no-session');
 }
 
-/**
- * Record the session id the operator types for the first resolution.
- */
 export function setSessionInput(rt: PanelRuntime, value: string): void {
     if (rt.disposed) {
         return;
@@ -624,7 +590,6 @@ export function setSessionInput(rt: PanelRuntime, value: string): void {
 }
 
 /**
- * Reveal or hide the selected row's source references.
  *
  * A view toggle, not a run operation: it sends nothing, changes no row, and
  * costs no budget. Selecting a different row closes it (see
@@ -642,7 +607,6 @@ export function toggleReferences(rt: PanelRuntime): void {
 }
 
 /**
- * Copy the selected row's correlation id to the clipboard.
  *
  * Every outcome lands on the note line rather than being swallowed: no
  * selection says there is nothing to copy, and a clipboard the frame refuses

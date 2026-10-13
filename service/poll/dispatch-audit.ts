@@ -46,7 +46,6 @@ import { buildDispatchTokenFingerprint } from './run-key.ts';
 import type { ActorGateRefusal, BaselineProvenance, Run, RunState, RunVerification } from './runs-types.ts';
 
 
-/** Entity kind every run-scoped lifecycle row names. */
 const RUN_ENTITY_KIND = 'run';
 
 /** The panel declares the intent; the panel reports the outcome. */
@@ -74,20 +73,13 @@ function runRow(run: Run): Pick<AuditInput, 'entity' | 'correlationId'> {
  * carries the identical value, and `promptSources` is the snapshot's own ordered
  * tier list copied verbatim: an element the run's snapshot never held can never
  * appear on a row.
- *
- * @returns The binding id plus the prompt's presence, fingerprint, length, and
- *   the ordered set of tiers that produced it.
  */
 function promptDetails(run: Run): {
-    /** Binding the run dispatched through. */
     readonly bindingId: string;
     /** Whether a starting prompt was set when the run was queued. */
     readonly promptPresent: boolean;
-    /** Its fingerprint, or `null` when none. */
     readonly promptFingerprint: string | null;
-    /** Its length, or `null` when none. */
     readonly promptLength: number | null;
-    /** Contributing tiers order, or `null` when none. */
     readonly promptSources: readonly PromptSource[] | null;
     /**
      * The **shape** of the binding's allow-list in force when the gate
@@ -115,7 +107,6 @@ function promptDetails(run: Run): {
 export function reservedRow(input: {
     /** The run as it stands in `starting`. */
     readonly run: Run;
-    /** Lease the reservation was made under. */
     readonly leaseId: string;
     /** Token just minted; recorded as its fingerprint only. */
     readonly dispatchToken: string;
@@ -140,13 +131,10 @@ export function reservedRow(input: {
  * Exactly one of `sessionId` and `problem` is non-`null`.
  */
 export function resultRow(input: {
-    /** The run as it now stands. */
     readonly run: Run;
     /** Token the report carried; recorded as its fingerprint only. */
     readonly dispatchToken: string;
-    /** Session the dispatch created, else `null`. */
     readonly sessionId: string | null;
-    /** Failure the dispatch reported, else `null`. */
     readonly problem: string | null;
 }): AuditInput {
     return {
@@ -167,9 +155,7 @@ export function resultRow(input: {
 export function duplicateReportRow(input: {
     /** The run, byte-unchanged by the repeat. */
     readonly run: Run;
-    /** Token the repeat carried; recorded as its fingerprint only. */
     readonly dispatchToken: string;
-    /** The state the repeated report left behind. */
     readonly state: RunState;
 }): AuditInput {
     return {
@@ -189,9 +175,7 @@ export function duplicateReportRow(input: {
 export function abandonedRow(input: {
     /** The run as it now stands in `failed`. */
     readonly run: Run;
-    /** Token the report carried; recorded as its fingerprint only. */
     readonly dispatchToken: string;
-    /** Why no host call produced a session. */
     readonly reason: string;
 }): AuditInput {
     return {
@@ -251,7 +235,6 @@ export function retryRow(input: {
     readonly causeReportedCleared: boolean | null;
     /** Whether the service corroborated it, the panel reported it, or neither applies. */
     readonly causeClearedSource: 'corroborated' | 'reported' | null;
-    /** Whether this action reset the attempt chain. */
     readonly reset: boolean;
     /** The operator's or panel's own words about the cause. */
     readonly causeReport: string | null;
@@ -275,13 +258,10 @@ export function retryRow(input: {
 
 /** `dispatch.resolved` — the operator settled an `unconfirmed` run. */
 export function resolvedRow(input: {
-    /** The run as it now stands. */
     readonly run: Run;
     /** The `unconfirmed` state the run was resolved from. */
     readonly priorState: RunState;
-    /** Which of the two explicit resolutions the operator chose. */
     readonly decision: 'dispatched' | 'no-session';
-    /** The operator's note about what they verified. */
     readonly note: string | null;
     /** The guidance the operator was shown before deciding. */
     readonly guidance: string | null;
@@ -344,9 +324,7 @@ function readBackVerdict(input: {
 export function verificationRow(input: {
     /** The run, whose state this row never changes. */
     readonly run: Run;
-    /** The recorded read-back outcome. */
     readonly verification: RunVerification;
-    /** Where the comparison baseline came from. */
     readonly baselineProvenance: BaselineProvenance;
 }): AuditInput {
     const { verification } = input;
@@ -469,13 +447,9 @@ export function refusedRow(input: {
  * @returns `true` when the row reached the trail, `false` when the append failed.
  */
 export async function appendRunRow(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
-    /** The run the row concerns; named in the failure log. */
     readonly correlationId: string;
-    /** The row to append; built by one of the builders in this module. */
     readonly row: AuditInput;
 }): Promise<boolean> {
     try {

@@ -275,7 +275,6 @@ function staleProfileRow(accounts: AccountsTabState, numericUserId: string): boo
  * the other member's reason.
  */
 function paintProfileRefusal(input: {
-    /** The Accounts tab's working state. */
     readonly accounts: AccountsTabState;
     /** The service's refusal for the write. */
     readonly answer: Extract<ServiceErrorResult, { readonly ok: false }>;

@@ -55,7 +55,6 @@ import type { PanelRuntime } from './panel-state.ts';
 export interface AccountsBody {
     /** The body root this view mounted. */
     readonly pane: HTMLElement;
-    /** Status line above the list. */
     readonly status: TextHandle;
     /** The credential-free account list. */
     readonly list: ListHandle;
@@ -189,7 +188,6 @@ function mountHandoffGroup(rt: PanelRuntime, pane: HTMLElement): void {
 
 /** The three handles the list half of the body mounts. */
 interface ListBoard {
-    /** Status line above the list. */
     readonly status: TextHandle;
     /** The account list itself. */
     readonly list: ListHandle;
@@ -205,11 +203,8 @@ interface ListBoard {
  * @returns The handles the body carries.
  */
 function mountListBoard(input: {
-    /** Runtime whose state the body repaints from. */
     readonly rt: PanelRuntime;
-    /** Pane root the controls mount into. */
     readonly pane: HTMLElement;
-    /** Callbacks the list and refresh invoke. */
     readonly handlers: AccountsHandlers;
 }): ListBoard {
     const text = composeStatus({ total: 0, usable: 0 });
@@ -280,11 +275,9 @@ function accountsDisposer(parts: AccountsParts): () => void {
  * @returns The mounted body's handles.
  */
 export function mountAccountsBody(input: {
-    /** Runtime whose state the body repaints from. */
     readonly rt: PanelRuntime;
     /** Body container the shell created for the Accounts tab. */
     readonly body: HTMLElement;
-    /** Callbacks the list and refresh invoke. */
     readonly handlers: AccountsHandlers;
 }): AccountsBody {
     const { rt, body, handlers } = input;

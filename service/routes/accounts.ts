@@ -175,11 +175,9 @@ function rotatedAccount(input: {
 
 /** Identity of one rotation attempt, shared by its audit rows. */
 interface RotationSubject {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Account being rotated. */
     readonly account: Account;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }
 
@@ -239,13 +237,11 @@ async function rotationRefusal(subject: RotationSubject, outcome: VerifyOutcome)
  * Audit the completed rotation; the credential never reaches the writer.
  */
 async function recordRotation(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Structured logger for the best-effort failure line. */
     readonly log: ServiceLogger;
     /** The rotated account. */
     readonly account: Account;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }): Promise<void> {
     try {
@@ -272,7 +268,6 @@ async function recordRotation(input: {
  * @returns The documented success body (contract §2.2).
  */
 async function persistRotation(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Structured logger for the audit failure line. */
     readonly log: ServiceLogger;
@@ -282,7 +277,6 @@ async function persistRotation(input: {
     readonly token: string;
     /** Verified outcome for the replacement credential. */
     readonly outcome: Extract<VerifyOutcome, { kind: 'ok' }>;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }): Promise<HttpResponse> {
     const rotated = rotatedAccount({ account: input.account, outcome: input.outcome, token: input.token });
@@ -301,7 +295,6 @@ async function persistRotation(input: {
  * @returns The rotation inputs, or the refusal that beat them.
  */
 async function prepareRotation(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Structured logger for the read's observation and quarantine line. */
     readonly log: ServiceLogger;

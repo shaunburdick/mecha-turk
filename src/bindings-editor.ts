@@ -97,7 +97,6 @@ export function mountBindingActions(input: {
     readonly editor: HTMLElement;
     /** Toolbar row under the list the row-level controls mount into. */
     readonly row: HTMLElement;
-    /** Callbacks the controls invoke. */
     readonly handlers: BindingActionHandlers;
 }): BindingActions {
     const { editor, row, handlers } = input;

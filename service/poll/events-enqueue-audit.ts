@@ -9,9 +9,7 @@ import type { EnqueueOutcome } from './runs-join.ts';
 
 /** Context shared by all audit writers for one enqueue. */
 interface EnqueueAuditInput {
-    /** Open service store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Run changes derived from the fresh deliveries. */
     readonly outcome: EnqueueOutcome;

@@ -51,7 +51,6 @@ import type {
     TakeEffectClass,
 } from './settings-schema.ts';
 
-/** One rendered row: the member it belongs to and the line the tab paints. */
 export interface SettingsRow {
     /** Document member this row renders (a descriptor name, or an extra key). */
     readonly field: string;
@@ -74,8 +73,6 @@ export interface SettingsRow {
  * the class it is handed — it never decides which class a field has.
  * `none` and `restart` are covered because the vocabulary is closed;
  * no field in this feature declares either.
- *
- * @returns The words to print beside the field.
  */
 export function takeEffectWords(takesEffect: TakeEffectClass): string {
     if (takesEffect === 'immediate') {
@@ -127,8 +124,6 @@ const MULTILINE_ROWS = 4;
  * An empty string is not printed as an empty slot: it prints the not-set word
  * while the format guidance beside it stays the descriptor's own text, so the
  * row reads as an honest state rather than a gap.
- *
- * @returns The value segment.
  */
 function valuePart(descriptor: FieldDescriptor, value: number | string): string {
     if (descriptor.kind === 'integer') {
@@ -149,8 +144,6 @@ function valuePart(descriptor: FieldDescriptor, value: number | string): string 
  *
  * Built from the descriptor, never from a literal, so an operator who sees it
  * here and in a `422` reads the same sentence the service would have sent.
- *
- * @returns The action that would make the row render as configured.
  */
 function shapeRemediation(descriptor: FieldDescriptor): string {
     if (descriptor.kind === 'integer') {
@@ -169,8 +162,6 @@ function shapeRemediation(descriptor: FieldDescriptor): string {
 /**
  * The control's accessible name: the documented name, its unit (or its
  * absence), and the boundary in the product's words.
- *
- * @returns The label the control is mounted with.
  */
 function labelOf(descriptor: FieldDescriptor): string {
     const unit = descriptor.kind === 'integer' ? descriptor.unit : 'unit none';
@@ -182,8 +173,6 @@ function labelOf(descriptor: FieldDescriptor): string {
  * The presentation affordance: what the service declares about the shape of
  * the value, plus its default — these shape the control and the hint and
  * nothing else; the service remains the only validator.
- *
- * @returns The helper text the control carries.
  */
 function helperOf(descriptor: FieldDescriptor): string {
     if (descriptor.kind === 'integer') {
@@ -199,8 +188,6 @@ function helperOf(descriptor: FieldDescriptor): string {
 
 /**
  * Build the row for a member the service declared.
- *
- * @returns The row: its painted line, its control's name, and its affordance.
  */
 function descriptorRow(envelope: ConfigEnvelope, descriptor: FieldDescriptor): SettingsRow {
     const isFilled = envelope.defaultsApplied.includes(descriptor.name);
@@ -285,21 +272,17 @@ export type SettingsRowHandle =
     /** A declared numeric or text member, edited as text — never gated here. */
     | { readonly field: string; readonly kind: 'value'; readonly handle: TextFieldHandle };
 
-/** The mounted rows, plus the field list they were built from. */
 export interface SettingsRowsUi {
     /** Handles, in paint order. */
     readonly handles: readonly SettingsRowHandle[];
     /** The members the handles were built for; a different list means rebuild. */
     readonly fields: readonly string[];
-    /** Remove every node and handle this mount created. */
     readonly dispose: () => void;
 }
 
-/** Everything one mount or update of the rows needs from the tab. */
 export interface RowsContext {
     /** Rows, in paint order. */
     readonly rows: readonly SettingsRow[];
-    /** Descriptors, so a control can be shaped from its own. */
     readonly descriptors: readonly FieldDescriptor[];
     /** What each input should show: the draft, keyed by field. */
     readonly values: Readonly<Record<string, string>>;
@@ -328,15 +311,10 @@ function optionsFor(descriptor: FieldDescriptor): readonly { readonly id: string
  * Every attribute is the descriptor's or the tab's own state: the accepted
  * set verbatim, the label composed upstream from the same declaration, and
  * the service's current value — nothing here decides an option or a class.
- *
- * @returns What `mountSelect` mounts with.
  */
 function enumFieldProps(input: {
-    /** The row to mount. */
     readonly row: SettingsRow;
-    /** The descriptor the row was built from. */
     readonly descriptor: EnumDescriptor;
-    /** Everything the control reads. */
     readonly context: RowsContext;
 }): SelectProps {
     const { row, descriptor, context } = input;
@@ -365,15 +343,10 @@ function enumFieldProps(input: {
  *   other row attribute — `expectedAgent`, which declares none, stays a
  *   one-line input. The row count is the shared presentation constant the
  *   account and binding tiers render with: a height, not a bound.
- *
- * @returns What `mountTextField` mounts with.
  */
 function valueFieldProps(input: {
-    /** The row to mount. */
     readonly row: SettingsRow;
-    /** The descriptor the row was built from. */
     readonly descriptor: IntegerDescriptor | StringDescriptor;
-    /** Everything the control reads. */
     readonly context: RowsContext;
 }): TextFieldProps {
     const { row, descriptor, context } = input;
@@ -398,17 +371,11 @@ function valueFieldProps(input: {
  * The descriptor decides the *shape* — the accepted set, or an input — and
  * nothing else: the label, the affordance, and the value were all composed
  * from the same declaration upstream, and the service stays the only validator.
- *
- * @returns The handle, tagged with which shape it mounted.
  */
 function mountDeclaredRow(input: {
-    /** Container the row mounts into. */
     readonly box: HTMLElement;
-    /** The row to mount. */
     readonly row: SettingsRow;
-    /** The descriptor the row was built from. */
     readonly descriptor: FieldDescriptor;
-    /** Everything the control reads. */
     readonly context: RowsContext;
 }): SettingsRowHandle {
     const { box, row, descriptor, context } = input;
@@ -429,15 +396,10 @@ function mountDeclaredRow(input: {
 
 /**
  * Mount one row's control (or its line) into the rows region.
- *
- * @returns The handle, tagged with what kind it is.
  */
 function mountRow(input: {
-    /** Container the row mounts into. */
     readonly box: HTMLElement;
-    /** The row to mount. */
     readonly row: SettingsRow;
-    /** Everything the control reads. */
     readonly context: RowsContext;
 }): SettingsRowHandle {
     const { box, row, context } = input;
@@ -458,13 +420,9 @@ function mountRow(input: {
 
 /**
  * Mount the whole rows region.
- *
- * @returns The mounted rows, plus the field list they were built from.
  */
 export function mountSettingsRows(input: {
-    /** Container the rows mount into. */
     readonly box: HTMLElement;
-    /** Everything the controls read. */
     readonly context: RowsContext;
 }): SettingsRowsUi {
     const handles = input.context.rows.map((row) => mountRow({ box: input.box, row, context: input.context }));

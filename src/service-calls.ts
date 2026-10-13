@@ -142,7 +142,6 @@ export async function serviceGet(input: {
  * @returns The wrapper's result, carrying the envelope when it sent one.
  */
 export async function servicePut(input: {
-    /** Host surface. */
     readonly serviceRequest: ServiceRequester;
     /** Path to PUT. */
     readonly path: string;
@@ -174,7 +173,6 @@ export async function servicePut(input: {
  *   on a refusal.
  */
 export async function servicePutConfig(input: {
-    /** Host surface. */
     readonly serviceRequest: ServiceRequester;
     /** The complete configuration document, serialized. */
     readonly body: string;
@@ -200,7 +198,6 @@ export async function servicePutConfig(input: {
  * @returns The wrapper's error-aware result.
  */
 export async function servicePost(input: {
-    /** Host surface. */
     readonly serviceRequest: ServiceRequester;
     readonly path: string;
     /** Body — sent only when defined. */
@@ -230,7 +227,6 @@ export async function servicePost(input: {
  * @returns The wrapper's error-aware result.
  */
 export async function serviceDelete(input: {
-    /** Host surface. */
     readonly serviceRequest: ServiceRequester;
     /** Path to delete. */
     readonly path: string;

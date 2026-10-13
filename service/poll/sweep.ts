@@ -56,7 +56,6 @@ export type { SweepDurations, SweepLoop, SweepLoopInput } from './sweep-loop.ts'
 
 /** One recovery the sweep performed, with the reason it recorded. */
 export interface SweepRecovery {
-    /** The run as it now stands. */
     readonly run: Run;
     /** Audit vocabulary this recovery wrote. */
     readonly eventType: 'dispatch.lease-expired' | 'run.dead_lettered' | 'dispatch.unconfirmed';
@@ -351,9 +350,7 @@ export function planSweep(input: {
  * rather than appending the same recovery twice (T-040b).
  */
 async function appendSweepAudit(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The recovery to record. */
     readonly recovery: SweepRecovery;
@@ -407,9 +404,7 @@ function withIntents(input: {
  * @throws {StorageUnavailableError} When the store cannot be read or written.
  */
 export async function sweepOnce(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Service-clock stamp for the pass; injectable so tests never sleep. */
     readonly now?: string;

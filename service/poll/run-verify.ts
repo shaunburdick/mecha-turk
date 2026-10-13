@@ -85,9 +85,7 @@ function judgeVerification(input: {
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function recordVerification(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run being read back, by correlation id. */
     readonly correlationId: string;
@@ -101,7 +99,6 @@ export async function recordVerification(input: {
     readonly expectedAgent: string;
     /** Where that baseline came from; recorded on the uncompared row. */
     readonly baselineProvenance: BaselineProvenance;
-    /** Whether the two matched. */
     readonly ok: boolean;
     /** Note explaining a mismatch or an unreadable read-back. */
     readonly note: string | null;

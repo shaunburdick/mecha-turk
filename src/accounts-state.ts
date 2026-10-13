@@ -154,7 +154,6 @@ export function memberRefusal(accounts: AccountsTabState, member: AccountMember)
  * paint itself onto the label's slot would report the wrong field's failure.
  */
 export function setMemberRefusal(input: {
-    /** The Accounts tab's working state. */
     readonly accounts: AccountsTabState;
     /** Which editable member the answer belongs to. */
     readonly member: AccountMember;
@@ -173,7 +172,6 @@ export function setMemberRefusal(input: {
  * label — or prompt — whatever account is opened next.
  */
 export function setMemberEdit(input: {
-    /** The Accounts tab's working state. */
     readonly accounts: AccountsTabState;
     /** Which editable member to load. */
     readonly member: AccountMember;

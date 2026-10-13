@@ -25,11 +25,9 @@ import { parseJsonObject } from './json.ts';
 import { readRequiredActorPolicy } from './run-actor.ts';
 import type { ActorPolicy } from './run-actor.ts';
 
-/** One account row as the Status tab renders it. */
 export interface StatusAccountView {
     /** GitHub numeric user id. */
     readonly numericUserId: string;
-    /** Display login. */
     readonly login: string;
     /** Connection state, rendered verbatim — including values this build does not know. */
     readonly connectionState: string;
@@ -51,13 +49,11 @@ export interface StatusRateView {
 
 /** One binding row, keyed by the member the wire keeps. */
 export interface StatusBindingView {
-    /** Binding this row describes. */
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
     /** Target project id, so Status can notice one the host has not registered. */
     readonly projectId: string;
-    /** Account login the binding polls under. */
     readonly accountLogin: string;
     /** Whether the binding is enabled right now. */
     readonly active: boolean;
@@ -83,7 +79,6 @@ export interface StatusBindingView {
     readonly actorPolicy: ActorPolicy;
 }
 
-/** Process health, location, and store state. */
 export interface StatusServiceView {
     /** `degraded` when the data directory is unusable. */
     readonly status: 'ok' | 'degraded';
@@ -93,7 +88,6 @@ export interface StatusServiceView {
     readonly dataDir: string;
     /** Store schema version, or `null` while the store is unavailable. */
     readonly schemaVersion: number | null;
-    /** Whether the data directory can serve writes right now. */
     readonly writable: boolean;
 }
 
@@ -116,9 +110,7 @@ export type StatusVerificationView =
         readonly kind: 'outcome';
         /** Agent the dispatch observed, or `null` when it was unreadable. */
         readonly observedAgent: string | null;
-        /** Baseline the judgment used. */
         readonly expectedAgent: string;
-        /** Whether the two matched. */
         readonly ok: boolean;
         /** RFC 3339 stamp of the read-back. */
         readonly at: string;
@@ -128,23 +120,18 @@ export type StatusVerificationView =
     /** Nothing has ever been verified. */
     | { readonly kind: 'none' };
 
-/** What Status knows about the Default Agent pin. */
 export interface StatusAgentPinView {
     /** The service's own expected-agent member; `null` when it holds none. */
     readonly expectedAgent: string | null;
-    /** The three-shape verification member. */
     readonly verification: StatusVerificationView;
 }
 
-/** A fully parsed status document. */
 export interface StatusView {
-    /** Process health and location. */
     readonly service: StatusServiceView;
     /** One row per registered account; `[]` is an honest empty. */
     readonly accounts: readonly StatusAccountView[];
     /** One row per stored binding; never omissions. */
     readonly bindings: readonly StatusBindingView[];
-    /** The computed polling block. */
     readonly polling: StatusPollingView;
     readonly agentPin: StatusAgentPinView;
     /** Whether this host surface can run a service at all. */
@@ -152,7 +139,6 @@ export interface StatusView {
 }
 
 /**
- * Where the Status tab's read stands, and what it last rendered.
  *
  * The tab keeps the last document it could read even when a later read fails,
  * because the retained content must be **marked stale** rather
@@ -180,8 +166,6 @@ export interface StatusTabState {
 
 /**
  * Build the empty Status tab state.
- *
- * @returns The state before the first read.
  */
 export function initialStatusTab(): StatusTabState {
     return {
@@ -207,27 +191,15 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 /**
  * Narrow one unknown to a finite number.
- *
- * @returns The number, or `null` when it is not one.
  */
 function asNumber(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-/**
- * Narrow one unknown to a string.
- *
- * @returns The string, or `null` when it is not one.
- */
 function asString(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
 }
 
-/**
- * Narrow one unknown to a boolean.
- *
- * @returns The boolean, or `null` when it is not one.
- */
 function asBoolean(value: unknown): boolean | null {
     return typeof value === 'boolean' ? value : null;
 }
@@ -275,7 +247,6 @@ function asHealth(value: unknown): 'ok' | 'degraded' | null {
  * refusal rather than a half-measured budget.
  *
  * @param value - The `rate` member.
- * @returns The rate view, or `null` when the shape is wrong.
  */
 function parseRate(value: unknown): StatusRateView | null {
     const rate = asRecord(value);
@@ -294,11 +265,6 @@ function parseRate(value: unknown): StatusRateView | null {
     return { remaining, limit, resetAt, usedLastHour };
 }
 
-/**
- * Parse one account row.
- *
- * @returns The row, or `null` when the shape is wrong.
- */
 function parseAccount(value: unknown): StatusAccountView | null {
     const account = asRecord(value);
     if (account === null) {
@@ -322,13 +288,10 @@ function parseAccount(value: unknown): StatusAccountView | null {
 
 /** A binding's identity members, which the guidance line also needs. */
 interface BindingIdentity {
-    /** Binding this row describes. */
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
-    /** Target project id. */
     readonly projectId: string;
-    /** Account login the binding polls under. */
     readonly accountLogin: string;
 }
 
@@ -351,8 +314,6 @@ function parseBindingIdentity(row: Record<string, unknown>): BindingIdentity | n
 
 /**
  * Parse one binding row out of the `repositories` member.
- *
- * @returns The row, or `null` when the shape is wrong.
  */
 function parseBinding(value: unknown): StatusBindingView | null {
     const row = asRecord(value);
@@ -386,10 +347,8 @@ function parseBinding(value: unknown): StatusBindingView | null {
 }
 
 /**
- * Parse the process block.
  *
  * @param value - The `service` member.
- * @returns The view, or `null` when the shape is wrong.
  */
 function parseService(value: unknown): StatusServiceView | null {
     const service = asRecord(value);
@@ -411,10 +370,8 @@ function parseService(value: unknown): StatusServiceView | null {
 }
 
 /**
- * Parse the polling block.
  *
  * @param value - The `polling` member.
- * @returns The view, or `null` when the shape is wrong.
  */
 function parsePolling(value: unknown): StatusPollingView | null {
     const polling = asRecord(value);
@@ -437,7 +394,6 @@ function parsePolling(value: unknown): StatusPollingView | null {
  * Parse the agent pin's three-shape verification member.
  *
  * @param value - The `lastVerification` member.
- * @returns The shape, or `null` when the document carries something else.
  */
 function parseVerification(value: unknown): StatusVerificationView | null {
     if (value === null) {
@@ -467,10 +423,8 @@ function parseVerification(value: unknown): StatusVerificationView | null {
 }
 
 /**
- * Parse the agent pin block.
  *
  * @param value - The `agentPin` member.
- * @returns The view, or `null` when the shape is wrong.
  */
 function parseAgentPin(value: unknown): StatusAgentPinView | null {
     const agentPin = asRecord(value);

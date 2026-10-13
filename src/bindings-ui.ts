@@ -57,7 +57,6 @@ export interface BindingsPane {
     readonly historyScopeHelp: TextHandle;
     /** The window-in-force line under the editor's history-scope control (002 FR-092). */
     readonly windowScopeLine: TextHandle;
-    /** Status line at the top. */
     readonly status: TextHandle;
     /** The tab's note line, under the status: refusals and results (FR-085). */
     readonly note: TextHandle;

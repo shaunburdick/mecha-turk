@@ -30,9 +30,7 @@ import type { ActorGateRefusal, Run, SessionRef } from './runs-types.ts';
 
 /** Store, logger, and the run one operation addresses. */
 export interface RunOperationTarget {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run this operation addresses, by correlation id. */
     readonly correlationId: string;
@@ -122,9 +120,7 @@ export interface RefusalRowInput {
  * @returns `true` when the row reached the trail.
  */
 export async function appendRefusalRow(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run, the operation, and the refusal. */
     readonly refusal: RefusalRowInput;

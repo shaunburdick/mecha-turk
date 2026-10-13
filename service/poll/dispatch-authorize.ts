@@ -72,9 +72,7 @@ export type ReserveResult =
 
 /** What one reserve call carries. */
 export interface ReserveInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run to authorize, by correlation id. */
     readonly correlationId: string;
@@ -210,7 +208,6 @@ function judgeReserve(input: {
  * @returns The `starting` run.
  */
 function reservedRun(input: {
-    /** The claimed run. */
     readonly run: Run;
     /** Token just minted. */
     readonly dispatchToken: string;
@@ -264,9 +261,7 @@ async function readResultDeadlineMs(store: ServiceStore, log: ServiceLogger): Pr
 async function refusedReserve(input: {
     /** The reserve's own input. */
     readonly call: ReserveInput;
-    /** The run as it stands. */
     readonly run: Run;
-    /** The verdict. */
     readonly refusal: RunRefusal;
     /** The gate's extra details, on the one refusal that carries them (FR-077). */
     readonly actor?: ActorGateRefusal | undefined;

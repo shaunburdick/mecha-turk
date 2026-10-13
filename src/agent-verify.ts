@@ -77,7 +77,6 @@ export type BaselineProvenance =
     /** The document was read and its `expectedAgent` is blank: no baseline configured. */
     | 'unset';
 
-/** One verification's comparison baseline and where it came from. */
 export interface VerificationBaseline {
     /** Agent the observed session is judged against; `""` when there is none. */
     readonly agent: string;
@@ -137,8 +136,6 @@ function baselineFromConfig(body: string): VerificationBaseline {
  * no restart and no service-side consumer. A transport failure, a non-2xx
  * answer, and an unparseable document all answer the documented (blank)
  * default with `provenance: 'defaulted'`; this function never rejects.
- *
- * @returns The baseline to judge this dispatch against, and its provenance.
  */
 export async function readVerificationBaseline(serviceRequest: ServiceRequester): Promise<VerificationBaseline> {
     const answer = await serviceGet({ serviceRequest, path: CONFIG_PATH });
@@ -154,14 +151,11 @@ export async function readVerificationBaseline(serviceRequest: ServiceRequester)
  * the first `await` and then reports a second direct check as unreachable,
  * while the frame really can go away between two awaits — and carrying on
  * would subscribe to a host a disposed panel no longer owns.
- *
- * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
     return rt.disposed;
 }
 
-/** Outcome of one post-dispatch agent read-back. */
 export type AgentVerification =
     /** The session reported the expected agent. */
     | { readonly status: 'match'; readonly agent: string; readonly expected: string }
@@ -174,13 +168,10 @@ export type AgentVerification =
     /** The session could not be opened at all; the problem is redacted. */
     | { readonly status: 'unavailable'; readonly expected: string; readonly problem: string };
 
-/** Inputs for {@link verifySessionAgent}. */
 export interface VerifyAgentInputs {
-    /** Host surface the read-back goes through. */
     readonly host: Pick<PanelHost, 'onSession' | 'openSession'>;
     /** Session the dispatch just created. */
     readonly sessionId: string;
-    /** Agent the run is expected to report. */
     readonly expected: string;
     /** Optional wait budget; defaults to {@link AGENT_VERIFY_TIMEOUT_MS}. */
     readonly timeoutMs?: number;
@@ -206,15 +197,12 @@ type VerifyGate =
  * a pass: there is no baseline, so there is nothing to be right or wrong
  * about. The agent is still reported — an observation is evidence whether or
  * not anyone configured a comparison — but the outcome is `uncompared`.
- *
- * @returns The verification outcome.
  */
 function judgeSnapshot(input: {
     /** Snapshot for the requested session, or `null` when the budget ran out. */
     readonly snapshot: SessionSnapshot | null;
     /** Agent the run should report; `""` when no baseline is configured. */
     readonly expected: string;
-    /** Budget the caller waited with. */
     readonly timeoutMs: number;
 }): AgentVerification {
     const { snapshot, expected, timeoutMs } = input;
@@ -303,8 +291,6 @@ export async function verifySessionAgent(inputs: VerifyAgentInputs): Promise<Age
  * not anyone configured a comparison. The two failure
  * outcomes carry no `agent` member at all and answer `null` — nothing was
  * observed, only a reason it was not.
- *
- * @returns The observed agent, or `null`.
  */
 function observedAgentOf(result: AgentVerification): string | null {
     return 'agent' in result ? result.agent : null;
@@ -313,11 +299,8 @@ function observedAgentOf(result: AgentVerification): string | null {
 /** Record the read-back where the operator looks: ledger entry and banner. */
 function recordReadBack(input: {
     readonly rt: PanelRuntime;
-    /** The run the read-back belongs to. */
     readonly correlationId: string;
-    /** Session the read-back observed. */
     readonly sessionId: string;
-    /** Outcome the verification reached. */
     readonly result: AgentVerification;
     /** Baseline the judgment used; `""` when there is none. */
     readonly expected: string;
@@ -353,15 +336,11 @@ function recordReadBack(input: {
  */
 async function postReadBack(input: {
     readonly rt: PanelRuntime;
-    /** The run the read-back belongs to. */
     readonly correlationId: string;
     /** Attempt the dispatch belongs to; the report echoes it. */
     readonly attempt: number;
-    /** Session the read-back observed. */
     readonly sessionId: string;
-    /** Outcome the verification reached. */
     readonly result: AgentVerification;
-    /** The baseline the judgment used, and where it came from. */
     readonly baseline: VerificationBaseline;
 }): Promise<void> {
     const { rt, correlationId, attempt, sessionId, result, baseline } = input;

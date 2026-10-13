@@ -245,7 +245,6 @@ type ProfileOutcome =
  * @returns The outcome the handler answers with.
  */
 async function runProfileWrite(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Structured logger for the observations' failure lines. */
     readonly log: ServiceLogger;

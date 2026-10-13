@@ -51,7 +51,6 @@ import type { RunKind } from './dispatches-detail.ts';
 // binding rows can take it without importing this module, which imports them.
 export { utcStamp };
 
-/** Heading above the dispatch list. */
 export const DISPATCHES_HEADING = 'Dispatches';
 
 /** In-list placeholder while the service reports no events at all. */
@@ -118,7 +117,6 @@ const STATE_REASONS: Record<PlainRunState, string> = {
     [DEAD_LETTERED]: 'the automatic requeue budget is spent — return it to waiting to reset the attempt count',
 };
 
-/** Reason a dispatch carries a state this build does not recognise. */
 const UNKNOWN_STATE_REASON = 'this dispatch reports a state the panel does not recognise — no action is offered';
 
 /**
@@ -176,8 +174,6 @@ function blockedReasonText(cause: string): string {
  * `blocked:actor-not-allowed`, and the declared-but-not-produced
  * `blocked:credential`/`blocked:policy`), so it is matched by prefix rather than
  * by an enum that would go stale.
- *
- * @returns `true` for the family, which a plain state can never be.
  */
 function isBlockedState(state: string): state is `blocked:${string}` {
     return state.startsWith(BLOCKED_PREFIX);
@@ -202,7 +198,6 @@ export function stateLabel(state: string): string {
     return label ?? `unknown state: ${state}`;
 }
 
-/** Badge tone for any run state, including the `blocked:<reason>` family. */
 function stateTone(state: RunState): Tone {
     if (isBlockedState(state)) {
         return 'warning';
@@ -256,34 +251,28 @@ export interface RunAffordance {
     readonly reason: string;
 }
 
-/** Button label for the retry control. */
 export const RETRY_LABEL = 'Retry dispatch';
 
 /** Button label for the resolution of an `unconfirmed` dispatch. */
 export const RESOLVE_LABEL = 'Resolve dispatch';
 
-/** Button label for the return of a parked run to waiting. */
 export const RETURN_LABEL = 'Return to waiting';
 
-/** The same control once armed for its confirm step (the panel's two-step idiom). */
 export const CONFIRM_RETURN_LABEL = 'Confirm: return to waiting';
 
 /** Button label for the re-offer of a parked follow-up (002 FR-105, AC-051). */
 export const REOFFER_LABEL = 'Re-offer parked follow-up';
 
-/** The re-offer once armed for its confirm step. */
 export const CONFIRM_REOFFER_LABEL = 'Confirm: re-offer parked follow-up';
 
 /** Label of the first resolution, before the operator arms it. */
 export const SESSION_CREATED_LABEL = 'Session was created';
 
-/** Label of the first resolution, armed. */
 export const CONFIRM_SESSION_CREATED_LABEL = 'Confirm: session was created';
 
 /** Label of the second resolution, before the operator arms it. */
 export const NO_SESSION_LABEL = 'No session was created';
 
-/** Label of the second resolution, armed. */
 export const CONFIRM_NO_SESSION_LABEL = 'Confirm: no session was created';
 
 /**
@@ -292,16 +281,12 @@ export const CONFIRM_NO_SESSION_LABEL = 'Confirm: no session was created';
  * Written as a **total** check over a `string` rather than over `RunState` on
  * purpose: the parser refuses a state this build does not know, but the tables
  * still answer for one if it arrives — render the value raw, offer nothing.
- *
- * @returns `true` when the value is one of the seven plain states.
  */
 function isPlainState(state: string): state is PlainRunState {
     return !isBlockedState(state) && Object.hasOwn(PLAIN_STATE_LABELS, state);
 }
 
 /**
- * Decide the one control a run's state offers.
- *
  * @returns The control, its label, and the reason line; `action: 'none'` with
  *   `label: null` wherever the service would refuse the transition.
  */
@@ -376,8 +361,6 @@ function referenceLabel(reference: RunReference): string {
  * list, so overflow is stated rather than silently lossy. A run with one
  * reference shows just that reference: the "+N more" affordance is for when
  * there is something more.
- *
- * @returns The line, or `null` when the run carries no reference at all.
  */
 function referencePhrase(row: RunRow): string | null {
     if (row.referenceCount === 0) {
@@ -461,8 +444,6 @@ function promptPhrase(row: RunRow): string {
  * names three things — how many reached the session, how many are still
  * waiting, and every parked one with its cause — and says nothing at all when
  * the run has no follow-up state, which is the ordinary case.
- *
- * @returns The line, or `null` when this row has no follow-up state to report.
  */
 function followUpPhrase(row: RunRow, records: readonly FollowUpDeliveryRecord[]): string | null {
     const view = followUpRowView(row, records);
@@ -486,7 +467,6 @@ function followUpPhrase(row: RunRow, records: readonly FollowUpDeliveryRecord[])
     return parts.length === 0 ? null : `follow-ups: ${parts.join(' · ')}`;
 }
 
-/** Compose one runs-list row. */
 export function dispatchRow(
     row: RunRow,
     records: readonly FollowUpDeliveryRecord[] = [],
@@ -519,8 +499,6 @@ export function dispatchRow(
 }
 
 /**
- * Build the runs list rows in the order the service sent them.
- *
  * @returns The rows, newest detected first (the service caps them at 100).
  */
 export function dispatchRows(runs: DispatchesState): ListItem[] {
@@ -528,8 +506,6 @@ export function dispatchRows(runs: DispatchesState): ListItem[] {
 }
 
 /**
- * Compose the runs section's status line.
- *
  * Each lifecycle state answers in its own voice — an idle list says how to
  * load it, a failed one points at the note below — so the operator never has
  * to infer *why* the area is blank.
@@ -560,8 +536,6 @@ export function dispatchesStatusText(runs: DispatchesState): string {
 }
 
 /**
- * Find the run a run row selection points at.
- *
  * @returns The selected run, or `null` when nothing valid is selected.
  */
 export function selectedRun(runs: DispatchesState): RunRow | null {

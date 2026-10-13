@@ -87,7 +87,6 @@ const MILLISECONDS_PER_SECOND = 1_000;
 export function backoffDelayMs(input: {
     /** Ladder parameters read at the cycle boundary. */
     readonly policy: RetryPolicy;
-    /** The attempt about to run. */
     readonly attempt: number;
     /** Injected jitter source. */
     readonly random: RandomFn;
@@ -108,7 +107,6 @@ export function backoffDelayMs(input: {
 export function nextWait(input: {
     /** Ladder parameters read at the cycle boundary. */
     readonly policy: RetryPolicy;
-    /** The attempt about to run. */
     readonly attempt: number;
     /** Rate-limit guidance in seconds, when the refusal carried one. */
     readonly guidanceSeconds: number | null;
@@ -143,7 +141,6 @@ export function nextWait(input: {
 export async function waitForRetry(input: {
     /** Ladder parameters read at the cycle boundary. */
     readonly policy: RetryPolicy;
-    /** The attempt about to run. */
     readonly attempt: number;
     /** Rate-limit guidance in seconds, when the refusal carried one. */
     readonly guidanceSeconds: number | null;

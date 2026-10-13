@@ -176,7 +176,6 @@ export function staleAttemptMessage(attempt: number, current: number): string {
 export interface RunApplied {
     /** `applied` — the durable write landed. */
     readonly status: 'applied';
-    /** The run as it now stands. */
     readonly run: Run;
     /** Whether the lifecycle row reached the trail. */
     readonly auditWritten: boolean;

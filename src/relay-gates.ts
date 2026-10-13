@@ -201,7 +201,6 @@ export async function guardRun(rt: PanelRuntime, run: ClaimedRun): Promise<Guard
  */
 export async function refuseWithBlocked(input: {
     readonly rt: PanelRuntime;
-    /** The offered run. */
     readonly run: ClaimedRun;
     /** What the guard found. */
     readonly failure: GuardFailure;
@@ -407,7 +406,6 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
  */
 export async function abandonReservation(input: {
     readonly rt: PanelRuntime;
-    /** The offered run. */
     readonly run: ClaimedRun;
     /** The single-use token the reservation holds. */
     readonly token: string;

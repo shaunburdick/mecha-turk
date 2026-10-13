@@ -349,7 +349,6 @@ interface ReadBack {
      * what picks `agent.uncompared` over `agent.mismatch`.
      */
     readonly baselineProvenance: BaselineProvenance;
-    /** Whether the two matched. */
     readonly ok: boolean;
     /** Note explaining a mismatch or an unreadable read-back. */
     readonly note: string | null;

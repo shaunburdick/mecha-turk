@@ -46,7 +46,6 @@ export type PromptChangeActor = 'operator' | 'service';
 
 /** The binding members an observation reads. */
 export interface ObservedBinding {
-    /** The binding this document entry describes. */
     readonly bindingId: string;
     /** Its stored prompt, when it carries one. */
     readonly startingPrompt?: string;
@@ -207,13 +206,10 @@ export async function appendPromptChange(input: PromptChange): Promise<void> {
     });
 }
 
-/** What one observation of a bindings document carries. */
 interface PromptObservation {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Logger for a failed append (binding id and fingerprint only). */
     readonly log: ServiceLogger;
-    /** The bindings document as it now stands. */
     readonly bindings: readonly ObservedBinding[];
     /** Who made the changes this document carries. */
     readonly actor: PromptChangeActor;

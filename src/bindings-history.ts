@@ -93,9 +93,6 @@ export function historyScopeOptions(): SelectOption[] {
  * Returned rather than a module constant because point 5 is conditional on the
  * editor being open on an existing row: a **new** binding cannot open a catch-up,
  * because it has no completed scan to catch up from (002 FR-084; plan H6).
- *
- * @param mode - Whether the editor is editing a row that already exists.
- * @returns The helper text the select renders beneath it.
  */
 export function historyScopeGuidance(isEditingStoredRow: boolean): string {
     const catchUp = isEditingStoredRow
@@ -121,7 +118,6 @@ export function historyScopeGuidance(isEditingStoredRow: boolean): string {
  * - the window's lower bound, next to the last completed scan, so **both ends** of
  *   the window are readable together.
  *
- * @param status - The status row for the binding being edited.
  * @returns The line to render, or `null` while the editor is on a new row.
  */
 export function windowInForceLine(status: {
@@ -166,7 +162,6 @@ export function windowInForceLine(status: {
  * `parseBindingEntry` (002 FR-063), so this never has to render an unusable value.
  *
  * @param binding - The stored row the editor is open on, or `null` in add mode.
- * @returns The mode the control shows.
  */
 export function historyScopeFor(binding: PanelBinding | null): HistoryScope {
     return binding === null ? DEFAULT_HISTORY_SCOPE : readHistoryScope(binding.historyScope) ?? DEFAULT_HISTORY_SCOPE;
@@ -180,7 +175,6 @@ export function historyScopeFor(binding: PanelBinding | null): HistoryScope {
  * permitted, deriving anything *else* from it is not, and the row is never the
  * only place the operator can see or change it (the editor control is).
  *
- * @param binding - The stored row.
  * @returns The label the row may show, or `null` for the documented default — a
  *   row has nothing to add when the binding is in the mode every binding is in.
  */
@@ -188,13 +182,10 @@ export function historyScopeLabel(binding: PanelBinding): string | null {
     return historyScopeFor(binding) === RECENT_HISTORY_SCOPE ? 'one-off 7-day look-back' : null;
 }
 
-/** Callbacks the field invokes. */
 export interface BindingHistoryScopeHandlers {
-    /** The operator chose one of the two modes. */
     readonly setHistoryScope: (value: HistoryScope) => void;
 }
 
-/** The field, as the pane carries it. */
 export interface BindingHistoryScopeControls {
     /** The one control the mode is rendered in, panel-wide (002 FR-091). */
     readonly select: SelectHandle;
@@ -214,9 +205,6 @@ type ScopeState = Pick<BindingsTabState, 'historyScopeInput' | 'editing'>;
  * a string evaluated at mount time would show the add-path sentence to an operator
  * about to open a catch-up on a binding that has been scanning for months — which
  * is the one moment the warning exists for.
- *
- * @param state - The Bindings tab's state.
- * @returns The helper text the control renders beneath it.
  */
 export function historyScopeHelp(state: ScopeState): string {
     return historyScopeGuidance(state.editing);
@@ -230,9 +218,6 @@ export function historyScopeHelp(state: ScopeState): string {
  * writes, which is 005 FR-050's rule applied to this field. In **add mode** the
  * draft starts at the documented default, so an untouched control writes the
  * default and a chosen one writes the choice (002 FR-089).
- *
- * @param state - The Bindings tab's state.
- * @returns The mode the control should show.
  */
 function draftScope(state: ScopeState): HistoryScope {
     return readHistoryScope(state.historyScopeInput) ?? DEFAULT_HISTORY_SCOPE;
@@ -252,7 +237,6 @@ function draftScope(state: ScopeState): HistoryScope {
  * override.
  */
 export interface HistoryScopePatch {
-    /** Binding whose mode the operator's control chose. */
     readonly bindingId: string;
     /** The mode this one row submits, in place of its stored one. */
     readonly historyScope: HistoryScope;
@@ -266,8 +250,6 @@ export interface HistoryScopePatch {
  * other one.
  *
  * @param patch - The edited binding's mode, or `null` when the field was untouched.
- * @param binding - The row being granted.
- * @returns The mode this row states on the wire.
  */
 export function historyScopeForRow(patch: HistoryScopePatch | null, binding: PanelBinding): HistoryScope {
     return patch?.bindingId === binding.bindingId ? patch.historyScope : historyScopeFor(binding);
@@ -276,15 +258,10 @@ export function historyScopeForRow(patch: HistoryScopePatch | null, binding: Pan
 /**
  * Mount the field into the editor, beside the allow-list and the trigger
  * switches — the controls that decide *what a trigger means for this repository*.
- *
- * @returns The handle the pane carries for repaint and disposal.
  */
 export function mountBindingHistoryScope(input: {
-    /** Runtime whose state the field renders from. */
     readonly rt: PanelRuntime;
-    /** Editor root the field mounts into. */
     readonly pane: HTMLElement;
-    /** Handlers the field invokes. */
     readonly handlers: BindingHistoryScopeHandlers;
 }): BindingHistoryScopeControls {
     const state = input.rt.state.bindings;
@@ -306,9 +283,6 @@ export function mountBindingHistoryScope(input: {
  * Disabled whenever the editor is closed or a read is in flight, like the
  * allow-list beside it: a control the operator could type into on a form that is
  * not going to submit would be a second write path (005 FR-050).
- *
- * @param rt - Panel runtime.
- * @param controls - The mounted handles.
  */
 export function repaintBindingHistoryScope(rt: PanelRuntime, controls: BindingHistoryScopeControls): void {
     const state = rt.state.bindings;
@@ -320,9 +294,7 @@ export function repaintBindingHistoryScope(rt: PanelRuntime, controls: BindingHi
 /**
  * Read the stored mode a freshly selected binding carries.
  *
- * @param bindings - The bindings the tab holds.
  * @param bindingId - The row the operator just selected, or `null` in add mode.
- * @returns The mode that row opens the editor on.
  */
 export function storedHistoryScopeFor(
     bindings: readonly PanelBinding[],
@@ -337,7 +309,6 @@ export function storedHistoryScopeFor(
     return binding === undefined ? DEFAULT_HISTORY_SCOPE : historyScopeFor(binding);
 }
 
-/** Release the handle the field mounted. */
 export function disposeBindingHistoryScope(controls: BindingHistoryScopeControls): void {
     controls.select.dispose();
 }

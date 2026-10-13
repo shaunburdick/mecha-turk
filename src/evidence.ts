@@ -33,13 +33,11 @@ const ISSUE_ID_PATTERN = /^\d+$/;
 
 /** Normalized evidence record produced by a configured match. */
 export interface PanelEvidence {
-    /** Contract schema version. */
     readonly schemaVersion: typeof EVIDENCE_SCHEMA_VERSION;
     /** `owner/name` of the polled repository. */
     readonly repository: string;
     /** Issue number as a stable string identifier. */
     readonly issueId: string;
-    /** Canonical issue URL. */
     readonly issueUrl: string;
     /** How the issue was selected; always the configured match rule. */
     readonly trigger: typeof TRIGGER;
@@ -197,7 +195,6 @@ interface EvidenceFields {
     /** `owner/name` of the polled repository. */
     readonly repository: string;
     readonly issueId: string;
-    /** Canonical issue URL. */
     readonly issueUrl: string;
     /** Login discovered from `GET /user`. */
     readonly authenticatedLogin: string;

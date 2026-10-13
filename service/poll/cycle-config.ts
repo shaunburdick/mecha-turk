@@ -73,9 +73,7 @@ export async function currentIntervalMs(store: ServiceStore | null, log: Service
  * @returns The effective configuration for the whole cycle.
  */
 export async function readCycleConfig(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }): Promise<ServiceConfig> {
     try {

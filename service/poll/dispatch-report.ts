@@ -51,32 +51,23 @@ import { refuse } from './run-refusal.ts';
 import type { RunApplied, RunDuplicate, RunNotFound, RunRefused, RunRefusal } from './run-refusal.ts';
 import type { DispatchAttempt, Run, RunReservation } from './runs-types.ts';
 
-/** What a result, abandon, or block report answered. */
 export type ReportResult = RunApplied | RunDuplicate | RunRefused | RunNotFound;
 
-/** What a report carries, reduced to what the staleness matrix compares. */
 interface ReportOutcome {
     /** Outcome the attempt record will carry when applied. */
     readonly attemptOutcome: 'dispatched' | 'failed' | 'abandoned';
-    /** Session the dispatch created, else `null`. */
     readonly sessionId: string | null;
-    /** Failure or abandonment reason, else `null`. */
     readonly reason: string | null;
 }
 
-/** The outcome a report asks the service to apply. */
 export interface ReportInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
-    /** The run being reported on, by correlation id. */
     readonly correlationId: string;
     /** The token the panel holds for this attempt. */
     readonly dispatchToken: string;
     /** Attempt the panel believes is current. */
     readonly attempt: number;
-    /** What the host call produced. */
     readonly outcome: ReportOutcome;
     /** Which operation is reporting, for the row and the refusal. */
     readonly operation: 'result' | 'abandon';
@@ -176,17 +167,12 @@ type ReportVerdict =
  * replay a dead-letter reset makes possible); and an unconsumed token applies
  * from `starting` or from `unconfirmed` (the reconciliation case), and from
  * nowhere else.
- *
- * @returns `apply`, `duplicate`, or the refusal.
  */
 function judgeReport(input: {
-    /** The run being reported on. */
     readonly run: Run;
-    /** Token the panel presented. */
     readonly dispatchToken: string;
     /** Attempt the panel claims to be acting under. */
     readonly attempt: number;
-    /** Outcome the report carries. */
     readonly outcome: ReportOutcome;
 }): ReportVerdict {
     const { run, dispatchToken, attempt, outcome } = input;
@@ -234,13 +220,10 @@ function judgeReport(input: {
 
 /**
  * The attempt record one applied report closes.
- *
- * @returns The closed record.
  */
 function closedAttempt(input: {
     /** The attempt as it stands before the report. */
     readonly attempt: DispatchAttempt;
-    /** What the host call produced. */
     readonly outcome: ReportOutcome;
     /** Service-clock stamp. */
     readonly now: string;
@@ -261,13 +244,10 @@ function closedAttempt(input: {
  * `dispatched`. The reservation is consumed and the claim dropped in
  * this **same** object, so a run can never be left holding a token that
  * authorizes nothing while looking live.
- *
- * @returns The settled run.
  */
 function reportedRun(input: {
     /** The `starting` or `unconfirmed` run the report applies to. */
     readonly run: Run;
-    /** What the host call produced. */
     readonly outcome: ReportOutcome;
     /** Service-clock stamp. */
     readonly now: string;
@@ -295,17 +275,12 @@ function reportedRun(input: {
 
 /**
  * Build the row an applied result or abandonment records.
- *
- * @returns The row to append.
  */
 function reportRow(input: {
-    /** The run as it now stands. */
     readonly run: Run;
     /** The token the report carried; recorded as its fingerprint only. */
     readonly dispatchToken: string;
-    /** What the host call produced. */
     readonly outcome: ReportOutcome;
-    /** Which operation reported. */
     readonly operation: 'result' | 'abandon';
 }) {
     if (input.operation === 'abandon') {
@@ -324,17 +299,12 @@ function reportRow(input: {
     });
 }
 
-/** What a refused report needs beyond the report's own coordinates. */
 interface RefusedReport {
-    /** The report's store and logger. */
     readonly target: { readonly store: ServiceStore; readonly log: ServiceLogger };
-    /** The run as it stands. */
     readonly run: Run;
     /** The operation the caller attempted, as the row names it. */
     readonly operation: 'result' | 'abandon';
-    /** The verdict. */
     readonly refusal: RunRefusal;
-    /** Attempt the caller presented. */
     readonly attempt: number;
     /** Token the caller presented; the row records its fingerprint, never it. */
     readonly dispatchToken: string;
@@ -374,7 +344,6 @@ async function refusedReport(input: RefusedReport): Promise<RunRefused> {
 /**
  * Record a repeat of an outcome already recorded, without moving the run.
  *
- * @param run - The run, byte-unchanged by the repeat.
  * @returns The `duplicate` answer, carrying whether its row reached the trail.
  */
 async function duplicateReport(input: ReportInput, run: Run): Promise<RunDuplicate> {
@@ -392,18 +361,11 @@ async function duplicateReport(input: ReportInput, run: Run): Promise<RunDuplica
 
 /**
  * Apply a verdict: settle the run and record the row, or refuse.
- *
- * @param persist - The chain task's write.
- * @returns The operation's answer.
  */
 async function applyVerdict(input: {
-    /** The report's own input. */
     readonly report: ReportInput;
-    /** The run as the chain task read it. */
     readonly run: Run;
-    /** What the judge decided. */
     readonly verdict: ReportVerdict;
-    /** The chain task's write. */
     readonly persist: (run: Run) => Promise<void>;
 }): Promise<ReportResult> {
     const { report, run, verdict, persist } = input;
@@ -447,7 +409,6 @@ async function applyVerdict(input: {
  * outcome is *no session*, distinguished from Result's `problem` shape
  * by when it is true rather than by the state it ends in.
  *
- * @returns The settled run, the duplicate verdict, or the refusal.
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
 export async function reportDispatch(input: ReportInput): Promise<ReportResult> {

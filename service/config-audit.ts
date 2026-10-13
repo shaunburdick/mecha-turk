@@ -222,7 +222,6 @@ function refusedFields(issues: readonly ConfigIssue[]): readonly string[] {
 export async function appendConfigApplied(input: {
     /** Open store the trail lives on. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The fields that changed, ordered by field name. */
     readonly changes: readonly ConfigChange[];
@@ -269,7 +268,6 @@ export async function appendConfigApplied(input: {
 export async function appendConfigRefused(input: {
     /** Open store, or `null` when the data directory is unusable. */
     readonly store: ServiceStore | null;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Every issue the refusal reported. */
     readonly issues: readonly ConfigIssue[];

@@ -44,7 +44,6 @@ const RUN_TEXT_FIELDS = [
 
 /** One run row's scalar fields after validation. */
 export interface RunScalars {
-    /** Current state. */
     readonly state: RunState;
     /** Reason line: `null` while pending, required everywhere else. */
     readonly stateReason: string | null;

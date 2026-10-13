@@ -122,27 +122,19 @@ export interface PollItemEvent {
     readonly createdAt: string;
 }
 
-/** Credential, repository, item, and window one events call takes. */
 export interface ItemEventsQuery {
-    /** Account credential presented to GitHub. */
     readonly token: string;
-    /** Repository owner. */
     readonly owner: string;
-    /** Repository name. */
     readonly name: string;
-    /** The item whose events are read — an issue number or a pull-request number. */
     readonly issueNumber: number;
     /** The window this scan opened, compared on `created_at`. */
     readonly windowStart: string;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 
-/** Outcome of one item-events call: the events read, or the classified failure. */
 export type ItemEventsOutcome =
     | PollFailure
     | {
-        /** The pages answered. */
         readonly kind: 'ok';
         /** Every event the walk saw, in page order. */
         readonly events: readonly PollItemEvent[];
@@ -155,16 +147,13 @@ export type ItemEventsOutcome =
         readonly exhausted: boolean;
     };
 
-/** Why one candidate's actor could not be used. */
 export type ActorRefusal =
     /** The read worked and found nothing in the window to answer the candidate. */
     | 'no-qualifying-event'
     /** The naming event's actor member is `null` or empty. */
     | 'unreadable-actor'
-    /** The naming event's actor is a bot. */
     | 'bot-actor';
 
-/** What resolving one candidate's actor found. */
 export type CandidateActor =
     /** A readable, non-bot actor the naming event records. */
     | { readonly kind: 'actor'; readonly login: string }
@@ -178,11 +167,6 @@ export type CandidateActor =
 /** An absent `simple-user`, answering `''`/`''` like every other feed's author. */
 const NO_ACTOR: ItemEventActor = { login: '', type: '' };
 
-/**
- * Read one `simple-user` member.
- *
- * @returns The actor, or `''`/`''` when there is none to read.
- */
 function actorOf(value: unknown): ItemEventActor {
     if (!isRecord(value)) {
         return NO_ACTOR;
@@ -202,8 +186,6 @@ function actorOf(value: unknown): ItemEventActor {
  *
  * The schema allows the member to be absent or `null`, so an event with no
  * `issue` member is kept and simply makes no claim about its item.
- *
- * @returns The item number, or `null` when the member carries none.
  */
 function issueNumberOf(value: unknown): number | null {
     const record = isRecord(value) ? value : null;
@@ -238,8 +220,6 @@ function createdAtOf(value: unknown): string | null {
  * neither can name a subject nor be judged in-window. Selection is by greatest
  * `created_at`, so a stamp the clock cannot read would also leave "greatest"
  * undefined.
- *
- * @returns The normalized event, or `null` when the row is not usable.
  */
 export function readItemEventEntry(value: unknown): PollItemEvent | null {
     if (!isRecord(value)) {
@@ -283,24 +263,19 @@ export function readItemEventEntry(value: unknown): PollItemEvent | null {
  * The asymmetry is the point. One signal is the provider saying it is done; the
  * other is a heuristic about how it sorts, and the heuristic is written to fail
  * only into wasted budget.
- *
- * @returns `true` when this page can hold nothing further in-window.
  */
 export function pageEndsWalk(input: {
     /** One page's events, in the order the response carried them. */
     readonly events: readonly PollItemEvent[];
     /** The window this scan opened (002 FR-065). */
     readonly windowStart: string;
-    /** The `per_page` this walk asked for. */
     readonly perPage: number;
 }): boolean {
     return input.events.length < input.perPage
         || input.events.every((event) => !stampInWindow(event.createdAt, input.windowStart));
 }
 
-/** What the correlation needs to decide whether one row answers a candidate. */
 interface CorrelationInput {
-    /** Which trigger kind the candidate is. */
     readonly kind: ItemCandidateKind;
     /** The bound account the **subject** field must name. */
     readonly boundLogin: string;
@@ -318,8 +293,6 @@ interface CorrelationInput {
  * named by. The event word alone is not the filter — `unassigned`, `closed`,
  * `labeled`, `referenced`, and `head_ref_deleted` are all kinds this endpoint
  * returns, and none of them is an answer.
- *
- * @returns `true` when this row is the evidence for that candidate.
  */
 function qualifies(input: CorrelationInput, event: PollItemEvent): boolean {
     const isAssignment = input.kind === 'assignment';
@@ -340,8 +313,6 @@ function qualifies(input: CorrelationInput, event: PollItemEvent): boolean {
  * oldest-first, or interleaved produces the same actor. A bulk assignment that
  * touches the bound account twice inside one window is defined for by the same
  * rule.
- *
- * @returns The answering event, or `null` when none of them qualifies.
  */
 export function namingEventOf(events: readonly PollItemEvent[], input: CorrelationInput): PollItemEvent | null {
     let newest: PollItemEvent | null = null;
@@ -358,27 +329,20 @@ export function namingEventOf(events: readonly PollItemEvent[], input: Correlati
     return newest;
 }
 
-/** What reading the actor off one qualifying event found. */
 export type EventActor =
     | { readonly usable: true; readonly login: string }
     | { readonly usable: false; readonly reason: 'unreadable-actor' | 'bot-actor' };
 
 /**
- * Read the actor one qualifying event records.
- *
  * The field is the one the **kind** names — `assigner` for an assignment,
  * `review_requester` for a review request — and never `actor`, never the issue
  * author, never the `assignee` beside it, and never an actor recorded earlier
  * for the same item. Those four substitutes each record a guess as a fact, and
  * each was reachable in the build this correction replaces; the shape has no
  * member for the first and the code reaches for none of them.
- *
- * @returns The bounded login, or the reason there is none.
  */
 export function actorOfNamingEvent(input: {
-    /** Which trigger kind the candidate is. */
     readonly kind: ItemCandidateKind;
-    /** The event that qualified. */
     readonly event: PollItemEvent;
 }): EventActor {
     const named = input.kind === 'assignment' ? input.event.assigner : input.event.reviewRequester;
@@ -389,25 +353,18 @@ export function actorOfNamingEvent(input: {
     return { usable: true, login: actorLoginOf(named.login) };
 }
 
-/** Everything {@link resolveCandidateActor} needs, including what it records on. */
 interface CandidateRequest {
-    /** Poller the read is issued through. */
     readonly poller: GitHubIssuePoller;
     /** Logger every no-event answer is recorded on. */
     readonly log: ServiceLogger;
-    /** Account credential presented to GitHub. */
     readonly token: string;
-    /** The repository the item lives in. */
     readonly repository: RepositoryRef;
-    /** The item's number — an issue's or a pull request's. */
     readonly issueNumber: number;
-    /** Which trigger kind the candidate is. */
     readonly kind: ItemCandidateKind;
     /** The bound account, as the account record reports it. */
     readonly boundLogin: string;
     /** The window this scan opened (002 FR-065). */
     readonly windowStart: string;
-    /** Page size and retry ladder this cycle's reads run under. */
     readonly pace: ListPace;
 }
 
@@ -447,8 +404,6 @@ function recordNoEvent(input: { readonly request: CandidateRequest; readonly rea
  *   the class. Dropping only the candidate would instead advance the window past
  *   an assignment nobody ever attributed, leaving the operator with no event, no
  *   row, no reason, and a checkpoint that has already moved on.
- *
- * @returns The actor, one of the two recorded no-event answers, or a failure.
  */
 export async function resolveCandidateActor(request: CandidateRequest): Promise<CandidateActor> {
     const { repository } = request;

@@ -66,7 +66,6 @@ export interface LedgerEntry {
     readonly correlationId: string;
     /** Panel mount generation that produced the entry. */
     readonly panelGeneration: number;
-    /** What the entry records. */
     readonly kind: LedgerEntryKind;
     /** Redacted detail payload. */
     readonly detail: LedgerDetail;
@@ -76,7 +75,6 @@ export interface LedgerEntry {
 
 /** The persisted ledger. */
 export interface PanelLedger {
-    /** Contract schema version. */
     readonly schemaVersion: typeof LEDGER_SCHEMA_VERSION;
     /** Correlation identifier for the whole experiment run. */
     readonly correlationId: string;
@@ -375,7 +373,6 @@ function sanitizeDetail(detail: LedgerDetail): LedgerDetail {
 export interface LedgerEntryInput {
     /** RFC 3339 timestamp. */
     readonly at: string;
-    /** What the entry records. */
     readonly kind: LedgerEntryKind;
     /** Redacted detail payload. */
     readonly detail: LedgerDetail;

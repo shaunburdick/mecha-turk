@@ -151,7 +151,6 @@ const recoveredQuarantines = new WeakMap<ServiceStore, Set<string>>();
 /**
  * Claim one quarantine observation for recovery.
  *
- * @param quarantinePath - Path (or store-relative name) of the quarantined file.
  * @returns `true` when this caller owns the recovery.
  */
 function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boolean {
@@ -195,11 +194,8 @@ function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boole
  * cover, and recomputing it from a later clock would shrink the very window the
  * recovery exists to re-open. The write runs on the scan-state chain, so it
  * cannot interleave with the loop's own read-modify-write of that file.
- *
- * @returns How many bindings had a checkpoint to clear.
  */
 async function resetScanWindows(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<number> {
@@ -222,14 +218,9 @@ async function resetScanWindows(input: {
     });
 }
 
-/**
- * Record one queue-quarantine recovery in the audit trail.
- */
 async function recordQueueRecovery(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
-    /** Where the unusable queue was set aside. */
     readonly quarantinePath: string;
     /** Bindings whose scan window was cleared. */
     readonly bindingsReset: number;
@@ -255,7 +246,6 @@ async function recordQueueRecovery(input: {
 }
 
 /**
- * Recover from a queue file that had to be quarantined.
  *
  * The quarantine consumed the evidence file, so this is the only moment the
  * repair can run: clear every binding's scan window — the lost assignments
@@ -263,10 +253,8 @@ async function recordQueueRecovery(input: {
  * replay duplicate-free — then leave one audit row saying so.
  */
 async function recoverQuarantinedQueue(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
-    /** Where the unusable queue was set aside. */
     readonly quarantinePath: string;
 }): Promise<void> {
     if (!claimQuarantinePass(input.store, input.quarantinePath)) {
@@ -295,7 +283,6 @@ const QUARANTINE_EVIDENCE_PREFIX = `${EVENTS_FILE}.corrupt-`;
  * duplicate-free even when a later process repeats it.
  */
 async function recoverFromEvidence(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<void> {
@@ -319,7 +306,6 @@ async function recoverFromEvidence(input: {
  * @returns Any stored events, `[]` when absent or quarantined.
  */
 async function readQueue(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent[]> {
@@ -355,11 +341,8 @@ async function readQueue(input: {
  * Read the queue, best-effort: a quarantined or failed read is answered as
  * an empty list with a log line (never fail-stuck), and a quarantined read
  * has already run the scan-window recovery before it answers.
- *
- * @returns The queue, or `[]`.
  */
 export async function readEvents(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent[]> {
@@ -442,10 +425,8 @@ async function enqueueWithinChain(input: {
  * @returns The events that were actually appended, linked to their run.
  */
 export async function enqueueEvents(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
-    /** Fresh events this scan produced. */
     readonly incoming: readonly QueuedEvent[];
     /**
      * The scanning binding's prompt snapshot (004 FR-015), carried beside the

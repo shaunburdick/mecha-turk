@@ -254,7 +254,6 @@ export function serializeScan<T>(task: () => Promise<T>): Promise<T> {
  * @returns The state, or a fresh one when the file is absent/unusable.
  */
 export async function readScanState(deps: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<ScanState> {
@@ -283,7 +282,6 @@ export async function readScanState(deps: {
  * Store the scan state atomically.
  */
 export async function writeScanState(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     /** The state to keep. */
     readonly state: ScanState;
@@ -297,7 +295,6 @@ export async function writeScanState(input: {
  * @returns The next state.
  */
 export function withBindingScanState(input: {
-    /** Current state. */
     readonly state: ScanState;
     /** Binding whose slot is written. */
     readonly bindingId: string;

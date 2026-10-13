@@ -146,9 +146,7 @@ export async function applyConfigRead(rt: PanelRuntime, repaint: Repaint): Promi
  * Apply one field edit to the draft. This is not a write.
  */
 export function applyFieldEdit(input: {
-    /** Panel runtime whose state moves. */
     readonly rt: PanelRuntime;
-    /** What repaints the tab after the state moves. */
     readonly repaint: Repaint;
     /** The field the operator touched. */
     readonly field: string;
@@ -170,9 +168,7 @@ export function applyFieldEdit(input: {
  * outcome it reported with it.
  */
 function recordAcceptedWrite(input: {
-    /** Panel runtime whose state moves. */
     readonly rt: PanelRuntime;
-    /** What repaints the tab after the state moves. */
     readonly repaint: Repaint;
     /** The answer body. */
     readonly body: string;
@@ -213,9 +209,7 @@ function recordAcceptedWrite(input: {
  * of the operator's values.
  */
 function applyWriteAnswer(input: {
-    /** Panel runtime whose state moves. */
     readonly rt: PanelRuntime;
-    /** What repaints the tab after the state moves. */
     readonly repaint: Repaint;
     /** The answer the wrapper produced. */
     readonly answer: ServiceConfigPutResult;

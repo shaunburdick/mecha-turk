@@ -79,9 +79,7 @@ export type OperationResult = RunApplied | RunRefused | RunNotFound;
 
 /** The operation's store and logger, shared by every refusal helper. */
 export interface RefusalTarget {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }
 
@@ -118,11 +116,9 @@ function invalidTransition(state: RunState): RunRefusal {
  * @returns The refusal, carrying whether its row reached the trail.
  */
 export async function refused(input: RefusalTarget & {
-    /** The run as it stands. */
     readonly run: Run;
     /** Which operation the caller attempted. */
     readonly operation: OperateName;
-    /** The verdict. */
     readonly refusal: RunRefusal;
 }): Promise<RunRefused> {
     const { run, operation, refusal, store, log } = input;
@@ -157,7 +153,6 @@ function judgeRetry(input: {
     readonly attempt: number;
     /** Whether the operator reported the cause cleared. */
     readonly causeCleared: boolean;
-    /** The live binding table. */
     readonly bindings: readonly BindingRecord[];
 }): RunRefusal | CauseSource {
     const { run, causeCleared, bindings } = input;
@@ -216,9 +211,7 @@ function waitingRun(input: { readonly run: Run; readonly now: string }): Run {
 
 /** What one `dispatch.retry` row records, for either shape of the action. */
 interface RetryRowInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The waiting run as it now stands. */
     readonly run: Run;
@@ -270,9 +263,7 @@ async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
 export async function retryDispatch(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run to retry, by correlation id. */
     readonly correlationId: string;
@@ -331,9 +322,7 @@ export async function retryDispatch(input: {
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
 export async function requeueDispatch(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run to return to waiting, by correlation id. */
     readonly correlationId: string;
@@ -460,9 +449,7 @@ function resolvedRun(input: {
  * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
 export async function resolveDispatch(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run to resolve, by correlation id. */
     readonly correlationId: string;

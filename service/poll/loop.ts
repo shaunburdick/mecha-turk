@@ -101,9 +101,7 @@ export type ScanSkip =
     | 'runs-unreadable'
     | WindowRefusal;
 
-/** What one binding's scan produced. */
 export interface BindingScan {
-    /** Binding scanned. */
     readonly bindingId: string;
     /** `owner/name` label. */
     readonly repository: string;
@@ -119,15 +117,12 @@ export interface BindingScan {
      * from and only the scan that opened one can widen it (002 FR-073; plan H8).
      */
     readonly openedFrom: string | null;
-    /** Skip reason for the whole scan, else `null`. */
     readonly skipped: ScanSkip | null;
 }
 
-/** Result of one poll cycle across every eligible binding. */
 export interface ScanResult {
     /** Per-binding outcomes, in binding-file order. */
     readonly bindings: readonly BindingScan[];
-    /** Total new events enqueued this cycle. */
     readonly enqueued: number;
 }
 
@@ -135,19 +130,14 @@ export interface ScanResult {
 export interface ScanDeps {
     /** Open store, or `null` when the data directory is unusable. */
     readonly store: ServiceStore | null;
-    /** Structured logger. */
     readonly log: ServiceLogger;
-    /** GitHub poller used for every issue list. */
     readonly poller: GitHubIssuePoller;
 }
 
 /** The narrowed dependencies, built after the null-store check. */
 interface ScanContext {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
-    /** GitHub poller. */
     readonly poller: GitHubIssuePoller;
     /**
      * The configuration this cycle runs on — read **once** at the boundary
@@ -164,13 +154,11 @@ interface ScanContext {
 
 /** Scheduler state the status projection reads; see [`view.ts`](./view.ts). */
 export interface PollLoopState {
-    /** Whether `stop()` has been called on this loop. */
     readonly stopped: boolean;
     /** Epoch milliseconds of the next armed cycle, or `null` when none is armed. */
     readonly nextPollAtMs: number | null;
 }
 
-/** Handle to the running poll loop. */
 export interface PollLoop {
     /** Cancel the pending cycle; an in-flight cycle finishes on its own. */
     stop(): void;
@@ -188,8 +176,6 @@ export interface PollLoop {
  *
  * A binding whose switches are all off is walked but never scanned, so the
  * scan state stays honest (and no rate budget is spent on a silent binding).
- *
- * @returns `true` when at least one trigger is on.
  */
 function watchesAnything(binding: BindingRecord): boolean {
     const { assignment, mention, reviewRequest } = binding.triggers;
@@ -204,9 +190,6 @@ function watchesAnything(binding: BindingRecord): boolean {
  * read included: `skipOf` is what turns a `PollFailure` into the one honest
  * reason a binding's scan reports, and a second mapping for the actor read
  * would be a second answer to "why did this scan stop" (constitution IV).
- *
- * @param outcome - The upstream classification; never `ok`.
- * @returns The short machine reason logged for the binding.
  */
 function skipOf(outcome: PollFailure): ScanSkip {
     if (outcome.kind === 'auth-failed') {
@@ -220,11 +203,6 @@ function skipOf(outcome: PollFailure): ScanSkip {
     return outcome.detail === 'timeout' || outcome.detail === 'offline' ? 'offline' : 'upstream';
 }
 
-/**
- * The outcome a binding's scan starts from, before anything is observed.
- *
- * @returns The all-clear baseline.
- */
 function blankScan(binding: BindingRecord): BindingScan {
     return {
         bindingId: binding.bindingId,
@@ -251,13 +229,9 @@ function blankScan(binding: BindingRecord): BindingScan {
  * than thrown back into a scan that succeeded.
  */
 async function recordTrackingEnds(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
-    /** Binding the ended subjects belong to. */
     readonly binding: BindingRecord;
-    /** The ends this cycle observed. */
     readonly ends: readonly TrackingEnd[];
 }): Promise<void> {
     for (const end of input.ends) {
@@ -318,7 +292,6 @@ async function previewTrackedDocument(
     }
 }
 
-/** What one binding's listings produced: every event, or the skip reason. */
 type ScanListing =
     | {
         readonly ok: true;
@@ -356,20 +329,12 @@ type ScanListing =
  * is neither a terminal state nor an open one, and a `404` that is really a
  * revoked credential must not be read as a deletion. Dropping only the candidate
  * would advance the window past work nobody judged.
- *
- * @returns The events without the ended subjects' follow-ups and the ends to
- *   record, or the skip that ends this binding's scan.
  */
 async function terminalFollowUpState(input: {
-    /** Narrowed store/logger/poller/pace. */
     readonly deps: ScanContext;
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
-    /** Account credential presented to GitHub. */
     readonly token: string;
-    /** Subjects this binding and account is following. */
     readonly tracked: ReadonlyMap<number, TrackedSubject>;
-    /** Every event this scan detected, follow-ups included. */
     readonly events: readonly QueuedEvent[];
 }): Promise<
     { readonly events: readonly QueuedEvent[]; readonly ends: readonly TrackingEnd[] }
@@ -434,24 +399,17 @@ async function terminalFollowUpState(input: {
  * one skip reason for the binding**, FR-106's terminal read included. A binding
  * with none of its switches on lists nothing at all, so the rate budget only ever
  * pays for triggers the operator turned on.
- *
- * @returns Every event this scan matched (ended subjects' follow-ups dropped),
- *   the heads observed, the ends to record, or the skip reason.
  */
 async function collectScanEvents(input: {
-    /** Narrowed store/logger/poller. */
     readonly deps: ScanContext;
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
     /** The window this cycle opened; every scan has a computable lower bound (002 FR-065). */
     readonly windowStart: string;
     /** RFC 3339 stamp pinned at cycle start. */
     readonly detectedAt: string;
-    /** Account credential presented to GitHub. */
     readonly token: string;
     /** The bound account's login, as the account record reports it. */
     readonly login: string;
-    /** Subjects this binding and account is following. */
     readonly tracked: ReadonlyMap<number, TrackedSubject>;
 }): Promise<ScanListing> {
     const { deps, binding, windowStart, detectedAt, token, login, tracked } = input;
@@ -503,9 +461,7 @@ async function collectScanEvents(input: {
  * one cycle reports one honest reason per binding.
  */
 async function scanBinding(input: {
-    /** Narrowed store/logger/poller. */
     readonly deps: ScanContext;
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
     /** This binding's slot, as it stood after the cycle derived any baseline. */
     readonly scanned: BindingScanState;
@@ -773,15 +729,11 @@ async function ensureBaselines(
  * size, and the retry ladder all take their values from this one document and
  * keep them for the whole cycle, so a single save changes all of them at the
  * same boundary and no consumer sees a half-updated configuration.
- *
- * @returns The context every binding in this cycle is scanned under.
  */
 async function cycleContext(input: {
     /** Open store; the null check lives at the cycle's own entry. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
-    /** GitHub poller. */
     readonly poller: GitHubIssuePoller;
 }): Promise<ScanContext> {
     const config = await readCycleConfig({ store: input.store, log: input.log });
@@ -803,8 +755,6 @@ async function cycleContext(input: {
  * Never throws: every failure it can see is one binding's `skipped` reason,
  * logged once at the end with counts only. The cycle keeps walking the
  * remaining bindings so one broken account cannot block another.
- *
- * @returns The cycle outcome.
  */
 export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
     if (deps.store === null) {

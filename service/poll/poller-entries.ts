@@ -26,11 +26,9 @@ import { isRecord } from '../json.ts';
  * stated here because the service never imports panel runtime.
  */
 export interface PollIssue {
-    /** Issue number within the repository. */
     readonly issueNumber: number;
     /** Issue title; untrusted source text. */
     readonly title: string;
-    /** Canonical GitHub URL. */
     readonly url: string;
     /** Issue state (`open`/`closed`). */
     readonly state: string;
@@ -115,7 +113,6 @@ export interface PollPull {
     readonly pullNumber: number;
     /** PR title; untrusted source text. */
     readonly title: string;
-    /** Canonical GitHub URL. */
     readonly url: string;
     /** PR state (`open`/`closed`). */
     readonly state: string;

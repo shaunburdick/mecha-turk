@@ -96,9 +96,6 @@ export const STAMP_UNREADABLE: WindowRefusal = 'stamp-unreadable';
 
 /**
  * Read one stamp, or `null` when it is absent or the clock cannot read it.
- *
- * @param value - The stored member.
- * @returns The stamp, or `null`.
  */
 function readableStamp(value: string | null): string | null {
     return value !== null && !Number.isNaN(Date.parse(value)) ? value : null;
@@ -136,9 +133,7 @@ function readableStamp(value: string | null): string | null {
  * @returns The baseline stamp, or the refusal that keeps it unwritten.
  */
 export function baselineFor(input: {
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
-    /** What the stored row says about its creation stamp. */
     readonly stored: StoredCreationStamp;
     /** Configured overlap, for the documented default mode. */
     readonly overlapMs: number;
@@ -180,7 +175,6 @@ export function baselineFor(input: {
  *   reason.
  */
 export function windowFor(input: {
-    /** Binding being scanned. */
     readonly binding: BindingRecord;
     /** Scan state read at cycle start. */
     readonly scanned: BindingScanState;
@@ -245,11 +239,9 @@ export function windowFor(input: {
  * {@link widenBaseline} and the only operation is "keep the earlier of two
  * parseable stamps".
  *
- * @param inputs - The bound already retained, and the window this scan opened at.
  * @returns The bound to store, or `null` when neither is readable.
  */
 export function widenBaseline(inputs: {
-    /** The bound already on the slot, or `null`. */
     readonly retained: string | null;
     /** The window this scan opened at, or `null` when it refused. */
     readonly opened: string | null;
@@ -293,13 +285,10 @@ export function widenBaseline(inputs: {
  * member this function cannot interpret is not a request it may answer — the
  * arming survives for a reader that can interpret it.
  *
- * @param inputs - The window the scan opened at, and the armed bound on the slot.
  * @returns `true` only when the completed scan's window covered the armed one.
  */
 export function answersCatchUp(input: {
-    /** The window a completing scan opened at, or `null` when it opened none. */
     readonly opened: string | null;
-    /** The armed lower bound already on the slot, or `null`. */
     readonly armed: string | null;
 }): boolean {
     const opened = readableStamp(input.opened);
@@ -322,8 +311,6 @@ export function answersCatchUp(input: {
  *
  * @param stamp - The observation's own timestamp (`updated_at` on a listing,
  *   `created_at` on an issue event), or `null` when GitHub sent none.
- * @param windowStart - The window this scan opened.
- * @returns `true` when the stamp is inside the window.
  */
 export function stampInWindow(stamp: string | null, windowStart: string): boolean {
     if (stamp === null) {
@@ -347,7 +334,6 @@ export function stampInWindow(stamp: string | null, windowStart: string): boolea
  * @returns The ids needing a baseline, in binding order.
  */
 export function bindingsNeedingBaseline(input: {
-    /** The bindings this cycle would scan. */
     readonly bindings: readonly BindingRecord[];
     /** Scan state read at cycle start. */
     readonly slots: Readonly<Record<string, BindingScanState>>;

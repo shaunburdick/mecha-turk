@@ -109,8 +109,6 @@ function joinPhrases(phrases: readonly string[]): string {
  * surface and the answer is `null`. And **the bound account's login is never
  * named** — the phrases say *the account*, because the row already renders that
  * member and this must not become a second rendering of it.
- *
- * @returns `null` when nothing is switched on.
  */
 export function derivedTriggerClause(triggers: PanelTriggers): string | null {
     const phrases = TRIGGER_PHRASES
@@ -141,7 +139,6 @@ export interface PolicyFacts {
     readonly count: number | null;
 }
 
-/** Whether any trigger is switched on. */
 function watchesAnything(triggers: PanelTriggers): boolean {
     return TRIGGER_PHRASES.some(([key]) => triggers[key]);
 }
@@ -280,8 +277,6 @@ export function allowedUsersNotSetPlaceholder(facts: Omit<PolicyFacts, 'count'>)
  * The **submitted spelling** is preserved verbatim: this is not a canonical
  * form, and re-saving an untouched list must not rewrite how an operator spelled
  * a login.
- *
- * @returns `''` when the binding has no list.
  */
 export function storedActorsText(binding: PanelBinding): string {
     return binding.allowedUsers?.join(', ') ?? '';
@@ -304,8 +299,6 @@ export function storedActorsText(binding: PanelBinding): string {
  * So `alice,` submits `['alice', '']` and the service's own remediation names
  * the shape, while a **blank** field submits nothing at all: a cleared field
  * means *back to open*.
- *
- * @returns The logins to send, or `null` when the key must be omitted.
  */
 export function parseAllowedUsers(text: string): readonly string[] | null {
     const entries = text
@@ -323,8 +316,6 @@ export function parseAllowedUsers(text: string): readonly string[] | null {
  * painted onto this field, and anything else stays on the tab's note where it
  * already has a home. Same classification as the prompt's, read from the same
  * envelope, so one answer can never split two ways.
- *
- * @returns The field-level copy, or `null` when the refusal is not the list's.
  */
 export function actorsRefusal(answer: ServiceErrorResult): string | null {
     if (answer.ok || answer.code !== 'validation' || answer.message === null) {
@@ -334,9 +325,7 @@ export function actorsRefusal(answer: ServiceErrorResult): string | null {
     return answer.message.includes(ALLOWED_USERS_FIELD) ? answer.message : null;
 }
 
-/** Callbacks the field invokes. */
 export interface BindingActorHandlers {
-    /** The operator typed into the allow-list field. */
     readonly setAllowedUsers: (value: string) => void;
 }
 
@@ -349,7 +338,6 @@ export interface BindingActorHandlers {
  * *unset*. Every other row always carries its own stored value.
  */
 export interface ActorPatch {
-    /** Binding whose allow-list the operator edited. */
     readonly bindingId: string;
     /**
      * The logins to submit, or `null` to **omit the key** — which is how a
@@ -377,9 +365,7 @@ export function allowedUsersPatch(bindings: BindingsTabState, bindingId: string)
     return { bindingId, allowedUsers: parseAllowedUsers(bindings.allowedUsersInput) };
 }
 
-/** The field, as the pane carries it. */
 export interface BindingActorControls {
-    /** The allow-list itself — the only element that ever holds its logins. */
     readonly field: TextFieldHandle;
 }
 
@@ -418,11 +404,8 @@ export function editorPolicyFacts(bindings: BindingsTabState): Omit<PolicyFacts,
  * before the fields that are not about triggers.
  */
 export function mountBindingActors(input: {
-    /** Runtime whose state the field renders from. */
     readonly rt: PanelRuntime;
-    /** Editor root the field mounts into. */
     readonly pane: HTMLElement;
-    /** Handler the field invokes. */
     readonly handlers: BindingActorHandlers;
 }): BindingActorControls {
     const state = input.rt.state.bindings;
@@ -467,16 +450,10 @@ export function repaintBindingActors(rt: PanelRuntime, controls: BindingActorCon
     });
 }
 
-/** Release the handle the allow-list field mounted. */
 export function disposeBindingActors(controls: BindingActorControls): void {
     controls.field.dispose();
 }
 
-/**
- * Read the stored allow-list a freshly selected binding carries.
- *
- * @returns The field text for that row, or `''` when it has no list.
- */
 export function storedActorsFor(bindings: BindingsTabState, bindingId: string | null): string {
     if (bindingId === null) {
         return '';

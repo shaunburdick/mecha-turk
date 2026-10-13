@@ -69,7 +69,6 @@ export interface TrimExcerptsOutcome {
 export interface TrimExcerptsInput {
     /** Open store holding the queue. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The effective configuration, read once by the boundary that runs this. */
     readonly config: ServiceConfig;
@@ -101,7 +100,6 @@ export interface TrimExcerptsInput {
 async function readRunStates(input: {
     /** Open store holding the run document. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }): Promise<ReadonlyMap<string, string>> {
     const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);

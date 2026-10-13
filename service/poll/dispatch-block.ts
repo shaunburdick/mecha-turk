@@ -65,9 +65,7 @@ const INVALID_TRANSITION = 'invalid-transition';
 
 /** What one block report carries. */
 export interface BlockInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run being blocked, by correlation id. */
     readonly correlationId: string;
@@ -137,7 +135,6 @@ function judgeBlock(input: {
  * @returns The `blocked:<reason>` run.
  */
 function blockedRun(input: {
-    /** The claimed run. */
     readonly run: Run;
     /** Which of the four documented causes fired. */
     readonly blockedReason: string;

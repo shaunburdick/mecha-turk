@@ -23,19 +23,6 @@ import { asRecord, fieldsHoldText, integerOrZero, parseJsonObject, textOrEmpty, 
 export { parseAccountsBody } from './accounts-service.ts';
 export type { AccountScopeMatrix, AccountScopeVerdict, PanelAccount } from './accounts-service.ts';
 
-/** Path of the bindings collection. */
-
-/** Path the panel polls for queued events. */
-
-/** Path pattern for one dispatch-result POST. */
-
-/** Lowest HTTP status code a service answer counts as success. */
-
-/** HTTP status the service answers with a `validation` error body. */
-
-/** HTTP status just past the last success code (`2xx`). */
-
-/** Triggers as the panel edits and stores them. */
 export interface PanelTriggers {
     /** Issue-assignment polling; implemented service-side for M1. */
     readonly assignment: boolean;
@@ -45,7 +32,6 @@ export interface PanelTriggers {
     readonly reviewRequest: boolean;
 }
 
-/** One binding as the panel reads, edits, and grants it. */
 export interface PanelBinding {
     /** Panel-generated id; opaque. */
     readonly bindingId: string;
@@ -55,13 +41,10 @@ export interface PanelBinding {
     readonly accountLogin: string;
     /** The repository as `owner/name`. */
     readonly repository: string;
-    /** The OpenChamber project the dispatch targets. */
     readonly projectId: string;
     /** `none`, `generated`, or `new:<branch-name>`. */
     readonly worktreeOption: string;
-    /** The triggers the binding watches. */
     readonly triggers: PanelTriggers;
-    /** Whether the binding currently polls. */
     readonly state: 'active' | 'disabled';
     /** RFC 3339 creation stamp. */
     readonly createdAt: string;
@@ -122,15 +105,11 @@ export interface PanelBinding {
 }
 
 
-/** One per-binding poll-status row from the service. */
 export interface BindingStatusRow {
-    /** The binding the row describes. */
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
-    /** The binding's project id. */
     readonly projectId: string;
-    /** The account login the binding polls under. */
     readonly accountLogin: string;
     /** `true` when the binding is enabled. */
     readonly active: boolean;
@@ -206,16 +185,11 @@ export const DEFAULT_HISTORY_SCOPE: HistoryScope = 'new-only';
 export const RECENT_HISTORY_SCOPE: HistoryScope = 'recent-history';
 
 /**
- * Narrow a stored member to one of the two names.
- *
  * **Fails closed rather than defaulting** (002 FR-063, FR-093): a value outside
  * the vocabulary is something this build cannot judge, and rendering it as the
  * default would tell the operator their binding scans from now on when the
  * service may hold something else. `undefined` is *not* that case — an absent
  * member is the documented default and is accepted as it.
- *
- * @param value - The member as it arrived, or `undefined` when absent.
- * @returns The mode, or `null` when the member is present and unusable.
  */
 export function readHistoryScope(value: unknown): HistoryScope | null {
     if (value === undefined || value === null) {
@@ -227,9 +201,7 @@ export function readHistoryScope(value: unknown): HistoryScope | null {
 
 /** What one bindings/GET answered with. */
 export interface BindingsSnapshot {
-    /** The service's stored bindings. */
     readonly bindings: readonly PanelBinding[];
-    /** Per-binding scan status. */
     readonly status: readonly BindingStatusRow[];
 }
 
@@ -246,14 +218,6 @@ const BINDING_STRING_FIELDS = [
 /** Fields a stored binding row must carry as plain strings (stamps). */
 const BINDING_STAMP_FIELDS = ['createdAt', 'updatedAt'] as const;
 
-/**
- * Read one triggers object leniently; missing flags fall back to the MVP
- * defaults rather than failing the whole binding — a binding stored before
- * M7 has no `reviewRequest` at all, and it reads as `false` (its operator
- * never asked for it).
- *
- * @returns The flags, or `null` when the object itself is unusable.
- */
 /**
  * One trigger flag, typed or defaulted.
  *
@@ -284,8 +248,6 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
 }
 
 /**
- * Read one positive issue number from a stored event row.
- *
  * Shared with `dispatches-service.ts`, which reads the same rows through the runs
  * projection — one reader, one rule, so the claim parser and the runs parser
  * can never disagree about what counts as an issue number.
@@ -298,9 +260,6 @@ export function issueNumberFrom(record: Record<string, unknown>): number {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : 0;
 }
 
-/**
- * Read one status row, filling what the panel cannot trust with `''`/null.
- */
 /**
  * The status row's history-scope read, and what makes the row droppable.
  *
@@ -350,8 +309,6 @@ function statusRowOf(
 }
 
 /**
- * Read a status row collection leniently.
- *
  * @returns Rows this panel can render, dropping rows it cannot.
  */
 export function readStatusRows(rows: readonly unknown[]): BindingStatusRow[] {
@@ -376,7 +333,6 @@ export function readStatusRows(rows: readonly unknown[]): BindingStatusRow[] {
     return usable;
 }
 
-/** What reading one row's `allowedUsers` member found. */
 type AllowedUsersRead =
     /** Absent, or a non-empty list of logins with the submitted spelling. */
     | { readonly ok: true; readonly users: readonly string[] | undefined }
@@ -399,8 +355,6 @@ type AllowedUsersRead =
  *
  * The submitted spelling is preserved **verbatim** — the
  * panel compares nothing and normalizes nothing here; the service owns that.
- *
- * @returns The read, marked unusable for a shape this build may not half-apply.
  */
 function readAllowedUsers(value: unknown): AllowedUsersRead {
     if (value === undefined) {
@@ -446,8 +400,6 @@ type OptionalMembers =
  * are the complete "this binding has none" states — while the **scope never
  * stays absent**: absence means the documented default, and the service projects
  * it (002 FR-055, FR-058).
- *
- * @returns All three members, or the refusal that stops the read.
  */
 function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
     const { startingPrompt } = record;
@@ -483,8 +435,6 @@ function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
 }
 
 /**
- * Read one binding entry.
- *
  * @returns The binding, or `null` when its shape is unusable.
  */
 function parseBindingEntry(value: unknown): PanelBinding | null {
@@ -533,8 +483,6 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
  *
  * Shared with `dispatches-service.ts` for exactly the same reason: the runs list
  * renders rows the panel's own build may not have enqueued.
- *
- * @returns A kind this panel can render.
  */
 export function eventKindOf(value: unknown): EventKind {
     if (value === 'mention' || value === 'review') {
@@ -545,16 +493,11 @@ export function eventKindOf(value: unknown): EventKind {
 }
 
 
-/**
- * Count the enabled bindings in a list.
- */
 export function countEnabledBindings(bindings: readonly PanelBinding[]): number {
     return bindings.filter((binding) => binding.state === 'active').length;
 }
 
 /**
- * Parse the bindings response body.
- *
  * @returns The snapshot, or `null` when the shape is unusable.
  */
 export function parseBindingsBody(text: string): BindingsSnapshot | null {

@@ -48,11 +48,9 @@ const BODY_EXCERPT_MAX_CHARS = 600;
 export interface TriggerScanInput {
     /** Poller the feeds and the per-item events read are issued through. */
     readonly poller: GitHubIssuePoller;
-    /** Account credential presented to GitHub. */
     readonly token: string;
     /** Structured logger the branch's own decisions are recorded on. */
     readonly log: ServiceLogger;
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
     /** The bound account's login, as the account record reports it. */
     readonly login: string;

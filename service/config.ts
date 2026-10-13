@@ -33,7 +33,6 @@ import { validateStartingPrompt } from './prompt.ts';
 import type { JsonReadResult, ServiceStore } from './store/index.ts';
 import type { LogLevel, ServiceLogger } from './log.ts';
 
-/** Store file this configuration is persisted to. */
 export const CONFIG_FILE = 'config.json';
 
 /**
@@ -51,10 +50,8 @@ export const CONFIG_FILE = 'config.json';
  */
 export const LOG_LEVEL_VALUES = ['debug', 'info', 'warn', 'error'] as const satisfies readonly LogLevel[];
 
-/** Membership view of {@link LOG_LEVEL_VALUES}, used by the validator. */
 export const LOG_LEVELS = new Set<string>(LOG_LEVEL_VALUES);
 
-/** Validated, fully-populated service configuration. */
 export interface ServiceConfig {
     /** Poll cadence per stream; the spec's default interval. */
     readonly intervalMs: number;
@@ -66,7 +63,6 @@ export interface ServiceConfig {
     readonly retryMaxAttempts: number;
     /** First backoff delay; grows exponentially with jitter up to the max. */
     readonly retryBaseMs: number;
-    /** Ceiling for a single backoff delay. */
     readonly retryMaxMs: number;
     /** How long audit entries are kept, in days. */
     readonly auditRetentionDays: number;
@@ -89,7 +85,6 @@ export interface ServiceConfig {
      * armed onto the run at reservation time, not read at the deadline.
      */
     readonly resultDeadlineMs: number;
-    /** Structured-log verbosity. */
     readonly logLevel: LogLevel;
     /**
      * Comparison baseline the observed agent is evaluated against after every
@@ -124,7 +119,6 @@ export interface ServiceConfig {
     readonly startingPrompt: string;
 }
 
-/** One rejected field with the action that would fix it. */
 export interface ConfigIssue {
     /** Field name as it should appear in the UI (secret-shaped names withheld). */
     readonly field: string;
@@ -132,7 +126,6 @@ export interface ConfigIssue {
     readonly remediation: string;
 }
 
-/** Result of validating a candidate configuration document. */
 export type ConfigValidation =
     | { readonly ok: true; readonly config: ServiceConfig }
     | { readonly ok: false; readonly issues: readonly ConfigIssue[] };
@@ -166,13 +159,11 @@ export const NUMERIC_BOUNDS = {
     resultDeadlineMs: { min: 30_000, max: 600_000, unit: 'milliseconds' },
 } as const satisfies Record<string, NumericBounds>;
 
-/** One of the numeric fields above. */
 type NumericField = keyof typeof NUMERIC_BOUNDS;
 
 /** Numeric fields, derived so the list can never drift from the bounds. */
 const NUMERIC_FIELDS = Object.keys(NUMERIC_BOUNDS) as readonly NumericField[];
 
-/** The configuration a fresh store starts with. */
 export const DEFAULT_CONFIG: ServiceConfig = {
     // First member: the global prompt tier, by product-owner ruling ("move it to
     // the top of the list"). This key order *is* the declaration order —
@@ -199,18 +190,11 @@ export const DEFAULT_CONFIG: ServiceConfig = {
     expectedAgent: '',
 };
 
-/**
- * Narrow a value to a supported log level.
- *
- * @returns `true` for `debug`, `info`, `warn`, or `error`.
- */
 function isLogLevel(value: unknown): value is LogLevel {
     return typeof value === 'string' && LOG_LEVELS.has(value);
 }
 
 /**
- * Check one numeric field against its bounds.
- *
  * @returns Zero or one issue; an out-of-bounds, fractional, or missing value
  *   all produce the same actionable remediation.
  */
@@ -230,8 +214,6 @@ function numericIssue(raw: Record<string, unknown>, field: NumericField): readon
 }
 
 /**
- * Check the one relationship that spans two fields.
- *
  * @returns An issue when the retry ceiling sits below the retry base.
  */
 function retryOrderIssue(raw: Record<string, unknown>): readonly ConfigIssue[] {
@@ -255,8 +237,6 @@ function retryOrderIssue(raw: Record<string, unknown>): readonly ConfigIssue[] {
  * The name is echoed only when it looks like an ordinary identifier: a
  * secret-shaped key (a pasted token used as a field name, say) is replaced
  * with `<withheld>` so a 422 can never become a token-reflection oracle.
- *
- * @returns The issue describing the removal.
  */
 function unknownFieldIssue(key: string): ConfigIssue {
     if (findSecretLeak(key) !== null) {
@@ -273,21 +253,15 @@ function unknownFieldIssue(key: string): ConfigIssue {
 }
 
 /**
- * Recognise a defined configuration field.
- *
  * The documented field set *is* the default document's key set, so a field
  * cannot be declared in one place and forgotten here: one declaration, read
  * twice.
- *
- * @returns `true` for any key {@link DEFAULT_CONFIG} carries.
  */
 function isKnownField(key: string): boolean {
     return Object.hasOwn(DEFAULT_CONFIG, key);
 }
 
 /**
- * Collect every problem with a candidate document in one pass.
- *
  * @returns All issues, in field order followed by unknown keys.
  */
 function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
@@ -317,9 +291,6 @@ function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
 }
 
 /**
- * Read one validated numeric field.
- *
- * @returns The stored value.
  * @throws {TypeError} When the value is missing — unreachable: validation runs
  *   first, and this guard exists so a future refactor cannot build a config
  *   from an unchecked document.
@@ -334,9 +305,6 @@ function readNumber(raw: Record<string, unknown>, field: NumericField): number {
 }
 
 /**
- * Read the validated log level.
- *
- * @returns The stored level.
  * @throws {Error} When the value is missing; see {@link readNumber}.
  */
 function readLogLevel(raw: Record<string, unknown>): LogLevel {
@@ -349,12 +317,9 @@ function readLogLevel(raw: Record<string, unknown>): LogLevel {
 }
 
 /**
- * Read the validated agent name.
- *
  * The stored value is the **trimmed** one, so a save/load round trip is
  * stable and the audit `from`/`to` pair records the value as it stands.
  *
- * @returns The stored baseline.
  * @throws {Error} When the value is missing; see {@link readNumber}.
  */
 function readExpectedAgent(raw: Record<string, unknown>): string {
@@ -367,8 +332,6 @@ function readExpectedAgent(raw: Record<string, unknown>): string {
 }
 
 /**
- * Read the validated global prompt tier.
- *
  * The stored value is the **normalised** text the validator produced — outer
  * trim and line-ending normalisation applied — so a save/load round trip is
  * stable, exactly like `expectedAgent`'s trimmed value, and *unset* is stored as
@@ -377,7 +340,6 @@ function readExpectedAgent(raw: Record<string, unknown>): string {
  * three save boundaries means the read cannot disagree with the write about
  * what the text is.
  *
- * @returns The stored text, `''` when the tier is unset.
  * @throws {Error} When the value is unusable; see {@link readNumber}.
  */
 function readStartingPrompt(raw: Record<string, unknown>): string {
@@ -391,8 +353,6 @@ function readStartingPrompt(raw: Record<string, unknown>): string {
 
 /**
  * Assemble the typed configuration once every field has been checked.
- *
- * @returns The validated configuration.
  */
 function buildConfig(raw: Record<string, unknown>): ServiceConfig {
     return {
@@ -414,8 +374,6 @@ function buildConfig(raw: Record<string, unknown>): ServiceConfig {
 }
 
 /**
- * Validate a candidate configuration document.
- *
  * @returns The typed config, or every issue found (never just the first).
  */
 export function validateConfig(raw: unknown): ConfigValidation {
@@ -434,7 +392,6 @@ export function validateConfig(raw: unknown): ConfigValidation {
     return { ok: true, config: buildConfig(raw) };
 }
 
-/** One read of the stored document: the parsed config plus its provenance. */
 export interface StoredConfigRead {
     /** The document, with every documented key it lacked filled in. */
     readonly config: ServiceConfig;
@@ -445,7 +402,6 @@ export interface StoredConfigRead {
 /** Where a resolved configuration came from — the contract's `source` member. */
 export type ConfigSource = 'stored' | 'default' | 'quarantined';
 
-/** One resolved store read: the effective document and its provenance. */
 export interface ConfigRead {
     /** The document the caller should treat as effective. */
     readonly config: ServiceConfig;
@@ -501,9 +457,6 @@ export function parseStoredConfig(raw: unknown): StoredConfigRead | null {
  * The three answers the contract's `source` member distinguishes come out of
  * the read itself, so the quarantine fact reaches the panel without a second
  * read.
- *
- * @returns The effective document, where it came from, and which documented
- *   keys this read filled (always `[]` unless `source` is `stored`).
  */
 export function configFromStore(result: JsonReadResult<StoredConfigRead>, log: ServiceLogger): ConfigRead {
     if (result.status === 'ok') {
@@ -538,8 +491,6 @@ export function configFromStore(result: JsonReadResult<StoredConfigRead>, log: S
 const QUARANTINE_EVIDENCE_PREFIX = `${CONFIG_FILE}.corrupt-`;
 
 /**
- * Find where the configuration was last set aside, if it ever was.
- *
  * Names are `<target>.corrupt-<stamp>-<uuid>` and the stamp is a fixed-width
  * `Date.now()`, so sorting the names orders the quarantines chronologically and
  * the last one is the operator's most recent unusable document.
@@ -577,14 +528,9 @@ async function latestQuarantineEvidence(store: ServiceStore): Promise<string | n
  * internal readers take the effective document only, which is `DEFAULT_CONFIG`
  * under either answer, so scanning for them would cost a directory listing per
  * cycle and repeat a warn line per cycle for nothing.
- *
- * @returns The effective document, where it came from, and which documented
- *   keys this read filled (always `[]` unless `source` is `stored`).
  */
 export async function readStoredConfig(input: {
-    /** Open store the document lives in. */
     readonly store: ServiceStore;
-    /** Structured logger the quarantine line is written through. */
     readonly log: ServiceLogger;
 }): Promise<ConfigRead> {
     const result = await input.store.readJson(CONFIG_FILE, parseStoredConfig);

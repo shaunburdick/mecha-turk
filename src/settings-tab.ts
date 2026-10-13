@@ -76,7 +76,6 @@ export type { SettingsTabState };
 
 /** The mounted Settings tab: the handles a repaint updates, plus disposal. */
 export interface SettingsTabUi {
-    /** Body root this view mounted into. */
     readonly pane: HTMLElement;
     /** Tab heading. */
     readonly heading: TextHandle;
@@ -90,11 +89,9 @@ export interface SettingsTabUi {
     readonly failureBox: HTMLElement;
     /** Failure notice naming what could not be read and from where. */
     readonly failure: BannerHandle;
-    /** Where the rows come from. */
     readonly sourceNote: TextHandle;
     /** Message shown while no document has ever been read. */
     readonly emptyText: TextHandle;
-    /** Container the per-field rows live in. */
     readonly rowsBox: HTMLElement;
     /** The mounted rows, rebuilt when the field list changes. */
     rowsUi: SettingsRowsUi | null;
@@ -102,7 +99,6 @@ export interface SettingsTabUi {
     readonly saveBox: HTMLElement;
     /** The one write the tab offers. */
     readonly save: ButtonHandle;
-    /** The discard control. */
     readonly discard: ButtonHandle;
     /** The non-primary restore-defaults control. */
     readonly restore: ButtonHandle;
@@ -122,7 +118,6 @@ export interface SettingsTabUi {
     readonly issuesBox: HTMLElement;
     /** The service's issues in the service's order, or the write's cause. */
     readonly issues: TextHandle;
-    /** Remove every node and handle this view mounted. */
     readonly dispose: () => void;
 }
 

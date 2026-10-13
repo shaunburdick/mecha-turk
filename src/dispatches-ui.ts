@@ -67,9 +67,7 @@ import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
 interface MountInputs {
     /** Runtime whose state the section repaints from. */
     readonly rt: PanelRuntime;
-    /** Pane root the controls mount into. */
     readonly pane: HTMLElement;
-    /** Handlers the controls invoke. */
     readonly handlers: BindingsPaneHandlers;
 }
 
@@ -394,11 +392,9 @@ export function disposeDispatchesBoard(board: DispatchesBoard): void {
  * the row it will act on.
  */
 function repaintResolutions(input: {
-    /** The runs section's state. */
     readonly runs: DispatchesState;
     /** Names one action label with the selected row. */
     readonly labelFor: (base: string) => string;
-    /** The mounted runs half. */
     readonly board: DispatchesBoard;
 }): void {
     const { runs, labelFor, board } = input;
@@ -425,13 +421,11 @@ function repaintResolutions(input: {
  * @param input - The runs state, the selected row, the label helper, and the board.
  */
 function repaintReoffer(input: {
-    /** The runs section's state. */
     readonly runs: DispatchesState;
     /** The row the operator selected, or `null` when none is. */
     readonly selected: RunRow | null;
     /** Names one action label with the selected row. */
     readonly labelFor: (base: string) => string;
-    /** The mounted runs half. */
     readonly board: DispatchesBoard;
 }): void {
     const { runs, selected, labelFor, board } = input;

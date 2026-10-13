@@ -137,7 +137,6 @@ export function holderOf(raw: string | null): string {
  * @returns `lse-<24 hex characters>` — one path-safe segment.
  */
 export function buildLeaseId(input: {
-    /** The run being claimed. */
     readonly correlationId: string;
     /** Attempt the lease is issued under. */
     readonly attempt: number;
@@ -295,9 +294,7 @@ async function readLeaseMs(store: ServiceStore, log: ServiceLogger): Promise<num
 
 /** Append one `dispatch.claimed` row; a failure never undoes the lease. */
 async function appendClaimAudit(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     readonly claim: ClaimRecord;
 }): Promise<boolean> {
@@ -365,9 +362,7 @@ function hasEligibleRun(document: RunsDocument): boolean {
  * @throws {StorageUnavailableError} When the store or the run document cannot be read or written.
  */
 export async function claimPendingRuns(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Opaque per-mount id taking the leases. */
     readonly holder: string;

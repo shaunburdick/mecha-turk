@@ -48,19 +48,16 @@ const LOGIN_MISMATCH_MESSAGE = 'the token belongs to a different GitHub login th
 interface VerifyDeps {
     /** Open credential store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }
 
 /** One handoff once GitHub has answered: everything the follow-up needs. */
 interface VerifyAttempt {
-    /** Store and logger. */
     readonly deps: VerifyDeps;
     /** The parsed handoff request (carries the token; never logged). */
     readonly credential: CredentialRequest;
     /** The classified GitHub outcome. */
     readonly outcome: VerifyOutcome;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }
 
@@ -73,13 +70,11 @@ type AcceptedAttempt = Omit<VerifyAttempt, 'outcome'> & {
  * Append an `account.rejected` audit row carrying only a reason class.
  */
 async function recordRejection(input: {
-    /** Store and logger. */
     readonly deps: VerifyDeps;
     /** Machine-readable reason class. */
     readonly reason: string;
     /** Identity from `/user`, when the refusal has one. */
     readonly identity: GitHubIdentity | null;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }): Promise<void> {
     const { deps, reason, identity, correlationId } = input;
@@ -129,7 +124,6 @@ async function refusalFor(attempt: VerifyAttempt): Promise<HttpResponse> {
  * Log the free rate-limit baseline; numbers only, never credential material.
  */
 function reportRateBaseline(input: {
-    /** Store and logger. */
     readonly deps: VerifyDeps;
     /** Identity the baseline belongs to. */
     readonly identity: GitHubIdentity;
@@ -160,11 +154,9 @@ function reportRateBaseline(input: {
  * answering "failed" now would only send the panel into a `409` on retry.
  */
 async function recordVerified(input: {
-    /** Store and logger. */
     readonly deps: VerifyDeps;
     /** The account that was persisted. */
     readonly account: Account;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }): Promise<void> {
     const { deps, account, correlationId } = input;

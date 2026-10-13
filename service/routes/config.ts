@@ -96,7 +96,6 @@ async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
 async function runConfigWrite(input: {
     /** Open store; the null check lives at the handler's own entry. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The validated document about to be written. */
     readonly candidate: ServiceConfig;

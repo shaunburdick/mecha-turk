@@ -58,7 +58,6 @@ export type HistoryScopeDecision =
 
 /** The binding members this observation reads. */
 export interface ObservedScope {
-    /** The binding this document entry describes. */
     readonly bindingId: string;
     /** Its stored mode, absent when it stores none. */
     readonly historyScope?: HistoryScope;
@@ -243,13 +242,10 @@ export async function appendHistoryScopeChange(input: {
     });
 }
 
-/** What one observation of a bindings document carries. */
 interface ScopeObservation {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Logger for a failed append (binding id and the two names only). */
     readonly log: ServiceLogger;
-    /** The bindings document as it now stands. */
     readonly bindings: readonly ObservedScope[];
     /** Who made the changes this document carries. */
     readonly actor: HistoryScopeActor;

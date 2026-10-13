@@ -27,15 +27,11 @@ import type { ReferenceOrigin, Run, RunAuditIntent, RunsDocument, SourceReferenc
 interface SubjectShape {
     /** Ordinal-free key the counters and coalescing are keyed by. */
     readonly subjectKey: string;
-    /** Subject shape for the run key. */
     readonly subjectType: SubjectType;
 }
 
 /**
  * Resolve one delivery's subject, refusing ambiguity.
- *
- * @param delivery - The delivery being enqueued.
- * @returns The subject, or `null` when the run key would be ambiguous.
  */
 function subjectShapeOf(delivery: QueuedEvent): SubjectShape | null {
     try {
@@ -71,7 +67,6 @@ function subjectShapeOf(delivery: QueuedEvent): SubjectShape | null {
  * still *joins* the run and is still linked to it — {@link foldDelivery} reads
  * that distinction — it simply leaves the reference list alone.
  *
- * @param delivery - The delivery joining a run.
  * @returns The origin, or `null` when the id carries one the parser trusts.
  */
 function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
@@ -114,7 +109,6 @@ function followUpKindOfDelivery(delivery: QueuedEvent): 'comment' | 'head' | nul
  * readers, so a delivery stored before attribution contributed one reference
  * with neither member rather than an empty login.
  *
- * @param delivery - The delivery joining the run.
  * @param isPresentAtAuthorization - `false` when the run already held a
  *   reservation when this delivery arrived.
  * @returns The reference, or `null` when the delivery's origin is unusable.
@@ -139,9 +133,6 @@ export function referenceOf(delivery: QueuedEvent, isPresentAtAuthorization: boo
     };
 }
 
-/**
- * One reference's fold into a run, with the retention verdict.
- */
 export interface JoinResult {
     /** The run with its reference list and counters updated. */
     readonly run: Run;
@@ -167,13 +158,9 @@ export interface JoinResult {
  * the cap the run keeps counting (`referenceCount`), counts what it could not
  * keep (`referencesNotRetained`), and says so (`referencesTruncated`), while
  * every overflow delivery still earns its own audit row.
- *
- * @returns The run plus whether this reference is on its list.
  */
 export function joinReference(input: {
-    /** The run being joined. */
     readonly run: Run;
-    /** The joining delivery's reference. */
     readonly reference: SourceReference;
     /** Mutation stamp. */
     readonly now: string;
@@ -228,17 +215,13 @@ export function joinReference(input: {
  * and the observations are keyed with `pull_request` as the shape — so an
  * issue run's key finds nothing there and no seed is ever recorded for an
  * issue subject, which never produces a push follow-up at all.
- *
- * @returns The seed to write, or `undefined` when this pass records none.
  */
 function headSeedOf(input: {
-    /** The seed the run already carries, or `undefined` when it has none. */
     readonly recorded: string | undefined;
     /** The establishing delivery row's own head SHA, when there is one. */
     readonly established?: string | null;
     /** Observed heads keyed by subject key; absent when the scan read no pulls. */
     readonly observations: ReadonlyMap<string, string> | undefined;
-    /** The subject key the observation is looked up under. */
     readonly subjectKey: string;
 }): string | undefined {
     if (input.recorded !== undefined) {
@@ -256,13 +239,10 @@ function headSeedOf(input: {
 interface RunCreationInput {
     /** The delivery that opened this run. */
     readonly delivery: QueuedEvent;
-    /** Its resolved subject. */
     readonly shape: SubjectShape;
-    /** The ordinal the counter yielded. */
     readonly ordinal: number;
     /** The delivery's own reference (its first). */
     readonly reference: SourceReference;
-    /** Creation stamp. */
     readonly now: string;
     /** The binding's prompt snapshot at detection, or `null` when unset. */
     readonly prompt: PromptSnapshot | null;
@@ -355,19 +335,14 @@ function subjectKeyOfRun(run: Run): string {
 
 /** One follow-up that joined a run, for its `follow_up.observed` audit row. */
 export interface FollowUpJoin {
-    /** The run the follow-up joined. */
     readonly run: Run;
     /** The joining delivery's unchanged id. */
     readonly deliveryId: string;
-    /** Which of the two movement kinds the follow-up records. */
     readonly kind: 'comment' | 'head';
 }
 
-/** One delivery joining an existing run. */
 export interface EnqueueJoin {
-    /** The run it joined. */
     readonly run: Run;
-    /** The reference recorded for it. */
     readonly reference: SourceReference;
     /**
      * Whether the reference is on the run's list.
@@ -394,7 +369,6 @@ export interface EnqueueOutcome {
     readonly followUps: readonly FollowUpJoin[];
 }
 
-/** Everything one enqueue pass needs, in one named shape. */
 export interface EnqueueInput {
     /** Document as stored, before this pass. */
     readonly document: RunsDocument;
@@ -438,8 +412,6 @@ export interface EnqueueInput {
  * the next ordinal and a second, disjoint session. A `dead-lettered` run holds
  * no session and is therefore still terminal for coalescing, so a new delivery
  * for its subject opens the next ordinal exactly as it always did.
- *
- * @returns The run and its position, or `undefined`.
  */
 function findJoinableRun(
     runs: readonly Run[],
@@ -497,7 +469,6 @@ function recordHeadSeeds(
  * them.
  */
 function foldDelivery(input: {
-    /** The delivery being folded. */
     readonly delivery: QueuedEvent;
     /** Runs this pass has built so far, mutated in place. */
     readonly runs: Run[];
@@ -513,7 +484,6 @@ function foldDelivery(input: {
     readonly followUps: FollowUpJoin[];
     /** Service-clock stamp for every run this pass touches. */
     readonly now: string;
-    /** The binding's prompt snapshot, or `null`. */
     readonly prompt: PromptSnapshot | null;
     /** Observed heads keyed by subject key, when the scan read any. */
     readonly observedHeads: ReadonlyMap<string, string> | undefined;
@@ -587,8 +557,6 @@ function foldDelivery(input: {
  * Fold fresh deliveries into runs: join the subject's open run, else create
  * the next ordinal. Pure — the caller owns the chain, the two
  * writes, and the audit rows, in that order.
- *
- * @returns The document to persist plus the effects to audit and link.
  */
 export function applyEnqueue(input: EnqueueInput): EnqueueOutcome {
     const prompt = input.prompt ?? null;

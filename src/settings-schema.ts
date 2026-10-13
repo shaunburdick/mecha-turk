@@ -34,7 +34,6 @@
 
 import { asRecord, parseJsonObject } from './json.ts';
 
-/** Take-effect classes the projection may carry. */
 export type TakeEffectClass = 'immediate' | 'next-cycle' | 'next-dispatch' | 'restart' | 'none';
 
 /** Where a resolved configuration came from (006 contract §3). */
@@ -55,11 +54,8 @@ const CONFIG_SOURCES: ReadonlySet<string> = new Set<ConfigSource>(['stored', 'de
 /** A `config` value this build may render: a finite number or text. */
 export type ConfigValue = number | string;
 
-/** A bounded numeric field, as the projection carries it. */
 export interface IntegerDescriptor {
-    /** Documented key. */
     readonly name: string;
-    /** Kind discriminator. */
     readonly kind: 'integer';
     /** The service's own unit phrase; a numeric field always carries one. */
     readonly unit: string;
@@ -69,15 +65,12 @@ export interface IntegerDescriptor {
     readonly max: number;
     /** The documented default, rendered as *default* and never as the value. */
     readonly default: number;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffectClass;
 }
 
 /** An enum field, whose accepted values pass through verbatim. */
 export interface EnumDescriptor {
-    /** Documented key. */
     readonly name: string;
-    /** Kind discriminator. */
     readonly kind: 'enum';
     /** An enum has no unit; none may be fabricated. */
     readonly unit: null;
@@ -85,15 +78,12 @@ export interface EnumDescriptor {
     readonly values: readonly string[];
     /** The documented default. */
     readonly default: string;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffectClass;
 }
 
 /** The string field, whose bounds are a format rather than a range. */
 export interface StringDescriptor {
-    /** Documented key. */
     readonly name: string;
-    /** Kind discriminator. */
     readonly kind: 'string';
     /** A string has no unit; none may be fabricated. */
     readonly unit: null;
@@ -103,7 +93,6 @@ export interface StringDescriptor {
     readonly maxLength: number;
     /** The documented default. */
     readonly default: string;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffectClass;
     /**
      * Present only when the service declared the value as prose written
@@ -140,8 +129,6 @@ export interface ConfigEnvelope {
 
 /**
  * Read a string member, refusing anything else.
- *
- * @returns The string, or `null` when it is not one.
  */
 function textOrNull(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
@@ -149,8 +136,6 @@ function textOrNull(value: unknown): string | null {
 
 /**
  * Read a finite-number member, refusing anything else.
- *
- * @returns The number, or `null` when it is not a finite one.
  */
 function numberOrNull(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -158,8 +143,6 @@ function numberOrNull(value: unknown): number | null {
 
 /**
  * Read a string list, refusing anything else.
- *
- * @returns The list, or `null` when it is not an array of strings.
  */
 function textListOrNull(value: unknown): readonly string[] | null {
     if (!Array.isArray(value)) {
@@ -181,9 +164,7 @@ function textListOrNull(value: unknown): readonly string[] | null {
 
 /** The two members every descriptor must carry before its kind's own. */
 interface DescriptorHead {
-    /** Documented key. */
     readonly name: string;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffectClass;
 }
 
@@ -206,8 +187,6 @@ function integerDescriptor(record: Record<string, unknown>, head: DescriptorHead
 
 /**
  * Read the `enum` half of a descriptor.
- *
- * @returns The descriptor, or `null` when a required member is missing or mistyped.
  */
 function enumDescriptor(record: Record<string, unknown>, head: DescriptorHead): EnumDescriptor | null {
     const values = textListOrNull(record.values);
@@ -303,8 +282,6 @@ function readDescriptor(raw: unknown): FieldDescriptor | null {
  * member with **no** descriptor is judged on its own shape only — it will be
  * rendered as *field this version does not show*, which needs a value to show
  * and makes no claim about which kind it should have been.
- *
- * @returns `true` when the value may be rendered as configured.
  */
 function fitsDescriptor(descriptor: FieldDescriptor | null, value: unknown): value is ConfigValue {
     if (typeof value === 'number') {
@@ -325,8 +302,6 @@ function fitsDescriptor(descriptor: FieldDescriptor | null, value: unknown): val
 /**
  * Split the `config` members into the ones this build can render as
  * configured and the ones it cannot.
- *
- * @returns The readable members, and the names of the unreadable ones.
  */
 function partitionConfig(
     config: Record<string, unknown>,
@@ -358,8 +333,6 @@ function partitionConfig(
  * The guard exists because the panel *branches* on `source` — the quarantine
  * wording is a promise to the operator — so an unrecognised one is refused
  * rather than rendered as though it were `stored`.
- *
- * @returns `true` for a documented source.
  */
 function isConfigSource(value: string): value is ConfigSource {
     return CONFIG_SOURCES.has(value);
@@ -453,7 +426,6 @@ export interface ConfigWriteAnswer {
  * @returns The answer, or `null` when neither shape can be trusted.
  */
 export function parseConfigWriteAnswer(input: {
-    /** Response body text. */
     readonly body: string;
     /** The last document this tab read, which supplies the declaration. */
     readonly previous: ConfigEnvelope;

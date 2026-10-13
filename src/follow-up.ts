@@ -97,7 +97,6 @@ import type { ContextSource } from './session.ts';
 import { defuseDelimiters } from './context-blocks.ts';
 import { stillRunning } from './relay-gates.ts';
 
-/** Ledger kind every step of this path records under — the relay's own. */
 const FOLLOW_UP_LEDGER_KIND = 'session';
 
 /**
@@ -144,7 +143,6 @@ function retryKnob(value: unknown): number | null {
  * Read the retry ladder out of a `GET /v1/config` answer.
  *
  * @param body - Response body text (unchecked).
- * @returns The ladder.
  */
 function retryPolicyFromConfig(body: string): FollowUpRetryPolicy {
     const root = parseJsonObject(body);
@@ -164,8 +162,6 @@ function retryPolicyFromConfig(body: string): FollowUpRetryPolicy {
 
 /**
  * Read the retry ladder the service declares; never rejects.
- *
- * @returns The ladder this delivery sequence runs under.
  */
 export async function readFollowUpRetryPolicy(serviceRequest: ServiceRequester): Promise<FollowUpRetryPolicy> {
     const answer = await serviceGet({ serviceRequest, path: CONFIG_PATH });
@@ -176,9 +172,7 @@ export async function readFollowUpRetryPolicy(serviceRequest: ServiceRequester):
 /**
  * The backoff before one attempt, doubling and capped by the ladder's ceiling.
  *
- * @param policy - The ladder in force.
  * @param attempt - The attempt that just failed; `1` is the first.
- * @returns The wait in milliseconds.
  */
 export function followUpBackoffMs(policy: FollowUpRetryPolicy, attempt: number): number {
     const grown = policy.baseMs * 2 ** Math.max(attempt - 1, 0);
@@ -186,15 +180,11 @@ export function followUpBackoffMs(policy: FollowUpRetryPolicy, attempt: number):
     return Math.min(grown, policy.maxMs);
 }
 
-/** What one delivery attempt produced. */
 export interface FollowUpAttempt {
-    /** The deterministic delivery id the attempt was for. */
     readonly deliveryId: string;
     /** Attempts this delivery has used, the first included. */
     readonly attempt: number;
-    /** `true` once the host accepted the prompt. */
     readonly delivered: boolean;
-    /** The exact cause, when the attempt did not deliver. */
     readonly reason: FollowUpFailure | null;
     /** `true` once the bound is spent and the follow-up is parked. */
     readonly parked: boolean;
@@ -202,7 +192,6 @@ export interface FollowUpAttempt {
     readonly nextAttemptAtMs: number | null;
 }
 
-/** The host error code a rejected prompt carries, or `null` when it names none. */
 function hostErrorCode(cause: unknown): string | null {
     if (typeof cause !== 'object' || cause === null) {
         return null;
@@ -237,7 +226,6 @@ export function classifyHostError(cause: unknown): FollowUpFailure {
     return code === 'SESSION_BUSY' ? 'session-busy' : 'host-unavailable';
 }
 
-/** The retry verdict for an attempt that did not deliver. */
 function retryAfter(input: {
     readonly attempt: number;
     readonly policy: FollowUpRetryPolicy;
@@ -253,8 +241,6 @@ function retryAfter(input: {
  * The subscription {@link trackCurrentSession} registers replays the latest
  * value, so this is a read of something the panel already received rather than a
  * host call of its own.
- *
- * @returns The current session id, or `null` when none is open.
  */
 export function currentSessionIdOf(rt: PanelRuntime): string | null {
     return rt.state.relay.currentSessionId;
@@ -335,7 +321,6 @@ const DELIVERABLE_RUN_STATE: PlainRunState = 'dispatched';
  * written after the owed record settles it on a later tick, which is why the
  * scan can stop there rather than continuing to the newest delivered id.
  *
- * @param document - The panel's durable dispatch record.
  * @returns The delivery id to walk past, or `null` when this panel has delivered
  *   nothing — in which case the read carries no parameter at all.
  */
@@ -364,8 +349,6 @@ export function followUpWindowOpening(document: DispatchRecordDocument): string 
  * exists to prevent. Reading from the start is the pre-parameter answer, which
  * is always the direction that projects **more** of the run's movements, never
  * fewer.
- *
- * @returns The delivery id to send as `followUpsFrom`, or `null`.
  */
 async function followUpWindowAdvance(rt: PanelRuntime): Promise<string | null> {
     const read = await loadDispatchRecord(rt);
@@ -382,9 +365,6 @@ async function followUpWindowAdvance(rt: PanelRuntime): Promise<string | null> {
  * parameter the contract does not already define.
  *
  * @param cursor - Page boundary to resume from, or `null` for the first page.
- * @param followUpsFrom - Delivery id the window opens at or after, or `null` to
- *   read from the start as the read did before the parameter existed.
- * @returns The request path.
  */
 function followUpRowsPath(cursor: string | null, followUpsFrom: string | null): string {
     const params = [`state=${DELIVERABLE_RUN_STATE}`, `limit=${FOLLOW_UP_PAGE_LIMIT}`];
@@ -421,8 +401,6 @@ function followUpRowsPath(cursor: string | null, followUpsFrom: string | null): 
  *   advance costs one read of the panel's own host storage — never a service
  *   request — and is omitted entirely when there is nothing delivered to walk
  *   past.
- *
- * @param rt - Panel runtime whose relay state the view is read into.
  */
 export async function readFollowUpRows(rt: PanelRuntime): Promise<void> {
     const rows: RunRow[] = [];
@@ -479,9 +457,7 @@ export async function readFollowUpRows(rt: PanelRuntime): Promise<void> {
  * @returns The message, exactly as the host would receive it.
  */
 export function followUpMessage(input: {
-    /** The runs-history row the follow-up rides on. */
     readonly row: RunRow;
-    /** The follow-up being delivered. */
     readonly followUp: RunFollowUp;
 }): string {
     const { row, followUp } = input;
@@ -617,9 +593,7 @@ async function navigateToSession(input: {
 
 /** What the host answered one `prompt({ send: true })` with. */
 interface PromptVerdict {
-    /** Whether the host accepted the message. */
     readonly wasSent: boolean;
-    /** The exact cause, when it did not. */
     readonly reason: FollowUpFailure | null;
 }
 
@@ -643,19 +617,13 @@ async function sendPrompt(rt: PanelRuntime, message: string): Promise<PromptVerd
  * composition is measured before any host call — so a session is never written
  * into with a message over the dispatch budget, and nothing is truncated to make
  * one fit.
- *
- * @returns What the attempt produced, for the record and the caller's gate.
  */
 export async function deliverFollowUp(input: {
-    /** Panel runtime the attempt runs on. */
     readonly rt: PanelRuntime;
-    /** The runs-history row carrying the session and the follow-up. */
     readonly row: RunRow;
-    /** The follow-up being delivered. */
     readonly followUp: RunFollowUp;
     /** Attempts this delivery has already used, the first included. */
     readonly attempt: number;
-    /** The ladder this delivery sequence runs under. */
     readonly policy: FollowUpRetryPolicy;
 }): Promise<FollowUpAttempt> {
     const { rt, row, followUp, attempt, policy } = input;
@@ -736,11 +704,7 @@ export async function deliverFollowUp(input: {
 }
 
 /**
- * Whether one follow-up is due for its next attempt at a moment in time.
- *
- * @param record - The delivery's durable state.
  * @param atMs - Epoch milliseconds the tick is acting at.
- * @returns `true` when the record may go now.
  */
 export function isFollowUpDue(record: FollowUpDeliveryRecord, atMs: number): boolean {
     return record.nextAttemptAtMs === null || record.nextAttemptAtMs <= atMs;

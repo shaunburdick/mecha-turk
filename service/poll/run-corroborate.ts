@@ -67,7 +67,6 @@ export const CORROBORATED_BLOCKED_REASONS: ReadonlySet<string> = new Set([
 export function judgeActorCause(input: {
     /** The blocked run the operator acted on. */
     readonly run: Run;
-    /** The live binding table. */
     readonly bindings: readonly BindingRecord[];
 }): RunRefusal | CauseSource {
     const { run, bindings } = input;

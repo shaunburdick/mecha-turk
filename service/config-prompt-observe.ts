@@ -67,7 +67,6 @@ export interface ObservedConfigPrompt {
 
 /** What one observation of the configuration document carries. */
 export interface ConfigPromptObservation {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Logger for the seed's warn line; the append warns through its own. */
     readonly log: ServiceLogger;
@@ -286,9 +285,7 @@ export async function recordConfigPromptChanges(input: ConfigPromptObservation):
  *   the baseline pending, which is the fail-closed answer.
  */
 export async function advanceConfigPromptBaseline(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The document the write put in force. */
     readonly config: ObservedConfigPrompt;

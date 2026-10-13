@@ -96,7 +96,6 @@ export function readScopeMirror(raw: unknown): ScopeMirror | null {
 export interface AccountMirror {
     /** GitHub numeric user id. */
     readonly numericUserId: string;
-    /** Display login. */
     readonly login: string;
     /** Connection state the mirror reports. */
     readonly state: 'active';

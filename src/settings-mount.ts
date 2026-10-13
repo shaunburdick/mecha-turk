@@ -52,11 +52,9 @@ const ROW_COLUMNS: readonly string[] = ['Field', 'Value', 'Shape and default'];
 export interface RowRegion {
     /** The block the region's heading lives in. */
     readonly block: Block;
-    /** Where the rows come from. */
     readonly sourceNote: TextHandle;
     /** Message shown while no document has ever been read. */
     readonly emptyText: TextHandle;
-    /** Container the per-field rows live in. */
     readonly rowsBox: HTMLElement;
 }
 
@@ -68,7 +66,6 @@ export interface ControlRegion {
     readonly saveBox: HTMLElement;
     /** The one write. */
     readonly save: ButtonHandle;
-    /** The discard control. */
     readonly discard: ButtonHandle;
     /** The non-primary restore-defaults control. */
     readonly restore: ButtonHandle;
@@ -234,7 +231,6 @@ export function mountControlRegion(input: {
  * @returns The handles.
  */
 export function mountReadControls(input: {
-    /** Pane the row mounts into. */
     readonly pane: HTMLElement;
     /** What the re-read control does. */
     readonly onRefresh: () => void;
@@ -263,15 +259,12 @@ export function mountReadControls(input: {
  *   can read off the regions themselves.
  */
 function disposeRegions(input: {
-    /** Container everything mounted into. */
     readonly pane: HTMLElement;
     /** Tab heading. */
     readonly heading: TextHandle;
     readonly banner: BannerHandle;
-    /** The read row's handles. */
     readonly controls: { readonly refresh: ButtonHandle; readonly readLine: TextHandle };
     readonly notice: { readonly box: HTMLElement; readonly failure: BannerHandle };
-    /** The rows region. */
     readonly region: RowRegion;
     /** The save bar, the armed confirmation, and the two notices. */
     readonly controlsRegion: ControlRegion;
@@ -314,15 +307,12 @@ function disposeRegions(input: {
  * @returns The view, ready to hand to the runtime.
  */
 export function buildTabUi(input: {
-    /** Container everything mounted into. */
     readonly pane: HTMLElement;
     /** Tab heading. */
     readonly heading: TextHandle;
     readonly banner: BannerHandle;
-    /** The read row's handles. */
     readonly controls: { readonly refresh: ButtonHandle; readonly readLine: TextHandle };
     readonly notice: { readonly box: HTMLElement; readonly failure: BannerHandle };
-    /** The rows region. */
     readonly region: RowRegion;
     /** The save bar, the armed confirmation, and the two notices. */
     readonly controlsRegion: ControlRegion;

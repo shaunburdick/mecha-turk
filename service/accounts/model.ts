@@ -32,7 +32,6 @@ export interface CredentialRecord {
     readonly verifiedAt: string;
 }
 
-/** One durable account. */
 export interface Account {
     /** GitHub numeric user id — the durable key; never the login. */
     readonly numericUserId: string;
@@ -84,16 +83,11 @@ export interface Account {
 
 /** The credential-free account projection returned by every route. */
 export interface AccountDto {
-    /** GitHub numeric user id. */
     readonly numericUserId: string;
-    /** Display login. */
     readonly login: string;
-    /** Operator-supplied expected login, or `null`. */
     readonly expectedLogin: string | null;
-    /** Operator-supplied display label, or `null` when unset. */
     readonly displayName: string | null;
     /**
-     * The account's starting-prompt tier, or `null` when unset.
      *
      * Added **by name** — the projection names every member it returns, so the
      * credential-free guarantee stays a property of the construction rather
@@ -101,19 +95,12 @@ export interface AccountDto {
      * `credential`, and the type-level guard the suite compiles still holds.
      */
     readonly startingPrompt: string | null;
-    /** Lifecycle state. */
     readonly state: AccountState;
-    /** Last observed connection state. */
     readonly connectionState: ConnectionState;
-    /** RFC 3339 timestamp of the last successful verification. */
     readonly verifiedAt: string;
-    /** Scope matrix. */
     readonly scopeCheck: ScopeCheck;
-    /** Cause when `state` is `error`, otherwise `null`. */
     readonly errorReason: string | null;
-    /** RFC 3339 timestamp of account creation. */
     readonly createdAt: string;
-    /** RFC 3339 timestamp of the last change. */
     readonly updatedAt: string;
 }
 
@@ -151,20 +138,14 @@ export function isNumericUserId(value: unknown): value is string {
     return typeof value === 'string' && /^\d+$/.test(value) && value.length <= NUMERIC_ID_MAX_CHARS;
 }
 
-/**
-/** Narrow a value to a lifecycle state. */
 function isAccountState(value: unknown): value is AccountState {
     return typeof value === 'string' && ACCOUNT_STATES.has(value);
 }
 
-/**
-/** Narrow a value to a connection state. */
 function isConnectionState(value: unknown): value is ConnectionState {
     return typeof value === 'string' && CONNECTION_STATES.has(value);
 }
 
-/**
-/** Narrow a value to a credential family. */
 function isCredentialKind(value: unknown): value is CredentialKind {
     return typeof value === 'string' && CREDENTIAL_KINDS.has(value);
 }
@@ -206,17 +187,11 @@ function isCredentialRecord(raw: unknown): raw is CredentialRecord {
 interface StoredAccountStrings {
     /** Display login; non-empty. */
     readonly login: string;
-    /** Operator-supplied expected login, or `null`. */
     readonly expectedLogin: string | null;
-    /** Operator-supplied display label, or `null` when absent or unset. */
     readonly displayName: string | null;
-    /** RFC 3339 timestamp of the last successful verification. */
     readonly verifiedAt: string;
-    /** Cause when `state` is `error`, otherwise `null`. */
     readonly errorReason: string | null;
-    /** RFC 3339 timestamp of account creation. */
     readonly createdAt: string;
-    /** RFC 3339 timestamp of the last record change. */
     readonly updatedAt: string;
 }
 
@@ -348,8 +323,6 @@ export function parseStoredAccount(raw: unknown, note: AccountRefusalNote): Acco
  * The projection names every field it returns: a future `credential` addition
  * to the record cannot leak by spreading this object, which is what makes
  * "no credential fields, by construction" testable.
- *
- * @returns The DTO every API surface is allowed to return.
  */
 export function toAccountDto(account: Account): AccountDto {
     return {
@@ -397,8 +370,6 @@ const LAST_C1 = 0x9F;
  * Written as a code-point walk rather than a regular expression so the
  * character classes are visible as numbers: a control character in source is
  * exactly the kind of thing that renders as nothing and reads as a space.
- *
- * @returns `true` when at least one character is invisible or direction-altering.
  */
 function hasControlCharacter(value: string): boolean {
     for (const character of value) {
@@ -419,7 +390,6 @@ export interface DisplayNameIssue {
     readonly remediation: string;
 }
 
-/** Result of validating one candidate display name. */
 export type DisplayNameValidation =
     /** Usable text (trimmed), or `null` for "no display name". */
     | { readonly ok: true; readonly displayName: string | null }

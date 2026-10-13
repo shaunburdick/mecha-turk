@@ -46,9 +46,7 @@ import type { RandomFn, RetryPolicy, SleepFn } from './backoff.ts';
 
 /** Shared status constant (the verifier keeps the catalog in `github.ts`). */
 const STATUS_UNAUTHORIZED = 401;
-/** Shared status constant. */
 const STATUS_NOT_FOUND = 404;
-/** Shared status constant. */
 const STATUS_FORBIDDEN = 403;
 /** Shared status constant: primary and secondary GitHub rate limits. */
 const STATUS_TOO_MANY_REQUESTS = 429;
@@ -101,13 +99,9 @@ export interface PollerDeps {
     readonly random?: RandomFn;
 }
 
-/** Everything one call is bound to: transport plus the poller's injectables. */
 export interface PollerRuntime {
-    /** Injectable `fetch`. */
     readonly fetchImpl: FetchLike;
-    /** Logger every wait is reported through. */
     readonly log: ServiceLogger;
-    /** Injected sleep; the production default waits on a real timer. */
     readonly sleep: SleepFn;
     /** Injected jitter source; the production default is `Math.random`. */
     readonly random: RandomFn;
@@ -118,8 +112,6 @@ export interface PollerRuntime {
  *
  * Tests pass a recorder instead, so a ladder of waits costs them no time
  * at all (SC-116's "injected clock, no real sleeps").
- *
- * @returns A promise that settles after the delay.
  */
 const systemSleep: SleepFn = async (milliseconds) => {
     await new Promise<void>((resolve) => {
@@ -130,9 +122,7 @@ const systemSleep: SleepFn = async (milliseconds) => {
 /**
  * Build the runtime a poller binds its calls to.
  *
- * @param deps - Logger, plus the optional injected `sleep` and `random`.
  * @param fetchImpl - Injectable `fetch`; defaults to the process global.
- * @returns The runtime every call on this poller runs under.
  */
 export function pollerRuntime(deps: PollerDeps, fetchImpl: FetchLike): PollerRuntime {
     return {
@@ -151,13 +141,9 @@ export function pollerRuntime(deps: PollerDeps, fetchImpl: FetchLike): PollerRun
  * such parameter is ever added. The per-item events read does **not** use this
  * helper at all, because it takes no `since` and must not be able to (002
  * FR-051).
- *
- * @returns The request URL with those query parameters set.
  */
 export function listUrl(input: {
-    /** Repository owner. */
     readonly owner: string;
-    /** Repository name. */
     readonly name: string;
     /** Path after the repository segment. */
     readonly path: string;
@@ -181,7 +167,6 @@ export function listUrl(input: {
 /**
  * Parse one list page body, skipping entries the shape check refuses.
  *
- * @returns The normalized entries.
  * @throws {Error} When the body is not a JSON array.
  */
 function parseListPage<T>(input: {
@@ -219,16 +204,12 @@ async function classifyOutcome(response: Response): Promise<PollFailure> {
     return { kind: 'unavailable', detail: 'upstream' };
 }
 
-/** One page attempt: a usable response, or the classified failure. */
 type PageAttempt = { readonly response: Response } | { readonly failure: PollFailure };
 
-/** The request context a wait is performed inside. */
 interface WaitContext {
-    /** Transport plus the poller's injectables. */
     readonly runtime: PollerRuntime;
     /** Request URL; only its path reaches the log line. */
     readonly url: URL;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 
@@ -276,13 +257,9 @@ async function waitBeforeNextAttempt(
  * @returns The response, or the failure the last attempt produced.
  */
 async function requestPage(input: {
-    /** Transport plus the poller's injectables. */
     readonly runtime: PollerRuntime;
-    /** Account credential presented to GitHub. */
     readonly token: string;
-    /** Request URL for this page. */
     readonly url: URL;
-    /** Page size and retry ladder for this call. */
     readonly pace: ListPace;
 }): Promise<PageAttempt> {
     const policy = input.pace.retry;
@@ -332,21 +309,14 @@ async function requestPage(input: {
  * when a page under-fills their cap, while the item-events walk stops when a
  * page falls entirely outside the scan window. Two callers, one
  * page reader.
- *
- * @returns The normalized entries, or the page failure's class.
  */
 export async function readOnePage<T>(input: {
-    /** Transport plus the poller's injectables. */
     readonly runtime: PollerRuntime;
-    /** Account credential presented to GitHub. */
     readonly token: string;
     /** Request URL for this page, already carrying `page` and `per_page`. */
     readonly url: URL;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
-    /** Error text when a body is not an array (never upstream text). */
     readonly message: string;
-    /** Per-entry reader; `null` drops one malformed entry. */
     readonly read: (value: unknown) => T | null;
 }): Promise<PagedList<T>> {
     const attempt = await requestPage({
@@ -379,21 +349,14 @@ export async function readOnePage<T>(input: {
  * Page 2 is requested only when page 1 filled its cap, so the rate budget
  * never sees a burst; a page that keeps failing under the ladder stops the
  * paging and reports its class alone.
- *
- * @returns The normalized items, or the page failure's class.
  */
 export async function listPages<T>(input: {
-    /** Transport plus the poller's injectables. */
     readonly runtime: PollerRuntime;
-    /** Account credential presented to GitHub. */
     readonly token: string;
     /** Request URL; the `page` parameter is set per iteration. */
     readonly url: URL;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
-    /** Error text when a body is not an array (never upstream text). */
     readonly message: string;
-    /** Per-entry reader; `null` drops one malformed entry. */
     readonly read: (value: unknown) => T | null;
 }): Promise<PagedList<T>> {
     const items: T[] = [];
@@ -434,17 +397,12 @@ export async function listPages<T>(input: {
  * from an unreachable one, which is the line `resolveCandidateActor` draws
  * between a *recorded refusal* and a *read failure* (`poller-events.ts`).
  * Upstream detail never escapes — the caller learns the class, never a body.
- *
- * @returns The normalized object, or the classified failure.
  */
 export async function readOneObject<T>(input: {
-    /** Transport plus the poller's injectables. */
     readonly runtime: PollerRuntime;
-    /** Account credential presented to GitHub. */
     readonly token: string;
     /** Request URL for this item, carrying no `page` or `per_page`. */
     readonly url: URL;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
     /** One-object reader; `null` reads as unreadable, not as a different kind. */
     readonly read: (value: unknown) => T | null;

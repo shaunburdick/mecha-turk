@@ -109,7 +109,6 @@ function parseBindingsFile(raw: unknown, note: RefusalNote): BindingRecord[] | n
  * @returns The bindings, or `[]` when the file is absent/unusable.
  */
 export async function readBindingsUnobserved(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<BindingRecord[]> {
@@ -151,7 +150,6 @@ export async function readBindingsUnobserved(input: {
  * @returns The bindings, or `[]` when the file is absent/unusable.
  */
 export async function readBindings(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<BindingRecord[]> {
@@ -214,7 +212,6 @@ export type AuthorizationBindings =
  * @returns The parsed bindings, or the `unreadable` verdict that denies.
  */
 export async function readBindingsForAuthorization(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<AuthorizationBindings> {
@@ -300,9 +297,7 @@ function creationStampOf(entry: Record<string, unknown>): StoredCreationStamp {
  * @returns The verdict per `bindingId`, for every id asked about.
  */
 export async function readStoredCreationStamps(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The bindings whose stamps this cycle needs. */
     readonly bindingIds: readonly string[];

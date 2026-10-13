@@ -91,21 +91,17 @@ const TRIM_EVENT = 'audit.trimmed';
 /** One retention limit, named the way the trim row's `limitReached` records it. */
 export type AuditLimit = 'day-window' | 'entry-cap';
 
-/** What one pass did, for the caller's log line and its tests. */
 export interface TrimAuditOutcome {
     /** Rows removed by this pass; `0` means the file was not touched. */
     readonly removed: number;
     /** Which limit tripped first, or `null` when nothing was removed. */
     readonly limitReached: AuditLimit | null;
-    /** Protected rows this pass deliberately kept. */
     readonly minimalReferencesPreserved: number;
 }
 
 /** Inputs one pass reads; the configuration is the caller's single cycle read. */
 export interface TrimAuditInput {
-    /** Open store holding the trail. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The effective configuration, read once by the boundary that runs this. */
     readonly config: ServiceConfig;
@@ -118,13 +114,11 @@ export interface TrimAuditInput {
     readonly now?: number;
 }
 
-/** The trail ordered, plus what a pass decided about each row. */
 interface RemovalPlan {
     /** Rows that stay, in `seq` order. */
     readonly survivors: readonly AuditEntry[];
     /** Rows this pass takes, oldest first. */
     readonly removed: readonly AuditEntry[];
-    /** Which limit tripped first, or `null` when nothing was removed. */
     readonly limitReached: AuditLimit | null;
 }
 
@@ -169,9 +163,7 @@ function bindingIdsOf(probe: JsonReadResult<unknown>): ReadonlySet<string> | nul
  *   once the subject is provably gone.
  */
 async function existingAccountIds(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }): Promise<ReadonlySet<string> | null> {
     try {
@@ -198,9 +190,7 @@ async function existingAccountIds(input: {
  *   document could not be read.
  */
 async function existingBindingIds(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }): Promise<ReadonlySet<string> | null> {
     let probe: JsonReadResult<unknown>;
@@ -219,13 +209,9 @@ async function existingBindingIds(input: {
 
 /**
  * The `seq` numbers the floor rule protects: rows naming a subject that exists.
- *
- * @returns The protected `seq` numbers this half of the rule contributes.
  */
 async function subjectSeqs(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Trail rows, in any order. */
     readonly entries: readonly AuditEntry[];
@@ -255,13 +241,9 @@ async function subjectSeqs(input: {
  * the `run.created` row that are not the opener, (c) `account`/`binding`
  * entity rows whose subject still exists, and (d) every `policy.decision` /
  * `config.changed` row.
- *
- * @returns The `seq` numbers a trim must never remove.
  */
 async function protectedSeqsOf(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Trail rows, as the reader produced them. */
     readonly entries: readonly AuditEntry[];
@@ -289,8 +271,6 @@ async function protectedSeqsOf(input: {
  * trail. The day window still applies to it. A timestamp that will not parse
  * never marks a row too old — an undatable row is kept, never guessed out of
  * the file.
- *
- * @returns The survivors and removals, with the limit that tripped first.
  */
 function planRemoval(input: {
     /** Trail rows in `seq` order. */
@@ -342,15 +322,10 @@ function planRemoval(input: {
 
 /**
  * Build the `audit.trimmed` row for a plan that removed something.
- *
- * @returns The composed row, ready to be written beside its removals.
  */
 async function composeTrimRow(input: {
-    /** The plan that produced the removals. */
     readonly plan: RemovalPlan;
-    /** The limit that tripped first; the row names it. */
     readonly limitReached: AuditLimit;
-    /** Protected rows deliberately kept. */
     readonly minimalReferencesPreserved: number;
     /** Lines the reader could not use and this rewrite is therefore erasing. */
     readonly malformedLinesDropped: number;
@@ -385,8 +360,6 @@ async function composeTrimRow(input: {
 /**
  * Read the trail oldest-first, as the sequence a reader walks it in, keeping
  * the unreadable-line count beside it.
- *
- * @returns The usable rows ordered by `seq`, plus the lines that were refused.
  */
 async function readOrderedTrail(store: ServiceStore): Promise<AuditTrailRead> {
     const trail = await readAuditTrail(store);
@@ -401,13 +374,9 @@ async function readOrderedTrail(store: ServiceStore): Promise<AuditTrailRead> {
  * pass that erases those lines if it goes on to rewrite, and it says so before
  * it does. The count then travels onto the trim row itself, so the loss is
  * recorded rather than performed invisibly.
- *
- * @returns The ordered rows plus the unreadable-line count.
  */
 async function readForPass(input: {
-    /** Open store holding the trail. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }): Promise<AuditTrailRead> {
     const trail = await readOrderedTrail(input.store);
@@ -424,7 +393,6 @@ async function readForPass(input: {
  * One pass: read the trail, decide, and write survivors **plus** their row in a
  * single atomic replace — or write nothing at all.
  *
- * @returns What the pass removed; `removed: 0` means nothing was touched.
  * @throws {StorageUnavailableError} When the trail cannot be read or rewritten;
  *   the caller (store open, cycle boundary) logs the failure and moves on, and
  *   the file still holds its pre-trim bytes.

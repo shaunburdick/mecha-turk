@@ -63,15 +63,12 @@ import type { RunRow } from './dispatches-service.ts';
 /** Trigger kinds the runs row can carry; anything else reads as `assignment`. */
 export type RunKind = 'assignment' | 'mention' | 'review';
 
-/** One source reference as the run history carries it. */
 export interface RunReference {
     /** The joining delivery's unchanged id (FR-012). */
     readonly deliveryId: string;
-    /** Trigger kind the reference was detected under. */
     readonly kind: RunKind;
     /** Where it matched: `assignment`, `body`, `comment:<id>`, or `review`. */
     readonly origin: string;
-    /** Canonical link back to the source. */
     readonly sourceUrl: string;
     /** RFC 3339 detection stamp. */
     readonly detectedAt: string;
@@ -101,7 +98,6 @@ export interface RunReference {
 
 /** The session pointer as the run history carries it (FR-028's proof). */
 export interface RunSession {
-    /** Host-owned session id. */
     readonly sessionId: string;
     /** `= correlationId`; the id the session was started with. */
     readonly attachmentId: string;
@@ -109,11 +105,9 @@ export interface RunSession {
     readonly dispatchedAt: string;
 }
 
-/** The recorded agent read-back as the run history carries it. */
 export interface RunVerification {
     /** Agent the read-back observed, or `null` when it was unreadable. */
     readonly observedAgent: string | null;
-    /** Agent the binding expected. */
     readonly expectedAgent: string;
     /** Whether the two matched; a mismatch is a warning, never a state. */
     readonly ok: boolean;
@@ -121,7 +115,6 @@ export interface RunVerification {
     readonly note: string | null;
 }
 
-/** Which of the two movement kinds one follow-up row is. */
 export type FollowUpKind = 'comment' | 'head';
 
 /**
@@ -140,15 +133,12 @@ export type FollowUpKind = 'comment' | 'head';
 export interface RunFollowUp {
     /** The deterministic event id: the relay's at-most-once key. */
     readonly deliveryId: string;
-    /** Which of the two movement kinds this is. */
     readonly kind: FollowUpKind;
     /** Bounded untrusted excerpt the delivery composes its message from. */
     readonly excerpt: string;
-    /** The actor the movement is attributed to. */
     readonly actorLogin: string;
     /** RFC 3339 detection stamp. */
     readonly detectedAt: string;
-    /** Canonical link back to the source. */
     readonly sourceUrl: string;
     /** The head the run carried before this movement; head changes only. */
     readonly fromHeadSha?: string;
@@ -157,9 +147,6 @@ export interface RunFollowUp {
 }
 
 /**
- * Read one required non-empty string member.
- *
- * @param record - Parsed row or sub-object.
  * @returns The value, or `null` when it is missing, not a string, or empty.
  */
 function requiredText(record: Record<string, unknown>, field: string): string | null {
@@ -214,8 +201,6 @@ function parseReference(value: unknown): RunReference | null {
  * One unusable element refuses the **whole list**: a runs row that silently
  * dropped a reference would render as falsely complete, which is the exact lie
  * FR-074's fail-closed reading exists to prevent.
- *
- * @returns The references, or `null`.
  */
 export function parseReferences(value: unknown): RunReference[] | null {
     if (!Array.isArray(value)) {
@@ -236,9 +221,6 @@ export function parseReferences(value: unknown): RunReference[] | null {
 }
 
 /**
- * Read the session pointer, distinguishing `null` from an unusable value.
- *
- * @param value - The `session` member as received.
  * @returns The pointer, `null` when the run has none, or `undefined` when the
  *   member is present but not a pointer this build may half-apply.
  */
@@ -263,9 +245,6 @@ export function parseSession(value: unknown): RunSession | null | undefined {
 }
 
 /**
- * Read the recorded agent read-back, distinguishing `null` from an unusable value.
- *
- * @param value - The `verification` member as received.
  * @returns The read-back, `null` when none was filed, or `undefined` when the
  *   member is present but not one this build may half-apply.
  */
@@ -309,9 +288,6 @@ function followUpKindOfValue(value: unknown): FollowUpKind | null {
 }
 
 /**
- * Read one optional non-empty string member.
- *
- * @param record - Parsed row or sub-object.
  * @returns The value, `undefined` when the member is absent, or `null` when it
  *   is present and not usable text.
  */
@@ -324,7 +300,6 @@ function optionalText(record: Record<string, unknown>, field: string): string | 
     return typeof value === 'string' && value !== '' ? value : null;
 }
 
-/** One follow-up row's required text members. */
 interface FollowUpText {
     readonly excerpt: string;
     readonly actorLogin: string;
@@ -333,8 +308,6 @@ interface FollowUpText {
 }
 
 /**
- * Read the required text members of one follow-up row.
- *
  * `excerpt` is the one member that may legitimately be **empty**: a head-SHA
  * movement carries no source text of its own — its from → to pair rides the two
  * members beside it — so an empty excerpt is a fact about the movement rather
@@ -356,8 +329,6 @@ function readFollowUpText(record: Record<string, unknown>): FollowUpText | null 
 }
 
 /**
- * Read one follow-up row.
- *
  * The two optional members are read rather than defaulted: an absent `headSha`
  * on a comment follow-up and an absent `fromHeadSha` on the first head movement
  * are both legitimate, and inventing either would name a head nobody observed.
@@ -389,15 +360,12 @@ function parseFollowUp(value: unknown): RunFollowUp | null {
 }
 
 /**
- * Read the `followUps` member, distinguishing absent from an unusable value.
- *
  * Absentable on exactly the terms the session pointer is: a run written before
  * the member existed carries none and must still parse, because one unusable row
  * would hide an *entire* dispatch. A **present** value that is not this shape
  * refuses the whole row (AGENTS invariant 8) — the panel never delivers from a
  * follow-up it half-read.
  *
- * @param value - The `followUps` member as received.
  * @returns The list, `undefined` when the member is absent, or `null` when it
  *   is present and not a list of follow-ups this build may act on.
  */
@@ -458,11 +426,8 @@ export interface ParkedFollowUp {
  * it is never counted as waiting — the row says *parked*, with its cause.
  */
 export interface FollowUpRowView {
-    /** Follow-ups that reached their session. */
     readonly delivered: number;
-    /** Follow-ups still waiting, whether attempted or not. */
     readonly waiting: number;
-    /** Parked follow-ups, each with the cause it parked with. */
     readonly parked: readonly ParkedFollowUp[];
 }
 
@@ -541,8 +506,6 @@ export function followUpRowView(
 }
 
 /**
- * The parked follow-ups on one row that an operator's re-offer would act on.
- *
  * Exactly {@link followUpRowView}'s parked set: a follow-up that exhausted the
  * retry ladder, never reached its session, and is therefore sitting out
  * automatic handling until someone asks for it again (FR-105). The two halves
@@ -551,8 +514,6 @@ export function followUpRowView(
  * and one it never attempted is not here either, because that one is already
  * due and the relay's own tick will deliver it without anyone asking.
  *
- * @param row - The runs-history row.
- * @param records - The panel's durable follow-up records.
  * @returns The re-offerable parked follow-ups, oldest first.
  */
 export function reofferableFollowUps(
@@ -563,8 +524,6 @@ export function reofferableFollowUps(
 }
 
 /**
- * Count the follow-ups the panel still owes a session.
- *
  * The sum over the rows, plus the records whose run is outside the view
  * entirely: a follow-up attempted on a run the panel no longer holds is still
  * waiting, and counting only what is on screen would understate a queue by
@@ -607,8 +566,6 @@ function referenceLine(reference: RunReference): string {
 }
 
 /**
- * Every source reference of one row, as the reveal lists them.
- *
  * @returns One line per retained reference, earliest first.
  */
 export function referenceDetailLines(row: RunRow): readonly string[] {
@@ -617,8 +574,6 @@ export function referenceDetailLines(row: RunRow): readonly string[] {
 
 /**
  * The same lines as list items, each keyed so the list cannot collide.
- *
- * @returns The reveal's items.
  */
 export function referenceDetailItems(row: RunRow): ListItem[] {
     return referenceDetailLines(row).map((line, index) => ({ id: `${row.id}#${index}`, title: line }));

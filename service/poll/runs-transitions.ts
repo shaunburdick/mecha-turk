@@ -62,7 +62,6 @@ export interface LeaseCoordinates {
  *   (FR-037's "under any condition" clause).
  */
 export function leaseRun(input: {
-    /** The run being claimed. */
     readonly run: Run;
     /** The lease being issued. */
     readonly lease: LeaseCoordinates;

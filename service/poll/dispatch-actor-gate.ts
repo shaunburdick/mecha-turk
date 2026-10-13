@@ -102,7 +102,6 @@ const UNRECORDED_BASIS = 'unrecorded';
 type ClassifiedActor =
     /** No readable actor: absent, empty, or bot-shaped. */
     | { readonly readable: false }
-    /** A readable login, with the basis the run recorded for it. */
     | {
         /** Discriminant, so narrowing yields a usable login with no cast. */
         readonly readable: true;
@@ -112,7 +111,6 @@ type ClassifiedActor =
         readonly attribution: ActorAttribution | null;
     };
 
-/** What the gate refused, and the detail set the row records. */
 export interface ActorPolicyRefusal {
     /** The wire code and the secret-free cause the response carries. */
     readonly refusal: RunRefusal;
@@ -120,7 +118,6 @@ export interface ActorPolicyRefusal {
     readonly actor: ActorGateRefusal;
 }
 
-/** What the gate decided about one run's actor policy. */
 export type ActorPolicyVerdict =
     /** At least one reference names an allowed, readable actor. */
     | { readonly admitted: true; readonly policy: ActorPolicy }
@@ -144,19 +141,12 @@ function classifyActor(reference: Run['sourceReferences'][number]): ClassifiedAc
     return { readable: true, login, attribution: reference.actorAttribution ?? null };
 }
 
-/** The references a run carries, split into readable and unreadable actors. */
 interface ClassifiedRun {
     /** References naming a readable, non-bot login. */
     readonly readable: readonly Extract<ClassifiedActor, { readonly readable: true }>[];
-    /** How many references named no readable actor at all. */
     readonly unreadableReferences: number;
 }
 
-/**
- * Split one run's references into the two kinds the verdict is about.
- *
- * @returns The readable actors and the unreadable count.
- */
 function classifyRun(run: Run): ClassifiedRun {
     const classified = run.sourceReferences.map((reference) => classifyActor(reference));
 
@@ -166,21 +156,15 @@ function classifyRun(run: Run): ClassifiedRun {
     };
 }
 
-/** How much of the run's trigger history the gate could actually see. */
 interface JudgedWindow {
-    /** How many references were on the list the gate judged. */
     readonly retained: number;
-    /** How many joining triggers the cap refused to retain. */
     readonly notRetained: number;
-    /** Whether the list was cut at the cap. */
     readonly truncated: boolean;
 }
 
 /**
  * Read the window the verdict was decided on, for the detail set and the
  * messages that must admit the decision was made on an incomplete list.
- *
- * @returns The three counts the refusal records.
  */
 function judgedWindow(run: Run): JudgedWindow {
     return {
@@ -192,7 +176,6 @@ function judgedWindow(run: Run): JudgedWindow {
 
 /** The detail set one denial records, whatever its message. */
 function refusalDetails(input: {
-    /** The run being authorized. */
     readonly run: Run;
     /** The shape the read found, or `null` when it found none at all. */
     readonly policy: ActorPolicy | null;
@@ -200,7 +183,6 @@ function refusalDetails(input: {
     readonly deniedLogins: readonly string[] | undefined;
     /** Each denied login's basis, index-parallel to the logins. */
     readonly deniedAttributions: readonly string[] | undefined;
-    /** How many references named no readable actor. */
     readonly unreadableReferences: number;
 }): ActorGateRefusal {
     const window = judgedWindow(input.run);
@@ -274,8 +256,6 @@ function truncatedNote(run: Run): string {
  * login was whatever the rule in force at write time could name*. That stays
  * true whatever GitHub supports now, so the clause states the row's provenance
  * and asserts nothing about the provider.
- *
- * @returns The comma-separated list.
  */
 function namedActors(actors: readonly Extract<ClassifiedActor, { readonly readable: true }>[]): string {
     return actors
@@ -287,8 +267,6 @@ function namedActors(actors: readonly Extract<ClassifiedActor, { readonly readab
 
 /**
  * The trailing clause naming references the list could never have judged.
- *
- * @returns The clause, honest in both directions.
  */
 function unreadableNote(unreadableReferences: number): string {
     return unreadableReferences === 0
@@ -304,13 +282,9 @@ function unreadableNote(unreadableReferences: number): string {
  * must never be added to one denial and not the other. An operator told to
  * widen a list that cannot widen it has been told to do something useless, and
  * the retry re-judges from the same truncated list anyway.
- *
- * @returns The refusal, carrying the gate's detail set and the judged window.
  */
 function deniedPolicyRefusal(input: {
-    /** The run being authorized. */
     readonly run: Run;
-    /** The shape the read found. */
     readonly policy: ActorPolicy;
     /** The verdict's own words, before the truncation clause. */
     readonly message: string;
@@ -339,8 +313,6 @@ function deniedPolicyRefusal(input: {
 }
 
 /**
- * Judge one run's actor policy.
- *
  * An unreadable actor is refused **regardless** of the policy, so the admitted
  * case requires at least one reference naming a readable login the list allows.
  * Under an **open** policy every readable login is allowed, so the condition
@@ -351,11 +323,8 @@ function deniedPolicyRefusal(input: {
  * re-judge a `blocked:actor-not-allowed` run against a live read on the retry
  * path. That is what makes "a run cannot be retried into a dispatch this gate
  * would refuse again" a property rather than a hope.
- *
- * @returns The shape in force, or the refusal carrying the gate's detail set.
  */
 export function judgeActorPolicy(input: {
-    /** The run being authorized. */
     readonly run: Run;
     /** The binding's stored list, or `undefined` when the policy is open. */
     readonly allowedUsers: readonly string[] | undefined;
@@ -387,7 +356,6 @@ export function judgeActorPolicy(input: {
             + 'attribution or name a bot account, which no binding can permit');
 }
 
-/** Why the live policy could not be judged, when it could not be. */
 export type UnreadablePolicyCause =
     /** `bindings.json` is absent, quarantined, or unreadable. */
     | 'document-unreadable'
@@ -412,8 +380,6 @@ export type UnreadablePolicyCause =
  * so there is no denial to record, and `[]` would read as *every actor was
  * refused* (constitution IV). The counts the run alone answers **are** recorded,
  * because they are facts about the run and not about a policy nobody read.
- *
- * @returns The refusal, naming the cause without naming a login.
  */
 export function unreadablePolicyRefusal(run: Run, cause: UnreadablePolicyCause): ActorPolicyVerdict {
     const { unreadableReferences } = classifyRun(run);
@@ -441,11 +407,9 @@ export function unreadablePolicyRefusal(run: Run, cause: UnreadablePolicyCause):
     };
 }
 
-/** What {@link readLivePolicy} found: a policy to judge, or why there is none. */
 export type LivePolicy =
     /** The binding's stored list, or `undefined` for an open policy. */
     | { readonly readable: true; readonly allowedUsers: readonly string[] | undefined }
-    /** No policy could be judged, and why. */
     | { readonly readable: false; readonly cause: UnreadablePolicyCause };
 
 /**
@@ -459,16 +423,10 @@ export type LivePolicy =
  * (see `routes/bindings.ts`), so an operator's tightening and this read cannot
  * interleave: a token is never minted against a list the operator has just
  * revoked.
- *
- * @returns The list to judge with `undefined` for an open policy, or the cause
- *   no policy could be judged.
  */
 export async function readLivePolicy(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
-    /** Binding the run names. */
     readonly bindingId: string;
 }): Promise<LivePolicy> {
     const read = await readBindingsForAuthorization({ store: input.store, log: input.log });

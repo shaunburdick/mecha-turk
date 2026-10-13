@@ -34,9 +34,7 @@ export interface SweepDurations {
 
 /** Store and logger the sweep loop reads. */
 export interface SweepLoopInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }
 

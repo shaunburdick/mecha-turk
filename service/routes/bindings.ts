@@ -60,7 +60,6 @@ import type { ServiceStore } from '../store/index.ts';
 import { readStatusRows } from './events.ts';
 import type { Route, RouteContext, RouteRequest } from './types.ts';
 
-/** Path of the bindings collection. */
 export const BINDINGS_PATH = '/v1/bindings';
 
 /**
@@ -72,9 +71,6 @@ export const BINDINGS_PATH = '/v1/bindings';
  * field was cleared — while the answer states what the binding will do, so the
  * operator's surface renders from one source of truth and never invents its own
  * reading of an absent member.
- *
- * @param bindings - The stored records, as the read answered.
- * @returns The same records, each carrying its effective mode.
  */
 function withEffectiveScopes(bindings: readonly BindingRecord[]): readonly BindingRecord[] {
     return bindings.map((binding) => ({ ...binding, historyScope: effectiveHistoryScope(binding.historyScope) }));
@@ -127,14 +123,9 @@ async function handleGetBindings(context: RouteContext): Promise<HttpResponse> {
  * normalised a row, "omitted" and "explicitly cleared" have collapsed to the same
  * absent key, and the whole-file replacement would then erase a deliberate choice
  * on an unrelated save.
- *
- * @param submitted - The raw `bindings` array as it arrived.
- * @returns The ids that left each member out entirely.
  */
 function omittedMemberIds(submitted: readonly unknown[]): {
-    /** Ids whose row carried no `startingPrompt` key. */
     readonly prompt: ReadonlySet<string>;
-    /** Ids whose row carried no `historyScope` key. */
     readonly historyScope: ReadonlySet<string>;
 } {
     const prompt = new Set<string>();
@@ -170,16 +161,11 @@ function omittedMemberIds(submitted: readonly unknown[]): {
  * know the member cannot erase a deliberate choice on its next unrelated save
  * (004 FR-014, 002 FR-057). A row that sent the member — including one that sent
  * `null` to clear it — passes through untouched.
- *
- * @returns The document to write: submitted values where a member was sent,
- *   stored values where it was not.
  */
 function mergeOmittedMembers(input: {
     /** The validated submission, in submission order. */
     readonly submitted: readonly BindingRecord[];
-    /** Ids whose submitted row carried no prompt key. */
     readonly omittedPrompt: ReadonlySet<string>;
-    /** Ids whose submitted row carried no history-scope key. */
     readonly omittedScope: ReadonlySet<string>;
     /** The stored document, read inside the write chain. */
     readonly stored: readonly BindingRecord[];
@@ -235,13 +221,9 @@ function mergeOmittedMembers(input: {
  * of the operator's saved mode: the mode is the durable fact, the catch-up is a
  * consequence of it, and a window rule that reads the mode on the next scan covers
  * the one case the arming exists for (plan H14).
- *
- * @returns How many bindings were armed.
  */
 async function armCatchUps(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The document as written, which is what the arming is derived from. */
     readonly written: readonly BindingRecord[];
@@ -297,11 +279,9 @@ async function armCatchUps(input: {
     });
 }
 
-/** What one custody read produced beside the verdict it fed. */
 interface CustodyVerdict {
     /** The accounts as the directory held them, for the post-validation observation. */
     readonly accounts: readonly Account[];
-    /** The verdict over the submitted body. */
     readonly validation: BindingValidation;
 }
 
@@ -315,11 +295,8 @@ interface CustodyVerdict {
  * nothing (004 AC-133; the same order the account profile route keeps, which
  * validates before it observes). The observation the read implies belongs to
  * the caller, and runs only once the write is certain to happen.
- *
- * @returns The custody as it stood plus the verdict over the body.
  */
 async function readCustodyAndValidate(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Structured logger for the custody read's quarantine lines. */
     readonly log: ServiceLogger;
@@ -366,19 +343,13 @@ async function readCustodyAndValidate(input: {
  * a failed arming is recorded rather than raised — and the binding's first scan
  * after the edit still opens at the look-back the mode implies (002 FR-084;
  * plan H6).
- *
- * @returns The rows as stored, which is what the answer echoes.
  */
 async function writeGrant(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The validated submission, in submission order. */
     readonly submitted: readonly BindingRecord[];
-    /** Ids whose submitted row carried no `startingPrompt` key. */
     readonly omittedPrompt: ReadonlySet<string>;
-    /** Ids whose submitted row carried no `historyScope` key. */
     readonly omittedScope: ReadonlySet<string>;
     /** RFC 3339 stamp pinned before the write, so the catch-up is measured from it. */
     readonly at: string;

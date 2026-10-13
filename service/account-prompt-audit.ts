@@ -56,7 +56,6 @@ export interface ObservedAccount {
 
 /** What one observation of the account custody carries. */
 export interface AccountPromptObservation {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Logger for a failed append (account id and fingerprint only). */
     readonly log: ServiceLogger;

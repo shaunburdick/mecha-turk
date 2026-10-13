@@ -192,9 +192,7 @@ async function persistIntent(input: {
 
 /** Append pending run audits and then retire only intents known durable. */
 export async function flushRunAuditIntents(input: {
-    /** Open service store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Persisted run document currently carrying the outbox. */
     readonly document: RunsDocument;

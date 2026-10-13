@@ -93,13 +93,11 @@ export function promptRefusal(answer: ServiceErrorResult): string | null {
     return answer.message.includes('startingPrompt') ? answer.message : null;
 }
 
-/** Callbacks the field invokes. */
 export interface BindingPromptHandlers {
     /** The operator typed into the prompt field. */
     readonly setStartingPrompt: (value: string) => void;
 }
 
-/** The field, as the pane carries it. */
 export interface BindingPromptControls {
     /** The prompt itself — the only element that ever holds its text. */
     readonly field: TextFieldHandle;
@@ -112,9 +110,7 @@ export interface BindingPromptControls {
  * @returns The handle the pane carries.
  */
 export function mountBindingPrompt(input: {
-    /** Runtime whose state the field renders from. */
     readonly rt: PanelRuntime;
-    /** Editor root the field mounts into. */
     readonly pane: HTMLElement;
     /** Handler the field invokes. */
     readonly handlers: BindingPromptHandlers;

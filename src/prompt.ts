@@ -87,8 +87,6 @@ export const PROMPT_SOURCE_ORDER = ['global', 'account', 'binding'] as const;
  * Membership walks {@link PROMPT_SOURCE_ORDER} instead of spelling the
  * strings a second time, so the type, the order, and this predicate cannot
  * disagree: adding a tier would be an FR-070 scope change made in one tuple.
- *
- * @returns `true` for exactly `'global'`, `'account'`, or `'binding'`.
  */
 export function isPromptSource(value: unknown): value is PromptSource {
     if (typeof value !== 'string') {
@@ -118,8 +116,6 @@ export function isPromptSource(value: unknown): value is PromptSource {
  * (`promptPresent` ⇔ a non-empty list) belongs to the reader that knows
  * whether a prompt exists, so this predicate checks order and membership
  * only and never guesses at presence (FR-087, AGENTS.md invariant 8).
- *
- * @returns `true` when the list is all-known, in order, and duplicate-free.
  */
 export function isPromptSourceList(value: unknown): value is readonly PromptSource[] {
     if (!Array.isArray(value)) {
@@ -170,8 +166,6 @@ const FORBIDDEN_UPPER_END = 0x9F;
  * Internal whitespace is the instruction — the newlines an operator used to
  * separate a goal from a constraint must survive byte for byte — so this is
  * outer trimming and nothing else.
- *
- * @returns The text without leading or trailing whitespace.
  */
 export function trimPrompt(text: string): string {
     return text.trim();
@@ -184,8 +178,6 @@ export function trimPrompt(text: string): string {
  * `\r\n` is replaced as a pair so a CRLF paste never leaves a stray `\r`, and
  * a lone `\r` becomes `\n`. Normalisation runs **before** the control-character
  * test, so a carriage return is read as a line ending rather than refused.
- *
- * @returns The text with every line ending spelled `\n`.
  */
 export function normaliseLineEndings(text: string): string {
     let folded = '';
@@ -222,8 +214,6 @@ export function countCodePoints(text: string): number {
  * A "line" is delimited by the normalised `\n`, so this runs after
  * {@link normaliseLineEndings} — otherwise a CRLF file would hide the prefix
  * behind a trailing carriage return.
- *
- * @returns `true` when a line begins with a reserved marker prefix.
  */
 export function hasReservedMarkerLine(text: string): boolean {
     const prefixes = RESERVED_MARKER_PREFIXES;
@@ -239,8 +229,6 @@ export function hasReservedMarkerLine(text: string): boolean {
  * Written as a comparison rather than a character-class regexp so the three
  * forbidden ranges are named constants a reader can check against the
  * specification's own `[\u0000-\u0008\u000B-\u001F\u007F-\u009F]`.
- *
- * @returns `true` for a forbidden control character.
  */
 function isForbiddenControl(codePoint: number): boolean {
     if (codePoint <= LAST_FORBIDDEN_LOW_CODE_POINT) {
@@ -289,7 +277,6 @@ export function hasIllegalControlChar(text: string): boolean {
  * a non-empty {@link PromptSource} list, an absent one holds `null`.
  */
 export interface PromptReference {
-    /** Whether the run carried a starting prompt. */
     readonly promptPresent: boolean;
     /** Its `mtp-…` fingerprint, or `null` when none. */
     readonly promptFingerprint: string | null;

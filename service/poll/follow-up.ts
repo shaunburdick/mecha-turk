@@ -81,7 +81,6 @@ function headNote(pullNumber: number, from: string, to: string): string {
  *   may carry.
  */
 function commentFollowUp(input: {
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
     /** The comment that is a movement on the tracked subject. */
     readonly comment: PollComment;
@@ -134,7 +133,6 @@ function commentFollowUp(input: {
  *   carried honestly.
  */
 function headFollowUp(input: {
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
     /** The pull request whose head moved. */
     readonly pull: PollPull;
@@ -194,13 +192,11 @@ function headFollowUp(input: {
  * @returns The rows, in comment order.
  */
 export function commentFollowUps(input: {
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
     /** Comments the cycle's own comment feed listed. */
     readonly comments: readonly PollComment[];
     /** Issues the same scan listed, for title and URL resolution. */
     readonly issues: readonly PollIssue[];
-    /** Subjects this binding and account is following. */
     readonly tracked: ReadonlyMap<number, TrackedSubject>;
     /** Window start; every observation must be inside it. */
     readonly windowStart: string;
@@ -249,11 +245,9 @@ export function commentFollowUps(input: {
  * @returns The rows, and the observed heads.
  */
 export function headFollowUps(input: {
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
     /** Pull requests the cycle's own pulls feed listed. */
     readonly pulls: readonly PollPull[];
-    /** Subjects this binding and account is following. */
     readonly tracked: ReadonlyMap<number, TrackedSubject>;
     /** Window start; every observation must be inside it. */
     readonly windowStart: string;

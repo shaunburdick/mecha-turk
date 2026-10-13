@@ -99,7 +99,6 @@ export const EMPTY_TEXT_NOT_KNOWN = 'No binding yet — the account list is not 
 export const ACCOUNT_PICKER_PLACEHOLDER = 'Select an active account';
 
 /**
- * Class on the reason line's wrapper.
  *
  * The wrapper is the codebase's own idiom for a block that comes and goes
  * (`detailBox`, `editorBox`, `agentNoticeBox` all carry a class too), and a
@@ -128,8 +127,6 @@ export const PICK_ACCOUNT_REFUSAL = 'Pick the account this repository polls unde
  * gate's own conjunct instead of re-deriving it: two separately-written
  * `status === 'ready'` tests are two tests that can drift, and a length-keyed
  * selector reintroduces the defect this module exists to remove.
- *
- * @returns Whether the read has succeeded, whatever `accounts` holds.
  */
 export function accountsRead(bindings: BindingsTabState): boolean {
     return bindings.status === 'ready';
@@ -152,8 +149,6 @@ export interface AccountGate {
  *
  * `blocked` is the whole answer; the object carries it so a caller cannot
  * reach for the length or the read state on its own and build a second gate.
- *
- * @returns The gate as the tab's control needs it.
  */
 export function accountGate(bindings: BindingsTabState): AccountGate {
     return { blocked: accountsRead(bindings) && bindings.accounts.length === 0 };
@@ -177,8 +172,6 @@ export function accountGate(bindings: BindingsTabState): AccountGate {
  * describes, and the gate is a conjunction over this same predicate — so
  * whenever *New binding* is disabled the text names *Refresh* or the Accounts
  * tab, and whenever the text names *New binding* the control is live.
- *
- * @returns The text the list shows while it holds no row.
  */
 export function emptyBindingsText(bindings: BindingsTabState): string {
     // The `accountsRead` guard comes **first**, and that order is the claim: a
@@ -213,8 +206,6 @@ export function emptyBindingsText(bindings: BindingsTabState): string {
  * A **stale** selection — an account removed while the form was open — reaches
  * here with `accounts.length ≥ 1`, and lands in the second or third row by the
  * same fact. Both read truthfully, so no fourth case is invented.
- *
- * @returns The note the add form refuses with.
  */
 export function accountSelectionRefusal(bindings: BindingsTabState): string {
     if (bindings.accounts.length === 0) {
@@ -226,7 +217,6 @@ export function accountSelectionRefusal(bindings: BindingsTabState): string {
         : NO_ACTIVE_ACCOUNT_REFUSAL;
 }
 
-/** The reason line's wrapper and the text inside it, as the pane carries them. */
 export interface AccountReasonControls {
     /** Wrapper, `hidden` whenever the gate does not hold. */
     readonly box: HTMLElement;
@@ -235,7 +225,6 @@ export interface AccountReasonControls {
 }
 
 /**
- * Repaint the reason line from state.
  *
  * **Both** the wrapper's `hidden` and the text follow the gate: a
  * present-and-blank element satisfies neither a visual nor a DOM reading of
@@ -260,13 +249,9 @@ export function repaintAccountReason(bindings: BindingsTabState, controls: Accou
  * not been able to open. The wrapper is this codebase's own idiom for a block
  * that comes and goes (`detailBox`, `editorBox`, `agentNoticeBox`), and it
  * needs no SDK capability beyond `mountText`.
- *
- * @returns The wrapper and the line, for repaint and disposal.
  */
 export function mountAccountReason(input: {
-    /** Runtime whose state the line derives from. */
     readonly rt: PanelRuntime;
-    /** List-block root the line mounts into, after the toolbar. */
     readonly pane: HTMLElement;
 }): AccountReasonControls {
     const box = input.pane.ownerDocument.createElement('div');
@@ -281,9 +266,6 @@ export function mountAccountReason(input: {
     return controls;
 }
 
-/**
- * Release the reason line's handle and its wrapper.
- */
 export function disposeAccountReason(controls: AccountReasonControls): void {
     controls.line.dispose();
     controls.box.remove();

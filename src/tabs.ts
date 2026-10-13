@@ -122,7 +122,6 @@ function associate(input: {
     readonly root: HTMLElement;
     /** The six specs, in strip order. */
     readonly specs: readonly TabSpec[];
-    /** The containers keyed by tab id. */
     readonly bodies: ReadonlyMap<TabId, HTMLElement>;
 }): void {
     const { root, specs, bodies } = input;
@@ -149,7 +148,6 @@ function mountOnce(input: {
     readonly rt: PanelRuntime;
     /** The six specs, in strip order. */
     readonly specs: readonly TabSpec[];
-    /** The containers keyed by tab id. */
     readonly bodies: ReadonlyMap<TabId, HTMLElement>;
     /** Disposers the shell hands teardown. */
     readonly disposers: Map<TabId, TabDisposer>;
@@ -184,7 +182,6 @@ function createActivation(input: {
     readonly rt: PanelRuntime;
     /** The six specs, in strip order. */
     readonly specs: readonly TabSpec[];
-    /** The containers keyed by tab id. */
     readonly bodies: ReadonlyMap<TabId, HTMLElement>;
     /** Disposers the shell hands teardown. */
     readonly disposers: Map<TabId, TabDisposer>;
@@ -267,7 +264,6 @@ function disposeShell(input: {
     readonly tabs: TabsHandle;
     /** The body region to remove. */
     readonly region: HTMLElement;
-    /** The containers keyed by tab id. */
     readonly bodies: Map<TabId, HTMLElement>;
 }): void {
     const { rt, disposers, tabs, region, bodies } = input;

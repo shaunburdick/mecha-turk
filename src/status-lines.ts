@@ -29,14 +29,12 @@ import type { StatusAccountView, StatusBindingView, StatusTabState, StatusView }
 /** Locale grouping the interval copy uses, so 60000 reads as 60,000. */
 const INTERVAL_GROUPING = 'en-US';
 
-/** Milliseconds in one second. */
 const MS_PER_SECOND = 1_000;
 
 const SECONDS_PER_HOUR = 3_600;
 
 const SECONDS_PER_MINUTE = 60;
 
-/** Milliseconds in one minute — the cadence statement's coarser unit. */
 const MS_PER_MINUTE = MS_PER_SECOND * SECONDS_PER_MINUTE;
 
 /**
@@ -48,7 +46,6 @@ const MS_PER_MINUTE = MS_PER_SECOND * SECONDS_PER_MINUTE;
  */
 const MINUTE_WORD_AFTER_MS = 2 * MS_PER_MINUTE;
 
-/** Copy for a rate budget nothing has measured yet. */
 const RATE_UNMEASURED = 'not measured yet';
 
 /** Empty state for a healthy service that holds no accounts. */
@@ -63,18 +60,11 @@ const BINDINGS_NONE = 'No bindings yet.';
 /** Empty state for bindings the degraded store could not answer. */
 const BINDINGS_UNREADABLE = 'The binding list could not be read: the data directory is unavailable.';
 
-/**
- * Format an interval for display.
- *
- * @returns The grouped digits.
- */
 function intervalText(ms: number): string {
     return ms.toLocaleString(INTERVAL_GROUPING);
 }
 
 /**
- * Format a millisecond duration as a short human duration.
- *
  * @returns e.g. `2h 5m 3s`, or `0s` for a non-positive input.
  */
 export function formatUptime(ms: number): string {
@@ -103,8 +93,6 @@ export function formatUptime(ms: number): string {
  * unmeasured the budget reads *not measured yet*, and `usedLastHour` still
  * reports its own real count beside it. A panel that printed `0 of 0` here
  * would be reporting a measurement GitHub never gave.
- *
- * @returns The rate line.
  */
 export function rateLine(rate: StatusAccountView['rate']): string {
     const used = `${rate.usedLastHour} used in the last hour`;
@@ -118,9 +106,6 @@ export function rateLine(rate: StatusAccountView['rate']): string {
     return `${used} of ${limit} · ${left} left in this window · resets ${rate.resetAt}`;
 }
 
-/**
- * The projection's service block.
- */
 export function serviceLines(view: StatusView): readonly string[] {
     const { service } = view;
     const health = service.status === 'ok'
@@ -145,8 +130,6 @@ export function serviceLines(view: StatusView): readonly string[] {
 /**
  * Render a poll cadence, marking a stamp the timer has not reached yet as
  * *overdue* rather than substituting the configured interval.
- *
- * @returns The next-poll line.
  */
 function nextPollLine(stamp: string, nowMs: number): string {
     const at = Date.parse(stamp);
@@ -159,18 +142,14 @@ function nextPollLine(stamp: string, nowMs: number): string {
 
 /** Inputs for {@link pollingLines}; three values, named so they stay ordered. */
 export interface PollingLinesInput {
-    /** The parsed status document. */
     readonly view: StatusView;
     /** Configured interval from `GET /v1/config`, or `null` when not read. */
     readonly configured: number | null;
-    /** Clock the overdue check uses. */
     readonly nowMs: number;
 }
 
 /**
  * The configured-interval line, which is honest about not having been read.
- *
- * @returns The line.
  */
 function configuredIntervalLine(configured: number | null): string {
     if (configured === null) {
@@ -231,8 +210,6 @@ export function pollingLines(input: PollingLinesInput): readonly string[] {
  * An empty list is never left to speak for itself: a healthy service with no
  * accounts says so, and a degraded one says it could not read them, because
  * "you have none" and "I cannot tell" are different facts.
- *
- * @returns One line per account, plus an empty-state line when there are none.
  */
 export function accountLines(view: StatusView): readonly string[] {
     if (view.accounts.length === 0) {
@@ -252,8 +229,6 @@ export function accountLines(view: StatusView): readonly string[] {
  * rather than dropped: an omitted binding reads as a deleted one.
  * An empty list says which of the two empties it is, for the same reason the
  * account list does.
- *
- * @returns One line per binding, plus an empty-state line when there are none.
  */
 export function bindingLines(view: StatusView): readonly string[] {
     if (view.bindings.length === 0) {
@@ -309,8 +284,6 @@ export function bindingLines(view: StatusView): readonly string[] {
  * - **No login, no repository, and no trigger act, ever.** The count is enough
  *   to decide whether to go and look, and naming them would make Status a second
  *   index of the Bindings tab (005 FR-039, clarification row 42).
- *
- * @returns The single roll-up line.
  */
 export function actorPolicyLines(view: StatusView | null): readonly string[] {
     if (view === null) {
@@ -343,11 +316,8 @@ export function actorPolicyLines(view: StatusView | null): readonly string[] {
     ];
 }
 
-/** Which blocking notices the current document raises. */
 export interface StatusNoticeStates {
-    /** Show the unsupported-surface notice. */
     readonly unsupported: boolean;
-    /** Show the storage-blocked notice. */
     readonly storageBlocked: boolean;
 }
 
@@ -356,8 +326,6 @@ export interface StatusNoticeStates {
  *
  * With nothing read there is nothing to claim either way, so a `null` document
  * raises neither: an empty tab must not look blocked.
- *
- * @returns Which notices are visible.
  */
 export function noticeStates(view: StatusView | null): StatusNoticeStates {
     if (view === null) {
@@ -367,9 +335,7 @@ export function noticeStates(view: StatusView | null): StatusNoticeStates {
     return { unsupported: !view.supported, storageBlocked: !view.service.writable };
 }
 
-/** Inputs for {@link projectGuidanceLines}. */
 export interface ProjectGuidanceInput {
-    /** The binding rows the document carried. */
     readonly bindings: readonly StatusBindingView[];
     /** Project ids the host lists, or `null` while that list is not loaded. */
     readonly registeredProjectIds: readonly string[] | null;
@@ -383,8 +349,6 @@ export interface ProjectGuidanceInput {
  * restated here: a second copy of guidance is a second thing to keep true.
  * While the host's project list has not loaded, nothing is claimed — an
  * unlisted project and an unread list are different facts.
- *
- * @returns The guidance line, or none when there is nothing to point at.
  */
 export function projectGuidanceLines(input: ProjectGuidanceInput): readonly string[] {
     const { bindings, registeredProjectIds } = input;
@@ -413,8 +377,6 @@ export function projectGuidanceLines(input: ProjectGuidanceInput): readonly stri
  * an empty name, and a read-back taken against one is reported as an
  * observation that was **not compared** — never as a mismatch (002 FR-029 as
  * amended).
- *
- * @returns One or two lines describing what is known about the pin.
  */
 export function agentPinLines(view: StatusView): readonly string[] {
     const { verification, expectedAgent } = view.agentPin;
@@ -457,7 +419,6 @@ export function agentPinLines(view: StatusView): readonly string[] {
  * measured is exactly the claim the amendment forbids.
  *
  * @param waiting - The count the relay last computed, or `null` before it ran.
- * @returns The line.
  */
 export function followUpQueueLine(waiting: number | null): string {
     if (waiting === null) {
@@ -474,8 +435,6 @@ export function followUpQueueLine(waiting: number | null): string {
  *
  * A failure keeps the document it already holds and says so with the word
  * *stale*; a failure with nothing retained says plainly that there is none.
- *
- * @returns The read-state line.
  */
 export function readStateLine(slice: StatusTabState): string {
     if (slice.phase === 'idle') {
@@ -516,7 +475,6 @@ export function readStateLine(slice: StatusTabState): string {
  * and anything shorter or non-numeric back in the machine form the Polling
  * block uses, because rounding it into prose would be inventing a period.
  *
- * @param ms - The period to render.
  * @returns e.g. `15 seconds`, `60 seconds`, `5 minutes`.
  */
 function periodText(ms: number): string {
@@ -535,7 +493,6 @@ function periodText(ms: number): string {
     return `${seconds} ${seconds === 1 ? 'second' : 'seconds'}`;
 }
 
-/** Inputs for {@link cadenceLine}; one value, which is the whole statement. */
 export interface CadenceLineInput {
     /**
      * The period the tab's refresh tick runs on, or `null` when no tick is
@@ -558,8 +515,6 @@ export interface CadenceLineInput {
  * statement is *not refreshing itself* and names `Refresh status` — never a
  * plausible-looking period, because the panel holds no default for one
  * (NFR-112), and the copy renders as text rather than colour (FR-083).
- *
- * @returns The cadence line.
  */
 export function cadenceLine(input: CadenceLineInput): string {
     if (input.refreshMs === null) {

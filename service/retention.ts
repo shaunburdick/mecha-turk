@@ -34,7 +34,6 @@ import type { ServiceStore } from './store/index.ts';
 export interface RetentionInput {
     /** Open store; the caller has already ruled out the unusable case. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /**
      * The configuration this boundary runs on — the caller's **single** read
@@ -58,7 +57,6 @@ async function runGuarded(input: {
     readonly message: string;
     /** The pass to run. */
     readonly pass: () => Promise<unknown>;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }): Promise<void> {
     try {
@@ -120,7 +118,6 @@ async function readOpenConfig(store: ServiceStore, log: ServiceLogger): Promise<
 export async function runRetentionAtOpen(input: {
     /** Open store, or `null` when the data directory is unusable. */
     readonly store: ServiceStore | null;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }): Promise<void> {
     if (input.store === null) {

@@ -44,7 +44,6 @@ const DUPLICATE_CODE = 'duplicate-account';
 interface ServiceAccount {
     /** GitHub numeric user id. */
     readonly numericUserId: string;
-    /** Display login. */
     readonly login: string;
     /** Lifecycle state; only `active` accounts adopt. */
     readonly state: string;
@@ -213,7 +212,6 @@ export async function adoptServiceAccounts(rt: PanelRuntime): Promise<AdoptedIde
 export interface AdoptedIdentity {
     /** GitHub numeric user id. */
     readonly numericUserId: string;
-    /** Display login. */
     readonly login: string;
 }
 
