@@ -1,6 +1,7 @@
 /**
  * The run document's persistence: chain, read/write, and the one-shot
  * adoption pass (003 data-model §2.6, T-003/T-005).
+ * Both stores' mutations serialize onto this chain, so a scan, a claim, a sweep and an enqueue can never interleave.
  */
 
 import type { ServiceLogger } from '../log.ts';

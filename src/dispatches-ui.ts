@@ -1,5 +1,6 @@
 /**
  * The Dispatches mount and repaint: SDK primitives, `textContent` strings, whole-block hiding (M8, FR-041/074).
+ * The outcome note closes the *set* block, so the status line's *see the note* finds it with nothing selected.
  */
 
 import { mountBanner, mountButton, mountList, mountText, mountTextField } from '@openchamber/sdk/ui';

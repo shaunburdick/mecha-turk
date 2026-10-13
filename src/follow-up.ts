@@ -1,5 +1,6 @@
 /**
  * Following up on a work item the agent is in: delivered by `host.prompt({ send: true })`, starting no session.
+ * Anchors: `start_work` judged with no approval gate (FR-027); no delivery mid-dispatch (R14.5); constitution VII.
  */
 
 import type { PromptRequest, PromptResult, SessionSnapshot } from '@openchamber/sdk';

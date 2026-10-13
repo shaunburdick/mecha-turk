@@ -165,7 +165,7 @@ export interface AccountPromptChange {
  * from the two fingerprints rather than passed in, so the vocabulary (`set`
  * | `changed` | `cleared`) cannot drift from what the baseline says
  * happened. A failed append is logged and answered `false`; it never rolls
- * anything back — see the module header.
+ * anything back.
  */
 export async function appendAccountPromptChange(input: AccountPromptChange): Promise<void> {
     const isPresent = input.current !== null;

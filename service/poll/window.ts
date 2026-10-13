@@ -1,5 +1,6 @@
 /**
  * The scan window one binding opens on (002 FR-065 – FR-072; 006 FR-059(a)).
+ * Window table: forceReplay → rescanFrom → lastScanAt−overlap → baselineAt → refused; replay beats arming (lost work).
  */
 
 import { effectiveHistoryScope, lookBackMs } from '../bindings-history-scope.ts';

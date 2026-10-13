@@ -116,7 +116,8 @@ export interface QueuedEvent {
  * Every field a stored event must carry as non-empty text.
  *
  * `issueNumber` is absent on purpose — it is a number, checked by
- * `positiveIntOf` in {@link parseStoredEvent}; see the module header.
+ * `positiveIntOf` in {@link parseStoredEvent}; requiring it as text once made writer output fail
+ * validation, quarantining every `events.json` on first read and silently losing the pending queue.
  */
 const REQUIRED_FIELDS = [
     'id',
