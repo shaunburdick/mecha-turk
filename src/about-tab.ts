@@ -1,42 +1,8 @@
 /**
- * The About tab: identity, the single version, and Diagnostics behind a
- * disclosure (005 T-028 as re-cut by the 2026-10-01 product-owner scrub;
- * FR-074–FR-077, AC-132–AC-134, SC-109).
- *
- * The page is deliberately small — **name, version, description,
- * documentation link, repository link** — because that is all an About page is
- * asked for. The four statements the scrub removed (the vocabulary mapping,
- * the cleanup posture, the release posture, and the data-directory line)
- * either have a tab that owns them or say nothing the operator can act on; the
- * vocabulary block's own module (`vocabulary.ts`) went with it, so the L1 scan
- * (`tests/vocabulary.test.ts`) now exempts nothing.
- *
- * **The version has exactly one source.** It is read from the service's own
- * health answer (`GET /health` serves `SERVICE_VERSION`, which mirrors
- * `package.json`), and this module carries **no version literal of its own** —
- * not a number, not a pre-release figure, nothing that could ever disagree
- * with the service. When the service cannot be reached the tab prints the
- * exact words *unknown (service unreachable)*, naming the service as the
- * source, instead of synthesising a plausible number (FR-074, NFR-112).
- * `tests/about-tab.test.ts` pins the path constant to the route the service
- * registers and scans `src/` for version-shaped literals, so neither half of
- * that rule can rot. The static half — the name, the description, and both
- * links — renders with or without the service (FR-078).
- *
- * **Both links go through the host.** A sandboxed iframe cannot open a link
- * itself, so the SDK text path hands every http(s) click to `onOpenUrl`, which
- * forwards it to `host.openUrl` — the opener the panel already uses for a
- * dispatch's source link. Each link is a text handle carrying markdown link
- * syntax, never an anchor the frame could navigate itself, and each refusal
- * lands on its own line beside the address it belongs to rather than being
- * swallowed (FR-003).
- *
- * **Diagnostics is read-only and closed by default** (FR-075): a disclosure
- * control reveals the ledger as `#seq · kind · time` lines, the two schema
- * versions, and the phase record. It deliberately renders **no entry detail**,
- * so an account identifier, a prompt, a fingerprint, or a filesystem path has
- * no way into this section (FR-076), and it offers nothing that writes — the
- * phase writer left with the tab it lived on.
+ * The About tab: name, version, description, documentation and repository
+ * links, with Diagnostics behind a disclosure (005 FR-074–FR-077,
+ * AC-132–AC-134, SC-109); the version comes only from the service's health
+ * answer, never a literal of this module's own (FR-074, NFR-112).
  */
 
 import { mountBanner, mountButton } from '@openchamber/sdk/ui';
@@ -50,25 +16,19 @@ import { createBlock, mountStyledText } from './style.ts';
 import { ledgerLines, mountDiagnostics, phaseRecordLine } from './about-diagnostics.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** The product name the manifest declares. */
 const PRODUCT_NAME = 'Mecha Turk';
 
-/** What About shows for a version it could not read. */
 const VERSION_UNREACHABLE = 'unknown (service unreachable)';
 
 /** What About shows before the first health answer lands (contract §2). */
 const VERSION_UNREAD = 'Version: not yet read';
 
-/** Heading above the identity block. */
 const ABOUT_HEADING = 'About';
 
-/** Heading above the read-only record. */
 const DIAGNOSTICS_HEADING = 'Diagnostics (read-only)';
 
-/** The disclosure control while the record is closed. */
 const DIAGNOSTICS_SHOW = 'Diagnostics';
 
-/** The disclosure control while the record is open (state as text). */
 const DIAGNOSTICS_HIDE = 'Hide diagnostics';
 
 /**
@@ -76,7 +36,6 @@ const DIAGNOSTICS_HIDE = 'Hide diagnostics';
  */
 const REPOSITORY_URL = 'https://github.com/shaunburdick/mecha-turk';
 
-/** The link line: address and target are the same URL, so it is readable. */
 const REPOSITORY_LINE = `Repository: [${REPOSITORY_URL}](${REPOSITORY_URL})`;
 
 /**
@@ -87,10 +46,8 @@ const REPOSITORY_LINE = `Repository: [${REPOSITORY_URL}](${REPOSITORY_URL})`;
  */
 const DOCUMENTATION_URL = 'https://shaunburdick.github.io/mecha-turk/';
 
-/** The documentation link line: address and target match, so it is readable. */
 const DOCUMENTATION_LINE = `Documentation: [${DOCUMENTATION_URL}](${DOCUMENTATION_URL})`;
 
-/** The one-line description of the tool. */
 const DESCRIPTION =
     'Mecha Turk watches the GitHub repositories you bind — issues assigned to you, review requests, ' +
     'and mentions — and opens an OpenChamber session for each discovery.';
@@ -98,11 +55,9 @@ const DESCRIPTION =
 /** What the re-read control is called; also the failure notice's retry. */
 const RETRY_LABEL = 'Retry version read';
 
-/** Title of the failure notice, whatever the failure was. */
 const FAILURE_TITLE = 'Version not read';
 
 /**
- * Where the About tab's version read stands.
  *
  * `version` is deliberately separate from `phase`: a failed re-read keeps the
  * version that did land (and the read line marks it stale) rather than
@@ -112,26 +67,17 @@ const FAILURE_TITLE = 'Version not read';
  * refusal can overwrite the other's.
  */
 export interface AboutTabState {
-    /** Read phase: nothing yet, in flight, landed, or refused. */
     phase: 'idle' | 'loading' | 'loaded' | 'failed';
-    /** RFC 3339 stamp of the read that last landed, or `null`. */
     at: string | null;
-    /** Why the last read failed; `null` while there is nothing to report. */
     problem: string | null;
-    /** The version the service answered, or `null` when it never did. */
     version: string | null;
-    /** Whether the Diagnostics disclosure is open. */
     diagnosticsOpen: boolean;
-    /** Why the repository link could not be opened; `null` otherwise. */
     repoProblem: string | null;
-    /** Why the documentation link could not be opened; `null` otherwise. */
     docsProblem: string | null;
 }
 
 /**
  * Build the empty About tab state.
- *
- * @returns The state before the first read.
  */
 export function initialAboutTab(): AboutTabState {
     return {
@@ -145,15 +91,10 @@ export function initialAboutTab(): AboutTabState {
     };
 }
 
-/** The mounted About tab: the handles a repaint updates, plus disposal. */
 export interface AboutTabUi {
-    /** Body root this view mounted into. */
     readonly pane: HTMLElement;
-    /** The product name. */
     readonly identity: TextHandle;
-    /** The single version line. */
     readonly version: TextHandle;
-    /** The one-line description of the tool. */
     readonly description: TextHandle;
     /** The documentation link, opened through the host. */
     readonly docsLink: TextHandle;
@@ -169,27 +110,19 @@ export interface AboutTabUi {
     readonly readLine: TextHandle;
     /** Wrapper around the failure notice, hidden while nothing failed. */
     readonly failureBox: HTMLElement;
-    /** Failure notice naming what could not be read and from where. */
     readonly failure: BannerHandle;
-    /** The disclosure control that reveals Diagnostics. */
     readonly diagnosticsToggle: ButtonHandle;
     /** Wrapper around the Diagnostics block, hidden until the control opens it. */
     readonly diagnosticsBox: HTMLElement;
-    /** The two schema versions this build ships. */
     readonly schemas: TextHandle;
-    /** The phase record, read-only. */
     readonly phaseRecord: TextHandle;
-    /** The ledger, newest first, as text. */
     readonly ledger: TextHandle;
-    /** Remove every node and handle this view mounted. */
     readonly dispose: () => void;
 }
 
 /**
  * The version line: read, unread, or unreachable — never a synthesised
  * number.
- *
- * @returns The line the tab paints.
  */
 export function versionLine(slice: AboutTabState): string {
     if (slice.version !== null) {
@@ -205,8 +138,6 @@ export function versionLine(slice: AboutTabState): string {
 
 /**
  * The tab's own read state, in the three shapes.
- *
- * @returns The read-state line the tab paints.
  */
 export function readStateLine(slice: AboutTabState): string {
     if (slice.phase === 'idle') {
@@ -230,7 +161,6 @@ export function readStateLine(slice: AboutTabState): string {
 }
 
 /**
- * Repaint the About tab from state.
  *
  * Nothing runs when the tab has never been activated: the state still
  * updates, and the first activation repaints from it.
@@ -267,7 +197,6 @@ export function repaintAboutTab(rt: PanelRuntime): void {
 }
 
 /**
- * Flip the Diagnostics disclosure.
  *
  * One named action rather than an inline closure, so the control's own
  * behaviour is testable without reaching through mount props: closed by
@@ -280,18 +209,11 @@ export function toggleDiagnostics(rt: PanelRuntime): void {
 
 /**
  * Hand one of the page's links to the host's opener and describe a refusal.
- *
  * `host.openUrl` is the opener the panel already uses for a dispatch's source
  * link, so the About page reaches for the same one — no capability, no invented
  * navigation, no anchor that could unload the panel. The refusal text names the
  * link it belongs to and is redacted like every other operator-facing string,
- * so neither link's failure can carry a credential out of the message the host
- * answered with.
- *
- * @param rt - Runtime whose host opens the link and whose state records it.
- * @param url - The address the click carried.
- * @param label - How the notice names this link ("The repository link").
- * @returns The refusal line to render, or `null` when the host opened it.
+ * so neither link's failure can carry a credential out of the host's answer.
  */
 async function openThroughHost(rt: PanelRuntime, url: string, label: string): Promise<string | null> {
     try {
@@ -304,7 +226,6 @@ async function openThroughHost(rt: PanelRuntime, url: string, label: string): Pr
 }
 
 /**
- * Open the repository link through the host, and say so when it refuses.
  *
  * A refusal lands on the link's own line rather than being swallowed.
  */
@@ -314,7 +235,6 @@ export async function openRepository(rt: PanelRuntime, url: string): Promise<voi
 }
 
 /**
- * Open the documentation link through the host, and say so when it refuses.
  *
  * The route into the site from inside the product, and the same two rules as
  * the repository link beside it: the panel opens nothing itself, and a refusal
@@ -327,8 +247,6 @@ export async function openDocumentation(rt: PanelRuntime, url: string): Promise<
 
 /**
  * Read the version out of a health answer, fail closed.
- *
- * @returns The version string, or `null` when the answer carries none.
  */
 function versionFrom(body: string): string | null {
     const parsed = parseJsonObject(body);
@@ -340,15 +258,12 @@ function versionFrom(body: string): string | null {
 /**
  * Whether the runtime was torn down mid-read: a call rather than a bare
  * `rt.disposed` read, so the analyzer cannot narrow the check away.
- *
- * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
     return rt.disposed;
 }
 
 /**
- * Read the service's health answer and take its version.
  *
  * Fail closed: an answer the panel cannot read is a failed read, never a
  * value. The tab retries only on an explicit operator action (contract §2).
@@ -393,13 +308,9 @@ export async function loadVersion(rt: PanelRuntime): Promise<void> {
  * The documentation link comes first because the README puts it first too: it
  * is the route into the published documentation, and the repository is the
  * secondary address beside it.
- *
- * @returns The seven handles.
  */
 function mountHeader(input: {
-    /** Runtime whose read state the version line renders. */
     readonly rt: PanelRuntime;
-    /** Pane the identity mounts into. */
     readonly pane: HTMLElement;
 }): {
     readonly identity: TextHandle;
@@ -437,13 +348,9 @@ function mountHeader(input: {
 
 /**
  * Mount the re-read row and the failure notice behind it.
- *
- * @returns The four handles plus the notice wrapper.
  */
 function mountRetryRow(input: {
-    /** Runtime whose read state the control re-reads. */
     readonly rt: PanelRuntime;
-    /** Pane the row mounts into. */
     readonly pane: HTMLElement;
 }): {
     readonly retry: ButtonHandle;
@@ -485,8 +392,6 @@ function mountRetryRow(input: {
  * The control sits outside the wrapper so opening and closing is one
  * `hidden` write on one element, and its label states which of the two it
  * currently is (FR-083: state as text, never colour alone).
- *
- * @returns The control and the wrapper around the Diagnostics block.
  */
 function mountDisclosure(pane: HTMLElement, onClick: () => void): {
     readonly toggle: ButtonHandle;
@@ -504,9 +409,6 @@ function mountDisclosure(pane: HTMLElement, onClick: () => void): {
     return { toggle, box };
 }
 
-/**
- * Release every handle and node the About tab mounted.
- */
 function disposeAbout(ui: AboutTabUi): void {
     ui.identity.dispose();
     ui.version.dispose();
@@ -530,13 +432,9 @@ function disposeAbout(ui: AboutTabUi): void {
 /**
  * Mount the About tab: the identity block, the one re-read control, and the
  * Diagnostics disclosure.
- *
- * @returns The mounted view.
  */
 export function mountAboutTab(input: {
-    /** Runtime whose state the tab paints. */
     readonly rt: PanelRuntime;
-    /** Body container the shell created for the About tab. */
     readonly body: HTMLElement;
 }): AboutTabUi {
     const { rt, body } = input;

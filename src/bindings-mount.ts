@@ -1,29 +1,8 @@
 /**
- * The wiring that puts the Bindings tab on screen (MVP blocker, 2026-09-27).
- *
- * `bindings-ui.ts` exports {@link mountBindingsPane} and its painter, but
- * nothing called them: the panel mounted only the legacy UI, so the
- * operator could never reach the bindings form, could never add a binding,
- * and bindings mode could never activate. This module is that missing call
- * site. It mounts the pane first, so the shared tab strip is the panel's
- * first element and both tab bodies hang beneath it: the Bindings pane on
- * its tab, and the dispatch body (a plain container the legacy UI and the
- * handoff group mount into) on the other.
- *
- * Every pane callback maps onto an action that already exists: `editBindings`
- * records each draft-field patch (and repaints through `refresh`), the bindings
- * actions run the tab's reads and writes, and `switchTab` writes
- * `activeTab` for the central repaint to act on. Nothing new is invented —
- * the handlers are a table, not a layer.
- *
- * The two handlers that carry the 2026-10-01 review's shape are spelled out
- * here: **selecting a row loads it into the editor** (the row *is* the Edit
- * affordance, and a stray click on the row being edited keeps the edit open),
- * and **New binding** opens the same editor on an empty draft. The starting
- * prompt travels with whichever primary control writes — untouched omits,
- * cleared travels, a refusal lands at the field — all of it through
- * `saveEditedBinding`, so those rules have exactly one home (005 FR-051,
- * FR-052; 004 FR-014).
+ * The wiring that puts the Bindings tab on screen: mounts the pane first,
+ * maps every pane callback onto an action that already exists (the handlers
+ * are a table, not a layer), and spells out row-click-loads-editor and
+ * New-binding-opens-an-empty-draft.
  */
 
 import { loadProjects, selectBindingProject } from './project-actions.ts';
@@ -71,16 +50,12 @@ import {
 } from './dispatches.ts';
 
 /**
- * The prompt field's callback, and the row click that opens the editor.
- *
- *
- * Split out so the handler table below stays a table. Selecting a row both
- * selects it and loads it into the editor — the row *is* the Edit affordance
- * since the 2026-10-01 review — so the field opens on what the service holds
+ * The prompt field's callback, and the row click that opens the editor —
+ * split out so the handler table below stays a table. Selecting a row both
+ * selects it and loads it into the editor (the row *is* the Edit affordance
+ * since the 2026-10-01 review), so the field opens on what the service holds
  * for that row, never on a fingerprint and never on whichever row was
  * selected before.
- *
- * @returns The handlers the fields invoke.
  */
 function promptHandlers(rt: PanelRuntime): Pick<
     BindingsPaneHandlers,
@@ -164,8 +139,6 @@ function cancelNote(rt: PanelRuntime): string {
  * The pane is repainted from state on every patch (`editBindings` refreshes), so
  * the handlers stay one-line delegations and the tab cannot diverge from what
  * the runtime knows.
- *
- * @returns The handler table for {@link mountBindingsPane}.
  */
 export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
     return {
@@ -217,17 +190,14 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
 }
 
 /**
- * Mount the Bindings tab body into the container the shell created.
- *
- * The six-tab shell owns the strip and decides when this body first appears;
- * everything here is the body itself — the status line, the list, and the add
- * form — and the runtime handle the repaint path reads.
- *
- * The body repaints once at mount, as Status and Accounts do: the list mounts
- * empty (its items arrive only through a repaint), so without this call the
- * first frame would show "No binding yet" under a status line that already
- * counts the bindings the runtime holds — true only until the next refresh
- * tick, which is exactly how long a first frame is allowed to lie.
+ * Mount the Bindings tab body into the container the shell created: the
+ * six-tab shell owns the strip and decides when this body first appears, while
+ * everything here is the body itself — status line, list, add form — and the
+ * runtime handle the repaint path reads. It repaints once at mount, as Status
+ * and Accounts do: the list mounts empty, so without this call the first frame
+ * would show "No binding yet" under a status line that already counts the
+ * bindings the runtime holds — true only until the next refresh tick, which is
+ * exactly how long a first frame is allowed to lie.
  */
 export function mountBindingsTabBody(input: {
     /** Panel runtime the body repaints for. */

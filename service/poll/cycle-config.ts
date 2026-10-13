@@ -1,23 +1,5 @@
 /**
- * The cycle's **configuration** read (006 FR-055, FR-057–FR-059; 004 FR-088).
- *
- * Split out of [`loop.ts`](./loop.ts) when the global prompt tier's observer
- * joined this read: the loop owns cycle orchestration — walk, scan, save — and
- * this module owns *what the cycle runs on*, which as of 004 is two things
- * held together in one chain task: **the** configuration read at the boundary
- * (one read per cycle, every consumer on the same document) and the
- * observation of `startingPrompt` that has to happen with that same snapshot
- * in hand (research R-3: the cadence the bindings observer gets). The interval
- * reader the timer arms itself with lives here too, because it is the same
- * document read at a different moment — one reader, two moments, one set of
- * degradation rules:
- *
- * - a read that throws degrades to the documented defaults with one warn
- *   line, so one unreadable document stops no cycle and no binding
- *   (invariant 8);
- * - an audit problem inside the same task never becomes that exception: an
- *   unreadable trail skips the observation with its own warn, and an append
- *   that cannot reach disk is reported by the row writer.
+ * The cycle's configuration read (006 FR-055, FR-057–FR-059; 004 FR-088).
  */
 
 import { DEFAULT_CONFIG, CONFIG_FILE, configFromStore, parseStoredConfig } from '../config.ts';
@@ -33,9 +15,6 @@ export function describeKind(cause: unknown): string {
 
 /**
  * Read the effective interval for the next cycle.
- *
- * @param log - Logger used when the config file cannot be read.
- * @returns Milliseconds until the next cycle.
  */
 export async function currentIntervalMs(store: ServiceStore | null, log: ServiceLogger): Promise<number> {
     if (store === null) {
@@ -54,28 +33,17 @@ export async function currentIntervalMs(store: ServiceStore | null, log: Service
 }
 
 /**
- * Read the configuration this cycle runs on — **once**, at the boundary
- * — and observe the global tier while holding it.
- *
- * The read and the observation run as **one task on the configuration prompt
- * chain** (research R-3: the same cadence the bindings observer gets), so the
- * snapshot the lane diffs is the snapshot this cycle runs on. A
- * `PUT /v1/config` landing mid-read therefore cannot leave the lane comparing
- * one document against another's baseline, which is what keeps FR-088's
- * *exactly one audit row per change* true for both orders rather than for the
- * lucky one.
- *
- * A read that throws degrades to the documented defaults with one warn line,
- * exactly as {@link currentIntervalMs} already does, so one unreadable
+ * Read the configuration this cycle runs on — **once**, at the boundary —
+ * and observe the global tier while holding it. Read and observation run as
+ * one task on the configuration prompt chain (research R-3: the same cadence
+ * the bindings observer gets), so the snapshot the lane diffs is the
+ * snapshot the cycle runs on and FR-088's *exactly one audit row per change*
+ * holds for both orders rather than the lucky one. A read that throws
+ * degrades to the documented defaults with one warn line, so one unreadable
  * document stops no cycle and no binding (invariant 8).
- *
- * @param input - Store and logger for this cycle.
- * @returns The effective configuration for the whole cycle.
  */
 export async function readCycleConfig(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }): Promise<ServiceConfig> {
     try {

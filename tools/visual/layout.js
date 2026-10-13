@@ -1,14 +1,8 @@
 /**
- * The measurement half of a capture: how one tab body sits, whether it fits,
- * and how tall the viewport has to be to show all of it and nothing else.
- *
- * `shot.js` owns the ordering — activate, fit, probe, capture, verify — and
- * this module owns the arithmetic behind the first two steps. Splitting them
- * keeps each file to one question: here it is *does the panel fit at this
- * width?*, there it is *is this the frame I asked for?*.
- *
- * Everything reads the live document through the harness API `shot.js`
- * hands down; nothing here spawns, captures, or writes a file.
+ * The measurement half of a capture: how one tab body sits, whether it fits, and how tall the
+ * viewport has to be to show all of it. `shot.js` owns the ordering — activate, fit, probe,
+ * capture, verify — and this module owns the arithmetic behind the first two. Everything reads the
+ * live document through the harness API `shot.js` hands down; nothing here captures or writes.
  */
 
 /** Never ask for a viewport shorter than this, whatever the body measures. */
@@ -44,11 +38,7 @@ export function bodyView(browser) {
     return browser.evaluate('__MT__.bodyView()');
 }
 
-/**
- * Refuse a tab whose body is missing, unselected, empty, or off-screen.
- *
- * @returns Nothing; it throws on the first contract the measurement breaks.
- */
+/** Refuse a tab whose body is missing, unselected, empty, or off-screen; throws on the first breach. */
 export function assertLayout(input) {
     const { tab, measurement } = input;
 
@@ -83,15 +73,10 @@ export function assertLayout(input) {
 }
 
 /**
- * Refuse a measurement whose page is not laid out at the width asked for.
- *
- * The delivered PNG carries the same assertion on the other side of the
- * capture (`verify.js`), so the contract is checked from both ends: this one
- * fails early and names the width the page reports, before a probe, a strip
- * read-back, and a file are spent on a frame that could not be right.
- *
- * @param width - The viewport width the caller asked for.
- * @returns The same measurement, so the guard reads inline with the returns.
+ * Refuse a measurement whose page is not laid out at the width asked for. The delivered PNG
+ * carries the same assertion on the other side of the capture (`verify.js`), so the contract is
+ * checked from both ends: this one fails early and names the width the page reports, before a
+ * probe, a strip read-back and a file are spent on a frame that could not be right.
  */
 function assertViewportWidth(measurement, width) {
     if (measurement.viewportWidth !== width) {
@@ -105,10 +90,8 @@ function assertViewportWidth(measurement, width) {
 }
 
 /**
- * Resize the viewport until the region holds exactly one tab body.
- *
- * @returns The measurement the last resize produced, or null when the tab has
- *   no body to fit — so the caller reports that instead of a stale number.
+ * Resize the viewport until the region holds exactly one tab body; null when the tab has no body
+ * to fit, so the caller reports that instead of a stale number.
  */
 export async function fitViewport(input) {
     const { browser, tab, width, maxHeight } = input;
@@ -119,15 +102,11 @@ export async function fitViewport(input) {
     }
 
     /*
-     * Apply the width *before* the fit question is asked, and only when the
-     * page is not already laid out at it.
-     *
-     * The loop below answers "does it fit?" with heights alone, and a panel
-     * fitted at a *different* width has the right height for the wrong width
-     * — so the early return would skip the very resize that gives the frame
-     * its width, and the narrow pass would deliver a byte copy of the wide
-     * one. `viewportWidth` is the page's own answer (host.js reads it from
-     * the panel's window), not an assumption about what was requested.
+     * Apply the width *before* the fit question is asked, and only when the page is not already
+     * laid out at it: the loop below answers "does it fit?" with heights alone, and a panel fitted
+     * at a *different* width has the right height for the wrong width — so an early return would
+     * skip the resize that gives the frame its width and the narrow pass would deliver a byte copy
+     * of the wide one. `viewportWidth` is the page's own answer, not a request assumption.
      */
     if (current.viewportWidth !== width) {
         await browser.setViewport({

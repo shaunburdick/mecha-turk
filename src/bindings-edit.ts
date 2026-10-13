@@ -1,19 +1,5 @@
 /**
- * The binding editor's edit mode (005 FR-050, FR-053).
- *
- * Three actions, one shape: **load** a row into the editor the Bindings tab
- * mounts (the row click is the affordance — the editor is not open by
- * default), **leave** that editor without writing, and **save** it through the
- * same whole-file `PUT /v1/bindings` grant every other write uses. There is
- * deliberately no per-binding endpoint here — 005 FR-050 keeps 002's MVP
- * decision closed — so an edit is a rebuilt row in a whole-list grant,
- * refused or accepted by the service like any other.
- *
- * The module is its own file for the reason `bindings-prompt.ts` is: the
- * bindings action module was already at the file-length cap, and a second
- * responsibility with its own load/save pair is exactly how a file goes over
- * it. It imports the draft reader and the draft reset from `bindings.ts` and
- * composes nothing back into it, so the two stay a one-way dependency.
+ * The binding editor's edit mode: load a row, leave, or save through the one whole-file grant (005 FR-050, FR-053).
  */
 
 import { actorsRefusal, allowedUsersPatch, storedActorsFor } from './bindings-actors.ts';
@@ -29,13 +15,11 @@ import type { ServiceErrorResult } from './service-calls.ts';
 
 /**
  * Open the editor on an empty draft — the list's **New binding** control.
- *
- * Opening a new row and editing an existing one are mutually exclusive
- * states of one editor, so this does exactly what a row click does in
- * reverse: no row is selected (the add form's own signal throughout — the
- * account picker lists, the prompt field waits), every draft field returns to
- * its default, and the stale note from the last action is cleared so the form
- * opens saying nothing rather than repeating an old refusal.
+ * Opening a new row and editing an existing one are mutually exclusive states
+ * of one editor, so this does what a row click does in reverse: no row is
+ * selected (the add form's own signal throughout), every draft field returns
+ * to its default, and the stale note from the last action is cleared so the
+ * form opens saying nothing rather than repeating an old refusal.
  */
 export function startNewBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
@@ -57,21 +41,13 @@ export function startNewBinding(rt: PanelRuntime): void {
 }
 
 /**
- * Load the selected binding into the editor and enter edit mode.
- *
- *
- * Every field the editor presents is loaded from the stored row — repository,
- * bound account, project, the three triggers, the worktree option, and the
- * starting prompt (FR-051's one field, fed from the stored text) — so what
- * the form shows is what a save would write. Two refusals to load are
- * deliberate: no selection, and a worktree option this editor cannot render
- * (`new:<branch>`, which the service accepts and the panel's two-choice
- * select does not). Loading such a row would display *none* and silently
- * rewrite it on save, so the edit is refused with the reason instead
- * (FR-003: a displayed value and a saved value are the same value, or the
- * edit does not open) — and the editor **closes with a clean draft**, because
- * a form that stays open showing one row's values while another row is
- * selected is exactly how a save writes one binding's values into another.
+ * Load the selected binding into the editor and enter edit mode: every field comes from the stored
+ * row — including FR-051's prompt fed from the stored text — so what the form shows is what a save
+ * would write. Two refusals are deliberate: no selection, and a worktree option this editor cannot
+ * render (`new:<branch>`), where loading would display *none* and silently rewrite it on save — the
+ * edit is refused with the reason (FR-003: a displayed value and a saved value are the same value,
+ * or the edit does not open), and the editor **closes with a clean draft**, because a form left
+ * open on one row's values while another is selected is how a save writes one binding into another.
  */
 export function startEditingBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
@@ -127,15 +103,12 @@ export function startEditingBinding(rt: PanelRuntime): void {
 
 /**
  * Leave the editor and restore the add form's defaults and the prompt field.
- *
  * The editor closes: the list is the tab, and a cancelled edit leaves nothing
  * open to mistake for a saved one. The prompt field goes back to what the
- * service stores for the selected row, so a draft the operator walks away
- * from cannot be mistaken for a saved one (004 FR-014's untouched-omits rule
- * depends on the dirty flag being reset with it).
- *
- * @param note - Note to leave behind, or `null` to keep the current one (a
- *   row selection that merely closes the editor already has its own copy).
+ * service stores for the selected row, so an abandoned draft cannot be
+ * mistaken for a saved one (004 FR-014's untouched-omits rule depends on the
+ * dirty flag being reset with it). `note` leaves a message behind; `null`
+ * keeps the current one.
  */
 export function stopEditingBinding(rt: PanelRuntime, note: string | null): void {
     const { bindings } = rt.state;
@@ -163,26 +136,16 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
 }
 
 /**
- * Save the edited row through the same whole-file grant every other write
- * uses (005 FR-050: no per-binding endpoint, no second write path).
- *
- * The row is rebuilt from the draft under its own id, state, and creation
- * stamp; a prompt the operator touched in the same pass travels with the
- * write, and one they left alone is omitted so the service keeps what it
- * holds. A refusal leaves the stored list byte-identical
- * and keeps the draft on screen with the remediation — on the
- * prompt field when it belongs there, on the tab note otherwise.
+ * Save the edited row through the same whole-file grant every other write uses (005 FR-050: no
+ * per-binding endpoint): the row is rebuilt from the draft under its own id, state and creation
+ * stamp, a touched prompt travels while an untouched one is omitted, and a refusal leaves the
+ * stored list byte-identical with the draft and remediation on screen.
  */
 /**
- * Apply one save's answer to the editor's state.
- *
- * **Accepted** closes the editor and repaints both fields from what the service
- * actually stored — which is what makes a *cleared* field read as cleared rather
- * than as a draft that failed to save. **Refused**
- * leaves the draft on screen with the service's own remediation split back to
- * whichever field it names and never reports the value as
- * saved; the stored list stays byte-identical because the grant is
- * all-or-nothing after validation.
+ * Apply one save's answer to the editor's state. **Accepted** closes the editor and repaints from
+ * what the service actually stored, so a *cleared* field reads as cleared; **Refused** leaves the
+ * draft with the service's remediation and never reports the value as saved — the stored list
+ * stays byte-identical because the grant is all-or-nothing after validation.
  */
 function applySaveOutcome(input: {
     /** The Bindings tab's state. */
@@ -226,17 +189,14 @@ function applySaveOutcome(input: {
 
 /**
  * Save the edited row through the same whole-file grant every other write
- * uses (005 FR-050: no per-binding endpoint, no second write path).
- *
- * The row is rebuilt from the draft under its own id, state, and creation
- * stamp; a prompt the operator touched in the same pass travels with the
- * write, and one they left alone is omitted so the service keeps what it
- * holds. The allow-list rides the same write with the opposite
- * default: every row states its own, and only the operator's edit overrides it
- * (002 FR-047, contract §2). A refusal leaves the stored list byte-identical
- * and keeps the draft on screen with the remediation — on the prompt
- * field or the allow-list field when it belongs there, on the
- * tab note otherwise.
+ * uses (005 FR-050: no per-binding endpoint, no second write path). The row
+ * is rebuilt from the draft under its own id, state, and creation stamp; a
+ * touched prompt travels with the write and an untouched one is omitted so
+ * the service keeps what it holds. The allow-list rides the same write with
+ * the opposite default: every row states its own, and only the operator's
+ * edit overrides it (002 FR-047, contract §2). A refusal leaves the stored
+ * list byte-identical and keeps the draft on screen with the remediation — on
+ * the field it belongs to, the tab note otherwise.
  */
 export async function saveEditedBinding(rt: PanelRuntime): Promise<void> {
     const { bindings } = rt.state;

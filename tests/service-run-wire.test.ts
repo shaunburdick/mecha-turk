@@ -46,7 +46,6 @@ import { buildDispatchToken } from '../service/poll/run-key.ts';
 import { emptyRunsDocument, readRunsDocument } from '../service/poll/runs.ts';
 import { createPollingView } from '../service/poll/view.ts';
 import { applyEnqueue } from '../service/poll/runs-join.ts';
-import { createLogger } from '../service/log.ts';
 import { createVerifyThrottle } from '../service/throttle.ts';
 import { refuse } from '../service/poll/run-refusal.ts';
 import { runAnswer, runOutcomeResponse } from '../service/routes/run-answer.ts';
@@ -55,22 +54,16 @@ import { REQUEUE_PATH, RESOLVE_PATH, RETRY_PATH, VERIFICATION_PATH } from '../se
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { RunRefused } from '../service/poll/run-refusal.ts';
 import type { Run } from '../service/poll/runs-types.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import type { RouteContext } from '../service/routes/types.ts';
+import { createLogger } from '../service/log.ts';
 import { offlineVerifier } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
-
-/** The header carrying a JSON body, spelled as HTTP requires it. */
-const CONTENT_TYPE_HEADER = 'content-type';
-
-/** Headers for a request carrying a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return { [CONTENT_TYPE_HEADER]: 'application/json' };
-}
+import { jsonHeaders, capturingLogger } from './support/service-routes.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
 
 /** The session a dispatched fixture records, so a refusal can name it. */
 const SEEDED_SESSION = 'ses_wire_seeded';
@@ -143,11 +136,7 @@ const BINDING_ID = 'bnd-wire';
 /** The fixture repository the detections name. */
 const REPOSITORY = 'acme/wire';
 
-/** The fixture account the detections name. */
-const ACCOUNT_ID = '77331';
-
-const LOG_LINES: string[] = [];
-const LOGGER: ServiceLogger = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('error');
 
 let tempRoot = '';
 let store: ServiceStore;
@@ -170,28 +159,15 @@ afterEach(async (): Promise<void> => {
     await removeTempTree(tempRoot);
 });
 
-/** Build an assignment detection for one issue. */
-function assignment(issueNumber: number): EventSnapshot {
-    return {
-        bindingId: BINDING_ID,
-        repository: REPOSITORY,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: 'octocat',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
-            issueBodyExcerpt: `body ${issueNumber}`,
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: nowIso(),
-    };
-}
+/**
+ * An assignment detection stamped at the moment the fixture builds it.
+ */
+const assignment = (issueNumber: number): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: BINDING_ID,
+    repository: REPOSITORY,
+    excerpt: `body ${issueNumber}`,
+    detectedAt: nowIso(),
+});
 
 /**
  * Start a service against a fresh temp store and register it for cleanup.

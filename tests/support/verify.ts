@@ -17,19 +17,9 @@ import { VERIFY_PATH } from '../../service/routes/verify.ts';
 import type { ScopeCapability, ScopeResult, VerifyOutcome } from '../../service/github.ts';
 import { fakeGitHub, userBody } from './github.ts';
 import { startTestService } from './service.ts';
+import { headerMap, jsonHeaders } from './service-routes.ts';
 import type { EndpointResponse, FakeGitHub, GitHubScript } from './github.ts';
 import type { TestService } from './service.ts';
-
-/**
- * Build a header map without writing HTTP header names as object keys.
- *
- * @returns The headers as `fetch` accepts them.
- */
-export function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
-    return Object.fromEntries(pairs);
-}
-/** The `content-type` header every JSON POST carries. */
-export const JSON_HEADERS: Record<string, string> = headerMap([['content-type', 'application/json']]);
 
 /** The four FR-010 capabilities, in matrix order. */
 export const CAPABILITIES: readonly ScopeCapability[] = ['metadata', 'issues', 'pull-requests', 'contents'];
@@ -145,7 +135,7 @@ export function verifyBody(token: string, extra: Readonly<Record<string, unknown
  * POST a verify body to the running service.
  */
 export function postVerify(service: TestService, body: string): Promise<Response> {
-    return service.call(VERIFY_PATH, { method: 'POST', headers: JSON_HEADERS, body });
+    return service.call(VERIFY_PATH, { method: 'POST', headers: jsonHeaders(), body });
 }
 
 /**

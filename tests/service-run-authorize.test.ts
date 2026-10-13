@@ -32,7 +32,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { claimPendingRuns } from '../service/poll/claim.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
 import { buildDispatchToken } from '../service/poll/run-key.ts';
@@ -58,6 +57,8 @@ import type { ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import { writeOpenBinding } from './support/binding-fixture.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { jsonHeaders, capturingLogger } from './support/service-routes.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
 
 /** Stamp every fixture uses; no test ever waits on a clock. */
 const STAMP = '2026-09-28T08:00:00.000Z';
@@ -77,7 +78,6 @@ const LEASE = `lse-${'a'.repeat(24)}`;
 const TOKEN = `dtk-${'b'.repeat(32)}`;
 /** A well-formed token no run ever recorded, for the staleness probes. */
 const FORGED_TOKEN = `dtk-${'c'.repeat(32)}`;
-const ASSIGNMENT = 'assignment';
 const FAILED = 'failed';
 const UNCONFIRMED = 'unconfirmed';
 const STARTING = 'starting';
@@ -128,8 +128,6 @@ const ALREADY_RESERVED = 'already-reserved';
 const INVALID_TRANSITION = 'invalid-transition';
 /** The wire code a reserve on a run that already produced a session carries. */
 const ALREADY_DISPATCHED = 'already-dispatched';
-/** The account login the fixtures report under. */
-const ACCOUNT_LOGIN = 'octocat';
 /** The actor every fixture delivery is attributed to. */
 const FIXTURE_ACTOR = 'alice';
 /** The direct basis: GitHub named the author of the text that carried the trigger. */
@@ -141,8 +139,7 @@ const FIXTURE_BASIS: ActorAttribution = PROXY_BASIS;
 /** The project id the fixtures snapshot. */
 const PROJECT_ID = 'prj_42';
 
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('debug');
 
 let tempRoot = '';
 let store: ServiceStore;
@@ -179,36 +176,16 @@ const closeFixture = async (): Promise<void> => {
 afterEach(closeFixture);
 
 /**
- * Build an assignment detection for one issue.
- *
- * The actor is **required**: 002 FR-045 makes attribution mandatory at detection,
- * so no snapshot this build's own code writes can lack one. A run with no
- * readable actor is only reachable by hand-editing the store, and the FR-080
- * cases model it that way rather than forging an impossible detection.
+ * An assignment detection, with the actor attribution a case overrides.
  */
-function assignment(issueNumber: number, attribution: AttributionOverrides = {}): EventSnapshot {
-    const { actorLogin = FIXTURE_ACTOR, actorAttribution = FIXTURE_BASIS } = attribution;
-
-    return {
+const assignment = (issueNumber: number, attribution: AttributionOverrides = {}): EventSnapshot =>
+    assignmentSnapshot(issueNumber, {
         bindingId: BINDING_ID,
-        repository: REPOSITORY,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        projectId: PROJECT_ID,
-        worktreeOption: 'none',
-        kind: ASSIGNMENT,
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
-            issueBodyExcerpt: `body ${issueNumber}`,
-        },
-        actorLogin,
-        actorAttribution,
-        triggerNote: 'assigned',
+        excerpt: `body ${issueNumber}`,
         detectedAt: STAMP,
-    };
-}
+        actorLogin: attribution.actorLogin ?? FIXTURE_ACTOR,
+        actorAttribution: attribution.actorAttribution ?? FIXTURE_BASIS,
+    });
 
 /**
  * The lease a hand-seeded run carries, where its state calls for one.
@@ -362,16 +339,8 @@ async function report(input: {
     });
 }
 
-/** The header carrying a JSON body, spelled as HTTP requires it. */
-const CONTENT_TYPE_HEADER = 'content-type';
-
 /** The path parameter every run-scoped route captures. */
 const CORRELATION_PARAM = ':correlationId';
-
-/** Headers for a request carrying a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return { [CONTENT_TYPE_HEADER]: 'application/json' };
-}
 
 /**
  * The concrete path one run-scoped route answers on.

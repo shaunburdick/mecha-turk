@@ -73,6 +73,8 @@ import {
     fakeHost,
 } from './support/panel.ts';
 import type { StorageDouble } from './support/panel.ts';
+import { stringsIn } from './support/ui-stubs.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Correlation id every fixture run shares. */
 const CORRELATION = 'mt-run-0123456789abcdef01234567';
@@ -225,20 +227,12 @@ const OK_ROUTES: RouteTable = {
 };
 
 /** One enabled binding row, exactly as the service stores it. */
-function activeBinding(): PanelBinding {
-    return {
-        bindingId: 'bnd-relay-1',
-        accountNumericUserId: '77331',
-        accountLogin: LOGIN,
-        repository: 'acme/widget',
-        projectId: PROJECT_ID,
-        worktreeOption: 'generated',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: FIXTURE_TIMESTAMP,
-        updatedAt: FIXTURE_TIMESTAMP,
-    };
-}
+const activeBinding = (): PanelBinding => fixtureBindingRow('bnd-relay-1', {
+    accountLogin: LOGIN,
+    worktreeOption: 'generated',
+    triggers: { assignment: true, mention: false, reviewRequest: false },
+    stamp: FIXTURE_TIMESTAMP,
+});
 
 /**
  * Whether a value written to the dispatch record already carries an
@@ -1285,34 +1279,6 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
  * T-027 — the closed reader on the relay's own wire
  * (FR-087, AC-151, FR-053, AC-144)
  * ------------------------------------------------------------------------- */
-
-/**
- * Collect every string reachable from one surface the panel owns (T-027).
- *
- * Used by the secret-surface scan: an instruction copy could only hide in a
- * string, so walking every nested string is the whole search.
- *
- * @returns The value itself when it is a string, else every string beneath it.
- */
-function stringsIn(value: unknown): readonly string[] {
-    if (typeof value === 'string') {
-        return [value];
-    }
-
-    if (Array.isArray(value)) {
-        const entries = value as readonly unknown[];
-
-        return entries.flatMap((entry) => stringsIn(entry));
-    }
-
-    if (typeof value === 'object' && value !== null) {
-        const record = value as Record<string, unknown>;
-
-        return Object.values(record).flatMap((entry) => stringsIn(entry));
-    }
-
-    return [];
-}
 
 describe('T-027 the relay refuses a claim answer whose sources it cannot read (FR-087, AC-151)', () => {
     it('one entry with a hostile source list refuses the answer the relay ticks on', async () => {

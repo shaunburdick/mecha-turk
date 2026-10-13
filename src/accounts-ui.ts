@@ -1,27 +1,8 @@
 /**
  * Rendering for the one-shot handoff (task T-009, contract §2 steps ①④⑨ and
- * §4 rule 5).
- *
- * Two halves, deliberately separated. {@link renderHandoff} is pure: it maps
- * {@link HandoffState} onto a {@link HandoffView} as strings and booleans, so
- * the whole render surface is testable without a DOM and every rendered
- * string can be scanned for secrets. {@link mountHandoffDom} is the thin DOM
- * adapter that applies those strings — **only** through `textContent` and
- * `setAttribute`, never `innerHTML`, `insertAdjacentHTML`, or any HTML-parsing
- * sink (SEC-14: redaction is not output-encoding; a string that survived
- * redaction is still untrusted input).
- *
- * The Accept/Decline consent step this adapter used to mount is gone
- * (product-owner order 2026-10-01): the flow is paste → connect, and the
- * substance the consent copy carried now sits under the Accounts section as
- * the static, button-free disclaimer in
- * [`accounts-disclaimer.ts`](./accounts-disclaimer.ts).
- *
- * The credential input never retains a paste: the mount step writes the value
- * through at capture (read + `value = ''` in the same tick) and
- * {@link submitHandoffAndRepaint} clears the view again in `finally`, so both
- * halves of contract §2 step ⑧ — the module-scoped variable *and* the input —
- * are emptied on every exit.
+ * §4 rule 5): a pure {@link HandoffState}→{@link HandoffView} renderer plus
+ * the thin DOM adapter that applies it only through `textContent` and
+ * `setAttribute` (SEC-14), never an HTML-parsing sink.
  */
 
 import { adoptServiceAccounts } from './account-adoption.ts';
@@ -31,10 +12,8 @@ import { preflightHandoff } from './handoff-status.ts';
 import type { HandoffState } from './handoff.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** The SDK's field-note class, shared by every note this adapter writes. */
 const FIELD_NOTE_CLASS = 'oc-sdk-field-note';
 
-/** Callbacks the mounted handoff group invokes. */
 export interface HandoffHandlers {
     /**
      * The operator submitted the pasted credential.
@@ -46,7 +25,6 @@ export interface HandoffHandlers {
     readonly submit: (token: string, expectedLogin: string) => void;
 }
 
-/** Every surface the render step may write to. */
 export interface HandoffView {
     /** Enable or disable the credential input (F10 pre-flight gate). */
     setTokenEnabled(isEnabled: boolean): void;
@@ -54,11 +32,8 @@ export interface HandoffView {
     setTokenValue(value: string): void;
     /** Render the operator-facing note; never credential material. */
     setNote(text: string): void;
-    /** Render `Connected as <login>`, or hide the line with `null`. */
     setConnected(text: string | null): void;
-    /** Enable or disable the submit button. */
     setSubmitEnabled(isEnabled: boolean): void;
-    /** Remove every node this view created. */
     dispose(): void;
 }
 
@@ -75,15 +50,13 @@ export function handoffInputEnabled(state: HandoffState): boolean {
 }
 
 /**
- * Apply the handoff state to a view.
- *
- * The add form is never hidden. A connected account — adopted from the
- * service or handed off one-shot — renders on the connected line while the
- * paste row stays available, so an install that already holds an account can
- * still add the next one through the same flow (002 FR-006, 005 US4
- * scenario 3; GitHub issue #35 — hiding the row here left only "Refresh
- * accounts" on screen). Only the storage pre-flight and the busy flag ever
- * disable the inputs.
+ * Apply the handoff state to a view. The add form is never hidden: a
+ * connected account — adopted from the service or handed off one-shot —
+ * renders on the connected line while the paste row stays available, so an
+ * install that already holds an account can still add the next one through
+ * the same flow (002 FR-006, 005 US4 scenario 3; GitHub issue #35 — hiding
+ * the row here left only "Refresh accounts" on screen). Only the storage
+ * pre-flight and the busy flag ever disable the inputs.
  */
 export function renderHandoff(state: HandoffState, view: HandoffView): void {
     const isEnabled = handoffInputEnabled(state);
@@ -106,14 +79,13 @@ export function refreshHandoff(rt: PanelRuntime): void {
 }
 
 /**
- * Run the handoff pre-flight after mount and repaint the group.
- *
- * The pre-flight is preceded by the silent account adoption: a service-side
+ * Run the handoff pre-flight after mount and repaint the group. The
+ * pre-flight is preceded by the silent account adoption: a service-side
  * account the mirror lost (extension reinstall) is adopted from
- * `GET /v1/accounts` so its identity renders as connected before the
- * operator acts. The paste form itself is never gated on that outcome — a
- * genuinely second account is pasted through the same flow (GitHub issue
- * #35), and a duplicate paste routes back to adoption through the 409.
+ * `GET /v1/accounts` so its identity renders as connected before the operator
+ * acts. The paste form itself is never gated on that outcome — a genuinely
+ * second account is pasted through the same flow (GitHub issue #35), and a
+ * duplicate paste routes back to adoption through the 409.
  */
 export async function preflightAndRepaint(rt: PanelRuntime): Promise<void> {
     await adoptServiceAccounts(rt);
@@ -133,26 +105,17 @@ export async function preflightAndRepaint(rt: PanelRuntime): Promise<void> {
 export interface HandoffSubmission {
     /** The pasted credential; lives only in the call's scope. */
     readonly token: string;
-    /** Optional expected-login constraint; omitted means none. */
     readonly expectedLogin?: string;
 }
 
 /**
- * Run one handoff and repaint twice: once as it starts (the group disables
- * itself while the credential is in flight) and once when it settles.
- *
- * The credential input is cleared in `finally`, on **every** exit — success,
- * service refusal, host failure, timeout, or a thrown error — so a paste never
- * survives the handoff it belonged to (contract §2 step ⑧). The mount
- * step already wrote the value through at capture time (it reads the input and
- * empties it before the request starts); this second clear is what removes a
- * value that reappeared while the request was in flight, and it is why
- * {@link HandoffView.setTokenValue} has a production call site.
- *
- * The expected-login constraint travels only when the operator
- * typed one: an empty or blank field omits the `expectedLogin` member
- * entirely, which is how the service is told *no constraint* and stores
- * `expectedLogin: null`.
+ * Run one handoff and repaint twice: once as it starts (the group disables itself while the
+ * credential is in flight) and once when it settles. The credential input is cleared in `finally`,
+ * on **every** exit — success, refusal, host failure, timeout or thrown error — so a paste never
+ * survives the handoff it belonged to (contract §2 step ⑧); this second clear removes a value that
+ * reappeared while the request was in flight, which is why {@link HandoffView.setTokenValue} has a
+ * production call site. The expected-login constraint travels only when the operator typed one —
+ * blank omits `expectedLogin` entirely, telling the service *no constraint*.
  */
 export async function submitHandoffAndRepaint(
     rt: PanelRuntime,
@@ -173,17 +136,12 @@ export async function submitHandoffAndRepaint(
     }
 }
 
-/** What the mount step needs: a root to append to and the handlers to wire. */
 interface DomInput {
-    /** Panel root the group is appended to. */
     readonly root: HTMLElement;
-    /** Callbacks the buttons invoke. */
     readonly handlers: HandoffHandlers;
 }
 
-/** Where the credential row was mounted, for later repaints. */
 interface CredentialField {
-    /** Container holding both inputs. */
     readonly field: HTMLElement;
     /** The dedicated credential input (`type="password"`, SEC-17). */
     readonly input: HTMLInputElement;
@@ -195,8 +153,6 @@ interface CredentialField {
 
 /**
  * Create one element with the SDK's own class names.
- *
- * @returns The element.
  */
 function makeElement(spec: { readonly doc: Document; readonly tag: string; readonly className: string }): HTMLElement {
     const node = spec.doc.createElement(spec.tag);
@@ -205,19 +161,16 @@ function makeElement(spec: { readonly doc: Document; readonly tag: string; reado
     return node;
 }
 
-/** The SDK button variants this adapter may ask for; the SDK reads `data-variant`. */
 type HandoffButtonVariant = 'default' | 'outline';
 
 /**
- * Create a button whose label is written as text, never as markup.
- *
- * **The variant is not optional.** The SDK's sheet gives `.oc-sdk-btn` only a
- * transparent border as its base and paints every real treatment from an
- * attribute selector (`[data-variant="…"]`), so a button with no variant is
- * bare text on the page — which is how every button here used to read before
- * the variant rule landed (product-owner review 2026-10-01). The attribute is
- * written through `dataset`, which records the same `data-variant` the sheet's
- * selector matches.
+ * Create a button whose label is written as text, never as markup. **The
+ * variant is not optional:** the SDK's sheet gives `.oc-sdk-btn` only a
+ * transparent border as its base and paints every real treatment from
+ * `[data-variant="…"]`, so a button with no variant is bare text on the page
+ * — how every button here used to read (product-owner review 2026-10-01).
+ * The attribute is written through `dataset`, which records the same
+ * `data-variant` the sheet's selector matches.
  */
 function makeButton(spec: {
     readonly doc: Document;
@@ -236,21 +189,15 @@ function makeButton(spec: {
 }
 
 /**
- * Mount the optional expected-login input.
- *
- * The add form's **only** other field: a plain login string the *service*
- * validates, so the panel renders it as an ordinary optional input with no
- * local verdict (FR-052's rule). It is emptied at capture for the opposite
- * reason the token is — not because it is secret, but because a constraint
- * left in the field would silently apply to the next account added.
- *
- * @param doc - Document to create in (the frame's, never a global).
- * @returns The field container and its input.
+ * Mount the optional expected-login input: the add form's **only** other
+ * field, a plain login string the *service* validates, so the panel renders
+ * it as an ordinary optional input with no local verdict (FR-052's rule). It
+ * is emptied at capture for the opposite reason the token is — not because it
+ * is secret, but because a constraint left in the field would silently apply
+ * to the next account added (the frame's document, never a global).
  */
 function mountExpectedLoginField(doc: Document): {
-    /** The label container the caption, input, and hint sit in. */
     readonly field: HTMLElement;
-    /** The input itself. */
     readonly input: HTMLInputElement;
 } {
     const field = makeElement({ doc, tag: 'label', className: 'oc-sdk oc-sdk-field' });
@@ -269,16 +216,13 @@ function mountExpectedLoginField(doc: Document): {
 }
 
 /**
- * Mount the credential row: caption, dedicated password input, and note.
- *
- * The input is `type="password"` with `autocomplete="new-password"`
+ * Mount the credential row: caption, dedicated password input, and note. The
+ * input is `type="password"` with `autocomplete="new-password"`
  * (token-handoff §2 step ①/SEC-17) so the browser's credential manager offers
  * to *save* what was typed rather than to autofill a stored secret. The
- * expected-login field sits in the same row because both belong to the one
- * add form (005 FR-006); the row stays mounted whether or not an account is
+ * expected-login field sits in the same row because both belong to the one add
+ * form (005 FR-006), and the row stays mounted whether or not an account is
  * connected (GitHub issue #35).
- *
- * @returns The row's container, both inputs, and the note node.
  */
 function mountCredentialField(doc: Document): CredentialField {
     const row = makeElement({ doc, tag: 'div', className: 'oc-sdk' });
@@ -299,26 +243,18 @@ function mountCredentialField(doc: Document): CredentialField {
 }
 
 /**
- * Mount the submit button with the capture-time write-through.
- *
- * The pasted credential is read and the input emptied in the **same tick**, so
- * the DOM holds the value only between the paste and the click — one shot, no
- * cache, no retry buffer (contract §2 steps ② and ⑧). The expected
- * login is captured the same way and for the inverse reason: it is not a
- * secret, but an empty field has to *stay* empty, or a constraint typed for
- * one account would be submitted with the next one (FR-006: absent or empty
- * means no constraint).
- *
- * @returns The wired submit button.
+ * Mount the submit button with the capture-time write-through: the pasted
+ * credential is read and the input emptied in the **same tick**, so the DOM
+ * holds the value only between the paste and the click — one shot, no cache,
+ * no retry buffer (contract §2 steps ② and ⑧). The expected login is captured
+ * the same way and for the inverse reason: it is not a secret, but an empty
+ * field has to *stay* empty, or a constraint typed for one account would be
+ * submitted with the next one (FR-006: absent or empty means no constraint).
  */
 function mountSubmitButton(spec: {
-    /** Document to create the button in. */
     readonly doc: Document;
-    /** Credential input the button reads (and immediately empties). */
     readonly input: HTMLInputElement;
-    /** Expected-login input the button reads (and immediately empties). */
     readonly expected: HTMLInputElement;
-    /** Callback that runs the handoff with what was pasted. */
     readonly handlers: HandoffHandlers;
 }): HTMLButtonElement {
     return makeButton({
@@ -337,8 +273,6 @@ function mountSubmitButton(spec: {
 
 /**
  * Mount the handoff group: credential input, submit, and outcome lines.
- *
- * @returns The view over the mounted nodes.
  */
 export function mountHandoffDom(input: DomInput): HandoffView {
     const { root, handlers } = input;

@@ -1,23 +1,5 @@
 /**
- * The Dispatches tab's paging, filter, and row-detail controls.
- *
- * `dispatches-ui.ts` owns the list, the action groups, the audit trail, and
- * the verification banner; this sibling owns everything an operator uses to
- * move *through* that list and to read one row: the range line, the two
- * server-side filters, Previous/Next, the page-size select, the
- * source-reference reveal, and the correlation-id copy. It is its own module
- * because the board is already close to the file-length cap, and a second
- * responsibility is exactly how a file goes over it.
- *
- * Everything operator-facing here is a **pure function of panel state** —
- * which range is showing, which filters are active, what the empty slot says
- * when a filter matched nothing, and the row-naming accessible names — so the
- * copy is testable without a DOM, and the mount
- * and repaint are thin applications of those strings.
- *
- * No control here talks to the service: the paging actions live in
- * `dispatches-paging.ts` and the row actions in `dispatches.ts`, so the one
- * list read and the one action dispatch path stay exactly where they were.
+ * The Dispatches paging, filter and row-detail controls — pure functions of state, none talking to the service.
  */
 
 import { mountButton, mountList, mountSelect } from '@openchamber/sdk/ui';
@@ -40,7 +22,6 @@ const ALL_FILTERS = 'all';
  */
 const CONTROLS_TOOLBAR_CLASS = 'mt-toolbar mt-toolbar--controls';
 
-/** Label of the correlation-id copy control. */
 const COPY_CORRELATION_LABEL = 'Copy correlation id';
 
 /** Label the source-reference reveal carries before a row is selected. */
@@ -67,9 +48,6 @@ const STATE_FILTER_TOKENS: readonly string[] = [
  * state labels itself by reason — so the filter names the family explicitly
  * rather than rendering the token through {@link stateLabel}, which would
  * answer *unknown state* for it.
- *
- * @param token - Exact state token or the literal `blocked` family.
- * @returns The operator-facing label for that filter entry.
  */
 function stateFilterLabel(token: string): string {
     return token === 'blocked' ? 'blocked — every guarded state' : stateLabel(token);
@@ -77,9 +55,7 @@ function stateFilterLabel(token: string): string {
 
 /** Callbacks the paging, filter, and row-detail controls invoke. */
 export interface DispatchControlsHandlers {
-    /** Step to the previous page of the current set. */
     readonly previousPage: () => void;
-    /** Step to the next page of the current set. */
     readonly nextPage: () => void;
     /** Change the page size and restart at page one of the same set. */
     readonly setPageLimit: (limit: number) => void;
@@ -89,23 +65,16 @@ export interface DispatchControlsHandlers {
     readonly setStateFilter: (state: string | null) => void;
     /** Clear both filters and return to page one of the whole set. */
     readonly clearFilters: () => void;
-    /** Reveal or hide the selected row's source references. */
     readonly toggleReferences: () => void;
-    /** Copy the selected row's correlation id to the clipboard. */
     readonly copyCorrelationId: () => void;
 }
 
-/** Inputs every control mount in this module shares. */
 export interface DispatchControlsInput {
-    /** Runtime whose state the controls render and repaint from. */
     readonly rt: PanelRuntime;
-    /** Pane root the controls mount into. */
     readonly pane: HTMLElement;
-    /** Handlers the controls invoke. */
     readonly handlers: DispatchControlsHandlers;
 }
 
-/** The list's paging and filtering half. */
 export interface PagingControls {
     /** Which slice of the filtered set is on screen, and when it was read. */
     readonly rangeLine: TextHandle;
@@ -125,7 +94,6 @@ export interface PagingControls {
     readonly clearFilters: ButtonHandle;
 }
 
-/** The selected row's detail half. */
 export interface RowDetail {
     /** Wrapper around the whole detail block, hidden with no row selected. */
     readonly detailBox: HTMLElement;
@@ -137,13 +105,10 @@ export interface RowDetail {
     readonly listBox: HTMLElement;
     /** Every source reference of the selected row, earliest first. */
     readonly detailList: ListHandle;
-    /** Copies the selected row's correlation id. */
     readonly copyCorrelation: ButtonHandle;
 }
 
-/** Every control the Dispatches body mounts around its list. */
 export interface DispatchesControls extends PagingControls, RowDetail {
-    /** Release every handle this module mounted. */
     readonly dispose: () => void;
 }
 
@@ -156,8 +121,6 @@ export interface DispatchesControls extends PagingControls, RowDetail {
  * wraps survives the narrowest frame the host allows. The
  * always-visible paging and filter row does not come from here — it is one
  * `.mt-toolbar mt-toolbar--controls` instead.
- *
- * @returns The row element the controls mount into.
  */
 export function createControlGroup(pane: HTMLElement): HTMLElement {
     const group = pane.ownerDocument.createElement('div');
@@ -176,8 +139,6 @@ export function createControlGroup(pane: HTMLElement): HTMLElement {
  * the page size wearing a total's hat, and the stamp is
  * the service's own label for this read, so an explicit refresh can be seen
  * as one.
- *
- * @returns The range line.
  */
 export function dispatchRangeLine(runs: DispatchesState): string {
     const { page, rows } = runs;
@@ -195,7 +156,6 @@ export function dispatchRangeLine(runs: DispatchesState): string {
     return `Showing ${first}–${first + rows.length - 1} · ${total} · read ${utcStamp(page.snapshotAt)}`;
 }
 
-/** Whether either server-side filter is on. */
 export function hasActiveFilters(runs: DispatchesState): boolean {
     return runs.filters.bindingId !== null || runs.filters.state !== null;
 }
@@ -205,8 +165,6 @@ export function hasActiveFilters(runs: DispatchesState): boolean {
  *
  * With nothing on it says so, so an unfiltered list never reads as though a
  * filter the operator cannot see is quietly narrowing it.
- *
- * @returns The filter line.
  */
 export function activeFilterLine(runs: DispatchesState, bindings: readonly PanelBinding[]): string {
     const { bindingId, state } = runs.filters;
@@ -228,8 +186,6 @@ export function activeFilterLine(runs: DispatchesState, bindings: readonly Panel
  * A filtered empty is a statement about the *filter*, never about the
  * history: "there are no dispatches" would be a claim the panel has no way
  * to make while a filter is on.
- *
- * @returns The empty-slot copy.
  */
 export function dispatchEmptyText(runs: DispatchesState): string {
     if (!hasActiveFilters(runs)) {
@@ -241,8 +197,6 @@ export function dispatchEmptyText(runs: DispatchesState): string {
 
 /**
  * Name a row-level action with the row it acts on.
- *
- * @returns `Retry dispatch for #412 in owner/name` and its siblings.
  */
 export function rowActionLabel(base: string, row: RunRow): string {
     return `${base} for #${row.issueNumber} in ${row.repository}`;
@@ -250,8 +204,6 @@ export function rowActionLabel(base: string, row: RunRow): string {
 
 /**
  * The reveal control's label: the count of reasons, and the row.
- *
- * @returns The control's accessible name.
  */
 export function sourceRevealLabel(isOpen: boolean, row: RunRow): string {
     const where = `#${row.issueNumber} in ${row.repository}`;
@@ -261,8 +213,6 @@ export function sourceRevealLabel(isOpen: boolean, row: RunRow): string {
 
 /**
  * The binding filter's options: an explicit "all", then every binding.
- *
- * @returns The select options.
  */
 export function bindingFilterOptions(bindings: readonly PanelBinding[]): SelectOption[] {
     return [
@@ -273,8 +223,6 @@ export function bindingFilterOptions(bindings: readonly PanelBinding[]): SelectO
 
 /**
  * The state filter's options: an explicit "all", then 003's vocabulary.
- *
- * @returns The select options.
  */
 export function stateFilterOptions(): SelectOption[] {
     return [
@@ -286,8 +234,6 @@ export function stateFilterOptions(): SelectOption[] {
 
 /**
  * The page-size select's options — the four the contract accepts.
- *
- * @returns The select options.
  */
 export function pageSizeOptions(): SelectOption[] {
     return DISPATCH_PAGE_SIZES.map((size) => ({ id: String(size), label: `${size} per page` }));
@@ -295,8 +241,6 @@ export function pageSizeOptions(): SelectOption[] {
 
 /**
  * Read a filter select's choice back as a filter, or `null` for "all".
- *
- * @returns The filter value, with the "all" entry read as no filter.
  */
 function filterValue(id: string): string | null {
     return id === ALL_FILTERS ? null : id;
@@ -304,8 +248,6 @@ function filterValue(id: string): string | null {
 
 /**
  * Mount the range line, the filters, and the paging controls.
- *
- * @returns The paging and filtering handles.
  */
 export function mountDispatchesControls(input: DispatchControlsInput): PagingControls {
     const { pane, rt, handlers } = input;
@@ -363,8 +305,6 @@ export function mountDispatchesControls(input: DispatchControlsInput): PagingCon
  *
  * The list is display-only — rows are evidence, not a selection — so its
  * `onSelect` is a no-op exactly like the audit trail's.
- *
- * @returns The row-detail handles and its wrapper.
  */
 export function mountRowDetail(input: DispatchControlsInput): RowDetail {
     const { pane, handlers } = input;
@@ -408,7 +348,6 @@ export function mountRowDetail(input: DispatchControlsInput): RowDetail {
 }
 
 /**
- * Release every handle the two mounts above created.
  *
  * The wrapper elements go with their body's node; the handles themselves
  * carry listeners the host would otherwise outlive the teardown with.
@@ -435,8 +374,6 @@ function disposeControls(controls: PagingControls & RowDetail): void {
 
 /**
  * Compose the two halves into the object the board carries.
- *
- * @returns The complete control set, with its disposer attached.
  */
 export function combineControls(paging: PagingControls, detail: RowDetail): DispatchesControls {
     return { ...paging, ...detail, dispose: (): void => disposeControls({ ...paging, ...detail }) };
@@ -460,8 +397,6 @@ export function revealVisible(row: RunRow | null): boolean {
  *
  * One reference is listed as soon as its row is selected — there is nothing
  * to reveal — while several wait behind the operator's own reveal.
- *
- * @returns `true` when the list should be visible.
  */
 export function referencesVisible(row: RunRow | null, isOpen: boolean): boolean {
     if (row === null || row.referenceCount === 0) {
@@ -472,7 +407,6 @@ export function referencesVisible(row: RunRow | null, isOpen: boolean): boolean 
 }
 
 /**
- * Repaint every control this module mounted from state.
  *
  * Nothing here decides anything: the range, the filters, and the two step
  * buttons are all read back from the position the last answer recorded, so a

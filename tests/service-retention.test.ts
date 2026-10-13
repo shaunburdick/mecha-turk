@@ -25,17 +25,16 @@ import { mkdir } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { EVENTS_FILE, readEvents } from '../service/poll/events.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
 import { openStore } from '../service/store/index.ts';
 import type { AuditEntry } from '../service/audit.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, PollIssue } from '../service/poll/poller-github.ts';
 import type { JsonReadResult, ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Path of the configuration resource. */
 const CONFIG_PATH = '/v1/config';
@@ -87,23 +86,6 @@ afterEach(async (): Promise<void> => {
 
     await removeTempTree(tempRoot);
 });
-
-/**
- * Build a capturing logger for the drive-only cases.
- *
- * @returns The logger plus the lines it received.
- */
-function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
-    const lines: string[] = [];
-    const log = createLogger({
-        level: 'debug',
-        sink: (line: string) => {
-            lines.push(line);
-        },
-    });
-
-    return { log, lines };
-}
 
 /**
  * Build a complete audit row for a seeded trail.

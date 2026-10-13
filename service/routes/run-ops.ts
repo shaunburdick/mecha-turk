@@ -1,33 +1,6 @@
 /**
- * The operator routes: retry, return-to-waiting, resolve, and the verification
- * report (003 FR-027, FR-033, FR-041, FR-043; contract §5–§8).
- *
- * Four operations a human asks for and no timer ever asks for. Keeping them in
- * their own module — separate from the authorization family in
- * [`dispatch.ts`](./dispatch.ts) — is what makes FR-036 auditable by reading the
- * route table: the automatic handler is the sweep, and nothing on this page is
- * reachable without a request.
- *
- * Each route validates what its contract names and nothing more. The refusals
- * carry their own distinct wording (FR-041, FR-003) and 005 renders them
- * verbatim, so this module never composes a message from a template: the strings
- * live with the decisions, in
- * [`run-operate.ts`](../poll/run-operate.ts) and, for the read-back,
- * [`run-verify.ts`](../poll/run-verify.ts).
- *
- * "What its contract names" differs per operation on purpose: §5 and §6 carry
- * `attempt` beside the correlation echo and validate both, while §7 and §8 name
- * neither an attempt nor a lease — only FR-051's echo, which every one of them
- * carries. Requiring a member those two request bodies do not contain would be
- * a wire change the contract does not ask for; accepting an echo that
- * contradicts the path would be the silent partial apply FR-051 forbids.
- *
- * Two of the four carry a fact the service cannot check for itself, and each says
- * so on the wire rather than implying a verification it did not perform:
- * `retry` on a `blocked:project-missing` run audits the panel's report as
- * *reported* cleared (the service may not call host APIs), and `resolve` records
- * the operator's own note about what they checked (constitution IV: the honesty
- * of the operator's verification is the operator's).
+ * The operator routes: retry, return-to-waiting, resolve, and the
+ * verification report (003 FR-027, FR-033, FR-041, FR-043; contract §5–§8).
  */
 
 import { errorResponse, STATUS, storageUnavailableResponse, validationResponse } from '../http.ts';
@@ -79,8 +52,6 @@ const SESSION_CREATED = 'session-created';
  * widening the decision back to `string` would push an unchecked value into
  * `resolveDispatch` — the one operation whose `decision` decides whether a run
  * may be re-dispatched. The guard is where the union is enforced.
- *
- * @returns `true` for `session-created` and `no-session`.
  */
 function isResolveDecision(value: string): value is ResolveDecision {
     return RESOLVE_DECISIONS.has(value);
@@ -92,21 +63,13 @@ type ResolutionRead =
     | { readonly ok: false; readonly response: HttpResponse };
 
 /**
- * Read a resolve body's own members: the decision, and the session it names.
- *
- * Split out of the handler because these are the checks that make an ambiguous
- * body *stay* ambiguous rather than be resolved by a precedence rule, and
- * because `no-session` is the only path that re-dispatches an `unconfirmed` run:
- *
- * - `session-created` requires the session id — without it the operator's
- *   decision records a fact the row cannot carry.
- * - `no-session` **rejects** one — silently discarding it would obtain a fresh
- *   authorization for a run whose session the same body just reported, which is
- *   exactly the ambiguity the result handler refuses with "report exactly one
- *   outcome" (FR-040, constitution II).
- *
- * @param fields - The body's members, after FR-051's echo already matched.
- * @returns The decision and the session it names, or the `422` naming the field.
+ * Read a resolve body's own members: the decision, and the session it
+ * names. Split out of the handler because these checks keep an ambiguous
+ * body *stay ambiguous* rather than resolved by a precedence rule:
+ * `session-created` requires the session id — without it the decision would
+ * record a fact the row cannot carry — and `no-session` **rejects** one,
+ * because silently discarding it would obtain a fresh authorization for a
+ * run whose session the same body just reported (FR-040, constitution II).
  */
 function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRead {
     const decision = textMember(fields.decision);
@@ -158,14 +121,11 @@ function readResolution(fields: Readonly<Record<string, unknown>>): ResolutionRe
 }
 
 /**
- * Answer `POST /v1/events/:correlationId/retry`.
- *
- * Returns a `failed` or `blocked:*` run to waiting under the **same run key**,
- * incrementing the attempt exactly once and preserving the source references and
- * every prior attempt's record. It does not create a new run, so the
- * ordinal counter is untouched.
- *
- * @returns `200 { correlationId, attempt, state }`, or a distinct refusal.
+ * Answer `POST /v1/events/:correlationId/retry`: return a `failed` or
+ * `blocked:*` run to waiting under the **same run key**, incrementing the
+ * attempt exactly once and preserving the source references and every prior
+ * attempt's record. It does not create a new run, so the ordinal counter is
+ * untouched.
  */
 async function handleRetry(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;
@@ -210,14 +170,11 @@ async function handleRetry(context: RouteContext, request: RouteRequest): Promis
 }
 
 /**
- * Answer `POST /v1/events/:correlationId/requeue`.
- *
- * The single control that resolves a `dead-lettered` run, and the one that
- * resets the attempt count. `confirm` is required: the reset discards
- * the budget accounting that dead-lettering produced, so it is taken only when the
+ * Answer `POST /v1/events/:correlationId/requeue`: the single control that
+ * resolves a `dead-lettered` run, and the one that resets the attempt
+ * count. `confirm` is required, because the reset discards the budget
+ * accounting that dead-lettering produced — it is taken only when the
  * caller says so rather than inferred from the request's existence.
- *
- * @returns `200 { correlationId, attempt, state }`, or the refusal.
  */
 async function handleRequeue(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;
@@ -260,18 +217,12 @@ async function handleRequeue(context: RouteContext, request: RouteRequest): Prom
 }
 
 /**
- * Answer `POST /v1/events/:correlationId/resolve`.
- *
- * The operator's two explicit resolutions of an `unconfirmed` run.
- * `session-created` requires the session id, and `no-session` is the **only** path
- * that re-dispatches an `unconfirmed` run — the one place in the service where a
- * second `host.startSession()` can be authorized for a run that may already have
- * one, which is exactly why it is an explicit, audited human decision. A body
- * that carries a session id *with* `no-session` is therefore refused `422`
- * naming `sessionId` rather than silently dropped: the request would otherwise
- * obtain a fresh authorization for a run whose session it just reported.
- *
- * @returns `200 { correlationId, attempt, state }`, or the refusal.
+ * Answer `POST /v1/events/:correlationId/resolve` — the operator's two
+ * explicit resolutions of an `unconfirmed` run. `no-session` is the **only**
+ * path that can authorize a second `host.startSession()` for a run that may
+ * already have one, so it is an explicit, audited human decision, and a body
+ * carrying a session id with `no-session` is refused `422` naming
+ * `sessionId` rather than silently dropped.
  */
 async function handleResolve(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;
@@ -349,7 +300,6 @@ interface ReadBack {
      * what picks `agent.uncompared` over `agent.mismatch`.
      */
     readonly baselineProvenance: BaselineProvenance;
-    /** Whether the two matched. */
     readonly ok: boolean;
     /** Note explaining a mismatch or an unreadable read-back. */
     readonly note: string | null;
@@ -367,16 +317,11 @@ interface ReportMembers {
 
 /**
  * Read §5's own members: the baseline's provenance, then the two optional
- * free-text fields.
- *
- * Split from {@link readReadBack} because both owe a `422` of their own and
- * neither is about the *run identity* — a report whose provenance contradicts
- * the baseline it arrived beside would record a reason its own body disproves
- * (contract §5 as 003 v1.7.0 widens it; 002 FR-029 case (ii)), and an
- * unbounded observed agent or note would land uncut in a durable row (T-043e).
- *
- * @param expectedAgent - The baseline the same body carried.
- * @returns The members, or the `422` naming whichever of them failed.
+ * free-text fields. Split from {@link readReadBack} because both owe a `422`
+ * of their own and neither is about the *run identity*: a provenance that
+ * contradicts the baseline it arrived beside would record a reason its own
+ * body disproves (contract §5; 002 FR-029 case (ii)), and an unbounded
+ * observed agent or note would land uncut in a durable row (T-043e).
  */
 function readReportMembers(
     fields: Readonly<Record<string, unknown>>,
@@ -407,9 +352,6 @@ function readReportMembers(
  * not blur — a body that fails FR-051's echo or §5's attempt is a `422` about
  * the *run identity*, and a body missing the read-back itself is a `422` about
  * the *report*.
- *
- * @param correlationId - The run the path named.
- * @returns The parsed read-back, or the `422` that names what was wrong.
  */
 function readReadBack(request: RouteRequest, correlationId: string): ReadBack | HttpResponse {
     const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: {} });
@@ -455,14 +397,11 @@ function readReadBack(request: RouteRequest, correlationId: string): ReadBack | 
 }
 
 /**
- * Answer `POST /v1/events/:correlationId/verification`.
- *
- * Records the post-dispatch agent read-back and **changes no state**:
- * a mismatch is shown as a warning and audited, never acted on again. The session
- * id must be the one the run recorded, so a read-back of some other session
- * cannot be filed against this run.
- *
- * @returns `200 { correlationId, attempt, state, verification }`, or the refusal.
+ * Answer `POST /v1/events/:correlationId/verification`: record the
+ * post-dispatch agent read-back and **change no state** — a mismatch is
+ * shown as a warning and audited, never acted on again. The session id must
+ * be the one the run recorded, so a read-back of some other session cannot
+ * be filed against this run.
  */
 async function handleVerification(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;

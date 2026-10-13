@@ -31,7 +31,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { configSchema } from '../service/config-schema.ts';
 import { auditStatusText, parseAuditBody } from '../src/audit-view.ts';
 import { auditPath } from '../src/service-calls.ts';
 import {
@@ -46,6 +45,7 @@ import type { SettingsFailureCause } from '../src/settings-edit.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { configEnvelope } from './support/service-routes.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -95,14 +95,6 @@ const PREREQUISITE = 'setup prerequisite';
 
 /** The audit event type a configuration write is recorded under (FR-070). */
 const CONFIG_EVENT = 'config.changed';
-
-/** The configuration as stored, with every field at its default. */
-const STORED_CONFIG = { ...DEFAULT_CONFIG };
-
-/** One `GET /v1/config` body, assembled the way the service sends it. */
-function envelopeBody(config: Record<string, unknown> = STORED_CONFIG): string {
-    return JSON.stringify({ config, fields: configSchema(), source: 'stored', defaultsApplied: [] });
-}
 
 /** One error-envelope body carrying a machine code and, optionally, an id. */
 function errorBody(code: string, correlationId?: string): string {
@@ -218,7 +210,7 @@ async function mountSettings(answer: Answer): Promise<SettingsMount> {
 function mountForWrite(put: Answer): Promise<SettingsMount> {
     return mountSettings((request) => {
         if (request.method === 'GET' && request.path === CONFIG_ROUTE) {
-            return { status: 200, body: envelopeBody() };
+            return { status: 200, body: configEnvelope() };
         }
 
         if (request.method === 'PUT' && request.path === CONFIG_ROUTE) {
@@ -350,7 +342,7 @@ describe('a failed read marks the values it keeps (006 AC-134)', () => {
                 reads += 1;
 
                 return reads === 1
-                    ? { status: 200, body: envelopeBody() }
+                    ? { status: 200, body: configEnvelope() }
                     : { status: 503, body: errorBody(STORE_CODE) };
             });
             expect(view.rt.state.settingsTab.stale).toBe(false);

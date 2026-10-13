@@ -1,21 +1,5 @@
 /**
- * Bindings-tab actions for the event bindings (M3 re-cut).
- *
- * The service owns the durable bindings file; this tab reads, edits, and
- * re-grants it whole. This module owns the **add** flow (repository, account,
- * project, triggers, worktree option, and the starting prompt and allow-list
- * that travel with the rest of the draft), the list reads, the enable/disable
- * toggle, and removal — plus the draft's **defaults**, which the **edit** flow
- * in [`bindings-edit.ts`](./bindings-edit.ts) resets when a save lands or a
- * cancel closes. The draft's *reader* moved to
- * [`bindings-draft.ts`](./bindings-draft.ts) for the file-length gate and is
- * still re-exported here. Every write is the same `PUT /v1/bindings`
- * whole-file grant; actions never throw: every failure lands on the tab's note
- * line, so one refused PUT cannot take the panel down.
- *
- * Every bindings list the service confirms (a read or a grant) with an
- * enabled row also arms the event relay — see {@link armRelayForBindings} —
- * so the loop does not depend on what happened to be in state at mount.
+ * Bindings-tab actions (M3): add, list, toggle, remove over the one whole-file grant; failures land on the note line.
  */
 
 import { nowIso } from './ids.ts';
@@ -63,15 +47,11 @@ export function editBindings(rt: PanelRuntime, patch: Partial<BindingsTabState>)
 }
 
 /**
- * Return the draft to the add form's defaults.
- *
- * Exported for [`bindings-edit.ts`](./bindings-edit.ts), which clears the
- * same draft when an edit is saved or cancelled: two resets of one draft are
- * two places the defaults could drift, so there is one.
- *
- * `displayed` prefills the project field with the current-project default
- * when one resolves, so an untouched add saves the project the operator is
- * already in (002 FR-097(b)).
+ * Return the draft to the add form's defaults, exported for
+ * [`bindings-edit.ts`](./bindings-edit.ts), which clears the same draft when
+ * an edit is saved or cancelled: two resets of one draft are two places the
+ * defaults could drift, so there is one. `displayed` prefills the project
+ * field with the current-project default when one resolves (002 FR-097(b)).
  */
 export function resetDraft(bindings: BindingsTabState, displayed: string | null): void {
     bindings.repoInput = '';
@@ -105,13 +85,10 @@ function clearDraftIfCovered(
 }
 /**
  * Whether the mount still runs; a function call the analyzer never narrows.
- *
- * Exported because a second `if (rt.disposed)` in the *same* function reads
- * as always-falsy to the type-aware rule — the narrowing from the first one
+ * Exported because a second `if (rt.disposed)` in the *same* function reads as
+ * always-falsy to the type-aware rule — the narrowing from the first one
  * survives an `await` — while the runtime genuinely can be torn down between
  * two awaits. A call is the honest way to ask again.
- *
- * @returns `true` while the panel is alive.
  */
 export function stillMounted(rt: PanelRuntime): boolean {
     return !rt.disposed;
@@ -209,10 +186,9 @@ export async function loadBindings(rt: PanelRuntime): Promise<void> {
 
 /**
  * Re-read the bindings and accounts after an account connected or adopted.
- *
  * Fire-and-forget on purpose: the connected line and the account mirror are
  * already written by the time this runs, and the operator's next look is the
- * accounts dropdown — which must list the new account without a manual
+ * accounts dropdown, which must list the new account without a manual
  * Refresh. The read is dropped when the mount is gone, and a refused read
  * lands on the tab's own note line rather than anywhere the handoff copy is
  * rendered.
@@ -226,20 +202,12 @@ export function reloadBindingsAfterConnect(rt: PanelRuntime): void {
 }
 
 /**
- * Add the drafted repository as a binding and grant the whole list.
- *
- * A granted add closes the editor — the new row is on the list, which is the
- * surface the success note reports from — while a refused one leaves the
- * editor open with the draft the operator can correct.
- *
- * The starting prompt rides this write the way it rides the edit save: one
- * form, one primary control, the prompt alongside the rest (005 `## Clarifications`
- * row 33), so 004 FR-014's two rules hold in add mode too. A field the
- * operator never touched omits the member — for a brand-new row that means
- * the binding is created prompt-less, and every *other* row's stored prompt
- * is preserved by the same omission — while a touched one travels with it,
- * an explicit empty value included. A refusal the prompt caused lands on the
- * field it belongs to rather than being left to the tab's note.
+ * Add the drafted repository as a binding and grant the whole list. A granted add closes the
+ * editor; a refused one leaves it open with the draft. The starting prompt rides this write the way
+ * it rides the edit save (005 `## Clarifications` row 33), so 004 FR-014's two rules hold in add
+ * mode too: a field never touched omits the member — a brand-new row is prompt-less, and every
+ * *other* row's stored prompt survives by the same omission — a touched one travels even when
+ * empty, and a refusal lands on the field it belongs to rather than the tab's note.
  */
 export async function bindRepository(rt: PanelRuntime): Promise<void> {
     const { bindings } = rt.state;

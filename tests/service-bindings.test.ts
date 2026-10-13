@@ -27,6 +27,7 @@ import { BINDINGS_PATH } from '../service/routes/bindings.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { jsonHeaders, headerMap } from './support/service-routes.ts';
 
 /** Credential registered with this suite; never appears in any answer. */
 const REGISTERED_TOKEN = `bindings-status-credential-${'p'.repeat(32)}`;
@@ -57,15 +58,6 @@ const BAD_REPOSITORY = 'not-a-repository';
  *
  * @returns The headers as `fetch` accepts them.
  */
-function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
-    return Object.fromEntries(pairs);
-}
-
-/** Headers for the routes that take a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return headerMap([['content-type', 'application/json']]);
-}
-
 /** Per-test teardown: drop the temp root. */
 afterEach(async (): Promise<void> => {
     while (running.length > 0) {

@@ -1,16 +1,5 @@
 /**
- * Recovery for ledger writes that fail one of the host's storage gates.
- *
- * The ledger is evidence, not a queue: an entry that trips the redaction
- * assertion or the host's value limit used to fail every later write too,
- * because the offending entry stayed in memory and was re-serialized on each
- * attempt. This module repairs the ledger instead — secret-shaped values are
- * neutralized in place and an over-budget ledger drops its oldest entries — so
- * a single bad entry cannot make durability fail-stuck.
- *
- * Nothing here weakens the gates: {@link serializeLedger} still refuses to
- * write secret-shaped or oversized content. The repair only changes what the
- * ledger contains when a write would otherwise be refused forever.
+ * Recovery for ledger writes a host gate refuses: neutralize secrets, drop over-budget entries — gates never weaken.
  */
 
 import { GUEST_STORAGE_VALUE_BYTES } from '@openchamber/sdk';
@@ -21,16 +10,11 @@ import { findSecretLeak, redact, RedactionError } from './redaction.ts';
 /** Detail recorded in place of an entry whose payload still trips the redaction gate. */
 const QUARANTINED_DETAIL = 'secret-shaped detail removed before the ledger could be written';
 
-/** Working byte budget the ledger is evicted down to, below the host's hard limit. */
 export const LEDGER_BYTE_BUDGET = 60 * 1_024;
 
-/** Result of a repair: the writable ledger plus what the repair changed. */
 export interface LedgerRepair {
-    /** Ledger that can be serialized again. */
     readonly ledger: PanelLedger;
-    /** Number of entries whose detail was neutralized. */
     readonly quarantined: number;
-    /** Number of entries dropped to fit the byte budget. */
     readonly evicted: number;
     /** Operator-facing explanation, recorded in the banner. Never secret material. */
     readonly summary: string;
@@ -38,9 +22,6 @@ export interface LedgerRepair {
 
 /**
  * Neutralize secret-shaped values inside one entry detail.
- *
- * @param detail - Detail payload that failed the redaction gate.
- * @returns The redacted detail plus whether any value changed.
  */
 function redactDetailValues(detail: LedgerDetail): { readonly detail: LedgerDetail; readonly didChange: boolean } {
     let didChange = false;
@@ -60,9 +41,6 @@ function redactDetailValues(detail: LedgerDetail): { readonly detail: LedgerDeta
  * A shape that only appears once key and value are serialized together (a
  * credential-named key beside its value) hides from a per-value scan, so the
  * repaired entry is re-checked before it is accepted.
- *
- * @param entry - Entry whose detail failed the redaction gate.
- * @returns The repaired entry plus whether it changed.
  */
 function repairEntry(entry: LedgerEntry): { readonly entry: LedgerEntry; readonly didChange: boolean } {
     const redacted = redactDetailValues(entry.detail);
@@ -77,7 +55,6 @@ function repairEntry(entry: LedgerEntry): { readonly entry: LedgerEntry; readonl
 /**
  * Neutralize every entry whose detail trips the redaction gate.
  *
- * @param ledger - Ledger whose serialization failed with a `RedactionError`.
  * @returns The repaired ledger, or `null` when the leak is not inside an entry.
  */
 function quarantineSecretMaterial(ledger: PanelLedger): LedgerRepair | null {
@@ -111,9 +88,6 @@ function quarantineSecretMaterial(ledger: PanelLedger): LedgerRepair | null {
  * has just been evicted has headroom for the entries the next writes append.
  * The header is always kept: dropping entries is itself evidence, while losing
  * the ledger's identity would not be recoverable.
- *
- * @param ledger - Ledger that exceeded the host's value limit.
- * @returns The shrunken ledger plus how many entries were dropped.
  */
 export function fitLedgerToByteBudget(ledger: PanelLedger): LedgerRepair {
     const entries = [...ledger.entries];

@@ -1,33 +1,5 @@
 /**
- * The Bindings tab's **draft**: what the form holds, and the reader that turns
- * it into the row a whole-file grant writes (005 FR-050, FR-053; 004 FR-014;
- * 002 FR-047).
- *
- * Split out of [`bindings.ts`](./bindings.ts) for the file-length gate, and
- * along the seam the module's own header already drew: `bindings.ts` owns the
- * tab's **actions** (read, add, toggle, remove), while this owns the one thing
- * two of those actions share — the row the editor is about to become. The edit
- * flow in [`bindings-edit.ts`](./bindings-edit.ts) reads it for exactly the same
- * reason, and there is now one place a draft could be got wrong.
- *
- * Two rules ride the reader, and both are decisions rather than defaults:
- *
- * - **What the form shows is what the grant writes.** Every editable field is
- *   read from the draft in both modes; only the identity members (id, state,
- *   creation stamp) and the fixed account come from the row being edited, and
- *   only because the editor displays them (005 FR-050).
- * - **Nothing is silently dropped on the way out** (002 FR-047). The stored
- *   allow-list travels through an edit even when the operator never touched the
- *   field, because a whole-file row that omitted the key would take the binding
- *   back to open — the one rule that differs from 004's prompt, where an
- *   omitted key means *leave this one alone*.
- * - **The history scope rides the same write** (002 FR-089), and is read from the
- *   **draft** in both modes rather than from the row being edited: the editor's
- *   select is what the operator is looking at, and what a save must write.
- *
- * The reader is not pure: when the draft cannot be saved it says why **on the
- * tab's note**, because that note is the surface a refusal already has a home on
- * (005 FR-085).
+ * The Bindings tab's draft and the reader that turns it into the whole-file grant's row (FR-050, FR-014, FR-047/089).
  */
 
 import { parseRepository, repositoryLabel } from './config.ts';
@@ -51,17 +23,14 @@ export interface PreparedBinding {
     readonly createdAt: string;
     readonly updatedAt: string;
     /**
-     * The stored allow-list this row already holds, when it has one.
-     *
-     * Carried through the draft for the one reason 002 FR-047 forces: a
-     * whole-file row that **omitted** the key would take its binding back to
-     * open, so an edit of some *other* field must not quietly erase the
-     * policy. A brand-new row has none, so this stays absent, which is the
-     * complete "no policy configured" state (contract §1).
-     *
-     * `| undefined` is explicit because `exactOptionalPropertyTypes` is on and
-     * the draft writes the member on every row: an `undefined` is dropped by
-     * `JSON.stringify`, which is exactly how *unset* travels (contract §2).
+     * The stored allow-list this row already holds, when it has one. Carried
+     * through the draft for the one reason 002 FR-047 forces: a whole-file row
+     * that **omitted** the key would take its binding back to open, so an edit
+     * of some *other* field must not quietly erase the policy. A brand-new row
+     * has none, so this stays absent — the complete "no policy configured"
+     * state (contract §1). `| undefined` is explicit because
+     * `exactOptionalPropertyTypes` is on: `JSON.stringify` drops an
+     * `undefined`, which is exactly how *unset* travels (contract §2).
      */
     readonly allowedUsers?: readonly string[] | undefined;
     /**
@@ -127,8 +96,6 @@ function draftOrigin(bindings: BindingsTabState, edit?: DraftEditTarget): DraftO
 /**
  * Read the account fields the draft saves under.
  *
- * @param bindings - Panel state to read (add mode's account selection).
- * @param origin - Where the draft is being read from.
  * @returns The account fields, or `null` when add mode picked none.
  */
 function draftAccount(
@@ -161,8 +128,6 @@ function draftAccount(
 /**
  * Read the repository label, refusing a bad shape or a second binding of it.
  *
- * @param origin - Where the draft is being read from; only the edited row is
- *   exempt from the isDuplicate check, because that row already owns the name.
  * @returns The canonical `owner/name`, or `null` (the note then says why).
  */
 function draftRepository(bindings: BindingsTabState, origin: DraftOrigin): string | null {
@@ -206,33 +171,24 @@ function draftProject(bindings: BindingsTabState): string | null {
 }
 
 /**
- * Read the allow-list a saved row keeps, which the draft must not lose.
- *
- * A brand-new row has none — absent is the complete "no policy configured"
- * state — while an edit carries the row's stored list through, so
- * changing an unrelated field cannot take a restricted binding back to open
- * (contract §2). The grant's patch then overrides this one row from the field
- * the operator actually edited.
- *
- * @param origin - Where the draft is being read from.
- * @returns The list to carry, or `undefined` for the add form.
+ * Read the allow-list a saved row keeps, which the draft must not lose: a
+ * brand-new row has none — absent is the complete "no policy configured" state
+ * — while an edit carries the row's stored list through, so changing an
+ * unrelated field cannot take a restricted binding back to open (contract §2).
+ * The grant's patch then overrides this one row from the field the operator
+ * actually edited. `undefined` for the add form.
  */
 function draftActors(origin: DraftOrigin): readonly string[] | undefined {
     return origin.kind === 'edit' ? origin.binding.allowedUsers : undefined;
 }
 
 /**
- * Read the history scope a saved row writes.
- *
- * **The draft's value in both modes** — the editor's select is what the operator
- * is looking at, and what a save must write (005 FR-050, 002 FR-089). In add mode
- * the draft starts at the documented default, so an untouched select writes the
- * default and a chosen one writes the choice; an edit mode's draft was loaded from
- * the stored row, so an untouched select preserves the stored choice rather than
- * resetting it (002 FR-057).
- *
- * @param bindings - The Bindings tab's state.
- * @returns The mode the grant will write.
+ * Read the history scope a saved row writes: **the draft's value in both
+ * modes** — the editor's select is what the operator is looking at, and what a
+ * save must write (005 FR-050, 002 FR-089). Add mode starts at the documented
+ * default, so an untouched select writes the default; an edit mode's draft was
+ * loaded from the stored row, so an untouched select preserves the stored
+ * choice rather than resetting it (002 FR-057).
  */
 function draftHistoryScope(bindings: BindingsTabState): HistoryScope {
     return readHistoryScope(bindings.historyScopeInput) ?? DEFAULT_HISTORY_SCOPE;
@@ -240,10 +196,6 @@ function draftHistoryScope(bindings: BindingsTabState): HistoryScope {
 
 /**
  * Read the identity a saved row keeps.
- *
- * @param origin - Where the draft is being read from.
- * @param stamp - This save's RFC 3339 stamp, used for a brand-new row.
- * @returns The id, state, and creation stamp the grant will write.
  */
 function draftIdentity(
     origin: DraftOrigin,
@@ -259,18 +211,14 @@ function draftIdentity(
 }
 
 /**
- * Read one form draft, answered as a ready binding or the problems.
- *
- * Called in two modes, and the mode is the whole difference: with no
+ * Read one form draft, answered as a ready binding or the problems. Called in
+ * two modes, and the mode is the whole difference: with no
  * {@link DraftEditTarget} this reads the **add** form and mints a new row;
- * with one it reads the **edit** form, keeping the selected row's id,
- * creation stamp, state, and account (the editor renders that account fixed,
- * so the stored values are the displayed ones). Everything else —
- * repository, project, triggers, worktree option — is read from the draft in
- * both modes, which is what makes a loaded draft and the row it saves the
- * same values (005 FR-050: one whole-file write, no second write path).
- *
- * @returns The binding, or `null` (the note then says why).
+ * with one it reads the **edit** form, keeping the selected row's id, creation
+ * stamp, state, and account (the editor renders that account fixed). Everything
+ * else is read from the draft in both modes, which is what makes a loaded
+ * draft and the row it saves the same values (005 FR-050: one whole-file
+ * write). `null` when invalid; the note then says why.
  */
 export function readDraft(bindings: BindingsTabState, edit?: DraftEditTarget): PreparedBinding | null {
     const origin = draftOrigin(bindings, edit);

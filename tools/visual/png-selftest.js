@@ -1,13 +1,9 @@
 /**
- * The proof that `png.js` can be trusted.
- *
- * Every check here is offline and deterministic: a synthetic image with three
- * known colour regions is encoded, decoded, written to disk, read back, and
- * measured. If any of it disagrees, the numbers `shot.js` would print about a
- * screenshot are worthless — so `shot.js` runs `selfTest()` before it captures
- * anything, and `tests/visual-tooling.test.ts` runs it in the suite.
- *
- * `node tools/visual/png-selftest.js` prints the same JSON by hand.
+ * The proof that `png.js` can be trusted: a synthetic image with three known colour regions is
+ * encoded, decoded, written to disk, read back and measured, offline and deterministic — if any
+ * of it disagrees, the numbers `shot.js` prints about a screenshot are worthless. `shot.js` runs
+ * `selfTest()` before it captures anything, `tests/visual-tooling.test.ts` runs it in the suite,
+ * and `node tools/visual/png-selftest.js` prints the same JSON by hand.
  */
 import { Buffer } from 'node:buffer';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -157,11 +153,7 @@ function checkGarbage() {
     return outcome({ name: 'non-PNG bytes are refused', ok: isRefused, detail: 'decodePng threw' });
 }
 
-/**
- * Run every self-test.
- *
- * @returns `{ ok, checks }` — `ok` is false when any check failed.
- */
+/** Run every self-test; `ok` is false when any check failed. */
 function selfTest() {
     const sample = sampleImage();
     const checks = [checkRoundTrip(sample), checkFileRoundTrip(sample), checkMetrics(sample), checkGarbage()];

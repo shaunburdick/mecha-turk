@@ -1,38 +1,6 @@
 /**
- * What every trigger branch of one binding's scan is handed, what it answers,
- * and the one helper they all share (002 FR-015, FR-045; 006 FR-058).
- *
- * One binding's scan has four branches — assignment, comment mention, issue-body
- * mention, review request — and they live in three modules so that none of them
- * is the coordinator. This is the contract they all take, kept in its own module
- * for the reason `runs-types.ts` and `dispatch-corpus.ts` exist: a shape shared by
- * siblings belongs with neither of them, and a branch module that imported it
- * from a sibling would close a cycle the moment a second branch was added.
- *
- * Three properties of the input are decisions rather than conveniences:
- *
- * - **`windowStart` is the one window**, already widened by the cycle's own
- *   configured overlap (006 FR-059(a)) or by the binding's history scope (002
- *   FR-065 – FR-067), and every branch compares against it with the single rule
- *   in `window.ts`. A branch that computed its own window would be a second
- *   answer to "what counts as new this cycle". **The history scope is not passed
- *   down with it** (002 FR-068): the mode decides a window's start and nothing
- *   else, so no branch — and no comparison about an individual observation — can
- *   consult it.
- * - **`login` is the account record's login when it has one** and the binding's
- *   otherwise, decided once by the cycle, so the subject fields the triggers
- *   match are matched against the same identity everywhere (002 FR-009).
- * - **`log` is the cycle's logger**, because two branches record a *decision not
- *   to emit an event* — the per-item actor read's refusal and its page-bound
- *   exhaustion (002 FR-051, FR-052) — and an operator must be able to explain a
- *   missing trigger (constitution IV). A branch that dropped a candidate silently
- *   would have left no trace of it at all.
- *
- * The answer is deliberately narrow: a branch either produced rows, or it hit a
- * **classified upstream failure** the cycle turns into a skip. It cannot answer
- * "I found nothing", because finding nothing is not a branch's problem — it is
- * the ordinary case, and the branches whose candidates found nothing are the
- * subject of 002 FR-049's per-item read.
+ * What every trigger branch of one binding's scan is handed, what it
+ * answers, and the one helper they all share (002 FR-015, FR-045; 006 FR-058).
  */
 
 import type { ServiceLogger } from '../log.ts';
@@ -48,11 +16,9 @@ const BODY_EXCERPT_MAX_CHARS = 600;
 export interface TriggerScanInput {
     /** Poller the feeds and the per-item events read are issued through. */
     readonly poller: GitHubIssuePoller;
-    /** Account credential presented to GitHub. */
     readonly token: string;
     /** Structured logger the branch's own decisions are recorded on. */
     readonly log: ServiceLogger;
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
     /** The bound account's login, as the account record reports it. */
     readonly login: string;
@@ -71,15 +37,13 @@ export interface TriggerScanInput {
     /** Page size and retry ladder this cycle's calls run under (006 FR-058/FR-059). */
     readonly pace: ListPace;
     /**
-     * The subjects this binding and account is following: the ones whose run
-     * carries a recorded session (002 FR-100).
-     *
-     * Read once per cycle from the run document and shared by every branch, so
-     * a follow-up is a property of the **same run document the join reads**
-     * rather than a second index of tracked subjects (FR-107: no persisted
-     * registry). An empty map is the ordinary case for a cycle in which
-     * nothing has dispatched yet, and every branch simply produces no
-     * follow-ups.
+     * The subjects this binding and account is following: the ones whose
+     * run carries a recorded session (002 FR-100). Read once per cycle
+     * from the run document and shared by every branch, so a follow-up is
+     * a property of the **same run document the join reads** rather than a
+     * second index of tracked subjects (FR-107: no persisted registry).
+     * An empty map is the ordinary case before anything has dispatched,
+     * and every branch simply produces no follow-ups.
      */
     readonly tracked: ReadonlyMap<number, TrackedSubject>;
 }
@@ -92,14 +56,11 @@ export type TriggerEvents =
         /**
          * The head SHA each tracked pull request was observed carrying, keyed
          * by pull-request number and carrying only rows GitHub named a SHA
-         * for.
-         *
-         * Reported beside the events because they are the same read: the
+         * for. Reported beside the events because they are the same read: the
          * establishing cycle of a run with no seed records the head it
-         * observed (002 FR-103(b)), and that write rides the enqueue's own
-         * chain rather than a second one. The cycle maps these onto the run
-         * document's own subject keys, which is the only shape the enqueue
-         * pass reads.
+         * observed (002 FR-103(b)) and that write rides the enqueue's own
+         * chain. The cycle maps these onto the run document's subject keys,
+         * the only shape the enqueue pass reads.
          */
         readonly observedHeads?: ReadonlyMap<number, string>;
         /**
@@ -118,9 +79,6 @@ export type TriggerEvents =
  * and the issue-body branches all carry an excerpt of the same bound, and a
  * second spelling of the number would be a second answer to "how much of a pull
  * request's text reaches a session's prompt".
- *
- * @param body - Raw issue or comment body, or `null` when GitHub sent none.
- * @returns The excerpt, or `''` when there was no body.
  */
 export function bodyExcerptOf(body: string | null): string {
     if (body === null) {

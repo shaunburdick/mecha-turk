@@ -1,29 +1,5 @@
 /**
- * Reading the prompt's reference members off the wire (004 FR-015, FR-037,
- * FR-052, FR-087; contracts `dispatch-prompt.md` §1 and §2, `layered-prompt.md` §3).
- *
- * Two readers, one rule set. Both parse the **same four members** — presence,
- * fingerprint, length, sources — because that is what keeps one parser rule
- * and one renderer rule serving every surface:
- *
- * - **A present reference is internally consistent**: fingerprint in the fixed
- *   `mtp-…` format, a positive integer length, and a **non-empty**
- *   `promptSources` list that is a duplicate-free subsequence of
- *   `global, account, binding`; `null` on every member iff the run queued with
- *   no prompt — an unset reference must say so explicitly, so a missing member
- *   is refused rather than defaulted (FR-087, AGENTS.md invariant 8).
- * - **The claim answer adds a fifth member**, and it obeys the contract's
- *   iff: `promptText` is non-null **if and only if** `promptPresent` is
- *   `true`. A run that carries text without claiming it, or claims it without
- *   carrying it, refuses the entry — and one refused entry refuses the whole
- *   answer, which is the claim reader's standing fail-closed posture.
- *
- * The readers validate *shape*, never content: the service refused a
- * credential-shaped prompt at the save boundary, and re-running the detector
- * here would invent the second validation boundary plan D10 rejects. An unset
- * run answers all five explicitly (`false`, `null`, `null`, `null`, `null`)
- * because the co-ship build parses them — an explicit `null` is a truer answer
- * than an absent key for members the panel has to act on.
+ * Reading the prompt's reference members off the wire: two readers, one rule set, shape never content (D10).
  */
 
 import {
@@ -33,9 +9,7 @@ import {
 } from './prompt.ts';
 import type { PromptReference } from './prompt.ts';
 
-/** The prompt members of a claim entry, after validation. */
 export interface ClaimPrompt extends PromptReference {
-    /** The text the composition fences, or `null` when none (claim transport only). */
     readonly promptText: string | null;
 }
 

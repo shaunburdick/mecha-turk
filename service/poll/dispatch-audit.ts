@@ -1,39 +1,5 @@
 /**
  * Lifecycle audit rows for the dispatch authorization family.
- *
- * One module owns every row the panel- and operator-driven operations write, so
- * the properties those rows owe cannot be satisfied in one place and forgotten in
- * another:
- *
- * - **No row ever carries a `dispatchToken` value.** An unconsumed token is a
- *   live authorization to report a result, `audit.ndjson` is operator-facing,
- *   and it is retained for months — so every row that must *name* the
- *   authorization records {@link buildDispatchTokenFingerprint} instead. The
- *   fingerprint is derived from the token bytes, so two attempts of one run
- *   produce two different values and the row still answers which token was
- *   outstanding; its `tokfp-` prefix is deliberately not `dtk-` so the standing
- *   scan (and an operator grepping the trail) cannot mistake it for a leak.
- * - **Every row names the run**, in `correlationId` and in `entity` — never a
- *   fresh identifier. That is what makes one run's chain reconstructable from
- *   `GET /v1/audit?correlationId=` alone.
- * - **Free text from a panel or an operator is bounded with a visible marker.**
- *   `problem`, `reason`, `detail`, `guidance`, `note`, and `causeReport` are
- *   panel- or operator-authored and land in a file nothing trims; an unbounded
- *   copy is unbounded durable growth on a row that exists to be read. The bound
- *   itself lives in [`row-text.ts`](./row-text.ts) — it is a policy, and one
- *   shared by every builder here, including the gate's `deniedLogins`, whose
- *   values arrive from the *store* rather than from a caller (see
- *   {@link actorDetails}).
- * - **The actor source is per row, not per module.** A reserve is the panel
- *   declaring intent, a duplicate report is the *service* recording a repeat it
- *   recognised, and a retry or resolve is the operator acting. Collapsing them
- *   into one actor would make the trail unable to answer who caused what.
- *
- * {@link appendRunRow} is the one way these rows reach the disk: the durable
- * state change happens first and is never rolled back, and a failed append is
- * reported as `auditWritten: false` for the caller to surface rather than
- * swallowed. The sweep keeps its own appender because its row is replayed from a
- * durable intent and must be byte-identical to that intent.
  */
 
 import { appendAudit } from '../audit.ts';
@@ -46,7 +12,6 @@ import { buildDispatchTokenFingerprint } from './run-key.ts';
 import type { ActorGateRefusal, BaselineProvenance, Run, RunState, RunVerification } from './runs-types.ts';
 
 
-/** Entity kind every run-scoped lifecycle row names. */
 const RUN_ENTITY_KIND = 'run';
 
 /** The panel declares the intent; the panel reports the outcome. */
@@ -65,39 +30,28 @@ function runRow(run: Run): Pick<AuditInput, 'entity' | 'correlationId'> {
 
 /**
  * The credential-free scalars `dispatch.reserved` and `dispatch.result` gain
- * from the layered starting prompt.
- *
- * Written **by the service from the run's snapshot**, never from a request
- * body: the panel can report what it did, but what prompt a run used — and
- * which tiers produced it — is a fact the stored run owns. The fingerprint is
- * derived from the text rather than minted per row, so every row of one prompt
- * carries the identical value, and `promptSources` is the snapshot's own ordered
- * tier list copied verbatim: an element the run's snapshot never held can never
- * appear on a row.
- *
- * @returns The binding id plus the prompt's presence, fingerprint, length, and
- *   the ordered set of tiers that produced it.
+ * from the layered starting prompt. Written **by the service from the run's
+ * snapshot**, never a request body — what prompt a run used, and which tiers
+ * produced it, is a fact the stored run owns. The fingerprint is derived
+ * from the text rather than minted per row, so every row of one prompt
+ * carries the identical value, and `promptSources` is the snapshot's own
+ * ordered tier list copied verbatim.
  */
 function promptDetails(run: Run): {
-    /** Binding the run dispatched through. */
     readonly bindingId: string;
     /** Whether a starting prompt was set when the run was queued. */
     readonly promptPresent: boolean;
-    /** Its fingerprint, or `null` when none. */
     readonly promptFingerprint: string | null;
-    /** Its length, or `null` when none. */
     readonly promptLength: number | null;
-    /** Contributing tiers order, or `null` when none. */
     readonly promptSources: readonly PromptSource[] | null;
     /**
      * The **shape** of the binding's allow-list in force when the gate
-     * authorized this attempt.
-     *
-     * Read from the run's own snapshot rather than re-reading the binding,
-     * which is what makes this row and `dispatch.result` provably describe one
-     * policy even though an operator may have edited the list between them. Two
-     * words, never a login: a retained trail listing who may trigger a
-     * repository is a second copy of the access policy.
+     * authorized this attempt. Read from the run's own snapshot rather than
+     * re-reading the binding, which is what makes this row and
+     * `dispatch.result` provably describe one policy even though an operator
+     * may have edited the list between them. Two words, never a login: a
+     * retained trail listing who may trigger a repository is a second copy
+     * of the access policy.
      */
     readonly actorPolicy: Run['actorPolicy'];
 } {
@@ -115,7 +69,6 @@ function promptDetails(run: Run): {
 export function reservedRow(input: {
     /** The run as it stands in `starting`. */
     readonly run: Run;
-    /** Lease the reservation was made under. */
     readonly leaseId: string;
     /** Token just minted; recorded as its fingerprint only. */
     readonly dispatchToken: string;
@@ -140,13 +93,10 @@ export function reservedRow(input: {
  * Exactly one of `sessionId` and `problem` is non-`null`.
  */
 export function resultRow(input: {
-    /** The run as it now stands. */
     readonly run: Run;
     /** Token the report carried; recorded as its fingerprint only. */
     readonly dispatchToken: string;
-    /** Session the dispatch created, else `null`. */
     readonly sessionId: string | null;
-    /** Failure the dispatch reported, else `null`. */
     readonly problem: string | null;
 }): AuditInput {
     return {
@@ -167,9 +117,7 @@ export function resultRow(input: {
 export function duplicateReportRow(input: {
     /** The run, byte-unchanged by the repeat. */
     readonly run: Run;
-    /** Token the repeat carried; recorded as its fingerprint only. */
     readonly dispatchToken: string;
-    /** The state the repeated report left behind. */
     readonly state: RunState;
 }): AuditInput {
     return {
@@ -189,9 +137,7 @@ export function duplicateReportRow(input: {
 export function abandonedRow(input: {
     /** The run as it now stands in `failed`. */
     readonly run: Run;
-    /** Token the report carried; recorded as its fingerprint only. */
     readonly dispatchToken: string;
-    /** Why no host call produced a session. */
     readonly reason: string;
 }): AuditInput {
     return {
@@ -251,7 +197,6 @@ export function retryRow(input: {
     readonly causeReportedCleared: boolean | null;
     /** Whether the service corroborated it, the panel reported it, or neither applies. */
     readonly causeClearedSource: 'corroborated' | 'reported' | null;
-    /** Whether this action reset the attempt chain. */
     readonly reset: boolean;
     /** The operator's or panel's own words about the cause. */
     readonly causeReport: string | null;
@@ -275,13 +220,10 @@ export function retryRow(input: {
 
 /** `dispatch.resolved` — the operator settled an `unconfirmed` run. */
 export function resolvedRow(input: {
-    /** The run as it now stands. */
     readonly run: Run;
     /** The `unconfirmed` state the run was resolved from. */
     readonly priorState: RunState;
-    /** Which of the two explicit resolutions the operator chose. */
     readonly decision: 'dispatched' | 'no-session';
-    /** The operator's note about what they verified. */
     readonly note: string | null;
     /** The guidance the operator was shown before deciding. */
     readonly guidance: string | null;
@@ -323,30 +265,19 @@ function readBackVerdict(input: {
 }
 
 /**
- * `agent.verified` / `agent.mismatch` / `agent.uncompared` — the post-dispatch
- * agent read-back.
- *
- * One builder for all three because the details are identical and only the
- * vocabulary name, the decision, and one extra member differ: the read-back is
- * warn-only, so a mismatch is recorded and shown and then never acted
- * on again.
- *
- * **Which row is chosen by whether a comparison was possible, never by whether
- * an agent was seen.** A report carrying `expectedAgent: ""` is a read-back
- * against **no configured baseline**: nothing was compared, so no verdict exists
- * to record — `ok` cannot make one true, and `agent.mismatch` is unreachable
- * while the baseline is empty. That row is `agent.uncompared`, decision
- * `observed`, and it carries the baseline's provenance (`defaulted` / `unset`)
- * beside the empty `expectedAgent` so the absence is legible in the trail months
- * later. The panel renders that case as *observed, not compared* — never as a
- * mismatch — and no run state changes either way.
+ * `agent.verified` / `agent.mismatch` / `agent.uncompared` — the
+ * post-dispatch agent read-back. One builder for all three, because the
+ * details are identical and the read-back is warn-only: a mismatch is
+ * recorded and shown and then never acted on again. Which row is chosen by
+ * whether a comparison was possible, never by whether an agent was seen: an
+ * empty `expectedAgent` is a read-back against no configured baseline, so it
+ * records `agent.uncompared` (decision `observed`) with the baseline's
+ * provenance rather than a fabricated mismatch, and no run state changes.
  */
 export function verificationRow(input: {
     /** The run, whose state this row never changes. */
     readonly run: Run;
-    /** The recorded read-back outcome. */
     readonly verification: RunVerification;
-    /** Where the comparison baseline came from. */
     readonly baselineProvenance: BaselineProvenance;
 }): AuditInput {
     const { verification } = input;
@@ -376,19 +307,15 @@ export function verificationRow(input: {
 }
 
 /**
- * The gate's extra detail keys, as the row spells them.
- *
- * The two arrays are **index-parallel** rather than one combined list: a reader
- * asking "what basis did this login carry?" answers with one index, and a
- * misaligned pair cannot be constructed.
- *
- * **Bounded like every other free-text member here.** `deniedLogins` is the one
- * detail member whose values the *store* does not bound — a `SourceReference`'s
- * `actorLogin` is validated as non-empty text and nothing more — so each entry
- * goes through {@link boundText} exactly as `problem`, `reason`, and `note` do.
- * The three window members ride on **every** gate refusal, including one made
- * without a policy: they are facts about the run, and a reader needs them to
- * know whether the decision saw the whole trigger history.
+ * The gate's extra detail keys, as the row spells them. The two arrays are
+ * **index-parallel** rather than one combined list: a reader asking *what
+ * basis did this login carry?* answers with one index, and a misaligned pair
+ * cannot be constructed. `deniedLogins` is the one detail member whose
+ * values the *store* does not bound, so each entry goes through
+ * {@link boundText} exactly as `problem`, `reason` and `note` do. The three
+ * window members ride on **every** gate refusal, including one made without a
+ * policy: they are facts about the run, and a reader needs them to know
+ * whether the decision saw the whole trigger history.
  */
 function actorDetails(actor: ActorGateRefusal): Record<string, unknown> {
     return {
@@ -454,28 +381,18 @@ export function refusedRow(input: {
 }
 
 /**
- * Append one run-scoped lifecycle row, reporting whether it landed.
- *
- * The row is always appended *after* the durable change it describes, and a
- * failure is never allowed to undo that change: it is logged with the
- * run named and answered as `false`, which is what the operator's panel turns
- * into a visible warning rather than implying traceability it does not have.
- *
- * The run's id is passed beside the row rather than read off it, because the
- * audit writer treats `correlationId` as optional for the rows that have no run
- * behind them — and a failure log that omitted the run would be the one place
- * "naming the run" could not be satisfied.
- *
- * @returns `true` when the row reached the trail, `false` when the append failed.
+ * Append one run-scoped lifecycle row, reporting whether it landed. The row
+ * is always appended *after* the durable change it describes, and a failure
+ * never undoes that change: it is logged with the run named and answered as
+ * `false`, which is what the panel turns into a visible warning rather than
+ * implying traceability it does not have. The run's id is passed beside the
+ * row rather than read off it, because a failure log that omitted the run
+ * would be the one place *naming the run* could not be satisfied.
  */
 export async function appendRunRow(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
-    /** The run the row concerns; named in the failure log. */
     readonly correlationId: string;
-    /** The row to append; built by one of the builders in this module. */
     readonly row: AuditInput;
 }): Promise<boolean> {
     try {

@@ -1,66 +1,29 @@
 /**
- * The destructive-confirmation content (006 T-022; FR-016, FR-036, FR-050 –
- * FR-054; AC-117 – AC-121, SC-108) — pure copy, no host, no DOM, no clock.
- *
- * [contracts/settings-confirmation.md](../specs/006-settings-crud/contracts/settings-confirmation.md)
- * is normative about what the armed state says, so the eight content items its
- * §2 lists are composed **only** from material the panel already holds: the
- * projection (`fields[].name`, the descriptor's `unit` and `default`) and the
- * two documents being compared (last read → proposed). No number is invented
- * here — an operator who reads *30 days* in the confirmation and *30 days* on
- * the row is reading the same wire value twice (FR-022, AC-106).
- *
- * Two arming points, one rule each (FR-051, FR-016):
- *
- * - **A save arms only when it lowers a retention knob.** Raising one, and
- *   every non-retention change, answer `null`, so those writes complete in one
- *   activation: a confirmation that appears for an action with no consequence
- *   trains the operator to click through the one that matters.
- * - **A restore always arms**, naming every field the write will change with
- *   its current → default value — and it carries the deletion block too for
- *   any retention knob the defaults happen to *lower*, because a default that
- *   trims more than the current setting deletes, and the copy says so.
- *
- * The copy states rules, never outcomes the panel has not read: it promises
- * *entries older than N days will be deleted at the next trim pass*, never
- * *N rows will go*, and it always carries the irreversibility line
- * (FR-052, NFR-112).
+ * The destructive-confirmation content: pure copy — no host, no DOM, no clock (SC-108) — built
+ * from what the panel holds, armed by a lower retention knob.
  */
 
 import type { ConfigEnvelope, FieldDescriptor } from './settings-schema.ts';
 
-/** Which control armed a confirmation. */
 export type ConfirmAction = 'save' | 'restore';
 
-/** One armed confirmation: what it authorises, and what the bar says. */
 export interface SettingsConfirmation {
-    /** The control whose second activation performs the write. */
     readonly action: ConfirmAction;
     /** The armed copy, one sentence per line (rendered as text, never markup). */
     readonly copy: string;
-    /** The document members this write changes, in the service's order. */
     readonly fields: readonly string[];
 }
 
-/** One retention knob whose proposed value is lower than the stored one. */
 export interface RetentionLowering {
-    /** Documented field name, from the projection. */
     readonly name: string;
-    /** The limit in force. */
     readonly current: string;
-    /** The limit being proposed. */
     readonly proposed: string;
-    /** The unit the service declared for this field. */
     readonly unit: string;
 }
 
-/** How one retention knob is described when it is lowered. */
 interface RetentionRule {
-    /** What the limit governs — the audit trail, the entry cap, the excerpts. */
     readonly governs: string;
-    /** What will be removed, phrased from the proposed limit. */
     readonly removal: (limit: string, unit: string) => string;
-    /** Whether the copy owes the protected-set promise as well (the cap). */
     readonly protectedSet: boolean;
 }
 
@@ -112,11 +75,9 @@ const CAP_PROTECTION =
     'Nothing protected is ever removed to satisfy the entry cap: the trail may exceed the cap by exactly ' +
     'the protected set that was kept.';
 
-/** What the second activation on Save does, and what Cancel does. */
 const SAVE_CLOSING =
     'Activating Save again writes the whole document; Cancel returns every field to the last-read values.';
 
-/** What the second activation on Restore defaults does, and what Cancel does. */
 const RESTORE_CLOSING =
     'Activating Restore defaults again writes the whole document; Cancel returns every field to the ' +
     'last-read values.';
@@ -131,8 +92,6 @@ const RESTORE_HEADLINE = 'Restore defaults writes the documented defaults for th
  * The same rule the draft's baseline uses (`settings-edit.ts`'s `baselineOf`),
  * restated here rather than imported so that the confirmation module and the
  * state machine stay independent of each other.
- *
- * @returns The value in force, as text.
  */
 function currentValueOf(envelope: ConfigEnvelope, descriptor: FieldDescriptor): string {
     const value = envelope.config[descriptor.name];
@@ -162,9 +121,7 @@ function lowers(current: string, proposed: string): boolean {
  * @returns The lowerings, in the service's field order; empty when none.
  */
 export function loweredRetention(input: {
-    /** The last read. */
     readonly envelope: ConfigEnvelope;
-    /** The draft being proposed. */
     readonly draft: Readonly<Record<string, string>>;
 }): readonly RetentionLowering[] {
     const found: RetentionLowering[] = [];
@@ -186,13 +143,9 @@ export function loweredRetention(input: {
 
 /**
  * The eight content items the contract owes for one lowered knob (§2).
- *
- * @returns The lines, already in the order the contract lists them.
  */
 function loweringBlock(input: {
-    /** The knob being lowered, with both limits. */
     readonly lowering: RetentionLowering;
-    /** How this knob is described. */
     readonly rule: RetentionRule;
 }): readonly string[] {
     const { lowering, rule } = input;
@@ -216,9 +169,7 @@ function loweringBlock(input: {
  * @returns The lines, empty when the draft lowers no retention knob.
  */
 function loweringLines(input: {
-    /** The last read. */
     readonly envelope: ConfigEnvelope;
-    /** The draft being proposed. */
     readonly draft: Readonly<Record<string, string>>;
 }): readonly string[] {
     return loweredRetention(input).flatMap((lowering) => {
@@ -228,13 +179,9 @@ function loweringLines(input: {
     });
 }
 
-/** One field the draft changes: its name, the limit in force, and the proposal. */
 interface DraftChange {
-    /** Documented field name, from the projection. */
     readonly name: string;
-    /** The value in force. */
     readonly current: string;
-    /** The value the draft proposes. */
     readonly staged: string;
 }
 
@@ -244,13 +191,9 @@ interface DraftChange {
  * One comparison per descriptor — the same `document member ?? descriptor
  * default` baseline the draft itself is built from — so the list a restore
  * names and the list it writes can never disagree.
- *
- * @returns The changes, in the service's field order.
  */
 function changesIn(input: {
-    /** The last read. */
     readonly envelope: ConfigEnvelope;
-    /** The draft being proposed. */
     readonly draft: Readonly<Record<string, string>>;
 }): readonly DraftChange[] {
     const changes: DraftChange[] = [];
@@ -275,9 +218,7 @@ function changesIn(input: {
  * @returns The confirmation, or `null` when this save deletes nothing.
  */
 export function saveConfirmation(input: {
-    /** The last read. */
     readonly envelope: ConfigEnvelope;
-    /** The draft a save would write. */
     readonly draft: Readonly<Record<string, string>>;
 }): SettingsConfirmation | null {
     const lowerings = loweredRetention(input);
@@ -297,13 +238,9 @@ export function saveConfirmation(input: {
 
 /**
  * The confirmation a restore always raises before it writes.
- *
- * @returns The confirmation naming every field the write will change.
  */
 export function restoreConfirmation(input: {
-    /** The last read. */
     readonly envelope: ConfigEnvelope;
-    /** The draft after the declared defaults were staged into it. */
     readonly draft: Readonly<Record<string, string>>;
 }): SettingsConfirmation {
     const changes = changesIn(input);

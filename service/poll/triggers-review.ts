@@ -1,26 +1,5 @@
 /**
- * The **review-request** trigger (002 FR-015, FR-049 – FR-052).
- *
- * Split out of `triggers.ts` for the file-length gate, and for the same reason
- * its assignment sibling was: this is the second trigger whose actor comes from
- * the item's own event list rather than from the feed that detected it. The
- * pulls list names `requested_reviewers` — who is *asked* — and names nobody who
- * asked; the per-item events feed names both, in `requested_reviewer` (the
- * subject) and `review_requester` (the actor).
- *
- * The gate on the listing is therefore **only** the subject match. v1.11.0 also
- * required a readable, non-bot pull-request author, because that author was the
- * proxy it attributed the request to; with the proxy retired there is nothing on
- * the listing that could stand in for the requester, so the author is no longer
- * read at all (002 FR-045's sentence requiring `PollPull`'s author members is
- * struck at v1.12.0). An event whose `review_requester` is unreadable or a bot
- * produces **no event this cycle** (002 FR-052), where the old gate would have
- * refused on the author's account instead and for the wrong reason.
- *
- * `GET /issues/{number}/events` serves a pull request as readily as an issue — a
- * pull request *is* an issue in GitHub's data model, and it is the `issue` member
- * on the response rows that distinguishes the two — so one per-item read answers
- * both kinds and no separate endpoint is introduced (002 FR-049).
+ * The review-request trigger (002 FR-015, FR-049 – FR-052).
  */
 
 import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
@@ -41,8 +20,6 @@ import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
  * case-insensitively. Who asked is not judged here and cannot be — that is what
  * the per-item events read behind this is for, and an empty bound login matches
  * nothing because a listing never reports an empty reviewer login.
- *
- * @returns `true` when that account is one of the requested reviewers.
  */
 export function isReviewRequestPull(pull: PollPull, bindingLogin: string): boolean {
     if (bindingLogin === '') {
@@ -61,8 +38,6 @@ export function isReviewRequestPull(pull: PollPull, bindingLogin: string): boole
  * `review_requester`, so this row carries a fact and there is no inference on it
  * to disclose. The legacy `subject-author` basis remains
  * readable for rows written before this correction and is written by nothing here.
- *
- * @returns The event, with the event-named attribution.
  */
 function reviewEvent(input: {
     /** The binding that produced the window. */
@@ -101,20 +76,15 @@ function reviewEvent(input: {
 }
 
 /**
- * List the review-request feed and collect the events its matches produce (M7).
- *
- * The same pulls list answers a second question: which tracked pull request's
- * **head moved** since the run's seed was recorded (002 FR-102(b)). That branch
- * rides the identical read — one row per pull request, so at most one head
- * follow-up per subject per cycle — and reports every head it observed so the
- * establishing cycle of a run with no seed can record one (FR-103(b)).
- *
- * The list failure ends the branch and is handed up as the cycle's skip, exactly
- * as the assignment branch's read failure is; the per-item reads below report
- * their own outcomes through {@link resolveCandidateActor}, whose two
+ * List the review-request feed and collect the events its matches produce
+ * (M7). The same pulls list answers a second question — which tracked pull's
+ * **head moved** since the run's seed was recorded (002 FR-102(b)) — riding
+ * the identical read, so at most one head follow-up per subject per cycle,
+ * and reporting every head it observed so a run with no seed can record one
+ * (FR-103(b)). The list failure ends the branch and is handed up as the
+ * cycle's skip, exactly as the assignment branch's is; the per-item reads
+ * report their outcomes through {@link resolveCandidateActor}, whose two
  * no-event answers are recorded rather than silent.
- *
- * @returns The review events, or the failure that ended the branch.
  */
 export async function reviewRequestEvents(input: TriggerScanInput): Promise<TriggerEvents> {
     const { binding, poller, token, login, windowStart, detectedAt, pace } = input;

@@ -46,7 +46,6 @@ import { MAX_PROJECTED_FOLLOW_UPS, projectRunHistory } from '../service/poll/run
 import { EVENTS_PATH } from '../service/routes/events.ts';
 import { readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
 import { buildEventId } from '../service/poll/events-write.ts';
-import type { Account } from '../service/accounts/model.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { BindingRecord, BindingTriggers } from '../service/bindings.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
@@ -78,11 +77,12 @@ import type { FollowUpRetryPolicy } from '../src/follow-up.ts';
 import type { PanelHost } from '../src/session.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { RunFollowUp, RunRow } from '../src/dispatches-service.ts';
-import { scopeResults } from './support/verify.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { fixtureAccount } from './support/account-fixture.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Binding id every fixture binds. */
 const BINDING = 'bnd-follow-up';
@@ -195,40 +195,12 @@ afterEach(async (): Promise<void> => {
     logLines = [];
 });
 
-/** Build one stored binding with the given trigger set. */
-function fixtureBinding(triggers: BindingTriggers): BindingRecord {
-    return {
-        bindingId: BINDING,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: REPO_LABEL,
-        projectId: PROJECT_ID,
-        worktreeOption: 'none',
-        triggers,
-        state: 'active',
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-    };
-}
-
-/** Build the active account every fixture binds. */
-function fixtureAccount(): Account {
-    return {
-        numericUserId: ACCOUNT_ID,
-        login: ACCOUNT_LOGIN,
-        expectedLogin: null,
-        displayName: null,
-        startingPrompt: null,
-        credential: { token: 'fixture-token-not-a-real-credential', kind: 'classic', verifiedAt: STAMP },
-        scopeCheck: { checkedAt: STAMP, results: scopeResults('ok') },
-        state: 'active',
-        connectionState: 'connected',
-        verifiedAt: STAMP,
-        errorReason: null,
-        createdAt: STAMP,
-        updatedAt: STAMP,
-    };
-}
+/**
+ * One active binding under this suite's fixture stamp, carrying whatever
+ * trigger set the case is about.
+ */
+const fixtureBinding = (triggers: BindingTriggers): BindingRecord =>
+    fixtureBindingRow(BINDING, { accountLogin: ACCOUNT_LOGIN, triggers, stamp: CREATED_AT });
 
 /** Build one open issue the mention scan resolves titles against. */
 function fixtureIssue(overrides: Partial<PollIssue> = {}): PollIssue {
@@ -359,8 +331,8 @@ function recordingPoller(feeds: {
     };
 }
 
-/** Build one assignment snapshot for a fixture subject. */
-function assignmentSnapshot(input: {
+/** Build one assignment snapshot for a fixture subject (a pull carries a head SHA). */
+function subjectSnapshot(input: {
     readonly issueNumber: number;
     readonly subjectType?: 'issue' | 'pull_request';
     readonly headSha?: string | null;
@@ -391,7 +363,7 @@ function assignmentSnapshot(input: {
 /** Build one review-request snapshot for the fixture pull request. */
 function reviewSnapshot(headSha: string | null): EventSnapshot {
     return {
-        ...assignmentSnapshot({ issueNumber: PULL_NUMBER, subjectType: 'pull_request', headSha }),
+        ...subjectSnapshot({ issueNumber: PULL_NUMBER, subjectType: 'pull_request', headSha }),
         kind: 'review',
         headSha,
         baseRef: 'main',
@@ -511,7 +483,7 @@ async function runCycle(
     recorded: RecordedPoller,
 ): Promise<readonly QueuedEvent[]> {
     await writeBindings({ store, bindings: [binding] });
-    await writeAccount(store, fixtureAccount());
+    await writeAccount(store, fixtureAccount({ stamp: STAMP }));
 
     const cycle = await runScanCycle({ store, log, poller: recorded.poller });
     expect(cycle.bindings).toHaveLength(1);
@@ -533,7 +505,7 @@ async function driveCycle(
     recorded: RecordedPoller,
 ): Promise<BindingScan> {
     await writeBindings({ store, bindings: [binding] });
-    await writeAccount(store, fixtureAccount());
+    await writeAccount(store, fixtureAccount({ stamp: STAMP }));
 
     const cycle = await runScanCycle({ store, log, poller: recorded.poller });
     expect(cycle.bindings).toHaveLength(1);
@@ -676,7 +648,7 @@ describe('FR-100 the join predicate (AC-048)', () => {
     it('joins the run carrying the recorded session, opening no second run or ordinal', async () => {
         {
             const planted = await plantDispatchedRun({
-                deliveries: [assignmentSnapshot({ issueNumber: 7 })],
+                deliveries: [subjectSnapshot({ issueNumber: 7 })],
             });
 
             const queue = await runCycle(
@@ -717,7 +689,7 @@ describe('FR-100 the join predicate (AC-048)', () => {
             await enqueueEvents({
                 store,
                 log,
-                incoming: [createEvent(assignmentSnapshot({ issueNumber: 7 }))],
+                incoming: [createEvent(subjectSnapshot({ issueNumber: 7 }))],
             });
 
             const queue = await runCycle(
@@ -740,7 +712,7 @@ describe('FR-100 the join predicate (AC-048)', () => {
     it('opens the next ordinal for a dead-lettered run, which holds no session', async () => {
         {
             const planted = await plantDispatchedRun({
-                deliveries: [assignmentSnapshot({ issueNumber: 7 })],
+                deliveries: [subjectSnapshot({ issueNumber: 7 })],
                 sessionId: SESSION_ID,
             });
             const document = await readRunsDocument({ store, log });
@@ -778,7 +750,7 @@ describe('FR-100 the join predicate (AC-048)', () => {
 
     it('holds across a restart, a replayed window, a remount, and a repeated observation', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
 
             // The same poller answers the same feed three times over: a replay
             // of the window after a restart, and the panel's own re-read.
@@ -788,7 +760,7 @@ describe('FR-100 the join predicate (AC-048)', () => {
             });
             const binding = fixtureBinding({ assignment: true, mention: true, reviewRequest: false });
             await writeBindings({ store, bindings: [binding] });
-            await writeAccount(store, fixtureAccount());
+            await writeAccount(store, fixtureAccount({ stamp: STAMP }));
 
             await runScanCycle({ store, log, poller: recorded.poller });
             await runScanCycle({ store, log, poller: recorded.poller });
@@ -886,7 +858,7 @@ describe('FR-101 the two id forms (AC-048)', () => {
     it('writes an explicit subjectType from the tracked subject, and refuses a malformed tail', async () => {
         {
             await plantDispatchedRun({
-                deliveries: [assignmentSnapshot({ issueNumber: 7, subjectType: 'pull_request' })],
+                deliveries: [subjectSnapshot({ issueNumber: 7, subjectType: 'pull_request' })],
             });
 
             const queue = await runCycle(
@@ -954,7 +926,7 @@ const REVIEW_ONLY = { assignment: false, mention: false, reviewRequest: true } a
 describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => {
     it('detects a comment follow-up from the comment feed the mention scan already reads', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
 
             const recorded = recordingPoller({
                 issues: [fixtureIssue()],
@@ -995,7 +967,7 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
             const baseline = recordingPoller({ issues: [fixtureIssue()], comments: [] });
             await runCycle(fixtureBinding(MENTION_ONLY), baseline);
 
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
             const withFollowUp = recordingPoller({
                 issues: [fixtureIssue()],
                 comments: [fixtureComment({ commentId: COMMENT_ID })],
@@ -1018,7 +990,7 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
 
     it('issues one terminal read for several follow-ups on the same subject in one cycle (AC-049)', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
 
             // Three comments on the one tracked subject in one cycle: three
             // follow-ups, but a single per-subject terminal read (FR-102).
@@ -1039,7 +1011,7 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
 
     it('refuses a bot author and an unnamed author, and admits a readable one', async () => {
         {
-            const planted = await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            const planted = await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
 
             const queue = await runCycle(
                 fixtureBinding(MENTION_ONLY),
@@ -1087,7 +1059,7 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
 
     it('detects a comment that does not mention the account, because a follow-up is not a trigger', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
 
             const queue = await runCycle(
                 fixtureBinding(MENTION_ONLY),
@@ -1172,7 +1144,7 @@ describe('FR-103 the head-SHA seed (AC-049)', () => {
             // (b) An assignment row carries no headSha, so the run starts with
             // no seed at all.
             const planted = await plantDispatchedRun({
-                deliveries: [assignmentSnapshot({ issueNumber: 7, subjectType: 'pull_request' })],
+                deliveries: [subjectSnapshot({ issueNumber: 7, subjectType: 'pull_request' })],
             });
             expect(planted.lastHeadSha).toBeUndefined();
 
@@ -1197,7 +1169,7 @@ describe('FR-103 the head-SHA seed (AC-049)', () => {
     it('never emits a push follow-up against a null seed', async () => {
         {
             await plantDispatchedRun({
-                deliveries: [assignmentSnapshot({ issueNumber: 7, subjectType: 'pull_request' })],
+                deliveries: [subjectSnapshot({ issueNumber: 7, subjectType: 'pull_request' })],
             });
 
             // The pulls feed carries no SHA at all: an observation with no head
@@ -1216,7 +1188,7 @@ describe('FR-103 the head-SHA seed (AC-049)', () => {
 
     it('seeds nothing for an issue subject, which never produces a push follow-up', async () => {
         {
-            const planted = await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            const planted = await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
 
             const queue = await runCycle(
                 fixtureBinding(REVIEW_ONLY),
@@ -1271,7 +1243,7 @@ describe('FR-103 the head-SHA seed (AC-049)', () => {
 describe('FR-106 the end of tracking (AC-052)', () => {
     it('ends detection for an issue closed as completed, read from the item\'s own endpoint', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
 
             // The **list** carries only the open row a `state=open` feed returns,
             // so the closed state can *only* have come from the single-item read
@@ -1367,7 +1339,7 @@ describe('FR-106 the end of tracking (AC-052)', () => {
 
     it('is one-directional: a follow-up queued before the end still delivers', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
 
             // The cycle in which the follow-up is queued, before any terminal
             // state is observed.
@@ -1403,7 +1375,7 @@ describe('FR-106 the end of tracking (AC-052)', () => {
 
     it('is never ended by the session outcome, only by the item state', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
             const trail = await auditRows();
 
             // A session that reported `failed` is recorded as it is today, and
@@ -1426,7 +1398,7 @@ describe('FR-106 the end of tracking (AC-052)', () => {
 
     it('returns the subject to ordinary detection, and the read answers again', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
 
             // A bare comment on a closed item — the end observed through the
             // item's own read, not from a list row — is neither a follow-up nor a
@@ -1473,7 +1445,7 @@ describe('FR-106 the end of tracking (AC-052)', () => {
 
     it('refuses the binding\'s scan when the read is unreadable, and asks again next cycle (AC-052)', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
             const trail = await auditRows();
 
             // A blameless read failure (offline/timeout/unreadable body) refuses
@@ -1512,7 +1484,7 @@ describe('FR-106 the end of tracking (AC-052)', () => {
 
     it('produces a stop on a 404, never a terminal fact (AC-052)', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
 
             // A deleted or newly inaccessible item arrives as the transport's
             // shared `auth-failed` class (`poller-transport.ts:210`), so it stops
@@ -2676,7 +2648,7 @@ describe("the member's absence", () => {
 
     it('bounds the projected list, so a comment flood cannot grow one row without limit', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
             const comments = Array.from({ length: 30 }, (_unused, index) =>
                 fixtureComment({ commentId: 700 + index }));
 
@@ -2706,7 +2678,7 @@ describe("the member's absence", () => {
             // therefore **walks**: `followUpsFrom` moves its opening to the
             // named id, and the panel advances it as it delivers (FR-104,
             // FR-107).
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
             const comments = Array.from({ length: 21 }, (_unused, index) =>
                 fixtureComment({ commentId: 700 + index }));
 
@@ -2739,7 +2711,7 @@ describe("the member's absence", () => {
 
     it('advances by one window at a time, so every follow-up past the bound is reached', async () => {
         {
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
             const comments = Array.from({ length: 25 }, (_unused, index) =>
                 fixtureComment({ commentId: 700 + index }));
 
@@ -2787,7 +2759,7 @@ describe("the member's absence", () => {
             // Opening early projects a movement sooner than asked; opening late
             // would strand one forever — the failure direction FR-003's rule
             // forbids.
-            await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
             const comments = Array.from({ length: 21 }, (_unused, index) =>
                 fixtureComment({ commentId: 700 + index }));
 
@@ -2992,7 +2964,7 @@ interface HistoryAnswer {
  * @returns The running instance, over the store the seeds were written through.
  */
 async function floodedService(): Promise<TestService> {
-    await plantDispatchedRun({ deliveries: [assignmentSnapshot({ issueNumber: 7 })] });
+    await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
     const comments = Array.from({ length: 21 }, (_unused, index) =>
         fixtureComment({ commentId: 700 + index }));
     await runCycle(

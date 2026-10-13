@@ -1,14 +1,5 @@
 /**
  * Atomic JSON persistence with corruption quarantine.
- *
- * Every store write goes to a temporary sibling file (mode `0600`, fsynced),
- * is renamed over the target, and only then is considered done: a crash or
- * power loss can leave a `.tmp` file behind but never a half-written
- * `config.json` (constitution Principle III — durable and idempotent work).
- * Readers never throw on bad *content*: an unparseable or schema-invalid file
- * is renamed aside as `*.corrupt-<timestamp>-<uuid>` and reported as
- * `quarantined`, so the service keeps running and the operator keeps the
- * evidence (corruption quarantine, never fail-stuck).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -74,8 +65,6 @@ export type JsonReadResult<T> =
  * host runtime runs with, so the pre-rename window never exposes the bytes to
  * anyone but the owner (SEC-13 rule 1). Tests observe that window directly by
  * calling this function against a path inside the target directory.
- *
- * @param tempPath - Absolute path of the temporary file to create.
  */
 export async function writeSyncedTempFile(tempPath: string, text: string): Promise<void> {
     const handle = await fs.open(tempPath, 'w', DATA_FILE_MODE);
@@ -88,18 +77,12 @@ export async function writeSyncedTempFile(tempPath: string, text: string): Promi
 }
 
 /**
- * Rename an unusable file aside and report where it went.
- *
- * @param filePath - Absolute path of the file to quarantine.
- * @returns The quarantine outcome carrying the new path, or the same
- *   quarantine with a `null` path when a concurrent reader renamed the file
- *   first — the document was invalid and has been set aside either way, so
- *   the *fact* never degrades to absence and only the path is unknown
- *   (006 contract §3 rule 9: invalid file ⇒ `quarantined`).
- * @throws {StorageUnavailableError} When the rename fails for any reason other
- *   than that disappearance, because a file the service cannot read *and*
- *   cannot set aside means the store is unusable — that is a storage failure to
- *   surface, not a state to keep retrying.
+ * Rename an unusable file aside and report where it went. A concurrent
+ * reader that renamed first still answers `quarantined` with a `null` path,
+ * because the *fact* never degrades to absence and only the path is unknown
+ * (006 contract §3 rule 9). A rename that fails for any other reason throws:
+ * a file the service cannot read *and* cannot set aside means the store is
+ * unusable — a storage failure to surface, not a state to keep retrying.
  */
 async function quarantine(
     filePath: string,
@@ -130,11 +113,6 @@ async function quarantine(
 
 /**
  * Write a JSON document atomically: temp file, fsync, rename.
- *
- * @param filePath - Absolute path of the file to replace or create.
- * @param value - Any JSON-serialisable value.
- * @throws {StorageUnavailableError} When the directory cannot be created or
- *   the file cannot be written; a leftover temporary file is cleaned up first.
  */
 export async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
     const text = `${JSON.stringify(value, null, JSON_INDENT)}\n`;
@@ -163,9 +141,6 @@ const SWEEP_MAX_DEPTH = 3;
  * Readers ignore these by construction (they open exact target names), so the
  * only thing left to do with one is sweep it — it must never shadow a real
  * target or linger world-readable (contract §6 rule 5).
- *
- * @param name - File name inside the store.
- * @returns `true` for `<target>.tmp<uuid>` debris.
  */
 export function isTempDebris(name: string): boolean {
     return TEMP_DEBRIS_PATTERN.test(name);
@@ -173,10 +148,6 @@ export function isTempDebris(name: string): boolean {
 
 /**
  * Remove orphaned temporary files under a directory, recursively but bounded.
- *
- * @param dirPath - Absolute directory to sweep; a missing one sweeps nothing.
- * @param depth - Remaining recursion depth.
- * @returns How many debris files were removed (removal is best-effort).
  */
 export async function sweepTempDebris(dirPath: string, depth: number = SWEEP_MAX_DEPTH): Promise<number> {
     if (depth < 0) {
@@ -208,13 +179,6 @@ export async function sweepTempDebris(dirPath: string, depth: number = SWEEP_MAX
 
 /**
  * Read and validate a store file, quarantining it when it cannot be used.
- *
- * @param filePath - Absolute path of the file to read.
- * @param validate - Shape check run against the parsed document; return
- *   `null` to reject it as unusable (which quarantines the file).
- * @returns The stored value, absence, or the quarantine path.
- * @throws {StorageUnavailableError} When the file exists but the filesystem
- *   refuses to read it, or when the quarantine rename itself fails.
  */
 export async function readJsonFile<T>(
     filePath: string,

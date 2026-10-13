@@ -1,19 +1,6 @@
 /**
  * `POST /v1/accounts/verify` — the credential handoff (token-handoff §2
  * steps ④–⑦, contract §2.2).
- *
- * Order is the contract's, and each step refuses before the next one runs:
- * storage availability → body shape → throttle slot → GitHub
- * `/user` (15 s abort, service-owned `fetch`) → identity rules (case-insensitive
- * `expectedLogin` fail-closed, duplicate id `409`) → persist → respond. The
- * credential file is written **only after `/user` succeeds** and the success
- * body is produced **only after the persist completes**, so a crash in between
- * leaves a complete account rather than a half-registered one (SEC-05/F13).
- *
- * Nothing here logs or echoes a token: the audit writer is handed identities
- * and reason classes only, and the whole route runs behind
- * {@link guardCredentialRoute}, which converts any unexpected throw into a
- * `500` whose log line carries an error *kind* rather than a message (SEC-11).
  */
 
 import { newCorrelationId, nowIso } from '../../src/ids.ts';
@@ -48,19 +35,16 @@ const LOGIN_MISMATCH_MESSAGE = 'the token belongs to a different GitHub login th
 interface VerifyDeps {
     /** Open credential store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }
 
 /** One handoff once GitHub has answered: everything the follow-up needs. */
 interface VerifyAttempt {
-    /** Store and logger. */
     readonly deps: VerifyDeps;
     /** The parsed handoff request (carries the token; never logged). */
     readonly credential: CredentialRequest;
     /** The classified GitHub outcome. */
     readonly outcome: VerifyOutcome;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }
 
@@ -73,13 +57,11 @@ type AcceptedAttempt = Omit<VerifyAttempt, 'outcome'> & {
  * Append an `account.rejected` audit row carrying only a reason class.
  */
 async function recordRejection(input: {
-    /** Store and logger. */
     readonly deps: VerifyDeps;
     /** Machine-readable reason class. */
     readonly reason: string;
     /** Identity from `/user`, when the refusal has one. */
     readonly identity: GitHubIdentity | null;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }): Promise<void> {
     const { deps, reason, identity, correlationId } = input;
@@ -102,9 +84,6 @@ async function recordRejection(input: {
 
 /**
  * Classify a non-`ok` outcome into its documented response.
- *
- * @param attempt - The handoff attempt, GitHub's answer already classified.
- * @returns The response; nothing has been persisted at this point.
  */
 async function refusalFor(attempt: VerifyAttempt): Promise<HttpResponse> {
     const { outcome, deps, correlationId } = attempt;
@@ -129,7 +108,6 @@ async function refusalFor(attempt: VerifyAttempt): Promise<HttpResponse> {
  * Log the free rate-limit baseline; numbers only, never credential material.
  */
 function reportRateBaseline(input: {
-    /** Store and logger. */
     readonly deps: VerifyDeps;
     /** Identity the baseline belongs to. */
     readonly identity: GitHubIdentity;
@@ -160,11 +138,9 @@ function reportRateBaseline(input: {
  * answering "failed" now would only send the panel into a `409` on retry.
  */
 async function recordVerified(input: {
-    /** Store and logger. */
     readonly deps: VerifyDeps;
     /** The account that was persisted. */
     readonly account: Account;
-    /** Correlation id for the chain. */
     readonly correlationId: string;
 }): Promise<void> {
     const { deps, account, correlationId } = input;
@@ -192,8 +168,6 @@ async function recordVerified(input: {
 
 /**
  * Persist a freshly verified account and answer `201` (SEC-05 ordering).
- *
- * @returns The `201` identity body (contract §2.2).
  */
 async function persistVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
     const { deps, credential, correlationId, outcome } = attempt;
@@ -235,8 +209,6 @@ async function persistVerified(attempt: AcceptedAttempt): Promise<HttpResponse> 
 
 /**
  * Accept a successful verification: identity rules, then persist.
- *
- * @returns The `201` body, or the fail-closed refusal that beat it.
  */
 async function acceptVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
     const { deps, credential, correlationId, outcome } = attempt;
@@ -264,8 +236,6 @@ async function acceptVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
 
 /**
  * Run one handoff from body to response.
- *
- * @returns The documented response for this outcome.
  */
 async function handleVerify(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;

@@ -66,6 +66,7 @@ import { ACCOUNT_TIER_SENTINEL } from './support/prompt-tiers.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import { createTestRuntime, fakeHost } from './support/panel.ts';
+import { shallowStringsIn } from './support/ui-stubs.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -271,23 +272,6 @@ function accountsState(input: {
 }
 
 /**
- * Read every string one mount was handed.
- *
- * @returns The strings among them, in property order.
- */
-function stringsIn(props: unknown): readonly string[] {
-    if (typeof props === 'string') {
-        return [props];
-    }
-
-    if (typeof props !== 'object' || props === null) {
-        return [];
-    }
-
-    return Object.values(props).filter((value): value is string => typeof value === 'string');
-}
-
-/**
  * Mount only the Accounts body against the recording SDK stub.
  *
  * @param setup - State to arrange before the body mounts.
@@ -317,7 +301,7 @@ function mountAccountsTab(setup?: (rt: PanelRuntime) => void): {
         throw new Error('the Accounts body mounted no disposer');
     }
 
-    const strings = mounts.log.flatMap((entry) => stringsIn(entry.props));
+    const strings = mounts.log.flatMap((entry) => shallowStringsIn(entry.props));
 
     return { rt, dispose, created: dom.created, strings };
 }

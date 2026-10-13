@@ -27,7 +27,6 @@ import { readdir, writeFile } from 'node:fs/promises';
 
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createLogger } from '../service/log.ts';
 import { windowFor } from '../service/poll/loop.ts';
 import { BASELINE_UNREADABLE, STAMP_UNREADABLE } from '../service/poll/window.ts';
 import {
@@ -38,11 +37,12 @@ import {
     readScanState,
 } from '../service/poll/scan.ts';
 import { openStore } from '../service/store/index.ts';
-import type { BindingRecord } from '../service/bindings.ts';
-import type { ServiceLogger } from '../service/log.ts';
+import type { BindingTriggers } from '../service/bindings.ts';
 import type { BindingScanState } from '../service/poll/scan.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Binding id used by every fixture slot. */
 const BINDING_ID = 'bnd-quarantine';
@@ -96,21 +96,6 @@ afterEach(async (): Promise<void> => {
 });
 
 /**
- * Build a logger that records every line it is asked to write.
- */
-function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
-    const lines: string[] = [];
-    const log = createLogger({
-        level: 'debug',
-        sink: (line: string) => {
-            lines.push(line);
-        },
-    });
-
-    return { log, lines };
-}
-
-/**
  * Write one scan-state document straight into the store directory.
  *
  * The bytes are exactly what the loop writes: serialized JSON, no formatting.
@@ -130,25 +115,15 @@ async function quarantined(): Promise<string[]> {
     return entries.filter((entry) => entry.includes('.corrupt-'));
 }
 
-/**
- * Build the fixture binding record the window calculation reads.
- *
- * @returns A complete stored binding row.
- */
-function fixtureBinding(): BindingRecord {
-    return {
-        bindingId: BINDING_ID,
-        accountNumericUserId: '77331',
-        accountLogin: 'octocat-mt',
-        repository: 'acme/widget',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-    };
-}
+/** Trigger set the fixture binding carries: assignment polling only. */
+const ASSIGNMENT_ONLY: BindingTriggers = { assignment: true, mention: false, reviewRequest: false };
+
+/** The one binding the window calculation reads. */
+const FIXTURE_BINDING = fixtureBindingRow(BINDING_ID, {
+    accountLogin: 'octocat-mt',
+    triggers: ASSIGNMENT_ONLY,
+    stamp: CREATED_AT,
+});
 
 /**
  * The fixture binding's slot, or the **absent-slot** answer when `null`.
@@ -297,7 +272,7 @@ describe('windowFor (a verdict, never "no window")', () => {
         {
             const scanned = stateWith(fixtureSlot({ lastScanAt: SCANNED_AT }));
 
-            const verdict = windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS });
+            const verdict = windowFor({ binding: FIXTURE_BINDING, scanned, overlapMs: OVERLAP_MS });
             expect(verdict).toEqual({ window: WIDENED_AT });
             expect(Date.parse(WIDENED_AT)).toBeLessThan(Date.parse(SCANNED_AT));
         }
@@ -312,7 +287,7 @@ describe('windowFor (a verdict, never "no window")', () => {
                 baselineAt: BASELINE_AT,
             });
 
-            expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toEqual({
+            expect(windowFor({ binding: FIXTURE_BINDING, scanned, overlapMs: OVERLAP_MS })).toEqual({
                 window: BASELINE_AT,
             });
         }
@@ -326,7 +301,7 @@ describe('windowFor (a verdict, never "no window")', () => {
             // opens nothing carries a recorded reason (FR-065, FR-072).
             const scanned = stateWith(fixtureSlot({ lastScanAt: null, lastError: SKIP_REASON }));
 
-            expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toEqual({
+            expect(windowFor({ binding: FIXTURE_BINDING, scanned, overlapMs: OVERLAP_MS })).toEqual({
                 refused: BASELINE_UNREADABLE,
             });
         }
@@ -335,7 +310,7 @@ describe('windowFor (a verdict, never "no window")', () => {
     it('**refuses** for a binding the state file never mentions', async () => {
         {
             expect(windowFor({
-                binding: fixtureBinding(),
+                binding: FIXTURE_BINDING,
                 scanned: stateWith(null),
                 overlapMs: OVERLAP_MS,
             })).toEqual({ refused: BASELINE_UNREADABLE });
@@ -354,7 +329,7 @@ describe('windowFor (a verdict, never "no window")', () => {
                 rescanFrom: RESCAN_AT,
             });
 
-            expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toEqual({
+            expect(windowFor({ binding: FIXTURE_BINDING, scanned, overlapMs: OVERLAP_MS })).toEqual({
                 window: RESCAN_AT,
             });
         }
@@ -375,7 +350,7 @@ describe('windowFor (a verdict, never "no window")', () => {
             });
 
             for (const scope of [undefined, 'new-only', 'recent-history'] as const) {
-                const binding = { ...fixtureBinding(), ...(scope !== undefined && { historyScope: scope }) };
+                const binding = { ...FIXTURE_BINDING, ...(scope !== undefined && { historyScope: scope }) };
 
                 expect(windowFor({ binding, scanned, overlapMs: OVERLAP_MS })).toEqual({ window: BASELINE_AT });
             }
@@ -396,7 +371,7 @@ describe('windowFor (a verdict, never "no window")', () => {
                 forceReplay: true,
             });
 
-            expect(windowFor({ binding: fixtureBinding(), scanned: unreadable, overlapMs: OVERLAP_MS })).toEqual({
+            expect(windowFor({ binding: FIXTURE_BINDING, scanned: unreadable, overlapMs: OVERLAP_MS })).toEqual({
                 refused: BASELINE_UNREADABLE,
             });
 
@@ -405,7 +380,7 @@ describe('windowFor (a verdict, never "no window")', () => {
             // is such a source, and it is an explicit operator request.
             const armed = stateWith({ ...unreadable, rescanFrom: RESCAN_AT });
 
-            expect(windowFor({ binding: fixtureBinding(), scanned: armed, overlapMs: OVERLAP_MS })).toEqual({
+            expect(windowFor({ binding: FIXTURE_BINDING, scanned: armed, overlapMs: OVERLAP_MS })).toEqual({
                 window: RESCAN_AT,
             });
 
@@ -414,7 +389,7 @@ describe('windowFor (a verdict, never "no window")', () => {
             // a different fact, so the scan proceeds on it.
             const incremental = stateWith({ ...unreadable, forceReplay: false, lastScanAt: SCANNED_AT });
 
-            expect(windowFor({ binding: fixtureBinding(), scanned: incremental, overlapMs: OVERLAP_MS })).toEqual({
+            expect(windowFor({ binding: FIXTURE_BINDING, scanned: incremental, overlapMs: OVERLAP_MS })).toEqual({
                 window: new Date(Date.parse(SCANNED_AT) - OVERLAP_MS).toISOString(),
             });
         }
@@ -424,7 +399,7 @@ describe('windowFor (a verdict, never "no window")', () => {
         {
             const scanned = stateWith({ ...emptyBindingScan(), lastScanAt: 'not-a-stamp', baselineAt: BASELINE_AT });
 
-            expect(windowFor({ binding: fixtureBinding(), scanned, overlapMs: OVERLAP_MS })).toEqual({
+            expect(windowFor({ binding: FIXTURE_BINDING, scanned, overlapMs: OVERLAP_MS })).toEqual({
                 refused: STAMP_UNREADABLE,
             });
         }
@@ -448,7 +423,7 @@ describe('windowFor (a verdict, never "no window")', () => {
 
             for (const slot of slots) {
                 for (const scope of scopes) {
-                    const binding = { ...fixtureBinding(), ...(scope !== undefined && { historyScope: scope }) };
+                    const binding = { ...FIXTURE_BINDING, ...(scope !== undefined && { historyScope: scope }) };
                     const verdict = windowFor({ binding, scanned: slot, overlapMs: OVERLAP_MS });
 
                     expect(Object.keys(verdict).length, JSON.stringify({ slot, scope })).toBe(1);

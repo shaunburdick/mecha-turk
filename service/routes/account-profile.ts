@@ -1,24 +1,7 @@
 /**
- * The account profile write: `PUT /v1/accounts/:numericUserId` and the closed
- * body it reads (005 FR-066, 004 FR-082; contract `account-display-name.md` §2
- * and `layered-prompt.md` §2).
- *
- * This module owns the surface's **one** operator write for the record, split
- * out of [`accounts.ts`](./accounts.ts) so each file keeps one responsibility
- * (AGENTS.md) and the account routes file stays inside its length gate. The
- * path constant and the two refusal/path helpers it shares with the delete and
- * rotation handlers stay in `accounts.ts`, which does not import this module —
- * the dependency runs one way, `index.ts → account-profile.ts → accounts.ts`,
- * so there is no cycle.
- *
- * The body is a **closed set of exactly two members**: an absent member means
- * unchanged, a body carrying neither is refused as a no-op, and any other key
- * is refused — named when it is an ordinary identifier, reported under `body`
- * when the name itself is not safe to echo — always with zero characters of
- * its value echoed. Issues are
- * collected additively in one pass and **any** issue refuses the whole write —
- * nothing observed, nothing written, no `updatedAt`, no audit row (005 §2
- * invariants 4–6; constitution II).
+ * The account profile write: `PUT /v1/accounts/:numericUserId` and the
+ * closed body it reads (005 FR-066, 004 FR-082; account-display-name §2,
+ * layered-prompt §2).
  */
 
 import { nowIso } from '../../src/ids.ts';
@@ -43,15 +26,13 @@ type ProfileMember<T> =
     | { readonly present: true; readonly value: T };
 
 /**
- * The only shape a member name may have to be echoed back in a refusal.
- *
- * The eleven custody and identity keys are ordinary identifiers, so they are
- * still named exactly as the closed-set contract promises; anything else —
- * whitespace, punctuation, control characters, an emoji run, a pasted token —
- * is submitted input of an unknown shape, and a `422` that echoed it would be
- * a reflection surface as well as an unbounded one — the length bound itself
- * rides {@link truncatedFieldName}, applied only once the name is known to be
- * safe to print.
+ * The only shape a member name may have to be echoed back in a refusal. The
+ * eleven custody and identity keys are ordinary identifiers and are named
+ * exactly as the closed-set contract promises; anything else — whitespace,
+ * punctuation, control characters, an emoji run, a pasted token — is
+ * submitted input of an unknown shape, and a `422` that echoed it would be
+ * a reflection surface as well as an unbounded one, so the length bound
+ * rides {@link truncatedFieldName} only once the name is known safe to print.
  */
 const SAFE_FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -86,8 +67,6 @@ interface ProfileScratch {
  * Absent means *refused*, never "nothing to do": a PUT that silently no-ops on
  * a missing member teaches a client that omitting a field clears or preserves
  * something, and this route promises neither (005 contract §2, invariant 4).
- *
- * @returns The `422 validation` issue naming both members it owes.
  */
 function profileBodyRefusal(): FieldIssue {
     return {
@@ -98,24 +77,13 @@ function profileBodyRefusal(): FieldIssue {
 
 /**
  * The refusal for a key outside the closed set: the key, never its value.
- *
- * The eleven custody and identity keys are the documented cases and are named
- * by name (005 §2, invariant 6) — naming them is the whole point of a closed
- * whitelist: they are refused *explicitly* rather than merely unreachable.
- * Two kinds of key are reported under `body` instead, each for its own reason:
- * a key that is itself credential-shaped, because the secret rule outranks
- * naming (a member name is submitted input too — 004 FR-024), and a
- * key that is not an ordinary identifier at all, because a name the service
- * cannot vouch for must not be reflected back into the envelope that restates
- * every `field: remediation` pair. An identifier-shaped name is echoed through
- * {@link truncatedFieldName}, so it reaches the answer cut to the shared
- * `MAX_ECHOED_FIELD_CHARS` bound rather than whole.
- *
- * In no branch is the key's **value** read, quoted, or measured — only the
- * member name itself is ever considered, and only to decide what to refuse.
- *
- * @param key - The offending member name, exactly as it arrived.
- * @returns The issue naming the key, or the value-free `body` refusal.
+ * The eleven custody and identity keys are refused by name (005 §2,
+ * invariant 6) — naming them is the point of a closed whitelist. Two kinds go
+ * under `body` instead: a credential-shaped key, because the secret rule
+ * outranks naming (004 FR-024), and a name the service cannot vouch for,
+ * because it must not be reflected into the envelope that restates every
+ * `field: remediation` pair. No branch reads, quotes, or measures the key's
+ * **value** — only the member name, and only to decide what to refuse.
  */
 function unexpectedProfileMemberIssue(key: string): FieldIssue {
     const shape = findSecretLeak(key);
@@ -180,23 +148,13 @@ function readProfileKey(input: {
 }
 
 /**
- * Read a request body as the account profile's **closed** two-member set.
- *
- * One additive pass over the body (004 FR-027's atomicity on this surface):
- * unknown keys and member validation are collected together so a single `422`
- * answers the whole submission, and **any** issue at all refuses the write —
- * nothing is read, written, stamped, or audited once a problem is found
- * (005 contract §2, invariants 4–6).
- *
- * An absent member means unchanged (004 FR-014's omission-preserves posture
- * applied to this record); `null`, `""`, or whitespace-only clears the member
- * they name. `displayName` runs through the shipped six-step
- * {@link validateDisplayName}, `startingPrompt` through the single
- * {@link validateStartingPrompt} under its own field name — identical shape
- * labels to the bindings and configuration paths.
- *
- * @param raw - The parsed request body, exactly as it arrived.
- * @returns The two members, or every issue the body carries.
+ * Read a request body as the account profile's **closed** two-member set —
+ * one additive pass over the body (004 FR-027's atomicity): unknown keys and
+ * member validation are collected together so a single `422` answers the
+ * whole submission, and **any** issue refuses the write, nothing being read,
+ * written, stamped or audited (005 contract §2, invariants 4–6). An absent
+ * member means unchanged (004 FR-014); `null`, `""`, or whitespace-only
+ * clears the member it names.
  */
 function profileBodyOf(raw: unknown): ProfileBodyVerdict {
     if (!isRecord(raw)) {
@@ -241,11 +199,8 @@ type ProfileOutcome =
  * claims any hand edit the stored record carries; the post-write observation
  * claims only this submission's own change, so exactly one row exists per
  * change and a `displayName`-only write appends none at all.
- *
- * @returns The outcome the handler answers with.
  */
 async function runProfileWrite(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Structured logger for the observations' failure lines. */
     readonly log: ServiceLogger;
@@ -294,8 +249,6 @@ async function runProfileWrite(input: {
  * and the account's `startingPrompt` tier (004 FR-082) ride the
  * same route instead of a dedicated endpoint per field. `401` and `503` are
  * the route guard's and the store check's, unchanged.
- *
- * @returns `200 { account }`, or the documented 404/422/503.
  */
 async function handleAccountProfile(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;

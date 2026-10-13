@@ -1,27 +1,11 @@
 /**
  * Stored schema and parser for one relay event.
- *
- * `events.json` is one flat array of {@link QueuedEvent} rows, and this module
- * owns the whole read side of that contract: the row type, the field
- * vocabulary the writer emits, and the validator the store runs before it
- * trusts a file. The parse block lives apart from `events.ts` (chain, enqueue,
- * claim, dispatch) so each module stays inside the file-length gate; the queue
- * module re-exports everything here so callers keep one import path.
- *
- * `issueNumber` is a **number** on both the writer and the wire, so it is
- * deliberately *not* in {@link REQUIRED_FIELDS}: that list is the text set,
- * validated with `typeof value === 'string'`, and requiring text there made the
- * writer's own output fail validation — every `events.json` was quarantined on
- * first read and the pending queue was silently lost. The field keeps its own
- * presence-and-shape check in {@link parseStoredEvent} via `positiveIntOf`, so
- * a missing, string, zero, or fractional value still quarantines the file.
  */
 
 import { isRecord } from '../json.ts';
 import { actorFieldsOf, readActorAttributionField, readActorLoginField } from './attribution.ts';
 import type { ActorAttribution } from './attribution.ts';
 
-/** Store file holding the event queue. */
 export const EVENTS_FILE = 'events.json';
 
 /**
@@ -31,10 +15,8 @@ export const EVENTS_FILE = 'events.json';
  */
 export type EventKind = 'assignment' | 'mention' | 'review';
 
-/** Lifecycle of one relay event, as the shipped three-state queue stored it. */
 export type EventState = 'pending' | 'in-flight' | 'dispatched';
 
-/** The subject shapes a delivery can be about. */
 export type SubjectType = 'issue' | 'pull_request';
 
 /**
@@ -43,13 +25,10 @@ export type SubjectType = 'issue' | 'pull_request';
  */
 export type { ActorAttribution } from './attribution.ts';
 
-/** One relay event, exactly as stored and shipped. */
 export interface QueuedEvent {
     /** Deterministic `[A-Za-z0-9._~|-]`-shaped id, usable as one path segment. */
     readonly id: string;
-    /** Binding that produced this event. */
     readonly bindingId: string;
-    /** Trigger kind: assignment, mention, or review. */
     readonly kind: EventKind;
     /** The repository in `owner/name` form. */
     readonly repository: string;
@@ -64,7 +43,6 @@ export interface QueuedEvent {
     readonly issueNumber: number;
     /** Issue title; untrusted source text. */
     readonly issueTitle: string;
-    /** Canonical GitHub issue URL. */
     readonly issueUrl: string;
     /** Truncated issue body; untrusted source text, bounded at enqueue. */
     readonly issueBodyExcerpt: string;
@@ -107,29 +85,21 @@ export interface QueuedEvent {
     /** Session id or failure text the panel reported; absent on a run-layer row. */
     readonly dispatchResult?: string | null;
     /**
-     * RFC 3339 stamp the retention pass cleared `issueBodyExcerpt` at, absent on
-     * every row that pass has not touched.
-     *
-     * This is the distinction a reader has to be able to make: a cleared row
-     * (`issueBodyExcerpt: ''` **with** this stamp) is not a row that never
-     * carried a body (`issueBodyExcerpt: ''` without it). Absentable and
-     * additive — older rows parse identically, and the marker survives a store
-     * round trip because it is parsed back with the rest of the row.
+     * RFC 3339 stamp the retention pass cleared `issueBodyExcerpt` at, absent
+     * on every row that pass has not touched. This is the distinction a reader
+     * has to be able to make: a cleared row (`issueBodyExcerpt: ''` **with**
+     * this stamp) is not a row that never carried one. Absentable and
+     * additive — older rows parse identically, and the marker survives a
+     * store round trip.
      */
     readonly excerptTrimmedAt?: string;
     /**
-     * The GitHub login this delivery is attributed to.
-     *
-     * **Absentable on read, validated when present**, and both rules live in
-     * [`attribution.ts`](./attribution.ts) beside the basis's own vocabulary.
-     * A row enqueued before this member existed carries none and keeps none:
-     * requiring it would quarantine every pre-existing row, which is a
-     * migration by side effect. Absence is not a permission — the
-     * authorization gate refuses a run whose references name no readable actor
-     * rather than reading absence as allowed.
-     *
-     * Public repository identity, never a credential, so the member is
-     * credential-free by construction.
+     * The GitHub login this delivery is attributed to. **Absentable on read,
+     * validated when present**, both rules living beside the basis's own
+     * vocabulary in `attribution.ts`: a row enqueued before the member existed
+     * must still parse, and absence is not permission — the gate refuses a run
+     * whose references name no readable actor. Public repository identity,
+     * never a credential.
      */
     readonly actorLogin?: string;
     /**
@@ -146,7 +116,8 @@ export interface QueuedEvent {
  * Every field a stored event must carry as non-empty text.
  *
  * `issueNumber` is absent on purpose — it is a number, checked by
- * `positiveIntOf` in {@link parseStoredEvent}; see the module header.
+ * `positiveIntOf` in {@link parseStoredEvent}; requiring it as text once made writer output fail
+ * validation, quarantining every `events.json` on first read and silently losing the pending queue.
  */
 const REQUIRED_FIELDS = [
     'id',
@@ -165,25 +136,18 @@ const REQUIRED_FIELDS = [
 
 /**
  * Fields a row may carry as text, as literal `null`, or omit entirely: the
- * pull-request coordinates *and* the frozen legacy lifecycle stamps (a row the
- * run layer enqueued carries neither).
- *
- * The queue file outlives the build that wrote it: a file written before the
- * coordinates existed has no `headSha`/`baseRef` at all, a row written before
- * the run layer has all four lifecycle fields, and every row written after it
- * has none — all three shapes must keep parsing, because an unreadable file
- * would quarantine a healthy queue and reset every binding's window for
- * nothing.
+ * pull-request coordinates *and* the frozen legacy lifecycle stamps. The
+ * queue file outlives the build that wrote it — all three shapes
+ * (pre-coordinates, pre-run-layer, post-run-layer) must keep parsing,
+ * because an unreadable file would quarantine a healthy queue and reset
+ * every binding's window for nothing.
  */
 const ABSENTABLE_FIELDS = ['headSha', 'baseRef', 'claimedAt', 'dispatchedAt', 'dispatchResult'] as const;
 
-/** Queue states the file may carry. */
 const KNOWN_STATES = new Set<string>(['pending', 'in-flight', 'dispatched']);
 
-/** Trigger kinds the writer and migration know how to interpret. */
 const KNOWN_KINDS = new Set<string>(['assignment', 'mention', 'review']);
 
-/** Subject shapes a delivery may carry. */
 const SUBJECT_TYPES: ReadonlySet<string> = new Set(['issue', 'pull_request']);
 
 /**
@@ -219,19 +183,11 @@ const HEAD_TAIL = /^head~[0-9a-f]+$/;
 type IdDiscriminator =
     /** Not a follow-up: a bare base, or one of the trigger discriminators. */
     | { readonly role: 'trigger' }
-    /** A comment follow-up, carrying its comment id. */
     | { readonly role: 'comment'; readonly commentId: number }
-    /** A head-SHA follow-up, carrying the observed SHA. */
     | { readonly role: 'head'; readonly headSha: string }
     /** Carries the `followup` segment with a tail outside the family. */
     | { readonly role: 'malformed' };
 
-/**
- * Read one id's discriminator segment, at its fixed position after the base.
- *
- * @returns What the segment says, including the malformed case a stored row
- *   can only reach by hand.
- */
 function discriminatorOfId(id: string): IdDiscriminator {
     const segments = id.split('~');
     if (segments.length <= ID_BASE_SEGMENTS + 1 || segments[ID_BASE_SEGMENTS] !== FOLLOW_UP_SEGMENT) {
@@ -249,18 +205,11 @@ function discriminatorOfId(id: string): IdDiscriminator {
 }
 
 /**
- * Read which of the two follow-up kinds one row is, from its deterministic id.
- *
  * The id is the only place a follow-up's role lives: the row carries **no**
  * member for it (002 FR-107), and its `kind` and `subjectType` are the closed
  * unions every other row uses. Reading the role back from the same string the
  * writer derived it from is therefore not a shortcut but the only shape that
  * adds no stored member at all.
- *
- * @param id - The row's deterministic id.
- * @returns `'comment'` or `'head'`, or `null` when the id is not a follow-up
- *   id — including one whose `followup` tail is outside the family, which is
- *   refused by the row's own validator rather than half-read here.
  */
 export function followUpKindOf(id: string): FollowUpKind | null {
     const read = discriminatorOfId(id);
@@ -272,7 +221,6 @@ export function followUpKindOf(id: string): FollowUpKind | null {
  * Whether one id's follow-up discriminator, when it carries one, is inside the
  * family (002 FR-101, FR-024).
  *
- * @param id - The row's deterministic id.
  * @returns `false` only for a stored id whose `followup` tail is neither a
  *   positive decimal comment id nor `head~<hex sha>`.
  */
@@ -285,8 +233,6 @@ const RUN_CORRELATION_ID = /^mt-run-[0-9a-f]{24}$/;
 
 /**
  * Validate the event fields that must carry usable text.
- *
- * @returns `true` when every field is usable text.
  */
 function isUsableTextFieldSet(record: Record<string, unknown>, fields: readonly string[]): boolean {
     return fields.every((field) => {
@@ -299,8 +245,6 @@ function isUsableTextFieldSet(record: Record<string, unknown>, fields: readonly 
 /**
  * Validate the fields a row may carry as text, as literal `null`, or omit
  * entirely (the coordinates and the frozen legacy lifecycle stamps).
- *
- * @returns `true` when every field is absent, `null`, or text.
  */
 function isAbsentableTextFieldSet(record: Record<string, unknown>, fields: readonly string[]): boolean {
     return fields.every((field) => {
@@ -312,17 +256,10 @@ function isAbsentableTextFieldSet(record: Record<string, unknown>, fields: reado
 
 /**
  * Read the positive integer field the writer emits for `issueNumber`.
- *
- * @returns The integer, or `null` when the value is not one.
  */
 function positiveIntOf(value: unknown): number | null {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
-/**
- * Validate the stored `state` field.
- *
- * @returns The state name, or `null` when it is from another vocabulary.
- */
 function knownStateOf(value: unknown): string | null {
     if (typeof value !== 'string' || !KNOWN_STATES.has(value)) {
         return null;
@@ -331,13 +268,6 @@ function knownStateOf(value: unknown): string | null {
     return value;
 }
 
-/**
- * Read the frozen legacy `state` field.
- *
- * @returns `undefined` when the row carries no state (a row the run layer
- *   enqueued), the state when it is from the shipped vocabulary, or `null` when
- *   it is not.
- */
 function readStateField(record: Record<string, unknown>): EventState | undefined | null {
     if (record.state === undefined) {
         return undefined;
@@ -346,12 +276,6 @@ function readStateField(record: Record<string, unknown>): EventState | undefined
     return knownStateOf(record.state) as EventState | null;
 }
 
-/**
- * Read the `subjectType` field.
- *
- * @returns `undefined` when the row predates it, the subject shape, or `null`
- *   when the value is neither shape.
- */
 function readSubjectTypeField(record: Record<string, unknown>): SubjectType | undefined | null {
     const value = record.subjectType;
     if (value === undefined) {
@@ -361,12 +285,6 @@ function readSubjectTypeField(record: Record<string, unknown>): SubjectType | un
     return typeof value === 'string' && SUBJECT_TYPES.has(value) ? (value as SubjectType) : null;
 }
 
-/**
- * Read the `runCorrelationId` field.
- *
- * @returns `undefined` when the row has no run yet, the id, or `null` when
- *   the value is not a service-minted id.
- */
 function readRunLinkField(record: Record<string, unknown>): string | undefined | null {
     const value = record.runCorrelationId;
     if (value === undefined) {
@@ -376,14 +294,6 @@ function readRunLinkField(record: Record<string, unknown>): string | undefined |
     return typeof value === 'string' && RUN_CORRELATION_ID.test(value) ? value : null;
 }
 
-/**
- * Read the retention marker the excerpt pass writes.
- *
- * @returns `undefined` when the row carries no marker (a literal `null`
- *   counts as absent), the stamp when it parses as a date, or `null` when the
- *   value cannot be trusted — which refuses the row rather than guessing at
- *   what it meant (invariant 8).
- */
 function readTrimMarkerField(record: Record<string, unknown>): string | undefined | null {
     const value = record.excerptTrimmedAt;
     if (value === undefined || value === null) {
@@ -397,20 +307,12 @@ function readTrimMarkerField(record: Record<string, unknown>): string | undefine
     return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
-/**
- * Whether one stored `kind` is from the closed union the writer emits.
- *
- * @param kind - The candidate member.
- * @returns `true` for `assignment`, `mention`, or `review`.
- */
 function isKnownKind(kind: unknown): boolean {
     return typeof kind === 'string' && KNOWN_KINDS.has(kind);
 }
 
 /**
  * Validate every text, lifecycle, and run-link field of one stored row.
- *
- * @returns `true` when all fields hold usable values or are absent.
  */
 function fieldsHold(record: Record<string, unknown>): boolean {
     return (
@@ -434,13 +336,9 @@ function fieldsHold(record: Record<string, unknown>): boolean {
 
 /** The frozen legacy lifecycle fields one row actually carries. */
 interface LifecycleFields {
-    /** Queue state. */
     state?: EventState;
-    /** Claim stamp. */
     claimedAt?: string | null;
-    /** Dispatch stamp. */
     dispatchedAt?: string | null;
-    /** Session id or failure text. */
     dispatchResult?: string | null;
 }
 
@@ -450,8 +348,6 @@ interface LifecycleFields {
  * on the run), and a shipped row returns exactly what the file held — the
  * parser never fills in a value the file did not. Legacy rows keep every byte,
  * and a new row carries no lifecycle state at all.
- *
- * @returns The lifecycle fields present on this row.
  */
 function lifecycleOf(record: Record<string, unknown>, state: EventState | undefined): LifecycleFields {
     const fields: LifecycleFields = {};
@@ -474,18 +370,13 @@ function lifecycleOf(record: Record<string, unknown>, state: EventState | undefi
     return fields;
 }
 
-/** The run-layer fields one row carries, when it carries them at all. */
 interface RunLinkFields {
-    /** The run this delivery belongs to, assigned at enqueue. */
     readonly runCorrelationId?: string;
-    /** Subject shape captured at detection. */
     readonly subjectType?: SubjectType;
 }
 
 /**
  * Read the run-layer fields a row carries, omitting the ones it does not.
- *
- * @returns The run-layer fields present on this row.
  */
 function runLinkOf(record: Record<string, unknown>, subjectType: SubjectType | undefined): RunLinkFields {
     // `fieldsHold` has already refused a row whose link is anything but
@@ -498,15 +389,12 @@ function runLinkOf(record: Record<string, unknown>, subjectType: SubjectType | u
     };
 }
 
-/** The retention marker one row carries, when the pass has touched it. */
 interface TrimMarkerFields {
     /** Stamp the excerpt was cleared at; omitted when untouched. */
     readonly excerptTrimmedAt?: string;
 }
 
 /**
- * Read the retention marker a row carries, omitting it when it carries none.
- *
  * `fieldsHold` has already refused a marker it cannot read, hence `null` is
  * typed out here rather than asserted away.
  *
@@ -518,11 +406,6 @@ function trimMarkerOf(record: Record<string, unknown>): TrimMarkerFields {
     return marker === undefined || marker === null ? {} : { excerptTrimmedAt: marker };
 }
 
-/**
- * Read the pull-request coordinates, which older rows omit outright.
- *
- * @returns The coordinates, normalized to `null` when absent.
- */
 function coordinatesOf(
     record: Record<string, unknown>,
 ): { readonly headSha: string | null; readonly baseRef: string | null } {
@@ -533,24 +416,14 @@ function coordinatesOf(
 }
 
 /**
- * Parse one stored event row.
- *
- * The writer's own output is the shape this must accept: every text field
- * non-empty, `issueNumber` a positive integer, a `state` from the shipped
- * vocabulary **when the row carries one**, and an excerpt that may
- * legitimately be `''` (an issue with no body). The coordinates (`headSha`,
- * `baseRef`) may be missing outright — an older row still parses, with both
- * read as `null` — and the legacy lifecycle stamps may be missing too, which
- * is how a row the run layer enqueued reads. The two actor members
- * (`actorLogin`, `actorAttribution`) may be missing outright as well: they are
- * **absentable on read and validated when present**, so an older row still
- * parses and reads as *no attribution recorded* — never as a default basis,
- * because a defaulted basis states an inference as a fact. Anything else —
- * including a row missing `issueNumber` outright, a `state` outside the shipped
- * three, or an unrecognized attribution basis — answers `null`, which the store
- * turns into a quarantine.
- *
- * @returns The event, or `null` when the row cannot be trusted.
+ * Parse one stored event row: the writer's own output is the shape this must
+ * accept. Text fields non-empty, `issueNumber` a positive integer, a `state`
+ * from the shipped vocabulary **when the row carries one**, coordinates and
+ * legacy lifecycle stamps missing-able, and the two actor members
+ * **absentable on read and validated when present** — an absent basis reads
+ * as *no attribution recorded*, never a default, because a defaulted basis
+ * states an inference as a fact. Anything else answers `null`, which the
+ * store turns into a quarantine.
  */
 export function parseStoredEvent(raw: unknown): QueuedEvent | null {
     const record = isRecord(raw) ? raw : null;
@@ -594,24 +467,16 @@ export function parseStoredEvent(raw: unknown): QueuedEvent | null {
 }
 
 /**
- * Read the subject shape of one delivery, falling back the way adoption does.
- *
- * A row written before the run layer carries no `subjectType`, and the run key
- * still needs one: a review trigger is the only detection that *knows* it is
- * about a pull request, so every other kind reads as an issue (the adopted-row
- * rule, reused for rows detection could not classify).
- *
- * @returns `issue` or `pull_request`, never absent.
+ * Read the subject shape of one delivery, falling back the way adoption
+ * does. A row written before the run layer carries no `subjectType`, and the
+ * run key still needs one: a review trigger is the only detection that *
+ * knows* it is about a pull request, so every other kind reads as an issue
+ * (the adopted-row rule, reused for rows detection could not classify).
  */
 export function subjectTypeOf(delivery: QueuedEvent): SubjectType {
     return delivery.subjectType ?? (delivery.kind === 'review' ? 'pull_request' : 'issue');
 }
 
-/**
- * Parse the whole stored queue.
- *
- * @returns The queue, or `null` when the document is unusable (quarantined).
- */
 export function parseStoredEvents(raw: unknown): QueuedEvent[] | null {
     if (!Array.isArray(raw)) {
         return null;

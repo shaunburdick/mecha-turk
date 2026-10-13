@@ -26,6 +26,7 @@ import { initialBindings } from '../src/panel-state.ts';
 import type { BindingsTabState } from '../src/panel-state.ts';
 import type { PanelAccount, PanelBinding } from '../src/bindings-service.ts';
 import { createStorageDouble, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 import type { StorageDouble } from './support/panel.ts';
 
 /** Fixture identity the service owns (matches the handoff suites). */
@@ -46,27 +47,21 @@ const STAMP = '2026-09-27T00:00:00.000Z';
 /**
  * Build a fixture binding row with every field the parser requires.
  */
-function bindingFixture(input: {
+const bindingFixture = (input: {
     /** Panel-generated id. */
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
     /** Stored state; defaults to the enabled one. */
     readonly state?: 'active' | 'disabled';
-}): PanelBinding {
-    return {
-        bindingId: input.bindingId,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: LOGIN,
-        repository: input.repository,
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: input.state ?? 'active',
-        createdAt: STAMP,
-        updatedAt: STAMP,
-    };
-}
+}): PanelBinding => fixtureBindingRow(input.bindingId, {
+    accountNumericUserId: ACCOUNT_ID,
+    accountLogin: LOGIN,
+    repository: input.repository,
+    triggers: { assignment: true, mention: false, reviewRequest: false },
+    state: input.state,
+    stamp: STAMP,
+});
 
 /** Body the bindings collection answers with. */
 function bindingsBody(bindings: readonly PanelBinding[]): string {

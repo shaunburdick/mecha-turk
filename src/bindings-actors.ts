@@ -1,32 +1,8 @@
 /**
- * The binding editor's actor allow-list field.
- *
- * The **only** element that ever holds a permitted login. Everywhere else the
- * panel renders the count (`bindings-rows.ts`); here the field itself carries
- * the list.
- *
- * Three decisions are not visible from the code:
- *
- * - **Free text, not a picker.** The host exposes no GitHub identity API, and
- *   inventing one is out of scope. **Not a validator either** — the service owns
- *   the rule set, so this splits what the operator typed and refuses nothing.
- *   A value that is not a login reaches the service and comes back as the
- *   service's own refusal, which {@link actorsRefusal} paints into this field.
- * - **A field, not a control of its own.** The editor's primary control writes
- *   it with everything else, and the touched-omits rule rides that write — with
- *   one difference: for a *list*, omission means *unset*, so clearing the field
- *   takes the binding back to open.
- * - **The policy copy is a function of state and switches, never a constant.**
- *   A constant cannot know whether the binding it describes can start anything:
- *   a fixed sentence told a *disabled* binding that anyone could start a
- *   session, and named acts only the `mention` trigger watches on bindings whose
- *   mention switch was off. So {@link actorsSummary} and
- *   {@link allowedUsersGuidance} read the binding's **state** and **trigger
- *   switches** as well as its list.
- *
- * Imports neither `panel-ui` nor `bindings.ts`, for the same reason
- * `bindings-prompt.ts` does: a control that `bindings-ui` composes *and*
- * `refresh` repaints has to stay a leaf, or the two form an import cycle.
+ * The binding editor's actor allow-list field — the only element that ever
+ * holds a permitted login. Free text, not a picker and not a validator: the
+ * host exposes no GitHub identity API and the service owns the rule set, so a
+ * non-login reaches the service and comes back as its own refusal.
  */
 
 import { mountTextField } from '@openchamber/sdk/ui';
@@ -54,13 +30,11 @@ export const ALLOWED_USERS_LABEL = 'GitHub logins allowed to trigger dispatches 
  * -------------------------------------------------------------------- */
 
 /**
- * One trigger switch and the phrase it contributes.
- *
- * Each phrase names **the act the trigger matches on** rather than the switch's
- * key: an operator reading *assignment* learns the switch's name, and one
- * reading *assign an issue to the account* learns what will happen to them. The
- * order matches `PanelTriggers` and the wire's `BindingTriggers`, so a reader of
- * this table and a reader of the wire see the same sequence.
+ * One trigger switch and the phrase it contributes: each phrase names **the act
+ * the trigger matches on** rather than the switch's key, so an operator learns
+ * what will happen to them. The order matches `PanelTriggers` and the wire's
+ * `BindingTriggers`, so a reader of this table and a reader of the wire see the
+ * same sequence.
  */
 const TRIGGER_PHRASES: readonly (readonly [keyof PanelTriggers, string])[] = [
     ['assignment', 'assign an issue to the account'],
@@ -95,22 +69,13 @@ function joinPhrases(phrases: readonly string[]): string {
 }
 
 /**
- * The one clause naming who may start a session on a binding with no allow-list.
- *
- * The exposed surface of a binding with no list is exactly the triggers switched
- * on for it, so the sentence must name those and no others: naming an act the
- * binding does not watch describes a surface the operator does not have, and an
- * **overstated** exposure is not a safe default either — it is the alarm that
- * teaches operators to stop reading the alarms.
- *
- * Two rules keep it total rather than merely present. **No fallback sentence**:
- * all eight subsets map here, one each, so a fixed string reachable from more
- * than one switch set cannot exist; with nothing switched on there is no exposed
- * surface and the answer is `null`. And **the bound account's login is never
- * named** — the phrases say *the account*, because the row already renders that
- * member and this must not become a second rendering of it.
- *
- * @returns `null` when nothing is switched on.
+ * The one clause naming who may start a session on a binding with no
+ * allow-list. The exposed surface is exactly the triggers switched on, so the
+ * sentence names those and no others — an **overstated** exposure is the alarm
+ * that teaches operators to stop reading the alarms. **No fallback sentence**:
+ * all eight subsets map here, one each, and with nothing switched on there is
+ * no surface and the answer is `null`. The bound account's login is never
+ * named — the row already renders that member.
  */
 export function derivedTriggerClause(triggers: PanelTriggers): string | null {
     const phrases = TRIGGER_PHRASES
@@ -141,7 +106,6 @@ export interface PolicyFacts {
     readonly count: number | null;
 }
 
-/** Whether any trigger is switched on. */
 function watchesAnything(triggers: PanelTriggers): boolean {
     return TRIGGER_PHRASES.some(([key]) => triggers[key]);
 }
@@ -152,29 +116,16 @@ export function allowedUsersSummary(count: number): string {
 }
 
 /**
- * The row's policy clause.
- *
- * Three facts decide it and every row's wording is normative, because the table
- * exists to stop the panel asserting a capability the machine does not have.
- * Four rules a reader can get wrong:
- *
- * - **A disabled binding leads with what cannot happen**, then names what
- *   *would* under an explicit conditional. The first clause is what makes the
- *   second a counterfactual rather than a claim — a panel that led with the
- *   conditional alone would still be asserting a live capability, and one that
- *   said only *"this binding is off"* would leave two rows reading identically
- *   one re-enable away from opposite exposures.
- * - **The frame never repeats the word *disabled*.** The row already renders the
- *   binding's own state as a row fact, so the conditional carries the
- *   qualification.
- * - **The count sentence is under the same rule.** `N users may trigger` is a
- *   capability claim, which is why it became `… once this binding is enabled` —
- *   the defect was *found* in the count, and fixing only the warning would have
- *   left the same falsehood one clause away.
- * - **Nothing here reads as an error**, and none of it may use *protected*,
- *   *restricted*, or *secure*: an absent list is a configuration the operator
- *   chose, and a disabled binding is one they chose twice over. The panel's job
- *   is to make both legible, not to scold.
+ * The row's policy clause: the table exists to stop the panel asserting a
+ * capability the machine does not have. A disabled binding leads with what
+ * cannot happen, then names what *would* under an explicit conditional —
+ * leading with the conditional alone would still assert a live capability —
+ * and the frame never repeats the word *disabled*, since the row already
+ * renders the state. The count sentence obeys the same rule (`… once this
+ * binding is enabled`). Nothing reads as an error, and none of it may say
+ * *protected*, *restricted*, or *secure*: an absent list is a configuration
+ * the operator chose, twice over when disabled — the panel's job is to make
+ * both legible, not to scold.
  */
 export function policyClause(facts: PolicyFacts): string {
     const isWatching = watchesAnything(facts.triggers);
@@ -211,12 +162,9 @@ export function policyClause(facts: PolicyFacts): string {
 }
 
 /**
- * The row summary for one binding's policy.
- *
- * A binding with **no** list gets the worded warning and no count — there is
- * nothing to count, and printing `0 users` would read as a verdict rather than
- * as the absence of a configuration. A binding **with** one gets the count and
- * **no** warning.
+ * The row summary for one binding's policy: no list gets the worded warning
+ * and no count — printing `0 users` would read as a verdict rather than the
+ * absence of a configuration — and a list gets the count and **no** warning.
  */
 export function actorsSummary(binding: PanelBinding): string {
     return policyClause({
@@ -227,20 +175,13 @@ export function actorsSummary(binding: PanelBinding): string {
 }
 
 /**
- * The editor guidance's three states, with the first one **derived**.
- *
- * All three of the field's states are stated in its own words, but the first
- * cannot be a fixed sentence: it once read *"anyone who can open an issue or
- * comment on this repository"*, which names acts only the `mention` trigger
- * watches. The derivation supplies the clause instead, in **either mode** — an
- * add-mode draft's switches are the ones the editor is showing, and the
- * guidance says what would hold if the draft were saved, which is the only
- * honest thing a field can say about a row that does not exist yet.
- *
- * The other two states describe the **field's** value rather than the binding's
- * exposure, so neither asserts anything the switches do or do not support. With
- * **no** trigger switched on there is no exposed surface to derive, and the
- * policy clause's own sentence for that case is what the first state says.
+ * The editor guidance's three states, with the first one **derived**: it once
+ * named acts only the `mention` trigger watches, so the derivation supplies the
+ * clause in **either mode** — an add-mode draft's switches are the ones the
+ * editor is showing, and the guidance says what would hold if the draft were
+ * saved. The other two describe the **field's** value rather than the
+ * binding's exposure; with nothing switched on there is no surface to derive
+ * and the policy clause's own sentence answers.
  */
 export function allowedUsersGuidance(triggers: PanelTriggers): string {
     const derived = derivedTriggerClause(triggers);
@@ -254,13 +195,11 @@ export function allowedUsersGuidance(triggers: PanelTriggers): string {
 }
 
 /**
- * The value-slot word an empty field shows, with its consequence derived.
- *
- * `not set` is the honest-absence word and is unchanged; what follows it is the
- * derived clause, for the same reason the guidance's first state is. This
- * placeholder renders on **every** unset field, so a bare *"anyone may trigger
- * this repository"* would be an unframed present-tense capability claim sitting
- * in a disabled binding's value slot.
+ * The value-slot word an empty field shows, with its consequence derived:
+ * `not set` is the honest-absence word, but the clause after it must be derived
+ * like the guidance's first state — this placeholder renders on **every**
+ * unset field, and a bare *"anyone may trigger"* would be an unframed
+ * capability claim sitting in a disabled binding's value slot.
  */
 export function allowedUsersNotSetPlaceholder(facts: Omit<PolicyFacts, 'count'>): string {
     if (!watchesAnything(facts.triggers)) {
@@ -280,32 +219,19 @@ export function allowedUsersNotSetPlaceholder(facts: Omit<PolicyFacts, 'count'>)
  * The **submitted spelling** is preserved verbatim: this is not a canonical
  * form, and re-saving an untouched list must not rewrite how an operator spelled
  * a login.
- *
- * @returns `''` when the binding has no list.
  */
 export function storedActorsText(binding: PanelBinding): string {
     return binding.allowedUsers?.join(', ') ?? '';
 }
 
 /**
- * Read the field's text as the array the save carries.
- *
- * Splits on commas and newlines and trims each entry — and **nothing else**:
- * no case folding, no de-duplication, no login-shape check, and no dropping of
- * an empty entry. Each omission is a decision:
- *
- * - Folding or de-duplicating would be the panel deciding the stored value, and
- *   the service's stored spelling must survive a re-save unchanged.
- * - Dropping an empty entry would **manufacture `[]`** from text the operator
- *   wrote, and `[]` is a refusal — the panel must not turn a typing mistake
- *   into a wire value the service rejects with a sentence the operator then has
- *   to interpret.
- *
- * So `alice,` submits `['alice', '']` and the service's own remediation names
- * the shape, while a **blank** field submits nothing at all: a cleared field
- * means *back to open*.
- *
- * @returns The logins to send, or `null` when the key must be omitted.
+ * Read the field's text as the array the save carries: split on commas and
+ * newlines, trim each entry — and **nothing else**. Folding or de-duplicating
+ * would be the panel deciding the stored value; dropping an empty entry would
+ * **manufacture `[]`** from typed text, and `[]` is a refusal the service
+ * rejects with a sentence the operator then has to interpret. So `alice,`
+ * submits `['alice', '']` and the service's remediation names the shape, while
+ * a **blank** field submits nothing: a cleared field means *back to open*.
  */
 export function parseAllowedUsers(text: string): readonly string[] | null {
     const entries = text
@@ -316,15 +242,11 @@ export function parseAllowedUsers(text: string): readonly string[] | null {
 }
 
 /**
- * Read the service's refusal **if it belongs to the allow-list**.
- *
- * The whole-file grant validates every binding in one pass, so a `422` can be
- * about any of them; only the one whose own message names `allowedUsers` is
- * painted onto this field, and anything else stays on the tab's note where it
- * already has a home. Same classification as the prompt's, read from the same
- * envelope, so one answer can never split two ways.
- *
- * @returns The field-level copy, or `null` when the refusal is not the list's.
+ * Read the service's refusal **if it belongs to the allow-list**: the
+ * whole-file grant validates every binding in one pass, so only the one whose
+ * own message names `allowedUsers` is painted onto this field and anything
+ * else stays on the tab's note — same classification as the prompt's, read
+ * from the same envelope, so one answer can never split two ways.
  */
 export function actorsRefusal(answer: ServiceErrorResult): string | null {
     if (answer.ok || answer.code !== 'validation' || answer.message === null) {
@@ -334,30 +256,22 @@ export function actorsRefusal(answer: ServiceErrorResult): string | null {
     return answer.message.includes(ALLOWED_USERS_FIELD) ? answer.message : null;
 }
 
-/** Callbacks the field invokes. */
 export interface BindingActorHandlers {
-    /** The operator typed into the allow-list field. */
     readonly setAllowedUsers: (value: string) => void;
 }
 
 /**
- * The one binding whose allow-list a whole-file write overrides.
- *
- * The counterpart of the prompt's patch, with the **opposite default**: a
- * prompt that was untouched is omitted because omission means *leave this one
- * alone*, while a list that was cleared is omitted because omission means
- * *unset*. Every other row always carries its own stored value.
+ * The one binding whose allow-list a whole-file write overrides — the prompt's
+ * patch with the **opposite default**: an untouched prompt is omitted because
+ * omission means *leave this one alone*, a cleared list because it means
+ * *unset*. Every other row carries its own stored value.
  */
 export interface ActorPatch {
-    /** Binding whose allow-list the operator edited. */
     readonly bindingId: string;
     /**
-     * The logins to submit, or `null` to **omit the key** — which is how a
-     * cleared field takes the binding back to open.
-     *
-     * An empty array is unreachable from this module by construction: a blank
-     * field parses to `null`, so the client never manufactures `[]` (a value the
-     * service refuses).
+     * The logins to submit, or `null` to **omit the key** — how a cleared field
+     * takes the binding back to open. An empty array is unreachable here: a
+     * blank field parses to `null`, so the client never manufactures `[]`.
      */
     readonly allowedUsers: readonly string[] | null;
 }
@@ -377,22 +291,15 @@ export function allowedUsersPatch(bindings: BindingsTabState, bindingId: string)
     return { bindingId, allowedUsers: parseAllowedUsers(bindings.allowedUsersInput) };
 }
 
-/** The field, as the pane carries it. */
 export interface BindingActorControls {
-    /** The allow-list itself — the only element that ever holds its logins. */
     readonly field: TextFieldHandle;
 }
 
 /**
- * The state and switches the **editor** is currently showing.
- *
- * The switches are the draft's in **both modes** — `bindings-mount.ts` wires the
- * three checkboxes to `triggerAssignment` / `triggerMention` /
- * `triggerReviewRequest`, and those are the values a save would write.
- *
- * The **state** is not a form field: the editor holds no control that writes
- * it, so a loaded row keeps whatever state the service holds (the same value
- * `bindings-draft.ts`'s `draftIdentity` carries into the save) and an add-mode
+ * The state and switches the **editor** is currently showing: the switches are
+ * the draft's in **both modes** (`bindings-mount.ts` wires the three
+ * checkboxes to the values a save would write), while the **state** is not a
+ * form field — a loaded row keeps the service's own state and an add-mode
  * draft is `active` by construction.
  */
 export function editorPolicyFacts(bindings: BindingsTabState): Omit<PolicyFacts, 'count'> {
@@ -418,11 +325,8 @@ export function editorPolicyFacts(bindings: BindingsTabState): Omit<PolicyFacts,
  * before the fields that are not about triggers.
  */
 export function mountBindingActors(input: {
-    /** Runtime whose state the field renders from. */
     readonly rt: PanelRuntime;
-    /** Editor root the field mounts into. */
     readonly pane: HTMLElement;
-    /** Handler the field invokes. */
     readonly handlers: BindingActorHandlers;
 }): BindingActorControls {
     const state = input.rt.state.bindings;
@@ -440,19 +344,13 @@ export function mountBindingActors(input: {
 }
 
 /**
- * Repaint the field from state.
- *
- * The refusal is rendered **as the field's own helper**, directly under the
- * input, because a *field-level* refusal with its remediation is wanted here —
- * and the service's copy never echoes what was submitted, so it can be shown
- * verbatim. It is the only thing that displaces the resting guidance, which
- * comes back the moment the service accepts the next save.
- *
- * The **placeholder** is repainted with it, which matters: it carries the unset
- * state's consequence, so a switch the operator just unchecked has to move it
- * too. The SDK takes a patched subset, so an absent key means *leave what is
- * painted* — omitting it would strand the old wording on a form whose switches
- * have since changed.
+ * Repaint the field from state. The refusal renders **as the field's own
+ * helper** directly under the input — a field-level refusal with its
+ * remediation, and the service's copy never echoes what was submitted, so it
+ * can be shown verbatim; it is the only thing that displaces the resting
+ * guidance. The **placeholder** repaints with it, because it carries the unset
+ * state's consequence — and the SDK takes a patched subset, so an absent key
+ * means *leave what is painted* and omitting it would strand the old wording.
  */
 export function repaintBindingActors(rt: PanelRuntime, controls: BindingActorControls): void {
     const state = rt.state.bindings;
@@ -467,16 +365,10 @@ export function repaintBindingActors(rt: PanelRuntime, controls: BindingActorCon
     });
 }
 
-/** Release the handle the allow-list field mounted. */
 export function disposeBindingActors(controls: BindingActorControls): void {
     controls.field.dispose();
 }
 
-/**
- * Read the stored allow-list a freshly selected binding carries.
- *
- * @returns The field text for that row, or `''` when it has no list.
- */
 export function storedActorsFor(bindings: BindingsTabState, bindingId: string | null): string {
     if (bindingId === null) {
         return '';

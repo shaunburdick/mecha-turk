@@ -2,14 +2,6 @@
  * Shared plumbing for the two credential routes: body parsing, throttled
  * execution, and the classified error responses they share (token-handoff
  * §2, panel-service §2.2/§4).
- *
- * Everything here obeys two rules without exception. **Shape before
- * network**: a malformed body is refused before a single GitHub call is made
- * (the in-panel consent gate this module used to run alongside that rule was
- * removed by product-owner order on 2026-10-01 — token-handoff §1.2). **Field
- * + remediation only**: no received value — least of all the token — ever
- * appears in a response body, a log line, or an audit row (SEC-11, contract
- * §4 rule 6).
  */
 
 import { newCorrelationId } from '../../src/ids.ts';
@@ -51,8 +43,6 @@ export type CredentialBodyResult =
  * Read the `token` field: its type first, then the §2 step ⑤ shape rules
  * (non-empty, no whitespace, ≤4096 characters), collecting every issue rather
  * than stopping at the first.
- *
- * @returns The token when it is usable, plus every issue found otherwise.
  */
 function readToken(raw: unknown): { readonly token?: string; readonly issues: readonly FieldIssue[] } {
     if (typeof raw !== 'string') {
@@ -75,8 +65,6 @@ function readToken(raw: unknown): { readonly token?: string; readonly issues: re
 
 /**
  * Collect the optional `expectedLogin` issue.
- *
- * @returns One issue when the value is present but unusable, otherwise none.
  */
 function expectedLoginIssues(raw: unknown): readonly FieldIssue[] {
     if (raw === undefined) {
@@ -96,15 +84,11 @@ function expectedLoginIssues(raw: unknown): readonly FieldIssue[] {
 }
 
 /**
- * Parse a credential-route body: record shape → field shape.
- *
- * The refusal is decided before any network call for its own sake —
- * invariant 8's consent half was removed with the gate on 2026-10-01, but
- * "shape before network" still means a body that cannot be a handoff never
- * reaches GitHub or the store.
- *
- * @param canAcceptExpectedLogin - `true` for verify, `false` for rotation.
- * @returns The credential request, or the refusal to answer with.
+ * Parse a credential-route body: record shape → field shape. The refusal is
+ * decided before any network call for its own sake — invariant 8's consent
+ * half was removed with the gate on 2026-10-01, but *shape before network*
+ * still means a body that cannot be a handoff never reaches GitHub or the
+ * store.
  */
 export function parseCredentialBody(raw: unknown, canAcceptExpectedLogin: boolean): CredentialBodyResult {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -132,8 +116,6 @@ export function parseCredentialBody(raw: unknown, canAcceptExpectedLogin: boolea
 
 /**
  * Human name of a scope-missing capability, as the contract's copy spells it.
- *
- * @returns The capability name shown to the operator.
  */
 function capabilityLabel(reason: `scope-missing:${ScopeCapability}`): string {
     const capability = reason.slice(SCOPE_MISSING_PREFIX.length);
@@ -161,8 +143,6 @@ function capabilityLabel(reason: `scope-missing:${ScopeCapability}`): string {
  *
  * Each branch names the capability or the remediation and never any part of
  * the credential.
- *
- * @returns The reason-specific remediation copy.
  */
 function reasonCopy(reason: RejectReason): string {
     if (reason === 'auth-failed') {
@@ -234,8 +214,6 @@ const VERIFY_BUSY_MESSAGE = 'a verification is already running — wait a moment
 
 /**
  * Build the `429` refusal a throttled attempt answers with (SEC-04).
- *
- * @returns The response carrying `retry-after`.
  */
 export function throttleRefusal(code: 'verify-busy' | 'rate-limited', retryAfterSeconds: number): HttpResponse {
     const message =
@@ -269,15 +247,12 @@ export function duplicateAccountResponse(correlationId: string): HttpResponse {
 }
 
 /**
- * Run a credential route behind the SEC-11 error boundary.
- *
- * Any unexpected throw is logged as a *kind* (the error's constructor name)
- * rather than its message: upstream and parser errors can quote request
- * material, and the no-credential-logging invariant is enforced here instead
- * of trusting every future call site. Storage failures keep their documented
- * `503 storage-unavailable` shape.
- *
- * @returns A handler with the sanitized error boundary around it.
+ * Run a credential route behind the SEC-11 error boundary: any unexpected
+ * throw is logged as a *kind* (the error's constructor name) rather than
+ * its message, because upstream and parser errors can quote request
+ * material and the no-credential-logging invariant is enforced here instead
+ * of trusting every future call site. Storage failures keep their
+ * documented `503 storage-unavailable` shape.
  */
 export function guardCredentialRoute(handler: RouteHandler): RouteHandler {
     return async (context: RouteContext, request: RouteRequest): Promise<HttpResponse> => {

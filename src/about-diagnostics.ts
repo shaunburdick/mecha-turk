@@ -1,18 +1,7 @@
 /**
- * The About tab's read-only Diagnostics record (005 T-028; FR-075, FR-076).
- *
- * Three facts the panel kept about its own operation — the two schema
- * versions this build ships, the observed-phase record, and the ledger tail —
- * mounted as text inside the block the disclosure in
- * [`about-tab.ts`](./about-tab.ts) reveals. It is its own module for the
- * reason `bindings-body.ts` is: the About view had outgrown the file-length
- * cap once the disclosure arrived, and this half is a self-contained record
- * with its own renderers.
- *
- * **Entry detail is deliberately not rendered**: ledger lines are
- * `#seq · kind · time` and nothing else, so an account identifier, a prompt,
- * a fingerprint, or a path has no way into this section (FR-076). Nothing
- * here writes — the phase writer left with the tab it lived on.
+ * The About tab's read-only Diagnostics record: the two schema versions, the
+ * observed-phase record, and the ledger tail (005 T-028; FR-075, FR-076) —
+ * rendered as `#seq · kind · time` lines only, so nothing else can reach it.
  */
 
 import type { TextHandle } from '@openchamber/sdk/ui';
@@ -21,16 +10,12 @@ import { LEDGER_SCHEMA_VERSION, ledgerTail } from './ledger.ts';
 import { mountStyledText } from './style.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** How many ledger lines the diagnostics section shows, newest first. */
 const VISIBLE_ENTRIES = 25;
 
-/** Start offset of the time part inside an RFC 3339 timestamp. */
 const TIME_START = 11;
 
-/** End offset of the time part inside an RFC 3339 timestamp. */
 const TIME_END = 19;
 
-/** What the ledger section says when this mount has recorded nothing. */
 const LEDGER_EMPTY = 'No ledger entries yet.';
 
 /**
@@ -44,8 +29,6 @@ function formatTime(iso: string): string {
 
 /**
  * The phase record, read-only.
- *
- * @returns The last recorded phase, or that there is none yet.
  */
 export function phaseRecordLine(rt: PanelRuntime): string {
     const phase = rt.state.ledger.entries.findLast((entry) => entry.kind === 'phase');
@@ -78,13 +61,9 @@ export function ledgerLines(rt: PanelRuntime): string {
 
 /**
  * Mount the read-only Diagnostics block's three lines.
- *
- * @returns The three handles the pane carries.
  */
 export function mountDiagnostics(input: {
-    /** Runtime whose ledger the block renders. */
     readonly rt: PanelRuntime;
-    /** Block body the lines mount into. */
     readonly pane: HTMLElement;
 }): {
     readonly schemas: TextHandle;

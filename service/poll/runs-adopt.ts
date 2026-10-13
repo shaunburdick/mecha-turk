@@ -1,11 +1,6 @@
 /**
  * One-shot, non-destructive projection of the shipped queue into runs
  * (003 FR-005, NFR-103; data-model §1).
- *
- * Legacy delivery rows are read through their validator and never rewritten.
- * Open rows for the same subject coalesce during adoption; rows that already
- * report a session each retain a separate terminal run so historical work is
- * never mistaken for work that can safely be started again.
  */
 
 import { nowIso } from '../../src/ids.ts';
@@ -54,8 +49,6 @@ const MIGRATION_HOLDER = 'migration';
  * correlation id), which is what makes it re-derivable; provenance travels as
  * the typed {@link RunLease} member beside it rather than as this prefix, so
  * `parseLease` can enforce the two legal shapes.
- *
- * @returns `migration-<correlationId>` — one path-safe segment.
  */
 export function buildMigrationLeaseId(correlationId: string): string {
     return `${MIGRATION_LEASE_PREFIX}${correlationId}`;
@@ -191,20 +184,15 @@ function classifyReserved(input: { readonly runKey: string; readonly now: string
 }
 
 /**
- * Compute the expiry of the synthetic migration lease (data-model §1).
- *
- * The lease is **already expired by construction**, and that claim has to hold
- * for every clock that could ever judge it, not only for clocks sampled after
- * this mint: it is therefore the *earlier* of the legacy claim's own window
- * closing and one millisecond before the stamp this pass is adopting under
- * (T-045 — minting `now - 1` alone made "expired" self-referential, so a pass
- * whose stamp predated the mint read a lease that was not yet expired and
- * skipped the one-shot migration recovery).
- *
- * @returns An RFC 3339 stamp strictly before both inputs.
- * @throws {Error} When the adopting stamp is not a time: refusing to mint is
- *   the fail-closed answer, because a lease that is not expired could strand
- *   the run in `claimed` with no path back to waiting.
+ * Compute the expiry of the synthetic migration lease (data-model §1). The
+ * lease is **already expired by construction**, and that claim has to hold
+ * for every clock that could ever judge it — so it is the *earlier* of the
+ * legacy claim's own window closing and one millisecond before this pass's
+ * adopting stamp: minting `now - 1` alone made *expired* self-referential,
+ * so a pass whose stamp predated the mint read an unexpired lease and skipped
+ * the one-shot recovery (T-045). Refusing to mint when the stamp is not a
+ * time is the fail-closed answer — an unexpired lease could strand the run in
+ * `claimed`.
  */
 function expiredAtMint(input: { readonly issuedAt: string; readonly now: string }): string {
     const mint = Date.parse(input.now) - 1;
@@ -302,9 +290,6 @@ function sessionReference(input: {
  * A legacy delivery whose origin cannot be derived contributes a run with no
  * reference rather than none at all — the row the operator sees is the
  * evidence, and an empty list is honest where a guessed origin is not.
- *
- * @param reference - The delivery's own reference, when it has one.
- * @returns The list, the joined count, and the two overflow markers.
  */
 function retainedReferences(reference: SourceReference | null): {
     readonly sourceReferences: readonly SourceReference[];

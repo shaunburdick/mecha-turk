@@ -1,40 +1,7 @@
 /**
- * The operator operations: retry, return-to-waiting, and resolve (003 FR-027,
- * FR-033, FR-041;
- * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md) §6–§8).
- * The fourth operator operation — the verification report (FR-043, §5) — lives
- * in [`run-verify.ts`](./run-verify.ts), split out to keep this file inside the
- * size bound, and borrows this module's refusal writer so the family keeps
- * exactly one place where a `dispatch.refused` row is produced.
- *
- * These are the paths that make a stuck run move again, and every one of them is
- * an **explicit human decision**, never an automatic recovery — the automatic
- * handler is the sweep, and the sweep's two rules are the only two (FR-036).
- * Keeping the two families in separate modules is what keeps that separation
- * legible: nothing in this file runs on a timer.
- *
- * Four properties they share:
- *
- * - **Each refusal is a distinct verdict, not one "no".** FR-041 requires the
- *   retry refusals for `pending`, `dispatched`, and `unconfirmed` to be three
- *   different answers, and adds two more states that need their own wording;
- *   005 renders these messages verbatim, so they are written once, here, and
- *   never composed from a generic template.
- * - **Attempt discipline is exact.** A retry and a resolve-to-*no-session* each
- *   increment the attempt exactly once; a verification report (in
- *   `run-verify.ts`) increments nothing and changes no state at all; the
- *   dead-letter return resets both counters (contract invariant 5).
- * - **The service corroborates what it can and records what it cannot.**
- *   `blocked:binding-missing` and `blocked:actor-not-allowed` are re-checked
- *   against the live store, because the service *can* check them;
- *   `blocked:project-missing` depends on a host API the service may not call
- *   (002's architecture), so the panel's same-mount check is the only evidence and
- *   is audited as *reported*, never as proof. Conflating the two would let a row
- *   claim a verification the service never performed (constitution IV).
- * - **A resolution is the only way out of `unconfirmed`, and it is recorded as a
- *   human decision.** The row names the decision, the prior state, the operator's
- *   note, and the guidance they were shown, because the service records what it
- *   was told and cannot verify it.
+ * The operator operations: retry, return-to-waiting, and resolve (003
+ * FR-027, FR-033, FR-041; contract §6–§8). The verification report lives
+ * in `run-verify.ts`.
  */
 
 import { readBindings } from '../bindings-read.ts';
@@ -79,9 +46,7 @@ export type OperationResult = RunApplied | RunRefused | RunNotFound;
 
 /** The operation's store and logger, shared by every refusal helper. */
 export interface RefusalTarget {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }
 
@@ -92,8 +57,6 @@ export interface RefusalTarget {
  * point of the requirement is that these read differently: "already waiting"
  * tells the operator nothing is wrong, "a dispatched run cannot be retried"
  * tells them the opposite, and a generic refusal would collapse them into one.
- *
- * @returns The refusal, naming that state in its own words.
  */
 function invalidTransition(state: RunState): RunRefusal {
     const messages: ReadonlyMap<RunState, string> = new Map<RunState, string>([
@@ -114,15 +77,11 @@ function invalidTransition(state: RunState): RunRefusal {
  * Exported because [`run-verify.ts`](./run-verify.ts) answers its own refusals
  * the same way: one writer for the family is what keeps "every refusal writes
  * exactly one row naming its cause" true across all five operations.
- *
- * @returns The refusal, carrying whether its row reached the trail.
  */
 export async function refused(input: RefusalTarget & {
-    /** The run as it stands. */
     readonly run: Run;
     /** Which operation the caller attempted. */
     readonly operation: OperateName;
-    /** The verdict. */
     readonly refusal: RunRefusal;
 }): Promise<RunRefused> {
     const { run, operation, refusal, store, log } = input;
@@ -140,15 +99,12 @@ export async function refused(input: RefusalTarget & {
 }
 
 /**
- * Judge a retry (contract §6).
- *
- * The presented attempt is checked **before** the state: §6's body carries it,
- * and the contract's common-body rule is that a mismatch is a refusal rather
- * than a partial apply. A retry judged against a state the run has already left
- * would increment a counter the caller never saw, which is precisely the
- * half-apply that rule exists to prevent.
- *
- * @returns The refusal, or how the cause was shown to have cleared.
+ * Judge a retry (contract §6). The presented attempt is checked **before**
+ * the state: §6's body carries it, and the contract's common-body rule is
+ * that a mismatch is a refusal rather than a partial apply — a retry judged
+ * against a state the run has already left would increment a counter the
+ * caller never saw, which is precisely the half-apply that rule exists to
+ * prevent.
  */
 function judgeRetry(input: {
     /** The run the operator acted on. */
@@ -157,7 +113,6 @@ function judgeRetry(input: {
     readonly attempt: number;
     /** Whether the operator reported the cause cleared. */
     readonly causeCleared: boolean;
-    /** The live binding table. */
     readonly bindings: readonly BindingRecord[];
 }): RunRefusal | CauseSource {
     const { run, causeCleared, bindings } = input;
@@ -197,8 +152,6 @@ function judgeRetry(input: {
 
 /**
  * Build the waiting run a retry produces.
- *
- * @returns The `pending` run, with the attempt incremented exactly once.
  */
 function waitingRun(input: { readonly run: Run; readonly now: string }): Run {
     const { run, now } = input;
@@ -216,9 +169,7 @@ function waitingRun(input: { readonly run: Run; readonly now: string }): Run {
 
 /** What one `dispatch.retry` row records, for either shape of the action. */
 interface RetryRowInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The waiting run as it now stands. */
     readonly run: Run;
@@ -241,8 +192,6 @@ interface RetryRowInput {
  *
  * `reset` is what makes the dead-letter return legible in the trail, because it
  * is the action that starts a fresh token-consumption chain.
- *
- * @returns `true` when the row reached the trail.
  */
 async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
     const { run, store, log, ...rest } = input;
@@ -262,17 +211,13 @@ async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
 /**
  * Return a `failed` or `blocked:*` run to waiting under the same run key.
  *
- *
  * The run keeps its source references and every prior attempt's record, and the
  * automatic requeue budget is untouched: only an expired claim consumes it.
  *
  * @returns The waiting run, or the distinct refusal naming why it did not move.
- * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
 export async function retryDispatch(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run to retry, by correlation id. */
     readonly correlationId: string;
@@ -319,21 +264,15 @@ export async function retryDispatch(input: {
 }
 
 /**
- * Return a dead-lettered run to waiting with the attempt and requeue counters
- * reset — the single control that resolves it.
- *
- * The reset is also what starts a fresh token-consumption chain:
- * consumption is scoped per attempt, and `attempt = 1` re-derives a token no
- * earlier report could have consumed. The history rows survive untouched, which
- * is what makes the boundary legible to an operator reading the trail.
- *
- * @returns The waiting run, or the refusal naming its state.
- * @throws {StorageUnavailableError} When the run document cannot be read or written.
+ * Return a dead-lettered run to waiting with the attempt and requeue
+ * counters reset — the single control that resolves it. The reset is also
+ * what starts a fresh token-consumption chain: consumption is scoped per
+ * attempt, and `attempt = 1` re-derives a token no earlier report could
+ * have consumed. The history rows survive untouched, which is what makes
+ * the boundary legible to an operator reading the trail.
  */
 export async function requeueDispatch(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run to return to waiting, by correlation id. */
     readonly correlationId: string;
@@ -405,8 +344,6 @@ function judgeResolve(input: { readonly run: Run }): RunRefusal | null {
  * document this build could not read back. `null` returns the run to waiting with
  * the attempt incremented and is **the only path that re-dispatches an
  * `unconfirmed` run**, ever.
- *
- * @returns The resolved run.
  */
 function resolvedRun(input: {
     /** The `unconfirmed` run. */
@@ -457,12 +394,9 @@ function resolvedRun(input: {
  * Resolve an `unconfirmed` run on the operator's explicit word.
  *
  * @returns The resolved run, or the refusal naming why it did not move.
- * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
 export async function resolveDispatch(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run to resolve, by correlation id. */
     readonly correlationId: string;

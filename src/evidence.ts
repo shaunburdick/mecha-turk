@@ -1,13 +1,5 @@
 /**
- * The normalized issue evidence record for the extension (contract:
- * schema `extension-spike-1` — see the invariant on wire contracts in
- * AGENTS.md; the record shape is asserted by `tests/evidence.test.ts`).
- *
- * The record is the only provider-derived fact the panel persists for a
- * match: it carries identity, source link, timing, and correlation — never the
- * token, never an Authorization header, and never an unrestricted issue
- * payload. Serialization runs through {@link assertRedacted} so a leak fails
- * loudly instead of being written.
+ * The normalized issue evidence record (`extension-spike-1`, a wire contract): never a token, redaction-scanned.
  */
 
 import type { JsonValue } from '@openchamber/sdk';
@@ -33,13 +25,11 @@ const ISSUE_ID_PATTERN = /^\d+$/;
 
 /** Normalized evidence record produced by a configured match. */
 export interface PanelEvidence {
-    /** Contract schema version. */
     readonly schemaVersion: typeof EVIDENCE_SCHEMA_VERSION;
     /** `owner/name` of the polled repository. */
     readonly repository: string;
     /** Issue number as a stable string identifier. */
     readonly issueId: string;
-    /** Canonical issue URL. */
     readonly issueUrl: string;
     /** How the issue was selected; always the configured match rule. */
     readonly trigger: typeof TRIGGER;
@@ -89,8 +79,6 @@ export class EvidenceError extends Error {
 
 /**
  * Serialize an evidence record for storage.
- *
- * @returns Compact JSON, asserted to be free of secret-shaped material.
  */
 export function serializeEvidence(evidence: PanelEvidence): string {
     const json = JSON.stringify(evidence);
@@ -100,8 +88,6 @@ export function serializeEvidence(evidence: PanelEvidence): string {
 
 /**
  * Assert that a record can be persisted without carrying secret material.
- *
- * @throws {RedactionError} When the serialized record matches a secret shape.
  */
 export function assertEvidenceRedacted(evidence: PanelEvidence): void {
     assertRedacted('evidence record', serializeEvidence(evidence));
@@ -109,9 +95,6 @@ export function assertEvidenceRedacted(evidence: PanelEvidence): void {
 
 /**
  * Build the normalized evidence record for one configured match.
- *
- * @returns The redacted evidence record.
- * @throws {EvidenceError} When an input is missing or malformed.
  */
 export function buildEvidence(input: EvidenceInput): PanelEvidence {
     if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber <= 0) {
@@ -197,7 +180,6 @@ interface EvidenceFields {
     /** `owner/name` of the polled repository. */
     readonly repository: string;
     readonly issueId: string;
-    /** Canonical issue URL. */
     readonly issueUrl: string;
     /** Login discovered from `GET /user`. */
     readonly authenticatedLogin: string;

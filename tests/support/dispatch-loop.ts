@@ -44,18 +44,16 @@ import type { PanelHost } from '../../src/session.ts';
 import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceStore } from '../../service/store/index.ts';
 import {
-    ACCOUNT_ID,
     ACCOUNT_LOGIN,
     BINDING_ID,
     FIXTURE_STAMP,
     REPOSITORY,
-    WORKTREE_OPTION,
     bindEnqueue,
 } from './fixture-enqueue.ts';
 import type { EnqueueInput } from './fixture-enqueue.ts';
+import { jsonHeaders } from './service-routes.ts';
 import {
     hasNothingToRelease,
-    PROJECT_ID,
     PROJECTS,
     SESSION_CREATED,
     createStorageDouble,
@@ -66,7 +64,7 @@ import type { StorageDouble } from './panel.ts';
 import { removeTempTree } from './temp-tree.ts';
 import { startTestService } from './service.ts';
 import type { TestService } from './service.ts';
-import { writeLoopBinding } from './binding-fixture.ts';
+import { fixtureBindingRow, writeLoopBinding } from './binding-fixture.ts';
 
 /** Prefix under the system temp directory for one loop. */
 const TEMP_PREFIX = 'mecha-turk-loop-';
@@ -76,9 +74,6 @@ const EXPIRED_LEASE_STAMP = '2000-01-01T00:00:00.000Z';
 
 /** Agent the fixture host's read-back reports; the loop's config pins it as the baseline. */
 export const EXPECTED_AGENT = 'project-manager';
-
-/** Header name a forwarded JSON body carries, as a computed object key. */
-const CONTENT_TYPE_HEADER = 'content-type';
 
 /** Error body a lost report answers with (contract §1 envelope). */
 const LOST_REPORT_BODY = JSON.stringify({ error: { code: 'storage-unavailable', message: 'store down' } });
@@ -155,20 +150,12 @@ export interface DispatchLoop {
 }
 
 /** The one active binding the mounts install, matching the fixture runs. */
-function loopBinding(): PanelBinding {
-    return {
-        bindingId: BINDING_ID,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: REPOSITORY,
-        projectId: PROJECT_ID,
-        worktreeOption: WORKTREE_OPTION,
-        triggers: { assignment: true, mention: true, reviewRequest: false },
-        state: 'active',
-        createdAt: FIXTURE_STAMP,
-        updatedAt: FIXTURE_STAMP,
-    };
-}
+const loopBinding = (): PanelBinding => fixtureBindingRow(BINDING_ID, {
+    accountLogin: ACCOUNT_LOGIN,
+    repository: REPOSITORY,
+    triggers: { assignment: true, mention: true, reviewRequest: false },
+    stamp: FIXTURE_STAMP,
+});
 
 /** Forward one panel request to whichever instance is running. */
 async function forward(input: {
@@ -194,7 +181,7 @@ async function forward(input: {
 
     const init: RequestInit = { method: request.method };
     if (request.body !== undefined) {
-        init.headers = { [CONTENT_TYPE_HEADER]: 'application/json' };
+        init.headers = jsonHeaders();
         init.body = request.body;
     }
     const response = await service.call(request.path, init);

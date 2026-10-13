@@ -1,26 +1,5 @@
 /**
- * One authorized attempt, from the host call to the acknowledgement (003
- * T-021; [contracts/reconciliation.md](../specs/003-dispatch-integrity/contracts/reconciliation.md)).
- *
- * Everything here runs **after** the gates in
- * [`relay-gates.ts`](./relay-gates.ts) have passed and the service has answered
- * a reserve with a single-use token — with **one** exception the reservation
- * cannot settle: the budget floor (004 FR-085). A composed first message over
- * {@link CONTEXT_MAX_CHARS} is refused *before* `host.startSession()` is
- * reachable — no session started, nothing truncated — because a message only a
- * hand-edited store could push past the bound is a stop condition, not
- * permission to guess (FR-003, constitution II). Every other step owes the
- * ordering the contract makes non-negotiable:
- *
- * ```text
- * compose + measure ──▶ host.startSession() returns ──▶ WRITE attempt record ──▶ POST result ──▶ 2xx ──▶ acknowledged
- * ```
- *
- * The record is durable **before** the report leaves, because a report that
- * never lands has to leave the truth recoverable on this side (FR-024). The
- * acknowledgement flips only on the 2xx for that exact attempt (FR-025), and
- * the agent read-back comes last and warns only — it never blocks, never kills,
- * and never changes a state (FR-043).
+ * One authorized attempt, host call to ack: durable record, 2xx-keyed ack, read-back warns only (FR-024/025/043).
  */
 
 import type { GuestProject, StartSessionRequest } from '@openchamber/sdk';
@@ -58,20 +37,15 @@ import {
 import type { ClaimedRun } from './claim-service.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** What one `host.startSession()` call produced, for the record and the report. */
 export interface HostCall {
-    /** Ledger detail for the entry the relay appends. */
     readonly detail: LedgerDetail;
     /** Outcome the FR-024 record and the result report both carry. */
     readonly outcome: RecordedOutcome;
-    /** Created session id, or `null` when none was created. */
     readonly sessionId: string | null;
 }
 
 /**
  * Build the matched-issue record one offered run maps into.
- *
- * @returns The issue the context builder and the attachment both read.
  */
 function issueOf(run: ClaimedRun): GitHubIssue {
     return {
@@ -87,8 +61,6 @@ function issueOf(run: ClaimedRun): GitHubIssue {
 
 /**
  * Project the run's source references into the context's sources.
- *
- * @returns One context source per retained reference, in join order.
  */
 function contextSourcesOf(run: ClaimedRun): ContextSource[] {
     return run.sourceReferences.map((reference) => ({
@@ -112,29 +84,16 @@ function failureReason(summary: LedgerDetail): string {
 }
 
 /**
- * The fail-closed budget floor: the composed first message against
- * {@link CONTEXT_MAX_CHARS} (004 FR-085, plan D22, research R-2).
- *
- * The frame is bounded as it is built and the prompt block is reserved before
- * the excerpt is sized, so a legal composition never reaches this check: three
- * maximal tiers plus the full frame come to ≈ 7,700 of the 12,000 characters
- * available (FR-085's own arithmetic). What it exists for is the one case
- * FR-085 names — a store hand-edited past its own validators — where the floor
- * **refuses rather than shortens**: no session starts, and no tier, no frame,
- * and no marker structure is ever truncated (FR-003; constitution II: a stop
- * condition, not permission to guess).
- *
- * The refusal is reported as a failed attempt through the existing `problem`
- * path (research R-2's default): no new `blocked:` reason — 003 owns that
- * closed set — no new state, and no vocabulary beyond the words below.
- *
- * @returns `null` when the message fits; otherwise the bounded remediation
- *   naming every contributing tier, ready for the failed attempt's `problem`.
+ * The fail-closed budget floor: the composed first message against {@link CONTEXT_MAX_CHARS} (004
+ * FR-085, plan D22, research R-2). A legal composition never reaches it — three maximal tiers
+ * plus the full frame come to ≈7,700 of the 12,000 characters — so what it exists for is FR-085's
+ * one case, a store hand-edited past its own validators, where the floor **refuses rather than
+ * shortens**: no session starts and no tier, frame or marker structure is truncated (FR-003;
+ * constitution II). Reported as a failed attempt through `problem`: no new `blocked:` reason, no
+ * new state, no new vocabulary.
  */
 export function budgetFloorProblem(input: {
-    /** The composed first message, exactly as the host would receive it. */
     readonly composed: string;
-    /** The tiers the prompt block came from, or `null` when no tier set one. */
     readonly sources: readonly PromptSource[] | null;
 }): string | null {
     const { composed, sources } = input;
@@ -155,14 +114,11 @@ export function budgetFloorProblem(input: {
 }
 
 /**
- * Build the spike-shaped evidence record one offered run maps into.
- *
- * MVP-DEBT: the relay borrows the spike's evidence schema, so the trigger
- * literal stays the spike's; the relay's own framing lives in the PM context
- * line and the ledger entry. The correlation id is the run's, which is what
- * makes the attachment id the run's too.
- *
- * @returns The evidence record the attachment reads its identity from.
+ * Build the spike-shaped evidence record one offered run maps into. MVP-DEBT:
+ * the relay borrows the spike's evidence schema, so the trigger literal stays
+ * the spike's and the relay's own framing lives in the PM context line and the
+ * ledger entry. The correlation id is the run's, which is what makes the
+ * attachment id the run's too.
  */
 function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRun }): PanelEvidence {
     const { rt, run } = input;
@@ -181,22 +137,16 @@ function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRu
 }
 
 /**
- * Build the start-session request one offered run maps into.
- *
- * The message is composed here from the run's own snapshot: the operator's
- * prompt block first, the automatic frame beneath it — and with no prompt the
+ * Build the start-session request one offered run maps into: the operator's
+ * prompt block first, the automatic frame beneath it, and with no prompt the
  * frame is exactly what this build produced before the feature existed (004
- * FR-032, SC-121). Composition does not decide whether the message may be sent:
- * {@link budgetFloorProblem} measures what comes back of this against
+ * FR-032, SC-121). Composition does not decide whether the message may be sent
+ * — {@link budgetFloorProblem} measures what comes back against
  * {@link CONTEXT_MAX_CHARS} immediately before the host call.
- *
- * @returns The request exactly as the host would receive it.
  */
 export function runRequestOf(input: {
     readonly rt: PanelRuntime;
-    /** The offered run. */
     readonly run: ClaimedRun;
-    /** Project the host confirmed. */
     readonly project: GuestProject;
 }): StartSessionRequest {
     const { run } = input;
@@ -241,30 +191,17 @@ export function runRequestOf(input: {
 }
 
 /**
- * Make the one authorized host call; never throws.
- *
- * **The floor sits here**: the message is composed first, then
- * measured against {@link CONTEXT_MAX_CHARS} — and an over-budget composition
- * is refused **before** `host.startSession()` is called, so no session is
- * started and nothing is truncated. The refusal takes the same shape a rejected
- * start does (`sessionId: null`, `sent: 'skipped'`, the remediation as its
- * `failure`), which is what carries it through the existing failed-attempt
- * `problem` path into the operator's run row without a new state or reason.
- *
- * A rejected `host.startSession()` is isRecorded as a failure with the transport
- * problem as its reason: the guest bridge documents a created session as a
- * resolved result carrying its id, so a rejection means the request never came
- * back with one — and an outcome, either way, is exactly what FR-024 requires
- * the panel to hold before it reports anything.
- *
- * @returns What the host produced (or the floor refused), for the ledger, the
- *   record, and the report.
+ * Make the one authorized host call; never throws. **The floor sits here**: the message is
+ * composed, then measured — an over-budget composition is refused **before** `host.startSession()`,
+ * so no session starts and nothing is truncated, and the refusal takes the shape a rejected start
+ * does (`sessionId: null`, `sent: 'skipped'`, the remediation as its `failure`) so it reaches the
+ * run row through the existing failed-attempt `problem` path. A rejected `host.startSession()` is
+ * recorded as a failure with the transport problem as its reason — an outcome either way, which is
+ * what FR-024 requires the panel to hold before it reports anything.
  */
 export async function startRunSession(input: {
     readonly rt: PanelRuntime;
-    /** The offered run. */
     readonly run: ClaimedRun;
-    /** Project the host confirmed. */
     readonly project: GuestProject;
 }): Promise<HostCall> {
     const { rt, run } = input;
@@ -308,11 +245,8 @@ export async function startRunSession(input: {
  */
 export async function reportAndAcknowledge(input: {
     readonly rt: PanelRuntime;
-    /** The offered run. */
     readonly run: ClaimedRun;
-    /** The single-use token the reservation holds. */
     readonly token: string;
-    /** What the host produced. */
     readonly outcome: RecordedOutcome;
 }): Promise<void> {
     const { rt, run, token, outcome } = input;
@@ -363,11 +297,8 @@ export async function reportAndAcknowledge(input: {
  */
 export async function closeAttempt(input: {
     readonly rt: PanelRuntime;
-    /** The offered run. */
     readonly run: ClaimedRun;
-    /** The single-use token the reservation holds. */
     readonly token: string;
-    /** What the host call produced. */
     readonly started: HostCall;
 }): Promise<void> {
     const { rt, run, token, started } = input;

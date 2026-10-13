@@ -1,84 +1,46 @@
 /**
- * The one place a service answer is classified (006 FR-043; 005 FR-088).
- *
- * Every wrapper in [`service-calls.ts`](./service-calls.ts) funnels its answer
- * through this module, so the problem string, the machine `code`, the envelope
- * `message`, and a refusal's `issues` are decided exactly once — which is what
- * makes "extended, not forked" checkable: there is one classifier, and a
- * resource the panel writes to passes the name of the thing it wrote
- * (`service refused the configuration`, never the bindings sentence a `422`
- * used to get by default).
- *
- * Three rules the extraction keeps, each from the contract:
- *
- * - **The envelope is read, never quoted into a request.** `code` and `message`
- *   exist so a refusal can name its own cause; nothing here forwards a payload
- *   anywhere (SEC-11: the message is rendered as the service's copy, and a
- *   transport failure is described without touching host payloads at all).
- * - **Issues are the service's, in the service's order.** An entry that does
- *   not carry a string `field` *and* a string `remediation` is dropped rather
- *   than guessed at: a half-read issue would be a message the service never
- *   sent (invariant 8), and the list is the panel's only source for AC-107's
- *   "every issue, in order, unrewritten".
- * - **A `422` is a refusal of the resource the caller named; everything else
- *   is a status.** `service answered <n>` never claims which document was
- *   wrong, so a `503` cannot be read as a validation refusal (FR-061, FR-063).
+ * The one place a service answer is classified: envelope read, never quoted, issues in the service's order (inv. 8).
  */
 
 import type { GuestRequestResult } from '@openchamber/sdk';
 import { parseJsonObject } from './json.ts';
 
-/** HTTP status the service answers with a `validation` error body. */
 const STATUS_VALIDATION = 422;
 
 /** Lowest HTTP status that carries the documented error envelope (§1). */
 const STATUS_ERROR_MIN = 400;
 
-/** Lowest HTTP status code a service answer counts as success. */
 const STATUS_OK_MIN = 200;
 
-/** HTTP status just past the last success code (`2xx`). */
 const STATUS_OK_MAX_EXCLUSIVE = 300;
 
 /**
  * The resources the refusal classifier can name in its problem string (006
- * FR-043).
- *
- * The classifier used to answer every `422` with one fixed sentence naming the
- * **bindings list**, so a configuration refusal rendered through it would have
- * both misnamed the resource and hidden the issues this feature exists to show.
- * Naming the resource is the whole fix: one classifier, and the sentence each
- * caller gets is the one about the thing that caller sent.
+ * FR-043): the classifier used to answer every `422` with one fixed sentence
+ * naming the **bindings list**, so a configuration refusal both misnamed the
+ * resource and hid the issues this feature exists to show. One classifier, and
+ * each caller gets the sentence about the thing that caller sent.
  */
 export type ServiceResource =
     /** The whole-file bindings grant (005 FR-088's original wording). */
     | 'bindings list'
-    /** The whole-file configuration document. */
     | 'configuration';
 
 /**
- * The two words the actor gate's refusal speaks for the window it judged
- * (003 T-038; the service's own `ReferenceWindow`).
- *
- * **A second declaration of a service vocabulary**, exactly as
- * `BlockedReason` in `relay-gates.ts` and the `blocked:<reason>` family in
- * `run-state.ts` are: the panel cannot import across the extension/service
- * boundary, so the duplication is structural rather than careless. What makes
- * it safe here is that this panel's only reader **refuses** every other word
- * rather than passing one through, and
+ * The two words the actor gate's refusal speaks for the window it judged (003
+ * T-038; the service's own `ReferenceWindow`) — **a second declaration of a
+ * service vocabulary**, like `BlockedReason` and the `blocked:<reason>` family:
+ * the panel cannot import across the extension/service boundary, so the
+ * duplication is structural rather than careless. What makes it safe is that
+ * this panel's only reader **refuses** every other word, and
  * `tests/relay-integrity.test.ts` drives the service's real verdict through
- * this pair — the drift test, without a new exported constant.
- *
- * Value-free, like the thing it describes: two words about a list, never a
- * login.
+ * this pair — the drift test, without a new exported constant. Value-free:
+ * two words about a list, never a login.
  */
 export type ReferenceWindow =
-    /** The gate judged every trigger the run accumulated. */
     | 'complete'
-    /** The run's reference list was cut, so the gate judged a partial list. */
     | 'truncated';
 
-/** One `field: remediation` pair as a configuration refusal carries it. */
 export interface ConfigIssueView {
     /** Field the service named; `<withheld>` for a secret-shaped key. */
     readonly field: string;
@@ -86,44 +48,35 @@ export interface ConfigIssueView {
     readonly remediation: string;
 }
 
-/** Result of one service round trip through the host bridge. */
 export type ServiceResult =
     | { readonly ok: true; readonly body: string }
     | { readonly ok: false; readonly problem: string };
 
-/** Result of one call where the service's error code matters to the caller. */
 export type ServiceErrorResult =
     | { readonly ok: true; readonly body: string }
     | {
         readonly ok: false;
         readonly problem: string;
         readonly code: string | null;
-        /** The envelope's own refusal copy, verbatim; `null` when it sent none. */
         readonly message: string | null;
         /**
          * The window a deciding gate judged, on the one code that judges one;
-         * `null` on every other refusal **and** on any answer from a
-         * build that states no window.
-         *
-         * Read as a member rather than derived from `message`, because the
-         * service is the only thing that knows which list its decision saw: a
-         * panel that inferred it would either re-read a document at another
-         * moment or match English, and the first is a stale second opinion while
-         * the second is a parse of a sentence it is only obliged to display.
+         * `null` on every other refusal and on any answer from a build that
+         * states no window. Read as a member rather than derived from
+         * `message`: the service alone knows which list its decision saw, and a
+         * panel that inferred it would either re-read at another moment (stale)
+         * or match English (a parse of a sentence it must only display).
          */
         readonly referenceWindow: ReferenceWindow | null;
     };
 
-/** Result of a configuration write, which keeps the refusal's issue list. */
 export type ServiceConfigPutResult =
     | { readonly ok: true; readonly body: string }
     | {
         readonly ok: false;
         /** Names the configuration, never the bindings list. */
         readonly problem: string;
-        /** The envelope's machine code; `null` when none was sent. */
         readonly code: string | null;
-        /** The issues in the order the service returned them. */
         readonly issues: readonly ConfigIssueView[];
         /**
          * The envelope's own correlation identifier, when it sent one — the
@@ -135,20 +88,15 @@ export type ServiceConfigPutResult =
 
 /**
  * Decide whether one HTTP status lands in the 2xx band.
- *
- * @returns `true` inside the band.
  */
 export function isOkStatus(status: number): boolean {
     return status >= STATUS_OK_MIN && status < STATUS_OK_MAX_EXCLUSIVE;
 }
 
 /**
- * Decide whether one HTTP status carries the documented error envelope.
- *
- * Every status from 400 up answers with `{ error: { code, ... } }`
- * (contract §1), so the extraction only needs the band boundary.
- *
- * @returns `true` inside the error band.
+ * Decide whether one HTTP status carries the documented error envelope: every
+ * status from 400 up answers `{ error: { code, ... } }` (contract §1), so the
+ * extraction only needs the band boundary. `true` inside the error band.
  */
 export function isErrorStatus(status: number): boolean {
     return status >= STATUS_ERROR_MIN;
@@ -156,8 +104,6 @@ export function isErrorStatus(status: number): boolean {
 
 /**
  * Describe one non-2xx service answer from the status and the resource.
- *
- * @returns A short, secret-free problem string.
  */
 export function httpProblem(status: number, resource: ServiceResource): string {
     if (status === STATUS_VALIDATION) {
@@ -199,18 +145,14 @@ export function envelopeFieldOf(body: string, field: string): string | null {
 }
 
 /**
- * Read the window a refusal's gate judged, refusing every word but the two
- * this build knows.
- *
- * **Closed, so a word from a future build is a refusal rather than a guess**:
- * an unrecognised word reads as `null`, which is the same as *the service said
- * nothing*, and the caller then behaves exactly as it always did. That is the
- * fail-closed direction on purpose — the ordinary answer is the one that is
- * merely unhelpful if wrong, while inventing a third state would have the panel
- * advise an operator to dead-letter a run a single allow-list edit would have
- * dispatched.
- *
- * @returns The window, or `null` when the envelope named none this build knows.
+ * Read the window a refusal's gate judged, refusing every word but the two this
+ * build knows: **closed, so a word from a future build is a refusal rather
+ * than a guess** — an unrecognised word reads as `null`, the same as *the
+ * service said nothing*, and the caller behaves as it always did. That is the
+ * fail-closed direction on purpose: the ordinary answer is merely unhelpful if
+ * wrong, while a guessed third state could advise dead-lettering a run a single
+ * allow-list edit would have dispatched. `null` when the envelope named no
+ * window this build knows.
  */
 export function envelopeReferenceWindowOf(body: string): ReferenceWindow | null {
     const value = envelopeFieldOf(body, 'referenceWindow');
@@ -261,8 +203,6 @@ export function envelopeIssuesOf(body: string): readonly ConfigIssueView[] {
 
 /**
  * Describe one transport failure without quoting host payloads.
- *
- * @returns A short, secret-free problem string.
  */
 export function describeTransport(cause: unknown): string {
     const code = typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : null;
@@ -272,8 +212,6 @@ export function describeTransport(cause: unknown): string {
 
 /**
  * Turn one service answer into the plain wrapper's result.
- *
- * @returns The body, or a status-named problem.
  */
 export function resultOf(answer: GuestRequestResult, resource: ServiceResource): ServiceResult {
     if (isOkStatus(answer.status)) {
@@ -284,18 +222,14 @@ export function resultOf(answer: GuestRequestResult, resource: ServiceResource):
 }
 
 /**
- * Turn one service answer into the error-aware wrapper's result.
- *
- * Same as {@link resultOf}, except a refusal in the error bands also carries
- * the envelope's machine code **and its own message** — both extracted from
- * the body, never quoted into anything but a note — so a caller can
- * distinguish a documented refusal from anything else without parsing the body
- * twice, and can still tell the operator what the service said. A gate's
+ * Turn one service answer into the error-aware wrapper's result: same as
+ * {@link resultOf}, except a refusal in the error bands also carries the
+ * envelope's machine code **and its own message** — extracted from the body,
+ * never quoted into anything but a note — so a caller can tell a documented
+ * refusal from anything else without parsing the body twice. A gate's
  * `referenceWindow` rides with them, read by the same closed reader, so a
- * caller that must branch on the window the decision was made on never parses
- * the message to find it.
- *
- * @returns The body, or a problem plus the error code, copy, and window.
+ * caller branching on the judged window never parses the message to find it.
+ * Answers the body, or a problem plus the error code, copy, and window.
  */
 export function resultWithErrorOf(answer: GuestRequestResult, resource: ServiceResource): ServiceErrorResult {
     if (isOkStatus(answer.status)) {
@@ -315,8 +249,6 @@ export function resultWithErrorOf(answer: GuestRequestResult, resource: ServiceR
 
 /**
  * Turn a configuration answer into its wrapper's result, issues and all.
- *
- * @returns The body, or the problem, code, and issue list of a refusal.
  */
 export function configResultOf(answer: GuestRequestResult): ServiceConfigPutResult {
     if (isOkStatus(answer.status)) {

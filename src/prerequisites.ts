@@ -1,34 +1,5 @@
 /**
- * The first-run setup-prerequisites section (003 FR-071–FR-073, closing 002's
- * FR-038 conformance gap): five prerequisites, each with a state and its own
- * remediation line, derived on read from panel state — never persisted, never
- * fetched, never able to configure anything (spec `## Key Entities`: this
- * surface is read-only reporting).
- *
- * Three states only (FR-072): `met`, `not-met`, `not-checkable` — and a
- * prerequisite the panel cannot verify says so rather than displaying a
- * reassuring state it did not check. Two of the five are permanently not
- * checkable, deliberately:
- *
- * - The **Default Agent pin** no documented API exposes: it becomes knowable
- *   only after a dispatch, when the read-back reports which agent the session
- *   runs (FR-072).
- * - The **desktop-or-web surface** has no documented reporter either: the
- *   ready context's `surface` member is the guest surface kind (`panel`,
- *   `dialog`, `page`, `background`), not the OpenChamber app, and a refused
- *   `serviceRequest` cannot separate "unsupported surface" from "not
- *   approved" or "not running" (both answer `NO_SERVICE`). Its remediation
- *   names the consequence instead of asserting a check.
- *
- * What is checkable is checked fail-closed: absent scope evidence reads as no
- * evidence, a binding without a project id is unmet. Every checkable
- * `not-met` also raises a banner **outside**
- * the section (FR-073); a `met` item never does.
- *
- * Rendering follows the DispatchesBoard shape: SDK primitives mounted into a
- * wrapper whose `hidden` flag is the banner's state, repainted through
- * {@link repaintPrerequisites}. Mounted surfaces live in a `WeakMap` keyed by
- * runtime rather than on `PanelRuntime`, so this module owns all its state.
+ * The first-run prerequisites section: five derived on read, never able to configure anything (FR-071–FR-073).
  */
 
 import { mountBadge, mountBanner } from '@openchamber/sdk/ui';
@@ -51,20 +22,14 @@ export type { Prerequisite, PrerequisiteId, PrerequisiteState } from './prerequi
 
 /** The banner FR-073 raises outside the section when something is unmet. */
 export interface PrerequisiteNotice {
-    /** Banner headline. */
     readonly title: string;
-    /** Which prerequisites are unmet and where their fixes live. */
     readonly body: string;
 }
 
-/** Heading above the five lines. */
 export const PREREQUISITES_HEADING = 'Setup prerequisites';
 
 /**
  * Render one prerequisite as the line its `TextHandle` shows.
- *
- * @returns `title · state — detail remediation`, in that order, so the state
- *   is readable even when the line wraps.
  */
 export function prerequisiteLine(item: Prerequisite): string {
     return `${item.title} · ${prerequisiteStateLabel(item.state)} — ${item.detail} ${item.remediation}`;
@@ -76,7 +41,6 @@ export function prerequisiteLine(item: Prerequisite): string {
  * teach the operator to ignore the banner, and `met` never raises it (FR-073's
  * second sentence).
  *
- * @param items - The derived prerequisites.
  * @returns The banner copy, or `null` when nothing checkable is unmet.
  */
 export function prerequisiteNotice(items: readonly Prerequisite[]): PrerequisiteNotice | null {
@@ -93,7 +57,6 @@ export function prerequisiteNotice(items: readonly Prerequisite[]): Prerequisite
     };
 }
 
-/** The notice banner as it mounts: a wrapper and the banner inside it. */
 interface NoticeSurface {
     /** Wrapper whose `hidden` flag is "nothing here needs attention". */
     box: HTMLElement;
@@ -101,27 +64,18 @@ interface NoticeSurface {
     banner: BannerHandle;
 }
 
-/** One prerequisite as it mounts: title, state chip, remediation, detail. */
 interface PrereqCard {
-    /** The card surface the four parts live in. */
     readonly card: HTMLElement;
     /** The state chip FR-072's three words paint (005 FR-083). */
     readonly badge: BadgeHandle;
-    /** The line that tells the operator what to do about it. */
     readonly remediation: Cell;
-    /** What the panel observed, or why it could not observe anything. */
     readonly detail: Cell;
-    /** Repaint the three repainted parts from one derived prerequisite. */
     update(item: Prerequisite): void;
-    /** Release the badge and both cells, then remove the card. */
     dispose(): void;
 }
 
-/** The section as it mounts: a block, its heading, and its five cards. */
 interface SectionSurface {
-    /** The block surface, disposed with the cards inside it. */
     readonly block: Block;
-    /** One card per prerequisite, in {@link derivePrerequisites} order. */
     items: readonly PrereqCard[];
 }
 
@@ -133,19 +87,14 @@ interface SectionSurface {
  * keeps no entry at all).
  */
 interface PrerequisitesSurface {
-    /** Notice above the tab strip, absent until {@link mountPrerequisiteNotice}. */
     notice?: NoticeSurface;
-    /** The five-line section, absent until {@link mountPrerequisitesSection}. */
     section?: SectionSurface;
 }
 
-/** Mounted surfaces per runtime; absent means "nothing to repaint or dispose". */
 const surfaces = new WeakMap<PanelRuntime, PrerequisitesSurface>();
 
 /**
  * Read (or create) one runtime's surface record.
- *
- * @returns The mutable surface record for this runtime.
  */
 function surfaceFor(rt: PanelRuntime): PrerequisitesSurface {
     const existing = surfaces.get(rt);
@@ -197,9 +146,7 @@ export function repaintPrerequisites(rt: PanelRuntime): void {
  * nothing unmet shows no banner until the first repaint paints one.
  */
 export function mountPrerequisiteNotice(input: {
-    /** Runtime whose state the banner repaints from. */
     readonly rt: PanelRuntime;
-    /** Element above the tab strip the wrapper mounts into. */
     readonly parent: HTMLElement;
 }): void {
     const box = input.parent.ownerDocument.createElement('div');
@@ -219,8 +166,6 @@ export function mountPrerequisiteNotice(input: {
  * as the derivation produced it — the structure replaces the ` · ` and ` — `
  * the single-line format used to print between them, and changes no word
  * inside any of them.
- *
- * @returns The card, repainted and disposed as one unit.
  */
 function mountPrereqCard(parent: HTMLElement, item: Prerequisite): PrereqCard {
     const document = parent.ownerDocument;
@@ -266,9 +211,7 @@ function mountPrereqCard(parent: HTMLElement, item: Prerequisite): PrereqCard {
  * each repaints from its own record.
  */
 export function mountPrerequisitesSection(input: {
-    /** Runtime whose state the cards repaint from. */
     readonly rt: PanelRuntime;
-    /** Status body the block mounts into. */
     readonly parent: HTMLElement;
 }): void {
     const { rt, parent } = input;

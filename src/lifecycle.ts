@@ -1,27 +1,18 @@
 /**
- * Lifecycle experiment plan and mount bookkeeping (T008).
- *
- * The documented host clears subscriptions on unmount, pause, removal, and
- * server switch, and a panel is not documented as a background worker. The
- * panel therefore does not assume either outcome: it records explicit phase
- * markers plus poll activity, and the verdict comes from stored entries
- * (see {@link analyzeLastCloseGap}).
+ * Lifecycle experiment plan and mount bookkeeping (T008): the panel does not
+ * assume the host's documented cleanup or that it runs in the background — it
+ * records explicit phase markers plus poll activity, and the verdict comes
+ * from stored entries ({@link analyzeLastCloseGap}).
  */
 
 import { analyzePollingGap } from './ledger.ts';
 import type { GapAnalysis, LifecyclePhase, PanelLedger } from './ledger.ts';
 
-/** One step of the lifecycle experiment. */
 export interface LifecycleStep {
-    /** Stable step identifier used in the runbook and the ledger. */
     readonly id: string;
-    /** Phase under test. */
     readonly phase: LifecyclePhase;
-    /** What the operator does in OpenChamber. */
     readonly operatorAction: string;
-    /** What the ledger should show if polling stopped (the documented behaviour). */
     readonly expectedObservation: string;
-    /** Where the evidence is read from. */
     readonly evidenceSource: string;
 }
 
@@ -70,15 +61,10 @@ export const LIFECYCLE_EXPERIMENT_PLAN: readonly LifecycleStep[] = [
     },
 ];
 
-/** Bookkeeping derived from the stored ledger at panel mount. */
 export interface MountContext {
-    /** Generation for this mount: 1 for a fresh ledger, prior generation + 1 otherwise. */
     readonly panelGeneration: number;
-    /** Whether a ledger was present in storage before this mount wrote to it. */
     readonly storagePresent: boolean;
-    /** Correlation identifier of the prior ledger, when one existed. */
     readonly priorCorrelationId: string | null;
-    /** Creation time of the prior ledger, when one existed. */
     readonly priorCreatedAt: string | null;
 }
 
@@ -88,8 +74,6 @@ export interface MountContext {
  * A missing ledger is itself evidence (removal deletes storage, and each
  * server owns its own namespace), so absence is recorded rather than hidden by
  * a silently fresh state.
- *
- * @param existing - Ledger read from storage, or `null` when absent/unusable.
  */
 export function buildMountContext(existing: PanelLedger | null): MountContext {
     if (existing === null) {

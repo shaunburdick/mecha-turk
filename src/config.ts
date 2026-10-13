@@ -1,23 +1,5 @@
 /**
- * Shared configuration primitives for repository, worktree, and project
- * references.
- *
- * This module once parsed the integration card's `integration.settings`
- * values into a single-repo configuration. That path is **retired**: 002
- * FR-041 empties `contributes.integration.settings` to zero settings, so no
- * reader here — and none anywhere else in `src/` — takes `repository`,
- * `expected-login`, `project-id`, `worktree-option`, `poll-interval-ms`, or
- * `expected-agent` from `ctx.settings`. Bindings are
- * the only configuration resolution mode (`bindings-mode.ts`), the project id
- * is validated fail-closed here ({@link parseProjectId}) and reaches a
- * binding only through the binding form's project select, and the
- * agent-verification baseline is read from `GET /v1/config` per verification
- * (`agent-verify.ts`).
- *
- * What survives are the value parsers: the service and the binding editor
- * still hand this module an `owner/name` string, a worktree option, and a
- * project id, and each is still validated fail-closed here — a malformed
- * value is refused rather than forwarded to `host.startSession()`.
+ * Shared configuration primitives for repository, worktree and project references — parsers refuse malformed values.
  */
 
 /** GitHub repository coordinates as shown in the `owner/name` form. */
@@ -61,17 +43,14 @@ export interface BindingContext {
 export const DEFAULT_POLL_INTERVAL_MS = 60_000;
 
 /**
- * Documented default for the agent-verification baseline.
- *
- * **Blank, on purpose.** The product owner's order of 2026-10-01, verbatim:
- * *"Default Agent pin should default to blank, not everyone is going to use
- * project-manager."* OpenChamber's Settings → Sessions → Session Defaults →
- * Default Agent is the documented setup step an operator completes with
- * whichever agent they want dispatches to run on; this constant is what the
- * panel uses when `GET /v1/config` carries no usable `expectedAgent`, and an
- * empty answer means **no baseline to compare against** — the read-back then
- * records the observed agent with its provenance (`defaulted` or `unset`)
- * and compares nothing, never against a name the operator never chose.
+ * Documented default for the agent-verification baseline — **blank, on
+ * purpose**, by the product owner's order of 2026-10-01, verbatim: *"Default
+ * Agent pin should default to blank, not everyone is going to use
+ * project-manager."* It applies when `GET /v1/config` carries no usable
+ * `expectedAgent`, and an empty answer means **no baseline to compare
+ * against**: the read-back records the observed agent with its provenance
+ * (`defaulted` or `unset`) and compares nothing, never against a name the
+ * operator never chose.
  */
 export const DEFAULT_EXPECTED_AGENT = '';
 
@@ -163,17 +142,12 @@ export function parseWorktreeOption(value: string): WorktreeSelection | null {
 }
 
 /**
- * Validate one candidate project id.
- *
- * The integration card supplies no `project-id` value (002 FR-041) and no
- * stored selection is restored (issue #39 removed the panel-level picker and
- * its pick key), so the id that reaches this function is the one the binding
- * form's project select just took from the host's own project list. A source
- * that holds no valid id leaves the resolution `null` rather than inventing a
- * project.
- *
- * @param raw - Candidate id from the form's project select.
- * @returns The trimmed id, or `null` when the candidate is absent or malformed.
+ * Validate one candidate project id. The integration card supplies no
+ * `project-id` value (002 FR-041) and no stored selection is restored (issue
+ * #39 removed the panel-level picker and its pick key), so the id that reaches
+ * this function is the one the binding form's project select just took from the
+ * host's own project list — a source that holds no valid id leaves the
+ * resolution `null` rather than inventing a project.
  */
 export function parseProjectId(raw: string | null): string | null {
     if (raw === null) {
@@ -190,8 +164,6 @@ export function parseProjectId(raw: string | null): string | null {
 
 /**
  * Render a worktree selection in the option's own syntax.
- *
- * @returns The `none` / `generated` / `new:<name>` string.
  */
 export function formatWorktreeOption(selection: WorktreeSelection): string {
     if (selection.kind === 'new') {
@@ -203,8 +175,6 @@ export function formatWorktreeOption(selection: WorktreeSelection): string {
 
 /**
  * Render a repository reference as `owner/name`.
- *
- * @returns The `owner/name` label used by GitHub paths and evidence records.
  */
 export function repositoryLabel(repository: RepositoryRef): string {
     return `${repository.owner}/${repository.name}`;
@@ -212,23 +182,13 @@ export function repositoryLabel(repository: RepositoryRef): string {
 
 /**
  * Split a stored `owner/name` label back into its reference — the inverse of
- * {@link repositoryLabel}, and beside it so the two directions of one
- * vocabulary cannot drift apart.
- *
- * The service's poll triggers need the reference (GitHub paths take `owner` and
- * `name` separately) while every stored row carries the label, and the split is
- * wanted by three modules that must not import each other. It therefore lives
- * here, in the module that already owns the label, and takes a **string** rather
- * than a binding: this is the panel's vocabulary and it must not reach for a
- * service type.
- *
- * A label with no `/` splits to an empty `name`, which is what the service's
- * reader has always answered. A stored binding cannot reach that case —
- * `parseRepository` refuses such a label on write and on read — so the branch is
- * here to keep the function total rather than to serve a caller.
- *
- * @param repository - Stored `owner/name` label.
- * @returns The repository reference.
+ * {@link repositoryLabel}, beside it so the two directions of one vocabulary cannot drift. The
+ * service's poll triggers need the reference (GitHub paths take `owner` and `name` separately)
+ * while every stored row carries the label, and three modules that must not import each other want
+ * the split — so it lives here, taking a **string** rather than a binding: this is the panel's
+ * vocabulary. A label with no `/` splits to an empty `name`, which the service's reader has always
+ * answered and a stored binding cannot reach (`parseRepository` refuses on write and on read), so
+ * the branch keeps the function total rather than serving a caller.
  */
 export function repositoryRefOf(repository: string): RepositoryRef {
     const index = repository.indexOf('/');

@@ -29,7 +29,6 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createLogger } from '../service/log.ts';
 import {
     EVENTS_FILE,
     createEvent,
@@ -52,6 +51,8 @@ import { openStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { PromptSnapshot } from '../service/prompt.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Stamp every fixture carries, so no test depends on the clock. */
 const STAMP = '2026-09-28T12:00:00.000Z';
@@ -72,8 +73,7 @@ const GLOBAL_TEXT = 'Global context.';
 const ACCOUNT_TEXT = 'Account context.';
 
 /** Log sink shared by every reader this suite drives. */
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'error', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('error');
 
 let tempRoot = '';
 let store: ServiceStore;
@@ -106,28 +106,14 @@ function bindingSnapshot(prompt: string): PromptSnapshot | null {
     return resolvePromptSnapshot({ global: null, account: null, binding: bindingWith(prompt) });
 }
 
-/** Build an assignment fixture for one issue. */
-function assignment(issueNumber: number): EventSnapshot {
-    return {
-        bindingId: BINDING_ID,
-        repository: 'acme/widget',
-        accountNumericUserId: '77331',
-        accountLogin: 'octocat',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
-            issueBodyExcerpt: 'body excerpt',
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: STAMP,
-    };
-}
+/**
+ * An assignment detection for one issue, under this suite's binding and stamp.
+ */
+const assignment = (issueNumber: number): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: BINDING_ID,
+    excerpt: 'body excerpt',
+    detectedAt: STAMP,
+});
 
 /** What one enqueue of this suite performs. */
 interface EnqueueCall {

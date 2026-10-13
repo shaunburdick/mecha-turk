@@ -1,50 +1,6 @@
 /**
  * Authorize one dispatch: mint the single-use token (003 FR-020, FR-021;
  * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md) §1).
- *
- * This is the **only** place a dispatch token is minted, and the one operation
- * whose whole job is to decide whether a run may be authorized at all. The shape
- * — decide, apply, record, inside one chain task — lives in
- * [`run-chain.ts`](./run-chain.ts); what is here is the decision and the
- * transition it applies.
- *
- * Three properties the transition owes beyond "the state is right":
- *
- * - **The authorization and the state move in the same write.** A reserve that
- *   recorded the reservation but left the run `claimed` would match *neither*
- *   sweep rule — not the lease-expiry requeue, which skips a run holding a
- *   reservation, nor the deadline wedge, which only reads `starting` — and the
- *   run would strand with no recovery path. 003 exists to make that shape
- *   impossible, so the reservation and the state change are one atomic write.
- * - **Nothing is minted before the verdict.** A refused reserve leaves no
- *   reservation, no token, and no `dispatch.reserved` row — only the one
- *   `dispatch.refused` row (contract §1).
- * - **The actor allow-list is judged here, and only here** (FR-076 – FR-080).
- *   The decision itself lives in
- *   [`dispatch-actor-gate.ts`](./dispatch-actor-gate.ts) — the split the
- *   file-length gate forces and the one this feature wants, since that module
- *   owns the predicate alone and the retry path re-runs the *same* predicate
- *   against its own live read (FR-078). It sits *after* `judgeReserve` has
- *   answered `null` and *before* any token is derived, so
- *   `already-dispatched` (which names the session) and `stale-lease` stay
- *   reachable on their own paths, and a refusal mints nothing at all. The
- *   binding's `allowedUsers` is read **inside this same chain task**, from the
- *   live document, so a tightened list takes effect on the next authorization
- *   with no re-scan and no restart; and the `PUT /v1/bindings` write joins that
- *   **same** chain (`routes/bindings.ts`), so an operator's tightening can never
- *   land between this read and the reservation below — the read → mint →
- *   persist sequence and the policy change it judges are one serialized pair,
- *   not two racing writers.
- * - **The session check runs first**, before the lease check, inverting the
- *   order the contract's prose listed. Read lease-first, a `dispatched` run —
- *   which holds no lease by construction — would always answer `stale-lease`
- *   and the session-naming refusal could never be reached: the store's parser
- *   only accepts a recorded session on a run that is `dispatched`, so the
- *   verdict that *can* name it has to be asked first. FR-022, AC-112, and the
- *   contract's own refusal table all require that name. The reservation check
- *   sits ahead of the state check for the same reason, which keeps
- *   `already-reserved` reachable for a `starting` run; `invalid-transition`
- *   remains the answer for every other live-lease state.
  */
 
 import { CONFIG_FILE, DEFAULT_CONFIG, configFromStore, parseStoredConfig } from '../config.ts';
@@ -72,9 +28,7 @@ export type ReserveResult =
 
 /** What one reserve call carries. */
 export interface ReserveInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run to authorize, by correlation id. */
     readonly correlationId: string;
@@ -98,8 +52,6 @@ const STALE_MESSAGE = 'the lease is expired or does not match this run';
  * The session pointer is the normal home, but an adopted or hand-seeded run can
  * carry the evidence only in its attempt history, and a refusal that must *name*
  * the session cannot name one it cannot find.
- *
- * @returns The session id, or `null` when the run records none.
  */
 export function sessionIdOf(run: Run): string | null {
     if (run.session !== null) {
@@ -110,15 +62,12 @@ export function sessionIdOf(run: Run): string | null {
 }
 
 /**
- * Judge the lease a request presented.
- *
- * A lease is a fencing token, not a capability: it authorizes nothing, and this
- * exists only to answer "is this the attempt that currently owns the run", which
- * is the coordination question the claim and the sweep also ask. The guard
- * operations share it because a guard runs in the same window — it holds a live
- * claim and has made no authorization (contract §4).
- *
- * @returns The refusal, or `null` when the lease is live and current.
+ * Judge the lease a request presented. A lease is a fencing token, not a
+ * capability: it authorizes nothing, and this answers *is this the attempt
+ * that currently owns the run*, the coordination question the claim and the
+ * sweep also ask. The guard operations share it because a guard runs in the
+ * same window — it holds a live claim and has made no authorization
+ * (contract §4).
  */
 export function judgeLease(input: {
     /** The run the request addresses. */
@@ -144,19 +93,15 @@ export function judgeLease(input: {
 }
 
 /**
- * Judge a reserve (contract §1).
- *
- * The four checks run **most specific first**: recorded session, lease,
- * reservation, state. The order is load-bearing twice over. Reading the lease
- * before the session would answer `stale-lease` for a `dispatched` run — which
- * holds no lease by construction — and make FR-022's "the refusal MUST name the
- * existing session" unreachable on the natural path. Reading the state
- * before the reservation would answer `invalid-transition` for a `starting` run
- * and make `already-reserved` unreachable instead. Both verdicts exist because
- * the contract's table names them, so the order is the one in which both stay
- * reachable, and contract §1's prose states exactly this.
- *
- * @returns The refusal, or `null` when this run may be authorized now.
+ * Judge a reserve (contract §1). The four checks run **most specific
+ * first** — recorded session, lease, reservation, state — and the order is
+ * load-bearing twice: lease-first would answer `stale-lease` for a
+ * `dispatched` run, which holds no lease by construction, and make FR-022's
+ * *the refusal MUST name the existing session* unreachable; state before
+ * reservation would answer `invalid-transition` for a `starting` run and make
+ * `already-reserved` unreachable instead. Both verdicts exist because the
+ * contract's table names them, so this is the order in which both stay
+ * reachable.
  */
 function judgeReserve(input: {
     /** The run the request addresses. */
@@ -197,20 +142,15 @@ function judgeReserve(input: {
 }
 
 /**
- * Build the run an authorized reserve produces.
- *
- * Pure, so the write is the only side effect the caller has to reason about and
- * the attempt record cannot drift from the reservation it belongs to.
- *
- * `actorPolicy` is snapshotted **here, from the gate's own read** (FR-079, plan
- * D16) — not re-read per row builder — so `dispatch.reserved` and
- * `dispatch.result` provably describe the same policy even though the result
- * report happens after an operator may have changed the list.
- *
- * @returns The `starting` run.
+ * Build the run an authorized reserve produces. Pure, so the write is the
+ * only side effect the caller has to reason about and the attempt record
+ * cannot drift from the reservation it belongs to. `actorPolicy` is
+ * snapshotted **here, from the gate's own read** (FR-079, plan D16) rather
+ * than re-read per row builder, so `dispatch.reserved` and `dispatch.result`
+ * provably describe the same policy even though an operator may change the
+ * list in between.
  */
 function reservedRun(input: {
-    /** The claimed run. */
     readonly run: Run;
     /** Token just minted. */
     readonly dispatchToken: string;
@@ -240,9 +180,6 @@ function reservedRun(input: {
  * Read before the chain, exactly as the claim reads its lease duration: a
  * configuration the operator cannot read must not fail an authorization, and the
  * default is the documented safe window.
- *
- * @param log - Logger used when the configuration cannot be read.
- * @returns Milliseconds a reservation's result deadline sits ahead.
  */
 async function readResultDeadlineMs(store: ServiceStore, log: ServiceLogger): Promise<number> {
     try {
@@ -258,15 +195,11 @@ async function readResultDeadlineMs(store: ServiceStore, log: ServiceLogger): Pr
 
 /**
  * Answer a refused reserve with its one `dispatch.refused` row.
- *
- * @returns The refusal, carrying whether its row reached the trail.
  */
 async function refusedReserve(input: {
     /** The reserve's own input. */
     readonly call: ReserveInput;
-    /** The run as it stands. */
     readonly run: Run;
-    /** The verdict. */
     readonly refusal: RunRefusal;
     /** The gate's extra details, on the one refusal that carries them (FR-077). */
     readonly actor?: ActorGateRefusal | undefined;
@@ -295,9 +228,6 @@ async function refusedReserve(input: {
 /**
  * Authorize one dispatch: mint the single-use token and move the run to
  * `starting`.
- *
- * @returns The authorized run with its token, or why nothing was authorized.
- * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
 export async function reserveDispatch(input: ReserveInput): Promise<ReserveResult> {
     const deadlineMs = await readResultDeadlineMs(input.store, input.log);

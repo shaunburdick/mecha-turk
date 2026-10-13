@@ -1,29 +1,5 @@
 /**
- * The **account-tier** prompt observer (004 FR-088, plan N8).
- *
- * An account's `startingPrompt` can change on two paths that must never both
- * record it: the account profile write (`PUT /v1/accounts/:numericUserId`) and
- * a hand edit of `accounts/<id>.json` that a later read notices. This module
- * gives the account tier the same lane the binding tier already has — a
- * per-store chain plus a trail-seeded baseline — with its own event vocabulary
- * and its own details shape, so the two lanes cannot be confused:
- *
- * - **one chain per store handle**: every baseline seed, every diff, and the
- *   profile write's read → write → diff sequence run as tasks on the same
- *   chain, so a read observation racing a write cannot interleave with it and
- *   SC-125's "exactly one row per change" is a property of serialisation;
- * - **one baseline per store handle**, seeded once from the trail itself (the
- *   highest-`seq` `account.prompt-updated` row per account) so
- *   `previousFingerprint` survives a restart without a new store file and a
- *   trimmed trail honestly yields `null`;
- * - **the baseline advances even when an append fails** — 003 FR-063's
- *   posture: state stands, the failure is logged as a `warn` naming the
- *   account and the fingerprint (never the text), and nothing rolls back.
- *
- * The row carries the account, presence, fingerprint, length, the previous
- * fingerprint, and the actor — and **never the prompt's text** (004 FR-053,
- * FR-088). A `displayName`-only change is not a tier change and never reaches
- * this lane: the label is not a prompt and 005 adds no event type.
+ * The account-tier prompt observer (004 FR-088, plan N8).
  */
 
 import { newCorrelationId } from '../src/ids.ts';
@@ -56,7 +32,6 @@ export interface ObservedAccount {
 
 /** What one observation of the account custody carries. */
 export interface AccountPromptObservation {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Logger for a failed append (account id and fingerprint only). */
     readonly log: ServiceLogger;
@@ -94,8 +69,6 @@ const observationStates = new WeakMap<ServiceStore, AccountPromptObservationStat
 
 /**
  * Get (or create) the observation state for one store handle.
- *
- * @returns The handle's baseline and chain.
  */
 function stateFor(store: ServiceStore): AccountPromptObservationState {
     let state = observationStates.get(store);
@@ -109,10 +82,6 @@ function stateFor(store: ServiceStore): AccountPromptObservationState {
 
 /**
  * Seed the baseline from the audit trail: highest-`seq` row per account.
- *
- * @param baseline - The map to fill (empty on first use for this handle).
- * @throws {StorageUnavailableError} When the trail cannot be read — a chain
- *   that cannot establish its baseline must not start guessing at diffs.
  */
 async function seedBaseline(store: ServiceStore, baseline: Map<string, string | null>): Promise<void> {
     const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
@@ -157,10 +126,6 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
  * The chain promise stored in the state always **resolves**, so a failed task
  * rejects for its own caller without wedging the next one — the same shape the
  * bindings lane's chain uses, deliberately: two chains, one discipline.
- *
- * @param task - The read/write/diff work to serialise.
- * @returns The task's result or rejection, exactly as the task produced it.
- * @throws {StorageUnavailableError} When the baseline cannot be seeded.
  */
 export async function runAccountPromptChain<T>(store: ServiceStore, task: () => Promise<T>): Promise<T> {
     const state = stateFor(store);
@@ -196,14 +161,11 @@ export interface AccountPromptChange {
 }
 
 /**
- * Append exactly one `account.prompt-updated` row.
- *
- * The decision is derived from the two fingerprints rather than passed in, so
- * the vocabulary (`set` | `changed` | `cleared`) cannot drift from what the
- * baseline says happened.
- *
- * @throws {StorageUnavailableError} When the append fails; the caller decides
- *   whether that rolls anything back (it never does — see the module header).
+ * Append exactly one `account.prompt-updated` row. The decision is derived
+ * from the two fingerprints rather than passed in, so the vocabulary (`set`
+ * | `changed` | `cleared`) cannot drift from what the baseline says
+ * happened. A failed append is logged and answered `false`; it never rolls
+ * anything back.
  */
 export async function appendAccountPromptChange(input: AccountPromptChange): Promise<void> {
     const isPresent = input.current !== null;
@@ -276,8 +238,6 @@ async function recordOneChange(context: {
  *
  * **Must run inside {@link runAccountPromptChain}** — the baseline it reads and
  * writes is only safe while no other observation can interleave with it.
- *
- * @returns How many rows this observation appended.
  */
 export async function recordAccountPromptChanges(input: AccountPromptObservation): Promise<number> {
     const state = stateFor(input.store);
@@ -324,8 +284,6 @@ export async function recordAccountPromptChanges(input: AccountPromptObservation
  * `listAccounts`) call with actor `service`, so a prompt edited outside the
  * panel is recorded by whoever the service could actually attribute the change
  * to.
- *
- * @returns How many rows this observation appended.
  */
 export async function observeAccountPromptChanges(input: AccountPromptObservation): Promise<number> {
     return await runAccountPromptChain(input.store, async () => await recordAccountPromptChanges(input));

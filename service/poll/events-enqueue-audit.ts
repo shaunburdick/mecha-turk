@@ -9,9 +9,7 @@ import type { EnqueueOutcome } from './runs-join.ts';
 
 /** Context shared by all audit writers for one enqueue. */
 interface EnqueueAuditInput {
-    /** Open service store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Run changes derived from the fresh deliveries. */
     readonly outcome: EnqueueOutcome;
@@ -27,9 +25,6 @@ const FINGERPRINT_CHARS = 24;
  *
  * A fingerprint and a length, never the text: the trail has to be able to say
  * *which* comment was observed without becoming its second home.
- *
- * @param excerpt - The row's bounded untrusted excerpt.
- * @returns `fp-` plus the first 24 hex characters of its SHA-256.
  */
 export function followUpFingerprint(excerpt: string): string {
     return `fp-${createHash('sha256').update(excerpt).digest('hex').slice(0, FINGERPRINT_CHARS)}`;

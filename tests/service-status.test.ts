@@ -40,6 +40,7 @@ import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Stamps the planted fixtures carry; arbitrary but stable. */
 const STAMP = '2026-09-28T10:00:00.000Z';
@@ -169,24 +170,19 @@ async function registerAccount(service: TestService): Promise<void> {
  * @param suffix - Distinguishes the binding id and the repository.
  * @returns The row as `bindings.json` stores it.
  */
-function bindingRow(suffix: string, state = 'active'): Record<string, unknown> {
-    return {
-        bindingId: `bnd_${suffix}`,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: `acme/${suffix}`,
-        projectId: 'prj_42',
-        worktreeOption: 'none',
+const bindingRow = (suffix: string, state: 'active' | 'disabled' = 'active'): Record<string, unknown> =>
+    fixtureBindingRow(`bnd_${suffix}`, {
         // Every trigger off, so the poll loop walks the row and never scans it:
         // a scanned binding would rewrite its own scan-state slot and race this
         // suite's planted stamps. No scan also means no GitHub call, so the
         // whole file stays offline by construction.
         triggers: { assignment: false, mention: false, reviewRequest: false },
+        accountNumericUserId: ACCOUNT_ID,
+        accountLogin: ACCOUNT_LOGIN,
+        repository: `acme/${suffix}`,
         state,
-        createdAt: STAMP,
-        updatedAt: STAMP,
-    };
-}
+        stamp: STAMP,
+    });
 
 /**
  * Plant bindings straight into the operator's store.

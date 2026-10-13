@@ -36,6 +36,7 @@ import { startTestService } from './support/service.ts';
 import type { EndpointResponse, GitHubScript } from './support/github.ts';
 import type { TestService } from './support/service.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { jsonHeaders, headerMap } from './support/service-routes.ts';
 
 /** Credential registered with this suite's scans; deliberately un-prefixed. */
 const REGISTERED_TOKEN = `registered-persist-credential-${'p'.repeat(32)}`;
@@ -110,19 +111,6 @@ afterEach(async (): Promise<void> => {
  *
  * @returns The headers as `fetch` accepts them.
  */
-function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
-    return Object.fromEntries(pairs);
-}
-
-/**
- * Build a JSON `content-type` header map.
- *
- * @returns The headers for one JSON POST.
- */
-function jsonHeaders(): Record<string, string> {
-    return headerMap([['content-type', 'application/json']]);
-}
-
 /** Identity answer used by the first verification (a classic `repo` token). */
 const USER_OK: EndpointResponse = {
     body: userBody({ id: ACCOUNT_ID, login: ACCOUNT_LOGIN }),

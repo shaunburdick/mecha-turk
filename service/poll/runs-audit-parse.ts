@@ -1,19 +1,5 @@
 /**
  * Strict parser for the durable run audit-intent outbox (003 T-037, T-040b).
- *
- * An intent is a promise that a specific audit row still owes the trail. Three
- * producers write them — run creation, migration adoption, and the lease/deadline
- * sweep — and every one of them shares the same recovery rule: if the process
- * dies after the state write and before the append, the next reader of
- * `runs.json` finds the intent and writes the row (T-037, T-040b). Without that
- * the only honest description of a crashed recovery is "the run moved and the
- * trail does not say why", which is precisely the failure constitution IV
- * exists to prevent.
- *
- * The parser is fail-closed in the same voice as the rest of the read path: an
- * intent it cannot fully understand makes the **whole outbox** unparsable,
- * which quarantines the document rather than silently dropping owed rows. A
- * half-understood intent is a row nobody can prove was written.
  */
 
 import { isRecord, readText } from '../json.ts';
@@ -153,8 +139,6 @@ function parseIntent(value: unknown): RunAuditIntent | null {
  * fingerprint's prefix is pinned: an intent that carried a `dtk-` value would
  * turn the recovery mechanism into a credential store, which is the one thing
  * the outbox must never be (FR-061, T-040c).
- *
- * @returns The details, or `null` when any member is malformed or forbidden.
  */
 function parseSweepDetails(raw: unknown): Record<string, string | number | boolean | null> | null {
     if (!isRecord(raw)) {

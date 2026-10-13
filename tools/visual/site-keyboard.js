@@ -1,41 +1,13 @@
 /**
- * Keyboard-only and accessibility-tree evidence over the built documentation site.
- *
- * 007 AC-035's second clause and NFR-004's keyboard half are questions about a **sequence** — what
- * a reader reaches by pressing Tab, in what order, with what visible indicator — and about what the
- * page exposes to assistive technology. Both are answered here by pressing keys, not by asking the
- * DOM what it would do: `agent-browser`'s accessibility snapshot is read for the tree the browser
- * builds, and every focus stop is read after a real `Tab`, because a scripted focus call does
- * not produce `:focus-visible` and can reach an element tab order skips — which would answer a
- * question nobody asked. The tool therefore never asks the browser to focus anything itself, and the
- * suite assertion written against this file is shaped so that this docblock cannot satisfy it.
- *
- * ## What each clause is answered with
- *
- * - **Every link, in DOM order.** The walk records each stop's tag, role, accessible name and
- *   `href`, and the count is compared with the number of links the page renders. A link the keyboard
- *   cannot reach is a link that does not exist for a reader who cannot use a mouse.
- * - **Names, roles, landmarks, headings.** From the accessibility snapshot: a landmark per region
- *   with its name, every heading with its level, and every link with a discernible name.
- * - **Unobscured visible focus.** Per stop: an outline with a width and a style that is not `none`,
- *   and `document.elementFromPoint` at the four points where the ring is painted — anything other
- *   than the focused element or something inside it there is covering the indicator.
- * - **320 CSS px.** No page-level horizontal scroll, a title that is neither clipped nor overlapped,
- *   and every control reachable. Table-local scrolling is permitted and is reported separately,
- *   because a wide table in its own scroller is the behaviour the field manual asks for.
- * - **Textual state, static decoration.** The rendered cue is required to be text by construction —
- *   a state conveyed only by a colour has no text to find — and no element on the page animates.
- *
- * ## Limits
- *
- * - It reads the browser's own tree and reports it. It makes **no WCAG conformance claim**: the
- *   checks are the specific clauses AC-035 names, and nothing else.
- * - `agent-browser a11y` (axe) is available and is **not** run: a score is not evidence for these
- *   clauses, and an optional browser feature must not become a dependency install.
- * - The generated indices and motifs are checked to be decorative here — they are generated content,
- *   and every heading carries its own text — but whether a screen reader announces them is outside
- *   what this tool can observe, and is recorded as such rather than claimed.
- *
+ * Keyboard-only and accessibility-tree evidence over the built documentation site: 007 AC-035's
+ * second clause and NFR-004's keyboard half are questions about a **sequence**, answered by
+ * pressing keys and reading `agent-browser`'s accessibility snapshot — never by a scripted focus,
+ * which does not produce `:focus-visible` and can reach an element tab order skips, so the tool
+ * never asks the browser to focus anything itself and the suite assertion is shaped so this
+ * docblock cannot satisfy it. Clauses: every link reachable in DOM order; names, roles, landmarks
+ * and headings from the snapshot; an unobscured indicator at every stop; 320 CSS px with no
+ * page-level scroll; textual state and static decoration. It makes **no WCAG conformance claim**,
+ * and axe is deliberately not run — a score is not evidence for these clauses.
  * Usage: `node tools/visual/site-keyboard.js [--out DIR] [--only PAGE] [--session NAME] [--help]`
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -62,11 +34,9 @@ const DEFAULT_SESSION = 'mt-site-key';
 const MAX_STOPS = 400;
 
 /**
- * The width the reflow clause is checked at, and the only one it needs.
- *
- * AC-035 names 320 CSS px, and a page that reflows there has reflowed at every width above it: the
- * layout only gains room. Checking a desktop width as well would re-prove what the narrow case
- * already establishes, so the walk runs at 320 and the wide reflow is left to the matrix.
+ * The width the reflow clause is checked at, and the only one it needs: AC-035 names 320 CSS px,
+ * and a page that reflows there has reflowed at every width above it — the layout only gains room.
+ * The wide reflow is left to the matrix.
  */
 const REFLOW_WIDTH = 320;
 
@@ -120,14 +90,10 @@ function selectedPages(argv) {
 }
 
 /**
- * The expression the reflow clause is answered with.
- *
- * Four questions, all answered from the live document rather than from a width the caller asked for:
- * does the page scroll sideways, is the title clipped, does it overlap what follows it, and is every
- * control inside the frame. The table figures are reported separately and never fail the page, which
- * is what "a table keeps its own scroll container" means.
- *
- * @returns {string} A JavaScript expression whose value is a JSON string.
+ * The expression the reflow clause is answered with: four questions from the live document rather
+ * than from a width the caller asked for — does the page scroll sideways, is the title clipped,
+ * does it overlap what follows, is every control inside the frame. Table figures are reported
+ * separately and never fail the page: that is what "a table keeps its own scroll container" means.
  */
 function reflowExpression() {
     return String.raw`(() => {
@@ -180,13 +146,9 @@ function reflowExpression() {
 }
 
 /**
- * Press `Tab` until the order is exhausted, reading each stop as it goes.
- *
- * The walk stops when the focus lands back on the first stop — a browser wraps — or when it stops
- * moving, which is what happens once focus has left the document.
- *
- * @param {object} input `{ browser, selectors }`.
- * @returns {Promise<object[]>} Every stop, in the order the keyboard reached them.
+ * Press `Tab` until the order is exhausted, reading each stop as it goes. The walk stops when the
+ * focus lands back on the first stop — a browser wraps — or when it stops moving, which is what
+ * happens once focus has left the document.
  */
 async function walkFocus(input) {
     const { browser, selectors } = input;
@@ -195,9 +157,7 @@ async function walkFocus(input) {
 
     for (let press = 0; press < MAX_STOPS; press += 1) {
         // The keystroke comes first: nothing is focused when the page opens, so a stop read before
-        // the first Tab would be the absence of a stop rather than an order. The walk ends when the
-        // focus lands back on where it started, which is what a browser wrapping round the document
-        // looks like from the outside.
+        // the first Tab would be an absent stop rather than an order.
         await browser.run(['press', 'Tab']);
         const stop = readAnswer(await browser.evaluate(focusExpression(selectors)));
 
@@ -217,11 +177,9 @@ async function walkFocus(input) {
 }
 
 /**
- * Read the browser's own accessibility tree for one page.
- *
- * `agent-browser snapshot --json` is the tree the browser builds for assistive technology, which is
- * what "exposes a role and a name" means; reading the DOM instead would report what the page marks
- * up rather than what it exposes.
+ * Read the browser's own accessibility tree for one page: `agent-browser snapshot --json` is the
+ * tree the browser builds for assistive technology, which is what "exposes a role and a name"
+ * means — reading the DOM instead would report what the page marks up rather than what it exposes.
  */
 async function treeOf(browser) {
     const data = await browser.run(['snapshot', '-c']);
@@ -239,15 +197,11 @@ function isLink(stop) {
 const LANDMARK_ROLES = new Set(['banner', 'contentinfo', 'main', 'navigation']);
 
 /**
- * Every link the page renders must be reachable, and every stop must draw an indicator.
- *
- * Links are counted against link stops. A stop that is not a link is recorded rather than counted
- * against them: Chrome makes a horizontally scrollable container focusable so a reader can reach it
- * from the keyboard, and a wide table in its own scroller is exactly the behaviour this site is asked
- * to keep. A link the keyboard cannot reach is a different thing entirely.
- *
- * @param {object} input `{ reflow, stops, where }`.
- * @returns {string[]} The reachability and indicator findings.
+ * Every link the page renders must be reachable, and every stop must draw an indicator. Links are
+ * counted against link stops; a stop that is not a link is recorded rather than counted against
+ * them, because Chrome makes a horizontally scrollable container focusable so a reader can reach
+ * it from the keyboard, and a wide table in its own scroller is what this site is asked to keep.
+ * A link the keyboard cannot reach is a different thing entirely.
  */
 function reachFindings(input) {
     const { reflow, stops, where } = input;
@@ -363,12 +317,9 @@ function titleFindings(title, where) {
 }
 
 /**
- * Walk one page, at one viewport, in one preference cascade.
- *
- * Exported for the same reason `site-matrix.js` exports its observation pass: a page walk is the
- * unit of evidence, and a caller that already holds a browser should not have to re-derive it.
- *
- * @returns {Promise<object>} Everything the page answered, plus what failed.
+ * Walk one page, at one viewport, in one preference cascade — exported for the same reason
+ * `site-matrix.js` exports its observation pass: a page walk is the unit of evidence, and a caller
+ * that already holds a browser should not have to re-derive it.
  */
 export async function walkPage(input) {
     const { browser, entry, url } = input;
@@ -480,12 +431,7 @@ async function walkEveryPage(input) {
     return walked;
 }
 
-/**
- * Walk every page at every focus viewport in both cascades, and judge it.
- *
- * @param {string[]} argv - The command line, without the script name.
- * @returns {Promise<number>} Zero when nothing failed; one otherwise.
- */
+/** Walk every page at every focus viewport in both cascades, and judge it: zero when nothing failed. */
 export async function main(argv) {
     await requireBuild();
 
@@ -518,9 +464,8 @@ export async function main(argv) {
                     focusStops: pages.reduce((total, walked) => total + walked.stops.length, 0),
                     headings: pages.reduce((total, walked) => total + walked.headings.length, 0),
                     landmarks: pages.reduce((total, walked) => total + walked.landmarks.length, 0),
-                    // `links` is the count of links the page renders (a number), unlike the array
-                    // fields beside it — taking `.length` of it yields undefined, and the sum with
-                    // it serialises to `null`.
+                    // `links` is a count (a number), unlike the array fields beside it: taking
+                    // `.length` of it yields undefined and the sum serialises to `null`.
                     links: pages.reduce((total, walked) => total + walked.links, 0),
                     pages: pages.length,
                 },

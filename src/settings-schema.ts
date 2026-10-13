@@ -1,46 +1,15 @@
 /**
- * The projection reader: `GET /v1/config`'s envelope, read fail-closed
- * (006 T-017; FR-003, FR-021, FR-027, FR-028; AC-115, AC-116).
- *
- * This is the panel's half of "one declaration, read twice": the service
- * projects the declaration it validates with, and this reader turns that
- * projection into **closed types** so nothing downstream can treat a guess as
- * a fact. Four rules, each a refusal rather than a partial application
- * (invariant 8):
- *
- * - **An unknown `kind` or `takesEffect`, or a descriptor missing the members
- *   its kind requires, refuses the whole envelope.** The descriptors *are* the
- *   declaration: a row the panel cannot type is a row it must not half-render,
- *   and rendering the other eleven while one is nonsense would present a
- *   document that never existed.
- * - **An unknown `source` refuses too** — the panel branches on it (the
- *   quarantine wording is a promise, not a decoration).
- * - **A `config` member is refused *as a value*, not as a document**: a member
- *   this build cannot type lands in {@link ConfigEnvelope.unreadable} and its
- *   row says so, while every field that did parse keeps rendering (AC-116).
- *   Filling that row from the descriptor's `default` is exactly the move
- *   FR-028 forbids — a default presented as a configured value.
- * - **Vocabulary values this reader has no reason to interpret pass through
- *   verbatim**: an enum's accepted values (a future level name renders as
- *   itself, never mapped to a known one) and the `defaultsApplied` list
- *   (FR-021's "refused or passed through verbatim, never mapped to a guess").
- *
- * The one thing a *member* without a descriptor gets is a flag, not a
- * rendering decision: {@link ConfigEnvelope.undisplayed} is what the tab paints
- * as *field this version does not show* and what later refuses to send a
- * document carrying it (FR-027, AC-115) — because a save that silently dropped
- * an unknown key is the drift this feature exists to remove.
+ * The projection reader: `GET /v1/config`'s envelope read fail-closed, refusing a save that would
+ * silently drop an unknown key (AC-115) — the panel's half of "one declaration".
  */
 
 import { asRecord, parseJsonObject } from './json.ts';
 
-/** Take-effect classes the projection may carry. */
 export type TakeEffectClass = 'immediate' | 'next-cycle' | 'next-dispatch' | 'restart' | 'none';
 
 /** Where a resolved configuration came from (006 contract §3). */
 export type ConfigSource = 'stored' | 'default' | 'quarantined';
 
-/** Every take-effect class, in one membership set. */
 const TAKE_EFFECT_CLASSES: ReadonlySet<string> = new Set<TakeEffectClass>([
     'immediate',
     'next-cycle',
@@ -49,99 +18,66 @@ const TAKE_EFFECT_CLASSES: ReadonlySet<string> = new Set<TakeEffectClass>([
     'none',
 ]);
 
-/** Every documented source, in one membership set. */
 const CONFIG_SOURCES: ReadonlySet<string> = new Set<ConfigSource>(['stored', 'default', 'quarantined']);
 
-/** A `config` value this build may render: a finite number or text. */
 export type ConfigValue = number | string;
 
-/** A bounded numeric field, as the projection carries it. */
 export interface IntegerDescriptor {
-    /** Documented key. */
     readonly name: string;
-    /** Kind discriminator. */
     readonly kind: 'integer';
-    /** The service's own unit phrase; a numeric field always carries one. */
     readonly unit: string;
-    /** Inclusive lower bound. */
     readonly min: number;
-    /** Inclusive upper bound. */
     readonly max: number;
     /** The documented default, rendered as *default* and never as the value. */
     readonly default: number;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffectClass;
 }
 
-/** An enum field, whose accepted values pass through verbatim. */
 export interface EnumDescriptor {
-    /** Documented key. */
     readonly name: string;
-    /** Kind discriminator. */
     readonly kind: 'enum';
-    /** An enum has no unit; none may be fabricated. */
     readonly unit: null;
     /** Accepted values, verbatim — unknown ones are kept, never mapped. */
     readonly values: readonly string[];
-    /** The documented default. */
     readonly default: string;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffectClass;
 }
 
-/** The string field, whose bounds are a format rather than a range. */
 export interface StringDescriptor {
-    /** Documented key. */
     readonly name: string;
-    /** Kind discriminator. */
     readonly kind: 'string';
-    /** A string has no unit; none may be fabricated. */
     readonly unit: null;
-    /** Service-authored prose about the allowed characters, rendered as text. */
     readonly format: string;
-    /** Length ceiling in characters. */
     readonly maxLength: number;
-    /** The documented default. */
     readonly default: string;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffectClass;
     /**
-     * Present only when the service declared the value as prose written
-     * across several lines, so the row mounts a textarea rather than a
-     * one-line input (owner ruling, PR #12; 006 FR-021's union is extended
-     * additively — no member was removed or renamed).
-     *
-     * The reader accepts it in exactly the one shape the projection emits
-     * (`true`) or not at all; every other value **refuses the envelope**
-     * rather than being dropped, because a declaration this build half-reads
-     * is a row it would render wrong (invariant 8).
+     * Present only when the service declared the value as prose written across
+     * several lines, so the row mounts a textarea rather than a one-line input
+     * (owner ruling, PR #12; 006 FR-021's union is extended additively — no
+     * member was removed or renamed). The reader accepts exactly the shape the
+     * projection emits (`true`) or not at all; every other value **refuses the
+     * envelope**, because a declaration this build half-reads is a row it would
+     * render wrong (invariant 8).
      */
     readonly multiline?: true;
 }
 
-/** One projected field — a closed discriminated union on `kind`. */
 export type FieldDescriptor = IntegerDescriptor | EnumDescriptor | StringDescriptor;
 
-/** One parsed `GET /v1/config` answer. */
 export interface ConfigEnvelope {
-    /** The members this build could type; the rest are listed below. */
     readonly config: Readonly<Record<string, ConfigValue>>;
-    /** The declaration, in the service's order (the row order follows it). */
     readonly fields: readonly FieldDescriptor[];
-    /** Where `config` came from; the quarantine wording hangs off it. */
     readonly source: ConfigSource;
-    /** Documented keys this read filled from the default; `[]` unless stored. */
     readonly defaultsApplied: readonly string[];
-    /** `config` members no descriptor covers: *field this version does not show*. */
+    /** Members no descriptor covers: painted as *field this version does not show* — a save that
+     * would carry one is refused rather than silently dropping it (AC-115). */
     readonly undisplayed: readonly string[];
-    /** `config` members whose value this build cannot type: *unreadable*. */
     readonly unreadable: readonly string[];
 }
 
 /**
  * Read a string member, refusing anything else.
- *
- * @returns The string, or `null` when it is not one.
  */
 function textOrNull(value: unknown): string | null {
     return typeof value === 'string' ? value : null;
@@ -149,8 +85,6 @@ function textOrNull(value: unknown): string | null {
 
 /**
  * Read a finite-number member, refusing anything else.
- *
- * @returns The number, or `null` when it is not a finite one.
  */
 function numberOrNull(value: unknown): number | null {
     return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -158,8 +92,6 @@ function numberOrNull(value: unknown): number | null {
 
 /**
  * Read a string list, refusing anything else.
- *
- * @returns The list, or `null` when it is not an array of strings.
  */
 function textListOrNull(value: unknown): readonly string[] | null {
     if (!Array.isArray(value)) {
@@ -179,11 +111,8 @@ function textListOrNull(value: unknown): readonly string[] | null {
     return parsed;
 }
 
-/** The two members every descriptor must carry before its kind's own. */
 interface DescriptorHead {
-    /** Documented key. */
     readonly name: string;
-    /** Declared take-effect class. */
     readonly takesEffect: TakeEffectClass;
 }
 
@@ -206,8 +135,6 @@ function integerDescriptor(record: Record<string, unknown>, head: DescriptorHead
 
 /**
  * Read the `enum` half of a descriptor.
- *
- * @returns The descriptor, or `null` when a required member is missing or mistyped.
  */
 function enumDescriptor(record: Record<string, unknown>, head: DescriptorHead): EnumDescriptor | null {
     const values = textListOrNull(record.values);
@@ -294,17 +221,13 @@ function readDescriptor(raw: unknown): FieldDescriptor | null {
 }
 
 /**
- * Decide whether a document value fits the descriptor that governs it.
- *
- * The descriptor is the declaration, so "type" is not a JavaScript question
- * alone: a string under an `integer` field, a number under an enum, and a
- * level the accepted set does not carry are all values this build cannot
- * render *as configured* (AC-116, 005's own rule for a mismatched row). A
- * member with **no** descriptor is judged on its own shape only — it will be
- * rendered as *field this version does not show*, which needs a value to show
- * and makes no claim about which kind it should have been.
- *
- * @returns `true` when the value may be rendered as configured.
+ * Decide whether a document value fits the descriptor that governs it: the
+ * descriptor is the declaration, so "type" is not a JavaScript question alone —
+ * a string under an `integer` field, a number under an enum, and a level the
+ * accepted set does not carry are values this build cannot render *as
+ * configured* (AC-116, 005's rule for a mismatched row). A member with **no**
+ * descriptor is judged on its own shape only, since it renders as *field this
+ * version does not show* and claims no kind.
  */
 function fitsDescriptor(descriptor: FieldDescriptor | null, value: unknown): value is ConfigValue {
     if (typeof value === 'number') {
@@ -325,16 +248,12 @@ function fitsDescriptor(descriptor: FieldDescriptor | null, value: unknown): val
 /**
  * Split the `config` members into the ones this build can render as
  * configured and the ones it cannot.
- *
- * @returns The readable members, and the names of the unreadable ones.
  */
 function partitionConfig(
     config: Record<string, unknown>,
     descriptors: readonly FieldDescriptor[],
 ): {
-    /** Members worth rendering as configured. */
     readonly readable: Record<string, ConfigValue>;
-    /** Members whose value this build refuses to half-apply. */
     readonly unreadable: readonly string[];
 } {
     const byName = new Map(descriptors.map((descriptor) => [descriptor.name, descriptor]));
@@ -358,8 +277,6 @@ function partitionConfig(
  * The guard exists because the panel *branches* on `source` — the quarantine
  * wording is a promise to the operator — so an unrecognised one is refused
  * rather than rendered as though it were `stored`.
- *
- * @returns `true` for a documented source.
  */
 function isConfigSource(value: string): value is ConfigSource {
     return CONFIG_SOURCES.has(value);
@@ -418,9 +335,7 @@ export function descriptorFor(envelope: ConfigEnvelope, name: string): FieldDesc
     return envelope.fields.find((descriptor) => descriptor.name === name) ?? null;
 }
 
-/** One `PUT /v1/config` answer: the document now in force, and its audit outcome. */
 export interface ConfigWriteAnswer {
-    /** The configuration the service says it stored, as a full envelope. */
     readonly returned: ConfigEnvelope;
     /**
      * Whether the `config.changed` row reached disk, or
@@ -431,31 +346,15 @@ export interface ConfigWriteAnswer {
 }
 
 /**
- * Read a `PUT /v1/config` answer fail closed.
- *
- * The contract's write answer is `{ config, auditWritten }` (§4) — **not** the
- * read envelope, because a write has no `source` or `defaultsApplied` to
- * report: the declaration it does not carry is the one this tab read before it
- * wrote. So the reader takes the two shapes it can meet, in this order:
- *
- * 1. a **full envelope** (the shape the read answers with) is adopted as it
- *    stands, which is what the co-ship assumption in §1 relies on;
- * 2. otherwise a `config` member is judged against **the declaration the last
- *    read supplied** and rebuilt into a full envelope whose `source` is
- *    `stored` — the service has just said it wrote the document, and the
- *    members it did not send (the descriptor list) are immutable by
- *    construction: `GET /v1/config` projects them from `service/config.ts`.
- *
- * Anything else — no `config` member, an unparseable body — refuses rather
- * than half-applying, and the caller reports a document the panel could not
- * read (invariant 8).
- *
- * @returns The answer, or `null` when neither shape can be trusted.
+ * Read a `PUT /v1/config` answer fail closed. The contract's write answer is `{ config,
+ * auditWritten }` (§4) — **not** the read envelope, which has no `source` to report. A full
+ * envelope is adopted as it stands (§1); otherwise `config` is judged against **the declaration the
+ * last read supplied** and rebuilt with `source: stored`, because the descriptors it did not send
+ * are immutable by construction. Anything else refuses rather than half-applying (invariant 8);
+ * `null` when neither shape can be trusted.
  */
 export function parseConfigWriteAnswer(input: {
-    /** Response body text. */
     readonly body: string;
-    /** The last document this tab read, which supplies the declaration. */
     readonly previous: ConfigEnvelope;
 }): ConfigWriteAnswer | null {
     const root = parseJsonObject(input.body);

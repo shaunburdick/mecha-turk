@@ -28,6 +28,7 @@ import {
     testEvidence,
     tick,
 } from './support/panel.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Banner a panel with no dispatch context shows (002 FR-041). */
 const WAITING_FOR_BINDING = 'Waiting for a binding';
@@ -78,20 +79,12 @@ function settingsOf(entries: readonly (readonly [string, string])[] = []): Reado
 /**
  * Build one enabled service binding, as `GET /v1/bindings` answers.
  */
-function activeBinding(): PanelBinding {
-    return {
-        bindingId: 'bnd-fixture-1',
-        accountNumericUserId: '77331',
-        accountLogin: LOGIN,
-        repository: REPOSITORY,
-        projectId: PROJECT_ID,
-        worktreeOption: 'generated',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: FIXTURE_TIMESTAMP,
-        updatedAt: FIXTURE_TIMESTAMP,
-    };
-}
+const activeBinding = (): PanelBinding => fixtureBindingRow('bnd-fixture-1', {
+    accountLogin: LOGIN,
+    worktreeOption: 'generated',
+    triggers: { assignment: true, mention: false, reviewRequest: false },
+    stamp: FIXTURE_TIMESTAMP,
+});
 
 describe('teardown', () => {
     it('releases every subscription, the timer, and the host exactly once', () => {

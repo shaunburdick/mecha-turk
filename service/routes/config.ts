@@ -1,13 +1,6 @@
 /**
  * `GET /v1/config` and `PUT /v1/config` — the operator's configuration
  * surface (contract §2.1).
- *
- * `PUT` validates the whole document before a single byte is written: a
- * rejected body answers `422 validation` with one issue per bad field, while a
- * valid one replaces `config.json` atomically. Both routes degrade to
- * `503 storage-unavailable` when the store could not be opened, which is how
- * an unwritable data directory surfaces as the documented setup prerequisite
- * failure instead of a silent default (FR-039).
  */
 
 import {
@@ -37,25 +30,13 @@ export const CONFIG_PATH = '/v1/config';
 
 /**
  * Answer `GET /v1/config` with the effective configuration **and its
- * declaration** (006 FR-020, contract §1).
- *
- * The envelope widens additively: `config` is unchanged in name, type, and
- * semantics, so a reader that ignores the three new members still gets the
- * document it got before. `fields` is projected from the same declaration the
- * validator reads, `source` says where `config` came from, and
- * `defaultsApplied` names the documented keys the stored file lacked — a
- * pre-upgrade document therefore renders its missing rows as *default* rather
- * than as configured facts (006 FR-028, data-model §2.1).
- *
- * A fresh store has no `config.json`, so the defaults answer — the same
- * document `PUT` would persist if the operator chose to edit it.
- *
- * The read goes through `readStoredConfig` rather than `configFromStore`
- * directly because `source` is the one thing here the operator is shown: a
- * configuration that was set aside has to read as set aside on every read, not
- * only on the one that happened to observe it.
- *
- * @returns The envelope above, or the 503 when the store is unusable.
+ * declaration** (006 FR-020, contract §1). The envelope widens additively, so
+ * a reader that ignores the three new members still gets the document it got
+ * before, and `defaultsApplied` renders a pre-upgrade document's missing rows
+ * as *default* rather than configured facts (FR-028, data-model §2.1). The
+ * read goes through `readStoredConfig` rather than `configFromStore` because
+ * a configuration that was set aside has to read as set aside on every read,
+ * not only on the one that happened to observe it.
  */
 async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
     if (context.store === null) {
@@ -77,26 +58,16 @@ async function handleGetConfig(context: RouteContext): Promise<HttpResponse> {
 
 /**
  * Read → observe → write → record → advance, as **one task on the
- * configuration prompt chain** (004 FR-088; plan D8's shape, applied to this
- * document).
- *
- * Holding the chain across the whole sequence is what makes FR-088's *exactly
- * one audit row per change* a property of ordering: the cycle's own
- * observation (`readCycleConfig`) runs on the same chain, so it can only run
- * entirely before this write (and sees the document this write is about to
- * replace) or entirely after it (and finds the baseline this function already
- * advanced). The pre-write observation claims a hand edit the cycle has not
- * seen yet — exactly as `PUT /v1/bindings` and the account profile write do —
- * and the post-write advance teaches the lane what the row above already
+ * configuration prompt chain** (004 FR-088; plan D8's shape). Holding the
+ * chain makes FR-088's *exactly one audit row per change* a property of
+ * ordering: the cycle's observation lands entirely before this write or
+ * entirely after it. The pre-write observation claims a hand edit the cycle
+ * has not seen; the post-write advance teaches the lane what the row
  * recorded, so the next cycle re-reports nothing.
- *
- * @returns `true` when the row (if one was owed) reached disk; `false` when
- *   the append failed, which never rolls the write back.
  */
 async function runConfigWrite(input: {
     /** Open store; the null check lives at the handler's own entry. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The validated document about to be written. */
     readonly candidate: ServiceConfig;
@@ -126,20 +97,14 @@ async function runConfigWrite(input: {
 }
 
 /**
- * Answer `PUT /v1/config` with the persisted configuration.
- *
- * Validation runs before any storage access: a client error stays a client
- * error even while the disk is broken, and no partial document is ever
- * written (FR-039 reports every failure explicitly, not the first one). The
- * two additions 006 makes to this answer (contract §4) are both bounded by
- * that ordering: a refusal records **one** value-free `config.changed` row and
- * still answers `422`; an accepted write compares the candidate with the
- * stored document field by field first, so a no-op answers *already saved*
- * with **no** row at all, and a change writes its row **after** the
- * durable write — never before it, never as a reason to roll it back.
- *
- * @returns The stored configuration and its audit outcome, or the field-level
- *   422.
+ * Answer `PUT /v1/config` with the persisted configuration. Validation runs
+ * before any storage access, so a client error stays a client error even
+ * while the disk is broken (FR-039). Both of 006's additions ride that
+ * ordering (contract §4): a refusal records **one** value-free
+ * `config.changed` row and still answers `422`, and an accepted write
+ * compares field by field first so a no-op answers *already saved* with
+ * **no** row — the row lands **after** the durable write, never before it
+ * or as a reason to roll it back.
  */
 async function handlePutConfig(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const validation = validateConfig(request.body);

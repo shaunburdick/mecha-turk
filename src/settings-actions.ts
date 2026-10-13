@@ -7,31 +7,8 @@
  * suggests, but that reads as a claim the callback is asynchronous, which is
  * the opposite of the truth. The honest fix is in the rule, not here. */
 /**
- * The Settings tab's actions: the read, the write, and the two draft
- * mutations.
- *
- * Split from [`settings-tab.ts`](./settings-tab.ts) so the view keeps the
- * mount/repaint/dispose and this module keeps the effects: each action takes
- * the repaint it should trigger rather than importing it, which is what keeps
- * the two from importing each other. Every action is the same three steps —
- * decide (through the pure machine in `settings-edit.ts`), talk to the host
- * through the one wrapper set, then record what came back as fact:
- *
- * - **A read adopts the document and re-evaluates the markers** — a failure
- *   keeps the last document, marks it stale, and *blocks* any save,
- *   because a save with no current baseline sends a document the
- *   panel cannot stand behind.
- * - **A save is one activation, one whole-document write**: the busy
- *   gate refuses a second activation instead of queueing it, the refusal path
- *   keeps the service's issues in the service's order, and the
- *   success path adopts the configuration the **service returned**.
- * - **A destructive save arms before it writes**: lowering a
- *   retention knob, and restoring defaults, raise the confirmation built by
- *   `settings-confirm.ts` on the first activation and perform exactly one
- *   write on the second — the first activation issues **no** request at all.
- * - **Discard and cancel touch the draft only** — no write, ever.
+ * The Settings actions: read, write and the two draft mutations — decide, talk to the host, record the answer as fact.
  */
-
 import { nowIso } from './ids.ts';
 import { redact } from './redaction.ts';
 import { CONFIG_PATH, serviceGet, servicePutConfig } from './service-calls.ts';
@@ -51,13 +28,10 @@ import {
 } from './settings-edit.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** What an action calls when its state has changed. */
 export type Repaint = (rt: PanelRuntime) => void;
 
-/** What an answer the panel cannot read as a document is reported as. */
 const UNREADABLE_ANSWER = 'the service answered a document the panel could not read';
 
-/** What a refusal whose baseline is gone is reported as. */
 const UNREADABLE_REREAD = 'the configuration could not be re-read after the refusal';
 
 /**
@@ -67,8 +41,6 @@ const UNREADABLE_REREAD = 'the configuration could not be re-read after the refu
  * that property across the first `await` and then reports a later direct
  * check as unreachable, while the frame really can go away between two awaits
  * (the same shape the Status tab's read has).
- *
- * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
     return rt.disposed;
@@ -101,8 +73,6 @@ function retirePending(rt: PanelRuntime): void {
 
 /**
  * Read `GET /v1/config` once and record what it answered.
- *
- * @returns Resolves once the answer has been applied.
  */
 export async function applyConfigRead(rt: PanelRuntime, repaint: Repaint): Promise<void> {
     const slice = rt.state.settingsTab;
@@ -146,11 +116,8 @@ export async function applyConfigRead(rt: PanelRuntime, repaint: Repaint): Promi
  * Apply one field edit to the draft. This is not a write.
  */
 export function applyFieldEdit(input: {
-    /** Panel runtime whose state moves. */
     readonly rt: PanelRuntime;
-    /** What repaints the tab after the state moves. */
     readonly repaint: Repaint;
-    /** The field the operator touched. */
     readonly field: string;
     /** The input's text, kept as text (FR-023). */
     readonly value: string;
@@ -170,13 +137,9 @@ export function applyFieldEdit(input: {
  * outcome it reported with it.
  */
 function recordAcceptedWrite(input: {
-    /** Panel runtime whose state moves. */
     readonly rt: PanelRuntime;
-    /** What repaints the tab after the state moves. */
     readonly repaint: Repaint;
-    /** The answer body. */
     readonly body: string;
-    /** The fields the write changed, as the tab knew them going in. */
     readonly changed: readonly string[];
 }): void {
     const { rt, repaint, body, changed } = input;
@@ -213,13 +176,9 @@ function recordAcceptedWrite(input: {
  * of the operator's values.
  */
 function applyWriteAnswer(input: {
-    /** Panel runtime whose state moves. */
     readonly rt: PanelRuntime;
-    /** What repaints the tab after the state moves. */
     readonly repaint: Repaint;
-    /** The answer the wrapper produced. */
     readonly answer: ServiceConfigPutResult;
-    /** The fields the write changed, as the tab knew them going in. */
     readonly changed: readonly string[];
 }): void {
     const { rt, repaint, answer, changed } = input;
@@ -263,8 +222,6 @@ function applyWriteAnswer(input: {
  * Extracted from {@link applySave} so the two arming actions — a save that
  * lowered a retention knob, and a confirmed restore — perform **exactly** the
  * same write from the same place, rather than each growing a copy of it.
- *
- * @returns Resolves once the answer has been applied.
  */
 async function performWrite(rt: PanelRuntime, repaint: Repaint): Promise<void> {
     const slice = rt.state.settingsTab;
@@ -304,8 +261,6 @@ async function performWrite(rt: PanelRuntime, repaint: Repaint): Promise<void> {
  * Save the draft: one activation, one whole-document write — unless the write
  * would delete history, in which case the first activation arms the
  * confirmation and sends nothing.
- *
- * @returns Resolves once the answer has been applied.
  */
 export async function applySave(rt: PanelRuntime, repaint: Repaint): Promise<void> {
     if (rt.disposed) {
@@ -352,15 +307,11 @@ export function applyDiscard(rt: PanelRuntime, repaint: Repaint): void {
 
 /**
  * Restore the declared defaults — two steps, no write without the
- * confirmation.
- *
- * The first activation stages the service's own defaults into the draft and
- * arms a confirmation that names **every** field the write will change, with
- * its current → default value; the second one writes the whole document.
- * Nothing is written by staging alone, so an operator who changes their mind
- * at the armed step cancels back to the last-read values.
- *
- * @returns Resolves once a confirmed write has been applied.
+ * confirmation: the first activation stages the service's own defaults into
+ * the draft and arms a confirmation that names **every** field the write will
+ * change, with its current → default value; the second one writes the whole
+ * document. Nothing is written by staging alone, so an operator who changes
+ * their mind at the armed step cancels back to the last-read values.
  */
 export async function applyStageDefaults(rt: PanelRuntime, repaint: Repaint): Promise<void> {
     const slice = rt.state.settingsTab;

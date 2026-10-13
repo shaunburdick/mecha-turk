@@ -49,6 +49,7 @@ import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { jsonHeaders } from './support/service-routes.ts';
 
 /** Bearer prefix every request below carries. */
 const BEARER = 'Bearer ';
@@ -84,14 +85,6 @@ const UNKNOWN_RUN = 'unknown-run';
 
 /** The code a missing route answers with, which is a different fact. */
 const NOT_FOUND = 'not-found';
-
-/** The header carrying a JSON body, spelled as HTTP requires it. */
-const CONTENT_TYPE_HEADER = 'content-type';
-
-/** Headers for a request carrying a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return { [CONTENT_TYPE_HEADER]: 'application/json' };
-}
 
 /**
  * Read the code out of a response's documented error envelope, without trusting it.

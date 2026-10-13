@@ -1,17 +1,5 @@
 /**
  * Data-directory resolution and creation for the service's durable store.
- *
- * The host does not pass `OPENCHAMBER_DATA_DIR` to a guest service — only
- * `PATH`, `HOME`, temp, locale, and Windows system variables are copied
- * (`GUEST_SERVICES.md`) — so the store resolves the documented default data
- * directory itself: `$HOME/.config/openchamber/mecha-turk/`
- * (002 research R2). The resolved path is reported in `GET /v1/status` so an
- * operator running a custom host data directory still knows exactly which
- * folder to back up.
- *
- * The directory is created `0700` and every file the store writes is `0600`
- * (data-model.md conventions): the audit trail and any credential material
- * that later lands here are readable by the operator's account only.
  */
 
 import { promises as fs } from 'node:fs';
@@ -29,12 +17,6 @@ const STORE_RELATIVE_PATH = '.config/openchamber/mecha-turk';
 
 /**
  * Resolve the durable store directory from the service environment.
- *
- * @param env - Environment as the host provides it; `HOME` is guaranteed
- *   present by `GUEST_SERVICES.md` and is the only key read here.
- * @returns The absolute path of the store directory.
- * @throws {StorageUnavailableError} When `HOME` is missing or empty, so the
- *   failure names the missing variable instead of writing somewhere implicit.
  */
 export function resolveDataDir(env: Readonly<Record<string, string | undefined>>): string {
     const home = env.HOME;
@@ -51,10 +33,6 @@ export function resolveDataDir(env: Readonly<Record<string, string | undefined>>
  * `mkdir` applies its mode through the process umask, so `chmod` follows to
  * make `0700` explicit: the guarantee must hold whatever umask the host
  * runtime runs with, not just on a default `022` setup.
- *
- * @param dirPath - Absolute directory to create.
- * @throws {StorageUnavailableError} When the directory cannot be created,
- *   for example when a parent path is a regular file or is read-only.
  */
 export async function ensureDir(dirPath: string): Promise<void> {
     try {

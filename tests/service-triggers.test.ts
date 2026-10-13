@@ -44,7 +44,6 @@ import {
 } from '../service/poll/triggers.ts';
 import { isReviewRequestPull } from '../service/poll/triggers-review.ts';
 import { openStore } from '../service/store/index.ts';
-import type { Account } from '../service/accounts/model.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { BindingRecord, BindingTriggers } from '../service/bindings.ts';
 import type { ActorAttribution, EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
@@ -60,8 +59,9 @@ import type {
 import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
 import { byText } from './support/sort.ts';
-import { scopeResults } from './support/verify.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { fixtureAccount } from './support/account-fixture.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Binding id the mention fixtures bind. */
 const MENTION_BINDING = 'bnd-mention';
@@ -171,47 +171,11 @@ afterEach(async (): Promise<void> => {
 });
 
 /**
- * Build one stored binding with the given trigger set.
- *
- * @returns A complete active binding.
+ * One active binding under this suite's fixture stamp, carrying whatever
+ * trigger set the case is about.
  */
-function fixtureBinding(bindingId: string, triggers: BindingTriggers): BindingRecord {
-    return {
-        bindingId,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: REPO_LABEL,
-        projectId: PROJECT_ID,
-        worktreeOption: 'none',
-        triggers,
-        state: 'active',
-        createdAt: STAMP,
-        updatedAt: STAMP,
-    };
-}
-
-/**
- * Build the active account every fixture binds.
- *
- * @returns A complete stored account record (the token is a fixture value).
- */
-function fixtureAccount(): Account {
-    return {
-        numericUserId: ACCOUNT_ID,
-        login: ACCOUNT_LOGIN,
-        expectedLogin: null,
-        displayName: null,
-        startingPrompt: null,
-        credential: { token: 'fixture-token-not-a-real-credential', kind: 'classic', verifiedAt: STAMP },
-        scopeCheck: { checkedAt: STAMP, results: scopeResults('ok') },
-        state: 'active',
-        connectionState: 'connected',
-        verifiedAt: STAMP,
-        errorReason: null,
-        createdAt: STAMP,
-        updatedAt: STAMP,
-    };
-}
+const fixtureBinding = (bindingId: string, triggers: BindingTriggers): BindingRecord =>
+    fixtureBindingRow(bindingId, { accountLogin: ACCOUNT_LOGIN, triggers, stamp: STAMP });
 
 /**
  * Build one open issue the mention scan resolves titles against.
@@ -473,7 +437,7 @@ function recordingPoller(feeds: {
  */
 async function scan(binding: BindingRecord, recorded: RecordedPoller): Promise<readonly QueuedEvent[]> {
     await writeBindings({ store, bindings: [binding] });
-    await writeAccount(store, fixtureAccount());
+    await writeAccount(store, fixtureAccount({ stamp: STAMP }));
 
     const cycle = await runScanCycle({ store, log, poller: recorded.poller });
     expect(cycle.bindings).toHaveLength(1);

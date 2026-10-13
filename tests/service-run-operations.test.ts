@@ -29,7 +29,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { writeBindings } from '../service/bindings.ts';
-import { createLogger } from '../service/log.ts';
 import { claimPendingRuns } from '../service/poll/claim.ts';
 import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
 import { reportDispatch } from '../service/poll/dispatch-report.ts';
@@ -48,8 +47,10 @@ import type { BindingRecord } from '../service/bindings.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
 import type { DispatchAttempt, Run, RunState } from '../service/poll/runs-types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
-import { writeOpenBinding } from './support/binding-fixture.ts';
+import { fixtureBindingRow, writeOpenBinding } from './support/binding-fixture.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** Stamp every fixture uses; no test ever waits on a clock. */
 const STAMP = '2026-09-28T09:00:00.000Z';
@@ -58,8 +59,7 @@ const NOW = '2026-09-28T09:00:10.000Z';
 const BINDING_ID = 'bnd-ops';
 const REPOSITORY = 'acme/widget';
 const ACCOUNT_ID = '77331';
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('debug');
 
 /** The state word the distinct retry refusals all carry as their wire code. */
 const INVALID_TRANSITION = 'invalid-transition';
@@ -131,44 +131,20 @@ const closeFixture = async (): Promise<void> => {
 
 afterEach(closeFixture);
 
-/** Build an assignment detection for one issue on the fixture binding. */
-function assignment(issueNumber: number): EventSnapshot {
-    return {
-        bindingId: BINDING_ID,
-        repository: REPOSITORY,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: 'octocat',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
-            issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
-            issueBodyExcerpt: `body ${issueNumber}`,
-        },
-        actorLogin: 'alice',
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: STAMP,
-    };
-}
+/**
+ * An assignment detection for one issue, under this suite's binding and stamp.
+ */
+const assignment = (issueNumber: number): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: BINDING_ID,
+    excerpt: `body ${issueNumber}`,
+    detectedAt: STAMP,
+});
 
 /** One stored binding record. */
-function binding(bindingId: string): BindingRecord {
-    return {
-        bindingId,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: 'octocat',
-        repository: REPOSITORY,
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: true, reviewRequest: true },
-        state: 'active',
-        createdAt: STAMP,
-        updatedAt: STAMP,
-    };
-}
+const binding = (bindingId: string): BindingRecord => fixtureBindingRow(bindingId, {
+    triggers: { assignment: true, mention: true, reviewRequest: true },
+    stamp: STAMP,
+});
 
 /**
  * Persist the bindings the corroboration re-check reads.

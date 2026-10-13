@@ -1,49 +1,5 @@
 /**
  * The configuration audit row (006 FR-070 – FR-072; 003 FR-052, FR-061).
- *
- * `config.changed` is the name 002's data model reserved for exactly this and
- * that no shipped code had written until now — it is **filled, never invented**
- * (006 FR-070), and there is no second spelling: not `config.updated`, not
- * `config.update`. Both rows this module writes share one identity
- * ({@link CONFIGURATION_ENTITY_ID}) and **their own correlation id with no run
- * reference** (FR-074): a configuration change belongs to no work unit, and
- * forcing it onto a run's identifier would be the defect 003 FR-062 corrected
- * for dispatch rows. Their actor differs by path: `operator` for a
- * `PUT /v1/config` — the only writer of `config.json` is a bearer-token holder
- * acting for the operator, the convention `routes/accounts.ts` already uses —
- * and `service` for a change observed in the stored document without a write
- * (004 FR-088).
- *
- * Two shapes, one hard rule between them. The applied shape is written on two
- * paths — the panel's `PUT` and the poll cycle's observation of the stored
- * document — and both share this module's composer, so neither can drift:
- *
- * - **`applied`** records one `{ field, from, to }` triple per changed field,
- *   ordered by field name, plus the take-effect class each changed field
- *   declares, so a reader can answer *what changed, from what, and when it took
- *   effect* from the row alone (FR-071). For `startingPrompt` — the global tier
- *   of the layered prompt (004 FR-081) — both sides are that field's **`mtp-`
- *   fingerprint or `null`**, never the text (004 FR-088; 006 FR-071 as amended
- *   at v1.6.0), because 004 FR-053 keeps every tier's text out of every audit
- *   row. Raw-string equality is still what decides *changed* (006 FR-048): the
- *   fingerprint is what the row **records**, never what the diff **compares**.
- * - **`refused`** records the issue count and the **documented** field names
- *   the refusal named — with every name that is not a documented field reduced
- *   to `<withheld>` — and **no submitted value of any kind**: not the value,
- *   not an accepted value, not a length, not a hash, and no foreign key name
- *   (FR-072). The value-free half is value-free *by construction*: this module
- *   never receives the submission, only the issue list the validator produced
- *   from the declaration.
- *
- * Both writers swallow their own failure into `false` plus a structured warn:
- * the configuration write is the durable record, so a row that could not reach
- * disk is surfaced as `auditWritten: false` (accepted) or a warn line (refused)
- * rather than rolled back or swallowed (FR-070's edge case).
- *
- * The **observed** half of FR-088 — a change to this field noticed in the
- * stored document without a write — lives in
- * [`config-prompt-observe.ts`](./config-prompt-observe.ts), which builds its
- * row through {@link appendConfigApplied} so the two paths cannot drift apart.
  */
 
 import { appendAudit, CONFIGURATION_ENTITY_ID } from './audit.ts';
@@ -90,13 +46,6 @@ export interface ConfigChange {
 
 /**
  * Fingerprint the global tier's text for a row (004 FR-088, 006 FR-071).
- *
- * @param text - The field's stored text; `null`/`undefined`/`''` all read as
- *   the documented *unset* tier (004 FR-081: empty means unset).
- * @returns `mtp-<sha256 hex[0:32]>` over the normalised text, or `null` —
- *   never the text itself, and never a fingerprint of a value the validator
- *   would refuse: an unusable value reads as *unset*, which is the only safe
- *   answer a durable trail may give.
  */
 export function configPromptFingerprint(text: string | null | undefined): string | null {
     // `null` and an absent member are the same *unset* to the one validator
@@ -111,17 +60,12 @@ const PROMPT_FINGERPRINT_PATTERN = /^mtp-[0-9a-f]{32}$/;
 
 /**
  * Reduce a `startingPrompt` value read **out of the trail** back to a
- * fingerprint (004 FR-088's baseline seed).
- *
- * Only a value that already carries the `mtp-` shape is trusted. That matters
- * for more than hygiene: this value becomes the lane's baseline, and a
- * baseline is written back into a later row as `from`, so anything that is not
- * a fingerprint — text a row should never have carried, a number, an object —
- * would otherwise be echoed forward into a new row. Reading it as `null` keeps
- * 006 FR-071's never-the-text rule in force on the **read** side too.
- *
- * @param value - A recorded `from`/`to` of a `config.changed` row.
- * @returns The fingerprint, or `null` when the value cannot be one.
+ * fingerprint (004 FR-088's baseline seed). Only a value that already carries
+ * the `mtp-` shape is trusted, because this value becomes the lane's
+ * baseline and is written back into a later row as `from` — anything else
+ * would be echoed forward as though the service had recorded it. Reading it
+ * as `null` keeps 006 FR-071's never-the-text rule in force on the **read**
+ * side too.
  */
 export function recordedConfigPromptFingerprint(value: unknown): string | null {
     return typeof value === 'string' && PROMPT_FINGERPRINT_PATTERN.test(value) ? value : null;
@@ -130,9 +74,6 @@ export function recordedConfigPromptFingerprint(value: unknown): string | null {
 /**
  * The value this field's row entry records; every other field records itself
  * (FR-071 as amended for `startingPrompt`).
- *
- * @param value - The field's value as the document carried it.
- * @returns The fingerprint pair side for the global tier, the value otherwise.
  */
 function recordedValue(field: ServiceConfigField, value: number | string): ConfigChangeValue {
     if (field !== 'startingPrompt') {
@@ -146,15 +87,11 @@ function recordedValue(field: ServiceConfigField, value: number | string): Confi
 }
 
 /**
- * Compare the validated candidate with the stored document, field by field.
- *
- * This is also the **no-op detector**: an empty result means the two
- * documents are equal over every documented field, so the write changed
- * nothing, reports *already saved*, and owes no row at all. The comparison is
- * deliberately **raw** — a fingerprint decides nothing here, it only labels the
- * row afterwards.
- *
- * @returns The changes, ordered by field name as FR-071 requires.
+ * Compare the validated candidate with the stored document, field by field —
+ * also the **no-op detector**: an empty result means the two agree over
+ * every documented field, so the write changed nothing, reports *already
+ * saved*, and owes no row at all. The comparison is deliberately **raw**: a
+ * fingerprint decides nothing here, it only labels the row afterwards.
  */
 export function configChanges(previous: ServiceConfig, next: ServiceConfig): readonly ConfigChange[] {
     const fields = (Object.keys(DEFAULT_CONFIG) as readonly ServiceConfigField[])
@@ -170,8 +107,6 @@ export function configChanges(previous: ServiceConfig, next: ServiceConfig): rea
 
 /**
  * The take-effect class each changed field declares.
- *
- * @returns A field → class map, empty for a no-op.
  */
 function takeEffectOf(changes: readonly ConfigChange[]): Record<string, TakeEffect> {
     const takesEffect: Record<string, TakeEffect> = {};
@@ -184,15 +119,11 @@ function takeEffectOf(changes: readonly ConfigChange[]): Record<string, TakeEffe
 
 /**
  * Reduce a refusal's issue fields to the documented names a row may carry.
- *
- * A documented field keeps its name; anything else — a foreign key, the `body`
- * sentinel a non-object document answers with, or the validator's own
- * `<withheld>` — collapses to the withheld marker, because a durable trail is
- * strictly narrower than the refusal body the panel renders.
- * Duplicates collapse too: `issueCount` carries the count, `fields` the set of
- * names.
- *
- * @returns The field names the row records.
+ * A documented field keeps its name; anything else — a foreign key, the
+ * `body` sentinel, the validator's `<withheld>` — collapses to the
+ * withheld marker, because a durable trail is strictly narrower than the
+ * refusal body the panel renders. Duplicates collapse too: `issueCount`
+ * carries the count, `fields` the set of names.
  */
 function refusedFields(issues: readonly ConfigIssue[]): readonly string[] {
     const documented = new Set<string>(Object.keys(DEFAULT_CONFIG));
@@ -208,21 +139,15 @@ function refusedFields(issues: readonly ConfigIssue[]): readonly string[] {
 }
 
 /**
- * Append the row for an accepted change to the document.
- *
- * The **write** path calls it with the fields a `PUT` moved and actor
- * `operator`; the observation lane calls it with the single `startingPrompt`
- * move it noticed and actor `service`. One composer, one shape.
- *
- * @returns `true` when the row reached disk, `false` when the append failed —
- *   in which case the change still stands and a structured warn names the
- *   loss. It never throws, which is what lets the lane advance its baseline
- *   past a row that could not be written.
+ * Append the row for an accepted change to the document: the **write** path
+ * calls it with the fields a `PUT` moved and actor `operator`, the
+ * observation lane with the one `startingPrompt` move it noticed and actor
+ * `service` — one composer, one shape. It never throws, which is what lets
+ * the lane advance its baseline past a row that could not be written.
  */
 export async function appendConfigApplied(input: {
     /** Open store the trail lives on. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The fields that changed, ordered by field name. */
     readonly changes: readonly ConfigChange[];
@@ -269,7 +194,6 @@ export async function appendConfigApplied(input: {
 export async function appendConfigRefused(input: {
     /** Open store, or `null` when the data directory is unusable. */
     readonly store: ServiceStore | null;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Every issue the refusal reported. */
     readonly issues: readonly ConfigIssue[];

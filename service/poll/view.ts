@@ -1,21 +1,6 @@
 /**
- * A read-only view of the live poll scheduler for `GET /v1/status` (005 FR-031,
- * [contracts/status-projection.md](../../specs/005-panel-ia/contracts/status-projection.md) §1).
- *
- * The status document used to carry `paused: true`, `nextPollAt: null`, and
- * `pausedReason: 'config-incomplete'` as **literals**, describing a process
- * that was running all along. The fix is to report the scheduler's own state,
- * so this module is deliberately thin: it holds the handle the loop published
- * and answers three questions about it — is it running, when is its next cycle
- * armed, and is it shutting down. It never starts, stops, or reschedules
- * anything, and the route keeps no second implementation of the schedule.
- *
- * The one value the view cannot read directly is the next-poll stamp during the
- * loop's very first cycle: the timer is armed only *after* that cycle finishes,
- * so {@link nextPollAtOf} falls back to `now + intervalMs` while the loop is
- * running with no timer armed yet. That stamp is never later than the real one,
- * and a stamp in the past is a valid answer the panel renders as *overdue*
- * (contract §1) rather than one it may silently replace.
+ * A read-only view of the live poll scheduler for `GET /v1/status` (005
+ * FR-031; status-projection contract §1).
  */
 
 import type { PollLoop } from './loop.ts';
@@ -28,8 +13,6 @@ export type PausedReason = (typeof PAUSED_REASONS)[number];
 
 /**
  * Whether a string is a member of the closed vocabulary.
- *
- * @returns `true` when the service itself would emit it.
  */
 export function isPausedReason(value: string): value is PausedReason {
     return (PAUSED_REASONS as readonly string[]).includes(value);
@@ -93,9 +76,6 @@ export function createPollingView(): PollingViewSlot {
 
 /**
  * The `nextPollAt` member of the polling block (contract §1).
- *
- * @param intervalMs - The effective configured interval the route already read.
- * @returns The next-poll stamp while polling runs, `null` while it does not.
  */
 export function nextPollAtOf(view: PollingView, intervalMs: number): string | null {
     if (!view.isRunning()) {
@@ -108,17 +88,12 @@ export function nextPollAtOf(view: PollingView, intervalMs: number): string | nu
 }
 
 /**
- * The `paused` / `pausedReason` pair, from the scheduler and the store reads
- * the status route already performs (contract §1's transition table).
- *
- * `paused` is `true` only when the loop is genuinely not running; the reason is
- * then the first failed precondition, most fundamental first. The service only
- * ever emits a member of {@link PAUSED_REASONS} or `''` — a reason outside the
- * vocabulary is the *reader's* to pass through verbatim (005 FR-003), and this
- * function never maps an unknown code to a friendly guess because it never
- * receives one.
- *
- * @returns `''` while polling runs, else the closed-vocabulary reason.
+ * The `paused` / `pausedReason` pair, from the scheduler and store reads the
+ * status route already performs (contract §1's transition table). `paused`
+ * is `true` only when the loop is genuinely not running, and the reason is
+ * then the first failed precondition, most fundamental first. This function
+ * never maps an unknown code to a friendly guess — a reason outside the
+ * vocabulary is the *reader's* to pass through verbatim (005 FR-003).
  */
 export function pausedReasonOf(input: {
     /** Whether the data directory can serve reads right now. */

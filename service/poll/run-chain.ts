@@ -1,23 +1,5 @@
 /**
  * The shared chain task every run-scoped operation performs (003 T-011–T-014).
- *
- * Four operation modules — the authorization family and the operator actions —
- * all need the same three things, and none of them is worth re-deciding:
- *
- * 1. **One chain, one read, one write.** Every operation reads the run document
- *    inside the chain the queue and run stores already share, decides against the
- *    run exactly as that read found it, writes, and records its row. A verdict
- *    computed from a snapshot another writer could invalidate between the read
- *    and the write is the check-then-act race that would let two panels each
- *    believe they hold the authorization (AC-112).
- * 2. **One refusal row per refusal** (FR-003), written by whoever refused it,
- *    through the audit builders in [`dispatch-audit.ts`](./dispatch-audit.ts).
- * 3. **One session-pointer builder** (002 Key Entities: SessionRef), so every
- *    path that records a session records it identically.
- *
- * The alternative — each operation carrying its own copy of the chain — is how
- * the four modules would drift on the one rule that makes them safe together, and
- * it is the rule a reviewer would have to re-verify four times.
  */
 
 import { nowIso } from '../../src/ids.ts';
@@ -30,9 +12,7 @@ import type { ActorGateRefusal, Run, SessionRef } from './runs-types.ts';
 
 /** Store, logger, and the run one operation addresses. */
 export interface RunOperationTarget {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run this operation addresses, by correlation id. */
     readonly correlationId: string;
@@ -55,10 +35,6 @@ export interface RunTaskContext {
  *
  * Generic over the answer so an operation that carries extra members on its
  * success case keeps them typed instead of widening them away.
- *
- * @returns The operation's answer, or `not-found` when no run carries the id.
- * @throws {StorageUnavailableError} When the run document cannot be read or
- *   written; the route layer turns that into `503 storage-unavailable`.
  */
 export async function operateRun<T>(
     target: RunOperationTarget,
@@ -103,7 +79,6 @@ export interface RefusalRowInput {
     /**
      * The gate's extra details, on the one refusal that carries them.
      *
-     *
      * Optional rather than required so the *other* six operations' refusals are
      * unchanged: a staleness verdict has no policy to describe, and a required
      * member would put `actorPolicy: null` on every row that has no meaning for
@@ -118,13 +93,9 @@ export interface RefusalRowInput {
  * The row's `reason` is the refusal's own message — the same string the response
  * carries — passed in rather than composed here, which is what makes the trail
  * and the wire provably agree.
- *
- * @returns `true` when the row reached the trail.
  */
 export async function appendRefusalRow(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run, the operation, and the refusal. */
     readonly refusal: RefusalRowInput;
@@ -156,8 +127,6 @@ export async function appendRefusalRow(input: {
  * The run keeps the pointer only — OpenChamber stays authoritative — and the
  * source link comes from the run's first retained reference, which is the same
  * delivery the dispatch was built from.
- *
- * @returns The reference stored on the run.
  */
 export function sessionRefOf(input: {
     /** The run that produced the session. */

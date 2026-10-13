@@ -49,6 +49,8 @@ import { BINDINGS_PATH, CONFIG_PATH } from '../src/service-calls.ts';
 import { fakeDom } from './support/dom.ts';
 import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost, tick } from './support/panel.ts';
 import { ACCOUNT_TIER_SENTINEL, BINDING_TIER_SENTINEL, GLOBAL_TIER_SENTINEL } from './support/prompt-tiers.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
+import { propsOf } from './support/ui-stubs.ts';
 
 /**
  * Every SDK mount the six tab bodies performed, and the props it carried.
@@ -174,28 +176,21 @@ const OVER_CAP_CREDENTIAL = `ghp_${'x'.repeat(2_100)}`;
 /**
  * Build one binding as `GET /v1/bindings` serializes it.
  */
-function bindingRow(input: {
+const bindingRow = (input: {
     /** Panel-generated id. */
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
     /** The stored prompt; `undefined` means the binding has none. */
     readonly startingPrompt?: string;
-}): Record<string, unknown> {
-    return {
-        bindingId: input.bindingId,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: LOGIN,
-        repository: input.repository,
-        projectId: PROJECT_ID,
-        worktreeOption: 'generated',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: FIXTURE_TIMESTAMP,
-        updatedAt: FIXTURE_TIMESTAMP,
-        ...(input.startingPrompt !== undefined && { startingPrompt: input.startingPrompt }),
-    };
-}
+}): Record<string, unknown> => fixtureBindingRow(input.bindingId, {
+    accountLogin: LOGIN,
+    repository: input.repository,
+    worktreeOption: 'generated',
+    triggers: { assignment: true, mention: false, reviewRequest: false },
+    stamp: FIXTURE_TIMESTAMP,
+    startingPrompt: input.startingPrompt,
+});
 
 /**
  * Read fixture rows through the panel's own fail-closed reader (004 FR-012).
@@ -386,23 +381,6 @@ function tierHost(): ReturnType<typeof fakeHost> {
             return { status: 404, body: UNROUTED };
         },
     });
-}
-
-/**
- * Read one mount's props as the object the count compares over.
- *
- * @returns The props as a plain record (a bare string prop reads as `text`).
- */
-function propsOf(raw: unknown): Record<string, unknown> {
-    if (typeof raw === 'string') {
-        return { text: raw };
-    }
-
-    if (typeof raw === 'object' && raw !== null) {
-        return { ...(raw as Record<string, unknown>) };
-    }
-
-    return {};
 }
 
 /**

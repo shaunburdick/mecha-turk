@@ -13,10 +13,10 @@ import { VERIFY_MAX_ATTEMPTS } from '../service/throttle.ts';
 import type { VerifyOutcome } from '../service/github.ts';
 import { startTestService } from './support/service.ts';
 import { scriptedVerifier } from './support/github.ts';
+import { jsonHeaders } from './support/service-routes.ts';
 import type { TestService } from './support/service.ts';
 import {
     ACCOUNT_ID,
-    JSON_HEADERS,
     OK_OUTCOME,
     OVERSIZED_TOKEN,
     REGISTERED_TOKEN,
@@ -53,7 +53,7 @@ const DELETE_PATH = ACCOUNT_PATH.replace(ACCOUNT_PATH_PARAM, () => String(ACCOUN
  * @returns The rotation response.
  */
 function rotateFixture(service: TestService, token: string): Promise<Response> {
-    return service.call(ROTATION_PATH, { method: 'POST', headers: JSON_HEADERS, body: verifyBody(token) });
+    return service.call(ROTATION_PATH, { method: 'POST', headers: jsonHeaders(), body: verifyBody(token) });
 }
 
 describe('POST /v1/accounts/verify — identity rules (FR-009)', () => {

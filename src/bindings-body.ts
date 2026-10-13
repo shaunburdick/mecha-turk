@@ -1,26 +1,5 @@
 /**
- * Mounting and disposing the Bindings tab body.
- *
- * [`bindings-ui.ts`](./bindings-ui.ts) holds the pane's contract and its
- * repaint; this module holds the **mount** — the two blocks, the controls
- * inside them, and the one disposer that releases them — because the pane's
- * mount had outgrown the file-length cap on its own.
- *
- * The shape this module builds is the review's own: **the list is the tab,
- * the editor is opened on request.** Entering the block shows the status and
- * note lines, the list, and its toolbar — **New binding**, **Refresh**,
- * **Toggle enabled**, **Remove** — while the editor block sits in a wrapper
- * that starts `hidden` and opens on a row click or on New binding. The
- * editor holds the project controls: the *Dispatch project* select with
- * **Reload projects** and the list's status line beside it (issue #39 moved
- * them here, so a failed `host.listProjects()` still has a surface that says
- * why and offers a retry), and the starting-prompt field before the form's
- * own action row, so one button writes the whole binding (005 FR-051; 004
- * FR-014's untouched-omits rides that write unchanged).
- *
- * Every control is a documented SDK primitive handing its strings to the
- * SDK's text path — no HTML sink (panel-service contract §3 invariant 11) —
- * and every one of them is disposed here (FR-017).
+ * The Bindings tab body's mount and dispose: SDK primitives, no HTML sink, all disposed here (contract §3 inv. 11).
  */
 
 import {
@@ -82,51 +61,36 @@ export const MENTION_SCAN_NOTE = 'Issue bodies and comments that @mention the bo
 export const REVIEW_SCAN_NOTE = 'Pull requests that ask the account to review open a dispatch.';
 
 /**
- * How the history-scope guidance reaches the operator (002 FR-090).
- *
- * Mounted as prose rather than as a select `description`, because the SDK's
- * `SelectProps` has no such member and because six sentences of operator-facing
- * guidance are not a caption. It sits directly under the control it explains, so
- * the operator meets it **without opening anything else** — which is the
- * requirement's own wording.
- *
- * It is mounted as a handle and **repainted from state**, not evaluated once: the
- * add and edit paths differ on the one claim that matters before a catch-up opens,
- * and the editor is a single mounted block reused for both.
+ * How the history-scope guidance reaches the operator (002 FR-090): mounted
+ * as prose rather than a select `description`, because the SDK's `SelectProps`
+ * has no such member and six sentences of operator-facing guidance are not a
+ * caption. It sits directly under the control it explains, so the operator
+ * meets it **without opening anything else** — the requirement's own wording —
+ * and it is a handle **repainted from state**, not evaluated once: the add and
+ * edit paths differ on the claim that matters before a catch-up opens.
  */
 
-/** Heading above the bindings list and the selected row's own facts. */
 const LIST_HEADING = 'Bindings';
 
-/** Heading above the editor block, which the list opens on request. */
 const EDITOR_HEADING = 'Binding editor';
 
 /** The list's column labels, in the order the SDK row lays its cells out. */
 const LIST_COLUMNS: readonly string[] = ['State', 'Repository and project', 'Pending'];
 
-/** Class of the one row the list's controls share. */
 const TOOLBAR_CLASS = 'mt-toolbar';
 
-/** Inputs the mounts share (runtime, pane root, handlers). */
 interface MountInputs {
-    /** Runtime whose state repaints the control. */
     readonly rt: PanelRuntime;
-    /** The pane root the control mounts into. */
     readonly pane: HTMLElement;
-    /** Handlers the control invokes. */
     readonly handlers: BindingsPaneHandlers;
 }
 
-/** The bindings list half of the pane. */
 interface Board {
-    /** Status line at the top. */
     readonly status: TextHandle;
-    /** The tab's note line, under the status. */
     readonly note: TextHandle;
     readonly bindingsList: ListHandle;
     /** The toolbar row under the list, shared by the list's four controls. */
     readonly toolbar: HTMLElement;
-    /** Refresh button (mounted into {@link Board.toolbar}). */
     readonly refreshBindings: ButtonHandle;
     /**
      * FR-121's reason line, mounted **directly after** the toolbar.
@@ -139,17 +103,12 @@ interface Board {
 }
 
 /**
- * The two lines the history-scope field mounts around itself.
- *
- * **Both are derived or explanatory prose, not controls.** The guidance is FR-090's
- * six statements the operator must meet without opening anything else; the window
- * line is FR-092's derived state — the lower bound of the window this binding's
- * next scan will open, the mode that produced it, and whether a recovery replay
- * is in force (FR-078).
- *
- * Held as one object so the disposer releases both from the call site that
- * mounted them; a handle that is mounted and never released outlives the panel's
- * listeners (005 FR-017).
+ * The two lines the history-scope field mounts around itself: **both derived
+ * or explanatory prose, not controls** — the guidance is FR-090's six
+ * statements, the window line FR-092's derived state (the window's lower
+ * bound, the mode that produced it, and whether a recovery replay is in force,
+ * FR-078). Held as one object so the disposer releases both: a handle mounted
+ * and never released outlives the panel's listeners (005 FR-017).
  */
 interface HistoryScopeLines {
     /** FR-090's guidance, mounted directly under the control. */
@@ -158,14 +117,11 @@ interface HistoryScopeLines {
     readonly window: TextHandle;
 }
 
-/** The editor half of the pane, which the list opens on request. */
 interface Form {
     /** The loaded binding's state, stated under the editor heading. */
     readonly editorState: TextHandle;
-    /** Repository input. */
     readonly repoField: TextFieldHandle;
     readonly accountSelect: SelectHandle;
-    /** Mention-token line under the account field. */
     readonly mentionToken: TextHandle;
     readonly projectSelect: SelectHandle;
     /**
@@ -177,17 +133,14 @@ interface Form {
     readonly projectStatus: TextHandle;
     readonly assignment: CheckboxHandle;
     readonly mention: CheckboxHandle;
-    /** Review-request checkbox. */
     readonly reviewRequest: CheckboxHandle;
     readonly worktree: SelectHandle;
-    /** The actor allow-list field, beside the mention-token override. */
     readonly actors: BindingActorControls;
     /** The history-scope control and the derived window line beneath it. */
     readonly historyScope: BindingHistoryScopeControls;
     readonly historyScopeLines: HistoryScopeLines;
 }
 
-/** The selected row's wrapper, its chip row, and its detail line. */
 interface SelectedDetail {
     /** Wrapper, hidden while nothing is selected. */
     readonly detailBox: HTMLElement;
@@ -197,30 +150,21 @@ interface SelectedDetail {
     readonly selectedDetail: TextHandle;
 }
 
-/** Everything the pane's disposer needs, assembled by {@link mountBindingsBody}. */
 interface BodyParts {
-    /** Element the two blocks mounted into. */
     readonly pane: HTMLElement;
     readonly listBlock: Block;
     readonly editorBlock: Block;
-    /** Status, note, list, and toolbar half. */
     readonly board: Board;
-    /** Editor half. */
     readonly form: Form;
     /** The editor's and the list's control rows. */
     readonly actions: BindingActions;
-    /** Actor allow-list field. */
     readonly actors: BindingActorControls;
-    /** Starting-prompt field. */
     readonly prompt: BindingPromptControls;
-    /** The selected row's wrapper, chips, and line. */
     readonly detail: SelectedDetail;
 }
 
 /**
  * Create the toolbar row a block's controls share.
- *
- * @returns The row element.
  */
 function createToolbar(into: HTMLElement): HTMLElement {
     const toolbar = into.ownerDocument.createElement('div');
@@ -288,7 +232,6 @@ interface ProjectControls {
     readonly projectSelect: SelectHandle;
     /** **Reload projects**, beside the select. */
     readonly projectRefresh: ButtonHandle;
-    /** The project list's loading/error/empty/count status line. */
     readonly projectStatus: TextHandle;
 }
 
@@ -346,9 +289,6 @@ function mountTriggerChecks(input: MountInputs): {
  * `null` in add mode and whenever the panel holds no row for the selection — an
  * absent row is not a row with zeroes, and {@link windowInForceLine} says nothing
  * rather than claiming a window it cannot see (002 FR-092).
- *
- * @param bindings - The Bindings tab's state.
- * @returns The row, or `null`.
  */
 function statusRowFor(bindings: BindingsTabState): BindingStatusRow | null {
     if (bindings.selectedBinding === null) {
@@ -368,8 +308,6 @@ function statusRowFor(bindings: BindingsTabState): BindingStatusRow | null {
  * in the binding's editor) and is written by the same **Save changes** as
  * everything above it, so it reads as part of the binding rather than as a
  * section of its own.
- *
- * @returns The form handles.
  */
 function mountAddForm(input: MountInputs): Form {
     const editorState = mountStyledText(input.pane, {
@@ -433,8 +371,6 @@ function mountAddForm(input: MountInputs): Form {
 
 /**
  * Mount the selected row's own facts: its wrapper, its chips, its line.
- *
- * @returns The wrapper, the chip row, and the detail line.
  */
 function mountSelectedDetail(parent: HTMLElement): SelectedDetail {
     const detailBox = parent.ownerDocument.createElement('div');
@@ -449,7 +385,6 @@ function mountSelectedDetail(parent: HTMLElement): SelectedDetail {
 }
 
 /**
- * Release every handle the body mounted, then its own nodes.
  *
  * Teardown releases what the tab mounted rather than merely hiding it — the
  * SDK handles carry listeners that would otherwise outlive the panel — and
@@ -500,8 +435,6 @@ function disposeBindingsBody(input: BodyParts): void {
  *
  * The editor block lives in its own wrapper so hiding it is one attribute on
  * one element rather than a claim about which node `createBlock` handed back.
- *
- * @returns The list block, the wrapper, and the editor block inside it.
  */
 function createBlocks(pane: HTMLElement): {
     readonly listBlock: Block;
@@ -520,8 +453,6 @@ function createBlocks(pane: HTMLElement): {
 
 /**
  * Assemble the pane the disposer and the repaint share.
- *
- * @returns The pane handle, with its one disposer attached.
  */
 function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): BindingsPane {
     const { board, form, actions, detail } = input;
@@ -568,15 +499,11 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
  * The six-tab shell owns the strip, so this mounts no tabs of
  * its own and no dispatches board — those live in their own bodies, which is
  * what makes each capability reachable through exactly one tab.
- *
- * @returns The mounted body's handles.
  */
 export function mountBindingsBody(input: {
     /** Container the shell created for the Bindings tab. */
     readonly root: HTMLElement;
-    /** Runtime whose state the body repaints from. */
     readonly rt: PanelRuntime;
-    /** Handlers the controls invoke. */
     readonly handlers: BindingsPaneHandlers;
 }): BindingsPane {
     const { root, rt, handlers } = input;

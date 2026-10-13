@@ -1,45 +1,7 @@
 /**
- * The service-side event queue (MVP tasks M1/M2 — re-cut 2026-09-27).
- *
- * GitHub-scan findings become {@link QueuedEvent} records that wait in
- * `events.json` until the panel carries them into a `host.startSession()`
- * dispatch. One JSON file holds the whole queue; dedupe is by the event's own
- * deterministic `id` (one assignment on one issue can only ever produce one
- * event), and a dispatch is terminal.
- *
- * The row schema and its validator live beside this module in
- * `events-parse.ts` (the read side of the same contract). A queue file that
- * fails that validator is quarantined *and* repaired here: every binding's
- * scan window is cleared and one `delivery.recovered` audit row is written,
- * so the assignments the lost queue carried are re-detected on the next
- * pass instead of silently dropped.
- *
- * **What changed in 003 (T-001–T-006).** A delivery is no longer the unit of
- * dispatch — the **run** is (data-model §1, §2.2) — and this module no longer
- * performs the claim itself. What it does now is:
- *
- * - **enqueue through the run layer**: a fresh delivery either opens a run or
- *   joins an open one (FR-011), on the same chain `runs.json` shares, writing
- *   `runs.json` first and `events.json` second so a crash between the two
- *   self-heals on re-detect (research §R4);
- * - **write the forward link** `runCorrelationId` on the rows it enqueues, and
- *   carry the `subjectType` captured at detection, while leaving the legacy
- *   lifecycle fields (`state`, `claimedAt`, `dispatchedAt`, `dispatchResult`)
- *   frozen — a post-003 row carries none of them, and that absence is what
- *   tells the two vocabularies apart on read (FR-012);
- * - **prune run-linked rows** when their bounded terminal run is evicted, so
- *   `events.json` cannot outlive the run that explains it (T-037).
- *
- * **The legacy queue's terminal mutations were removed** (T-043g). The two
- * routes they served, `POST /v1/events/:id/dispatched` and `…/retry`, were
- * re-addressed to the run by 003's wire delta ("Addressed by the run, not the
- * delivery"), and are answered by [`dispatch.ts`](../routes/dispatch.ts) and
- * [`run-ops.ts`](../routes/run-ops.ts) against `runs.json`. `markEventDispatched`
- * and `retryEvent` had no caller and a second vocabulary for the same facts —
- * one import away from re-creating the state-flip path 003 closed — so they are
- * gone. Nothing here writes the frozen lifecycle fields any more; `GET
- * /v1/events` keeps *reading* them from rows the shipped build wrote until 003
- * T-016 replaces that projection.
+ * The service-side event queue (MVP tasks M1/M2): scan findings wait in
+ * `events.json` until the panel relays them, deduped by the deterministic
+ * event id, and a dispatch is terminal.
  */
 
 import { basename, join } from 'node:path';
@@ -94,25 +56,13 @@ export type {
 } from './events-write.ts';
 
 /**
- * The one rule for "this **legacy** row is finished" — used by the
- * dispatched-tail cap, and by 006's excerpt retention pass as the first half
- * of its eligibility rule.
- *
- * A row is terminal exactly when it carries the shipped `dispatched` state:
- * such a row answers `409` to a retry and can never re-enter the queue, so
- * neither its tail position nor its payload text is reachable again. Extracting
- * the predicate rather than restating `state === 'dispatched'` in a second
- * module is what keeps the tail cap and the excerpt pass from ever disagreeing
- * about a legacy row.
- *
- * A row with no `state` at all (everything 003 enqueues) is **not** terminal by
- * this rule: its truth lives on the run, and this predicate has no business
- * reading it. 003 froze the field, so the tail cap leaves those rows to the
- * run-eviction prune beside it, and the excerpt pass reads the linked run's
- * state itself (`poll/excerpt-trim.ts`) rather than asking this function to
- * guess.
- *
- * @returns `true` only for a row in the terminal `dispatched` state.
+ * The one rule for *this legacy row is finished*, shared by the
+ * dispatched-tail cap and 006's excerpt retention pass so the two can never
+ * disagree about a row. Terminal is exactly the shipped `dispatched` state:
+ * such a row answers `409` to a retry, so neither its tail position nor its
+ * payload is reachable again. A row with no `state` — everything 003
+ * enqueues — is **not** terminal here: its truth lives on the run, and the
+ * excerpt pass reads the linked run itself rather than asking this to guess.
  */
 export function isDispatchedTerminal(event: QueuedEvent): boolean {
     return event.state === 'dispatched';
@@ -138,21 +88,17 @@ function serializedQueue(events: readonly QueuedEvent[], retainedRunIds?: Readon
 
 /**
  * Quarantine passes this process has already recovered, keyed per store
- * handle by the quarantined file's *name*.
- *
- * A corrupt `events.json` renames to exactly one file name, so keying on the
- * name ties the recovery to the loss rather than to the reader that noticed:
- * the live quarantine, the evidence scan, the panel's claim, and any relay
- * read can all spot the same loss without resetting the windows (or writing
- * the audit row) more than once in one process.
+ * handle by the quarantined file's *name*. A corrupt `events.json` renames
+ * to exactly one file name, so keying on the name ties the recovery to the
+ * loss rather than to the reader that noticed: the live quarantine, the
+ * evidence scan, the panel's claim and any relay read can all spot the same
+ * loss without resetting the windows (or writing the audit row) more than
+ * once in one process.
  */
 const recoveredQuarantines = new WeakMap<ServiceStore, Set<string>>();
 
 /**
  * Claim one quarantine observation for recovery.
- *
- * @param quarantinePath - Path (or store-relative name) of the quarantined file.
- * @returns `true` when this caller owns the recovery.
  */
 function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boolean {
     const handled = recoveredQuarantines.get(store) ?? new Set<string>();
@@ -168,38 +114,16 @@ function claimQuarantinePass(store: ServiceStore, quarantinePath: string): boole
 
 /**
  * Clear every binding's `lastScanAt` and **record that this was a recovery**
- * (002 FR-073, FR-074).
- *
- * The quarantined queue's rows are gone with the file, so the only way to
- * recover what they carried is to re-detect it — and a binding whose window
- * already advanced past those assignments will never match them again.
- *
- * Two members are written, and the second is what makes the first honest
- * (FR-074): `lastScanAt: null` on its own is indistinguishable from *never
- * scanned*, and 002 FR-074 requires the two facts to be **separate values** that
- * no reader infers one from. So the reset sets `forceReplay: true` beside the
- * cleared stamp, and `forceReplay` is written **here and nowhere else** — never by
- * a first scan (plan H4).
- *
- * What the flag does to the window is *nothing*: after the reset the binding has
- * no recorded stamp, so 002 FR-065's second branch applies and the binding's
- * **baseline** governs — `createdAt − overlapMs` under the documented default,
- * `createdAt − 7 days` under the look-back mode. Both cover everything the lost
- * queue's rows carried, which is exactly why no replay bound has to be invented
- * (plan H8). What the flag buys is the three things that make recovery legible:
- * recovery is **never governed by the mode** (FR-073), it **takes precedence**
- * where a sweep is also in force, and the operator can be **told** which of the
- * two is happening (FR-078, FR-092; constitution IV).
- *
- * `baselineAt` is deliberately left untouched: it is what this replay has to
- * cover, and recomputing it from a later clock would shrink the very window the
- * recovery exists to re-open. The write runs on the scan-state chain, so it
- * cannot interleave with the loop's own read-modify-write of that file.
- *
- * @returns How many bindings had a checkpoint to clear.
+ * (002 FR-073, FR-074). The flag is written here and nowhere else, because a
+ * cleared stamp alone is indistinguishable from *never scanned*. What it
+ * does to the window is nothing — the binding's baseline governs and covers
+ * everything the lost queue carried (plan H8) — but it makes recovery
+ * legible: never governed by the mode, precedence over a sweep, and
+ * tellable to the operator (FR-078, FR-092; constitution IV). `baselineAt`
+ * is left untouched: recomputing it from a later clock would shrink the very
+ * window the recovery exists to re-open.
  */
 async function resetScanWindows(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<number> {
@@ -222,14 +146,9 @@ async function resetScanWindows(input: {
     });
 }
 
-/**
- * Record one queue-quarantine recovery in the audit trail.
- */
 async function recordQueueRecovery(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
-    /** Where the unusable queue was set aside. */
     readonly quarantinePath: string;
     /** Bindings whose scan window was cleared. */
     readonly bindingsReset: number;
@@ -255,7 +174,6 @@ async function recordQueueRecovery(input: {
 }
 
 /**
- * Recover from a queue file that had to be quarantined.
  *
  * The quarantine consumed the evidence file, so this is the only moment the
  * repair can run: clear every binding's scan window — the lost assignments
@@ -263,10 +181,8 @@ async function recordQueueRecovery(input: {
  * replay duplicate-free — then leave one audit row saying so.
  */
 async function recoverQuarantinedQueue(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
-    /** Where the unusable queue was set aside. */
     readonly quarantinePath: string;
 }): Promise<void> {
     if (!claimQuarantinePass(input.store, input.quarantinePath)) {
@@ -282,20 +198,16 @@ async function recoverQuarantinedQueue(input: {
 const QUARANTINE_EVIDENCE_PREFIX = `${EVENTS_FILE}.corrupt-`;
 
 /**
- * Recover a queue loss this process never saw happen.
- *
- * The quarantine *renames* the file, so a service that restarts after the
- * loss finds `events.json` simply absent: no read reports `quarantined`
- * again, the reset would never run, and the windows would keep pointing past
- * the assignments the lost queue carried. The evidence file is still in the
- * store directory, so any `events.json.corrupt-*` entry stands in for the
- * observation — the first absent read recovers from it, and the per-store
- * claim set holds that to one reset and one audit row per loss per process.
- * The reset is idempotent, and deterministic event ids keep the re-detection
- * duplicate-free even when a later process repeats it.
+ * Recover a queue loss this process never saw happen. The quarantine
+ * *renames* the file, so a restarting service finds `events.json` simply
+ * absent — no read reports `quarantined` again and the reset would never run
+ * — so any `events.json.corrupt-*` entry in the store directory stands in for
+ * the observation. The first absent read recovers from it, held to one reset
+ * and one audit row per loss per process by the per-store claim set, and
+ * deterministic event ids keep the re-detection duplicate-free even when a
+ * later process repeats it.
  */
 async function recoverFromEvidence(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<void> {
@@ -308,18 +220,14 @@ async function recoverFromEvidence(input: {
 }
 
 /**
- * Read the queue through the quarantine funnel.
- *
- * Every queue reader — the relay routes, the panel's claim, and the scan's
- * own enqueue — passes this one function, so a lost queue always triggers the
- * scan-window recovery, whichever reader gets there first: a file that has to
- * be quarantined right now, or the evidence an earlier process left behind
- * when the file is already gone.
- *
- * @returns Any stored events, `[]` when absent or quarantined.
+ * Read the queue through the quarantine funnel. Every queue reader — the
+ * relay routes, the panel's claim, and the scan's own enqueue — passes this
+ * one function, so a lost queue always triggers the scan-window recovery,
+ * whichever reader gets there first: a file that has to be quarantined
+ * right now, or the evidence an earlier process left behind when the file
+ * is already gone.
  */
 async function readQueue(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent[]> {
@@ -355,11 +263,8 @@ async function readQueue(input: {
  * Read the queue, best-effort: a quarantined or failed read is answered as
  * an empty list with a log line (never fail-stuck), and a quarantined read
  * has already run the scan-window recovery before it answers.
- *
- * @returns The queue, or `[]`.
  */
 export async function readEvents(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
 }): Promise<QueuedEvent[]> {
@@ -438,14 +343,10 @@ async function enqueueWithinChain(input: {
 
 /**
  * Append events with delivery-id deduplication and one atomic run/queue chain.
- *
- * @returns The events that were actually appended, linked to their run.
  */
 export async function enqueueEvents(input: {
-    /** Open store. */
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
-    /** Fresh events this scan produced. */
     readonly incoming: readonly QueuedEvent[];
     /**
      * The scanning binding's prompt snapshot (004 FR-015), carried beside the
@@ -458,14 +359,12 @@ export async function enqueueEvents(input: {
     readonly prompt?: PromptSnapshot | null;
     /**
      * The head SHA each tracked pull request was observed carrying this cycle,
-     * keyed by the ordinal-free subject key of a `pull_request` subject
-     * (002 FR-103).
-     *
-     * Read for exactly one purpose: the run that has no seed yet records the
-     * head it observed, so the following cycle compares against a real value.
-     * A run that already holds a seed is not touched, because the seed is the
-     * **dispatch-time baseline** — re-basing it on the latest observation would
-     * lose the from → to pair a later follow-up has to name.
+     * keyed by the ordinal-free subject key of a `pull_request` subject (002
+     * FR-103). Read for exactly one purpose: the run that has no seed yet
+     * records the head it observed, so the following cycle compares against a
+     * real value. A run that already holds a seed is not touched, because the
+     * seed is the **dispatch-time baseline** — re-basing it would lose the
+     * from → to pair a later follow-up has to name.
      */
     readonly observedHeads?: ReadonlyMap<string, string>;
 }): Promise<readonly QueuedEvent[]> {

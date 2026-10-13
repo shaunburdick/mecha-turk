@@ -16,6 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { bindingRows } from '../src/bindings-rows.ts';
 import type { PanelBinding, BindingStatusRow } from '../src/bindings-service.ts';
 import { createTestRuntime, fakeHost } from './support/panel.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Fixture account the binding polls under. */
 const ACCOUNT_LOGIN = 'octocat-mt';
@@ -36,20 +37,11 @@ function minutesAgo(minutes: number): string {
  *
  * @returns A complete stored binding row.
  */
-function bindingFixture(): PanelBinding {
-    return {
-        bindingId: BINDING_ID,
-        accountNumericUserId: '77331',
-        accountLogin: ACCOUNT_LOGIN,
-        repository: 'acme/widget',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: STAMP,
-        updatedAt: STAMP,
-    };
-}
+const bindingFixture = (): PanelBinding => fixtureBindingRow(BINDING_ID, {
+    accountLogin: ACCOUNT_LOGIN,
+    triggers: { assignment: true, mention: false, reviewRequest: false },
+    stamp: STAMP,
+});
 
 /**
  * Build the status row one case plants for the fixture binding.

@@ -1,84 +1,41 @@
 /**
- * The Settings draft/save state machine.
- *
- * Pure by design: this module holds no host, no DOM, and no clock, so every
- * rule the edit surface has to obey is a function call a test can make
- * directly. What it encodes, in order of how easy each is to get wrong:
- *
- * - **The draft** is *last-read document ∪ projection defaults for keys it
- *   lacks ∪ edits*. A save therefore sends the whole document the
- *   service reported, with the operator's changes applied — never a partial
- *   one, and never one assembled from values the panel never read.
- * - **No baseline, no save**: with no read, or with a member
- *   this version cannot show, `blocked` names the reason and `beginSave`
- *   refuses *before* anything could be sent.
- * - **One save, one call**: a second activation while one is
- *   in flight is refused by the busy gate rather than queued, and nothing in
- *   this module flips a value optimistically — `saved` only ever arrives from
- *   the configuration the service returned.
- * - **Pending is a claim about the boundary, not about the save**: an accepted
- *   save marks each changed field whose class is not
- *   `immediate` as pending, naming the class that governs it, and the marker
- *   is retired only by a later *read* — never by the save that created it.
- *
- * Text is kept as text until the document is built: an input's contents become
- * an integer only when they parse as one, so a value the operator typed out of
- * range or out of shape reaches the service **and is refused there** — the
- * panel applies no gate of its own.
+ * The Settings draft/save state machine — pure by design: no host, no DOM, no clock, no panel-side gate on values.
  */
 
 import type { ConfigIssueView } from './service-envelope.ts';
 import type { SettingsConfirmation } from './settings-confirm.ts';
 import type { ConfigEnvelope, ConfigValue, FieldDescriptor, TakeEffectClass } from './settings-schema.ts';
 
-/** Where one save stands. */
 export type SaveState = 'idle' | 'editing' | 'saving' | 'saved' | 'refused' | 'failed';
 
 /**
- * The four causes a configuration write can fail with.
- *
- * The panel never guesses which one it met: each member names a documented
- * answer (`503 storage-unavailable`, `401`, a transport failure, and anything
- * the service did not document), so the copy each one gets is the copy that
- * cause owes rather than one generic sentence for all four.
+ * The four causes a configuration write can fail with. The panel never guesses
+ * which one it met: each member names a documented answer (`503
+ * storage-unavailable`, `401`, a transport failure, and anything the service
+ * did not document), so the copy each one gets is the copy that cause owes
+ * rather than one generic sentence for all four.
  */
 export type SettingsFailureCause = 'store' | 'unauthorised' | 'transport' | 'unexpected';
 
-/** One failed write: its cause, the service's own words, and its identifier. */
 export interface SettingsFailure {
-    /** Which of the four documented causes this is. */
     readonly cause: SettingsFailureCause;
-    /** The wrapper's problem string, verbatim and value-free. */
     readonly problem: string;
-    /** The envelope's correlation identifier, when the service sent one. */
     readonly correlationId: string | null;
 }
 
-/** One field saved but not yet observed as effective. */
 export interface PendingField {
-    /** Document member the marker belongs to. */
     readonly field: string;
-    /** The class that governs when it catches up, for the marker's words. */
     readonly boundary: TakeEffectClass;
 }
 
-/** The editable state the Settings body holds (pure; no host, no DOM). */
 export interface SettingsEdit {
-    /** What the inputs show, keyed by field name. */
     readonly draft: Readonly<Record<string, string>>;
-    /** Fields whose draft differs from the last-read document. */
     readonly dirty: readonly string[];
-    /** Where the save stands. */
     readonly saveState: SaveState;
-    /** Why no save is offered; `null` when one is. */
     readonly blocked: string | null;
-    /** Issues the last refusal answered with, in the service's order. */
     readonly issues: readonly ConfigIssueView[];
-    /** Problem the last failed write reported; `null` when none. */
     readonly problem: string | null;
-    /** Fields saved but not yet observed effective, with their boundary. */
     readonly pending: readonly PendingField[];
-    /** What the last discard reverted, so the tab can say it out loud. */
     readonly reverted: readonly string[];
     /**
      * The confirmation this write is armed behind, or `null`.
@@ -94,34 +51,28 @@ export interface SettingsEdit {
      */
     readonly failure: SettingsFailure | null;
     /**
-     * The audit outcome of the last **accepted** write: `false` is the
-     * service saying the configuration changed but its `config.changed` row
-     * did not reach the trail. `null` means no accepted
-     * write has answered since the last read, which is *not* a claim either
-     * way — the panel never implies traceability it does not have.
+     * The audit outcome of the last **accepted** write: `false` is the service
+     * saying the configuration changed but its `config.changed` row did not
+     * reach the trail; `null` means no accepted write has answered since the
+     * last read — *not* a claim either way, because the panel never implies
+     * traceability it does not have.
      */
     readonly auditWritten: boolean | null;
 }
 
-/** Why a save is not offered when nothing has ever been read. */
 export const NO_BASELINE_REASON =
     'no configuration has been read yet, so there is no document to send';
 
-/** Why a save is not offered while the document carries a member we cannot show. */
 export const UNDISPLAYED_REASON =
     'the document carries a field this version does not show; sending it would drop that field';
 
-/** Why a save is not offered when the latest read failed. */
 export const READ_FAILED_REASON =
     'the latest read did not land, so there is no current document to send';
 
-/** Why a second save activation is refused rather than queued. */
 export const BUSY_REASON = 'a save is already in flight';
 
 /**
  * Build the empty edit state, before the first read.
- *
- * @returns The state a fresh mount starts in.
  */
 export function emptyEdit(): SettingsEdit {
     return {
@@ -158,8 +109,6 @@ function baselineOf(envelope: ConfigEnvelope, name: string): string | null {
 
 /**
  * Build the initial draft from a read: every descriptor's baseline value.
- *
- * @returns The draft the inputs start with.
  */
 function draftOf(envelope: ConfigEnvelope): Record<string, string> {
     const draft: Record<string, string> = {};
@@ -175,8 +124,6 @@ function draftOf(envelope: ConfigEnvelope): Record<string, string> {
 
 /**
  * The fields whose draft differs from the last-read document.
- *
- * @returns The dirty field names, in descriptor order.
  */
 export function dirtyFields(
     draft: Readonly<Record<string, string>>,
@@ -193,8 +140,6 @@ export function dirtyFields(
 
 /**
  * Why no save is offered right now, or `null` when one is.
- *
- * @returns The reason, named for the operator; `null` when a save may run.
  */
 export function blockedReason(envelope: ConfigEnvelope | null): string | null {
     if (envelope === null) {
@@ -206,9 +151,6 @@ export function blockedReason(envelope: ConfigEnvelope | null): string | null {
 
 /**
  * Adopt a read: it becomes the baseline, so nothing is dirty any more.
- *
- * @returns The state after the read; a failed read keeps the previous draft
- *   and its dirty set, only re-evaluating the reason no save is offered.
  */
 export function loadEdit(edit: SettingsEdit, envelope: ConfigEnvelope | null): SettingsEdit {
     if (envelope === null) {
@@ -246,17 +188,11 @@ export function loadEdit(edit: SettingsEdit, envelope: ConfigEnvelope | null): S
 /**
  * Apply one field edit — the only writes are whole-document ones, so
  * this changes the draft and nothing else.
- *
- * @returns The state after the edit.
  */
 export function editField(input: {
-    /** Current state. */
     readonly edit: SettingsEdit;
-    /** The baseline the dirty set is measured against. */
     readonly envelope: ConfigEnvelope;
-    /** Field the operator touched. */
     readonly field: string;
-    /** The input's text, kept as text. */
     readonly value: string;
 }): SettingsEdit {
     const { edit, envelope, field, value } = input;
@@ -282,8 +218,6 @@ export function editField(input: {
 /**
  * Discard the unsaved edits: the draft goes back to the baseline and the tab
  * says what reverted.
- *
- * @returns The state after the discard.
  */
 export function discard(edit: SettingsEdit, envelope: ConfigEnvelope): SettingsEdit {
     const reverted = edit.dirty;
@@ -303,11 +237,8 @@ export function discard(edit: SettingsEdit, envelope: ConfigEnvelope): SettingsE
     };
 }
 
-/** Why one save activation was refused, or the document it would send. */
 export type SaveAttempt =
-    /** The write may be sent. */
     | { readonly ok: true; readonly document: Readonly<Record<string, ConfigValue>> }
-    /** Nothing is sent; the reason is the tab's to render. */
     | { readonly ok: false; readonly reason: string };
 
 /**
@@ -324,14 +255,10 @@ function valueFor(descriptor: FieldDescriptor, text: string): ConfigValue {
 }
 
 /**
- * The whole document a save sends: the baseline with the draft applied.
- *
- *
- * An input's text becomes an integer **only** when it parses as one — an
+ * The whole document a save sends: the baseline with the draft applied. An
+ * input's text becomes an integer **only** when it parses as one — an
  * out-of-range number or a stray word is sent as it stands, so the service
  * refuses it in its own words rather than the panel quietly reshaping it.
- *
- * @returns The complete document to PUT.
  */
 function documentFor(
     envelope: ConfigEnvelope,
@@ -347,8 +274,6 @@ function documentFor(
 
 /**
  * Try to begin a save: the busy gate, then the baseline gate.
- *
- * @returns The document to PUT, or the reason nothing was sent.
  */
 export function beginSave(edit: SettingsEdit, envelope: ConfigEnvelope | null): SaveAttempt {
     if (edit.saveState === 'saving') {
@@ -366,17 +291,11 @@ export function beginSave(edit: SettingsEdit, envelope: ConfigEnvelope | null): 
 /**
  * Record an accepted write, from the configuration the **service** returned,
  * and mark what it changed as pending.
- *
- * @returns The state after the answer.
  */
 export function recordSaved(input: {
-    /** Current state. */
     readonly edit: SettingsEdit;
-    /** The configuration the answer carried. */
     readonly returned: ConfigEnvelope;
-    /** The fields the write changed, as the service reported them. */
     readonly changed: readonly string[];
-    /** Whether the `config.changed` row reached disk; `null` when unreported. */
     readonly auditWritten: boolean | null;
 }): SettingsEdit {
     const { edit, returned, changed, auditWritten } = input;
@@ -410,20 +329,14 @@ export function recordSaved(input: {
 }
 
 /**
- * Record a refusal with the service's own issues, in the service's order,
- * and put every field back to the last configuration the
- * service reported: after a refusal the form shows what is
- * in force, not what was typed, so no optimistic local value survives the
- * answer.
- *
- * @returns The state after the refusal.
+ * Record a refusal with the service's own issues, in the service's order, and
+ * put every field back to the last configuration the service reported: after
+ * a refusal the form shows what is in force, not what was typed, so no
+ * optimistic local value survives the answer.
  */
 export function recordRefused(input: {
-    /** Current state. */
     readonly edit: SettingsEdit;
-    /** The last configuration the service reported. */
     readonly envelope: ConfigEnvelope;
-    /** Every issue the refusal answered with. */
     readonly issues: readonly ConfigIssueView[];
 }): SettingsEdit {
     const { edit, envelope, issues } = input;
@@ -443,15 +356,11 @@ export function recordRefused(input: {
 }
 
 /**
- * Record a write that could not be completed.
- *
- * The failure carries its **cause** as well as the service's own words, so the
- * tab can say which of the four documented reasons it met instead of showing
- * one generic sentence for all of them — and it keeps the envelope's
- * correlation identifier when one came, which is the only identifier an
- * unexpected failure can be traced by.
- *
- * @returns The state after the failure.
+ * Record a write that could not be completed. The failure carries its
+ * **cause** as well as the service's own words, so the tab can say which of
+ * the four documented reasons it met instead of one generic sentence — and it
+ * keeps the envelope's correlation identifier when one came, the only
+ * identifier an unexpected failure can be traced by.
  */
 export function recordFailed(edit: SettingsEdit, failure: SettingsFailure): SettingsEdit {
     return {
@@ -466,24 +375,17 @@ export function recordFailed(edit: SettingsEdit, failure: SettingsFailure): Sett
 }
 
 /**
- * Retire the pending markers a read has caught up with.
- *
- * The marker is cleared **only** by a read: an entry whose field the status
- * projection carries disappears once the two halves agree, and an entry for a
- * field the projection cannot speak about is retired by a later configuration
- * read — because the panel has no way to observe that boundary, and claiming
- * one would be exactly the optimism the pending marker forbids.
- *
- * @returns The markers still worth showing.
+ * Retire the pending markers a read has caught up with. The marker is cleared
+ * **only** by a read: an entry whose field the status projection carries
+ * disappears once the two halves agree, and an entry for a field the
+ * projection cannot speak about is retired by a later configuration read —
+ * because the panel has no way to observe that boundary, and claiming one
+ * would be exactly the optimism the pending marker forbids.
  */
 export function reconcilePending(input: {
-    /** Markers to re-evaluate. */
     readonly pending: readonly PendingField[];
-    /** The configuration as it now stands. */
     readonly configured: Readonly<Record<string, ConfigValue>>;
-    /** Effective values from a status read, by field; empty when unread. */
     readonly effective: Readonly<Record<string, ConfigValue>>;
-    /** Whether a configuration read has landed since the save. */
     readonly reread: boolean;
 }): readonly PendingField[] {
     return input.pending.filter((entry) => {

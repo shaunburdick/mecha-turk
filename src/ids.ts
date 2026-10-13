@@ -1,9 +1,7 @@
 /**
- * Correlation and clock helpers shared by the panel and its tests.
- *
- * Correlation identifiers are the spine of the product's evidence: every ledger
- * entry and evidence record carries one so a poll, a dispatch, and a lifecycle
- * phase can be tied back to a single observation (NFR-007).
+ * Correlation and clock helpers shared by the panel and its tests: every
+ * ledger entry and evidence record carries a correlation id so a poll, a
+ * dispatch, and a lifecycle phase tie back to one observation (NFR-007).
  */
 
 /**
@@ -12,9 +10,6 @@
  * Uses `crypto.randomUUID()`, which the sandboxed iframe provides in secure
  * contexts (localhost or https). The panel fails closed when it is missing
  * rather than inventing an identifier from weaker entropy.
- *
- * @returns A RFC 4122 version 4 identifier.
- * @throws {Error} When no secure-context UUID source is available.
  */
 export function newCorrelationId(): string {
     if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
@@ -26,8 +21,6 @@ export function newCorrelationId(): string {
 
 /**
  * Read the current time as an RFC 3339 timestamp.
- *
- * @returns The current time in ISO 8601 / RFC 3339 form.
  */
 export function nowIso(): string {
     return new Date().toISOString();
@@ -35,8 +28,6 @@ export function nowIso(): string {
 
 /**
  * Zero-pad one `Date` getter to two characters.
- *
- * @returns The field as two digits.
  */
 function padTwoDigits(part: number): string {
     return String(part).padStart(2, '0');

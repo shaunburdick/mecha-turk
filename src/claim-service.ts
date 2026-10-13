@@ -1,25 +1,5 @@
 /**
- * The claim and reserve answers the event relay reads (003 T-021, T-023).
- *
- * This surface used to live in `bindings-service.ts`, which is where it stopped
- * fitting: the binding and account readers are the Bindings tab's, and the claim
- * answer is the relay's — a run-shaped document with a lease, a bounded list of
- * source references, and its own counting members. Splitting them is the
- * module map AGENTS.md asks for (one responsibility per module) rather than a
- * move for its own sake, and every reader below keeps the same rule the old
- * home stated: parsing fails closed.
- *
- * **One unreadable run refuses the whole claim answer, deliberately.** A claim
- * that leases runs the panel then skips is worse than a claim the panel
- * refuses — the skipped leases expire, burn an attempt and a unit of the
- * automatic requeue budget, and the panel believed it had acted. The relay
- * surfaces an unreadable answer on its own line rather than dispatching none
- * of it in silence.
- *
- * Nothing here is credential-free by accident: the answer carries a lease (a
- * fencing token, never a capability) and, on reserve, the single-use dispatch
- * token — an authorization artifact, not a credential, which is why
- * `SECRET_PATTERNS` deliberately does not cover `dtk-` (research §R3).
+ * The claim and reserve answers the relay reads, parsed fail-closed; the tokens fence, never credential (T-021).
  */
 
 import { readClaimPrompt } from './prompt-wire.ts';
@@ -32,14 +12,12 @@ import { eventKindOf, readStatusRows } from './bindings-service.ts';
 export type SubjectType = 'issue' | 'pull_request';
 
 /**
- * The lease a claim issues, as the answer reports it.
- *
- * The lease is a **fencing/consistency token, not a capability**: holding the
- * id authorizes nothing (the service's bearer token is the only authentication
- * gate) and the single-use dispatch token is the only authorization to start a
- * session. It is what proves the service handed this run to
- * this panel — the guard keys off it, not off `state`, because `state` only
- * says the run was *offered*.
+ * The lease a claim issues, as the answer reports it: a
+ * **fencing/consistency token, not a capability** — holding the id authorizes
+ * nothing (the service's bearer token is the only authentication gate) and the
+ * single-use dispatch token is the only authorization to start a session. It
+ * is what proves the service handed this run to this panel, so the guard keys
+ * off it, never off `state`, which only says the run was *offered*.
  */
 export interface ClaimedLease {
     /** Lease identifier echoed on reserve and block report. */
@@ -58,11 +36,9 @@ export interface ClaimedLease {
 export interface ClaimedReference {
     /** The joining delivery's unchanged id (FR-012). */
     readonly deliveryId: string;
-    /** Trigger kind the reference was detected under. */
     readonly kind: EventKind;
     /** Where it matched: `assignment`, `body`, `comment:<id>`, or `review`. */
     readonly origin: string;
-    /** Canonical link back to the source. */
     readonly sourceUrl: string;
     /** RFC 3339 detection stamp. */
     readonly detectedAt: string;
@@ -80,7 +56,6 @@ export interface ClaimedRun {
     readonly runKey: string;
     /** 0-based ordinal of this run for its subject. */
     readonly ordinal: number;
-    /** Attempt this lease is issued under. */
     readonly attempt: number;
     /** The claim itself; its absence refuses the run. */
     readonly lease: ClaimedLease;
@@ -88,7 +63,6 @@ export interface ClaimedRun {
     readonly state: 'pending';
     /** Why the run was waiting, rendered as the row's reason line (FR-074). */
     readonly stateReason: string;
-    /** Binding the run dispatches through. */
     readonly bindingId: string;
     /** `owner/name`. */
     readonly repository: string;
@@ -98,9 +72,7 @@ export interface ClaimedRun {
     readonly projectId: string;
     /** Worktree option, snapshotted at enqueue. */
     readonly worktreeOption: string;
-    /** Whether the subject is an issue or a pull request. */
     readonly subjectType: SubjectType;
-    /** Issue or pull request number. */
     readonly issueNumber: number;
     /** Issue title; untrusted source text, copied verbatim. */
     readonly issueTitle: string;
@@ -118,13 +90,11 @@ export interface ClaimedRun {
     readonly referenceCount: number;
     /** How many joining triggers the cap kept off the list. */
     readonly referencesNotRetained: number;
-    /** Whether the reference list was cut at the cap. */
     readonly referencesTruncated: boolean;
     /** Primary subject excerpt (the field the context builder already reads). */
     readonly issueBodyExcerpt: string;
     /** Earliest source reference's detection stamp (row age). */
     readonly detectedAt: string;
-    /** Whether the run queued with a starting prompt. */
     readonly promptPresent: boolean;
     /** Its `mtp-…` fingerprint, or `null` when none. */
     readonly promptFingerprint: string | null;
@@ -163,9 +133,7 @@ export interface ClaimAnswer {
 export interface ReserveAnswer {
     /** Echo of the run the path named. */
     readonly correlationId: string;
-    /** Attempt the reservation was made under. */
     readonly attempt: number;
-    /** The single-use authorization the result report presents. */
     readonly dispatchToken: string;
     /** RFC 3339 stamp of the lease the reservation was made under. */
     readonly tokenExpiresAt: string | null;
@@ -227,8 +195,6 @@ function atLeast(value: number | null, min: number): number | null {
  * A run the answer does not lease is a run the panel must not dispatch,
  * so an absent or malformed lease refuses the row rather than being
  * defaulted — the guard keys off this member, never off `state`.
- *
- * @returns The lease, or `null`.
  */
 function parseLease(value: unknown): ClaimedLease | null {
     const record = asRecord(value);
@@ -254,8 +220,6 @@ function parseLease(value: unknown): ClaimedLease | null {
 
 /**
  * Read one retained source reference off the claim answer.
- *
- * @returns The reference, or `null` when its shape is unusable.
  */
 function parseClaimReference(value: unknown): ClaimedReference | null {
     const record = asRecord(value);
@@ -283,8 +247,6 @@ function parseClaimReference(value: unknown): ClaimedReference | null {
 
 /**
  * Read the `sourceReferences` list, or `null` when any element is unusable.
- *
- * @returns The references, or `null`.
  */
 function parseClaimReferences(value: unknown): ClaimedReference[] | null {
     if (!Array.isArray(value)) {
@@ -306,8 +268,6 @@ function parseClaimReferences(value: unknown): ClaimedReference[] | null {
 
 /**
  * Check the answer's three reference-counting members against each other.
- *
- * @returns `true` when they reconcile.
  */
 function claimCountsReconcile(counts: ClaimNumbers, retained: number): boolean {
     if (counts.referenceCount !== retained + counts.referencesNotRetained) {
@@ -332,13 +292,11 @@ type ClaimScalars = Pick<
     | 'issueTitle'
 >;
 
-/** The counting members of one offered run. */
 type ClaimNumbers = Pick<
     ClaimedRun,
     'ordinal' | 'attempt' | 'referenceCount' | 'referencesNotRetained' | 'referencesTruncated'
 >;
 
-/** The subject coordinates of one offered run. */
 type ClaimSubject = Pick<ClaimedRun, 'subjectType' | 'issueNumber' | 'headSha' | 'baseRef'>;
 
 /**
@@ -466,20 +424,15 @@ function parseClaimedRun(value: unknown): ClaimedRun | null {
 
 
 /**
- * Parse the claim answer (`GET /v1/events/pending`).
- *
- * Strict, and deliberately so: one unreadable run refuses the whole answer.
- * A claim that leases runs the panel then skips is worse than a claim the
- * panel refuses — the skipped leases expire, burn an attempt and a unit of the
- * automatic requeue budget, and the panel believed it had acted. The caller
- * surfaces an unreadable answer on its own line rather than dispatching none
- * of it in silence.
- *
- * `auditWritten` is additive: absent reads as `false`, so a build that
- * does not send it reports a degraded trail rather than claiming one it cannot
- * prove — a member that is present but not a boolean refuses the body.
- *
- * @returns The claim answer, or `null` when the shape is unusable.
+ * Parse the claim answer (`GET /v1/events/pending`). Strict, and deliberately
+ * so: one unreadable run refuses the whole answer, because a claim that leases
+ * runs the panel then skips is worse than one it refuses — the skipped leases
+ * expire, burn an attempt and a unit of the requeue budget, and the panel
+ * believed it had acted; the caller surfaces an unreadable answer on its own
+ * line rather than dispatching none in silence. `auditWritten` is additive:
+ * absent reads as `false`, so a build that does not send it reports a degraded
+ * trail rather than claiming one it cannot prove, while a present non-boolean
+ * refuses the body. `null` when the shape is unusable.
  */
 export function parsePendingBody(text: string): ClaimAnswer | null {
     const root = parseJsonObject(text);
@@ -507,15 +460,12 @@ export function parsePendingBody(text: string): ClaimAnswer | null {
 }
 
 /**
- * Parse the reserve answer (`POST /v1/events/:correlationId/reserve`).
- *
- * Both deadlines ride beside the token (contract §1, T-043d): `tokenExpiresAt`
- * is the lease the reservation was made under and `resultDeadlineAt` is when
- * the sweep would wedge the run. Neither is a reason to skip the result report
- * — the authorization outlives the lease — so this reader accepts both and
- * gates on nothing but the token itself.
- *
- * @returns The answer, or `null` when the shape is unusable.
+ * Parse the reserve answer (`POST /v1/events/:correlationId/reserve`). Both
+ * deadlines ride beside the token (contract §1, T-043d): `tokenExpiresAt` is
+ * the lease the reservation was made under, `resultDeadlineAt` is when the
+ * sweep would wedge the run. Neither is a reason to skip the result report —
+ * the authorization outlives the lease — so this reader accepts both and gates
+ * on nothing but the token itself. `null` when the shape is unusable.
  */
 export function parseReserveBody(text: string): ReserveAnswer | null {
     const root = parseJsonObject(text);

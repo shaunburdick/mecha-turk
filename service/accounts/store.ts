@@ -1,19 +1,6 @@
 /**
- * File-backed account custody: read, list, write, and remove accounts under
- * `accounts/<numericUserId>.json` (data-model.md storage tier 1).
- *
- * Every write goes through the store's atomic `0600` temp+fsync+rename
- * writer, so a credential file either exists complete or does not exist —
- * never half-written (contract §6, SEC-05). Paths are derived from the
- * validated numeric id only: a caller cannot point this module at an
- * arbitrary file, which is what keeps `..`, separators, and login-based keys
- * out of the custody directory (FR-009: numeric id keying, login display-only).
- *
- * The readers come in the two shapes the bindings file already has (004
- * plan C20): {@link readAccountUnobserved} / {@link listAccountsUnobserved}
- * are the plain reads the chain-holding profile write uses, while
- * {@link readAccount} / {@link listAccounts} are the observation funnels that
- * record a prompt edited outside the panel exactly once, with actor `service`.
+ * File-backed account custody: read, list, write, and remove accounts
+ * under `accounts/<numericUserId>.json` (data-model.md storage tier 1).
  */
 
 import { observeAccountPromptChanges } from '../account-prompt-audit.ts';
@@ -35,10 +22,6 @@ const ACCOUNT_FILE_SUFFIX = '.json';
 
 /**
  * Build the store-relative path of one account file.
- *
- * @returns `accounts/<id>.json`.
- * @throws {Error} When the id is not a pure digit string — a programming
- *   error at the call site, refused here rather than turned into a path.
  */
 export function accountPath(numericUserId: string): string {
     if (!isNumericUserId(numericUserId)) {
@@ -50,7 +33,6 @@ export function accountPath(numericUserId: string): string {
 
 /** One read of a stored account. */
 interface ReadAccountInput {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Key of the account to read. */
     readonly numericUserId: string;
@@ -60,8 +42,6 @@ interface ReadAccountInput {
 
 /**
  * Log a quarantine without ever failing the read that discovered it.
- *
- * @returns The outcome, its subject, and the parser's refusal note.
  */
 function reportQuarantine(input: {
     /** Outcome of the store read. */
@@ -89,8 +69,6 @@ function reportQuarantine(input: {
  *
  * This is the reader the chain-holding profile write uses, so the chain can
  * never deadlock against itself (plan C20, mirroring `readBindingsUnobserved`).
- *
- * @returns The account, or `null` when absent or unusable.
  */
 export async function readAccountUnobserved(input: ReadAccountInput): Promise<Account | null> {
     const { store, numericUserId, log } = input;
@@ -103,16 +81,12 @@ export async function readAccountUnobserved(input: ReadAccountInput): Promise<Ac
 
 /**
  * Read one account, recording any prompt change the stored record carries.
- *
  * The observation runs *after* the read answered, on the per-store account
  * chain, so a prompt edited outside the panel is recorded exactly once with
- * the actor the service can actually attribute it to — `service`, because no
- * panel asked for it. A read that finds **no** account forgets
- * that id's baseline: the tier died with the record, so a re-added account
- * reads as a fresh `set` rather than a diff against a fingerprint nobody holds
- * any more.
- *
- * @returns The account, or `null` when absent or unusable.
+ * the actor the service can actually attribute it to — `service`. A read that
+ * finds **no** account forgets that id's baseline: the tier died with the
+ * record, so a re-added account reads as a fresh `set` rather than a diff
+ * against a fingerprint nobody holds any more.
  */
 export async function readAccount(input: ReadAccountInput): Promise<Account | null> {
     const account = await readAccountUnobserved(input);
@@ -129,8 +103,6 @@ export async function readAccount(input: ReadAccountInput): Promise<Account | nu
 
 /**
  * List every stored account **without** running the prompt-change observer.
- *
- * @returns The accounts; a missing directory is simply an empty list.
  */
 export async function listAccountsUnobserved(store: ServiceStore, log: ServiceLogger): Promise<readonly Account[]> {
     const names = await store.listDir(ACCOUNTS_DIR);
@@ -161,8 +133,6 @@ export async function listAccountsUnobserved(store: ServiceStore, log: ServiceLo
  * directory is forgotten from the baseline, so deletion and re-addition read
  * as the tier's own story rather than a diff across a hole (004 FR-088,
  * AC-149).
- *
- * @returns The accounts; a missing directory is simply an empty list.
  */
 export async function listAccounts(store: ServiceStore, log: ServiceLogger): Promise<readonly Account[]> {
     const accounts = await listAccountsUnobserved(store, log);
@@ -173,8 +143,6 @@ export async function listAccounts(store: ServiceStore, log: ServiceLogger): Pro
 
 /**
  * Persist an account (credential included) with the store's atomic writer.
- *
- * @throws {StorageUnavailableError} When the write cannot complete.
  */
 export async function writeAccount(store: ServiceStore, account: Account): Promise<void> {
     await store.writeJson(accountPath(account.numericUserId), account);
@@ -182,8 +150,6 @@ export async function writeAccount(store: ServiceStore, account: Account): Promi
 
 /**
  * Remove an account credential file (operator-driven delete only).
- *
- * @throws {StorageUnavailableError} When the removal cannot complete.
  */
 export async function removeAccount(store: ServiceStore, numericUserId: string): Promise<void> {
     await store.removeFile(accountPath(numericUserId));
@@ -204,8 +170,6 @@ export interface BindingRecord {
  * leniently: entries that do not carry both a `bindingId` and an
  * `accountNumericUserId` are skipped rather than rejected, and survivors keep
  * every field they arrived with.
- *
- * @returns The referencing bindings; no file means none.
  */
 export async function bindingsReferencing(
     store: ServiceStore,
@@ -232,9 +196,6 @@ export async function bindingsReferencing(
 
 /**
  * Disable every binding that references one account, preserving all fields.
- *
- * @throws {StorageUnavailableError} When the rewrite cannot complete.
- * @returns The bindings after the state change, in file order.
  */
 export async function disableBindings(
     store: ServiceStore,

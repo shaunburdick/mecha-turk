@@ -1,16 +1,11 @@
 /**
- * The capture's fifth freshness check: which tab body the layout shows.
- *
- * The strip's pill is the element `verify.js` measures, and the pill sits
- * outside the scroller — so a run could validate the right pill over the
- * wrong body whenever all six bodies shared the layout, which is exactly how
- * a Settings-labelled frame shipped over the Dispatches board. This reads
- * `getComputedStyle` for every body in the live document, insists the ones the
- * shell hid are really out of the layout, and proves the one body with a box
- * is the one the selected tab labels. The same question is then asked of every
- * *other* `[hidden]` element: a stray control the panel hid but the cascade
- * still paints fails the run too. `shot.js` calls it after the probe and
- * before the capture, so a mismatch aborts the run instead of publishing.
+ * The capture's fifth freshness check: which tab body the layout shows. The strip's pill sits
+ * outside the scroller, so a run could validate the right pill over the wrong body whenever all
+ * six bodies shared the layout — which is how a Settings-labelled frame shipped over the
+ * Dispatches board. This reads `getComputedStyle` for every body, insists the hidden ones are out
+ * of the layout, proves the one body with a box is the selected tab's, and asks the same of every
+ * *other* `[hidden]` element so a stray control the cascade still paints fails the run too.
+ * `shot.js` calls it after the probe and before the capture, so a mismatch aborts the run.
  */
 
 /** One body as the report names it: id, cascade display, and box height. */
@@ -32,12 +27,7 @@ function pluralBodies(count) {
     return count === 1 ? 'body' : 'bodies';
 }
 
-/**
- * Refuse a panel that does not hold the bodies the strip offers.
- *
- * @param view - The answer `__MT__.bodyView()` gave.
- * @param expected - How many bodies the strip has tabs for.
- */
+/** Refuse a panel that does not hold the bodies the strip offers. */
 function assertBodyCount(view, expected) {
     if (view.bodies.length === expected) {
         return;
@@ -109,12 +99,7 @@ function assertNothingPainted(view) {
     throw new Error(`the panel hid ${count} the cascade still paints: ${listPainted(view.painted)}`);
 }
 
-/**
- * Refuse a frame whose visible body is not the tab that was asked for.
- *
- * @param input - `{ tab, view, expected }`: the tab requested, the answer
- *   `__MT__.bodyView()` gave, and how many bodies the panel must hold.
- */
+/** Refuse a frame whose visible body is not the tab that was asked for. */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function assertVisibleBody(input) {
     const { tab, view, expected } = input;

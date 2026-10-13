@@ -1,14 +1,5 @@
 /**
  * Account record: shape, validation, and the credential-free projection.
- *
- * The record is the **only** place a credential lives at rest
- * (`accounts/<numericUserId>.json`, `0600`), so this module draws the line
- * between the two projections explicitly: {@link Account} carries
- * `credential` and is never serialised into a response, while
- * {@link toAccountDto} builds the credential-free DTO every API surface
- * returns — by construction, not by discipline. `tests/service-accounts.test.ts`
- * asserts at the type level
- * that the DTO cannot carry a `credential` member.
  */
 
 import { isRecord } from '../json.ts';
@@ -32,7 +23,6 @@ export interface CredentialRecord {
     readonly verifiedAt: string;
 }
 
-/** One durable account. */
 export interface Account {
     /** GitHub numeric user id — the durable key; never the login. */
     readonly numericUserId: string;
@@ -50,18 +40,13 @@ export interface Account {
      */
     readonly displayName: string | null;
     /**
-     * The account's starting-prompt tier, or `null` when unset.
-     *
-     * The record is the tier's only home, so it lives and dies with the
-     * account: `DELETE ?force=1` removes both together, rotation, login rename,
-     * and credential refresh leave it byte-identical, and a re-added account
-     * starts unset — no tier is ever seeded. Absent in every record
-     * this build wrote before the field, which reads as `null` without a
-     * migration — again, the upgrade writes nothing.
-     *
-     * A stored value that fails the one `validateStartingPrompt` refuses the
-     * whole record rather than being coerced or dropped — the store
-     * quarantines the file.
+     * The account's starting-prompt tier, or `null` when unset. The record is
+     * the tier's only home: `DELETE ?force=1` removes both together, rotation
+     * and credential refresh leave it byte-identical, a re-added account starts
+     * unset, and an older record reads as `null` with no migration — the
+     * upgrade writes nothing. A stored value that fails the one
+     * `validateStartingPrompt` refuses the whole record rather than being
+     * coerced or dropped.
      */
     readonly startingPrompt: string | null;
     /** Credential at rest; excluded from every response by {@link toAccountDto}. */
@@ -84,16 +69,11 @@ export interface Account {
 
 /** The credential-free account projection returned by every route. */
 export interface AccountDto {
-    /** GitHub numeric user id. */
     readonly numericUserId: string;
-    /** Display login. */
     readonly login: string;
-    /** Operator-supplied expected login, or `null`. */
     readonly expectedLogin: string | null;
-    /** Operator-supplied display label, or `null` when unset. */
     readonly displayName: string | null;
     /**
-     * The account's starting-prompt tier, or `null` when unset.
      *
      * Added **by name** — the projection names every member it returns, so the
      * credential-free guarantee stays a property of the construction rather
@@ -101,19 +81,12 @@ export interface AccountDto {
      * `credential`, and the type-level guard the suite compiles still holds.
      */
     readonly startingPrompt: string | null;
-    /** Lifecycle state. */
     readonly state: AccountState;
-    /** Last observed connection state. */
     readonly connectionState: ConnectionState;
-    /** RFC 3339 timestamp of the last successful verification. */
     readonly verifiedAt: string;
-    /** Scope matrix. */
     readonly scopeCheck: ScopeCheck;
-    /** Cause when `state` is `error`, otherwise `null`. */
     readonly errorReason: string | null;
-    /** RFC 3339 timestamp of account creation. */
     readonly createdAt: string;
-    /** RFC 3339 timestamp of the last change. */
     readonly updatedAt: string;
 }
 
@@ -151,26 +124,18 @@ export function isNumericUserId(value: unknown): value is string {
     return typeof value === 'string' && /^\d+$/.test(value) && value.length <= NUMERIC_ID_MAX_CHARS;
 }
 
-/**
-/** Narrow a value to a lifecycle state. */
 function isAccountState(value: unknown): value is AccountState {
     return typeof value === 'string' && ACCOUNT_STATES.has(value);
 }
 
-/**
-/** Narrow a value to a connection state. */
 function isConnectionState(value: unknown): value is ConnectionState {
     return typeof value === 'string' && CONNECTION_STATES.has(value);
 }
 
-/**
-/** Narrow a value to a credential family. */
 function isCredentialKind(value: unknown): value is CredentialKind {
     return typeof value === 'string' && CREDENTIAL_KINDS.has(value);
 }
 
-/**
-/** Validate a stored scope matrix: all four capabilities carry a legal result. */
 function isScopeCheck(raw: unknown): raw is ScopeCheck {
     if (!isRecord(raw) || typeof raw.checkedAt !== 'string' || !isRecord(raw.results)) {
         return false;
@@ -187,10 +152,6 @@ function isScopeCheck(raw: unknown): raw is ScopeCheck {
 
 /**
  * Validate the credential block of a stored record.
- *
- * @returns `true` when the block is complete; a record without it is
- *   unusable and the store quarantines it rather than serving a token-less
- *   account as if it had a credential.
  */
 function isCredentialRecord(raw: unknown): raw is CredentialRecord {
     return (
@@ -206,17 +167,11 @@ function isCredentialRecord(raw: unknown): raw is CredentialRecord {
 interface StoredAccountStrings {
     /** Display login; non-empty. */
     readonly login: string;
-    /** Operator-supplied expected login, or `null`. */
     readonly expectedLogin: string | null;
-    /** Operator-supplied display label, or `null` when absent or unset. */
     readonly displayName: string | null;
-    /** RFC 3339 timestamp of the last successful verification. */
     readonly verifiedAt: string;
-    /** Cause when `state` is `error`, otherwise `null`. */
     readonly errorReason: string | null;
-    /** RFC 3339 timestamp of account creation. */
     readonly createdAt: string;
-    /** RFC 3339 timestamp of the last record change. */
     readonly updatedAt: string;
 }
 
@@ -251,8 +206,6 @@ function isNullableString(value: unknown): value is string | null {
  * `null` without a migration — the upgrade writes nothing; a
  * present-but-not-text value is refused like every other malformed member
  * (invariant 8) rather than silently dropped.
- *
- * @returns `true` for a string, `null`, or an absent key.
  */
 function isOptionalNullableString(value: unknown): value is string | null | undefined {
     return value === undefined || value === null || typeof value === 'string';
@@ -260,8 +213,6 @@ function isOptionalNullableString(value: unknown): value is string | null | unde
 
 /**
  * Read and check the record's string fields in one pass.
- *
- * @returns The checked strings, or `null` when any of them is unusable.
  */
 function readAccountStrings(raw: Record<string, unknown>): StoredAccountStrings | null {
     const { login, expectedLogin, displayName, verifiedAt, errorReason, createdAt, updatedAt } = raw;
@@ -290,21 +241,14 @@ function readAccountStrings(raw: Record<string, unknown>): StoredAccountStrings 
 }
 
 /**
- * Parse a stored document into an account.
- *
- * Every member is checked before the record is handed back, and the account
- * tier goes through the **one** `validateStartingPrompt`: a document
- * carrying a non-text, oversized, credential-shaped, or marker-bearing
- * `startingPrompt` is refused **as a whole record** rather than read with a
- * coerced, defaulted, or dropped member. The refusal's
- * `field: remediation` is captured in `note` so the store can log why the file
- * was set aside — never a byte of what it held.
- *
- * Absence and `null` are the complete "unset" state: both read as `null`, the
- * file is neither quarantined nor rewritten.
- *
- * @returns The account, or `null` when the document does not match the
- *   stored shape (the store then quarantines it — never fail-stuck).
+ * Parse a stored document into an account: every member is checked before
+ * the record is handed back, and the account tier goes through the **one**
+ * `validateStartingPrompt` — a document carrying a non-text, oversized,
+ * credential-shaped or marker-bearing `startingPrompt` is refused **as a
+ * whole record** rather than read with a coerced, defaulted or dropped
+ * member. The refusal's `field: remediation` is captured in `note` so the
+ * store can log why the file was set aside, never a byte of what it held.
+ * Absence and `null` are both the complete *unset* state.
  */
 export function parseStoredAccount(raw: unknown, note: AccountRefusalNote): Account | null {
     if (!isRecord(raw) || !isNumericUserId(raw.numericUserId)) {
@@ -348,8 +292,6 @@ export function parseStoredAccount(raw: unknown, note: AccountRefusalNote): Acco
  * The projection names every field it returns: a future `credential` addition
  * to the record cannot leak by spreading this object, which is what makes
  * "no credential fields, by construction" testable.
- *
- * @returns The DTO every API surface is allowed to return.
  */
 export function toAccountDto(account: Account): AccountDto {
     return {
@@ -397,8 +339,6 @@ const LAST_C1 = 0x9F;
  * Written as a code-point walk rather than a regular expression so the
  * character classes are visible as numbers: a control character in source is
  * exactly the kind of thing that renders as nothing and reads as a space.
- *
- * @returns `true` when at least one character is invisible or direction-altering.
  */
 function hasControlCharacter(value: string): boolean {
     for (const character of value) {
@@ -419,7 +359,6 @@ export interface DisplayNameIssue {
     readonly remediation: string;
 }
 
-/** Result of validating one candidate display name. */
 export type DisplayNameValidation =
     /** Usable text (trimmed), or `null` for "no display name". */
     | { readonly ok: true; readonly displayName: string | null }
@@ -428,16 +367,13 @@ export type DisplayNameValidation =
 
 /**
  * Validate one candidate display name, in the six-step order the
- * display-name contract names.
- *
- * Type → trim → empty-or-null clears → cap → credential shape → control
- * characters. The order matters: the cap is checked *before* the detector, so
- * an oversized credential-shaped value is refused on its length alone and the
- * refusal cannot leak a single character of what was submitted. No content
- * policy beyond these steps — it is a label, and the
- * service does not decide what an operator may call their own account.
- *
- * @returns The trimmed name (`null` to clear), or the refusal that beat it.
+ * display-name contract names: type → trim → empty-or-null clears → cap →
+ * credential shape → control characters. The order matters: the cap is
+ * checked *before* the detector, so an oversized credential-shaped value is
+ * refused on its length alone and the refusal cannot leak a single character
+ * of what was submitted. No content policy beyond these steps — it is a
+ * label, and the service does not decide what an operator may call their own
+ * account.
  */
 export function validateDisplayName(raw: unknown): DisplayNameValidation {
     if (raw !== null && typeof raw !== 'string') {

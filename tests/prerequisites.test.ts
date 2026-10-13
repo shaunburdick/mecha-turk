@@ -27,6 +27,7 @@ import type { Prerequisite, PrerequisiteId } from '../src/prerequisites.ts';
 import { createTestRuntime, fakeHost } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /**
  * The SDK's two mounts, replaced through `vi.mock` rather than through a seam
@@ -173,20 +174,12 @@ function freshState(): PanelState {
  * One binding, under the project it resolves to (or an empty id for a binding
  * the service would hold in its recoverable `project_missing` state).
  */
-function bindingWith(projectId: string): PanelBinding {
-    return {
-        bindingId: 'bnd-1',
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: 'acme/widget',
-        projectId,
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: true },
-        state: ACTIVE,
-        createdAt: FIXTURE_STAMP,
-        updatedAt: FIXTURE_STAMP,
-    };
-}
+const bindingWith = (projectId: string): PanelBinding => fixtureBindingRow('bnd-1', {
+    accountLogin: ACCOUNT_LOGIN,
+    projectId,
+    triggers: { assignment: true, mention: false, reviewRequest: true },
+    stamp: FIXTURE_STAMP,
+});
 
 /**
  * A configured install's panel state: host answered, one connected account

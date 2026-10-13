@@ -1,26 +1,7 @@
 /**
  * The run document's persistence: chain, read/write, and the one-shot
  * adoption pass (003 data-model §2.6, T-003/T-005).
- *
- * `runs.json` is read and written by exactly this module, so the ordering
- * rules the run model depends on live in one place:
- *
- * **One chain for both stores.** The queue's mutations have always serialized
- * onto a single in-flight chain (the `audit.ts` write-chain pattern); run
- * mutations join that same chain, which therefore lives here — `events.ts`
- * imports {@link inQueueChain} from the run layer rather than keeping a second
- * chain, so a scan tick, a claim, a sweep, and an enqueue can never interleave
- * one another's read-modify-write across either file (plan: "sweep vs. claim
- * race"). Read paths do not chain: `writeJson` is atomic, so a reader always
- * sees a whole document.
- *
- * **One-shot adoption.** The first read of the document for a store handle
- * adopts the legacy queue into runs ({@link ensureRunsAdopted}), which is why
- * every queue reader calls it too: an upgrade must be adopted before any claim
- * is served (FR-005, NFR-103). A `runs.json` that exists but cannot be read is
- * **not** re-adopted — re-adopting could resurrect runs for deliveries that
- * were already dispatched — so that store refuses to serve run state instead
- * (constitution II: ambiguity is a stop condition).
+ * Both stores' mutations serialize onto this chain, so a scan, a claim, a sweep and an enqueue can never interleave.
  */
 
 import type { ServiceLogger } from '../log.ts';
@@ -41,26 +22,18 @@ export const MAX_TERMINAL_RUNS = 500;
 
 /** Store and logger every run operation reads. */
 export interface RunsStoreInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }
 
 /**
- * A run-document read plus the service-clock stamp its caller is acting with.
- *
- * The stamp matters when the read triggers the first-read adoption pass: the
- * synthetic lease adoption mints is only "already expired" **relative to the
- * clock that judges it**, so a pass that adopts under one stamp and judges
- * under an earlier one skips the one-shot migration recovery and leaves the
- * run wedged in `claimed` until some later pass happens to sample later (T-045
- * — the defect this member closes). Threading the caller's stamp makes the
- * adopting stamp and the judging stamp the same value by construction.
- *
- * `undefined` means "no stamp was supplied": the adoption pass then samples
- * the service clock itself, which is the right answer for a read that makes
- * no expiry decision of its own.
+ * A run-document read plus the service-clock stamp its caller is acting
+ * with. The stamp matters when the read triggers the first-read adoption:
+ * the synthetic lease is only *already expired* **relative to the clock that
+ * judges it**, so a pass that adopted under one stamp and judged under an
+ * earlier one skipped the one-shot migration recovery and left the run wedged
+ * in `claimed` (T-045). Threading the stamp makes the two the same value by
+ * construction; `undefined` means the adoption pass samples the clock itself.
  */
 export interface RunsReadInput extends RunsStoreInput {
     /** Service-clock stamp this read adopts with; `undefined` samples one. */
@@ -89,8 +62,6 @@ const queueChain: { write: Promise<unknown> } = { write: Promise.resolve() };
 
 /**
  * Serialize one queue-or-run mutation behind everything already chained.
- *
- * @returns Whatever `task` produced, once every earlier task settled.
  */
 export function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
     // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs task on its own rejection; this runs once.
@@ -101,27 +72,16 @@ export function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Resolve once every chain task queued so far has settled.
- *
- * A reader that decides *whether* to take the chain needs this first: a read
- * issued while writes are still landing would see a document that is about to
- * change, and acting on that snapshot as though it were settled would skip work
- * the very next poll would then have to serve. Draining first makes the
- * snapshot true at the moment it is taken, and a writer that arrives afterwards
- * is an ordinary race the next poll resolves.
- *
- * This is a *read* helper and takes no chain slot of its own, so the head-of-line
- * saving the claim's preview exists for is preserved: an idle queue resolves
- * immediately without queueing behind anything.
- *
- * @returns A promise that settles once the chain is idle.
+ * Resolve once every chain task queued so far has settled. A reader that decides *whether* to take
+ * the chain needs this first: a read issued while writes are still landing would act on a document
+ * about to change, and the work it skipped would come back on the next poll — draining makes the
+ * snapshot true when it is taken. A *read* helper that takes no chain slot of its own, so an idle
+ * queue resolves immediately.
  */
 /**
- * The "the chain is idle" handler, written once so both arms of
- * {@link whenQueueIdle} cannot drift.
- *
- * Intentionally empty: a drained chain and a failed one are both idle, and
- * the caller's own read reports any failure with the store's own error.
+ * The "the chain is idle" handler, written once so both arms of {@link whenQueueIdle} cannot drift.
+ * Intentionally empty: a drained chain and a failed one are both idle, and the caller's own read
+ * reports any failure with the store's own error.
  */
 function settled(): void {
     // Nothing to do: both arms of the chain are idle however they settled.
@@ -137,8 +97,6 @@ const adoptionPasses = new WeakMap<ServiceStore, Promise<AdoptionOutcome>>();
 
 /**
  * An empty run document: what a store holds before its first run exists.
- *
- * @returns A document with the current schema marker and no runs.
  */
 export function emptyRunsDocument(): RunsDocument {
     return { schemaVersion: RUNS_SCHEMA_VERSION, subjects: {}, runs: [], auditIntents: [] };
@@ -147,8 +105,6 @@ export function emptyRunsDocument(): RunsDocument {
 /**
  * Terminal run states: a new delivery opens the next ordinal instead of
  * joining, and the eviction tail may drop them.
- *
- * @returns `true` for `dispatched` and `dead-lettered`.
  */
 export function isTerminalRun(run: Run): boolean {
     return run.state === 'dispatched' || run.state === 'dead-lettered';
@@ -162,11 +118,6 @@ export function runHistoryIndicatesSession(run: Run): boolean {
 
 /**
  * Run the one-shot adoption pass for this store handle.
- *
- * @returns `present` when the document already exists, `adopted` after
- *   adopting the legacy queue into it, `unreadable` when it exists but could
- *   not be read (its bytes are quarantined and no adoption runs).
- * @throws {StorageUnavailableError} When the store cannot be read or written.
  */
 async function runAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
     const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
@@ -201,8 +152,6 @@ async function runAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
  * Start this handle's one adoption pass and memoise it for every reader that
  * arrives while it runs. A rejected pass is dropped so the next read retries
  * rather than inheriting a failure forever.
- *
- * @returns The pass every reader of this handle awaits.
  */
 function startAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
     const pass = runAdoption(input).catch((cause: unknown) => {
@@ -217,28 +166,21 @@ function startAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
 /**
  * Ensure the store's run document exists, adopting the legacy queue on the
  * first read of this handle.
- *
- * @returns What the shared pass found; concurrent callers await one pass.
- * @throws {StorageUnavailableError} When the store itself cannot be read.
  */
 export async function ensureRunsAdopted(input: RunsReadInput): Promise<AdoptionOutcome> {
     return await (adoptionPasses.get(input.store) ?? startAdoption(input));
 }
 
 /**
- * Read the run document, adopting the legacy queue if this handle never has.
- *
- * Every writer reads through this function before it writes, and the adoption
+ * Read the run document, adopting the legacy queue if this handle never
+ * has. Every writer reads through this before it writes and the adoption
  * pass is chain-free by design, so an adoption can never be overwritten by a
  * writer that raced it. A caller that will go on to judge expiry (the sweep)
- * passes its own {@link RunsReadInput.now}, so the synthetic lease adoption
- * mints expires **under the same stamp the caller judges it with** — otherwise
- * a pass whose clock sample predates the mint reads a lease that is "not yet
- * expired" and skips the one-shot migration recovery.
- *
- * @returns The document as stored (or as just adopted into).
- * @throws {Error} When `runs.json` exists but is unreadable: serving runs
- *   from an empty document could resurrect already-dispatched work.
+ * passes its own {@link RunsReadInput.now}, so the synthetic lease is minted
+ * **under the same stamp the caller judges it with** — otherwise a pass whose
+ * sample predates the mint reads a lease that is not yet expired and skips
+ * the one-shot recovery. An unreadable `runs.json` throws: serving runs from
+ * an empty document could resurrect already-dispatched work.
  */
 export async function readRunsDocument(input: RunsReadInput): Promise<RunsDocument> {
     const outcome = await ensureRunsAdopted(input);
@@ -259,22 +201,14 @@ export async function readRunsDocument(input: RunsReadInput): Promise<RunsDocume
 }
 
 /**
- * Read the run document for a *decision*, without taking the write chain.
- *
- * The claim needs to know whether anything is waiting **before** it decides to
- * serialize a write, and a document read that occupies the exclusive chain
- * makes every poll from every panel a queue behind an operation that is about
- * to discover it has nothing to do. The read is safe outside the chain because
- * {@link store.writeJson} is atomic: a reader always sees one whole document,
- * and the only write a bare read can perform is the audit-intent flush, which
- * is itself a whole-document replacement and re-reads the trail first.
- *
- * The returned document is a **snapshot**: a caller that goes on to mutate must
- * re-read inside {@link inQueueChain} and re-plan, because another writer may
- * have landed between the two reads.
- *
- * @returns The document as stored, adopting the legacy queue if needed.
- * @throws {StorageUnavailableError} When the document exists but is unusable.
+ * Read the run document for a *decision*, without taking the write chain:
+ * the claim must learn whether anything is waiting **before** it decides to
+ * serialize a write, and a chain-occupying read would queue every poll from
+ * every panel behind an operation about to discover it has nothing to do.
+ * Safe outside the chain because {@link store.writeJson} is atomic. The
+ * result is a **snapshot**: a caller that goes on to mutate must re-read
+ * inside {@link inQueueChain} and re-plan, because another writer may have
+ * landed between the two reads.
  */
 export async function previewRunsDocument(input: RunsReadInput): Promise<RunsDocument> {
     const outcome = await ensureRunsAdopted(input);
@@ -356,8 +290,6 @@ export async function writeRunsDocument(
 }
 /**
  * Open an in-flight attempt record (data-model §2.4).
- *
- * @returns A record with no token, reservation, or outcome yet.
  */
 function openAttempt(attempt: number): DispatchAttempt {
     return {
@@ -376,8 +308,6 @@ function openAttempt(attempt: number): DispatchAttempt {
  *
  * A run adopted with a state already in flight has no record yet, and closing
  * its outcome must still produce one (data-model §2.4).
- *
- * @returns The last record for `run.attempt`, else a fresh open one.
  */
 export function currentAttempt(run: Run): DispatchAttempt {
     let found = openAttempt(run.attempt);
@@ -395,8 +325,6 @@ export function currentAttempt(run: Run): DispatchAttempt {
  *
  * Closing or enriching replaces only the current attempt's record: records
  * from earlier attempts survive FR-033's attempt reset untouched.
- *
- * @returns The bounded history to store on the run.
  */
 export function attemptHistory(run: Run, record: DispatchAttempt): readonly DispatchAttempt[] {
     const index = run.attempts.map((entry) => entry.attempt).lastIndexOf(record.attempt);
@@ -410,8 +338,6 @@ export function attemptHistory(run: Run, record: DispatchAttempt): readonly Disp
 /**
  * Open one claim's record: a claim starts an attempt whether or not it ever
  * reserves, and this record is what the outcome transitions later close.
- *
- * @returns The bounded history including the fresh open record.
  */
 export function openedHistory(run: Run): readonly DispatchAttempt[] {
     return [...run.attempts, openAttempt(run.attempt)].slice(-MAX_ATTEMPT_RECORDS);

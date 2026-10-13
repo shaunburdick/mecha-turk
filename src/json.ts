@@ -1,17 +1,5 @@
 /**
- * Typed bridge between `JSON.stringify` output and typed record reading.
- *
- * Two responsibilities, one shape of input: `host.storage.set` accepts only
- * the SDK's `JsonValue`, so {@link parseJsonValue} parses and then *checks*
- * the value before it is written; and once a document *is* parsed, the
- * record readers below read its fields with one vocabulary — usable text,
- * a stamp-or-null, a non-negative integer — so every parser in the panel
- * (bindings, events, runs) fails closed the same way instead of growing its
- * own subtly different coercions.
- *
- * Rather than casting an `any` through `JSON.parse`, this module parses and
- * then checks, so the value handed to the host is proven to be plain JSON
- * before it is written.
+ * Typed bridge between `JSON.stringify` and typed records: parse and check rather than cast, so parsers fail closed.
  */
 
 import type { JsonValue } from '@openchamber/sdk';
@@ -26,8 +14,6 @@ const UTF8_ENCODER = new TextEncoder();
  * `GUEST_STORAGE_VALUE_BYTES`, while `String.length` counts UTF-16 code units
  * — two units for a character the encoder writes as four bytes. Measuring in
  * bytes keeps the panel's own gate honest against the host's own limit.
- *
- * @returns The length of the text in UTF-8 bytes.
  */
 export function utf8ByteLength(text: string): number {
     return UTF8_ENCODER.encode(text).length;
@@ -37,10 +23,8 @@ export function utf8ByteLength(text: string): number {
  * Raised when serialized JSON does not parse into the host's value type.
  */
 export class JsonShapeError extends Error {
-    /** Stable machine-readable marker so callers can discriminate. */
     public override readonly name = 'JsonShapeError';
 
-    /** `path` locates the offending value inside the document. */
     public constructor(path: string) {
         super(`value at ${path} is not plain JSON`);
     }
@@ -48,8 +32,6 @@ export class JsonShapeError extends Error {
 
 /**
  * Check that an unknown value is a JSON value.
- *
- * @returns `true` for strings, finite numbers, booleans, arrays, and objects.
  */
 export function isJsonValue(value: unknown): value is JsonValue {
     if (value === null || typeof value === 'string' || typeof value === 'boolean') {
@@ -73,9 +55,6 @@ export function isJsonValue(value: unknown): value is JsonValue {
 
 /**
  * Parse serialized JSON into a `JsonValue`, checking the shape first.
- *
- * @returns The value, safe to hand to `host.storage.set`.
- * @throws {JsonShapeError} When the document is not valid JSON.
  */
 export function parseJsonValue(text: string): JsonValue {
     let parsed: unknown;

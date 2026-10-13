@@ -1,32 +1,5 @@
 /**
- * The runs-history surface the Dispatches section reads (M8, widened by 003 T-023).
- *
- * `GET /v1/events` answers with the service's credential-free projection of
- * every **run** — all eight dispatch states, newest detected first, paged
- * (default 25, selectable 10/25/50/100) and filterable server-side — so this
- * module owns that DTO and its two readers, kept beside the runs actions
- * rather than inside `bindings-service.ts` (the bindings/claim surface), which
- * the file-length limit would otherwise push past its own responsibility.
- *
- * Two rules shape the parser:
- *
- * - **Fail closed.** A row that cannot be fully understood reads as
- *   *unreadable*, never as a partial record the operator might trust — and
- *   unlike the claim parser (which skips a row so the relay keeps moving), one
- *   unusable row fails the whole body: the runs list is a *record* the operator
- *   reads, and a half-trusted record is worse than an honest "unreadable" note.
- * - **The eight states, strictly.** `state` accepts the model's seven plain
- *   states and the `blocked:<reason>` family — prefix + non-empty kebab reason,
- *   never a fixed enum, so `blocked:project-missing` and a declared-but-not-yet
- *   produced `blocked:policy` both parse while `blocked:` and a retired
- *   vocabulary word such as `in-flight` refuse the body. The rule mirrors
- *   `service/poll/runs-scalars-parse.ts`, which is the authority for it; the
- *   two are duplicated rather than imported because the panel bundle must stay
- *   free of service-tier modules.
- *
- * The two readers shared with the claim parser — {@link issueNumberFrom} and
- * {@link eventKindOf} — come from `bindings-service.ts` so the two parsers hold
- * one opinion about what an event row is.
+ * The runs-history surface the Dispatches section reads: the credential-free `GET /v1/events` DTO, fail-closed readers.
  */
 
 import { asRecord, fieldsHoldText, parseJsonObject, textOrNull } from './json.ts';
@@ -88,13 +61,12 @@ export interface RunRow extends PromptReference {
     /** Every retained reference, in join order; excerpts never projected. */
     readonly sourceReferences: readonly RunReference[];
     /**
-     * The **shape** of the binding's allow-list at the moment of authorization.
-     *
-     *
-     * `null` is *no authorization recorded yet* — a waiting or adopted run — and
-     * is never read as `'open'` (005 FR-093: the panel computes no policy
-     * verdict of its own). An unrecognized value refuses the row, so a policy
-     * word from a future build cannot render as one this build would mis-tint.
+     * The **shape** of the binding's allow-list at the moment of
+     * authorization: `null` is *no authorization recorded yet* — a waiting or
+     * adopted run — and is never read as `'open'` (005 FR-093: the panel
+     * computes no policy verdict of its own). An unrecognized value refuses
+     * the row, so a policy word from a future build cannot render as one this
+     * build would mis-tint.
      */
     readonly actorPolicy: ActorPolicy | null;
     /** How many triggers have joined, retained or not (T-038's total). */
@@ -132,24 +104,20 @@ export interface RunRow extends PromptReference {
     /** Base ref of that pull request; `null` on every other kind. */
     readonly baseRef: string | null;
     /**
-     * The run's follow-ups, in detection order — **absentable, and absent is the
-     * ordinary case** (002 FR-104).
-     *
-     * One additive member on the read the panel already performs (`GET
-     * /v1/events`), so a follow-up's text and the session it is delivered into
-     * ride one row. A run that has had no movement on its subject carries no
-     * member at all, so a panel reading a row without it has nothing to deliver.
+     * The run's follow-ups, in detection order — **absentable, and absent is
+     * the ordinary case** (002 FR-104): one additive member on the read the
+     * panel already performs (`GET /v1/events`), so a follow-up's text and the
+     * session it is delivered into ride one row. A run that has had no
+     * movement on its subject carries no member at all — nothing to deliver.
      */
     readonly followUps?: readonly RunFollowUp[];
 }
 
 /**
- * The twelve string members the row renders from.
- *
- * Written as a `Pick` so the reader's return type and {@link RunRow} cannot
- * drift apart: a projection field added here has to be added to the interface
- * before this compiles, which is the check a hand-written parallel interface
- * would quietly lose.
+ * The twelve string members the row renders from, written as a `Pick` so the
+ * reader's return type and {@link RunRow} cannot drift apart: a projection
+ * field added here has to be added to the interface before this compiles —
+ * the check a hand-written parallel interface would quietly lose.
  */
 type RunScalars = Pick<
     RunRow,
@@ -219,14 +187,12 @@ function requiredNumber(record: Record<string, unknown>, field: string): number 
 }
 
 /**
- * Check the run's three reference-counting members against each other.
- *
+ * Check the run's three reference-counting members against each other:
  * `referenceCount` is the total that ever joined, `sourceReferences` is what
  * was retained, and `referencesNotRetained` is the difference — so a row whose
  * three disagree would render as either silently lossy or falsely complete.
- * Refusing it is the same call the store's own parser makes.
- *
- * @returns `true` when they reconcile.
+ * Refusing it is the same call the store's own parser makes. `true` when they
+ * reconcile.
  */
 function countsReconcile(input: { readonly counts: RunCounts; readonly retained: number }): boolean {
     const { counts, retained } = input;
@@ -349,13 +315,10 @@ function readRunDetail(record: Record<string, unknown>): RunDetail | null {
 }
 
 /**
- * Parse one runs-history row.
- *
- * Each group is read by its own named step, and the row is only assembled once
- * every step agreed — so a half-readable row is a refused row, never a
- * partially applied one (AGENTS invariant 8).
- *
- * @returns The row, or `null` when its shape is unusable.
+ * Parse one runs-history row: each group is read by its own named step, and
+ * the row is only assembled once every step agreed — so a half-readable row
+ * is a refused row, never a partially applied one (AGENTS invariant 8).
+ * `null` when its shape is unusable.
  */
 function parseRunEntry(value: unknown): RunRow | null {
     const record = asRecord(value);
@@ -388,19 +351,14 @@ function parseRunEntry(value: unknown): RunRow | null {
 
 /**
  * Parse the runs-history (`GET /v1/events`) response body.
- *
- * @returns The rows in the order the service sent them (newest detected
- *   first), or `null` when any part of the shape is unusable.
  */
 /**
  * Read one homogeneous element array; one unusable element refuses the answer.
- *
  * Exported because the paged reader in `dispatches-list.ts` builds on the same
  * row rule: one row the panel cannot fully understand refuses the list rather
- * than being skipped, because a list with a hole in it is a record an operator
- * would misread.
- *
- * @returns The rows, or `null` when the member is not an array or a row fails.
+ * than being skipped, because a list with a hole in it is a record an
+ * operator would misread. `null` when the member is not an array or a row
+ * fails.
  */
 export function parseEventRows(events: unknown): RunRow[] | null {
     if (!Array.isArray(events)) {
@@ -422,9 +380,6 @@ export function parseEventRows(events: unknown): RunRow[] | null {
 
 /**
  * Parse the runs-history (`GET /v1/events`) response body's rows alone.
- *
- * @returns The rows in the order the service sent them (newest detected
- *   first), or `null` when any part of the shape is unusable.
  */
 export function parseDispatchesBody(text: string): RunRow[] | null {
     const root = parseJsonObject(text);

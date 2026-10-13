@@ -1,26 +1,5 @@
 /**
  * Outbound GitHub client — identity verification (task T-007).
- *
- * The service, never the panel, talks to `api.github.com` with its own
- * `fetch` (FR-006): `GET /user` establishes the numeric id that keys an
- * account (FR-009) and the login shown for it, `GET /rate_limit` is a free
- * budget baseline (token-handoff §2 step ⑤). Both calls share one 15-second
- * `AbortSignal.timeout`, so a hung upstream cannot hold a verify slot open
- * (the throttle in `throttle.ts` counts on it being bounded).
- *
- * **Nothing upstream ever reaches a log line or an error body.** Responses are
- * read as text and parsed non-throwingly; failures are classified into the
- * contract's reason classes here, at the boundary, and only the *class* leaves
- * this module — raw GitHub bodies can echo request metadata (contract §4 rule
- * 3) and upstream error messages can quote anything (SEC-11).
- *
- * Scope matrix (FR-010): GitHub reports granted classic scopes in the
- * `x-oauth-scopes` response header. When it is present and non-empty each
- * capability is decided against the classic scope set; when it is empty
- * (fine-grained PATs, GitHub App tokens) every capability reports `unknown`
- * rather than guessing — `missing` is only ever claimed with evidence, and
- * `unknown` is resolved by the first real poll that meets a 403 (contract §2
- * step ⑥: `ok/missing/unknown` per capability, never a silent downgrade).
  */
 
 import { nowIso } from '../src/ids.ts';
@@ -115,7 +94,6 @@ export interface GitHubVerifier {
     /**
      * Verify one credential and recover its identity.
      *
-     * @param token - Credential to present; never logged or echoed.
      * @returns The classified outcome; upstream detail never escapes as text.
      */
     verify(token: string): Promise<VerifyOutcome>;
@@ -160,8 +138,6 @@ const OAUTH_SCOPES_HEADER = 'x-oauth-scopes';
  * The prefix is the only thing read here: the value itself never leaves this
  * call, and the result (`classic`/`fine-grained`) is stored with the
  * credential where it belongs.
- *
- * @returns The credential family, or `'unknown'` for an unrecognised shape.
  */
 export function credentialKindOf(token: string): CredentialKind {
     if (token.startsWith('github_pat_')) {
@@ -173,8 +149,6 @@ export function credentialKindOf(token: string): CredentialKind {
 
 /**
  * Build the request headers for one upstream call.
- *
- * @returns The documented header set, including the pinned API version.
  */
 export function requestHeaders(token: string): Record<string, string> {
     // Pairs rather than an object literal: HTTP header names are not
@@ -191,9 +165,6 @@ export function requestHeaders(token: string): Record<string, string> {
 
 /**
  * Read `GET /user` into an identity, failing closed on a malformed payload.
- *
- * @returns The identity, or `null` when `id`/`login` are not usable — a
- *   response the normaliser cannot trust never keys an account.
  */
 function readIdentity(text: string): GitHubIdentity | null {
     const parsed = parseJsonText(text);
@@ -211,10 +182,6 @@ function readIdentity(text: string): GitHubIdentity | null {
 
 /**
  * Decide one capability from the granted classic scopes.
- *
- * @param granted - Scopes GitHub reported; empty means GitHub reported none.
- * @returns `unknown` without evidence, otherwise `ok`/`missing` against the
- *   classic scope set — `missing` is only ever claimed with evidence.
  */
 function scopeVerdict(granted: readonly string[]): ScopeResult {
     if (granted.length === 0) {
@@ -226,9 +193,6 @@ function scopeVerdict(granted: readonly string[]): ScopeResult {
 
 /**
  * Build the FR-010 scope matrix from the granted classic scopes.
- *
- * @param granted - Scopes GitHub reported for this token.
- * @returns One result per capability, keyed as the data model declares.
  */
 function scopeResults(granted: readonly string[]): Record<ScopeCapability, ScopeResult> {
     const verdict = scopeVerdict(granted);
@@ -239,9 +203,6 @@ function scopeResults(granted: readonly string[]): Record<ScopeCapability, Scope
 
 /**
  * Build the FR-010 scope matrix from a response's `x-oauth-scopes` header.
- *
- * @param header - Raw header value, or `null` when GitHub sent none.
- * @returns The matrix with `checkedAt` stamped now.
  */
 function buildScopeCheck(header: string | null): ScopeCheck {
     const granted = (header ?? '')
@@ -254,9 +215,6 @@ function buildScopeCheck(header: string | null): ScopeCheck {
 
 /**
  * Parse `retry-after` (seconds) out of a refusal, falling back to a default.
- *
- * @param response - Upstream response that refused the call.
- * @returns Seconds to wait before the next attempt.
  */
 export function retryAfterOf(response: Response): number {
     const header = response.headers.get(RETRY_AFTER_HEADER);
@@ -269,9 +227,6 @@ export function retryAfterOf(response: Response): number {
 
 /**
  * Read `GET /rate_limit` as a budget baseline; failures are not fatal.
- *
- * @param response - Response of the free rate-limit probe.
- * @returns The baseline, or `null` when the payload was not usable.
  */
 async function readRateBaseline(response: Response): Promise<RateBaseline | null> {
     const parsed = parseJsonText(await response.text());
@@ -300,7 +255,6 @@ async function readRateBaseline(response: Response): Promise<RateBaseline | null
 /**
  * Recognise a rate-limit refusal (primary `429` or secondary limits on `403`).
  *
- * @param response - Upstream response that was not 200.
  * @returns `true` when GitHub is asking us to slow down rather than rejecting
  *   the credential — a distinction FR-024 requires us to get right.
  */
@@ -315,7 +269,6 @@ export function isRateLimited(response: Response): boolean {
 /**
  * Recognise the "your organization requires SSO" refusal (contract §4).
  *
- * @param response - Upstream response that was not 200.
  * @returns `true` only for a `403` carrying GitHub's required-SSO header.
  */
 function isSsoRefusal(response: Response): boolean {
@@ -326,9 +279,6 @@ function isSsoRefusal(response: Response): boolean {
 
 /**
  * Name the first capability the granted scopes are missing.
- *
- * @param scopeCheck - Matrix derived from the response headers.
- * @returns A `scope-missing:<capability>` reason class.
  */
 function missingScopeReason(scopeCheck: ScopeCheck): RejectReason {
     const missing = SCOPE_CAPABILITIES.find((capability) => scopeCheck.results[capability] === 'missing');
@@ -342,9 +292,6 @@ function missingScopeReason(scopeCheck: ScopeCheck): RejectReason {
  * Order matters: a rate-limited 403/429 must not be mistaken for a scope
  * problem (FR-024 blocks with the *exact* cause), and an SSO refusal must not
  * be mistaken for a missing scope (contract §4 reason classes).
- *
- * @param response - Upstream response that was not 200.
- * @param scopeCheck - Matrix already derived from the response headers.
  */
 function classifyRejection(response: Response, scopeCheck: ScopeCheck): VerifyOutcome {
     const { status } = response;
@@ -373,7 +320,6 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 /**
  * Call `GET /rate_limit` without ever letting a probe failure fail a verify.
  *
- * @param token - Credential already proven valid by `GET /user`.
  * @returns The baseline, or `null` on any transport or shape failure.
  */
 async function readRateBaselineQuietly(fetchImpl: FetchLike, token: string): Promise<RateBaseline | null> {
@@ -391,17 +337,13 @@ async function readRateBaselineQuietly(fetchImpl: FetchLike, token: string): Pro
 }
 
 /**
- * Classify why an upstream call never produced a response.
- *
- * Only the rejection's *kind* is read: the caught value can quote the URL, the
- * cause chain, or the request options, and none of that may reach a log line
- * or an error body (SEC-11 — no upstream text in logs). The two classes the
- * panel shows different copy for are the 15-second abort (`timeout`: "GitHub
- * did not answer in time") and everything else (`offline`: "check the
- * network"), so a hung upstream never masquerades as a connectivity problem.
- *
- * @param error - The rejection from the aborted or failed `fetch`.
- * @returns `timeout` for the shared abort, `offline` for transport failures.
+ * Classify why an upstream call never produced a response. Only the
+ * rejection's *kind* is read: the caught value can quote the URL, the cause
+ * chain or the request options, and none of that may reach a log line or an
+ * error body (SEC-11 — no upstream text in logs). The two classes the panel
+ * shows different copy for are the 15-second abort (`timeout`) and everything
+ * else (`offline`), so a hung upstream never masquerades as a connectivity
+ * problem.
  */
 export function transportDetail(error: unknown): UnavailableDetail {
     return error instanceof Error && error.name === TIMEOUT_ERROR_NAME ? 'timeout' : 'offline';
@@ -409,10 +351,6 @@ export function transportDetail(error: unknown): UnavailableDetail {
 
 /**
  * Create the GitHub verifier the service uses for handoffs and rotation.
- *
- * @param fetchImpl - Injectable `fetch`; defaults to the process global so
- *   production uses Node's built-in client and tests supply a fake.
- * @returns The verifier bound to that `fetch`.
  */
 export function createGitHubVerifier(
     fetchImpl: FetchLike = (url, init) => globalThis.fetch(url, init),

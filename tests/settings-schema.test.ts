@@ -24,25 +24,7 @@ import { DEFAULT_CONFIG } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
 import { descriptorFor, parseConfigEnvelope } from '../src/settings-schema.ts';
 import type { ConfigEnvelope, FieldDescriptor } from '../src/settings-schema.ts';
-
-/** One `GET /v1/config` body, assembled the way the service sends it. */
-function envelopeBody(overrides: {
-    /** Members to replace in the document. */
-    readonly config?: Record<string, unknown>;
-    /** Replacement for the descriptor list. */
-    readonly fields?: readonly unknown[];
-    /** Replacement for the source member. */
-    readonly source?: unknown;
-    /** Replacement for the filled-keys list. */
-    readonly defaultsApplied?: unknown;
-}): string {
-    return JSON.stringify({
-        config: { ...DEFAULT_CONFIG, ...overrides.config },
-        fields: Object.hasOwn(overrides, 'fields') ? overrides.fields : configSchema(),
-        source: Object.hasOwn(overrides, 'source') ? overrides.source : 'stored',
-        defaultsApplied: Object.hasOwn(overrides, 'defaultsApplied') ? overrides.defaultsApplied : [],
-    });
-}
+import { configEnvelope } from './support/service-routes.ts';
 
 /** The envelope a well-formed body reads to, or the test fails here. */
 function read(body: string): ConfigEnvelope {
@@ -59,7 +41,7 @@ const PROJECTED: readonly FieldDescriptor[] = configSchema();
 
 describe('the reader accepts the document the service actually sends (T-017)', () => {
     it('reads the projection, the source, and the filled keys', () => {
-        const envelope = read(envelopeBody({ defaultsApplied: ['expectedAgent'] }));
+        const envelope = read(configEnvelope({ defaultsApplied: ['expectedAgent'] }));
 
         expect(envelope.fields).toHaveLength(PROJECTED.length);
         expect(envelope.source).toBe('stored');
@@ -107,22 +89,22 @@ describe('every malformed envelope shape refuses (T-017, FR-003)', () => {
 
         for (const source of ['from-the-future', null, 7]) {
             expect(
-                parseConfigEnvelope(envelopeBody({ source })),
+                parseConfigEnvelope(configEnvelope({ source })),
                 `source ${JSON.stringify(source)} is outside the documented set`,
             ).toBeNull();
         }
 
         const base = configSchema()[0];
         expect(base).toBeDefined();
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...base, kind: 'float' }] })), 'an unknown kind')
+        expect(parseConfigEnvelope(configEnvelope({ fields: [{ ...base, kind: 'float' }] })), 'an unknown kind')
             .toBeNull();
         expect(
-            parseConfigEnvelope(envelopeBody({ fields: [{ ...base, takesEffect: 'someday' }] })),
+            parseConfigEnvelope(configEnvelope({ fields: [{ ...base, takesEffect: 'someday' }] })),
             'an unknown take-effect class',
         ).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ fields: [{ ...base, name: 42 }] })), 'a non-text name')
+        expect(parseConfigEnvelope(configEnvelope({ fields: [{ ...base, name: 42 }] })), 'a non-text name')
             .toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ fields: ['intervalMs'] })), 'a bare field name').toBeNull();
+        expect(parseConfigEnvelope(configEnvelope({ fields: ['intervalMs'] })), 'a bare field name').toBeNull();
 
         const integer = configSchema().find((descriptor) => descriptor.kind === 'integer');
         const enumeration = configSchema().find((descriptor) => descriptor.kind === 'enum');
@@ -132,27 +114,27 @@ describe('every malformed envelope shape refuses (T-017, FR-003)', () => {
         expect(text).toBeDefined();
 
         expect(
-            parseConfigEnvelope(envelopeBody({ fields: [{ ...integer, min: undefined }] })),
+            parseConfigEnvelope(configEnvelope({ fields: [{ ...integer, min: undefined }] })),
             'an integer without min',
         ).toBeNull();
         expect(
-            parseConfigEnvelope(envelopeBody({ fields: [{ ...integer, unit: null }] })),
+            parseConfigEnvelope(configEnvelope({ fields: [{ ...integer, unit: null }] })),
             'an integer without unit',
         ).toBeNull();
         expect(
-            parseConfigEnvelope(envelopeBody({ fields: [{ ...enumeration, values: 'info' }] })),
+            parseConfigEnvelope(configEnvelope({ fields: [{ ...enumeration, values: 'info' }] })),
             'an enum without its value list',
         ).toBeNull();
         expect(
-            parseConfigEnvelope(envelopeBody({ fields: [{ ...enumeration, unit: 'levels' }] })),
+            parseConfigEnvelope(configEnvelope({ fields: [{ ...enumeration, unit: 'levels' }] })),
             'an enum without its unit',
         ).toBeNull();
         expect(
-            parseConfigEnvelope(envelopeBody({ fields: [{ ...text, maxLength: '80' }] })),
+            parseConfigEnvelope(configEnvelope({ fields: [{ ...text, maxLength: '80' }] })),
             'a string with a text maxLength',
         ).toBeNull();
         expect(
-            parseConfigEnvelope(envelopeBody({ fields: [{ ...text, format: null }] })),
+            parseConfigEnvelope(configEnvelope({ fields: [{ ...text, format: null }] })),
             'a string without its format',
         ).toBeNull();
         // The optional `multiline` member is read fail closed: `true` or
@@ -160,13 +142,13 @@ describe('every malformed envelope shape refuses (T-017, FR-003)', () => {
         // row mounted with the wrong shape (invariant 8, 006 FR-021).
         for (const wrong of [false, 'yes', null, 1]) {
             expect(
-                parseConfigEnvelope(envelopeBody({ fields: [{ ...text, multiline: wrong }] })),
+                parseConfigEnvelope(configEnvelope({ fields: [{ ...text, multiline: wrong }] })),
                 `a multiline member shaped ${JSON.stringify(wrong)}`,
             ).toBeNull();
         }
 
         expect(
-            parseConfigEnvelope(envelopeBody({ config: { intervalMs: 'soon' }, fields: [] })),
+            parseConfigEnvelope(configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 'soon' }, fields: [] })),
             'a member it cannot type still reads as a document',
         ).not.toBeNull();
         expect(
@@ -177,9 +159,9 @@ describe('every malformed envelope shape refuses (T-017, FR-003)', () => {
             parseConfigEnvelope('{"config":"nope","fields":[],"source":"stored","defaultsApplied":[]}'),
             'a text document',
         ).toBeNull();
-        expect(parseConfigEnvelope(envelopeBody({ defaultsApplied: [1, 2] })), 'numeric filled keys').toBeNull();
+        expect(parseConfigEnvelope(configEnvelope({ defaultsApplied: [1, 2] })), 'numeric filled keys').toBeNull();
         expect(
-            parseConfigEnvelope(envelopeBody({ defaultsApplied: 'expectedAgent' })),
+            parseConfigEnvelope(configEnvelope({ defaultsApplied: 'expectedAgent' })),
             'a text filled-keys member',
         ).toBeNull();
     });
@@ -194,7 +176,7 @@ describe('vocabulary this reader has no reason to interpret passes through verba
                 ? { ...descriptor, values: [...descriptor.values, 'trace'] }
                 : descriptor,);
 
-        const envelope = read(envelopeBody({ fields: withFutureLevel }));
+        const envelope = read(configEnvelope({ fields: withFutureLevel }));
         const level = descriptorFor(envelope, 'logLevel');
 
         expect(level?.kind).toBe('enum');
@@ -207,14 +189,14 @@ describe('vocabulary this reader has no reason to interpret passes through verba
         // nothing maps it onto a level this build happens to know.
         expect(level.values).toContain('trace');
 
-        const unknownKey = read(envelopeBody({ defaultsApplied: ['aFieldFromTheFuture'] }));
+        const unknownKey = read(configEnvelope({ defaultsApplied: ['aFieldFromTheFuture'] }));
         expect(unknownKey.defaultsApplied).toEqual(['aFieldFromTheFuture']);
     });
 });
 
 describe('a member with no descriptor is flagged, never guessed at (T-017, AC-115, FR-027)', () => {
     it('lists it as undisplayed and finds no descriptor for it', () => {
-        const envelope = read(envelopeBody({ config: { surprise: 1 } }));
+        const envelope = read(configEnvelope({ config: { ...DEFAULT_CONFIG, surprise: 1 } }));
 
         expect(envelope.undisplayed).toEqual(['surprise']);
         expect(descriptorFor(envelope, 'surprise')).toBeNull();
@@ -227,7 +209,7 @@ describe('a member with no descriptor is flagged, never guessed at (T-017, AC-11
 
 describe('a value this build cannot type is refused as a value, never defaulted (T-017, AC-116)', () => {
     it('keeps the fields that parsed, marks the rest unreadable, and fills nothing', () => {
-        const envelope = read(envelopeBody({ config: { intervalMs: 'soon', perPage: 12 } }));
+        const envelope = read(configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 'soon', perPage: 12 } }));
 
         expect(envelope.unreadable).toEqual(['intervalMs']);
         expect(descriptorFor(envelope, 'intervalMs')).not.toBeNull();

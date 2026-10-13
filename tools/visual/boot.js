@@ -1,14 +1,8 @@
 /**
- * The page half of a capture: getting the harness open, booted, and pointed
- * at the tab that is about to be photographed.
- *
- * `shot.js` owns the capture ordering — fit, probe, capture, verify — and
- * this module owns everything that talks to the page *before* a frame exists:
- * navigating to the harness, waiting for the panel inside it to mount a
- * populated body, pressing a strip button, and putting the document back to
- * its normal height afterwards. Splitting them keeps each file to one
- * question: here it is *is the page up and showing the right tab?*, there it
- * is *is this the frame I asked for?*.
+ * The page half of a capture: getting the harness open, booted, and pointed at the tab about to
+ * be photographed. `shot.js` owns the capture ordering — fit, probe, capture, verify — and this
+ * module owns everything that talks to the page *before* a frame exists, so each file answers one
+ * question: here *is the page up and showing the right tab?*, there *is this the frame I asked for?*
  */
 import { setTimeout as delay } from 'node:timers/promises';
 

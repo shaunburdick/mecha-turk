@@ -8,6 +8,7 @@ import { mountTabShell } from '../src/tabs.ts';
 import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { stringsIn } from './support/ui-stubs.ts';
 
 /**
  * The four-layer vocabulary guard (005 T-003 + T-029, FR-020–FR-024, FR-028).
@@ -322,48 +323,6 @@ const DOMAIN_PROSE_RULE: NounRule = {
     name: 'an article + run (the domain noun in a sentence)',
     pattern: /\b(?:the|this|each|every|its|same|selected|one|that|own)\s+run\b(?!\s*[- ]?keys?\b)/gi,
 };
-
-/**
- * Collect every string inside one SDK mount's props, however deeply nested.
- *
- * Tab labels, list titles, and subtitles all live one level down, so a
- * shallow read would skip exactly the rows FR-020 names first.
- *
- * @param found - Accumulator the caller owns.
- */
-function collectStrings(value: unknown, found: string[]): void {
-    if (typeof value === 'string') {
-        found.push(value);
-
-        return;
-    }
-
-    if (Array.isArray(value)) {
-        for (const item of value) {
-            collectStrings(item, found);
-        }
-
-        return;
-    }
-
-    if (typeof value === 'object' && value !== null) {
-        for (const item of Object.values(value)) {
-            collectStrings(item, found);
-        }
-    }
-}
-
-/**
- * Every string one SDK mount was handed, at any depth.
- *
- * @returns The strings among them, in property order.
- */
-function stringsIn(props: unknown): readonly string[] {
-    const found: string[] = [];
-    collectStrings(props, found);
-
-    return found;
-}
 
 /**
  * Find the retired-noun uses in a text.

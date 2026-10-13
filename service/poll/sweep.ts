@@ -1,43 +1,5 @@
 /**
  * The lease/deadline sweep (003 FR-032, FR-033, FR-023, FR-036; T-009, T-040).
- *
- * The sweep is the only automatic handler in the service, and the discipline
- * that makes it safe is that it touches **exactly two** conditions and nothing
- * else:
- *
- * - `claimed` + no reservation + lease expired → requeue (attempt and requeue
- *   budget both increment) or, when the budget is exhausted, park the run
- *   (FR-032, FR-033);
- * - `starting` + result deadline passed → `unconfirmed`, the fail-closed wedge
- *   (FR-023).
- *
- * Everything else — a waiting run, a reserved run, an `unconfirmed` wedge, a
- * terminal run — is left byte-identical, which is what FR-036's "a closed panel
- * burns nothing" reduces to on the service side. Each pass is one task on the
- * same chain the claim and the enqueue use, so a lease expiring while a claim
- * is in flight can never produce a double claim.
- *
- * Expiry is judged against the service's own clock and nothing else (NFR-112);
- * tests therefore inject the stamp at the seam and never wait on a timer.
- *
- * Four properties this module owes the rest of the service (T-040):
- *
- * - **The rows are recoverable.** Every row the sweep owes is written as a
- *   durable intent in the same `runs.json` write that moved the run, using the
- *   outbox [`runs-audit.ts`](./runs-audit.ts) already drains on the next read.
- *   A failed append is therefore *retried*, not lost — the sweep has no reader
- *   to answer, so its own trail is the only operator-visible record it has.
- * - **The answer reports the live failure.** `auditWritten` on
- *   {@link SweepOutcome} is `false` when an append failed during this pass, so
- *   FR-063's "must not be swallowed" holds for the sweep as well as for the
- *   result route.
- * - **Provenance is a typed member, not an id prefix** (T-040e): the lease's
- *   `provenance` says whether adoption minted it, instead of the parser
- *   accepting any non-empty string and a sweep helper reading `migration-`.
- * - **The cadence is read before it is armed** (T-040f): the first tick is
- *   scheduled from the *stored* durations, not the defaults, so an operator
- *   who set `leaseMs` to its 30,000 ms minimum does not wait 60,000 ms for the
- *   first pass.
  */
 
 import { nowIso } from '../../src/ids.ts';
@@ -56,7 +18,6 @@ export type { SweepDurations, SweepLoop, SweepLoopInput } from './sweep-loop.ts'
 
 /** One recovery the sweep performed, with the reason it recorded. */
 export interface SweepRecovery {
-    /** The run as it now stands. */
     readonly run: Run;
     /** Audit vocabulary this recovery wrote. */
     readonly eventType: 'dispatch.lease-expired' | 'run.dead_lettered' | 'dispatch.unconfirmed';
@@ -125,9 +86,6 @@ interface PlannedRecovery {
 
 /**
  * The automatic requeue budget, as a secret-free reason line.
- *
- * @param requeuesUsed - Automatic requeues the run has already consumed.
- * @returns The reason an exhausted run is parked with.
  */
 function budgetReason(requeuesUsed: number): string {
     return `automatic requeue budget exhausted after ${requeuesUsed} requeues`;
@@ -206,8 +164,6 @@ function parkExhaustedRun(input: {
  * migration recovery and is *not* charged to the budget (data-model §1, plan
  * migration table): the budget bounds a crashed-panel loop, and a one-shot
  * adoption cannot loop.
- *
- * @returns The recovery, or `null` when the run is not an expired claim.
  */
 function recoverExpiredLease(input: { readonly run: Run; readonly now: string }): PlannedRecovery | null {
     const { run, now } = input;
@@ -270,8 +226,6 @@ function recoverExpiredLease(input: { readonly run: Run; readonly now: string })
  * result, this file is operator-facing and retained for months, and the row
  * still answers which token was outstanding because the fingerprint is derived
  * from it and is reproducible by the service.
- *
- * @returns The recovery, or `null` when the run is not past its deadline.
  */
 function recoverLateResult(input: { readonly run: Run; readonly now: string }): PlannedRecovery | null {
     const { run, now } = input;
@@ -315,8 +269,6 @@ function recoverLateResult(input: { readonly run: Run; readonly now: string }): 
 
 /**
  * Decide every recovery one pass makes, without writing anything.
- *
- * @returns The document to persist plus the recoveries to log and audit.
  */
 export function planSweep(input: {
     /** Document as stored, before this pass. */
@@ -351,9 +303,7 @@ export function planSweep(input: {
  * rather than appending the same recovery twice (T-040b).
  */
 async function appendSweepAudit(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The recovery to record. */
     readonly recovery: SweepRecovery;
@@ -381,8 +331,6 @@ async function appendSweepAudit(input: {
  * describe, so a crash between the recovery and its row leaves the row owed
  * rather than lost — the same durability the enqueue path gets
  * outbox, reused rather than reinvented.
- *
- * @returns The document with its intents appended.
  */
 function withIntents(input: {
     /** The document the pass decided on. */
@@ -402,14 +350,9 @@ function withIntents(input: {
  * The durable write comes first — state **and** the intents for its rows — and
  * the audit rows follow, so a row that cannot be appended is retried by the
  * outbox on the next read rather than rolled back (FR-063, T-040b).
- *
- * @returns The recoveries this pass made and whether their rows reached the trail.
- * @throws {StorageUnavailableError} When the store cannot be read or written.
  */
 export async function sweepOnce(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Service-clock stamp for the pass; injectable so tests never sleep. */
     readonly now?: string;

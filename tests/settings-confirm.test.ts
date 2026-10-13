@@ -30,7 +30,6 @@ import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { configSchema } from '../service/config-schema.ts';
 import { parseConfigEnvelope } from '../src/settings-schema.ts';
 import { restoreConfirmation, saveConfirmation } from '../src/settings-confirm.ts';
 import type { ConfigEnvelope } from '../src/settings-schema.ts';
@@ -39,6 +38,7 @@ import type { PanelRuntime } from '../src/panel-state.ts';
 import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { configEnvelope } from './support/service-routes.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -111,19 +111,11 @@ const DELETES_HISTORY = 'deletes history';
 /** The label of the non-primary restore control (006 FR-016). */
 const RESTORE_LABEL = 'Restore defaults';
 
-/** The configuration as stored, with every field at its default. */
-const STORED_CONFIG = { ...DEFAULT_CONFIG };
-
-/** One `GET /v1/config` body, assembled the way the service sends it. */
-function envelopeBody(config: Record<string, unknown> = STORED_CONFIG): string {
-    return JSON.stringify({ config, fields: configSchema(), source: 'stored', defaultsApplied: [] });
-}
-
 /** The document a restore reads: two fields already away from their defaults. */
-const RESTORE_READ = envelopeBody({ ...DEFAULT_CONFIG, intervalMs: 120_000, logLevel: 'debug' });
+const RESTORE_READ = configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 120_000, logLevel: 'debug' } });
 
 /** The answer an accepted write returns: the configuration now in force. */
-const ACCEPTED = envelopeBody({ ...DEFAULT_CONFIG, auditRetentionDays: 30 });
+const ACCEPTED = configEnvelope({ config: { ...DEFAULT_CONFIG, auditRetentionDays: 30 } });
 
 /**
  * Read an envelope from a body, failing loudly when it is not one.
@@ -196,7 +188,7 @@ function scriptedAnswer(input: {
 }): (request: GuestRequest) => GuestRequestResult {
     return (request) => {
         if (request.method === 'GET' && request.path === '/v1/config') {
-            return { status: 200, body: input.config ?? envelopeBody() };
+            return { status: 200, body: input.config ?? configEnvelope() };
         }
 
         if (request.method === 'PUT' && request.path === '/v1/config') {
@@ -539,7 +531,7 @@ describe('restore defaults is a two-step whole-document write (006 T-022, FR-016
 
 describe('the confirmation copy obeys its contract (006 T-022, contract §2 and §4)', () => {
     /** The envelope the builders are handed: the real projection, stored source. */
-    const envelope = envelopeOf(envelopeBody());
+    const envelope = envelopeOf(configEnvelope());
     /** The envelope a restore reads: two fields away from their defaults. */
     const restoreRead = envelopeOf(RESTORE_READ);
 
@@ -606,7 +598,9 @@ describe('the confirmation copy obeys its contract (006 T-022, contract §2 and 
             expect(copy).not.toContain(DELETES_HISTORY);
         }
         {
-            const higherRetention = envelopeOf(envelopeBody({ ...DEFAULT_CONFIG, excerptRetentionDays: 90 }));
+            const higherRetention = envelopeOf(configEnvelope({
+                config: { ...DEFAULT_CONFIG, excerptRetentionDays: 90 },
+            }));
             const { copy } = restoreConfirmation({
                 envelope: higherRetention,
                 draft: draftFrom(envelope),

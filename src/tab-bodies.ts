@@ -1,14 +1,8 @@
 /**
- * The six tab bodies, in 005 FR-010's order.
- *
- * The shell ([`tabs.ts`](./tabs.ts)) owns *when* a body appears; this module
- * owns *what* appears in each one. Every mount is a mapping from an existing
- * surface onto a container — six bodies, each of which mounts once and stays
- * mounted (FR-013).
- *
- * Each body owns its own read and its own disposer: Settings reads the
- * configuration document on first activation and releases it on teardown,
- * exactly as Status reads the projection and Dispatches reads the list.
+ * The six tab bodies, in 005 FR-010's order: the shell owns *when* a body
+ * appears, this module owns *what* appears in each one — every mount maps an
+ * existing surface onto a container, each body mounts once and stays mounted
+ * (FR-013), and each owns its own read and its own disposer.
  */
 
 import { createAccountsHandlers, mountAccountsBody as mountAccountsTab } from './accounts-tab.ts';
@@ -23,16 +17,12 @@ import type { TabDisposer, TabSpec } from './tabs.ts';
 
 /**
  * The Accounts body: the handoff group, the account list, and one detail
- * line.
- *
- * The flow is relocated with the same storage
- * pre-flight and the same two-step refusal (the consent gate it used to open
- * with was removed by product-owner order on 2026-10-01, 002 v1.9.0) — and
- * the list is the credential-free DTO
- * the service answers with. Only this body's own handles are disposed here:
- * the handoff view stays owned by the panel root, exactly as before.
- *
- * @returns A disposer that releases the list, detail, and note handles.
+ * line. The flow is relocated with the same storage pre-flight and the same
+ * two-step refusal (the consent gate it used to open with was removed by
+ * product-owner order on 2026-10-01, 002 v1.9.0), and the list is the
+ * credential-free DTO the service answers with. Only this body's own handles
+ * are disposed here: the handoff view stays owned by the panel root, exactly
+ * as before.
  */
 function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): () => void {
     const view = mountAccountsTab({ rt, body, handlers: createAccountsHandlers(rt) });
@@ -46,13 +36,9 @@ function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): () => void {
 /**
  * The Status body: the honest projection, then the first-run prerequisites.
  *
- *
  * The projection leads because it is the answer to "is it working"; the
  * checklist follows with its own remediation per line, and the unmet notice
  * it raises lives in the root region where switching tabs cannot hide it.
- *
- * @returns A disposer that releases the projection's handles; the section
- *   disposes through its own registry at teardown.
  */
 function statusSpec(rt: PanelRuntime, body: HTMLElement): () => void {
     mountStatusTab({ rt, parent: body });
@@ -67,8 +53,6 @@ function statusSpec(rt: PanelRuntime, body: HTMLElement): () => void {
  * The mount reads `GET /v1/config` once — the tab's one read, with Refresh as
  * its one retry — and the disposer releases every handle it created. Nothing
  * here writes: the configuration document is rendered, not edited.
- *
- * @returns A disposer that releases the body's handles.
  */
 function settingsSpec(rt: PanelRuntime, body: HTMLElement): TabDisposer {
     mountSettingsTab({ rt, body });
@@ -78,8 +62,6 @@ function settingsSpec(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 
 /**
  * The Dispatches body: the list, its affordances, and its audit trail.
- *
- * @returns A disposer that releases the board's handles.
  */
 function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
     const board = mountDispatchesBoard({ rt, pane: body, handlers: createBindingsHandlers(rt) });
@@ -93,13 +75,9 @@ function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
 
 /**
  * The Bindings body: the status/list and the add form.
- *
- * @returns A disposer that releases the pane's handles.
  */
 function mountBindingsBody(input: {
-    /** Panel runtime the body reads and repaints. */
     readonly rt: PanelRuntime;
-    /** The body container the shell created. */
     readonly body: HTMLElement;
 }): () => void {
     const { rt, body } = input;
@@ -121,8 +99,6 @@ function mountBindingsBody(input: {
 /**
  * The About body: static identity, the version, and the read-only
  * Diagnostics section.
- *
- * @returns A disposer that releases the body's handles.
  */
 function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
     mountAboutTab({ rt, body });
@@ -132,8 +108,6 @@ function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 
 /**
  * The six tab bodies order.
- *
- * @returns The specs the shell mounts from.
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function tabSpecs(rt: PanelRuntime): readonly TabSpec[] {

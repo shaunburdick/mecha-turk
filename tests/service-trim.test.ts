@@ -31,15 +31,13 @@ import { writeAccount } from '../service/accounts/store.ts';
 import { appendAudit, AUDIT_FILE, readAuditEntries } from '../service/audit.ts';
 import { trimAudit } from '../service/audit-trim.ts';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { openStore } from '../service/store/index.ts';
-import type { Account } from '../service/accounts/model.ts';
 import type { AuditEntityKind, AuditEntry } from '../service/audit.ts';
 import type { ServiceConfig } from '../service/config.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
-import { scopeResults } from './support/verify.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { capturingLogger } from './support/service-routes.ts';
+import { fixtureAccount } from './support/account-fixture.ts';
 
 /** Injected service clock: every fixture ages against this instant. */
 const NOW = Date.parse('2026-09-30T00:00:00.000Z');
@@ -61,12 +59,6 @@ const LIVE_BINDING_ID = 'bnd-trim-live';
 
 /** Binding id the stored bindings document no longer lists. */
 const GONE_BINDING_ID = 'bnd-trim-gone';
-
-/** GitHub login of the fixture account (display only, never a credential). */
-const ACCOUNT_LOGIN = 'octocat-mt';
-
-/** Fixture credential — never a real one, and never expected anywhere. */
-const FIXTURE_TOKEN = 'fixture-token-not-a-real-credential';
 
 /** Fixture creation stamp. */
 const CREATED_AT = '2026-09-01T00:00:00.000Z';
@@ -156,23 +148,6 @@ afterEach(async (): Promise<void> => {
     await removeTempTree(tempRoot);
 });
 
-/**
- * Build a capturing logger, so a pass's own line can be asserted.
- *
- * @returns The logger plus the lines it received.
- */
-function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
-    const lines: string[] = [];
-    const log = createLogger({
-        level: 'debug',
-        sink: (line: string) => {
-            lines.push(line);
-        },
-    });
-
-    return { log, lines };
-}
-
 /** Inputs one seeded trail row is built from. */
 interface RowSeed {
     /** Sequence number, which a trim must never renumber. */
@@ -229,33 +204,10 @@ function configWith(overrides: Partial<ServiceConfig> = {}): ServiceConfig {
 }
 
 /**
- * Build the stored account the live subject rows point at.
- *
- * @returns A complete account record carrying a fixture credential.
- */
-function fixtureAccount(): Account {
-    return {
-        numericUserId: LIVE_ACCOUNT_ID,
-        login: ACCOUNT_LOGIN,
-        expectedLogin: null,
-        displayName: null,
-        startingPrompt: null,
-        credential: { token: FIXTURE_TOKEN, kind: 'classic', verifiedAt: CREATED_AT },
-        scopeCheck: { checkedAt: CREATED_AT, results: scopeResults('ok') },
-        state: 'active',
-        connectionState: 'connected',
-        verifiedAt: CREATED_AT,
-        errorReason: null,
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-    };
-}
-
-/**
  * Store the two subjects FR-056(c) protects while they exist.
  */
 async function plantSubjects(): Promise<void> {
-    await writeAccount(store, fixtureAccount());
+    await writeAccount(store, fixtureAccount({ numericUserId: LIVE_ACCOUNT_ID, stamp: CREATED_AT }));
     await store.writeJson('bindings.json', [{ bindingId: LIVE_BINDING_ID }]);
 }
 

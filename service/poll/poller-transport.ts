@@ -1,33 +1,6 @@
 /**
- * The poller's shared transport: one request, classified (002 FR-007, FR-020,
- * FR-022; 006 FR-058, FR-059).
- *
- * Split out of `poller-github.ts` so that module can stay a **catalogue of
- * endpoints** while this one owns *how a request is made and what a failure
- * means*. Both halves are needed by every feed the scan lists — the issues list,
- * the comments list, the pulls list, and the per-item events read 002 v1.12.0
- * added — and each of them was about to become a second copy of the same request
- * path, the same retry ladder, and the same failure vocabulary.
- *
- * Four properties are load-bearing, and each is a decision rather than a default:
- *
- * - **Transport rules are imported, never restated.** The API origin, headers,
- *   and the shared 15-second abort come from `../github.ts` — the same module the
- *   credential verifier uses — so the two clients cannot drift apart on a header
- *   or a timeout (002 FR-007).
- * - **Upstream text never leaves this module.** A failure is one of four shapes:
- *   `auth-failed`, `rate-limited`, `unavailable`. An upstream body or message is
- *   never carried into one, so nothing that GitHub said can reach a log line, an
- *   audit row, or the panel (SEC-11; 002 NFR-004).
- * - **`auth-failed` stops immediately** and every other class is retried up to
- *   the configured `maxAttempts` **including the first** (006 FR-058). A
- *   credential GitHub refuses is a stop condition, not a transient error
- *   (constitution II); a rate limit honours `retry-after`, and each wait is
- *   reported **before** it starts so an operator can see the delay begin.
- * - **Page 2 is asked for only when page 1 filled its cap**, so a scan cannot
- *   burst its budget (002 FR-020), and a page whose parse fails reports the same
- *   class as a page that could not be fetched — an unreadable body is not a
- *   different kind of problem from an unreachable one.
+ * The poller's shared transport: one request, classified (002 FR-007,
+ * FR-020, FR-022; 006 FR-058, FR-059).
  */
 
 import { parseJsonText } from '../json.ts';
@@ -46,9 +19,7 @@ import type { RandomFn, RetryPolicy, SleepFn } from './backoff.ts';
 
 /** Shared status constant (the verifier keeps the catalog in `github.ts`). */
 const STATUS_UNAUTHORIZED = 401;
-/** Shared status constant. */
 const STATUS_NOT_FOUND = 404;
-/** Shared status constant. */
 const STATUS_FORBIDDEN = 403;
 /** Shared status constant: primary and secondary GitHub rate limits. */
 const STATUS_TOO_MANY_REQUESTS = 429;
@@ -101,13 +72,9 @@ export interface PollerDeps {
     readonly random?: RandomFn;
 }
 
-/** Everything one call is bound to: transport plus the poller's injectables. */
 export interface PollerRuntime {
-    /** Injectable `fetch`. */
     readonly fetchImpl: FetchLike;
-    /** Logger every wait is reported through. */
     readonly log: ServiceLogger;
-    /** Injected sleep; the production default waits on a real timer. */
     readonly sleep: SleepFn;
     /** Injected jitter source; the production default is `Math.random`. */
     readonly random: RandomFn;
@@ -118,8 +85,6 @@ export interface PollerRuntime {
  *
  * Tests pass a recorder instead, so a ladder of waits costs them no time
  * at all (SC-116's "injected clock, no real sleeps").
- *
- * @returns A promise that settles after the delay.
  */
 const systemSleep: SleepFn = async (milliseconds) => {
     await new Promise<void>((resolve) => {
@@ -129,10 +94,6 @@ const systemSleep: SleepFn = async (milliseconds) => {
 
 /**
  * Build the runtime a poller binds its calls to.
- *
- * @param deps - Logger, plus the optional injected `sleep` and `random`.
- * @param fetchImpl - Injectable `fetch`; defaults to the process global.
- * @returns The runtime every call on this poller runs under.
  */
 export function pollerRuntime(deps: PollerDeps, fetchImpl: FetchLike): PollerRuntime {
     return {
@@ -151,13 +112,9 @@ export function pollerRuntime(deps: PollerDeps, fetchImpl: FetchLike): PollerRun
  * such parameter is ever added. The per-item events read does **not** use this
  * helper at all, because it takes no `since` and must not be able to (002
  * FR-051).
- *
- * @returns The request URL with those query parameters set.
  */
 export function listUrl(input: {
-    /** Repository owner. */
     readonly owner: string;
-    /** Repository name. */
     readonly name: string;
     /** Path after the repository segment. */
     readonly path: string;
@@ -180,9 +137,6 @@ export function listUrl(input: {
 
 /**
  * Parse one list page body, skipping entries the shape check refuses.
- *
- * @returns The normalized entries.
- * @throws {Error} When the body is not a JSON array.
  */
 function parseListPage<T>(input: {
     /** The body text as the response carried it. */
@@ -219,28 +173,20 @@ async function classifyOutcome(response: Response): Promise<PollFailure> {
     return { kind: 'unavailable', detail: 'upstream' };
 }
 
-/** One page attempt: a usable response, or the classified failure. */
 type PageAttempt = { readonly response: Response } | { readonly failure: PollFailure };
 
-/** The request context a wait is performed inside. */
 interface WaitContext {
-    /** Transport plus the poller's injectables. */
     readonly runtime: PollerRuntime;
     /** Request URL; only its path reaches the log line. */
     readonly url: URL;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
 }
 
 /**
- * Sleep the ladder's next wait, reporting it first.
- *
- * The report happens before the sleep so an operator can see the delay start,
- * and it carries the path, the attempt, the length, and the source — never a
- * header value and never a credential (FR-058's log requirement; 002 FR-007).
- *
- * @param wait - The attempt the wait precedes (the first is never waited for)
- *   and the rate-limit guidance in seconds, or `null`.
+ * Sleep the ladder's next wait, reporting it first. The report happens
+ * before the sleep so an operator can see the delay start, and it carries
+ * the path, the attempt, the length and the source — never a header value
+ * and never a credential (FR-058's log requirement; 002 FR-007).
  */
 async function waitBeforeNextAttempt(
     context: WaitContext,
@@ -266,23 +212,16 @@ async function waitBeforeNextAttempt(
 
 /**
  * Issue one page request, retrying under the configured ladder.
- *
  * `auth-failed` returns immediately — a credential GitHub refuses is a stop
- * condition, not a transient error (constitution II) — and every other class
- * may be attempted up to `retryMaxAttempts` times **including the first**.
- * Each wait is reported before it starts, naming its length and its source,
- * with no header value and no credential in the line.
- *
- * @returns The response, or the failure the last attempt produced.
+ * condition, not a transient error (constitution II) — and every other
+ * class may be attempted up to `retryMaxAttempts` times **including the
+ * first**. Each wait is reported before it starts, naming its length and
+ * its source, with no header value and no credential in the line.
  */
 async function requestPage(input: {
-    /** Transport plus the poller's injectables. */
     readonly runtime: PollerRuntime;
-    /** Account credential presented to GitHub. */
     readonly token: string;
-    /** Request URL for this page. */
     readonly url: URL;
-    /** Page size and retry ladder for this call. */
     readonly pace: ListPace;
 }): Promise<PageAttempt> {
     const policy = input.pace.retry;
@@ -324,29 +263,20 @@ async function requestPage(input: {
 }
 
 /**
- * Read **one** page of a paged endpoint, without deciding whether to ask for
- * another.
- *
- * Split out of {@link listPages} so both walks over this transport share one
- * request-and-parse path, and one failure classification: the list feeds stop
- * when a page under-fills their cap, while the item-events walk stops when a
- * page falls entirely outside the scan window. Two callers, one
- * page reader.
- *
- * @returns The normalized entries, or the page failure's class.
+ * Read **one** page of a paged endpoint, without deciding whether to ask
+ * for another. Split out of {@link listPages} so both walks over this
+ * transport share one request-and-parse path and one failure
+ * classification: the list feeds stop when a page under-fills their cap,
+ * while the item-events walk stops when a page falls entirely outside the
+ * scan window.
  */
 export async function readOnePage<T>(input: {
-    /** Transport plus the poller's injectables. */
     readonly runtime: PollerRuntime;
-    /** Account credential presented to GitHub. */
     readonly token: string;
     /** Request URL for this page, already carrying `page` and `per_page`. */
     readonly url: URL;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
-    /** Error text when a body is not an array (never upstream text). */
     readonly message: string;
-    /** Per-entry reader; `null` drops one malformed entry. */
     readonly read: (value: unknown) => T | null;
 }): Promise<PagedList<T>> {
     const attempt = await requestPage({
@@ -379,21 +309,14 @@ export async function readOnePage<T>(input: {
  * Page 2 is requested only when page 1 filled its cap, so the rate budget
  * never sees a burst; a page that keeps failing under the ladder stops the
  * paging and reports its class alone.
- *
- * @returns The normalized items, or the page failure's class.
  */
 export async function listPages<T>(input: {
-    /** Transport plus the poller's injectables. */
     readonly runtime: PollerRuntime;
-    /** Account credential presented to GitHub. */
     readonly token: string;
     /** Request URL; the `page` parameter is set per iteration. */
     readonly url: URL;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
-    /** Error text when a body is not an array (never upstream text). */
     readonly message: string;
-    /** Per-entry reader; `null` drops one malformed entry. */
     readonly read: (value: unknown) => T | null;
 }): Promise<PagedList<T>> {
     const items: T[] = [];
@@ -418,33 +341,21 @@ export async function listPages<T>(input: {
 }
 
 /**
- * Read **one** object from a single-item endpoint, under the shared transport.
- *
- * The single-item terminal read (002 FR-106) is not a paged list: it answers
- * with one object, not an array, so it borrows {@link requestPage}'s request,
- * retry ladder, classification, and shared 15-second abort without borrowing the
- * page walk. It is the same discipline as {@link readOnePage} at "one page, and
- * the behaviour at the bound is what the spec fixes" — here the bound is
- * structural, because neither endpoint returns an array (`research.md` §R12.5).
- *
- * A body that is not the object the reader accepts — unparseable text, or a
- * value the reader refuses, including a GitHub `state` word outside the known
- * vocabulary — answers the same `unavailable`/`upstream` class a page whose
- * parse failed answers: an unreadable body is not a different kind of problem
- * from an unreachable one, which is the line `resolveCandidateActor` draws
- * between a *recorded refusal* and a *read failure* (`poller-events.ts`).
- * Upstream detail never escapes — the caller learns the class, never a body.
- *
- * @returns The normalized object, or the classified failure.
+ * Read **one** object from a single-item endpoint, under the shared
+ * transport. The terminal read (002 FR-106) is not a paged list, so it
+ * borrows {@link requestPage}'s request, retry ladder, classification and
+ * shared 15-second abort without borrowing the page walk — the bound is
+ * structural, because neither endpoint returns an array (research §R12.5).
+ * A body the reader refuses answers the same `unavailable`/`upstream` class
+ * as a page whose parse failed: an unreadable body is not a different kind
+ * of problem from an unreachable one. Upstream detail never escapes — the
+ * caller learns the class, never a body.
  */
 export async function readOneObject<T>(input: {
-    /** Transport plus the poller's injectables. */
     readonly runtime: PollerRuntime;
-    /** Account credential presented to GitHub. */
     readonly token: string;
     /** Request URL for this item, carrying no `page` or `per_page`. */
     readonly url: URL;
-    /** Page size and retry ladder this call runs under. */
     readonly pace: ListPace;
     /** One-object reader; `null` reads as unreadable, not as a different kind. */
     readonly read: (value: unknown) => T | null;

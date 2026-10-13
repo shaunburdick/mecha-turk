@@ -27,7 +27,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { configSchema } from '../service/config-schema.ts';
 import {
     BUSY_REASON,
     NO_BASELINE_REASON,
@@ -48,26 +47,10 @@ import { parseConfigEnvelope } from '../src/settings-schema.ts';
 import type { ConfigEnvelope } from '../src/settings-schema.ts';
 import type { SettingsEdit } from '../src/settings-edit.ts';
 import { byText } from './support/sort.ts';
+import { configEnvelope } from './support/service-routes.ts';
 
 /** The transport problem one failure fixture reports, named once for its three uses. */
 const TRANSPORT_PROBLEM = 'service unreachable: ECONNREFUSED';
-
-/** One `GET /v1/config` body, assembled the way the service sends it. */
-function envelopeBody(overrides: {
-    /** Members to merge into the document. */
-    readonly config?: Record<string, unknown>;
-    /** The descriptor list. */
-    readonly fields?: readonly unknown[];
-    /** The filled-keys list. */
-    readonly defaultsApplied?: readonly string[];
-} = {}): string {
-    return JSON.stringify({
-        config: { ...DEFAULT_CONFIG, ...overrides.config },
-        fields: overrides.fields ?? configSchema(),
-        source: 'stored',
-        defaultsApplied: overrides.defaultsApplied ?? [],
-    });
-}
 
 /**
  * Read an envelope, failing the test when the body is not one.
@@ -85,7 +68,7 @@ function read(body: string): ConfigEnvelope {
 
 /** The combined-tree baseline every case starts from. */
 function baseline(): ConfigEnvelope {
-    return read(envelopeBody());
+    return read(configEnvelope());
 }
 
 /**
@@ -113,7 +96,7 @@ describe('no baseline means no save, with a named reason (006 T-019, FR-042, AC-
 
         }
         {
-            const envelope = read(envelopeBody({ config: { surprise: 1 } }));
+            const envelope = read(configEnvelope({ config: { ...DEFAULT_CONFIG, surprise: 1 } }));
             const edit = loaded(envelope);
 
             expect(edit.blocked).toBe(UNDISPLAYED_REASON);
@@ -139,7 +122,10 @@ describe('the draft is the read, edited (006 T-019, FR-041, AC-122)', () => {
     it('starts every field at the document value, or the default when it lacked one', () => {
         {
             const envelope = read(
-                envelopeBody({ config: { expectedAgent: undefined }, defaultsApplied: ['expectedAgent'] }),
+                configEnvelope({
+                    config: { ...DEFAULT_CONFIG, expectedAgent: undefined },
+                    defaultsApplied: ['expectedAgent'],
+                }),
             );
             const edit = loaded(envelope);
 
@@ -181,7 +167,7 @@ describe('the draft is the read, edited (006 T-019, FR-041, AC-122)', () => {
 describe('one activation, one whole document, no panel-side gate (006 T-019, FR-040, AC-110, AC-126)', () => {
     it('sends the baseline with the draft applied, and fills a key the document lacked', () => {
         {
-            const envelope = read(envelopeBody({ config: { expectedAgent: undefined } }));
+            const envelope = read(configEnvelope({ config: { ...DEFAULT_CONFIG, expectedAgent: undefined } }));
             let edit = loaded(envelope);
             edit = editField({ edit, envelope, field: 'intervalMs', value: '120000' });
 
@@ -240,7 +226,7 @@ describe('the answers arrive as facts, never as optimism (006 T-019, FR-025, FR-
     it('adopts the configuration the service returned, not the one that was sent', () => {
         {
             const envelope = baseline();
-            const returned = read(envelopeBody({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
+            const returned = read(configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
             let edit = loaded(envelope);
             edit = editField({ edit, envelope, field: 'intervalMs', value: '120000' });
 
@@ -298,7 +284,7 @@ describe('the answers arrive as facts, never as optimism (006 T-019, FR-025, FR-
         }
         {
             const envelope = baseline();
-            const returned = read(envelopeBody({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
+            const returned = read(configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
             const edit = loaded(envelope);
 
             const saved = recordSaved({ edit, returned, changed: ['intervalMs'], auditWritten: false });
@@ -315,7 +301,7 @@ describe('pending markers name the boundary and are retired by a read (006 T-019
         {
             const envelope = baseline();
             const returned = read(
-                envelopeBody({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000, logLevel: 'debug' } }),
+                configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000, logLevel: 'debug' } }),
             );
             let edit = loaded(envelope);
             edit = editField({ edit, envelope, field: 'intervalMs', value: '45000' });
@@ -328,7 +314,7 @@ describe('pending markers name the boundary and are retired by a read (006 T-019
         }
         {
             const envelope = baseline();
-            const returned = read(envelopeBody({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
+            const returned = read(configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 45_000 } }));
             let edit = loaded(envelope);
             edit = editField({ edit, envelope, field: 'intervalMs', value: '45000' });
             const saved = recordSaved({ edit, returned, changed: ['intervalMs'], auditWritten: true });

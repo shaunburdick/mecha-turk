@@ -1,16 +1,5 @@
 /**
  * The request pipeline: authenticate, confine, match, read, dispatch, write.
- *
- * Order is deliberate and is what the contract's invariants rest on:
- * authentication runs before anything else, so a wrong token gets the same
- * 401 whether the path exists or not (no route oracle); the request target is
- * confined to loopback origin-form before it is parsed into a URL; the route
- * table decides `404`/`405` before any body is read; and the response writer
- * closes the connection whenever the pipeline answered without consuming the
- * body, so refused requests cannot corrupt a keep-alive stream.
- *
- * The pipeline owns no timers and no sockets of its own — the in-flight
- * counter it maintains here is the signal the graceful shutdown drains on.
  */
 
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
@@ -61,7 +50,6 @@ export interface PipelineDeps {
     readonly context: RouteContext;
     /** Exact method + path table. */
     readonly routes: readonly Route[];
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** In-flight counter this pipeline maintains. */
     readonly state: PipelineState;
@@ -103,15 +91,11 @@ interface MatchedRequest {
 type PatternMatch = Readonly<Record<string, string>> | null;
 
 /**
- * Match a pathname against a route path, capturing its `:name` segments.
- *
- * Segments must line up one-for-one: a pattern segment starting with `:` binds
- * the path segment of the same position (and must not be empty), any other
- * pattern segment must be identical. Encoded characters stay as they arrived —
- * the caller validates what it captures rather than decoding it here, so no
- * `%2e%2e` can be reinterpreted after the fact.
- *
- * @returns The captured parameters, or `null` when the path does not match.
+ * Match a pathname against a route path, capturing its `:name` segments:
+ * segments line up one-for-one, a `:` segment binds the same position (and
+ * must not be empty), any other must be identical. Encoded characters stay
+ * as they arrived — the caller validates what it captures rather than
+ * decoding here, so no `%2e%2e` can be reinterpreted after the fact.
  */
 function matchPathPattern(routePath: string, pathname: string): PatternMatch {
     const pattern = routePath.split('/');
@@ -210,8 +194,6 @@ function describeFailure(error: unknown, call: ServiceCall): HttpResponse {
 
 /**
  * Collect the parameterised routes whose pattern captures this pathname.
- *
- * @returns The pattern routes that match, in declaration order.
  */
 function patternRoutes(routes: readonly Route[], pathname: string): readonly Route[] {
     return routes.filter(
@@ -223,15 +205,11 @@ function patternRoutes(routes: readonly Route[], pathname: string): readonly Rou
 }
 
 /**
- * Match the current request against the route table.
- *
- * Exact routes are preferred over parameterised ones for the same target, so
- * a literal path like `POST /v1/accounts/verify` can never be swallowed by
- * `POST /v1/accounts/:numericUserId/token`'s pattern sibling. The `Allow`
- * list of a `405` covers every method declared for the target, by either
- * route kind (contract §4).
- *
- * @returns The matched route and its captures, or why the target was refused.
+ * Match the current request against the route table. Exact routes are
+ * preferred over parameterised ones for the same target, so a literal path
+ * like `POST /v1/accounts/verify` can never be swallowed by its pattern
+ * sibling. The `Allow` list of a `405` covers every method declared for the
+ * target, by either route kind (contract §4).
  */
 function matchRoute(call: ServiceCall, url: URL): RouteMatch {
     const method = call.request.method ?? '';
@@ -254,8 +232,6 @@ function matchRoute(call: ServiceCall, url: URL): RouteMatch {
 
 /**
  * Build the response for a path that exists but was refused.
- *
- * @returns A `404` or `405` response (the latter advertising `Allow`).
  */
 function refusalResponse(match: RouteRefusal): HttpResponse {
     if (match.kind === 'not-found') {
@@ -274,9 +250,6 @@ function refusalResponse(match: RouteRefusal): HttpResponse {
 
 /**
  * Read the request body, answering `413`/`400` when it cannot be used.
- *
- * @returns The parsed value (`undefined` when the request carried no body),
- *   or `null` when a refusal has already been written.
  */
 async function readBody(call: ServiceCall): Promise<unknown | null> {
     const result = await readJsonBody(call.request);
@@ -406,8 +379,6 @@ function attachCompletion(call: ServiceCall): void {
 
 /**
  * Build the `requestListener` the HTTP server is created with.
- *
- * @returns A listener that serves one exchange per request event.
  */
 export function createRequestHandler(deps: PipelineDeps): RequestListener {
     return (request, response) => {

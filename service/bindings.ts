@@ -1,25 +1,5 @@
 /**
- * Repository bindings (MVP task M3 — re-cut 2026-09-27).
- *
- * A binding says "poll this repository under that account, dispatch to that
- * project with those triggers and that worktree option". The MVP cut keeps
- * one JSON file (`bindings.json`, an array of these records) and grants it
- * whole through `GET/PUT /v1/bindings`. The hardened account-delete guard in
- * `accounts/store.ts` reads the same file and writes `state: 'disabled'` onto
- * entries it force-disables, so these records keep that exact field:
- * `state` is *the* disabled truth, and there is no separate enabled flag.
- *
- * Two fields' rule sets live beside it, each in its own module:
- * [`bindings-allow-list.ts`](./bindings-allow-list.ts) holds `allowedUsers`
- * validation plus its single membership comparison, and
- * [`bindings-history-scope.ts`](./bindings-history-scope.ts) holds the two
- * `historyScope` names, the default, and the look-back constant. Both are read
- * on the build and on the collect-every-refusal pass.
- *
- * MVP-DEBT: the contract's per-binding `PATCH /v1/bindings/:bindingId` and
- * its draft/project-missing state machine are not implemented — the
- * whole-file grant is the simplest honest surface for one operator and one
- * panel.
+ * Repository bindings (MVP task M3).
  */
 
 import { nowIso } from '../src/ids.ts';
@@ -32,7 +12,6 @@ import { BINDINGS_FILE } from './accounts/store.ts';
 import type { HistoryScope } from './bindings-history-scope.ts';
 import type { ServiceStore } from './store/index.ts';
 
-/** Store file the bindings live in; shared with the hardened delete guard. */
 export { BINDINGS_FILE } from './accounts/store.ts';
 
 /** Trigger set stored on one binding (mention and review scanning ship with M6/M7). */
@@ -45,7 +24,6 @@ export interface BindingTriggers {
     readonly reviewRequest: boolean;
 }
 
-/** One repository binding as the service stores and reports it. */
 export interface BindingRecord {
     /** Panel-generated id; opaque, URL-safe, unique per binding. */
     readonly bindingId: string;
@@ -55,11 +33,9 @@ export interface BindingRecord {
     readonly accountLogin: string;
     /** The repository, in `owner/name` form. */
     readonly repository: string;
-    /** The OpenChamber project the dispatch targets. */
     readonly projectId: string;
     /** `none`, `generated`, or `new:<branch-name>`. */
     readonly worktreeOption: string;
-    /** Triggers the binding watches. */
     readonly triggers: BindingTriggers;
     /** `active` until the account-delete guard (or the operator) disables it. */
     readonly state: 'active' | 'disabled';
@@ -89,31 +65,22 @@ export interface BindingRecord {
     readonly allowedUsers?: readonly string[];
     /**
      * Where this binding's scan window's lower bound comes from (002 FR-053).
-     *
-     * **The key is absent when the mode is the documented default**
-     * `'new-only'` — never `'new-only'` spelled out and never `null` — so
-     * "unset", "cleared", and "written before the field existed" are one
-     * state with one reading (FR-058, FR-062). A stored name means this binding
-     * watches from now on **and** looked back over the fixed seven-day period
-     * once, on its first scan.
-     *
-     * Configuration, validated on every read and every write by
-     * {@link historyScopeOf}, so a hand-edited file and a panel save are judged
-     * by one rule set (FR-061). Its two values are fixed names, so nothing
-     * credential-shaped is added anywhere it is reported (FR-054).
+     * **Absent when the mode is the documented default `new-only`** — never
+     * spelled out, never `null` — so unset, cleared and written-before-the-field
+     * are one state (FR-058, FR-062). A stored name means the binding also
+     * looked back over the fixed seven-day period once, on its first scan.
+     * Validated on every read and write by {@link historyScopeOf} (FR-061);
+     * two fixed names, so nothing credential-shaped is reported (FR-054).
      */
     readonly historyScope?: HistoryScope;
 }
 
-/** One rejected field, in the field + remediation vocabulary the config sets. */
 export interface BindingIssue {
-    /** Field name as the panel emitted it. */
     readonly field: string;
     /** Actionable instruction; never echoes what the panel submitted. */
     readonly remediation: string;
 }
 
-/** Result of validating one candidate binding: the record, or every problem found. */
 export type BindingVerdict =
     | { readonly binding: BindingRecord }
     | { readonly issues: readonly BindingIssue[] };
@@ -138,33 +105,24 @@ export type BindingValidation =
     | { readonly ok: true; readonly bindings: readonly BindingRecord[] }
     | { readonly ok: false; readonly issues: readonly BindingIssue[] };
 
-/** Upper bound on bindings one operator may keep. */
 export const MAX_BINDINGS = 100;
 
-/** Longest binding id accepted (panel-generated, opaque). */
 const MAX_BINDING_ID_CHARS = 128;
 
-/** Longest `owner/name` label accepted. */
 const MAX_REPOSITORY_CHARS = 200;
 
-/** Recognise a digit-only GitHub numeric user id. */
 const NUMERIC_ID_PATTERN = /^\d+$/;
 
 /** The identity partial collected before the rest of the record joins it. */
 interface BindingIdentity {
-    /** The unique panel-generated id. */
     readonly bindingId: string;
-    /** The bound account's GitHub id. */
     readonly accountNumericUserId: string;
-    /** The account's login at bind time. */
     readonly accountLogin: string;
 }
 
 /** The dispatch target partial collected next. */
 interface BindingTarget {
-    /** `owner/name` repository label. */
     readonly repository: string;
-    /** The OpenChamber project id. */
     readonly projectId: string;
     /** Canonical worktree option text. */
     readonly worktreeOption: string;
@@ -172,14 +130,11 @@ interface BindingTarget {
 
 /**
  * Read one non-empty string field.
- *
- * @returns The value, or `null` when it is not usable text.
  */
 function stringFieldOf(value: unknown): string | null {
     return typeof value === 'string' && value !== '' ? value : null;
 }
 
-/** Build the single issue verdict. */
 function issue(value: BindingIssue): { readonly issue: BindingIssue } {
     return { issue: value };
 }
@@ -191,8 +146,6 @@ function issue(value: BindingIssue): { readonly issue: BindingIssue } {
  * no such field and reads as `false` (its operator never asked for it), and
  * a field that is present but is not a boolean refuses the record — a
  * half-read trigger is worse than a missing one.
- *
- * @returns The triggers, or `null` when the shape is unusable.
  */
 function triggersFieldOf(value: unknown): BindingTriggers | null {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -214,8 +167,6 @@ function triggersFieldOf(value: unknown): BindingTriggers | null {
 
 /**
  * Validate the `state` field, treating an absent state as `active`.
- *
- * @returns The state, or `null` when it is neither of the two values.
  */
 function stateFieldOf(value: unknown): 'active' | 'disabled' | null {
     if (value === undefined) {
@@ -231,33 +182,18 @@ function stateFieldOf(value: unknown): 'active' | 'disabled' | null {
 
 /**
  * Read one stamp, keeping a fallback when the candidate is unusable.
- *
- * @returns The usable stamp.
  */
 function stampOrKeep(value: unknown, fallback: string): string {
     return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : fallback;
 }
 
 /**
- * Read a stored stamp **without** substituting a clock reading.
- *
- * {@link stampOrKeep} is the assembly's reader, and a fallback is right there:
- * it is what lets a panel-created row that carries no stamp gain one, and what
- * keeps a document loadable. It is the **wrong** reader for anything that must
- * distinguish "no stamp was stored" from "the stamp that is stored is
- * unreadable", because it answers `now` for both — and a scan window's baseline
- * needs exactly that distinction (002 FR-072, plan H3). A baseline derived from
- * a silently-substituted `now` would be `now − overlapMs`, which is the
- * unbounded-window defect this field's window rule exists to remove, reached
- * through the assembly instead of through the store.
- *
- * Three answers, not two: absent, present-and-readable, and present-and-
- * unreadable. The middle one is the only case a caller may use as a time
- * authority.
- *
- * @param value - The stored member, as the file holds it.
- * @returns The stamp, `null` when the key is absent, or `undefined` when it is
- *   present and the clock cannot read it.
+ * Read a stored stamp **without** substituting a clock reading: three
+ * answers, not two — absent, readable, and present-but-unreadable.
+ * {@link stampOrKeep} answers `now` for the last two, which is right for
+ * assembly and wrong for a scan window's baseline, where `now − overlapMs`
+ * is the unbounded-window defect FR-072 exists to remove (plan H3). Only the
+ * middle answer may serve as a time authority.
  */
 export function storedStampOf(value: unknown): string | null | undefined {
     if (value === undefined) {
@@ -269,8 +205,6 @@ export function storedStampOf(value: unknown): string | null | undefined {
 
 /**
  * Read one `owner/name` repository field.
- *
- * @returns The canonical label, or `null` when unusable.
  */
 function repositoryFieldOf(value: unknown): string | null {
     if (typeof value !== 'string' || value.length > MAX_REPOSITORY_CHARS) {
@@ -284,8 +218,6 @@ function repositoryFieldOf(value: unknown): string | null {
 
 /**
  * Read one worktree option field, rendering the canonical text.
- *
- * @returns The canonical option text, or `null` when unusable.
  */
 function worktreeFieldOf(value: unknown): string | null {
     const parsed = parseWorktreeOption(typeof value === 'string' ? value : '');
@@ -302,8 +234,6 @@ function worktreeFieldOf(value: unknown): string | null {
 
 /**
  * Read the identity fields (binding id, account id, and login).
- *
- * @returns The identity partial, or the blocking issue.
  */
 function bindingIdentityOf(raw: Record<string, unknown>, hasAccount: boolean): {
     readonly binding: BindingIdentity;
@@ -344,8 +274,6 @@ function bindingIdentityOf(raw: Record<string, unknown>, hasAccount: boolean): {
 
 /**
  * Read the dispatch-target fields (repository, project, worktree).
- *
- * @returns The target partial, or the blocking issue.
  */
 function bindingTargetOf(raw: Record<string, unknown>): {
     readonly binding: BindingTarget;
@@ -379,8 +307,6 @@ function bindingTargetOf(raw: Record<string, unknown>): {
 
 /**
  * Read the `triggers` and `state` mode fields.
- *
- * @returns The fields, or the blocking issue.
  */
 function bindingModeOf(raw: Record<string, unknown>): {
     readonly binding: { readonly triggers: BindingTriggers; readonly state: 'active' | 'disabled' };
@@ -409,8 +335,6 @@ function bindingModeOf(raw: Record<string, unknown>): {
  *
  * The same function runs on the write path and the read path, so a submitted
  * value and a hand-edited file are judged by exactly one refusal set.
- *
- * @returns The normalised prompt (or `null` for unset), or the blocking issue.
  */
 function bindingPromptOf(raw: Record<string, unknown>): {
     readonly prompt: string | null;
@@ -428,8 +352,6 @@ function bindingPromptOf(raw: Record<string, unknown>): {
  * reports every problem the record has. This short-circuit exists so the
  * assembly reads top to
  * bottom and each part narrows without a redundant guard.
- *
- * @returns The record, or `null` when any part refused.
  */
 function assembleBinding(raw: Record<string, unknown>, hasAccount: boolean): BindingRecord | null {
     const identity = bindingIdentityOf(raw, hasAccount);
@@ -483,27 +405,20 @@ function assembleBinding(raw: Record<string, unknown>, hasAccount: boolean): Bin
 
 /**
  * Collect every refusal six field verdicts produced, in field order.
- *
- * @returns every refusal found, in the order the fields were named.
  */
 function refusalsIn(verdicts: readonly FieldVerdict[]): readonly BindingIssue[] {
     return verdicts.flatMap((verdict) => ('issue' in verdict ? [verdict.issue] : []));
 }
 
 /**
- * Parse one candidate binding field by field, collecting **every** problem.
- *
- * Every refusal names the field and the remediation; no submitted value is
- * ever echoed back (the same posture the config route fixed). Issues
- * accumulate rather than short-circuit: one answer
- * must list every problem in the submission — a bad prompt *and* a bad
- * repository arrive in the same 422 — and a first-issue-only reader could
- * never satisfy that.
- *
- * @returns The ready record, or the collected issues.
+ * Parse one candidate binding field by field, collecting **every** problem:
+ * every refusal names the field and the remediation and echoes no submitted
+ * value (the same posture the config route fixed). Issues accumulate rather
+ * than short-circuit, because one answer must list every problem in the
+ * submission — a bad prompt *and* a bad repository arrive in the same 422 —
+ * and a first-issue-only reader could never satisfy that.
  */
 export function parseBinding(input: {
-    /** Candidate binding, already known to be a record. */
     readonly raw: Record<string, unknown>;
     /** `true` when the account custody holds `accountNumericUserId`. */
     readonly hasAccount: boolean;
@@ -531,8 +446,6 @@ export function parseBinding(input: {
 
 /**
  * Run the per-binding checks and collect every issue.
- *
- * @returns The validated records, or the collected issues.
  */
 function collectBindingIssues(
     candidates: readonly unknown[],
@@ -578,11 +491,8 @@ function collectBindingIssues(
  * the collected issues are returned together, so one 422 answers every bad
  * field at once (the same additive-reporting shape the config route uses).
  * Binding ids must be unique; the count stays inside the operator cap.
- *
- * @returns The validated records, or every issue found.
  */
 export function validateBindings(input: {
-    /** The PUT body, or anything else. */
     readonly raw: unknown;
     /** `true` only for ids the account custody has verified. */
     readonly hasAccount: (numericUserId: string) => boolean;
@@ -612,9 +522,7 @@ export function validateBindings(input: {
  * hardened delete guard reads.
  */
 export async function writeBindings(input: {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** The records to store. */
     readonly bindings: readonly BindingRecord[];
 }): Promise<void> {
     await input.store.writeJson(BINDINGS_FILE, input.bindings);

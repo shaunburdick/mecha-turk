@@ -41,6 +41,8 @@ import { VERIFY_PATH } from '../service/routes/verify.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { jsonHeaders, headerMap } from './support/service-routes.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolvePath(import.meta.dirname, '..');
@@ -90,15 +92,6 @@ const BAD_REPOSITORY = 'not-a-repository';
  *
  * @returns The headers as `fetch` accepts them.
  */
-function headerMap(pairs: readonly (readonly [string, string])[]): Record<string, string> {
-    return Object.fromEntries(pairs);
-}
-
-/** Headers for the route that takes a JSON body. */
-function jsonHeaders(): Record<string, string> {
-    return headerMap([['content-type', 'application/json']]);
-}
-
 /** Running harness instances, drained between tests. */
 const running: TestService[] = [];
 
@@ -143,21 +136,14 @@ async function startWithAccount(): Promise<TestService> {
  *
  * @returns The submitted record.
  */
-function bindingRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-    return {
-        bindingId: BINDING_ID,
-        accountNumericUserId: ACCOUNT_ID,
+const bindingRow = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
+    ...fixtureBindingRow(BINDING_ID, {
         accountLogin: ACCOUNT_LOGIN,
-        repository: REPOSITORY,
-        projectId: 'prj_42',
-        worktreeOption: 'none',
         triggers: { assignment: true, mention: true, reviewRequest: true },
-        state: 'active',
-        createdAt: STAMP,
-        updatedAt: STAMP,
-        ...overrides,
-    };
-}
+        stamp: STAMP,
+    }),
+    ...overrides,
+});
 
 /**
  * The members that make the second binding distinguishable from the first.

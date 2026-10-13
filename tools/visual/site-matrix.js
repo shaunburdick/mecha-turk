@@ -1,31 +1,10 @@
 /**
- * The rendered contrast and style matrix over the built documentation site.
- *
- * 007 AC-033, AC-035 and AC-036 are, in three of their four clauses, questions only a browser can
- * answer: what a heading resolves to *at this viewport*, what a focus indicator paints after a
- * keystroke, and what colour is really behind text where a gradient paints it. This drives a real
- * browser over `site/dist` and reports what a reader would see, judging every subject against the
- * surface it is painted on — resolved twice, from the cascade and from the pixels of a real
- * capture, with the lower figure the one that has to clear the floor. `./site-contrast.js` holds
- * the arithmetic and the browser expressions; `./site-matrix.json` holds the case list.
- *
- * ## A run that only ever passes teaches nothing
- *
- * Every case therefore also **injects** one test-only colour per threshold — a normal-text
- * foreground, a large-text foreground, and a focus-indicator colour, each synthesised in Node to
- * land at a stated ratio — and requires the assessment to refuse it, naming the page, the
- * preference, both colours and the ratio. The override lives in the page's own inline style for
- * the moment it takes and comes off in a `finally`; nothing under `site/` is written, and the
- * shipped artefact is never what is judged.
- *
- * ## Boundaries
- *
- * - **Local and offline.** The pages are `site/dist`, served over loopback by the harness's own
- *   `serve.js`, at the base path the site is published under. No published address is fetched, and
- *   nothing here speaks for the published site.
- * - **A floor, not a conformance claim.** 4.5:1, 3:1 and 3:1 are the minima NFR-004 names, for the
- *   pairs and viewports this visits. It establishes no WCAG conformance for anything else.
- *
+ * The rendered contrast and style matrix over the built documentation site (007 AC-033, AC-035,
+ * AC-036): a real browser over `site/dist`, judging every subject against the surface it is
+ * painted on — resolved from the cascade and from the pixels of a capture, the lower figure the
+ * one that has to clear the floor — and injecting one colour per threshold so each check is
+ * proved to bite. Local and offline, served over loopback at the published base path; the floors
+ * (4.5:1, 3:1, 3:1) are minima, not a WCAG conformance claim.
  * Usage: `node tools/visual/site-matrix.js [--out DIR] [--only PAGE] [--session NAME] [--help]`
  */
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
@@ -61,7 +40,6 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 /** Where the built site is; the tool refuses to run without it rather than building it itself. */
 const DIST = join(ROOT, 'site', 'dist');
 
-/** The base path the site is published under, and therefore the one it is served at here. */
 /** Default output folder for the frames and the report. */
 const DEFAULT_OUT = join(ROOT, 'screenshots', 'site-matrix');
 
@@ -78,13 +56,10 @@ const REQUIRED_DPR = 1;
 const MIN_SAMPLE = 4;
 
 /**
- * The share of prose blocks that may carry their own surface before "selective" becomes "everywhere".
- *
- * The field manual says most prose stays open and key truths get emphasis, and "most" is the only
- * honest reading of that sentence: a layout that gives every paragraph a card is green under a
- * description and red under a count. Half is the bound — strictly fewer than half — because the
- * site deliberately surfaces the lead paragraph of the title and of each section, and a bound below
- * that would be measuring the design rather than the rule.
+ * The share of prose blocks that may carry their own surface before "selective" becomes
+ * "everywhere": strictly fewer than half, because the site deliberately surfaces the lead
+ * paragraph of the title and of each section, and a lower bound would measure the design rather
+ * than the rule the field manual's "most" states.
  */
 const MAX_SURFACE_SHARE = 0.5;
 
@@ -167,13 +142,8 @@ function selectedPages(argv) {
 }
 
 /**
- * Apply a test-only override to one subject, read it back, and take it away again.
- *
- * The override goes into the page's own inline style and comes off in a `finally`, so a failure
- * to read the figure back still leaves the page as it was found.
- *
- * @param {object} input `{ browser, colour, injection }`.
- * @returns {Promise<object>} What the browser reported while the override was in force.
+ * Apply a test-only override to one subject, read it back, and take it away again — in a
+ * `finally`, so a failure to read the figure back still leaves the page as it was found.
  */
 async function withOverride(input) {
     const { browser, colour, injection } = input;
@@ -198,13 +168,9 @@ async function withOverride(input) {
 }
 
 /**
- * Press `Tab` until the focus subject is the active element.
- *
- * `:focus-visible` does not match a scripted `.focus()`, so the injected figure and the resting
- * one would not be the same thing; a real keystroke makes them the same thing.
- *
- * @param {object} input `{ browser, selector }`.
- * @returns {Promise<boolean>} Whether the subject was reached.
+ * Press `Tab` until the focus subject is the active element. `:focus-visible` does not match a
+ * scripted `.focus()`, so the injected figure and the resting one would not be the same thing; a
+ * real keystroke makes them the same thing.
  */
 async function tabToSubject(input) {
     const { browser, selector } = input;
@@ -227,18 +193,11 @@ async function tabToSubject(input) {
 }
 
 /**
- * The colour painted where a focus indicator sits, read from the capture.
- *
- * A focus indicator is non-text, so what it has to clear 3:1 against is whatever is painted around
- * it — on this site a gradient in the navigation and a wash on the page. The ring's box is
- * sampled with the ring's own colour dropped, so the indicator never judges itself, and the mean
- * of what is left is the adjacent surface.
- *
- * @param {object} image - The decoded capture.
- * @param {object} box - The ring's box, in image pixels.
- * @param {number[]} outline - The ring's own colour, dropped from the sample.
- * @param {number[]} fallback - The cascade's background, used when the box holds too few pixels.
- * @returns {number[]} The adjacent colour.
+ * The colour painted where a focus indicator sits, read from the capture. A focus indicator is
+ * non-text, so what it has to clear 3:1 against is whatever is painted around it. The ring's box
+ * is sampled with the ring's own colour dropped, so the indicator never judges itself, and the
+ * mean of what is left is the adjacent surface; the cascade's background is the fallback when the
+ * box holds too few pixels.
  */
 function adjacentToFocusRing(image, box, outline, fallback) {
     const xEnd = Math.min(Math.round(box.x + box.width), image.width);
@@ -283,12 +242,7 @@ function adjacentToFocusRing(image, box, outline, fallback) {
     );
 }
 
-/**
- * Prove one threshold bites: inject a colour below it and require the assessment to refuse.
- *
- * @param {object} input `{ browser, context, image, injection }`.
- * @returns {Promise<object>} What was injected, what it measured, and whether it was refused.
- */
+/** Prove one threshold bites: inject a colour below it and require the assessment to refuse. */
 export async function proveThreshold(input) {
     const { browser, context, image, injection } = input;
     const resting = context.subjects.find(
@@ -363,12 +317,9 @@ export async function proveThreshold(input) {
 }
 
 /**
- * Sample one subject's painted box.
- *
- * @param {object} image - The decoded **bare** capture, taken with the page's text made
- *   transparent, so every pixel left in the box is surface rather than lettering.
- * @param {object} record - One measured subject.
- * @returns {object | null} The sample, or null when the subject's colour could not be read.
+ * Sample one subject's painted box, from the decoded **bare** capture — taken with the page's
+ * text made transparent, so every pixel left in the box is surface rather than lettering. Null
+ * when the subject's colour could not be read.
  */
 function sampleSubject(image, record) {
     const foreground = parseColour(record.color);
@@ -396,12 +347,8 @@ function unmeasuredReason(record, finding, sampled) {
 }
 
 /**
- * Judge every subject the page rendered, and note the ones nothing could be sampled behind.
- *
- * @param {object[]} records - The page's measured subjects.
- * @param {object} image - The decoded bare capture.
- * @param {object} page - `{ id, scheme, viewport: name }`, so each judgement carries where it was made.
- * @returns {{ subjects: object[], unmeasurable: object[] }} Every judgement, and the ones with no pixels.
+ * Judge every subject the page rendered, and note the ones nothing could be sampled behind; `page`
+ * is `{ id, scheme, viewport }` so each judgement carries where it was made.
  */
 function judgeSubjects(records, image, page) {
     const subjects = [];
@@ -457,10 +404,9 @@ async function measureCase(input) {
     await browser.capture(frame, { full: true });
 
     /*
-     * The second capture is the measurement one. The page's text is made transparent for it, so
-     * the frame holds only what is painted *behind* the text — surfaces, ramps, rules, decoration —
-     * and no glyph can be mistaken for the surface a heading is painted on. It is a diagnostic and
-     * is not published as evidence; the frame above is.
+     * The second capture is the measurement one: the page's text is made transparent for it, so
+     * the frame holds only what is painted *behind* the text and no glyph can be mistaken for the
+     * surface a heading is painted on. A diagnostic, not published as evidence; the frame above is.
      */
     const bare = join(
         outDir,
@@ -536,12 +482,9 @@ const RGB_PARTS = 3;
 const HEX_RADIX = 16;
 
 /**
- * The shapes a colour literal arrives in.
- *
- * The hex pattern matches digits only and the digit count is checked separately, rather than one
- * pattern of repeated groups: nested quantifiers over the same class are what a regex checker
- * flags as potentially super-linear, and there is nothing to gain here from the nesting — the
- * input is one literal.
+ * The shapes a colour literal arrives in: digits only, with the count checked separately — nested
+ * quantifiers over one class are what a regex checker flags as potentially super-linear, and the
+ * input is a single literal, so the nesting buys nothing.
  */
 const HEX_DIGITS = /^#([\da-f]+)$/u;
 const FUNCTIONAL_COLOUR = /^rgba?\(([^)]*)\)$/u;
@@ -568,14 +511,9 @@ function alphaShare(pair) {
 }
 
 /**
- * One colour literal in the form `getComputedStyle` reports it.
- *
- * The page's stylesheet is written in hex and the browser answers in `rgb()`, so the two are
- * normalised onto one spelling before they are compared; without that, every declared colour would
- * read as undeclared.
- *
- * @param {string} literal - A `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()` or `rgba()` literal.
- * @returns {string} The colour as `getComputedStyle` would report it.
+ * One colour literal in the form `getComputedStyle` reports it: the stylesheet is written in hex
+ * and the browser answers in `rgb()`, so the two are normalised onto one spelling before they are
+ * compared — without that every declared colour would read as undeclared.
  */
 function normaliseColour(literal) {
     const text = literal.toLowerCase();
@@ -592,8 +530,7 @@ function normaliseColour(literal) {
             .map((pair) => Number.parseInt(pair, HEX_RADIX));
 
         // `rgb()` renders the whole call, so the channels are joined here instead: interpolating it
-        // inside `rgba(...)` yields `rgba(rgb(244, 246, 239), 0.4)`, which no browser will ever
-        // report and which made every alpha-hex literal read as undeclared.
+        // inside `rgba(...)` yields a spelling no browser reports.
         if (pairs.length === RGB_PARTS + 1) {
             return `rgba(${pairs.slice(0, RGB_PARTS).join(', ')}, ${alphaShare(digits.slice(-2))})`;
         }
@@ -613,15 +550,10 @@ function normaliseColour(literal) {
 }
 
 /**
- * Every colour the site's own stylesheet declares, read from the built pages.
- *
- * The rendered pass's claim that the page paints colours it owns is only checkable against
- * something: a colour the browser resolves must be one the page's own `<style>` declares. Reading
- * them out of `site/dist` rather than out of the sources is deliberate — the artefact is what a
- * reader is served, and a minifier that rewrote a literal would change what is on the page.
- *
- * @param {string[]} html - Each built page's text.
- * @returns {Set<string>} Normalised `rgb()`/`rgba()` strings the pages declare, plus `transparent`.
+ * Every colour the site's own stylesheet declares, read from the built pages — the checkable
+ * counterpart to the rendered pass's claim that the page paints colours it owns. Reading them
+ * out of `site/dist` rather than the sources is deliberate: the artefact is what a reader is
+ * served, and a minifier that rewrote a literal would change what is on the page.
  */
 export function declaredColours(html) {
     const declared = new Set(['transparent', 'rgba(0, 0, 0, 0)']);
@@ -800,11 +732,9 @@ function schemeFindings(cases, context) {
 
 /**
  * The colour-only clause: one non-colour property that moves between the cascades, or no finding.
- *
- * The comparison runs on every page, not on whichever page happens to come first — element
- * presence gates the signature (`SIGNATURE_SELECTORS` skips what a page does not render), so a
- * page with no `<table>` proves nothing about table behaviour, and only a page that has one can.
- * All five pages are therefore paired at all three viewports: 15 light/dark pairs.
+ * The comparison runs on every page, not whichever comes first — element presence gates the
+ * signature, so a page with no `<table>` proves nothing about tables. All five pages are paired
+ * at all three viewports: 15 light/dark pairs.
  */
 function cascadeFindings(cases, summary) {
     const findings = [];
@@ -831,27 +761,19 @@ function cascadeFindings(cases, summary) {
 }
 
 /**
- * The observations a run records besides its contrast figures.
- *
- * These are the clauses of AC-033 and AC-036 that are not contrast ratios, and each is checked
- * rather than described, because each has a shape a mistake takes:
- *
- * - **Colour-only theming.** On every page and viewport, the two cascades must agree on every
- *   non-colour property in `SIGNATURE_PROPERTIES`, and must differ on at least one colour.
+ * The observations a run records besides its contrast figures — the clauses of AC-033 and AC-036
+ * that are not contrast ratios, each checked rather than described because each has a shape a
+ * mistake takes:
+ * - **Colour-only theming.** On every page and viewport the two cascades must agree on every
+ *   non-colour property in `SIGNATURE_PROPERTIES` and must differ on at least one colour.
  * - **Site-owned colours.** Every colour the browser resolves must be one the built pages declare.
  * - **Hierarchy.** One `h1`, no skipped heading level, and sizes that decrease with depth.
- * - **Decorative-only indices.** Every heading carries its own text; the serial index beside it is
- *   generated content, and nothing on the page animates — a clause that is judged on a counter
- *   and therefore asserts the counter answered, so a browser with no `getAnimations` fails the
- *   run rather than passing it silently.
- * - **Selective surfaces.** Most prose is open, so a card around every passage fails a count rather
- *   than a description.
- * - **Responsive tables.** A table wider than its scroller is scrollable inside its own container,
- *   and the page itself never scrolls sideways at any viewport.
- *
- * @param {object[]} cases - Every measured case.
- * @param {Set<string>} palette - The colours the built pages declare.
- * @returns {{ findings: string[], summary: object }} What failed, and what was recorded.
+ * - **Decorative-only indices.** Every heading carries its own text (the serial index beside it
+ *   is generated content) and nothing animates — judged on a counter, so a browser with no
+ *   `getAnimations` fails the run rather than passing it silently.
+ * - **Selective surfaces.** Most prose is open, so a card around every passage fails a count.
+ * - **Responsive tables.** A table wider than its scroller is scrollable, and the page itself
+ *   never scrolls sideways at any viewport.
  */
 export function observe(cases, palette) {
     const findings = [];
@@ -892,9 +814,8 @@ export function observe(cases, palette) {
     /*
      * The counter's own liveness is a finding, not a note: `running` is `null` when the browser
      * exposes no `document.getAnimations`, and a run that reported "nothing animates" from a
-     * counter that never answered would be the green check this tool exists to refuse. Keeping it
-     * here rather than in `publish` means the error line and the non-zero exit come from the one
-     * path every other clause already takes.
+     * counter that never answered would be the green check this tool exists to refuse. Kept here
+     * so the error line and the non-zero exit come from the path every other clause takes.
      */
     if (!summary.animationApi) {
         findings.push(
@@ -926,12 +847,7 @@ function hScroll(measured) {
     return measured.pageScrolls ? ' [the page scrolls horizontally]' : '';
 }
 
-/**
- * Walk the selected cases, reporting each as it lands.
- *
- * @param {object} input `{ browser, outDir, selected, url }`.
- * @returns {Promise<object[]>} Every measured case, in the order the matrix enumerates them.
- */
+/** Walk the selected cases, reporting each as it lands. */
 async function walkCases(input) {
     const { browser, outDir, selected, url } = input;
     const cases = [];
@@ -953,13 +869,9 @@ async function walkCases(input) {
 }
 
 /**
- * Walk the selected cases against a served build, and close both before returning.
- *
- * The server and the browser belong to this call alone, so a run that dies mid-matrix still leaves
- * nothing listening — which is the only way a loopback port stays free for the next tool.
- *
- * @param {object} input `{ outDir, selected, session }`.
- * @returns {Promise<object[]>} Every measured case.
+ * Walk the selected cases against a served build, and close both before returning. The server and
+ * the browser belong to this call alone, so a run that dies mid-matrix still leaves nothing
+ * listening — the only way a loopback port stays free for the next tool.
  */
 async function measureAll(input) {
     const { outDir, selected, session } = input;
@@ -1031,9 +943,8 @@ async function publish(input) {
                     unproved: unproved.length,
                 },
                 floors: matrix.floors,
-                // The bound `surfaceAndTableFindings` enforces on "selective emphasis", next to the
-                // thresholds it belongs with; the pixel-histogram share in `site-contrast.js` is a
-                // sampling parameter and would read as a design rule beside `floors`.
+                // The bound `surfaceAndTableFindings` enforces on "selective emphasis", next to
+                // the thresholds it belongs with rather than beside `floors`.
                 maxProseSurfaceShare: MAX_SURFACE_SHARE,
                 largeText: matrix.largeText,
             },
@@ -1072,11 +983,8 @@ async function publish(input) {
 }
 
 /**
- * Measure every case, judge it, and return the exit code the run earned.
- *
- * @param {string[]} argv - The command line, without the script name.
- * @returns {Promise<number>} Zero when every case cleared its floor, every threshold was proved to
- *   bite, and every observation held; one otherwise.
+ * Measure every case, judge it, and return the exit code the run earned — zero when every case
+ * cleared its floor, every threshold was proved to bite, and every observation held.
  */
 export async function main(argv) {
     await requireBuild();

@@ -1,29 +1,5 @@
 /**
- * The Bindings pane's contract and its repaint (M3 re-cut).
- *
- * **The list is the tab, and the editor is opened on request** (2026-10-01
- * product-owner review): entering the tab shows the status and note lines,
- * the list, and its row controls — **New binding**, **Refresh**, **Toggle
- * enabled**, **Remove** — while the editor block underneath stays hidden
- * until a row is clicked (which loads that row into it) or **New binding**
- * is activated (which opens an empty draft). The editor carries the project
- * controls — the *Dispatch project* select with **Reload projects** and the
- * list's status line beside it (issue #39) — states the loaded binding's
- * enabled/disabled state in words, so *Toggle enabled* is never the only
- * place that truth lives, and holds the starting prompt as a field of that
- * same form: one primary button writes all of it.
- *
- * This module owns what those controls **are** ({@link BindingsPane}), what
- * they ask for ({@link BindingsPaneHandlers}), the tab's status copy, and the
- * painter that keeps them equal to runtime state. The mount and the disposer
- * live in [`bindings-body.ts`](./bindings-body.ts), which builds the shape
- * described above.
- *
- * Every service-supplied string reaches the DOM through the SDK primitives'
- * `textContent` writes — no HTML sink is touched (panel-service contract §3
- * invariant 11). The binding list rows — the scan stamp, skip reason, and
- * pending count the operator reads per row — live in `bindings-rows.ts`, and
- * the dispatches row copy lives beside it in `dispatches-rows.ts` (M8).
+ * The Bindings pane's contract and repaint: controls, handlers, status copy — strings reach the DOM via `textContent`.
  */
 
 import type {
@@ -57,7 +33,6 @@ export interface BindingsPane {
     readonly historyScopeHelp: TextHandle;
     /** The window-in-force line under the editor's history-scope control (002 FR-092). */
     readonly windowScopeLine: TextHandle;
-    /** Status line at the top. */
     readonly status: TextHandle;
     /** The tab's note line, under the status: refusals and results (FR-085). */
     readonly note: TextHandle;
@@ -184,8 +159,6 @@ export interface BindingsPaneHandlers
  *
  * Exported because [`bindings-body.ts`](./bindings-body.ts) paints it at
  * mount and this module repaints it: one copy of the count, two moments.
- *
- * @returns The summary text the status line shows.
  */
 export function composeStatus(bindings: BindingsTabState): string {
     const enabled = bindings.bindings.filter((binding) => binding.state === 'active').length;

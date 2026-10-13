@@ -1,27 +1,11 @@
 /**
- * Offline OpenChamber host bridge for the Mecha Turk design harness.
- *
- * Implements just enough of the documented guest/host postMessage protocol
- * (channel `openchamber.sdk`, API version 1) for the shipped `panel/main.js`
- * bundle to boot without a real OpenChamber: `hello` → `ready` with a complete
- * host theme, storage reads and writes, and the service-request fixtures.
- *
- * It serves **three** fixtures. Two are host modes — light and dark, each a complete token
- * payload. The third is `fallback`: a *post-`ready` state* in which every alias the pinned
- * SDK wrote has been taken off the guest document root again, so the panel's own fallbacks in
- * `panel/index.html` are what actually resolve. It has to be built that way round, because
- * `applyHostTheme` writes its whole alias table on every `ready` regardless of which tokens a
- * payload carries — so no thinner payload reaches the branch the fallback fixture is testing.
- * See `stripHostTheme` for the sequence and `theme-fixtures.js` for the alias list.
- *
- * It also publishes `globalThis.__MT__`, the control surface `shot.js` drives:
- * readiness, per-tab measurements, the freshness sentinel, the stretch used by the full-height
- * capture, and the fixture/theme report. The panel itself is never touched — this file lives
- * entirely in the harness's top document.
- *
- * The frame's `src` is set from here *after* the fixtures land, so the guest's
- * `hello` can never outrun the parent's `message` listener (module scripts are
- * deferred, an iframe is not).
+ * Offline OpenChamber host bridge for the design harness: enough of the postMessage protocol
+ * (channel `openchamber.sdk`, v1) for the shipped `panel/main.js` to boot without a real host,
+ * across three fixtures — `light`, `dark`, and `fallback`, a *post-`ready` state* where every
+ * alias the SDK wrote is stripped again (no thinner payload reaches that branch, because
+ * `applyHostTheme` writes its whole table on every `ready`; see `stripHostTheme`). Publishes
+ * `globalThis.__MT__`, the control surface `shot.js` drives. The frame's `src` is set after the
+ * fixtures land, so the guest's `hello` cannot outrun the parent's `message` listener.
  */
 import { loadFixtures } from './fixtures.js';
 import {
@@ -60,15 +44,9 @@ const SELECTED_TAB = '[role="tab"][aria-selected="true"]';
 const VERSION_KEY = 'v';
 
 /**
- * The body container the shell made for one tab.
- *
- * `name` is a tab id — six lowercase literals from `TAB_IDS` — so nothing needs
- * escaping, and `CSS` is absent from this harness anyway, so
+ * The body container the shell made for one tab. `name` is a tab id — six lowercase literals
+ * from `TAB_IDS` — so nothing needs escaping, and `CSS` is absent from this harness anyway, so
  * `unicorn/require-css-escape` cannot be satisfied here at all.
- *
- * @param {Element} panel - The panel root.
- * @param {string} name - Tab id.
- * @returns {Element | null} The body, or null when the tab has not mounted.
  */
 function bodyOf(panel, name) {
     // eslint-disable-next-line unicorn/require-css-escape -- a tab id, and `CSS` is absent in this harness
@@ -85,9 +63,7 @@ function panelDoc() {
 }
 const storage = new Map([[LEDGER_KEY, { schemaVersion: 'dispatch-attempts-1', attempts: [] }]]);
 
-// One object rather than four `let` bindings: the bridge is driven from a
-// `message` handler that fills this in and a control surface that reads it back
-// later, so the state has a shape a reader can hold in their head.
+// One object rather than four `let` bindings: a handler fills it in and the control surface reads it back later.
 const state = { themeMode: LIGHT, harnessError: null, routes: {}, projects: null };
 
 /** The envelope every host→guest message travels in. */
@@ -275,12 +251,7 @@ function booted() {
     return tabs.length > 0 && body !== null && body.textContent.length > MIN_BODY_TEXT;
 }
 
-/**
- * Measure one tab body against the region that scrolls it.
- *
- * @param name - Tab id (`status`, `dispatches`, …), as `data-body` spells it.
- * @returns Measurements `shot.js` sizes the viewport from, or null if missing.
- */
+/** Measure one tab body against the region that scrolls it; `shot.js` sizes the viewport from it. */
 function measure(name) {
     const panel = panelDoc();
     if (panel === null) {
@@ -302,15 +273,11 @@ function measure(name) {
     return {
         active: activeTab(),
         /**
-         * The CSS viewport the panel is laid out at, and therefore the width
-         * every media query in `panel/index.html` evaluates against.
-         *
-         * It is read from the panel's own window rather than assumed from the
-         * `--width` a caller asked for: `fitViewport` used to converge on
-         * height alone, decide no resize was needed, and hand back a body it
-         * had measured at the *previous* width — which is how the narrow pass
-         * came out as a byte copy of the wide frame above it. `layout.js`
-         * asserts this number against the width it asked for before a capture.
+         * The CSS viewport the panel is laid out at, and therefore the width every media query
+         * in `panel/index.html` evaluates against. Read from the panel's own window rather than
+         * assumed from the `--width` a caller asked for: `fitViewport` used to converge on height
+         * alone and hand back a body it had measured at the *previous* width — how the narrow pass
+         * came out as a byte copy of the wide frame. `layout.js` asserts this before a capture.
          */
         viewportWidth: panel.defaultView === null ? 0 : panel.defaultView.innerWidth,
         bodyHeight: Math.round(bodyBox.height),
@@ -327,14 +294,10 @@ function measure(name) {
 }
 
 /**
- * Scroll the region so the named body starts at the region's top edge.
- *
- * With `[data-body][hidden] { display: none }` in `panel/index.html` only the
- * active body is in the layout, so this lands at 0 straight away; the scroll
- * still runs because a body that outgrows the region (a `--full` capture, a
- * viewport left short by an earlier tab) has to be brought up by hand.
- *
- * @returns The measurement after the scroll, or null if the body is missing.
+ * Scroll the region so the named body starts at the region's top edge. With `[data-body][hidden]
+ * { display: none }` only the active body is in the layout, so this lands at 0 straight away; the
+ * scroll still runs because a body that outgrows the region (`--full`, a viewport left short) has
+ * to be brought up by hand.
  */
 function align(name) {
     const panel = panelDoc();
@@ -357,15 +320,10 @@ function align(name) {
 }
 
 /**
- * Every element the panel marked hidden that the cascade still gives a box.
- *
- * `hidden` is an *intent*, and an author `display` rule outranks the UA
- * sheet — which is how a greyed "Connect account" button and three Dispatches
- * control rows sat in frames whose tab bodies were already correct. This reads
- * `getComputedStyle` for every `[hidden]` element in the live document, so a
- * capture cannot publish a stray control the panel meant to remove.
- *
- * @returns One entry per painted element: its tag, its classes, its display.
+ * Every element the panel marked hidden that the cascade still gives a box. `hidden` is an
+ * *intent* and an author `display` rule outranks the UA sheet — how a greyed "Connect account"
+ * button and three Dispatches control rows sat in frames whose tab bodies were already correct —
+ * so this reads `getComputedStyle` for every `[hidden]` element in the live document.
  */
 function paintedHidden(panel) {
     const view = panel.defaultView;
@@ -380,18 +338,12 @@ function paintedHidden(panel) {
 }
 
 /**
- * Every tab body as the cascade paints it, plus the strip's own answer.
- *
- * The DOM alone cannot say a body is out of the layout — `hidden` is an
- * *intent*, and an author `display` rule outranks the UA sheet, which is
- * exactly how six stacked bodies slipped through every DOM-based test. This
- * reads `getComputedStyle` for each body, so "visible" here means "has a box",
- * and it pairs each body with the tab element its `aria-labelledby` points at
- * so a caller can prove the body on screen belongs to the tab that was asked
- * for. `painted` is the same question asked of every other `[hidden]` element
- * in the document.
- *
- * @returns `{ active, selectedId, bodies, painted }`, or null before the panel loads.
+ * Every tab body as the cascade paints it, plus the strip's own answer. The DOM alone cannot say
+ * a body is out of the layout — `hidden` is an *intent* and an author `display` rule outranks the
+ * UA sheet, which is how six stacked bodies slipped through every DOM-based test — so "visible"
+ * here means "has a box". Each body is paired with the tab its `aria-labelledby` points at, so a
+ * caller can prove the body on screen belongs to the tab that was asked for; `painted` asks the
+ * same question of every other `[hidden]` element in the document.
  */
 function bodyView() {
     const panel = panelDoc();
@@ -431,10 +383,8 @@ function stripBox(tab) {
 }
 
 /**
- * The strip as a capture can verify it: every tab's box, and the fill colour
- * the selected tab paints, read from the live cascade.
- *
- * @returns `{ tabs, activeColor }` — `activeColor` is null with no selection.
+ * The strip as a capture can verify it: every tab's box, and the fill colour the selected tab
+ * paints, read from the live cascade (`activeColor` is null with no selection).
  */
 function strip() {
     const panel = panelDoc();
@@ -462,12 +412,8 @@ async function settle() {
     }
 }
 
-/**
- * Paint (or clear) the freshness sentinel over the whole harness document.
- *
- * @param color - CSS colour to cover the document with, or null to clear it.
- * @returns The colour that is now painted.
- */
+/** Paint (or clear) the freshness sentinel over the whole harness document, and report the
+ * colour that is now painted. */
 async function sentinel(color) {
     if (color === null) {
         sentinelLayer.style.display = 'none';
@@ -482,12 +428,8 @@ async function sentinel(color) {
     return color;
 }
 
-/**
- * Stretch the harness document to a height, or hand it back to the viewport.
- *
- * @param height - Pixels to pin the frame to, or null to restore `100%`.
- * @returns The document height the stretch actually produced.
- */
+/** Stretch the harness document to a height, or hand it back to the viewport; reports the height
+ * the stretch actually produced. */
 async function stretch(height) {
     const html = harnessDoc.documentElement;
     const { body } = harnessDoc;
@@ -519,11 +461,9 @@ function setTheme(mode) {
 }
 
 /**
- * Every host alias the SDK has written onto the guest root, as the harness can see it.
- *
- * Read from the **live document** rather than from this module's own table: the point of the
- * report is what the browser holds, and a table that merely repeats what the harness believes
- * it wrote would agree with itself whatever the SDK did.
+ * Every host alias the SDK has written onto the guest root, as the harness can see it — read from
+ * the **live document** rather than this module's own table, because a table repeating what the
+ * harness believes it wrote would agree with itself whatever the SDK did.
  */
 function presentAliases() {
     const root = panelDoc()?.documentElement;
@@ -539,24 +479,13 @@ function presentAliases() {
 
 /**
  * The host-alias-unavailable fixture, applied *after* the SDK has handled `ready`.
- *
- * ## Why it is a removal and not a thinner payload
- *
- * `applyHostTheme` in `@openchamber/sdk` 1.24.2 iterates its whole `TOKEN_VARS` table and
- * calls `root.style.setProperty(name, theme.tokens[key])` for every entry on every `ready` —
- * so a synthetic payload with a token omitted still leaves the alias **written**, with an
- * undefined value. No payload shape proves the stylesheet's fallback branch runs; only a state
- * in which the declarations are gone again does. Hence: a real `ready` first, then the removal,
- * and **no further `ready`** afterwards — a second one would put every alias straight back and
- * make the whole fixture a no-op that still reported success.
- *
- * What survives is `color-scheme`, which the SDK also wrote and which the fallback frame
- * legitimately keeps: it is what makes the canvas the host's own mode rather than the browser
- * default, so it is part of the state under test rather than part of the theme.
- *
- * @returns {{ removed: string[], retainedColorScheme: string, remaining: string[] }} What was
- *   taken off the root, the scheme that stayed, and any alias still present afterwards — the
- *   last of which is what the caller's assertion reads, and is empty on success.
+ * `applyHostTheme` in `@openchamber/sdk` 1.24.2 iterates its whole `TOKEN_VARS` table on every
+ * `ready`, so a payload with a token omitted still leaves the alias **written** with an undefined
+ * value: no payload shape proves the stylesheet's fallback branch runs, only a state whose
+ * declarations are gone again does. Hence a real `ready` first, then the removal, and **no further
+ * `ready`** afterwards — a second would put every alias straight back and make the fixture a no-op
+ * that still reported success. `color-scheme` survives, because it is what makes the canvas the
+ * host's own mode rather than the browser default: part of the state under test, not of the theme.
  */
 function stripHostTheme() {
     const root = panelDoc()?.documentElement;
@@ -583,14 +512,11 @@ function stripHostTheme() {
 }
 
 /**
- * The report the fallback frame is judged on: what the root still carries, inline and computed,
- * beside the panel aliases the stylesheet resolved.
- *
- * Both halves are read from the live document. `inlineAliases` is every custom property the
- * root's own `style` attribute holds, which is empty on a correct reset; `computedAliases` is
- * what `getComputedStyle` reports for each host alias, which catches a value that survived in
- * a stylesheet the harness does not own. `panelAliases` is each `--mt-*` the panel resolves,
- * so a failure names which role drifted rather than only that something did.
+ * The report the fallback frame is judged on, both halves read from the live document:
+ * `inlineAliases` is every custom property the root's own `style` holds (empty on a correct
+ * reset); `computedAliases` is what `getComputedStyle` reports, catching a value that survived in
+ * a stylesheet the harness does not own; `panelAliases` names which `--mt-*` role drifted rather
+ * than only that something did.
  */
 function hostThemeReport() {
     const panel = panelDoc();
@@ -627,17 +553,11 @@ function hostThemeReport() {
 }
 
 /**
- * Put the panel into one of the three fixtures and report what the root now holds.
- *
- * The two host modes re-send `ready`, which is what switching a host theme means. The fallback
- * fixture does the opposite — it strips, and sends nothing — so switching *back* to a host mode
- * after it requires a real `ready` again rather than a second strip.
- *
- * @param {string} name One of `FIXTURES`.
- * @returns The fixture name applied.
- * @throws {Error} On an unknown name, or when the fallback is asked for before any `ready`
- *   reached the guest — stripping a root the SDK never wrote would report a clean frame that
- *   proved nothing.
+ * Put the panel into one of the three fixtures and report what the root now holds. The two host
+ * modes re-send `ready`, which is what switching a host theme means; the fallback strips and
+ * sends nothing, so switching *back* to a host mode after it requires a real `ready` rather than
+ * a second strip. An unknown name is refused, and so is the fallback before any `ready` reached
+ * the guest — stripping a root the SDK never wrote would report a clean frame that proved nothing.
  */
 function applyFixture(name) {
     if (!FIXTURES.includes(name)) {
@@ -653,18 +573,16 @@ function applyFixture(name) {
         }
         state.themeMode = LIGHT;
         stripHostTheme();
-        // The fallback frame's canvas is the browser default: restore the stylesheet's own value
-        // rather than leaving a host-mode colour painted behind a frame that has no host tokens.
+        // The fallback frame's canvas is the browser default: restore the stylesheet's own value.
         frame.style.background = '';
 
         return FALLBACK;
     }
     state.themeMode = name === DARK ? DARK : LIGHT;
     /*
-     * The guest paints its own box, and the SDK reserves a scrollbar gutter beside it — those few
-     * pixels are *harness* canvas, which `index.html` paints at a fixed light value. Without this,
-     * every dark-fixture capture carries a light stripe down its right edge, which reads as a panel
-     * defect rather than the scaffolding it is.
+     * The guest paints its own box and the SDK reserves a scrollbar gutter beside it — those few
+     * pixels are *harness* canvas, painted at a fixed light value; without this every
+     * dark-fixture capture carries a light stripe that reads as a panel defect.
      */
     frame.style.background = hostTokens(state.themeMode).background;
     sendReady();

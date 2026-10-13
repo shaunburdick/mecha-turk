@@ -1,29 +1,6 @@
 /**
- * Hold a claimed run in `blocked:<reason>` after a fail-closed guard refused
- * before any host call (003 FR-042, AC-114;
- * [contracts/dispatch-authorization.md](../../specs/003-dispatch-integrity/contracts/dispatch-authorization.md) §4).
- *
- * A block report is the fourth authorization operation and the only one that
- * produces no token: a guard runs **after** the claim and **before** the reserve,
- * so it holds a live lease and has authorized nothing. That is why it shares the
- * reserve's lease rules (they occupy the same window) while its state verdict is
- * its own — a run that already produced a session answers `invalid-transition`
- * *naming that session*, because contract §4 declares no `already-dispatched` code
- * for a guard report while FR-022 still requires the refusal to name it.
- *
- * Two properties the transition owes:
- *
- * - **A guard refusal consumes nothing.** The attempt number and the automatic
- *   requeue budget are both untouched (gate Q3), so a blocked run waits for the
- *   operator rather than for the sweep — and the sweep never touches a `blocked:*`
- *   run, which is what makes that wait safe rather than a second stranding.
- * - **The cause is a closed set.** `blockedReason` is validated against the four
- *   declared causes so the resulting `blocked:<reason>` state stays parseable
- *   (data-model §2.2); a fifth value would make the document unreadable.
- *
- * The chain task and the refusal-row writer live in
- * [`run-chain.ts`](./run-chain.ts), and the audit rows in
- * [`dispatch-audit.ts`](./dispatch-audit.ts).
+ * Hold a claimed run in `blocked:<reason>` after a fail-closed guard
+ * refused before any host call (003 FR-042, AC-114; contract §4).
  */
 
 import type { ServiceLogger } from '../log.ts';
@@ -38,16 +15,13 @@ import type { RunApplied, RunDuplicate, RunNotFound, RunRefused, RunRefusal } fr
 import type { Run } from './runs-types.ts';
 
 /**
- * The **five** declared guard causes a blocked report may name (FR-042, FR-078;
- * contract §4; data-model §2.2).
- *
- * A **closed set**, and the fifth value is a requirement change rather than a
- * call-site detail: `blocked:<reason>` is validated as prefix + non-empty kebab
- * reason, so a *sixth* declared cause would be a sixth string with no
- * requirement behind it, and an **undeclared** one would still parse but would
- * make the runs document unreadable to any future build that pinned this list.
- * The gate's refusal parks its runs here through this same operation — no new
- * route, no new method.
+ * The **five** declared guard causes a blocked report may name (FR-042,
+ * FR-078; contract §4; data-model §2.2) — a **closed set**. A sixth
+ * declared cause would be a sixth string with no requirement behind it, and
+ * an *undeclared* one would still parse but would make the runs document
+ * unreadable to any future build that pinned this list. The gate's refusal
+ * parks its runs here through this same operation: no new route, no new
+ * method.
  */
 export const BLOCKED_REASONS: ReadonlySet<string> = new Set([
     'project-missing',
@@ -65,9 +39,7 @@ const INVALID_TRANSITION = 'invalid-transition';
 
 /** What one block report carries. */
 export interface BlockInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** The run being blocked, by correlation id. */
     readonly correlationId: string;
@@ -86,14 +58,11 @@ export interface BlockInput {
 }
 
 /**
- * Judge a block report (contract §4).
- *
- * A run that already produced a session answers `invalid-transition` *naming
- * that session* rather than the reserve's `already-dispatched` code, because
- * §4's table declares no such code for a guard report while FR-022 still requires
- * the refusal to name the session.
- *
- * @returns The refusal, or `null` when the run may be blocked now.
+ * Judge a block report (contract §4). A run that already produced a session
+ * answers `invalid-transition` *naming that session* rather than the
+ * reserve's `already-dispatched` code, because §4's table declares no such
+ * code for a guard report while FR-022 still requires the refusal to name
+ * the session.
  */
 function judgeBlock(input: {
     /** The run the report addresses. */
@@ -133,11 +102,8 @@ function judgeBlock(input: {
  * The attempt number is untouched and the lease is dropped with the claim: a
  * guard refusal consumes neither an attempt nor any of the automatic requeue
  * budget (gate Q3), so a blocked run waits for the operator, not for the sweep.
- *
- * @returns The `blocked:<reason>` run.
  */
 function blockedRun(input: {
-    /** The claimed run. */
     readonly run: Run;
     /** Which of the four documented causes fired. */
     readonly blockedReason: string;
@@ -165,8 +131,6 @@ function blockedRun(input: {
 
 /**
  * Write the `run.blocked` row a guard refusal owes.
- *
- * @returns `true` when the row reached the trail.
  */
 async function appendBlockRow(input: {
     /** The block report's own input, for the store and logger. */
@@ -194,9 +158,6 @@ async function appendBlockRow(input: {
 /**
  * Hold a claimed run in `blocked:<reason>` after a fail-closed guard refused
  * before any host call.
- *
- * @returns The blocked run, or the refusal.
- * @throws {StorageUnavailableError} When the run document cannot be read or written.
  */
 export async function blockDispatch(input: BlockInput): Promise<BlockResult> {
     return await operateRun(input, async ({ run, now, persist }): Promise<BlockResult> => {

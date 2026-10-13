@@ -41,6 +41,7 @@ import type { PanelRuntime } from '../src/panel-state.ts';
 import type { RunRow } from '../src/dispatches-service.ts';
 import { fakeDom } from './support/dom.ts';
 import { createStorageDouble, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { stringsIn } from './support/ui-stubs.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -118,45 +119,6 @@ const HTML_SINKS: readonly RegExp[] = [
 
 /** Directory the panel's modules live in, repository-relative. */
 const SRC_DIR = 'src';
-
-/**
- * Collect every string inside one SDK mount's props, however deeply nested.
- *
- * @param found - Accumulator the caller owns.
- */
-function collectStrings(value: unknown, found: string[]): void {
-    if (typeof value === 'string') {
-        found.push(value);
-
-        return;
-    }
-
-    if (Array.isArray(value)) {
-        for (const item of value) {
-            collectStrings(item, found);
-        }
-
-        return;
-    }
-
-    if (typeof value === 'object' && value !== null) {
-        for (const item of Object.values(value)) {
-            collectStrings(item, found);
-        }
-    }
-}
-
-/**
- * Every string one SDK mount was handed, at any depth.
- *
- * @returns The strings among them, in property order.
- */
-function stringsIn(props: unknown): readonly string[] {
-    const found: string[] = [];
-    collectStrings(props, found);
-
-    return found;
-}
 
 /** The four capabilities the scope matrix reports, and their verdicts. */
 const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
@@ -396,7 +358,9 @@ describe('FR-081 every control and row action has an accessible name', () => {
         {
             const row: RunRow = { ...hostileRun(), issueNumber: 412, repository: 'owner/name' };
 
-            expect(rowActionLabel(RETRY_LABEL, row)).toBe('Retry dispatch for #412 in owner/name');
+            // The exact composed label is pinned by dispatches-paging.test.ts;
+            // what FR-081 requires here is that the name carries the row.
+            expect(rowActionLabel(RETRY_LABEL, row)).toContain('#412 in owner/name');
             expect(sourceRevealLabel(false, row)).toContain('#412 in owner/name');
             expect(sourceRevealLabel(true, row)).toContain('#412 in owner/name');
         }

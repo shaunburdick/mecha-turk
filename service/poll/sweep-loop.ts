@@ -1,21 +1,5 @@
 /**
  * The sweep's periodic timer (003 FR-032; T-009, T-040f).
- *
- * The recovery rules live in [`sweep.ts`](./sweep.ts); this module owns only
- * *when* a pass runs, which is a separate responsibility with a separate
- * failure mode: a cadence computed from the wrong source is not a wrong
- * recovery, it is a correct recovery that arrives too late to matter.
- *
- * Two properties follow from that split, and both were defects before it:
- *
- * - **The first tick is armed from the stored durations**, read before the
- *   timer exists. Arming from the defaults left an operator whose `leaseMs`
- *   sat at its 30,000 ms minimum without a sweep pass for the first 60,000 ms
- *   — the recovery that exists to be prompt arriving later than the lease it
- *   recovers.
- * - **The timer is unref'd**, so an idle service can still exit, and armed only
- *   while the loop is running, so a shutdown that lands mid-pass cannot bring
- *   the timer back.
  */
 
 import { nowIso } from '../../src/ids.ts';
@@ -34,9 +18,7 @@ export interface SweepDurations {
 
 /** Store and logger the sweep loop reads. */
 export interface SweepLoopInput {
-    /** Open store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
 }
 
@@ -59,8 +41,6 @@ interface LoopState {
 /**
  * Read the stop flag through a function, so the compiler cannot narrow it away
  * across the `await` boundaries in the cycle.
- *
- * @returns `true` once shutdown has landed.
  */
 function isHalted(state: LoopState): boolean {
     return state.stopped;
@@ -72,8 +52,6 @@ function isHalted(state: LoopState): boolean {
  * twice inside its own window (FR-032's "at least once per lease duration"),
  * independently of the poll interval — a 300 s poll cadence must not push the
  * lease sweep past its own bound.
- *
- * @returns Milliseconds between ticks.
  */
 export function sweepIntervalMs(durations: SweepDurations): number {
     return Math.floor(Math.min(durations.leaseMs, durations.resultDeadlineMs) / 2);
@@ -85,8 +63,6 @@ export function sweepIntervalMs(durations: SweepDurations): number {
  * Exported because the cadence is a property an operator reasons about: a test
  * that pins what the loop will arm is pinning the fix, not an implementation
  * detail of a timer.
- *
- * @returns The configured durations, or the documented defaults.
  */
 export async function readSweepDurations(input: SweepLoopInput): Promise<SweepDurations> {
     try {
@@ -103,8 +79,6 @@ export async function readSweepDurations(input: SweepLoopInput): Promise<SweepDu
 
 /**
  * Schedule the next tick on an unref'd timer.
- *
- * @param durations - The cadence the next tick waits.
  */
 function arm(
     input: { readonly state: LoopState; readonly cycle: () => Promise<void> },
@@ -163,9 +137,6 @@ async function runPass(input: {
  * Each tick re-reads the configured durations, so `PUT /v1/config` retunes the
  * cadence without a restart, and the **first** tick is armed from the stored
  * durations rather than the defaults (T-040f).
- *
- * @param input - Store and logger.
- * @returns A handle that stops the timer.
  */
 export function startSweep(input: SweepLoopInput): SweepLoop {
     const state: LoopState = { timer: null, stopped: false, inFlight: false };

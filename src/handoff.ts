@@ -1,30 +1,5 @@
 /**
- * The panel's one-shot credential handoff (task T-009, token-handoff §2).
- *
- * Write-through, one shot, no cache, no retry buffer: the token enters this
- * module as a function argument and is never retained anywhere — not in a
- * module binding, not in `rt.state`, not in a `finally` that has to remember
- * to clear it (contract §2 step ⑧, failure modes F1–F16). It is never
- * written to `host.storage`, never rendered, and never interpolated into a
- * note: the copy in this file is built from status *codes* only.
- *
- * Order is the contract's: `GET /v1/status` pre-flight so
- * an unwritable store is discovered **before** the token is typed into a
- * request (F10/SEC-08) → `POST /v1/accounts/verify` → map the outcome. (The
- * in-panel consent step that used to sit between the paste and the request
- * was removed by product-owner order on 2026-10-01 — the Accounts section now
- * carries a static disclaimer instead; token-handoff §1.1.) A `HOST_TIMEOUT`
- * re-reads `/v1/status`
- * before the panel declares failure (F4/SEC-05): the service, not the clock,
- * is the authority on whether an account appeared.
- *
- * One refusal is a *positive* signal instead of a failure: the service's 409
- * `duplicate-account` means the pasted token belongs to an account the service
- * already holds, so {@link applyServiceFailure} asks the adoption module to
- * connect it silently (nothing to re-ask — the service already holds the
- * credential) and
- * renders the adopted identity instead of the rotate-the-token copy. Only a
- * failed adoption falls back to the refusal wording.
+ * The panel's one-shot credential handoff: write-through, no cache, never retained — status, verify, map (T-009).
  */
 
 import type { GuestRequestResult } from '@openchamber/sdk';
@@ -51,40 +26,31 @@ export const VERIFY_PATH = '/v1/accounts/verify';
 /** Success status of `POST /v1/accounts/verify` (contract §2.2). */
 const HTTP_CREATED = 201;
 
-/** Success status of the token-replacement route. */
 const HTTP_OK = 200;
 
 /** Status a store-backed route answers with when storage is unusable (F14). */
 const HTTP_STORAGE_UNAVAILABLE = 503;
 
-/** What the panel knows about one handoff attempt. */
 export interface HandoffState {
-    /** Whether `GET /v1/status` reported `service.storage.writable`. */
     storageWritable: boolean;
     /**
      * Account ids seen in the pre-flight, so F4 can detect a new one.
      */
     knownAccountIds: readonly string[];
-    /** Identity rendered as `Connected as <login>` after a success. */
     connected: { readonly numericUserId: string; readonly login: string } | null;
     /** Operator-facing note; never contains credential material. */
     note: string;
-    /** Whether a handoff is currently in flight. */
     busy: boolean;
 }
 
-/** Input accepted by {@link runHandoff}. */
 export interface HandoffInput {
     /** The pasted credential; lives only in this call's scope. */
     readonly token: string;
-    /** Optional operator-supplied expected login. */
     readonly expectedLogin?: string;
 }
 
 /**
  * Create the empty handoff state shown before the first pre-flight.
- *
- * @returns The initial state.
  */
 export function initialHandoffState(): HandoffState {
     return {
@@ -234,16 +200,13 @@ async function applyServiceFailure(rt: PanelRuntime, result: GuestRequestResult)
 }
 
 /**
- * Send the one-shot credential request (contract §2 step ④).
- *
- * When a row has armed the Rotate-token control, the same paste goes to the
- * existing token-replacement route for that account instead (002 FR-012,
- * 005 FR-064): the pre-flight gate and the one-shot clearing are
- * identical — only the path differs, and `expectedLogin` never travels on a
- * rotation, because the route replaces a credential for an account that is
- * already identified (it accepts no constraint).
- *
- * @returns The service's answer.
+ * Send the one-shot credential request (contract §2 step ④). When a row has
+ * armed the Rotate-token control, the same paste goes to the existing
+ * token-replacement route for that account instead (002 FR-012, 005 FR-064):
+ * the pre-flight gate and the one-shot clearing are identical — only the path
+ * differs — and `expectedLogin` never travels on a rotation, because the route
+ * replaces a credential for an account that is already identified (it accepts
+ * no constraint).
  */
 async function requestVerification(rt: PanelRuntime, input: HandoffInput): Promise<GuestRequestResult> {
     const rotating = rt.state.accounts.rotateArmed;

@@ -1,31 +1,5 @@
 /**
  * The history-scope change observer (002 FR-086 – FR-088; plan H12).
- *
- * A binding's history scope can change on three paths, and FR-086 names all
- * three as needing exactly one row each: a whole-file `PUT` through the panel,
- * a hand edit of `bindings.json` the poll loop notices on its next read, and a
- * change riding inside a write alongside other members. This module is what makes
- * "one row per change" a property of **serialisation** rather than of timing —
- * the same posture [`prompt-audit.ts`](./prompt-audit.ts) takes for the starting
- * prompt, and for the same reasons:
- *
- * - **one chain per store handle.** Every seed, every diff, and every append runs
- *   as a task on the same chain, so a poll-cycle observation racing a `PUT`
- *   cannot interleave with the other's read → diff → append sequence;
- * - **one baseline per store handle**, seeded once from the trail itself (the
- *   highest-`seq` row per binding) so a restart does not re-report every change
- *   the trail already records, and a trimmed trail honestly yields "no prior";
- * - **the baseline advances even when an append fails**, so a store that cannot
- *   write the row does not retry it on every subsequent read (003 FR-063's
- *   posture).
- *
- * The row carries **nothing** but the binding, the decision, the previous mode,
- * the new mode, and the actor (002 FR-086). Two fixed names mean there is no
- * free text, no length, and no fingerprint, so nothing credential-shaped is added
- * anywhere and no redaction rule or secret-scan exemption is required (FR-054).
- * No dispatch-lifecycle row gains, loses, or renames a member (FR-088), and no
- * per-observation row is written — the question *"why was this never offered?"*
- * is answered from the binding's own window line and from this trail (FR-087).
  */
 
 import { newCorrelationId } from '../src/ids.ts';
@@ -58,7 +32,6 @@ export type HistoryScopeDecision =
 
 /** The binding members this observation reads. */
 export interface ObservedScope {
-    /** The binding this document entry describes. */
     readonly bindingId: string;
     /** Its stored mode, absent when it stores none. */
     readonly historyScope?: HistoryScope;
@@ -79,8 +52,6 @@ const observationStates = new WeakMap<ServiceStore, ScopeObservationState>();
 
 /**
  * Get (or create) the observation state for one store handle.
- *
- * @returns The handle's baseline and chain.
  */
 function stateFor(store: ServiceStore): ScopeObservationState {
     let state = observationStates.get(store);
@@ -93,22 +64,14 @@ function stateFor(store: ServiceStore): ScopeObservationState {
 }
 
 /**
- * Narrow a value read back from the trail to a recorded mode.
- *
- * **Only a shape a row should have carried is trusted**, the same rule
- * `prompt-audit.ts` applies to a fingerprint and `config-audit.ts` to its own
- * seeds. This value becomes the baseline and is written back into a later row as
- * `from`, so anything that is not one of the two names — a number a hand-edited
- * trail holds, an object, a third string — would otherwise be echoed forward into
- * a new row as though the service had recorded it (002 FR-086's "nothing else").
- *
- * A row that recorded no mode, or one this build does not accept, seeds as the
- * documented default: the trail is history the product did not write, and a
- * seeded value this build cannot vouch for must not become the `from` of a row it
- * does write.
- *
- * @param recorded - The `to` member a prior row carried.
- * @returns The mode, or `null` when the row carried none this build accepts.
+ * Narrow a value read back from the trail to a recorded mode. **Only a shape
+ * a row should have carried is trusted** — the same rule `prompt-audit.ts`
+ * applies to a fingerprint and `config-audit.ts` to its own seeds — because
+ * this value becomes the baseline and is written back as a later row's `from`,
+ * so anything else would be echoed forward as though the service had
+ * recorded it (002 FR-086's *nothing else*). A row carrying no mode this
+ * build accepts seeds as the documented default: a value it cannot vouch for
+ * must not become the `from` of a row it does write.
  */
 function recordedScopeOf(recorded: unknown): HistoryScope | null {
     return HISTORY_SCOPES.find((scope) => scope === recorded) ?? null;
@@ -116,10 +79,6 @@ function recordedScopeOf(recorded: unknown): HistoryScope | null {
 
 /**
  * Seed the baseline from the audit trail: highest-`seq` row per binding.
- *
- * @param baseline - The map to fill (empty on first use for this handle).
- * @throws {StorageUnavailableError} When the trail cannot be read — a chain that
- *   cannot establish its baseline must not start guessing at diffs.
  */
 async function seedBaseline(store: ServiceStore, baseline: Map<string, HistoryScope>): Promise<void> {
     const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
@@ -151,10 +110,6 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, HistorySc
  *
  * The chain promise stored in the state always **resolves**, so a failed task
  * rejects for its own caller without wedging the next one.
- *
- * @param task - The read/append work to serialise.
- * @returns The task's result or rejection, exactly as the task produced it.
- * @throws {StorageUnavailableError} When the baseline cannot be seeded.
  */
 export async function runHistoryScopeChain<T>(store: ServiceStore, task: () => Promise<T>): Promise<T> {
     const state = stateFor(store);
@@ -176,16 +131,13 @@ export async function runHistoryScopeChain<T>(store: ServiceStore, task: () => P
 }
 
 /**
- * Name the decision two modes imply, and only those (002 FR-086).
- *
- * Four cases and no fifth, because the documented default has two sides and both
- * must be distinguishable: a binding moving **to** the default is *cleared*, and
- * a binding moving **from** it is *set*, while any other move is *changed*. The
- * equal case is `changed` — the caller never reaches it, since a resubmission of
- * the mode in force writes nothing (FR-086), and naming it rather than throwing
+ * Name the decision two modes imply, and only those (002 FR-086). Four
+ * cases and no fifth, because the documented default has two sides and both
+ * must be distinguishable: moving **to** the default is *cleared*, moving
+ * **from** it is *set*, any other move is *changed*. The equal case is
+ * `changed` — the caller never reaches it, since a resubmission of the mode
+ * in force writes nothing (FR-086), and naming it rather than throwing
  * keeps the row's vocabulary total.
- *
- * @returns The decision the row records.
  */
 function decisionFor(input: {
     /** The mode in force before this change. */
@@ -206,15 +158,11 @@ function decisionFor(input: {
 }
 
 /**
- * Append exactly one `binding.history-scope-updated` row.
- *
- * The decision is **derived** from the two modes rather than passed in, so the
- * vocabulary (`set` | `changed` | `cleared`) cannot drift from what the baseline
- * says happened — and a resubmission of the mode in force cannot reach this
- * function at all, because the caller compares first.
- *
- * @throws {StorageUnavailableError} When the append fails; the caller decides
- *   whether that rolls anything back (it never does — see the module header).
+ * Append exactly one `binding.history-scope-updated` row. The decision is
+ * **derived** from the two modes rather than passed in, so the vocabulary
+ * (`set` | `changed` | `cleared`) cannot drift from what the baseline says
+ * happened — and a resubmission of the mode in force never reaches this
+ * function, because the caller compares first.
  */
 export async function appendHistoryScopeChange(input: {
     /** Open store whose audit trail this row joins. */
@@ -243,13 +191,10 @@ export async function appendHistoryScopeChange(input: {
     });
 }
 
-/** What one observation of a bindings document carries. */
 interface ScopeObservation {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Logger for a failed append (binding id and the two names only). */
     readonly log: ServiceLogger;
-    /** The bindings document as it now stands. */
     readonly bindings: readonly ObservedScope[];
     /** Who made the changes this document carries. */
     readonly actor: HistoryScopeActor;
@@ -261,8 +206,6 @@ interface ScopeObservation {
  * A dropped binding is not a mode change and writes no row; dropping it from the
  * baseline means re-adding it later reads as a fresh `set` rather than
  * inheriting a mode nobody holds any more.
- *
- * @param observed - The binding ids this document carried.
  */
 function dropUnobserved(state: ScopeObservationState, observed: ReadonlySet<string>): void {
     for (const bindingId of state.baseline.keys()) {
@@ -311,17 +254,13 @@ async function recordOneChange(context: {
 }
 
 /**
- * Diff one bindings document against the baseline and record the differences.
- *
- * **Must run inside {@link runHistoryScopeChain}** — the baseline it reads and
- * writes is only safe while no other observation can interleave with it.
- *
- * A submission that **resends the mode in force writes nothing** (002 FR-086):
- * the comparison below is on effective values, so absence, an explicit
- * `new-only`, and a stored `recent-history` all compare equal to themselves and
- * produce no row.
- *
- * @returns How many rows this observation appended.
+ * Diff one bindings document against the baseline and record the
+ * differences. **Must run inside {@link runHistoryScopeChain}**, because the
+ * baseline it reads and writes is only safe while no other observation can
+ * interleave with it. A submission that resends the mode in force writes
+ * nothing (002 FR-086): the comparison is on effective values, so absence,
+ * an explicit `new-only` and a stored `recent-history` all compare equal to
+ * themselves.
  */
 export async function recordHistoryScopeChanges(input: ScopeObservation): Promise<number> {
     const state = stateFor(input.store);
@@ -353,8 +292,6 @@ export async function recordHistoryScopeChanges(input: ScopeObservation): Promis
  * The entry point `readBindings` funnels through with actor `service`, so a
  * mode edited outside the panel is recorded by whoever the service could
  * actually attribute the change to.
- *
- * @returns How many rows this observation appended.
  */
 export async function observeHistoryScopeChanges(input: ScopeObservation): Promise<number> {
     return await runHistoryScopeChain(input.store, async () => await recordHistoryScopeChanges(input));

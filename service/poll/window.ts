@@ -1,52 +1,6 @@
 /**
  * The scan window one binding opens on (002 FR-065 – FR-072; 006 FR-059(a)).
- *
- * Split out of `loop.ts` so the window rule sits with its own rationale
- * instead of inside the cycle's coordinator — the loop still imports it and
- * re-exports it, so `windowFor` keeps one import path.
- *
- * **There is no window without a lower bound.** Before v1.13.0 `windowFor`
- * returned `string | null` and a `null` meant *no window at all* — a full replay
- * admitting every observation the feed returned, which was also what a
- * stamp the clock could not read fell back to. Both conditions are retired as
- * window sources (002 FR-065), so the function now returns a **verdict**: either
- * a window start or a refusal with a reason (plan H11). There is consequently no
- * value left that means *unbounded*, and `stampInWindow` below has lost the arm
- * that made every stamp in-window.
- *
- * Resolution order, and every branch is bounded (002 FR-065):
- *
- * 1. **a recovery replay** (`forceReplay`) — the retained `baselineAt`, which is
- *    the **widest window this binding has ever scanned from**. FR-073 requires a
- *    replay to re-detect and re-offer in-window work, so it takes precedence over
- *    an armed `rescanFrom`: a catch-up request is an instruction about the *next*
- *    scan, and a replay is about re-covering work that was **lost** — a narrower
- *    window here would silently drop what the recovery exists to restore
- *    (plan H8, corrected 2026-10-05: the flag, not the armed bound, wins);
- * 2. **an armed `rescanFrom`** — FR-023's one chosen lower bound, which is
- *    otherwise the most recent explicit request for this binding's next scan
- *    (plan H5, FR-084);
- * 3. **a recorded `lastScanAt` minus the configured overlap** — the ordinary
- *    incremental window, and the whole of every scan after the first (FR-019);
- * 4. **the retained `baselineAt`** — what a binding with no completed scan scans
- *    from, whatever its history scope is (FR-066, FR-067);
- * 5. **`refused`** — the only state in which a binding opens no window, and it
- *    never falls open to admit every observation (FR-072).
- *
- * The **comparison** the window exists for lives here too, beside the window
- * start it is compared against, and for the same reason: three detectors match
- * their own feed's freshness stamp against the same start, and one of them
- * (`poller-events.ts`) matches an `issue-event`'s `created_at` rather than a
- * listing's `updated_at`. Two spellings of one comparison would be two answers
- * to "is this inside the window", and the second one would be the one nobody
- * tested.
- *
- * **The mode is not an input to anything but the baseline** (002 FR-068). It is
- * read once per binding per scan, by {@link baselineFor}, to decide *which* lower
- * bound a no-completed-scan window opens at; it never reaches
- * {@link stampInWindow}, the page-walk stop rule, or any detector, because the
- * moment it appeared in one of those it would need a rule the others do not have
- * (plan H9). The structural proof is that it is not a parameter of any of them.
+ * Window table: forceReplay → rescanFrom → lastScanAt−overlap → baselineAt → refused; replay beats arming (lost work).
  */
 
 import { effectiveHistoryScope, lookBackMs } from '../bindings-history-scope.ts';
@@ -96,49 +50,22 @@ export const STAMP_UNREADABLE: WindowRefusal = 'stamp-unreadable';
 
 /**
  * Read one stamp, or `null` when it is absent or the clock cannot read it.
- *
- * @param value - The stored member.
- * @returns The stamp, or `null`.
  */
 function readableStamp(value: string | null): string | null {
     return value !== null && !Number.isNaN(Date.parse(value)) ? value : null;
 }
 
 /**
- * Derive and retain the baseline one binding with no completed scan scans from.
- *
- * **Derived once and retained**, which is the whole of FR-066's stability
- * requirement: a scan that fails three times and then succeeds opens at the
- * binding's creation boundary, not at the last attempt's, and a binding whose
- * credential stays broken returns the same window it promised rather than a later
- * one that would quietly exclude work it never failed to scan (AC-036).
- *
- * The derivation reads the **stored** creation stamp, and the three-way answer
- * is what makes FR-072 reachable at all:
- *
- * - **`absent`** — the row stores no stamp, which is legitimate for a
- *   panel-created row, so the assembled `binding.createdAt` (the moment it was
- *   first stored) is the baseline's source;
- * - **`stamp`** — used as it stands;
- * - **`unreadable`** — a stored stamp the clock cannot parse. The baseline is
- *   **never written**, the scan opens no window, and the reason is recorded
- *   against that binding. Deriving from the assembled stamp instead would read
- *   `now` here — because `assembleBinding` substitutes a clock reading for
- *   exactly this case — and FR-072's refusal would silently become a window of
- *   `now − overlapMs` (plan H3).
- *
- * The width comes from the mode, read **here and only here**: the documented
- * default widens the creation boundary by the configured overlap, the look-back
- * mode reaches one fixed look-back before that boundary (FR-066, FR-067). A
- * look-back length outside its own declared bound refuses rather than widening —
- * the only two directions this field may move a window in (FR-060).
- *
- * @returns The baseline stamp, or the refusal that keeps it unwritten.
+ * Derive and retain the baseline one binding with no completed scan scans
+ * from — derived once and retained, which is the whole of FR-066's stability
+ * requirement (AC-036). The **stored** creation stamp is read, never the
+ * assembled one: an `unreadable` stamp refuses rather than becoming `now −
+ * overlapMs` (FR-072, plan H3). The width comes from the mode, read here and
+ * only here (FR-066, FR-067), and an out-of-bound look-back refuses rather
+ * than widening (FR-060).
  */
 export function baselineFor(input: {
-    /** The binding being scanned. */
     readonly binding: BindingRecord;
-    /** What the stored row says about its creation stamp. */
     readonly stored: StoredCreationStamp;
     /** Configured overlap, for the documented default mode. */
     readonly overlapMs: number;
@@ -168,19 +95,13 @@ export function baselineFor(input: {
 }
 
 /**
- * Compute the lower bound this binding's next scan opens at.
- *
- * Reads the mode **zero** times: every branch consults only the slot's own
- * members, so once a binding has a baseline the mode is not consulted again —
- * FR-068's "once a binding has completed a scan its mode is not consulted at
- * all" holds structurally, and so does the recovery row of the window table,
+ * Compute the lower bound this binding's next scan opens at. It reads the
+ * mode **zero** times: every branch consults only the slot's own members, so
+ * FR-068's *once a binding has completed a scan its mode is not consulted at
+ * all* holds structurally, and so does the recovery row of the window table,
  * where the baseline governs *whatever* the mode is (FR-073; plan H8).
- *
- * @returns The window start, or the refusal the binding records as its skip
- *   reason.
  */
 export function windowFor(input: {
-    /** Binding being scanned. */
     readonly binding: BindingRecord;
     /** Scan state read at cycle start. */
     readonly scanned: BindingScanState;
@@ -229,27 +150,15 @@ export function windowFor(input: {
 }
 
 /**
- * The retained baseline a completing scan leaves behind (002 FR-073).
- *
- * **The widest window this binding has ever scanned from, and only ever
- * widening.** A recovery replay opens at `baselineAt`, so a baseline narrower
- * than a window the binding has already scanned would make the replay
- * **narrower** than the work it must re-cover — silently dropping, say, the
- * five-day-old rows a catch-up sweep had already queued. That is the direction
- * this function exists to forbid: `min(prior, opened)` moves the bound earlier
- * and never later, so every replay re-covers **at least** everything any earlier
- * scan covered.
- *
- * Monotone by construction rather than by comparison against a policy, so no
- * reader has to know *why* a bound should not shrink: the only writer is
- * {@link widenBaseline} and the only operation is "keep the earlier of two
- * parseable stamps".
- *
- * @param inputs - The bound already retained, and the window this scan opened at.
- * @returns The bound to store, or `null` when neither is readable.
+ * The retained baseline a completing scan leaves behind (002 FR-073): the
+ * widest window this binding has ever scanned from, and only ever widening.
+ * A recovery replay opens at `baselineAt`, so a baseline narrower than a
+ * window already scanned would drop the work it must re-cover — hence
+ * `min(prior, opened)`, which moves the bound earlier and never later. **The
+ * only writer and the only operation**, so no reader has to know *why* a
+ * bound must not shrink: keep the earlier of two parseable stamps.
  */
 export function widenBaseline(inputs: {
-    /** The bound already on the slot, or `null`. */
     readonly retained: string | null;
     /** The window this scan opened at, or `null` when it refused. */
     readonly opened: string | null;
@@ -267,39 +176,15 @@ export function widenBaseline(inputs: {
 
 /**
  * Whether a scan that opened at one bound has answered an armed `rescanFrom`
- * (002 FR-075, FR-076, FR-084; plan H7).
- *
- * **Coverage, not "the scan completed".** An armed catch-up asks for the window
- * `[armed, now]`, so a scan that opened at or **before** `armed` covered the
- * whole of it and one that opened later did not. `windowFor` returns the armed
- * stamp verbatim, so the equal case is the ordinary one — but a recovery replay
- * opens at the retained baseline instead, and the two can differ in either
- * direction:
- *
- * - the baseline is **later** than the arming (the ordinary case, a binding older
- *   than the look-back): the replay did not reach the arming's ground, so the
- *   arming must survive to be the next scan's window;
- * - the baseline is **earlier** (a binding younger than the look-back, whose arming
- *   is `now − 7 days` against a creation boundary nearer): the replay swept the
- *   arming's ground on its way past, so keeping it would cost one redundant scan
- *   and nothing else.
- *
- * That second case is why this is a comparison and not an equality test, and it is
- * strictly the weaker claim in both directions: it never declares a request
- * answered on a window narrower than the one asked for, and never leaves one
- * answered-but-armed showing as pending.
- *
- * A stamp on either side that cannot be read makes the answer `false`, because a
- * member this function cannot interpret is not a request it may answer — the
- * arming survives for a reader that can interpret it.
- *
- * @param inputs - The window the scan opened at, and the armed bound on the slot.
- * @returns `true` only when the completed scan's window covered the armed one.
+ * (002 FR-075, FR-076, FR-084; plan H7). Coverage, not completion: a scan
+ * that opened at or before the armed stamp covered all of it, so a baseline
+ * earlier than the arming has already swept that ground. A comparison rather
+ * than an equality test, because a replay opens at the retained baseline and
+ * the two can differ in either direction; an unreadable stamp on either side
+ * answers `false`, leaving the arming for a reader that can interpret it.
  */
 export function answersCatchUp(input: {
-    /** The window a completing scan opened at, or `null` when it opened none. */
     readonly opened: string | null;
-    /** The armed lower bound already on the slot, or `null`. */
     readonly armed: string | null;
 }): boolean {
     const opened = readableStamp(input.opened);
@@ -309,21 +194,14 @@ export function answersCatchUp(input: {
 }
 
 /**
- * Decide whether one freshness stamp falls inside the window.
- *
- * **An observation with no readable freshness stamp is never in-window** (002
- * FR-069): a feed entry that cannot report its own date cannot honestly claim to
- * be new, which is the whole fail-closed rule and the reason 002 FR-049's
- * per-item events read may report nothing rather than reaching for a substitute.
- *
- * The arm that used to read "no window means every stamp is in-window" is gone,
- * and deliberately so: `windowStart` is a `string`, so that behaviour is no longer
- * expressible here rather than merely unused (plan H11).
- *
- * @param stamp - The observation's own timestamp (`updated_at` on a listing,
- *   `created_at` on an issue event), or `null` when GitHub sent none.
- * @param windowStart - The window this scan opened.
- * @returns `true` when the stamp is inside the window.
+ * Decide whether one freshness stamp falls inside the window. **An
+ * observation with no readable freshness stamp is never in-window** (002
+ * FR-069): a feed entry that cannot report its own date cannot honestly
+ * claim to be new — the whole fail-closed rule, and the reason FR-049's
+ * per-item events read may report nothing rather than reaching for a
+ * substitute. The arm that used to make a null window admit every stamp is
+ * gone deliberately: `windowStart` is a `string`, so that behaviour is no
+ * longer expressible here rather than merely unused (plan H11).
  */
 export function stampInWindow(stamp: string | null, windowStart: string): boolean {
     if (stamp === null) {
@@ -343,11 +221,8 @@ export function stampInWindow(stamp: string | null, windowStart: string): boolea
  * retained baseline — the two states in which `windowFor` would refuse. Computed
  * from the slot alone so the loop pays for {@link readStoredCreationStamps} only
  * in a cycle where something actually needs it (plan H3).
- *
- * @returns The ids needing a baseline, in binding order.
  */
 export function bindingsNeedingBaseline(input: {
-    /** The bindings this cycle would scan. */
     readonly bindings: readonly BindingRecord[];
     /** Scan state read at cycle start. */
     readonly slots: Readonly<Record<string, BindingScanState>>;

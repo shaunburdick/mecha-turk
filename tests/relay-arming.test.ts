@@ -32,6 +32,7 @@ import {
     fakeHost,
     tick,
 } from './support/panel.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Numeric account id the fixture account and binding share. */
 const ACCOUNT_ID = '77331';
@@ -45,20 +46,12 @@ const ACCOUNTS_BODY = JSON.stringify({
 const UNROUTED_BODY = '{"error":{"code":"not-found","message":"unrouted"}}';
 
 /** One enabled binding row, exactly as the service stores it. */
-function activeBinding(): PanelBinding {
-    return {
-        bindingId: 'bnd-arm-1',
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: LOGIN,
-        repository: REPOSITORY,
-        projectId: PROJECT_ID,
-        worktreeOption: 'generated',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: FIXTURE_TIMESTAMP,
-        updatedAt: FIXTURE_TIMESTAMP,
-    };
-}
+const activeBinding = (): PanelBinding => fixtureBindingRow('bnd-arm-1', {
+    accountLogin: LOGIN,
+    worktreeOption: 'generated',
+    triggers: { assignment: true, mention: false, reviewRequest: false },
+    stamp: FIXTURE_TIMESTAMP,
+});
 
 /**
  * Body `GET /v1/bindings` answers with for the given rows.

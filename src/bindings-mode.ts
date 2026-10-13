@@ -1,19 +1,5 @@
 /**
- * Bindings-authoritative panel mode (MVP blocker 1 fix, 2026-09-27).
- *
- * When the service reports at least one enabled repository binding, the
- * panel's configuration comes from that binding, not from legacy Settings
- * single-repo settings — a banner demanding `repository` is simply wrong
- * with the MVP bindings flow in place. The event relay already dispatches
- * from binding data (the claimed event carries repository, project, and
- * worktree option), so this module only has to keep the banner honest: the
- * first enabled binding becomes the authoritative dispatch context for
- * `rt.state.config`, which the project picker and the message framing read.
- *
- * There is no legacy poll loop left to stop — the panel's own loop and its
- * manual dispatch path went with the install-time GitHub credential. The
- * service's poll loop and the root-owned relay are the only loops in the
- * product, and neither is armed from here.
+ * Bindings-authoritative panel mode: an enabled binding becomes the dispatch context `rt.state.config` carries.
  */
 
 import { DEFAULT_POLL_INTERVAL_MS, parseRepository, parseWorktreeOption } from './config.ts';
@@ -38,16 +24,13 @@ export function firstEnabledBinding(bindings: readonly PanelBinding[]): PanelBin
 }
 
 /**
- * Derive the dispatch context from one enabled binding.
- *
- * The binding's repository, project, and worktree option are authoritative;
- * `expectedLogin` stays `null` because the panel's own connected token is a
- * legacy concern the relay never consults, and an inherited login would
- * fail the identity check whenever the panel token differs from the bound
- * account. The poll interval defaults: the relay polls on its own cadence.
- *
- * @returns The configuration, or `null` when the binding row does not parse
- *   (the service validates these fields, so this is a defensive fallback).
+ * Derive the dispatch context from one enabled binding. The binding's
+ * repository, project, and worktree option are authoritative; `expectedLogin`
+ * stays `null` because the panel's own connected token is a legacy concern the
+ * relay never consults, and an inherited login would fail the identity check
+ * whenever the panel token differs from the bound account. The poll interval
+ * defaults: the relay polls on its own cadence. `null` when the binding row
+ * does not parse — the service validates these fields, so this is defensive.
  */
 export function bindingContext(binding: PanelBinding): BindingContext | null {
     const repository = parseRepository(binding.repository);
@@ -66,8 +49,6 @@ export function bindingContext(binding: PanelBinding): BindingContext | null {
 
 /**
  * Build the info banner for bindings-authoritative mode.
- *
- * @returns The banner content.
  */
 export function bindingsActiveStatus(count: number): PanelStatus {
     return {
@@ -90,19 +71,14 @@ export function applyBindingsMode(rt: PanelRuntime): void {
 }
 
 /**
- * Load the service bindings once at mount and arm the relay (MVP blocker 1).
- *
- * `applySettings` runs before any service read has answered, so a panel with
- * bindings but no legacy settings would otherwise show the legacy refusal
- * banner for the whole mount. This check re-resolves the configuration once
- * the bindings are in state, and arms the event relay — but only when
- * bindings actually landed, because a relay dispatching against an empty
- * binding table would drain queued events as `binding-missing` before it
- * ever saw the binding they belong to. This mount-time arm is deliberately
- * duplicated: `bindings.loadBindings` arms on every later read or grant
- * that lands an enabled binding, which covers the mount-time 503 and the
- * first binding added in-session (both arm idempotently through
- * `startRelayPolling`).
+ * Load the service bindings once at mount and arm the relay (MVP blocker 1). `applySettings` runs
+ * before any service read has answered, so a panel with bindings but no legacy settings would show
+ * the legacy refusal banner for the whole mount — this re-resolves the configuration once the
+ * bindings are in state, and arms the relay only when bindings actually landed, because a relay
+ * dispatching against an empty table would drain queued events as `binding-missing` before it saw
+ * the binding they belong to. The mount-time arm is deliberately duplicated: `loadBindings` arms
+ * on every later read or grant that lands an enabled binding, both idempotent through
+ * `startRelayPolling`.
  */
 export async function loadInitialBindings(rt: PanelRuntime): Promise<void> {
     await loadBindings(rt);

@@ -1,25 +1,8 @@
 /**
- * The Bindings tab's working state (M3) and its empty state.
- *
- * Split out of [`panel-state.ts`](./panel-state.ts) for the file-length gate,
- * and for the reason `accounts-state.ts` is its own module too: a tab's working
- * state with its own constructor is a single responsibility, and the shared
- * state module is at its cap. `panel-state.ts` re-exports both names, so no
- * call site had to change with the move.
- *
- * Two kinds of member live here, and the difference is load-bearing. The
- * **service's** lists — the bindings it holds, the accounts it registered, the
- * per-binding scan rows it projects — are replaced wholesale by a read or a
- * grant and never edited in place. The **draft** fields are the operator's
- * in-progress values, which only the actions in `bindings.ts`,
- * `bindings-edit.ts`, and `bindings-mount.ts` write; a save the service refuses
- * leaves them on screen exactly as they were typed (005 FR-019, FR-085).
- *
- * The two operator-authored values — the starting prompt (004 FR-014) and the
- * actor allow-list (002 FR-047) — each keep a text field, a dirty flag, and the
- * service's own field-level refusal, and every reader and writer of such a trio
- * goes through the module that owns the value rather than touching the flag
- * directly.
+ * The Bindings tab's working state and its empty state. The service's lists
+ * are replaced wholesale by a read or a grant and never edited in place; the
+ * draft fields are the operator's in-progress values, which a save the service
+ * refuses leaves on screen exactly as they were typed (005 FR-019, FR-085).
  */
 
 import { DEFAULT_HISTORY_SCOPE } from './bindings-service.ts';
@@ -147,26 +130,19 @@ export interface BindingsTabState {
     allowedUsersError: string | null;
     /**
      * Draft history scope — one of the two names, and **never** "unset" (002
-     * FR-058, FR-093).
-     *
-     * A select rather than text, so the draft holds a member of the field's closed
-     * vocabulary and the panel never has to validate one: the service judges the
-     * value, the panel only offers it (002 FR-063). In **add mode** it starts at
-     * the documented default, which is what an untouched control then writes — so
-     * a choice the creator may indicate is met by a control that also works when
-     * they indicate nothing (002 FR-089).
-     *
-     * The whole-file write carries this on **every** row, and omission means
-     * *leave this one alone* — the prompt's rule, unlike the allow-list's (002
-     * FR-057).
+     * FR-058, FR-093). A select rather than text, so the draft holds a member
+     * of the field's closed vocabulary and the panel never validates one: the
+     * service judges the value, the panel only offers it (002 FR-063). In
+     * **add mode** it starts at the documented default, which is what an
+     * untouched control then writes (002 FR-089). The whole-file write carries
+     * this on **every** row and omission means *leave this one alone* — the
+     * prompt's rule, unlike the allow-list's (002 FR-057).
      */
     historyScopeInput: HistoryScope;
 }
 
 /**
  * Build the empty Bindings tab state.
- *
- * @returns The state before the first load.
  */
 export function initialBindings(): BindingsTabState {
     return {

@@ -1,11 +1,5 @@
 /**
- * The interval timer that drives the M1 poll loop (re-cut 2026-09-27).
- *
- * An immediate first cycle, then self-rescheduling timers that re-read the
- * configured interval each cycle, so `PUT /v1/config` retunes the loop
- * without a restart. The timer is unref'd, so it never keeps an idle process
- * alive, and the shutdown path cancels it through {@link PollLoop.stop}. A
- * cycle still running when the next timer fires is skipped, not overlapped.
+ * The interval timer that drives the M1 poll loop.
  */
 
 import type { ServiceLogger } from '../log.ts';
@@ -24,8 +18,6 @@ export type { PollLoop };
  * The timer is unref'd, so it never keeps an idle process alive, and the
  * shutdown path cancels it through {@link PollLoop.stop}. A cycle still
  * running when the next timer fires is skipped rather than overlapped.
- *
- * @returns A handle that stops the loop.
  */
 export function startPollLoop(deps: ScanDeps): PollLoop {
     let timer: NodeJS.Timeout | null = null;
@@ -87,9 +79,6 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
 /**
  * Build the poller production uses: the shared logger, a real timer, and the
  * process' own jitter source.
- *
- * @param log - Logger every poll-request wait is reported through.
- * @returns The poller bound to those injectables.
  */
 export function createDefaultPoller(log: ServiceLogger): GitHubIssuePoller {
     return createGitHubIssuePoller({ log });

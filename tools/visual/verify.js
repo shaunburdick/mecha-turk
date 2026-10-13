@@ -1,33 +1,12 @@
 /**
- * Proof that a captured frame is the frame that was asked for.
- *
- * Screenshot runs in this environment have silently returned *stale* images
- * before — the picture of a page that had already been navigated away from —
- * so nothing here trusts a file's existence. Every image is decoded and read
- * back, and four independent questions are put to it:
- *
- * 1. **Sentinel probe** (`verifyProbe`): right before each capture, `host.js`
- *    covers the document with a per-capture colour and a throwaway screenshot
- *    is decoded. At least 90% of its pixels must be exactly that colour — a
- *    frame from one step earlier cannot be.
- * 2. **No leftover sentinel** (`assertNoSentinel`): the delivered frame must
- *    contain no trace of any sentinel colour, so it is not a probe frame.
- * 3. **Strip read-back** (`assertStrip`): the fill of the *selected* tab's
- *    pill, sampled where the DOM said it would be, must match the colour the
- *    cascade reports. A frame showing the previously selected tab paints the
- *    wrong pill and fails here.
- * 4. **Width read-back** (`verifyDelivered`): the frame's width must equal
- *    the width that was asked for — a narrow pass that quietly reused the
- *    wide viewport delivers the wrong width, and no pixel comparison of two
- *    *same-content* frames can be relied on to notice.
- * 5. **Consecutive difference** (`verifyDelivered`): the frame must differ
- *    from the last capture **at the same width**, which a re-emitted old
- *    frame does not. Frames at different widths are never compared: their
- *    overlap is background plus left-aligned text that did not move, so a
- *    genuine pair can sit under any sane threshold.
- *
- * A failure throws, and `shot.js` stops the run rather than publish a picture
- * it cannot vouch for.
+ * Proof that a captured frame is the frame that was asked for. Screenshot runs here have silently
+ * returned *stale* images before, so nothing trusts a file's existence: every image is decoded and
+ * read back through five independent questions — a sentinel probe (at least 90% of a throwaway
+ * frame is the colour just painted), no leftover sentinel in the delivered frame, the selected
+ * tab's pill fill matching the cascade, the frame's width equal to the width asked for, and a
+ * difference from the last capture **at the same width** (frames at different widths are never
+ * compared: their overlap is background plus unmoved text). A failure throws, and `shot.js` stops
+ * the run rather than publish a picture it cannot vouch for.
  */
 import { boxAverage, colorFraction, diffFraction, hexToRgb, readPng } from './png.js';
 
@@ -122,12 +101,7 @@ function assertStrip(image, strip) {
     }
 }
 
-/**
- * Decode a probe capture and insist it is the sentinel just painted.
- *
- * @param input - `{ path, color }`, the throwaway frame and its colour.
- * @returns The matched fraction, for the run's report.
- */
+/** Decode a probe capture and insist it is the sentinel just painted; returns the matched fraction. */
 function verifyProbe(input) {
     const image = readPng(input.path);
     const fraction = colorFraction(image, hexToRgb(input.color));
@@ -143,17 +117,11 @@ function verifyProbe(input) {
 }
 
 /**
- * Decode a delivered capture and run every freshness check against it.
- *
- * The width is asserted rather than inferred: a frame whose width is not the
- * width that was asked for is exactly what a skipped viewport resize looks
- * like (the narrow pass re-delivering the wide bitmap), and the pixel diff
- * cannot be trusted to catch it — two frames of the *same* content at
- * different widths can legitimately share 99% of their pixels, because the
- * overlap is background plus left-aligned text that never moved.
- *
- * @param input - `{ path, strip, probeColors, expectedWidth, previous, minimumHeight }`.
- * @returns `{ image, size, diff }` for the report and the next comparison.
+ * Decode a delivered capture and run every freshness check against it. The width is asserted
+ * rather than inferred: a frame at the wrong width is what a skipped viewport resize looks like
+ * (the narrow pass re-delivering the wide bitmap), and the pixel diff cannot be trusted to catch
+ * it — two frames of the *same* content at different widths can share 99% of their pixels,
+ * because the overlap is background plus left-aligned text that never moved.
  */
 function verifyDelivered(input) {
     const image = readPng(input.path);

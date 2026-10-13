@@ -1,28 +1,5 @@
 /**
  * The prompt-change observer (004 FR-051, SC-125; plan D8, N3).
- *
- * A binding's prompt can change on two paths that must never both record it:
- * a whole-file `PUT` through the panel, and a hand edit of `bindings.json`
- * that the poll loop notices on its next read. This module makes "exactly one
- * row per change" a property of *serialisation* rather than of timing:
- *
- * - **one chain per store handle** — every baseline seed, every read of the
- *   bindings document, every write of it, and every diff runs as a task on the
- *   same chain, so a poll-cycle observation racing a `PUT` cannot interleave
- *   its read → diff → write → baseline sequence with the other's;
- * - **one baseline per store handle**, seeded once from the trail itself
- *   (the highest-`seq` `binding.prompt-updated` row per binding) so
- *   `previousFingerprint` survives a restart without a new store file
- *   (004 NFR-129) and a trimmed trail honestly yields `null`;
- * - **the baseline advances even when an append fails** — the same posture
- *   003 FR-063 gives its lifecycle rows: state stands, the failure is logged
- *   as a `warn` naming the binding and the fingerprint (never the text), and
- *   nothing rolls back.
- *
- * The row itself carries the binding, presence, fingerprint, length, the
- * previous fingerprint, and the actor — and **never the prompt's text**
- * (004 FR-051, FR-053). The text lives in the binding and in the run's own
- * snapshot, nowhere else.
  */
 
 import { newCorrelationId } from '../src/ids.ts';
@@ -46,7 +23,6 @@ export type PromptChangeActor = 'operator' | 'service';
 
 /** The binding members an observation reads. */
 export interface ObservedBinding {
-    /** The binding this document entry describes. */
     readonly bindingId: string;
     /** Its stored prompt, when it carries one. */
     readonly startingPrompt?: string;
@@ -62,13 +38,12 @@ interface PromptObservationState {
     chain: Promise<unknown>;
 }
 
-/** One state per store handle: a restart re-seeds, a shared handle shares. */
+/** One state per store handle: a restart re-seeds `previousFingerprint` from the trail without a
+ * new store file (004 NFR-129) and a trimmed trail honestly yields `null`; a shared handle shares. */
 const observationStates = new WeakMap<ServiceStore, PromptObservationState>();
 
 /**
  * Get (or create) the observation state for one store handle.
- *
- * @returns The handle's baseline and chain.
  */
 function stateFor(store: ServiceStore): PromptObservationState {
     let state = observationStates.get(store);
@@ -82,10 +57,6 @@ function stateFor(store: ServiceStore): PromptObservationState {
 
 /**
  * Seed the baseline from the audit trail: highest-`seq` row per binding.
- *
- * @param baseline - The map to fill (empty on first use for this handle).
- * @throws {StorageUnavailableError} When the trail cannot be read — a chain
- *   that cannot establish its baseline must not start guessing at diffs.
  */
 async function seedBaseline(store: ServiceStore, baseline: Map<string, string | null>): Promise<void> {
     const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
@@ -131,10 +102,6 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
  * The chain promise stored in the state always **resolves**, so a failed task
  * rejects for its own caller without wedging the next one — the same shape the
  * audit writer's write chain uses.
- *
- * @param task - The read/write/diff work to serialise.
- * @returns The task's result or rejection, exactly as the task produced it.
- * @throws {StorageUnavailableError} When the baseline cannot be seeded.
  */
 export async function runPromptChain<T>(store: ServiceStore, task: () => Promise<T>): Promise<T> {
     const state = stateFor(store);
@@ -170,14 +137,11 @@ export interface PromptChange {
 }
 
 /**
- * Append exactly one `binding.prompt-updated` row.
- *
- * The decision is derived from the two fingerprints rather than passed in, so
- * the vocabulary (`set` | `changed` | `cleared`) cannot drift from what the
- * baseline says happened.
- *
- * @throws {StorageUnavailableError} When the append fails; the caller decides
- *   whether that rolls anything back (it never does — see the module header).
+ * Append exactly one `binding.prompt-updated` row. The decision is derived
+ * from the two fingerprints rather than passed in, so the vocabulary (`set`
+ * | `changed` | `cleared`) cannot drift from what the baseline says
+ * happened. A failed append is logged and answered `false`; it never rolls
+ * anything back.
  */
 export async function appendPromptChange(input: PromptChange): Promise<void> {
     const isPresent = input.current !== null;
@@ -207,13 +171,10 @@ export async function appendPromptChange(input: PromptChange): Promise<void> {
     });
 }
 
-/** What one observation of a bindings document carries. */
 interface PromptObservation {
-    /** Open store. */
     readonly store: ServiceStore;
     /** Logger for a failed append (binding id and fingerprint only). */
     readonly log: ServiceLogger;
-    /** The bindings document as it now stands. */
     readonly bindings: readonly ObservedBinding[];
     /** Who made the changes this document carries. */
     readonly actor: PromptChangeActor;
@@ -225,8 +186,6 @@ interface PromptObservation {
  * A dropped binding is not a prompt change and writes no row; dropping it from
  * the baseline means re-adding it later reads as a fresh `set` rather than
  * inheriting a fingerprint nobody holds any more.
- *
- * @param observed - The binding ids this document carried.
  */
 function dropUnobserved(state: PromptObservationState, observed: ReadonlySet<string>): void {
     for (const bindingId of state.baseline.keys()) {
@@ -280,8 +239,6 @@ async function recordOneChange(context: {
  *
  * **Must run inside {@link runPromptChain}** — the baseline it reads and
  * writes is only safe while no other observation can interleave with it.
- *
- * @returns How many rows this observation appended.
  */
 export async function recordPromptChanges(input: PromptObservation): Promise<number> {
     const state = stateFor(input.store);
@@ -314,8 +271,6 @@ export async function recordPromptChanges(input: PromptObservation): Promise<num
  * This is the entry point `readBindings` funnels through with actor `service`,
  * so a prompt edited outside the panel is recorded by whoever the service
  * could actually attribute the change to.
- *
- * @returns How many rows this observation appended.
  */
 export async function observePromptChanges(input: PromptObservation): Promise<number> {
     return await runPromptChain(input.store, async () => await recordPromptChanges(input));

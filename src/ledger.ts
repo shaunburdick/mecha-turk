@@ -1,17 +1,5 @@
 /**
- * The panel's test ledger, persisted through the documented
- * `host.storage` API.
- *
- * The ledger is evidence, not a production queue: it records lifecycle phases,
- * poll attempts, matches, dispatches, and host verification with correlation
- * IDs so the acceptance checklist can be answered from data instead of
- * impressions. Every write passes {@link serializeLedger}, which fails closed
- * on secret-shaped content and on the host's 64 KiB value limit.
- *
- * Storage content is untrusted: reading it back goes through small, total
- * validators rather than casts, so a removed extension's empty namespace,
- * another server's data, or a hand-edited value cannot corrupt the panel.
- * Those validators are declared before the readers that call them.
+ * The panel's test ledger (`host.storage`): attempts, dispatches, verification (NFR-007), writes redaction-checked.
  */
 
 import { GUEST_STORAGE_VALUE_BYTES } from '@openchamber/sdk';
@@ -22,19 +10,14 @@ import { assertRedacted, redact, stripCredentialKeys } from './redaction.ts';
 /** Schema version stamped on every ledger. */
 export const LEDGER_SCHEMA_VERSION = 'spike-ledger-1';
 
-/** Storage key for the ledger. Uses the extension's namespace. */
 export const LEDGER_STORAGE_KEY = 'mecha-turk:ledger';
 
-/** Maximum number of entries kept; the oldest are dropped first. */
 export const MAX_LEDGER_ENTRIES = 100;
 
-/** Maximum characters kept for one entry's detail value. */
 export const MAX_DETAIL_CHARS = 200;
 
-/** Lifecycle phases the experiment must observe explicitly. */
 export type LifecyclePhase = 'mounted' | 'closed' | 'paused' | 'removed' | 'server-switch';
 
-/** All lifecycle phases, in experiment order. */
 export const LIFECYCLE_PHASES: readonly LifecyclePhase[] = ['mounted', 'closed', 'paused', 'removed', 'server-switch'];
 
 /**
@@ -48,7 +31,6 @@ const LEDGER_KINDS = [
     'session', 'host-verify', 'lifecycle', 'error',
 ] as const;
 
-/** What a ledger entry records; derived from {@link LEDGER_KINDS}. */
 export type LedgerEntryKind = (typeof LEDGER_KINDS)[number];
 
 /** Scalar values allowed inside a ledger detail; keeps storage JSON-safe. */
@@ -58,35 +40,22 @@ export type LedgerScalar = string | number | boolean | null;
 export type LedgerDetail = Record<string, LedgerScalar>;
 
 export interface LedgerEntry {
-    /** Monotonic sequence number within the ledger. */
     readonly seq: number;
-    /** RFC 3339 timestamp. */
     readonly at: string;
-    /** Correlation identifier linking this entry to its observation. */
     readonly correlationId: string;
-    /** Panel mount generation that produced the entry. */
     readonly panelGeneration: number;
-    /** What the entry records. */
     readonly kind: LedgerEntryKind;
-    /** Redacted detail payload. */
     readonly detail: LedgerDetail;
-    /** Set only for `kind: 'phase'`. */
     readonly phase?: LifecyclePhase;
 }
 
-/** The persisted ledger. */
 export interface PanelLedger {
-    /** Contract schema version. */
     readonly schemaVersion: typeof LEDGER_SCHEMA_VERSION;
-    /** Correlation identifier for the whole experiment run. */
     readonly correlationId: string;
-    /** Mount generation that last wrote the ledger. */
     readonly panelGeneration: number;
     /** `true` when the key already existed at this mount (absence is evidence). */
     readonly storagePresentBeforeMount: boolean;
-    /** RFC 3339 time the ledger was created. */
     readonly createdAt: string;
-    /** Entries, oldest first, capped at {@link MAX_LEDGER_ENTRIES}. */
     entries: LedgerEntry[];
 }
 
@@ -141,12 +110,10 @@ function isScalar(value: JsonValue): value is LedgerScalar {
     return typeof value === 'number' && Number.isFinite(value);
 }
 
-/** Narrow an unknown value to a lifecycle phase. */
 export function isLifecyclePhase(value: unknown): value is LifecyclePhase {
     return typeof value === 'string' && (LIFECYCLE_PHASES as readonly string[]).includes(value);
 }
 
-/** Identity fields shared by every ledger entry. */
 interface EntryHead {
     readonly seq: number;
     readonly at: string;
@@ -273,7 +240,6 @@ function readEntries(value: JsonValue | undefined): LedgerEntry[] | null {
     return entries;
 }
 
-/** Header fields of a stored ledger. */
 interface LedgerHeader {
     readonly correlationId: string;
     readonly createdAt: string;
@@ -324,19 +290,13 @@ export function readLedger(value?: JsonValue): PanelLedger | null {
     return { schemaVersion: LEDGER_SCHEMA_VERSION, ...header, entries };
 }
 
-/** Inputs for {@link createLedger}. */
 export interface CreateLedgerInput {
-    /** Correlation identifier for the experiment run. */
     readonly correlationId: string;
-    /** Mount generation; `1` for the first mount in a storage namespace. */
     readonly panelGeneration: number;
-    /** Whether the storage key already existed before this mount. */
     readonly storagePresentBeforeMount: boolean;
-    /** RFC 3339 creation time. */
     readonly createdAt: string;
 }
 
-/** Create an empty ledger for a panel mount. */
 export function createLedger(input: CreateLedgerInput): PanelLedger {
     return {
         schemaVersion: LEDGER_SCHEMA_VERSION,
@@ -349,13 +309,12 @@ export function createLedger(input: CreateLedgerInput): PanelLedger {
 }
 
 /**
- * Truncate, de-credential, and redact a detail payload before it is appended.
- *
- * `error` is the one free-form field: it stringifies whatever was thrown, so a
- * provider message could carry a secret shape. Redacting it here neutralizes
- * the value at append time instead of leaving the persist gate to discover it.
- *
- * @returns A copy whose strings are bounded, credential-free, and redacted.
+ * Truncate, de-credential, and redact a detail payload before it is appended:
+ * `error` is the one free-form field — it stringifies whatever was thrown, so a
+ * provider message could carry a secret shape — and redacting it here
+ * neutralizes the value at append time instead of leaving the persist gate to
+ * discover it. Returns a copy whose strings are bounded, credential-free, and
+ * redacted.
  */
 function sanitizeDetail(detail: LedgerDetail): LedgerDetail {
     const clean = stripCredentialKeys(detail);
@@ -371,26 +330,18 @@ function sanitizeDetail(detail: LedgerDetail): LedgerDetail {
     return clean;
 }
 
-/** Inputs for {@link appendEntry}. Missing identifiers default to the ledger's own. */
 export interface LedgerEntryInput {
-    /** RFC 3339 timestamp. */
     readonly at: string;
-    /** What the entry records. */
     readonly kind: LedgerEntryKind;
-    /** Redacted detail payload. */
     readonly detail: LedgerDetail;
-    /** Correlation identifier; defaults to the ledger's. */
     readonly correlationId?: string;
-    /** Panel generation; defaults to the ledger's. */
     readonly panelGeneration?: number;
-    /** Phase for a `phase` entry. */
     readonly phase?: LifecyclePhase;
 }
 
 /**
  * Append one entry, returning a new ledger.
  *
- * @returns A new ledger containing the entry, with the oldest entry dropped
  * when {@link MAX_LEDGER_ENTRIES} would be exceeded.
  */
 export function appendEntry(ledger: PanelLedger, input: LedgerEntryInput): PanelLedger {
@@ -413,17 +364,12 @@ export function appendEntry(ledger: PanelLedger, input: LedgerEntryInput): Panel
     return { ...ledger, entries };
 }
 
-/** Inputs for {@link recordPhase}. */
 export interface PhaseInput {
-    /** Phase being recorded. */
     readonly phase: LifecyclePhase;
-    /** RFC 3339 timestamp. */
     readonly at: string;
-    /** Optional operator note. */
     readonly note?: string;
 }
 
-/** Append a lifecycle phase entry. */
 export function recordPhase(ledger: PanelLedger, input: PhaseInput): PanelLedger {
     return appendEntry(ledger, {
         at: input.at,
@@ -434,15 +380,11 @@ export function recordPhase(ledger: PanelLedger, input: PhaseInput): PanelLedger
 }
 
 /**
- * Serialize a ledger for storage.
- *
- * Size is measured in UTF-8 bytes, exactly like the host's own gate, because
- * `String.length` under-counts non-ASCII content and would let a ledger the
- * host refuses pass here.
- *
- * @returns Compact JSON asserted to be secret-free and within the host's value limit.
- * @throws {RedactionError} When the ledger matches a secret shape.
- * @throws {Error} When the serialized ledger exceeds the host's 64 KiB value limit.
+ * Serialize a ledger for storage. Size is measured in UTF-8 bytes, exactly like
+ * the host's own gate, because `String.length` under-counts non-ASCII content
+ * and would let a ledger the host refuses pass here. Compact JSON asserted
+ * secret-free and within the host's value limit; throws `RedactionError` on a
+ * secret shape, `Error` past the 64 KiB limit.
  */
 export function serializeLedger(ledger: PanelLedger): string {
     const json = JSON.stringify(ledger);
@@ -456,8 +398,6 @@ export function serializeLedger(ledger: PanelLedger): string {
 
 /**
  * Assert that a ledger can be persisted without carrying secret material.
- *
- * @throws {RedactionError} When the serialized ledger matches a secret shape.
  */
 export function assertLedgerRedacted(ledger: PanelLedger): void {
     serializeLedger(ledger);
@@ -473,32 +413,22 @@ function isInside(input: { at: string; start: number; end: number }): boolean {
     return !Number.isNaN(parsed) && parsed > input.start && parsed < input.end;
 }
 
-/** Verdict of the panel-close gap analysis. */
 export type GapVerdict = 'polling-continued' | 'polling-stopped' | 'no-gap';
 
-/** Result of comparing poll activity across a panel-close interval. */
 export interface GapAnalysis {
-    /** What the evidence says happened while the panel was closed. */
     readonly verdict: GapVerdict;
-    /** Number of `poll` entries strictly inside the interval. */
     readonly pollEntriesInGap: number;
-    /** Start of the analysed interval. */
     readonly closedAt: string;
-    /** End of the analysed interval. */
     readonly reopenedAt: string;
-    /** Elapsed milliseconds of the analysed interval; `0` when it is unusable. */
     readonly gapMs: number;
 }
 
 /**
- * Analyse whether polling continued while the panel was closed.
- *
- * The ledger only receives `poll` entries from a running panel, so a gap with
- * no poll entries is direct evidence that the poll loop stopped with the
- * frame. The verdict is computed from stored entries, never inferred from an
- * open panel.
- *
- * @returns The verdict plus the number of poll entries inside the interval.
+ * Analyse whether polling continued while the panel was closed: the ledger only
+ * receives `poll` entries from a running panel, so a gap with no poll entries is
+ * direct evidence the loop stopped with the frame — computed from stored
+ * entries, never inferred from an open panel. Answers the verdict plus the
+ * number of poll entries inside the interval.
  */
 export function analyzePollingGap(input: { ledger: PanelLedger; closedAt: string; reopenedAt: string }): GapAnalysis {
     const { ledger, closedAt, reopenedAt } = input;
@@ -518,8 +448,6 @@ export function analyzePollingGap(input: { ledger: PanelLedger; closedAt: string
 
 /**
  * Return the most recent entries, newest first, for display.
- *
- * @returns Up to `count` entries, newest first.
  */
 export function ledgerTail(ledger: PanelLedger, count: number): readonly LedgerEntry[] {
     return ledger.entries.slice(-count).toReversed();

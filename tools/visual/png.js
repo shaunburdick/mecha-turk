@@ -1,22 +1,11 @@
 /**
- * Minimal PNG codec plus the pixel metrics `shot.js` verifies captures with.
- *
- * The environment has no ImageMagick, no `pdftoppm`, no `pdftocairo`, and no
- * Playwright — so a screenshot is only trustworthy if the tool that took it
- * can read the bytes back. This module decodes what Chrome writes (8-bit,
- * non-interlaced; colour types 0/2/3/4/6) and answers the three questions a
- * freshness check asks:
- *
- * - `colorFraction` — how much of the frame is the sentinel colour?
- * - `boxAverage`    — what colour is the strip's selected pill painted?
- * - `diffFraction`  — how much changed since the previous capture?
- *
- * `png-selftest.js` proves the decoder against a file it encoded itself;
- * `shot.js` runs that proof before it captures anything, so a broken codec
- * fails the run rather than a screenshot.
- *
- * Definitions are ordered callees-before-callers: `no-use-before-define`
- * counts function declarations too, so the leaves come first.
+ * Minimal PNG codec plus the pixel metrics `shot.js` verifies captures with: there is no
+ * ImageMagick, no pdftoppm/pdftocairo and no Playwright here, so a screenshot is only trustworthy
+ * if the tool that took it can read the bytes back. Decodes what Chrome writes (8-bit,
+ * non-interlaced; colour types 0/2/3/4/6) and answers `colorFraction`, `boxAverage` and
+ * `diffFraction`. `png-selftest.js` proves the decoder against a file it encoded itself, and
+ * `shot.js` runs that proof before it captures anything. Definitions are ordered
+ * callees-before-callers: `no-use-before-define` counts function declarations too.
  */
 import { Buffer } from 'node:buffer';
 import { readFileSync } from 'node:fs';
@@ -67,12 +56,7 @@ const DEFAULT_TOLERANCE = 6;
 /** Default distance above which two pixels count as changed. */
 const DEFAULT_DIFF_THRESHOLD = 30;
 
-/**
- * Parse `#rrggbb` into the `[red, green, blue]` triple the metrics use.
- *
- * @param hex - Six hex digits with a leading `#`.
- * @returns Three channel values, 0–255 each.
- */
+/** Parse `#rrggbb` into the `[red, green, blue]` triple the metrics use. */
 function hexToRgb(hex) {
     return [
         Number.parseInt(hex.slice(HEX_SLICES.red.from, HEX_SLICES.red.to), HEX_RADIX),
@@ -81,13 +65,7 @@ function hexToRgb(hex) {
     ];
 }
 
-/**
- * Sum-of-channels distance between one pixel and one colour.
- *
- * @param data - RGBA bytes of the image.
- * @param point - `{ offset, rgb }`, the pixel's index and the colour to beat.
- * @returns Distance, 0 when the channels match exactly.
- */
+/** Sum-of-channels distance between one pixel and one colour; 0 when the channels match exactly. */
 function colorDistance(data, point) {
     const { offset, rgb } = point;
 
@@ -320,16 +298,9 @@ function expandToRgba(input) {
 }
 
 /**
- * Record one chunk, and say whether the scan should go on.
- *
- * Its own function so the scan loop has no `break` buried inside it: `IEND`
- * answering "stop" is a fact about the format, and the loop reading that answer
- * is the whole shape of the thing.
- *
- * @param {object} chunks - The accumulator the scan fills.
- * @param {string} type - Four-character chunk type.
- * @param {Buffer} body - The chunk's bytes.
- * @returns `false` at `IEND`, `true` otherwise.
+ * Record one chunk, and say whether the scan should go on — its own function so the scan loop has
+ * no `break` buried inside it: `IEND` answering "stop" is a fact about the format, and the loop
+ * reading that answer is the whole shape of the thing. `false` at `IEND`, `true` otherwise.
  */
 function applyChunk(chunks, type, body) {
     switch (type) {
@@ -364,11 +335,9 @@ function applyChunk(chunks, type, body) {
 }
 
 /**
- * The chunks a finished file must have produced.
- *
- * A separate step so the scan can stop the moment it sees `IEND` *and* still go
- * through the same check: reaching the end of the buffer without an `IEND` is
- * just as truncated as one that ends early.
+ * The chunks a finished file must have produced — a separate step so the scan can stop the moment
+ * it sees `IEND` *and* still go through the same check: reaching the end of the buffer without one
+ * is just as truncated as a file that ends early.
  */
 function finishedChunks(chunks) {
     if (chunks.header === null || chunks.data.length === 0) {
@@ -398,12 +367,7 @@ function parseChunks(buffer) {
     return finishedChunks(chunks);
 }
 
-/**
- * Decode PNG bytes into `{ width, height, data }`, `data` being RGBA.
- *
- * @param buffer - Whole PNG file.
- * @returns The image, with every pixel expanded to four channels.
- */
+/** Decode PNG bytes into `{ width, height, data }`, `data` being RGBA. */
 function decodePng(buffer) {
     if (buffer.length < SIGNATURE_BYTES || buffer.readUInt32BE(0) !== PNG_SIGNATURE) {
         throw new Error('not a PNG: the signature bytes are wrong');
@@ -427,12 +391,7 @@ function readPng(path) {
     return decodePng(readFileSync(path));
 }
 
-/**
- * Fraction of pixels whose colour is within `DEFAULT_TOLERANCE` of `rgb`.
- *
- * @param rgb - `[red, green, blue]` to look for.
- * @returns Matched fraction of all pixels, 0–1.
- */
+/** Fraction of pixels whose colour is within `DEFAULT_TOLERANCE` of `rgb`, 0–1. */
 function colorFraction(image, rgb) {
     let hits = 0;
 
@@ -445,12 +404,7 @@ function colorFraction(image, rgb) {
     return hits / (image.width * image.height);
 }
 
-/**
- * Mean colour of a rectangle of the image — how the strip pill is read back.
- *
- * @param box - `{ x, y, width, height }` in image pixels.
- * @returns The `[red, green, blue]` mean, or black for an empty box.
- */
+/** Mean colour of a rectangle of the image — how the strip pill is read back; black when empty. */
 function boxAverage(image, box) {
     const xEnd = Math.min(box.x + box.width, image.width);
     const yEnd = Math.min(box.y + box.height, image.height);
@@ -477,15 +431,9 @@ function boxAverage(image, box) {
 }
 
 /**
- * Fraction of the two images' shared top-left region that differs.
- *
- * Captures are sized to their tab, so heights differ; the overlap is what can
- * be compared, and a stale frame reproduces it exactly — which is the failure
- * this metric exists to catch.
- *
- * @param left - The image just written.
- * @param right - The image written before it.
- * @returns Changed fraction of the overlap, 0–1.
+ * Fraction of the two images' shared top-left region that differs. Captures are sized to their
+ * tab, so heights differ and the overlap is what can be compared — a stale frame reproduces it
+ * exactly, which is the failure this metric exists to catch.
  */
 function diffFraction(left, right) {
     const width = Math.min(left.width, right.width);
@@ -536,11 +484,8 @@ function chunk(type, data) {
 }
 
 /**
- * Encode an RGBA image as a PNG file — the self-test's known input, and the
- * only way to *write* a screenshot-sized image without a dependency.
- *
- * @param image - `{ width, height, data }` with four bytes per pixel.
- * @returns A complete PNG file.
+ * Encode an RGBA image as a PNG file — the self-test's known input, and the only way to *write* a
+ * screenshot-sized image without a dependency.
  */
 function encodePng(image) {
     const header = Buffer.alloc(IHDR.size);

@@ -47,7 +47,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { accountPath, BINDINGS_FILE } from '../service/accounts/store.ts';
 import { CONFIG_FILE, DEFAULT_CONFIG } from '../service/config.ts';
-import { createLogger } from '../service/log.ts';
 import { claimPendingRuns } from '../service/poll/claim.ts';
 import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
 import { createEvent, enqueueEvents } from '../service/poll/events.ts';
@@ -57,12 +56,15 @@ import { BINDINGS_PATH, putBindingsRoute } from '../service/routes/bindings.ts';
 import { createVerifyThrottle } from '../service/throttle.ts';
 import { openStore } from '../service/store/index.ts';
 import type { EventSnapshot } from '../service/poll/events.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { RouteContext, RouteRequest } from '../service/routes/types.ts';
 import type { ServiceStore } from '../service/store/index.ts';
+import type { ServiceLogger } from '../service/log.ts';
 import { offlineVerifier } from './support/github.ts';
 import { CAPABILITIES } from './support/verify.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
+import { capturingLogger } from './support/service-routes.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
 
 /** Stamp every fixture uses; no test waits on a clock (NFR-112). */
 const STAMP = '2026-10-03T09:00:00.000Z';
@@ -73,17 +75,11 @@ const WINDOW_MS = 120_000;
 /** Binding every case in this suite dispatches through. */
 const BINDING_ID = 'bnd-serialized';
 
-/** Repository the binding watches. */
-const REPOSITORY = 'acme/widget';
-
 /** Account the binding is bound to. */
 const ACCOUNT_ID = '77331';
 
 /** Login the fixture account and the binding both carry. */
 const ACCOUNT_LOGIN = 'octocat-serialized';
-
-/** Project the dispatch targets. */
-const PROJECT_ID = 'prj_42';
 
 /** Mount holding the claim, as the panel's own host identity would be. */
 const HOLDER = 'panel-serialized';
@@ -234,8 +230,7 @@ let tempRoot = '';
 let store: ServiceStore;
 
 /** Capture sink; this suite asserts on locking, not on log text. */
-const LOG_LINES: string[] = [];
-const LOGGER = createLogger({ level: 'debug', sink: (line) => void LOG_LINES.push(line) });
+const { log: LOGGER, lines: LOG_LINES } = capturingLogger('debug');
 
 /** Per-test setup: a fresh store, a live lease window, and no log noise. */
 beforeEach(async (): Promise<void> => {
@@ -288,21 +283,8 @@ async function seedAccount(): Promise<void> {
  *
  * @returns The row exactly as the panel's whole-file grant sends it.
  */
-function bindingRow(allowedUsers: readonly string[]): Record<string, unknown> {
-    return {
-        bindingId: BINDING_ID,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: REPOSITORY,
-        projectId: PROJECT_ID,
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: true, reviewRequest: false },
-        state: 'active',
-        createdAt: STAMP,
-        updatedAt: STAMP,
-        allowedUsers: [...allowedUsers],
-    };
-}
+const bindingRow = (allowedUsers: readonly string[]): Record<string, unknown> =>
+    fixtureBindingRow(BINDING_ID, { accountLogin: ACCOUNT_LOGIN, allowedUsers, stamp: STAMP });
 
 /**
  * Write the stored bindings document directly.
@@ -317,30 +299,18 @@ async function seedBindings(allowedUsers: readonly string[]): Promise<void> {
     await store.writeJson(BINDINGS_FILE, [bindingRow(allowedUsers)]);
 }
 
-/** The assignment detection the one run is enqueued from. */
-function detection(): EventSnapshot {
-    return {
-        bindingId: BINDING_ID,
-        repository: REPOSITORY,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        projectId: PROJECT_ID,
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber: ISSUE,
-            issueTitle: `Issue ${ISSUE}`,
-            issueUrl: `https://github.com/${REPOSITORY}/issues/${ISSUE}`,
-            issueBodyExcerpt: 'body',
-        },
-        // Attributed the way an assignment is: GitHub records the issue author,
-        // not who assigned it (002 FR-044).
-        actorLogin: RUN_ACTOR,
-        actorAttribution: 'subject-author',
-        triggerNote: 'assigned',
-        detectedAt: STAMP,
-    };
-}
+/**
+ * The assignment detection the one run is enqueued from.
+ *
+ * Attributed the way an assignment is: GitHub records the issue author,
+ * not who assigned it (002 FR-044).
+ */
+const detection = (): EventSnapshot => assignmentSnapshot(ISSUE, {
+    bindingId: BINDING_ID,
+    accountLogin: ACCOUNT_LOGIN,
+    excerpt: 'body',
+    detectedAt: STAMP,
+});
 
 /**
  * Enqueue one detection and claim it, as the panel would.

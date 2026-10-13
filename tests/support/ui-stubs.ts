@@ -1,72 +1,75 @@
-/**
- * Recording handle stubs for headless UI-repaint tests.
- *
- * The bindings-tab tests must prove `refresh()` drives both tab bodies without a
- * real browser, but the SDK mounts need a live `document`, so these stubs
- * model only the `Handle` contract: `update` counted, `dispose` silent. They
- * live here so the bindings-section suite and the panel suites share one stub
- * instead of each growing their own.
- */
+/** Recording handle stubs for headless UI-repaint tests: `update` counted, `dispose` silent. */
 
 import type { Handle } from '@openchamber/sdk/ui';
 import type { PanelUi } from '../../src/panel-state.ts';
 import type { BindingsPane } from '../../src/bindings-ui.ts';
 
-/**
- * Read the recorded paint count of a stubbed handle.
- *
- * The stub's `paints` reader exists on the concrete stub but not on the SDK
- * handle type the pane stores it as; this is the typed read the tests use so
- * no test-side casts appear.
- *
- * @returns How often `update` ran on it so far.
- */
+/** The stub's `paints` reader, typed against the SDK `Handle` so tests need no cast. */
 export function stubPaints(handle: Handle<never>): number {
     const reads = (handle as { readonly paints?: () => number }).paints;
     return reads === undefined ? 0 : reads();
 }
 
-/**
- * What a recording stub learned from the calls it received.
- *
- * Both readers exist because a repaint assertion is two different questions: did
- * the repaint **reach** this control (a count), and what did it **say** (the last
- * props). A derived line that is painted with different text depending on state —
- * the history-scope guidance is one — cannot be proven by a count alone.
- */
+/** What a recording stub learned from the calls it received. */
 export interface StubReads {
-    /** How many times `update` has run. */
     readonly paints: () => number;
-    /** The props the most recent `update` received, or `null` before the first. */
     readonly lastProps: () => Record<string, unknown> | null;
 }
 
-/**
- * Read the props a stubbed handle was last painted with.
- *
- * Import-adapter, like {@link stubPaints}: the readers live on the concrete stub
- * but not on the SDK handle type the pane stores it as, so this is the typed read
- * the tests use and no test-side cast appears.
- *
- * @param handle - The stubbed handle.
- * @returns The last props, or `null` when it has never been painted.
- */
+/** The stub's `lastProps` reader, typed against the SDK `Handle` so tests need no cast. */
 export function stubLastProps(handle: Handle<never>): Record<string, unknown> | null {
     const reads = (handle as { readonly lastProps?: () => Record<string, unknown> | null }).lastProps;
 
     return reads === undefined ? null : reads();
 }
 
+/** Every string reachable from one mount's props, at any depth, in walk order. */
+export function stringsIn(value: unknown): readonly string[] {
+    if (typeof value === 'string') {
+        return [value];
+    }
+
+    if (Array.isArray(value)) {
+        return value.flatMap((entry) => stringsIn(entry));
+    }
+
+    if (typeof value === 'object' && value !== null) {
+        return Object.values(value).flatMap((entry) => stringsIn(entry));
+    }
+
+    return [];
+}
+
 /**
- * Build a `Handle` double that records how often it repainted, and with what.
- *
- * `Handle<P>` needs only `update` and `dispose`, so a recording stub type
- * checks against every SDK handle the panel's UI interfaces hold, and the
- * records turn "the repaint reached this control" and "it said this" into
- * assertions.
- *
- * @returns A stub typed for the caller's handle field.
+ * Read one mount's props as the object an assertion compares over: a bare string prop reads as
+ * `text`, the label the SDK wrapper would build.
  */
+export function propsOf(raw: unknown): Record<string, unknown> {
+    if (typeof raw === 'string') {
+        return { text: raw };
+    }
+
+    if (typeof raw === 'object' && raw !== null) {
+        return { ...raw };
+    }
+
+    return {};
+}
+
+/** The direct string values one mount was handed — no descent, property order. */
+export function shallowStringsIn(props: unknown): readonly string[] {
+    if (typeof props === 'string') {
+        return [props];
+    }
+
+    if (typeof props !== 'object' || props === null) {
+        return [];
+    }
+
+    return Object.values(props).filter((value): value is string => typeof value === 'string');
+}
+
+/** A `Handle<P>` double that records how often it repainted, and with what. */
 export function stubHandle<P extends object>(): Handle<P> & StubReads {
     let count = 0;
     let last: Record<string, unknown> | null = null;
@@ -82,32 +85,14 @@ export function stubHandle<P extends object>(): Handle<P> & StubReads {
     };
 }
 
-/**
- * Build a `PanelUi` whose handles are recording stubs (see {@link stubHandle}).
- *
- * Headless orchestration tests leave `ui` null because `refresh` is a no-op
- * without it; the framing tests need the opposite — a UI that lets `refresh`
- * run all the way to the banner without a real DOM.
- *
- * @returns The root framing stub: the banner.
- */
+/** A `PanelUi` whose handles are recording stubs (see {@link stubHandle}). */
 export function stubPanelUi(): PanelUi {
     return {
         banner: stubHandle(),
     };
 }
 
-/**
- * Build a `BindingsPane` whose handles are recording stubs.
- *
- * The repaint step only calls `update` on these handles and reads `pane` for
- * the tab-visibility `hidden` writes, so the stub pairs recording handles with
- * a plain body element and stands in for a real pane without any SDK mount
- * machinery.
- *
- * @param paneBody - Element the stub reports as the pane's body.
- * @returns A stub pane backed by `paneBody`.
- */
+/** A `BindingsPane` backed by recording stubs and one stand-in body element. */
 export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
     return {
         status: stubHandle(),

@@ -1,10 +1,5 @@
 /**
- * Route-level types for the service's HTTP API.
- *
- * Handlers are plain functions over a fixed {@link RouteContext} and a
- * parsed request; they never touch the socket, the environment, or host APIs.
- * Keeping the surface this small is what lets the contract tests drive the
- * whole API through the real loopback server instead of a mocking layer.
+ * Route-level types for the service's HTTP API: plain handlers over a fixed `RouteContext`, driven by contract tests.
  */
 
 import type { HttpResponse } from '../http.ts';

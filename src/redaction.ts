@@ -1,18 +1,7 @@
 /**
- * Secret-detection helpers guarding every panel-side write.
- *
- * The panel is not supposed to hold secret material at all: OpenChamber
- * attaches a provider token to outbound requests itself (and the panel makes
- * no GitHub request of its own since the install-time card went), while the
- * one credential that does reach the panel — a pasted PAT for the one-shot
- * handoff — is read and cleared in the same tick. Because the ledger and the
- * evidence record are built from strings the panel composes, "no secrets in
- * storage" is enforced here as an executable assertion instead of a promise:
- * every value written to `host.storage` passes through
- * {@link assertRedacted} first.
+ * Secret-detection helpers guarding every panel-side write: `assertRedacted` first, so "no secrets" is executable.
  */
 
-/** Scalar value kinds a redacted record may hold. */
 type Scalar = string | number | boolean | null;
 
 /** One secret-shaped value the panel must never persist. */
@@ -24,16 +13,13 @@ interface SecretPattern {
 }
 
 /**
- * Secret shapes recognised by {@link findSecretLeak}.
- *
- * The list covers GitHub token formats (`ghp_`, `gho_`, `ghu_`, `ghs_`,
- * `ghr_`, `github_pat_`) plus the two transport spellings that would appear
- * if a header were ever copied into a record: `Authorization:` and
- * `Bearer <credential>`.
- *
- * Patterns are global so {@link redact} replaces every occurrence in one pass;
- * detection uses `String.match`, which scans from the start and never inherits
- * the `lastIndex` state a `RegExp.test()` call would carry over.
+ * Secret shapes recognised by {@link findSecretLeak}: GitHub token formats
+ * (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`) plus the two
+ * transport spellings that would appear if a header were ever copied into a
+ * record — `Authorization:` and `Bearer <credential>`. Patterns are global so
+ * {@link redact} replaces every occurrence in one pass; detection uses
+ * `String.match`, which scans from the start and never inherits the `lastIndex`
+ * state a `RegExp.test()` call would carry over.
  */
 const SECRET_PATTERNS: readonly SecretPattern[] = [
     { label: 'github-token-classic', pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g },
@@ -52,13 +38,8 @@ const CREDENTIAL_KEY_PATTERN = /^(token|pat|password|secret|authorization|api[_-
  * never echoes the matched text, so the failure itself cannot leak.
  */
 export class RedactionError extends Error {
-    /** Stable machine-readable marker so tests and callers can discriminate. */
     public override readonly name = 'RedactionError';
 
-    /**
-     * @param subject - Human-readable name of the value that failed the check.
-     * @param patternLabel - Label of the pattern that matched, never its text.
-     */
     public constructor(subject: string, patternLabel: string) {
         super(`Refusing to persist ${subject}: value matches ${patternLabel}`);
     }
@@ -67,7 +48,6 @@ export class RedactionError extends Error {
 /**
  * Look for secret-shaped material in a string.
  *
- * @param text - Candidate text, typically a serialized ledger or evidence record.
  * @returns The label of the first matching pattern, or `null` when clean.
  */
 export function findSecretLeak(text: string): string | null {
@@ -84,9 +64,6 @@ export function findSecretLeak(text: string): string | null {
 
 /**
  * Assert that a value contains no secret-shaped material.
- *
- * @param subject - Name used in the error message, e.g. `ledger`.
- * @throws {RedactionError} When secret-shaped material is present.
  */
 export function assertRedacted(subject: string, text: string): void {
     const label = findSecretLeak(text);
@@ -102,8 +79,6 @@ export function assertRedacted(subject: string, text: string): void {
  * without carrying the secret itself. Every occurrence of every pattern is
  * replaced, not just the first: a single diagnostic can quote more than one
  * token, and a half-redacted string is still a leak.
- *
- * @returns The text with every secret-shaped match replaced by `[redacted:<label>]`.
  */
 export function redact(text: string): string {
     let result = text;
@@ -124,9 +99,6 @@ export function redact(text: string): string {
  * Settings, request metadata, and provider payloads are untrusted input; a
  * key such as `token`, `pat`, or `authorization` is removed before its value
  * can reach the ledger.
- *
- * @param record - Shallow record about to be persisted.
- * @returns A copy with credential-named keys removed.
  */
 export function stripCredentialKeys<V extends Scalar>(record: Readonly<Record<string, V>>): Record<string, V> {
     const result: Record<string, V> = {};

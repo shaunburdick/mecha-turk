@@ -45,7 +45,6 @@ import { writeAccount } from '../service/accounts/store.ts';
 import { readAuditEntries } from '../service/audit.ts';
 import { LOOK_BACK_MS } from '../service/bindings-history-scope.ts';
 import { parseBinding, writeBindings } from '../service/bindings.ts';
-import { createLogger } from '../service/log.ts';
 import {
     EVENTS_FILE,
     buildEventId,
@@ -63,12 +62,10 @@ import { applyEnqueue } from '../service/poll/runs-join.ts';
 import { EVENTS_PATH } from '../service/routes/events.ts';
 import { buildEventPage } from '../service/routes/events-page.ts';
 import { openStore } from '../service/store/index.ts';
-import type { Account } from '../service/accounts/model.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { HistoryScope } from '../service/bindings-history-scope.ts';
-import type { BindingRecord } from '../service/bindings.ts';
+import type { BindingRecord, BindingTriggers } from '../service/bindings.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
-import type { ServiceLogger } from '../service/log.ts';
 import type { GitHubIssuePoller, PollIssue } from '../service/poll/poller-github.ts';
 import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { Run, RunsDocument } from '../service/poll/runs-types.ts';
@@ -76,8 +73,11 @@ import type { ServiceStore } from '../service/store/index.ts';
 import { byText, byTextLoose } from './support/sort.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
-import { scopeResults } from './support/verify.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
+import { capturingLogger } from './support/service-routes.ts';
+import { fixtureAccount } from './support/account-fixture.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
+import { assignmentSnapshot } from './support/event-snapshot.ts';
 
 /** First fixture binding. */
 const BINDING_A = 'bnd-recover-a';
@@ -167,21 +167,6 @@ afterEach(async (): Promise<void> => {
 });
 
 /**
- * Build a logger that records every line it is asked to write.
- */
-function capturingLogger(): { readonly log: ServiceLogger; readonly lines: string[] } {
-    const lines: string[] = [];
-    const log = createLogger({
-        level: 'debug',
-        sink: (line: string) => {
-            lines.push(line);
-        },
-    });
-
-    return { log, lines };
-}
-
-/**
  * The **legacy** attribution basis — readable, and produced by nothing (002
  * FR-044 as re-cut at v1.12.0).
  *
@@ -197,79 +182,32 @@ const LEGACY_BASIS = 'subject-author';
  *
  * @param excerpt - Issue body excerpt (`''` is a legal stored value).
  */
-function fixtureSnapshot(issueNumber: number, excerpt: string): EventSnapshot {
-    return {
-        bindingId: BINDING_A,
-        repository: 'acme/widget',
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        kind: 'assignment',
-        issue: {
-            issueNumber,
-            issueTitle: `Ticket #${issueNumber}`,
-            issueUrl: `https://github.com/acme/widget/issues/${issueNumber}`,
-            issueBodyExcerpt: excerpt,
-        },
-        actorLogin: 'alice',
-        actorAttribution: LEGACY_BASIS,
-        triggerNote: 'Issue assigned to the bound account',
-        detectedAt: DETECTED_AT,
-    };
-}
+const fixtureSnapshot = (issueNumber: number, excerpt: string): EventSnapshot => assignmentSnapshot(issueNumber, {
+    bindingId: BINDING_A,
+    accountLogin: ACCOUNT_LOGIN,
+    issueTitle: `Ticket #${issueNumber}`,
+    excerpt,
+    actorAttribution: LEGACY_BASIS,
+    triggerNote: 'Issue assigned to the bound account',
+    detectedAt: DETECTED_AT,
+});
+
+/** Trigger set every fixture binding carries: assignment polling only. */
+const ASSIGNMENT_ONLY: BindingTriggers = { assignment: true, mention: false, reviewRequest: false };
 
 /**
- * Build one stored binding row.
+ * One active, assignment-only binding under this suite's fixture stamp.
  *
- * @returns A complete active binding with the assignment trigger on.
+ * `historyScope` is stored when given; otherwise the key is absent, which is
+ * the documented default and not a distinct state (002 FR-058).
  */
-/**
- * Build one stored binding row.
- *
- * @param bindingId - The row's id.
- * @param historyScope - The mode to store, or absent to store none — which is the
- *   documented default and not a distinct state (002 FR-058).
- * @returns A complete active binding with the assignment trigger on.
- */
-function fixtureBinding(bindingId: string, historyScope?: HistoryScope): BindingRecord {
-    return {
-        bindingId,
-        accountNumericUserId: ACCOUNT_ID,
+const fixtureBinding = (bindingId: string, historyScope?: HistoryScope): BindingRecord =>
+    fixtureBindingRow(bindingId, {
         accountLogin: ACCOUNT_LOGIN,
-        repository: 'acme/widget',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-        ...(historyScope !== undefined && { historyScope }),
-    };
-}
-
-/**
- * Build the active account both bindings poll under.
- *
- * @returns A complete stored account record (the token is a fixture value).
- */
-function fixtureAccount(): Account {
-    return {
-        numericUserId: ACCOUNT_ID,
-        login: ACCOUNT_LOGIN,
-        expectedLogin: null,
-        displayName: null,
-        startingPrompt: null,
-        credential: { token: 'fixture-token-not-a-real-credential', kind: 'classic', verifiedAt: CREATED_AT },
-        scopeCheck: { checkedAt: CREATED_AT, results: scopeResults('ok') },
-        state: 'active',
-        connectionState: 'connected',
-        verifiedAt: CREATED_AT,
-        errorReason: null,
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-    };
-}
+        triggers: ASSIGNMENT_ONLY,
+        stamp: CREATED_AT,
+        historyScope,
+    });
 
 /**
  * Build one open issue assigned to the fixture account.
@@ -744,7 +682,7 @@ describe('quarantined queue recovery', () => {
 
     it('replays the next cycle so the lost assignments are re-detected', async () => {
         await writeBindings({ store, bindings: [fixtureBinding(BINDING_A), fixtureBinding(BINDING_B)] });
-        await writeAccount(store, fixtureAccount());
+        await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
         // Both bindings have a **retained baseline** here, which is the state a
         // real recovery replays from: the loop derived it on their first scan and
         // kept it, so the reset cleared the stamp without erasing what the replay
@@ -849,7 +787,7 @@ describe('quarantined queue recovery', () => {
 
     it('replays in-window work from evidence alone, whatever the binding\'s mode', async () => {
         await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
-        await writeAccount(store, fixtureAccount());
+        await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
         // The state a real recovery replays from: a completed scan, a retained
         // baseline, and a stamp that the reset is about to clear (002 FR-074).
         await plantScanState({
@@ -885,7 +823,7 @@ describe('quarantined queue recovery', () => {
 describe('first-scan window (002 FR-065, FR-066: the creation boundary, not a replay)', () => {
     it('enqueues from the creation boundary — inside it, not before it', async () => {
         await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
-        await writeAccount(store, fixtureAccount());
+        await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
         // No scan-state file at all: a binding the loop has never scanned, so the
         // cycle derives its baseline before the first window is computed.
         const { log } = capturingLogger();
@@ -915,7 +853,7 @@ describe('first-scan window (002 FR-065, FR-066: the creation boundary, not a re
 
     it('skips an untouched issue once the incremental window is armed', async () => {
         await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
-        await writeAccount(store, fixtureAccount());
+        await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
         const { log } = capturingLogger();
 
         const first = recordingPoller([assignmentIssue(1, PRE_BINDING_AT)]);
@@ -941,7 +879,7 @@ describe('first-scan window (002 FR-065, FR-066: the creation boundary, not a re
         // by deterministic id is the only guard, for pending AND dispatched rows
         // alike (002 FR-075).
         await writeBindings({ store, bindings: [fixtureBinding(BINDING_A)] });
-        await writeAccount(store, fixtureAccount());
+        await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
         await plantScanState({
             bindings: {
                 [BINDING_A]: { lastScanAt: null, lastError: null, baselineAt: BASELINE_AT, forceReplay: true },
@@ -1008,7 +946,7 @@ describe('the mode table, driven end to end (002 v1.13.0, AC-032 – AC-043)', (
             await plantScanState({ bindings: {} });
             await plantQueue([]);
             await writeBindings({ store, bindings: [fixtureBinding(BINDING_A, scope)] });
-            await writeAccount(store, fixtureAccount());
+            await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
             const { log } = capturingLogger();
             const { poller, seenSince } = recordingPoller([
                 assignmentIssue(1, FIVE_DAYS_AT),
@@ -1036,7 +974,7 @@ describe('the mode table, driven end to end (002 v1.13.0, AC-032 – AC-043)', (
             await plantScanState({ bindings: {} });
             await plantQueue([]);
             await writeBindings({ store, bindings: [fixtureBinding(BINDING_A, scope)] });
-            await writeAccount(store, fixtureAccount());
+            await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
             const { log } = capturingLogger();
             const observations = [assignmentIssue(1, FIVE_DAYS_AT), assignmentIssue(2, PRE_BINDING_AT)];
             const expected = scope === 'recent-history' ? [1, 2] : [2];
@@ -1095,7 +1033,7 @@ describe('the mode table, driven end to end (002 v1.13.0, AC-032 – AC-043)', (
         for (const scope of ['new-only', 'recent-history'] as const) {
             await plantScanState({ bindings: {} });
             await writeBindings({ store, bindings: [fixtureBinding(BINDING_A, scope)] });
-            await writeAccount(store, fixtureAccount());
+            await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
             await writeFile(
                 join(dataDir, 'bindings.json'),
                 JSON.stringify([{ ...fixtureBinding(BINDING_A, scope), createdAt: 'not-a-stamp' }]),
@@ -1560,7 +1498,7 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
         const issues = [assignmentIssue(12, PRE_BINDING_AT)];
 
         // Observation one: a binding carrying a populated allow-list.
-        await writeAccount(store, fixtureAccount());
+        await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
         await writeBindings({ store, bindings: [policyBinding({ users: ['alice'] })] });
         const first = recordingPoller(issues);
         await runScanCycle({ store, log, poller: first.poller });
@@ -1612,7 +1550,7 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
             updatedAt: PRE_BINDING_AT,
         };
         const observed = async (input: { readonly users?: readonly string[] }): Promise<readonly QueuedEvent[]> => {
-            await writeAccount(store, fixtureAccount());
+            await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
             const switches = { assignment: false, mention: true, reviewRequest: true };
             const binding = { ...policyBinding(input), triggers: switches };
             await writeBindings({ store, bindings: [binding] });

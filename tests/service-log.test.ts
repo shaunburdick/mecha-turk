@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createLogger } from '../service/log.ts';
+import { capturingLogger } from './support/service-routes.ts';
 
 /** A token-shaped value the redaction pass must withhold from the sink. */
 const TOKEN_VALUE = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
@@ -30,22 +30,6 @@ const BEFORE = 'before-the-change';
 
 /** A captured line naming the entry emitted after a threshold move. */
 const AFTER = 'after-the-change';
-
-/**
- * Build a logger whose lines land in an array.
- *
- * @param level - Construction threshold; the tests move it from there.
- * @returns The logger and the lines its sink has captured.
- */
-function capturingLogger(level: 'debug' | 'info' | 'warn' | 'error'): {
-    readonly log: ReturnType<typeof createLogger>;
-    readonly lines: string[];
-} {
-    const lines: string[] = [];
-    const log = createLogger({ level, sink: (line) => void lines.push(line) });
-
-    return { log, lines };
-}
 
 describe('createLogger carries a threshold that can be moved (006 FR-033)', () => {
     it('admits an entry that was dropped a moment before, once the level is lowered', () => {

@@ -1,36 +1,5 @@
 /**
- * The five first-run prerequisites as pure records (003 FR-071–FR-073).
- *
- * Everything here is a function of panel state and nothing else: no mount, no
- * host call, no storage, no persistence — the derivation runs on read so the
- * section can never be stale and can never configure anything (spec
- * `## Key Entities`: read-only reporting). The mounted surfaces that paint
- * these records live in [`prerequisites.ts`](./prerequisites.ts), which is why
- * the two modules split where they do: this file owns *what is true*, that
- * one owns *what it looks like*.
- *
- * Three states only (FR-072): `met`, `not-met`, `not-checkable` — and a
- * prerequisite the panel cannot verify says so rather than displaying a
- * reassuring state it did not check. Two of the five are permanently not
- * checkable, deliberately:
- *
- * - The **Default Agent pin** no documented API exposes: it becomes knowable
- *   only after a dispatch, when the read-back reports which agent the session
- *   runs (FR-072).
- * - The **desktop-or-web surface** has no documented reporter either: the
- *   ready context's `surface` member is the guest surface kind (`panel`,
- *   `dialog`, `page`, `background`), not the OpenChamber app, and a refused
- *   `serviceRequest` cannot separate "unsupported surface" from "not
- *   approved" or "not running" (both answer `NO_SERVICE`). Its remediation
- *   names the consequence instead of asserting a check.
- *
- * What is checkable is checked fail-closed: absent scope evidence reads as no
- * evidence, and a binding without a project id is unmet.
- *
- * The sixth item this list used to carry — *Service capability approval*,
- * derived from the in-panel consent step — was **removed** by product-owner
- * order on 2026-10-01 together with the consent dialog it read (002 FR-008 as
- * re-cut at v1.9.0; 005 v1.7.0 records the prerequisite's retirement).
+ * The five first-run prerequisites as pure records: no mount, no host call, no persistence, three states only (FR-072).
  */
 
 import type { Tone } from '@openchamber/sdk/ui';
@@ -54,21 +23,15 @@ export type PrerequisiteId =
     /** A registered OpenChamber project per binding (002 prerequisite 5). */
     | 'registered-project';
 
-/** One prerequisite: what it is, where it stands, and how to satisfy it. */
 export interface Prerequisite {
     /** Stable identifier, so a test or a later surface can address it. */
     readonly id: PrerequisiteId;
-    /** Operator-facing name. */
     readonly title: string;
-    /** The state the panel could honestly determine. */
     readonly state: PrerequisiteState;
-    /** What the panel observed, or why it could not observe anything. */
     readonly detail: string;
-    /** The line that tells the operator what to do about it. */
     readonly remediation: string;
 }
 
-/** Stable identifiers, written once each (see {@link PrerequisiteId}). */
 const IDS = {
     defaultAgent: 'default-agent',
     openchamberRunning: 'openchamber-running',
@@ -118,8 +81,6 @@ export function prerequisiteStateLabel(state: PrerequisiteState): string {
  * *not met* is red because it is the one state that raises FR-073's notice,
  * and *not checkable* stays neutral because a panel that could not look must
  * not paint a verdict it never reached.
- *
- * @returns The badge tone that state renders with.
  */
 export function prerequisiteTone(state: PrerequisiteState): Tone {
     if (state === STATE_MET) {
@@ -134,17 +95,14 @@ export function prerequisiteTone(state: PrerequisiteState): Tone {
 }
 
 /**
- * The Default Agent pin: checkable only after a dispatch.
- *
- * The remediation names the **setting path** and no agent name, because the
- * default is blank / 002 v1.10.0 (product-owner order:
- * *"Default Agent pin should default to blank, not everyone is going to use
- * project-manager"*). Prescribing an agent here would tell every operator the
- * same thing the owner just refused to assume, so the line asks for the agent
- * **they** want dispatches to run on and names the matching `expectedAgent`
- * baseline the comparison actually reads.
- *
- * @returns The prerequisite, always `not-checkable` and never `met`.
+ * The Default Agent pin: checkable only after a dispatch. The remediation
+ * names the **setting path** and no agent name, because the default is blank
+ * (002 v1.10.0 product-owner order: *"Default Agent pin should default to
+ * blank, not everyone is going to use project-manager"*): prescribing an agent
+ * would tell every operator the same thing the owner just refused to assume,
+ * so the line asks for the agent **they** want dispatches to run on and names
+ * the matching `expectedAgent` baseline the comparison actually reads. Always
+ * `not-checkable`, never `met`.
  */
 function defaultAgentPin(): Prerequisite {
     const remediation =
@@ -163,8 +121,6 @@ function defaultAgentPin(): Prerequisite {
 
 /**
  * Whether OpenChamber is running: the host has answered this panel or not.
- *
- * @returns `met` once the host answers, `not-checkable` before that.
  */
 function openChamberRunning(hasAnswered: boolean): Prerequisite {
     if (!hasAnswered) {
@@ -189,8 +145,6 @@ function openChamberRunning(hasAnswered: boolean): Prerequisite {
 /**
  * The desktop-or-web requirement, which no documented API reports (see the
  * module doc for why this is honest rather than lazy).
- *
- * @returns The prerequisite, always `not-checkable`.
  */
 function desktopOrWebSurface(): Prerequisite {
     return {
@@ -211,9 +165,6 @@ function desktopOrWebSurface(): Prerequisite {
  * the panel cannot vouch for means it cannot vouch for the set. No surface in
  * this system reports write scopes, so *read* scopes decide the state and the
  * remediation keeps the no-write-scopes instruction visible.
- *
- * @param accounts - Accounts as the last `GET /v1/accounts` read reported them.
- * @returns The prerequisite for the connected set.
  */
 function tokenScopes(accounts: readonly PanelAccount[]): Prerequisite {
     const usable = accounts.filter((account) => account.usable);
@@ -273,8 +224,6 @@ function tokenScopes(accounts: readonly PanelAccount[]): Prerequisite {
  * A registered OpenChamber project for every binding (plan D12: zero
  * bindings is nothing to satisfy, so a fresh install reads met rather than
  * nagging with nothing actionable).
- *
- * @returns The prerequisite for the bound set.
  */
 function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequisite {
     const title = TITLES.registeredProject;
@@ -316,8 +265,6 @@ function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequ
  * Pure and synchronous: the same state always answers the same five records,
  * which is what makes the section testable without a host and impossible to
  * leave stale.
- *
- * @returns The five prerequisites order.
  */
 export function derivePrerequisites(state: PanelState): readonly Prerequisite[] {
     return [

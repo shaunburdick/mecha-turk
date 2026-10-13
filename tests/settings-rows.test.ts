@@ -50,6 +50,7 @@ import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
 import { GLOBAL_TIER_SENTINEL } from './support/prompt-tiers.ts';
+import { configEnvelope } from './support/service-routes.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
 const mounts = vi.hoisted(() => ({
@@ -243,27 +244,6 @@ function standInSnippet(): PanelSource {
 }
 
 /**
- * Build a `GET /v1/config` body the way the service sends it.
- */
-function envelopeBody(input: {
-    /** Members to merge into the document; `null` replaces it outright. */
-    readonly config?: Record<string, unknown>;
-    /** The descriptor list. */
-    readonly fields?: readonly FieldDescriptor[];
-    /** The source member. */
-    readonly source?: string;
-    /** The filled-keys list. */
-    readonly defaultsApplied?: readonly string[];
-} = {}): string {
-    return JSON.stringify({
-        config: input.config ?? { ...DEFAULT_CONFIG },
-        fields: input.fields ?? configSchema(),
-        source: input.source ?? 'stored',
-        defaultsApplied: input.defaultsApplied ?? [],
-    });
-}
-
-/**
  * Whether a field name is one of the twelve 006 itself declares (AC-101, 006 v1.6.0).
  *
  * @returns `true` for 006's own fields.
@@ -281,7 +261,7 @@ function specs006OnlyEnvelope(): ConfigEnvelope {
     const config = Object.fromEntries(Object.entries(DEFAULT_CONFIG).filter(([name]) => isSpecs006Field(name)));
 
     const parsed = parseConfigEnvelope(
-        envelopeBody({
+        configEnvelope({
             config,
             fields: configSchema().filter((descriptor) => isSpecs006Field(descriptor.name)),
         }),
@@ -352,7 +332,7 @@ function classWords(takesEffect: TakeEffectClass): string {
 
 /** The combined-tree envelope, the one the service in this repo answers with. */
 function combinedEnvelope(): ConfigEnvelope {
-    return envelopeFor(envelopeBody());
+    return envelopeFor(configEnvelope());
 }
 
 /**
@@ -584,7 +564,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             }
         }
         {
-            const envelope = envelopeFor(envelopeBody({ defaultsApplied: ['expectedAgent'] }));
+            const envelope = envelopeFor(configEnvelope({ defaultsApplied: ['expectedAgent'] }));
             const row = settingsRows(envelope).find((candidate) => candidate.field === 'expectedAgent');
 
             expect(row?.text).toContain(`default ${DEFAULT_CONFIG.expectedAgent}`);
@@ -594,7 +574,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
             expect(row?.text).not.toContain('project-manager');
         }
         {
-            const rows = rowsFor(envelopeBody({ config: { intervalMs: 'soon', perPage: 12 } }));
+            const rows = rowsFor(configEnvelope({ config: { intervalMs: 'soon', perPage: 12 } }));
             const interval = rows.find((row) => row.field === 'intervalMs');
 
             expect(interval?.text).toContain(
@@ -609,7 +589,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
         }
         {
             const rows = rowsFor(
-                envelopeBody({ config: { ...DEFAULT_CONFIG, expectedAgent: 'other-agent' }, fields: [] }),
+                configEnvelope({ config: { ...DEFAULT_CONFIG, expectedAgent: 'other-agent' }, fields: [] }),
             );
 
             expect(rows.map((row) => row.field)).toEqual(Object.keys(DEFAULT_CONFIG));
@@ -655,7 +635,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
                 takesEffect: 'restart',
             };
             const grown = rowsFor(
-                envelopeBody({ config: { ...DEFAULT_CONFIG, futureBudget: 5 }, fields: [...configSchema(), future] }),
+                configEnvelope({ config: { ...DEFAULT_CONFIG, futureBudget: 5 }, fields: [...configSchema(), future] }),
             );
 
             expect(grown).toHaveLength(configSchema().length + 1);
@@ -667,7 +647,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
                 throw new Error('startingPrompt did not project as a string field');
             }
 
-            const unset = rowsFor(envelopeBody()).find((row) => row.field === 'startingPrompt');
+            const unset = rowsFor(configEnvelope()).find((row) => row.field === 'startingPrompt');
             // The value slot states the absence instead of printing nothing —
             // never an empty box that reads as an instruction (FR-064)…
             expect(unset?.text).toContain('startingPrompt: not set');
@@ -678,7 +658,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
 
             // A set tier shows the value, and the state word leaves with the absence.
             const prompt = 'Review every change against the ticket before approving.';
-            const set = rowsFor(envelopeBody({ config: { ...DEFAULT_CONFIG, startingPrompt: prompt } }))
+            const set = rowsFor(configEnvelope({ config: { ...DEFAULT_CONFIG, startingPrompt: prompt } }))
                 .find((row) => row.field === 'startingPrompt');
 
             expect(set?.text).toContain(prompt);
@@ -690,7 +670,7 @@ describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () =>
 describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)', () => {
     it('mounts one control per declared field, named with its unit and boundary', async () => {
         {
-            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            const view = await mountSettings({ answer: configAnswer(configEnvelope()) });
             const controls = mounts.log.filter(
                 (entry) => entry.key === 'mountTextField' || entry.key === 'mountSelect',
             );
@@ -726,7 +706,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
                 throw new Error('startingPrompt did not project as a string field');
             }
 
-            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            const view = await mountSettings({ answer: configAnswer(configEnvelope()) });
             const control = mounts.log.find(
                 (entry) => entry.key === 'mountTextField'
                     && (entry.props as { readonly label?: string }).label?.startsWith('startingPrompt') === true,
@@ -769,7 +749,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
         {
             const prompt = 'Review every change against the ticket before approving.';
             const view = await mountSettings({
-                answer: configAnswer(envelopeBody({ config: { ...DEFAULT_CONFIG, startingPrompt: prompt } })),
+                answer: configAnswer(configEnvelope({ config: { ...DEFAULT_CONFIG, startingPrompt: prompt } })),
             });
             const control = mounts.log.find(
                 (entry) => entry.key === 'mountTextField'
@@ -786,7 +766,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
 
     it('`multiline` rides the descriptor, so the other string field stays single-line', async () => {
         {
-            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            const view = await mountSettings({ answer: configAnswer(configEnvelope()) });
             const control = mounts.log.find(
                 (entry) => entry.key === 'mountTextField'
                     && (entry.props as { readonly label?: string }).label?.startsWith('expectedAgent') === true,
@@ -807,7 +787,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
     it('gives an undocumented member a line, and no affordance at all', async () => {
         {
             const view = await mountSettings({
-                answer: configAnswer(envelopeBody({ config: { ...DEFAULT_CONFIG, surprise: 1 } })),
+                answer: configAnswer(configEnvelope({ config: { ...DEFAULT_CONFIG, surprise: 1 } })),
             });
             const controls = mounts.log.filter(
                 (entry) => entry.key === 'mountTextField' || entry.key === 'mountSelect',
@@ -823,7 +803,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
 
     it('says what a save will do while one is possible', async () => {
         {
-            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            const view = await mountSettings({ answer: configAnswer(configEnvelope()) });
 
             // The read control plus the save bar's four: save, discard, restore,
             // and Cancel — which mounts hidden and appears only once something is
@@ -852,7 +832,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
 
     it('reads twice and never writes: the re-read is a read', async () => {
         {
-            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            const view = await mountSettings({ answer: configAnswer(configEnvelope()) });
             expect(view.requests).toHaveLength(1);
 
             const button = mounts.log.find(
@@ -871,7 +851,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
 
     it('keeps the configured value for itself: the Status slice stays untouched', async () => {
         {
-            const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+            const view = await mountSettings({ answer: configAnswer(configEnvelope()) });
 
             expect(view.rt.state.settingsTab.phase).toBe('loaded');
             expect(view.rt.state.statusTab.phase).toBe('idle');
@@ -883,7 +863,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
 
 
     it('releases every handle it mounted, and leaves no slot behind (FR-017)', async () => {
-        const view = await mountSettings({ answer: configAnswer(envelopeBody()) });
+        const view = await mountSettings({ answer: configAnswer(configEnvelope()) });
         const mounted = mounts.log
             .filter((entry) => entry.key.startsWith('mount') && !entry.key.includes(':'))
             .length;
@@ -898,7 +878,7 @@ describe('the Settings body mounts editable controls (006 T-020, FR-010, FR-014)
 
     it('renders the global tier in exactly one element (T-032, 004 FR-089, 005 FR-051)', async () => {
         const view = await mountSettings({
-            answer: configAnswer(envelopeBody({
+            answer: configAnswer(configEnvelope({
                 config: { ...DEFAULT_CONFIG, startingPrompt: GLOBAL_TIER_SENTINEL },
             })),
         });

@@ -1,28 +1,5 @@
 /**
- * The Status tab's surface: mount, repaint, and the one read (FR-019, FR-030).
- *
- * The copy this tab prints lives in [`status-lines.ts`](./status-lines.ts)
- * and the document it prints from in
- * [`status-document.ts`](./status-document.ts); this module owns only the
- * handles and the read that feeds them. The tab opens with one title block
- * whose heading is the tab title, and the two blocking notices sit inside it
- * above the refresh control because they are facts rather than rows: an
- * unsupported surface (FR-036) and an unwritable data directory (FR-035),
- * whose copy names the consequence — the token handoff pre-flight fails, so an
- * account cannot be added.
- *
- * The read is explicit and repeating (FR-014, FR-100): the panel reads it once
- * at mount, on every activation of this tab, on a tick armed from the interval
- * the document itself reports, and on a press of the tab's own refresh control.
- * A failed read keeps the last document and marks it stale (FR-019) rather than
- * blanking the tab with a reassuring summary built from nothing, and a failing
- * tick is a failing read in every observable respect — including leaving the
- * armed period exactly where it was.
- *
- * This module repaints itself instead of being reached from
- * `panel-ui.refresh`: its content depends on nothing but its own slice, so a
- * call inside the shared refresh would buy nothing and would put a back-edge
- * in a module graph where `refresh` is currently a leaf.
+ * The Status tab's surface: mount, repaint and the one explicit repeating read — a failed read keeps the last document.
  */
 
 import { mountBanner, mountButton } from '@openchamber/sdk/ui';
@@ -51,19 +28,14 @@ import { configuredIntervalFrom, parseStatusView } from './status-document.ts';
 import { STATUS_TAB } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** Heading above the projection's service block. */
 const SERVICE_HEADING = 'Service';
 
-/** Heading above the polling block; the effective interval lives here. */
 const POLLING_HEADING = 'Polling';
 
-/** Heading above the per-account rows. */
 const ACCOUNTS_HEADING = 'Accounts';
 
-/** Heading above the per-binding rows — the wire says `repositories`. */
 const BINDINGS_HEADING = 'Bindings';
 
-/** Heading above the agent-pin block. */
 const AGENT_PIN_HEADING = 'Agent pin';
 
 /** Heading above the follow-up queue block (002 FR-036, as amended). */
@@ -78,46 +50,30 @@ const FOLLOW_UPS_HEADING = 'Follow-ups';
  */
 const OVERVIEW_HEADING = 'Status';
 
-/** Label treatment for the two groups whose subjects are identifiers. */
 const SUBJECT_KEY_CLASS = 'mt-key--mono';
 
-/** Inputs for {@link mountNotice}; one object so the two notices stay ordered. */
 interface NoticeInput {
-    /** Element to append into. */
     readonly parent: HTMLElement;
-    /** Banner tone; the copy carries the state as well. */
     readonly tone: 'warning' | 'error';
-    /** Banner title. */
     readonly title: string;
-    /** Banner copy. */
     readonly body: string;
-    /** Whether the wrapper starts hidden. */
     readonly hidden: boolean;
 }
 
-/** A heading plus the rows under it, repainted as one group. */
 export interface StatusRowGroup {
-    /** The block surface: heading above, body below. */
     readonly block: Block;
-    /** The row list every line of this group renders into. */
     readonly list: HTMLElement;
-    /** Class words for this group's label cells, or `null` for the default. */
     readonly keyClass: string | null;
-    /** One row per line; rebuilt whenever the line set changes. */
     rows: readonly DefRow[];
 }
 
-/** One of the two blocking notices, wrapped so it can be shown and hidden. */
 export interface StatusNotice {
     /** Wrapper whose `hidden` flag is "there is nothing to report here". */
     readonly box: HTMLElement;
-    /** The banner inside the wrapper. */
     readonly banner: BannerHandle;
 }
 
-/** What the Status body mounts, and what a repaint updates. */
 export interface StatusTabUi {
-    /** The first block: the tab title over the two notices and the controls. */
     readonly overview: Block;
     /** Unsupported-surface notice, hidden while the surface supports a service. */
     readonly unsupported: StatusNotice;
@@ -125,22 +81,16 @@ export interface StatusTabUi {
     readonly storageBlocked: StatusNotice;
     /** Explicit refresh — the tab's one on-demand read (FR-014). */
     readonly refreshButton: ButtonHandle;
-    /** One line of read state: loading, loaded with a stamp, failed with a cause. */
     readonly readLine: Cell;
     /**
      * One line stating the tab's own refresh cadence and period, or that it is
      * not refreshing itself (FR-101).
      */
     readonly cadenceLine: Cell;
-    /** Process health, uptime, location, schema, storage. */
     readonly service: StatusRowGroup;
-    /** Effective interval, configured interval, cadence, and next poll. */
     readonly polling: StatusRowGroup;
-    /** One row per account, with its rate baseline. */
     readonly accounts: StatusRowGroup;
-    /** The allow-list roll-up, then one row per binding, under **Bindings**. */
     readonly bindings: StatusRowGroup;
-    /** The Default Agent pin's three shapes. */
     readonly agentPin: StatusRowGroup;
     /**
      * The follow-ups waiting to be delivered (002 FR-036, as amended).
@@ -160,8 +110,6 @@ export interface StatusTabUi {
  * A function call rather than a bare `rt.disposed` read: the analyzer narrows
  * that property across the first `await` and then reports a later direct
  * check as unreachable, while the frame really can go away between two awaits.
- *
- * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
     return rt.disposed;
@@ -169,8 +117,6 @@ function tornDown(rt: PanelRuntime): boolean {
 
 /**
  * Create a notice banner inside a wrapper the tab can hide.
- *
- * @returns The wrapped notice.
  */
 function mountNotice(input: NoticeInput): StatusNotice {
     const box = input.parent.ownerDocument.createElement('div');
@@ -190,8 +136,6 @@ const MONO_VALUE_LABELS: ReadonlySet<string> = new Set(['Data directory', 'Next 
 
 /**
  * Build one row's inputs from the line the copy module produced.
- *
- * @returns The line, plus the cell classes this row takes.
  */
 function rowInput(group: StatusRowGroup, line: string): LineInput {
     const split = splitLine(line);
@@ -211,8 +155,6 @@ function rowInput(group: StatusRowGroup, line: string): LineInput {
  * The heading is the block's own element rather than a text row, which is
  * what gives each group a place in the tab's heading hierarchy and its own
  * surface to sit on.
- *
- * @returns The group, with no rows yet.
  */
 function mountRowGroup(
     parent: HTMLElement,
@@ -229,7 +171,6 @@ function mountRowGroup(
 }
 
 /**
- * Paint a group's rows, rebuilding them on every pass.
  *
  * A row is a label cell and a value cell, and which one a line becomes is a
  * fact about the line — so repainting in place would leave a row showing a
@@ -244,9 +185,6 @@ function paintRowGroup(group: StatusRowGroup, lines: readonly string[]): void {
     group.rows = lines.map((line) => lineRow(group.list, rowInput(group, line)));
 }
 
-/**
- * Remove one group's nodes and handles.
- */
 function disposeRowGroup(group: StatusRowGroup): void {
     for (const row of group.rows) {
         row.dispose();
@@ -260,8 +198,6 @@ function disposeRowGroup(group: StatusRowGroup): void {
  *
  * `null` is load-bearing: the guidance line claims a project is *not
  * registered*, and it may only claim that from a list that actually arrived.
- *
- * @returns The registered ids, or `null` when they are not known yet.
  */
 function registeredProjects(rt: PanelRuntime): readonly string[] | null {
     const picker = rt.state.projects;
@@ -270,7 +206,6 @@ function registeredProjects(rt: PanelRuntime): readonly string[] | null {
 }
 
 /**
- * Repaint the Status body from the current read.
  *
  * Nothing runs when the tab has never been activated: the state still
  * updates, and the first activation repaints from it.
@@ -353,29 +288,17 @@ export function stopStatusRefresh(rt: PanelRuntime): void {
 }
 
 /**
- * Arm the tab's refresh tick on the interval the last landed document reported.
- *
- * Two properties are structural rather than tested for, because both are
- * FR-100's "at most one tick per panel" rule: the arm is idempotent for an
- * unchanged period (so re-entering the tab cannot leave a second timer behind),
- * and the period is a function of the reported interval **and nothing else** —
- * never of the last read's outcome, which is what keeps a cadence from
- * becoming the retry loop `contracts/panel-service.md` §1 forbids (FR-100).
- *
- * The tick's body is a parameter rather than a call to {@link loadStatus},
- * because the read arms this function and this function's timer calls the read:
- * naming the read here would make the two mutually referential, and the honest
- * shape is that arming is told what the timer runs. `loadStatus` is its only
- * caller and passes itself.
- *
- * @param input - The runtime, the period just read, and what the timer runs.
+ * Arm the tab's refresh tick on the interval the last landed document reported. Both properties
+ * are structural rather than tested, because both are FR-100's "at most one tick per panel": the
+ * arm is idempotent for an unchanged period, and the period is a function of the reported
+ * interval **and nothing else** — never of the last read's outcome, which is what keeps a cadence
+ * from becoming the retry loop `contracts/panel-service.md` §1 forbids. The tick's body is a
+ * parameter rather than a call to {@link loadStatus}, because naming the read here would make
+ * arming and the timer mutually referential.
  */
 export function armStatusRefresh(input: {
-    /** Runtime whose tick slot is armed. */
     readonly rt: PanelRuntime;
-    /** The effective `polling.intervalMs` just read. */
     readonly intervalMs: number;
-    /** What the timer runs on each period. */
     readonly tick: () => void;
 }): void {
     const { rt, intervalMs, tick } = input;
@@ -462,8 +385,6 @@ export async function loadStatus(rt: PanelRuntime): Promise<void> {
 
 /**
  * Mount the refresh control and the read-state line.
- *
- * @returns The two handles.
  */
 function mountControls(rt: PanelRuntime, parent: HTMLElement): {
     readonly refreshButton: ButtonHandle;
@@ -493,13 +414,9 @@ function mountControls(rt: PanelRuntime, parent: HTMLElement): {
 
 /**
  * Mount the Status body above the prerequisites section.
- *
- * @returns The handles a repaint updates.
  */
 export function mountStatusTab(input: {
-    /** Runtime whose state the tab reads. */
     readonly rt: PanelRuntime;
-    /** The Status body container the shell created. */
     readonly parent: HTMLElement;
 }): StatusTabUi {
     const { rt, parent } = input;
@@ -542,9 +459,6 @@ export function mountStatusTab(input: {
     return ui;
 }
 
-/**
- * Dispose the Status body's handles.
- */
 export function disposeStatusTab(rt: PanelRuntime): void {
     const ui = rt.statusUi;
     if (ui === null) {

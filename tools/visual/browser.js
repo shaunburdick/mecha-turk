@@ -1,13 +1,9 @@
 /**
- * Thin wrapper around the `agent-browser` CLI, which is how this repo talks to
- * Chrome — there is no Playwright, no Puppeteer, and no `chrome` on PATH.
- *
- * Every call runs in one named session (`--session mt-shot` by default) so a
- * screenshot run never hijacks another agent's browser, and every call asks
- * for `--json` so answers are parsed rather than scraped out of prose.
- *
- * `shot.js` never shells out on its own: this module is the only place that
- * spawns anything, which keeps the failure messages in one vocabulary.
+ * Thin wrapper around the `agent-browser` CLI, which is how this repo talks to Chrome — there is
+ * no Playwright, no Puppeteer, and no `chrome` on PATH. Every call runs in one named session so a
+ * run never hijacks another agent's browser, and asks for `--json` so answers are parsed rather
+ * than scraped out of prose. `shot.js` never shells out on its own: this is the only place that
+ * spawns anything, which keeps failure messages in one vocabulary.
  */
 import { spawn } from 'node:child_process';
 import process from 'node:process';
@@ -51,12 +47,7 @@ function parseOutput(input) {
     }
 }
 
-/**
- * Build the one function that spawns a command in a session.
- *
- * @param session - `--session` name every command is bound to.
- * @returns `run(args)` resolving with the command's parsed `data`.
- */
+/** Build the one function that spawns a command in a session: `run(args)` resolving with its parsed `data`. */
 function createRunner(bin, session) {
     return (args) =>
         new Promise((resolve, reject) => {
@@ -85,12 +76,7 @@ function createRunner(bin, session) {
         });
 }
 
-/**
- * Create a wrapper bound to one browser session.
- *
- * @param options - `{ session }`; defaults to `DEFAULT_SESSION`.
- * @returns The command surface `shot.js` drives.
- */
+/** Create a wrapper bound to one browser session — the command surface `shot.js` drives. */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function createBrowser(options = {}) {
     const session = options.session ?? DEFAULT_SESSION;

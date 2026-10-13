@@ -1,30 +1,6 @@
 /**
- * The Dispatches section's mount and repaint (M8, widened by 003 T-025) — split
- * from `bindings-ui.ts`, which the pane's bindings board and add form already
- * fill to the file-length limit.
- *
- * One heading, one status line, one list of recent events (newest first), the
- * actions over the selected row, a note for outcomes, and the M9
- * agent-verification banner in its own wrapper — a banner cannot be
- * unmounted through its handle, so the wrapper's `hidden` flag is what keeps
- * the area empty until a verification has something to say. Every control is
- * a documented SDK primitive repainted from state, exactly like the rest of
- * the pane, and every service-supplied string reaches the DOM through those
- * primitives' `textContent` writes (panel-service contract §3 invariant 11).
- *
- * The pane is three blocks — the set, the selection, the trail — and the
- * middle one follows Accounts' rule: a control that acts on a selection
- * cannot exist without one, so **Selected dispatch** hides as a whole block,
- * its `h2` included, rather than standing as a heading over an empty region.
- * The outcome note therefore lives at the foot of the *set* block, where the
- * status line's *see the note* still finds it while nothing is selected.
- *
- * The three operator actions mount as **groups that show and hide**: the SDK
- * buttons have no "absent" state of their own, so each group wraps its buttons
- * in an element whose `hidden` flag is the "no control here" the affordance
- * table asks for — a disabled button would promise an action the service would
- * refuse (FR-041, FR-074, AC-123). The resolve group carries FR-027's two
- * resolutions plus the field where the operator names the session.
+ * The Dispatches mount and repaint: SDK primitives, `textContent` strings, whole-block hiding (M8, FR-041/074).
+ * The outcome note closes the *set* block, so the status line's *see the note* finds it with nothing selected.
  */
 
 import { mountBanner, mountButton, mountList, mountText, mountTextField } from '@openchamber/sdk/ui';
@@ -67,9 +43,7 @@ import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
 interface MountInputs {
     /** Runtime whose state the section repaints from. */
     readonly rt: PanelRuntime;
-    /** Pane root the controls mount into. */
     readonly pane: HTMLElement;
-    /** Handlers the controls invoke. */
     readonly handlers: BindingsPaneHandlers;
 }
 
@@ -142,8 +116,6 @@ const LIST_COLUMNS: readonly string[] = ['Trigger', 'Subject', 'State', 'Age'];
 
 /**
  * Mount the status line that says which set is on screen.
- *
- * @returns The status handle.
  */
 function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<DispatchesBoard, DispatchesHeadKeys> {
     const { pane, rt } = input;
@@ -160,8 +132,6 @@ function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<Disp
  * Its empty slot is the one AC-122 polices: with a filter on it says the
  * filter matched nothing and offers the control that clears it, never that
  * there are no dispatches.
- *
- * @returns The list handle.
  */
 function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, DispatchesListKeys> {
     const { pane, rt, handlers } = input;
@@ -189,8 +159,6 @@ const OPEN_ISSUE_LABEL = 'Open issue';
 
 /**
  * Mount the two controls every selection offers: refresh, and open the issue.
- *
- * @returns The two buttons.
  */
 function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<DispatchesBoard, SharedActionKeys> {
     const controls = createControlGroup(input.pane);
@@ -212,16 +180,12 @@ function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick
 
 /**
  * Mount the state-gated transitions: retry, return to waiting, and the
- * follow-up re-offer.
- *
- * Each sits in its own group so the group's `hidden` flag can say "not this
- * state" without leaving a greyed-out sibling visible. The follow-up re-offer
- * rides the same idiom on the other axis — it is gated by what the panel's own
- * record says about the row's follow-ups, not by the run's state — so a
- * dispatched dispatch, which is the only state a follow-up can belong to, is
+ * follow-up re-offer. Each sits in its own group so the group's `hidden` flag
+ * can say "not this state" without leaving a greyed-out sibling visible. The
+ * follow-up re-offer rides the same idiom on the other axis — gated by what
+ * the panel's own record says about the row's follow-ups, not by the run's
+ * state — so a dispatched run, the only state a follow-up can belong to, is
  * still where the control appears.
- *
- * @returns The groups and their buttons.
  */
 function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
     DispatchesBoard,
@@ -257,8 +221,6 @@ function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
 
 /**
  * Mount FR-027's two resolutions and the field that names the session.
- *
- * @returns The group, its heading, its two buttons, and the session field.
  */
 function mountResolutions(input: MountInputs): Pick<
     DispatchesBoard,
@@ -299,8 +261,6 @@ function mountResolutions(input: MountInputs): Pick<
  * The list sits in its own wrapper so it can disappear when there is nothing
  * to show while the status line keeps saying why — an empty trail, a failed
  * read, and a still-loading one all read differently.
- *
- * @returns The audit view's handles.
  */
 function mountAuditView(input: MountInputs): Pick<
     DispatchesBoard,
@@ -334,9 +294,6 @@ function mountAuditView(input: MountInputs): Pick<
 
 /**
  * Mount the verification banner in its own hide-able wrapper.
- *
- * @param runs - Section state, for the wrapper's first flag.
- * @returns The wrapper and the banner.
  */
 function mountAgentNotice(
     pane: HTMLElement,
@@ -394,11 +351,9 @@ export function disposeDispatchesBoard(board: DispatchesBoard): void {
  * the row it will act on.
  */
 function repaintResolutions(input: {
-    /** The runs section's state. */
     readonly runs: DispatchesState;
     /** Names one action label with the selected row. */
     readonly labelFor: (base: string) => string;
-    /** The mounted runs half. */
     readonly board: DispatchesBoard;
 }): void {
     const { runs, labelFor, board } = input;
@@ -421,17 +376,13 @@ function repaintResolutions(input: {
  * thing the control clears, so with none parked it is **absent** rather than
  * greyed out — the same rule the other groups follow — and the confirm label
  * comes from the same armed state the action module writes.
- *
- * @param input - The runs state, the selected row, the label helper, and the board.
  */
 function repaintReoffer(input: {
-    /** The runs section's state. */
     readonly runs: DispatchesState;
     /** The row the operator selected, or `null` when none is. */
     readonly selected: RunRow | null;
     /** Names one action label with the selected row. */
     readonly labelFor: (base: string) => string;
-    /** The mounted runs half. */
     readonly board: DispatchesBoard;
 }): void {
     const { runs, selected, labelFor, board } = input;
@@ -445,18 +396,14 @@ function repaintReoffer(input: {
 }
 
 /**
- * Repaint the runs half of the pane from state.
- *
- * The affordance table decides which transition group exists: one nobody can
- * use is hidden rather than greyed out, because a disabled button still
- * promises an action the service would refuse, and an armed
- * control repaints its confirm label from the same state the action module
- * wrote.
- *
- * Every row-level action also repaints an **accessible name that names its
- * row** — *Retry dispatch for #412 in owner/name* — because a list of
- * identically-labelled buttons is a list an operator cannot act on with a
- * screen reader.
+ * Repaint the runs half of the pane from state. The affordance table decides
+ * which transition group exists: one nobody can use is hidden rather than
+ * greyed out, because a disabled button still promises an action the service
+ * would refuse (AC-123) — and an armed control repaints its confirm label from the
+ * same state the action module wrote. Every row-level action also repaints an
+ * **accessible name that names its row** — *Retry dispatch for #412 in
+ * owner/name* — because a list of identically-labelled buttons is a list an
+ * operator cannot act on with a screen reader.
  */
 export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard): void {
     const { dispatches: runs } = rt.state;
@@ -510,8 +457,6 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
  * — the body first appears long after the mount-time read landed, and without
  * it the paging controls would render their pre-read flags while the rows
  * already show the answer.
- *
- * @returns The runs handles the pane repaints through.
  */
 export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
     const { pane, rt, handlers } = input;

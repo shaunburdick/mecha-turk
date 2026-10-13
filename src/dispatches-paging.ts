@@ -1,17 +1,5 @@
 /**
- * The Dispatches tab's page and filter controls (005 FR-042, FR-043).
- *
- * The list itself is read by `dispatches.ts`; this module owns the six ways an
- * operator changes *which* page is being read — next, previous, page size,
- * binding filter, state filter, and clearing both. Each moves the position
- * first and then reads, and the two that can step mid-set roll the position
- * back when the read fails, so a refused page leaves the operator where the
- * last successful read put them rather than on one the panel cannot show
- * (FR-019, FR-042).
- *
- * A filter or page-size change always resets to page one of the set it
- * describes: a position carried across the change would describe rows the new
- * set does not contain (data-model §3.2).
+ * The Dispatches page and filter controls: move first, read second, roll back on a failed read (FR-019).
  */
 
 import { refresh } from './panel-ui.ts';

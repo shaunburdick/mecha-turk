@@ -1,16 +1,8 @@
 /**
- * The selected binding's chip row.
- *
- * A binding row prints *enabled* inside the subtitle the operator reads as
- * prose, and the form below it restates the triggers as checkboxes — so the
- * facts that decide whether a binding polls are present but never in one
- * place the eye can land on. This module lifts them out: one chip for the
- * state, coloured by whether the binding polls, and one chip per trigger it
- * actually listens to (005 FR-053's detail, given a shape).
- *
- * The trigger words are exported because the form's checkboxes use the same
- * labels: defined once here, an "Assignment" chip and an "Assignment" box
- * cannot drift into saying different things.
+ * The selected binding's chip row: state and trigger chips lifted into one
+ * place (005 FR-053's detail, given a shape). The trigger words are exported
+ * because the form's checkboxes use the same labels — defined once, chip and
+ * checkbox cannot drift into saying different things.
  */
 
 import { mountBadge } from '@openchamber/sdk/ui';
@@ -46,8 +38,6 @@ export interface DetailChips {
  * They describe the *selected* binding, which is exactly the one the form
  * underneath it edits — so the chips and the form cannot disagree about which
  * row they are about.
- *
- * @returns The chip row, repainted and disposed as one unit.
  */
 export function mountDetailChips(detailBox: HTMLElement): DetailChips {
     const container = detailBox.ownerDocument.createElement('div');

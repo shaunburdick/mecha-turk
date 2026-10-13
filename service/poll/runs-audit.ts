@@ -1,23 +1,6 @@
 /**
- * Durable outbox for run-lifecycle audit rows whose append can span a crash
- * (003 T-037, T-040b).
- *
- * Three producers owe rows the audit trail must eventually carry: run creation,
- * migration adoption, and the lease/deadline sweep. Each writes its intent into
- * the same `runs.json` write that changed the state it describes, so the only
- * way a row goes missing is a process that dies between the two — and the next
- * reader of the document finds the intent and writes the row anyway.
- *
- * That is the whole point of the outbox. FR-063 says a failed lifecycle append
- * must not roll back a durable state change and must not be swallowed; before
- * this module the sweep had no way to satisfy either half, because it has no
- * caller to answer: the only place an operator could learn that a lease expired
- * and the run was requeued was the trail, so a lost row was a lost recovery.
- *
- * The sweep's intents are distinguished by a `sequence` discriminator rather
- * than by their event type alone, because one run can be lease-expired three
- * times (FR-033's budget) and a matcher that only compared the event type would
- * retire the second recovery against the first row and never write it.
+ * Durable outbox for run-lifecycle audit rows whose append can span a
+ * crash (003 T-037, T-040b).
  */
 
 import { appendAudit, readAuditEntries } from '../audit.ts';
@@ -97,16 +80,13 @@ function migratedRow(input: IntentRowInput): AuditInput {
 }
 
 /**
- * Build a sweep row from its durable intent.
- *
- * The sweep's rows need no run lookup: the intent already carries the decision,
- * reason, and details exactly as the pass recorded them, so a replay writes the
- * same bytes even if the run has moved on since.
- *
- * **Exported because the sweep's own live append must use this exact builder**,
- * not a parallel copy. The outbox retires an intent by finding a row that
- * matches it, so a live row written from different members than its own intent
- * would never match — the recovery would append the same recovery twice.
+ * Build a sweep row from its durable intent: the intent already carries the
+ * decision, reason and details exactly as the pass recorded them, so a
+ * replay writes the same bytes even if the run has moved on since.
+ * **Exported because the sweep's own live append must use this exact
+ * builder** — the outbox retires an intent by finding a row that matches
+ * it, so a live row written from different members would never match and
+ * the recovery would append the same recovery twice.
  */
 export function sweepAuditRow(intent: Extract<RunAuditIntent, { readonly sequence: string }>): AuditInput {
     return {
@@ -192,9 +172,7 @@ async function persistIntent(input: {
 
 /** Append pending run audits and then retire only intents known durable. */
 export async function flushRunAuditIntents(input: {
-    /** Open service store. */
     readonly store: ServiceStore;
-    /** Structured logger. */
     readonly log: ServiceLogger;
     /** Persisted run document currently carrying the outbox. */
     readonly document: RunsDocument;

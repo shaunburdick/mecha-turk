@@ -66,14 +66,14 @@ import type { ItemEventActor, PollItemEvent } from '../service/poll/poller-event
 import { emptyBindingScan, readScanState, writeScanState } from '../service/poll/scan.ts';
 import { createGitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { openStore } from '../service/store/index.ts';
-import type { Account } from '../service/accounts/model.ts';
 import type { BindingRecord } from '../service/bindings.ts';
 import type { FetchLike } from '../service/github.ts';
 import type { GitHubIssuePoller, ListPace } from '../service/poll/poller-github.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
-import { scopeResults } from './support/verify.ts';
 import { makeTempTree, removeTempTree } from './support/temp-tree.ts';
+import { fixtureAccount } from './support/account-fixture.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /* -------------------------------------------------------------------- *
  * Constants and fixtures
@@ -118,14 +118,8 @@ const FORBIDDEN: readonly RegExp[] = [/issues\/events/, /\/timeline/];
 /** The per-item events path, as `poller-github.ts` builds it. */
 const PER_ITEM_PATH = /issues\/\$\{[^}]+\}\/events/;
 
-/** GitHub numeric user id of the fixture account. */
-const ACCOUNT_ID = '77331';
-
 /** The bound account's login — the identity FR-050's subject field must name. */
 const ACCOUNT_LOGIN = 'octocat-mt';
-
-/** OpenChamber project every fixture dispatches to. */
-const PROJECT_ID = 'prj_42';
 
 /** The binding id every fixture binds. */
 const BINDING_ID = 'bnd-actor-read';
@@ -286,49 +280,6 @@ const PACE: ListPace = {
 
 /** The repository reference the actor read is issued against. */
 const REPOSITORY = { owner: OWNER, name: REPO_NAME };
-
-/**
- * Write one active binding the fixtures scan.
- *
- * @returns A complete active binding.
- */
-function fixtureBinding(triggers: BindingRecord['triggers']): BindingRecord {
-    return {
-        bindingId: BINDING_ID,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: REPO_LABEL,
-        projectId: PROJECT_ID,
-        worktreeOption: 'none',
-        triggers,
-        state: 'active',
-        createdAt: IN_WINDOW,
-        updatedAt: IN_WINDOW,
-    };
-}
-
-/**
- * The active account every fixture binds.
- *
- * @returns A complete stored account record (the token is a fixture value).
- */
-function fixtureAccount(): Account {
-    return {
-        numericUserId: ACCOUNT_ID,
-        login: ACCOUNT_LOGIN,
-        expectedLogin: null,
-        displayName: null,
-        startingPrompt: null,
-        credential: { token: TOKEN, kind: 'classic', verifiedAt: IN_WINDOW },
-        scopeCheck: { checkedAt: IN_WINDOW, results: scopeResults('ok') },
-        state: 'active',
-        connectionState: 'connected',
-        verifiedAt: IN_WINDOW,
-        errorReason: null,
-        createdAt: IN_WINDOW,
-        updatedAt: IN_WINDOW,
-    };
-}
 
 /* -------------------------------------------------------------------- *
  * Normalized-row builders — the pure layer
@@ -698,8 +649,15 @@ async function seed(input: {
     const store = await openStore({ dataDir: join(tempRoot, 'store') });
     const lines: string[] = [];
     const log = createLogger({ level: 'debug', sink: (line) => void lines.push(line) });
-    await writeBindings({ store, bindings: [fixtureBinding(input.triggers)] });
-    await writeAccount(store, fixtureAccount());
+    await writeBindings({
+        store,
+        bindings: [fixtureBindingRow(BINDING_ID, {
+            accountLogin: ACCOUNT_LOGIN,
+            triggers: input.triggers,
+            stamp: IN_WINDOW,
+        })],
+    });
+    await writeAccount(store, fixtureAccount({ stamp: IN_WINDOW }));
     await store.writeJson(CONFIG_FILE, { ...DEFAULT_CONFIG, retryMaxAttempts: NO_RETRIES });
     await writeScanState({
         store,

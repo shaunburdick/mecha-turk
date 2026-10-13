@@ -80,7 +80,6 @@ import {
     readHistoryScope,
 } from '../src/bindings-service.ts';
 import { openStore } from '../service/store/index.ts';
-import type { Account } from '../service/accounts/model.ts';
 import type { BindingRecord } from '../service/bindings.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { HistoryScope, PanelBinding } from '../src/bindings-service.ts';
@@ -97,9 +96,10 @@ import {
     stubPanelUi,
 } from './support/ui-stubs.ts';
 import { fakeGitHub, userBody } from './support/github.ts';
-import { scopeResults } from './support/verify.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
+import { fixtureAccount } from './support/account-fixture.ts';
+import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Credential registered with this suite; never appears in any answer. */
 const REGISTERED_TOKEN = `history-scope-credential-${'h'.repeat(32)}`;
@@ -184,34 +184,6 @@ const running: TestService[] = [];
 /** Panel runtimes a case built, drained of their relay in teardown. */
 const armedRuntimes: PanelRuntime[] = [];
 
-/**
- * The credential the bindings resolve against.
- *
- * A scan skips a binding whose account is missing or unusable with a recorded
- * reason, so every behavioural row here needs the account present — otherwise
- * the scan never reaches the poller and the window assertions read `[]` for a
- * reason that has nothing to do with the window.
- *
- * @returns The fixture account the store resolves `ACCOUNT_ID` to.
- */
-function fixtureAccount(): Account {
-    return {
-        numericUserId: ACCOUNT_ID,
-        login: ACCOUNT_LOGIN,
-        expectedLogin: null,
-        displayName: null,
-        startingPrompt: null,
-        credential: { token: REGISTERED_TOKEN, kind: 'classic', verifiedAt: SCANNED_AT },
-        scopeCheck: { checkedAt: SCANNED_AT, results: scopeResults('ok') },
-        state: 'active',
-        connectionState: 'connected',
-        verifiedAt: SCANNED_AT,
-        errorReason: null,
-        createdAt: SCANNED_AT,
-        updatedAt: SCANNED_AT,
-    };
-}
-
 /** Per-test setup: a fresh temp store, the fixture account, and a capturing logger. */
 beforeEach(async (): Promise<void> => {
     ({ root: tempRoot, dataDir } = await makeStoreTree('history'));
@@ -223,7 +195,7 @@ beforeEach(async (): Promise<void> => {
             logLines.push(line);
         },
     });
-    await writeAccount(store, fixtureAccount());
+    await writeAccount(store, fixtureAccount({ token: REGISTERED_TOKEN, stamp: SCANNED_AT }));
 });
 
 /** Per-test teardown: drop the temp root and drain any harness. */
@@ -255,24 +227,15 @@ const QUIET: ServiceLogger = createLogger({
  * Build one stored binding row.
  *
  * @param bindingId - The row's id.
- * @param scope - The mode to store, or `null` to store none at all.
+ * @param scope - The mode to store, or absent to store none at all.
  * @returns A complete binding record.
  */
-function binding(bindingId: string, scope?: HistoryScope): BindingRecord {
-    return {
-        bindingId,
-        accountNumericUserId: ACCOUNT_ID,
-        accountLogin: ACCOUNT_LOGIN,
-        repository: 'acme/widget',
-        projectId: 'prj_42',
-        worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
-        state: 'active',
-        createdAt: CREATED_AT,
-        updatedAt: CREATED_AT,
-        ...(scope !== undefined && { historyScope: scope }),
-    };
-}
+const binding = (bindingId: string, scope?: HistoryScope): BindingRecord => fixtureBindingRow(bindingId, {
+    accountLogin: ACCOUNT_LOGIN,
+    triggers: { assignment: true, mention: false, reviewRequest: false },
+    stamp: CREATED_AT,
+    historyScope: scope,
+});
 
 /**
  * A bindings service that echoes back exactly what it was sent, recording the

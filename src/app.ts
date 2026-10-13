@@ -1,20 +1,8 @@
 /**
- * Panel application for the extension.
- *
- * The app wires the documented host surface to one bounded flow: record the
- * host's settings snapshot, follow the service's bindings and event relay,
- * dispatch exactly one `host.startSession()` per claimed run, verify
- * host-owned project, worktree, and session state, and keep a redacted
- * ledger in `host.storage`.
- *
- * Configuration resolution is **bindings-authoritative only** (002 FR-041):
- * the integration card declares zero settings, so nothing here parses
- * `ctx.settings` into a repository, project, interval, or expected login.
- *
- * Every lifecycle transition the experiment needs (mounted, closed, paused,
- * removed, server-switch) is recorded explicitly; the frame is the only thing
- * running, so nothing survives it. Each step is a module level function over
- * the shared runtime so no single function hides the whole flow.
+ * Panel application for the extension: wires the documented host surface to
+ * one bounded flow — settings snapshot, bindings and event relay, exactly one
+ * `host.startSession()` per claimed run, host-state verification, and a
+ * redacted ledger in `host.storage`.
  */
 
 import type { HostReadyContext, JsonValue } from '@openchamber/sdk';
@@ -41,44 +29,26 @@ import { tabSpecs } from './tab-bodies.ts';
 import { describeError } from './session.ts';
 import type { PanelHost } from './session.ts';
 
-/** Options for {@link createPanelApp}. */
 export interface PanelAppOptions {
-    /** Documented host client. */
     readonly host: PanelHost;
-    /** Panel root element from `panel/index.html`. */
     readonly root: HTMLElement;
-    /** Frame window, used for the unload hook. */
     readonly panelWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>;
 }
 
-/** Handle to the running panel app. */
 export interface PanelApp {
-    /** Unsubscribe, stop timers, dispose UI, and release the host client. */
     dispose: () => void;
 }
 
 /**
- * Apply the host's settings snapshot.
- *
- * Since 002 FR-041 emptied `contributes.integration.settings`, the snapshot
- * carries **zero** declared settings: there is no single-repo configuration
- * to parse and no card id to read, so this function no longer resolves a
- * config at all. What it still does is (a) record the snapshot — prerequisites
- * reads it as the "the host is ready" marker — and (b) re-apply
- * bindings-authoritative mode when a binding already supplies the dispatch
- * context, so a settings event can never demote a configured panel.
- *
- * The legacy branch that parsed `repository` / `project-id` /
- * `worktree-option` / `poll-interval-ms` / `expected-login` is **retired, not
- * kept as a fallback** (002 FR-041(a)): bindings are the only configuration
- * resolution mode, and a panel with no binding says it is waiting for one
- * instead of naming a setting the manifest no longer declares.
- *
- * Exported so the settings flow can be exercised directly by the
- * orchestration tests; the panel itself reaches this through the `onSettings`
- * subscription registered in {@link createPanelApp}.
- *
- * Values come from `ctx.settings`, which in practice is an empty record.
+ * Apply the host's settings snapshot. Since 002 FR-041 emptied
+ * `contributes.integration.settings`, the snapshot carries **zero** declared
+ * settings, so nothing is parsed: it records the snapshot (prerequisites reads
+ * it as the "the host is ready" marker) and re-applies bindings-authoritative
+ * mode when a binding already supplies the dispatch context, so a settings
+ * event can never demote a configured panel. The legacy single-repo branch is
+ * **retired, not kept as a fallback** (002 FR-041(a)): a panel with no binding
+ * says it is waiting for one instead of naming a setting the manifest no longer
+ * declares. Exported so the orchestration tests can drive the settings flow.
  */
 export function applySettings(rt: PanelRuntime, settings: Readonly<Record<string, string>>): void {
     rt.state.settings = settings;
@@ -224,14 +194,11 @@ export function handlePagehide(rt: PanelRuntime): void {
 }
 
 /**
- * Whether the frame was torn down while the last await was in flight.
- *
- * A function call rather than a bare `rt.disposed` read: the analyzer narrows
- * that property across an `await` and calls a second direct check unreachable,
- * while the frame really can go away between two awaits — and carrying on would
+ * Whether the frame was torn down while the last await was in flight. A
+ * function call rather than a bare `rt.disposed` read: the analyzer narrows that
+ * property across an `await` and calls a second direct check unreachable, while
+ * the frame really can go away between two awaits — and carrying on would
  * reconcile, claim, and dispatch from a disposed panel.
- *
- * @returns `true` once the mount has been torn down.
  */
 function tornDown(rt: PanelRuntime): boolean {
     return rt.disposed;
@@ -341,8 +308,6 @@ function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
  *
  * Mounts the UI immediately, then waits for `onReady` before reading settings
  * and storage, so the theme and context are applied exactly once.
- *
- * @returns A handle that tears the panel down again.
  */
 export function createPanelApp(options: PanelAppOptions): PanelApp {
     const { host, root, panelWindow } = options;

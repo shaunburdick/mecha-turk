@@ -1,18 +1,5 @@
 /**
- * The Dispatches section's actions (M8): read the history, open the issue, retry.
- *
- * The service owns the queue; this module reads its credential-free
- * projection (`GET /v1/events`, all states, newest detected first, capped at
- * 100) and requeues one non-dispatched run through
- * `POST /v1/events/:id/retry`. Nothing here dispatches: a retry only returns
- * the run to `pending`, and the relay's own loop is what starts it again.
- *
- * Every action is fail-quiet in the panel's own idiom — a refused call lands
- * on the section's note line (with the service's envelope code where one
- * exists), never as an exception that could take the panel down. The list
- * re-reads after a retry so the row the operator just acted on shows the
- * state the service actually stored, and only then is the outcome note
- * written, so a refresh can never clobber the explanation.
+ * The Dispatches section's actions: read, open, retry — nothing here dispatches; failures land on the note line (M8).
  */
 
 import { initialAuditHistory } from './audit-view.ts';
@@ -33,22 +20,18 @@ import type { RunRow } from './dispatches-service.ts';
 
 /**
  * Whether the mount still runs; a function call the analyzer never narrows.
- *
- * @returns `true` while the panel is alive.
  */
 function stillMounted(rt: PanelRuntime): boolean {
     return !rt.disposed;
 }
 
 /**
- * Read one page of the dispatch history from the service.
- *
- * A failed or unreadable read keeps the rows the panel already holds — the
- * note explains what went wrong instead of blanking a list the operator was
- * reading — while a successful read replaces them wholesale, records where
- * the answer sits in the set, and drops a selection whose row is gone. The
- * page position itself is the caller's to keep or roll back: this function
- * only ever annotates it with what the answer actually said.
+ * Read one page of the dispatch history from the service. A failed or
+ * unreadable read keeps the rows the panel already holds — the note explains
+ * instead of blanking a list the operator was reading — while a successful read
+ * replaces them wholesale, records the answer's position in the set, and drops a
+ * selection whose row is gone; the page position itself stays the caller's to
+ * keep or roll back.
  */
 export async function loadDispatches(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -113,11 +96,9 @@ export async function loadDispatches(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Record the run the operator selected for the open/retry buttons.
- *
- * Unknown ids are ignored rather than stored: the list only offers ids that
- * came from the service, and a stale selection must not silently target some
- * later row.
+ * Record the run the operator selected for the open/retry buttons. Unknown
+ * ids are ignored rather than stored: the list only offers ids that came from
+ * the service, and a stale selection must not silently target some later row.
  */
 export function selectDispatch(rt: PanelRuntime, id: string): void {
     const { dispatches: runs } = rt.state;
@@ -140,11 +121,10 @@ export function selectDispatch(rt: PanelRuntime, id: string): void {
 }
 
 /**
- * Open the selected run's issue in the operator's browser.
- *
- * A host refusal lands on the runs note like every other action's failure —
- * an explicit outcome rather than a silently swallowed one — and the row
- * keeps its URL visible in the issue itself either way.
+ * Open the selected run's issue in the operator's browser. A host refusal
+ * lands on the runs note like every other action's failure — an explicit
+ * outcome rather than a silently swallowed one — and the row keeps its URL
+ * visible in the issue itself either way.
  */
 export async function openDispatch(rt: PanelRuntime): Promise<void> {
     const row = selectedRun(rt.state.dispatches);
@@ -180,8 +160,6 @@ interface CauseMembers {
 
 /**
  * The operator's own reference to one run: `#<issue number>`.
- *
- * @returns The reference every confirmation and outcome note leads with.
  */
 function issueRef(row: RunRow): string {
     return `#${row.issueNumber}`;
@@ -189,9 +167,6 @@ function issueRef(row: RunRow): string {
 
 /**
  * The coordinates FR-027 requires both confirmations to show.
- *
- * @returns `project …, worktree …, attachment …` — what the operator matches
- *   against OpenChamber's own session list.
  */
 function guidanceFor(row: RunRow): string {
     return `project ${row.projectId}, worktree ${row.worktreeOption}, attachment ${row.attachmentId}`;
@@ -199,8 +174,6 @@ function guidanceFor(row: RunRow): string {
 
 /**
  * The return-to-waiting confirmation: what resets, and what is kept.
- *
- * @returns The copy the control shows before it acts.
  */
 function requeueConfirmCopy(row: RunRow): string {
     return `Confirm: return ${issueRef(row)} to waiting? The attempt count resets to 1 and the automatic `
@@ -208,17 +181,11 @@ function requeueConfirmCopy(row: RunRow): string {
 }
 
 /**
- * The re-offer confirmation: what the panel clears, and what it buys.
- *
- * The ladder is **not** refreshed — `reofferFollowUpRecords` leaves `attempt`
- * alone, because a reset would re-spend a bound the park had just exhausted.
- * So the re-offer buys one more attempt and a second failure parks the
- * follow-up again at once, which is what the copy has to say (the site's own
- * wording, mirrored here rather than claimed more softly).
- *
- * @param row - The dispatch the control acts on.
- * @param parked - How many parked follow-ups the control will re-offer.
- * @returns The copy the control shows before it acts.
+ * The re-offer confirmation: what the panel clears, and what it buys. The
+ * ladder is **not** refreshed — `reofferFollowUpRecords` leaves `attempt`
+ * alone, because a reset would re-spend a bound the park had just exhausted —
+ * so the re-offer buys one more attempt and a second failure parks the
+ * follow-up again at once, which is what the copy has to say.
  */
 function reofferFollowUpCopy(row: RunRow, parked: number): string {
     const subject = parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`;
@@ -232,9 +199,6 @@ function reofferFollowUpCopy(row: RunRow, parked: number): string {
 /**
  * A resolve confirmation: what the operator is asked to verify, and the
  * warning FR-027 requires before either answer.
- *
- * @param decision - Which of the two resolutions this confirmation leads to.
- * @returns The copy the control shows before it acts.
  */
 function resolveConfirmCopy(row: RunRow, decision: ResolveDecision): string {
     const question = decision === SESSION_CREATED ? 'does a session exist' : 'does no session exist';
@@ -249,12 +213,9 @@ function resolveConfirmCopy(row: RunRow, decision: ResolveDecision): string {
 
 /**
  * Render a refused operation as the note: the service's own copy, verbatim.
- *
  * The envelope's `message` *is* the verdict — each state refusal words itself
  * distinctly (contract §6) — so the panel reports it rather than paraphrasing
  * it into something the operator has to translate back into the run's state.
- *
- * @returns The redacted note.
  */
 function verdictNote(result: Extract<ServiceErrorResult, { readonly ok: false }>): string {
     if (result.message !== null) {
@@ -265,15 +226,12 @@ function verdictNote(result: Extract<ServiceErrorResult, { readonly ok: false }>
 }
 
 /**
- * What the panel can honestly say about a blocked run's cause (contract §6).
- *
- * Each blocked reason has its own evidence, and the panel never claims more
- * than it checked: the service re-checks the binding table itself, the panel's
- * same-mount project list is the only evidence available for a project the
- * host no longer resolves (the service cannot call host APIs), and any other
- * cause is the operator's assertion on this mount — which is what gets audited.
- *
- * @returns The members to add to the retry body.
+ * What the panel can honestly say about a blocked run's cause (contract §6):
+ * each blocked reason has its own evidence, and the panel never claims more than
+ * it checked — the service re-checks the binding table itself, the same-mount
+ * project list is the only evidence for a project the host no longer resolves,
+ * and any other cause is the operator's own assertion, which is what gets
+ * audited.
  */
 async function causeMembers(rt: PanelRuntime, row: RunRow): Promise<CauseMembers> {
     if (!row.state.startsWith(BLOCKED_PREFIX)) {
@@ -297,21 +255,17 @@ async function causeMembers(rt: PanelRuntime, row: RunRow): Promise<CauseMembers
 }
 
 /**
- * Arm one control's confirmation, or report it is already armed.
- *
- * The panel has no dialog primitive, so a state-changing action confirms the
- * way the Remove-account control already does: the first click states what
- * will happen, the second one sends it. Arming writes the copy into the
- * section's note and leaves the row alone — nothing is posted until the
- * operator clicks the same control again.
- *
- * @returns `true` when the control was already armed and may act now.
+ * Arm one control's confirmation, or report it is already armed. The panel has
+ * no dialog primitive, so a state-changing action confirms the way
+ * Remove-account does — the first click states what will happen, the second one
+ * sends it. Arming writes the copy into the section's note and leaves the row
+ * alone: nothing is posted until the operator clicks the same control again.
+ * `true` when the control was already armed and may act now.
  */
 function armControl(input: {
     readonly rt: PanelRuntime;
     /** Which control the click belongs to; a different arm is replaced. */
     readonly action: RunPendingAction;
-    /** The confirmation copy for this control. */
     readonly copy: string;
 }): boolean {
     const { dispatches: runs } = input.rt.state;
@@ -327,14 +281,11 @@ function armControl(input: {
 }
 
 /**
- * Post one run operation behind the section's single busy gate.
- *
- * One flag gates every run operation — retry, return to waiting, resolve — so
- * the operator cannot send two of them at once, and the run state is only ever
- * what the service answers: the list is re-read after the call and the note is
- * written afterwards, so a refresh can never clobber the explanation.
- *
- * @returns The outcome the tab renders once the answer is accepted.
+ * Post one run operation behind the section's single busy gate: one flag gates
+ * retry, return-to-waiting, and resolve so two cannot be sent at once, and the
+ * run state is only ever what the service answers — the list is re-read after
+ * the call and the note written afterwards, so a refresh can never clobber the
+ * explanation.
  */
 async function postRunOperation(input: {
     readonly rt: PanelRuntime;
@@ -342,7 +293,6 @@ async function postRunOperation(input: {
     readonly path: string;
     /** Serialized body the contract for that operation requires. */
     readonly body: string;
-    /** Note for a 200 answer. */
     readonly success: string;
 }): Promise<void> {
     const { dispatches: runs } = input.rt.state;
@@ -379,12 +329,11 @@ async function postRunOperation(input: {
 }
 
 /**
- * Retry the selected run under its own run key (M8).
- *
- * Only a run the service accepts is sent — a dispatched or waiting row is
- * refused locally with the same words the table gives it — and a blocked run
- * goes with the evidence {@link causeMembers} could gather, so the audit row
- * says what was actually checked rather than that something was.
+ * Retry the selected run under its own run key (M8): only a run the service
+ * accepts is sent — a dispatched or waiting row is refused locally with the
+ * table's own words — and a blocked run goes with the evidence
+ * {@link causeMembers} could gather, so the audit row says what was actually
+ * checked rather than that something was.
  */
 export async function retryRun(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -443,20 +392,14 @@ export async function requeueRun(rt: PanelRuntime): Promise<void> {
     });
 }
 
-/** The note a refused re-offer leaves: nothing changed, and the cause. */
 const REFUSED_REOFFER_NOTE =
     'The re-offer did not land: the panel could not read or write its own delivery record, so nothing changed.';
 
 /**
- * The outcome note: what was re-offered, and what it bought.
- *
- * One more attempt, not a fresh ladder: the re-offer clears the park and its
- * cause and leaves the count alone, so a second failure parks it again at
- * once — the same promise the confirmation made.
- *
- * @param row - The dispatch the re-offer acted on.
- * @param parked - How many parked follow-ups it cleared.
- * @returns The note.
+ * The outcome note: what was re-offered, and what it bought — one more
+ * attempt, not a fresh ladder: the re-offer clears the park and its cause and
+ * leaves the count alone, so a second failure parks it again at once, the
+ * same promise the confirmation made.
  */
 function reofferOutcomeCopy(row: RunRow, parked: number): string {
     const subject = parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`;
@@ -466,19 +409,14 @@ function reofferOutcomeCopy(row: RunRow, parked: number): string {
 }
 
 /**
- * Write the re-offer and report what it did; never throws.
- *
- * The row's parked line is a fact about this dispatch's own record, so the
- * re-read after the write is what lets the section show the re-offer instead of
- * naming a park the operator just cleared — and a record this build cannot read
- * keeps the last list it held, exactly as the list load does.
+ * Write the re-offer and report what it did; never throws. The re-read after
+ * the write is what lets the section show the re-offer instead of naming a park
+ * the operator just cleared, and a record this build cannot read keeps the last
+ * list it held, exactly as the list load does.
  */
 async function applyReoffer(input: {
-    /** Runtime whose dispatches slice and record are written. */
     readonly rt: PanelRuntime;
-    /** The dispatch the re-offer acts on. */
     readonly row: RunRow;
-    /** The parked follow-ups the control is re-offering. */
     readonly reofferable: readonly ParkedFollowUp[];
 }): Promise<void> {
     const { rt, row, reofferable } = input;
@@ -502,22 +440,14 @@ async function applyReoffer(input: {
 }
 
 /**
- * Re-offer the selected dispatch's parked follow-ups (002 FR-105, AC-051).
- *
- * The park is not an end. A follow-up that spent the retry ladder returns to
- * waiting only through this control, and the durable record stays the
- * at-most-once authority while it does: the re-offer clears the park and its
- * cause and nothing else, so a follow-up that already reached its session is
- * never sent twice and one nobody attempted is never touched. It is a **local**
- * action on the panel's own record — no route, no service request, no run state
- * (FR-107) — which is why it posts nothing and re-reads the record instead.
- *
- * The relay's flags are read before the first `await` for the same reason
- * `postRunOperation` reads `busy` there: a relay tick is the only other writer
- * of the follow-up record, and a re-offer that landed mid-tick would persist a
- * document the tick had already written a delivery outcome into. The two-click
- * confirm narrows that window further, and the refusal is a note rather than a
- * silent nothing either way.
+ * Re-offer the selected dispatch's parked follow-ups (002 FR-105, AC-051). The park is not an
+ * end: a follow-up that spent the ladder returns to waiting only through this control, and the
+ * durable record stays the at-most-once authority — the re-offer clears the park and its cause and
+ * nothing else, so a delivered follow-up is never sent twice. It is a **local** action on the
+ * panel's own record — no route, no service request, no run state (FR-107) — so it re-reads
+ * instead of posting. The relay's flags are read before the first `await`, because a relay tick is
+ * the only other writer of the follow-up record and a re-offer landing mid-tick would persist a
+ * document the tick had already finished.
  */
 export async function reofferFollowUp(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -553,11 +483,10 @@ export async function reofferFollowUp(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Resolve the selected `unconfirmed` run one of FR-027's two ways.
- *
- * The state guard is the point: the two resolutions are the *only* paths out
- * of the fail-closed wedge, so they are reachable from that state and from
- * nowhere else, and the second click — never the first — is what posts.
+ * Resolve the selected `unconfirmed` run one of FR-027's two ways. The state
+ * guard is the point: the two resolutions are the *only* paths out of the
+ * fail-closed wedge, so they are reachable from that state and from nowhere
+ * else, and the second click — never the first — is what posts.
  */
 async function resolveRun(rt: PanelRuntime, decision: ResolveDecision): Promise<void> {
     const { dispatches: runs } = rt.state;
@@ -602,19 +531,14 @@ async function resolveRun(rt: PanelRuntime, decision: ResolveDecision): Promise<
     });
 }
 
-/** Confirm the first resolution: the dispatch did create a session. */
 export async function resolveSessionCreated(rt: PanelRuntime): Promise<void> {
     await resolveRun(rt, SESSION_CREATED);
 }
 
-/** Confirm the second resolution: the dispatch created no session. */
 export async function resolveNoSession(rt: PanelRuntime): Promise<void> {
     await resolveRun(rt, 'no-session');
 }
 
-/**
- * Record the session id the operator types for the first resolution.
- */
 export function setSessionInput(rt: PanelRuntime, value: string): void {
     if (rt.disposed) {
         return;
@@ -624,8 +548,6 @@ export function setSessionInput(rt: PanelRuntime, value: string): void {
 }
 
 /**
- * Reveal or hide the selected row's source references.
- *
  * A view toggle, not a run operation: it sends nothing, changes no row, and
  * costs no budget. Selecting a different row closes it (see
  * {@link selectDispatch}), so the reveal can never show one dispatch's
@@ -642,8 +564,6 @@ export function toggleReferences(rt: PanelRuntime): void {
 }
 
 /**
- * Copy the selected row's correlation id to the clipboard.
- *
  * Every outcome lands on the note line rather than being swallowed: no
  * selection says there is nothing to copy, and a clipboard the frame refuses
  * says so with the cause — an unavailable copy is always a reason, never a

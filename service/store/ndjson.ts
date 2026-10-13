@@ -1,12 +1,5 @@
 /**
  * Append-only NDJSON persistence for the service's audit trail.
- *
- * The audit home is a line-oriented log rather than a rewritten document
- * (FR-033/FR-035): entries are appended with `O_APPEND` + fsync so an entry
- * either reaches disk whole or not at all, and existing entries are never
- * rewritten. A torn final line — a crash mid-append — is counted as
- * `malformed` on read and skipped; it can never make the reader throw, so an
- * interrupted boot still shows the history it has (never fail-stuck).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -32,12 +25,6 @@ export interface NdjsonReadResult<T> {
 
 /**
  * Append one JSON document as a single NDJSON line.
- *
- * @param filePath - Absolute path of the log file; parents are created `0700`.
- * @param entry - Any JSON-serialisable entry.
- * @throws {StorageUnavailableError} When the file cannot be opened or written;
- *   an already-reported storage failure is rethrown unchanged rather than
- *   wrapped twice.
  */
 export async function appendJsonLine(filePath: string, entry: unknown): Promise<void> {
     const line = `${JSON.stringify(entry)}\n`;
@@ -60,21 +47,13 @@ export async function appendJsonLine(filePath: string, entry: unknown): Promise<
 }
 
 /**
- * Replace a line file atomically: temp file, fsync, rename.
- *
- * The exact three-syscall pattern {@link writeJsonAtomic} uses, applied to an
- * NDJSON document so a **rewriting** pass (006's retention trim) gets the same
- * crash guarantee an ordinary JSON write gets: the file is either the old one
- * or the new one, never a torn half-trail (constitution Principle III; 006
- * FR-055's "replaced atomically"). The mode is `0600` *before* the rename, so
- * the pre-rename window never widens the trail to anyone but the owner
- * (SEC-13 rule 1), and a failed rename removes the temporary rather than
- * leaving debris beside a trail that still holds its old bytes.
- *
- * @param filePath - Absolute path of the line file to replace or create.
- * @param entries - JSON-serialisable entries, written one per line in order.
- * @throws {StorageUnavailableError} When the directory cannot be created or
- *   the file cannot be written; the previous contents are left untouched.
+ * Replace a line file atomically: temp file, fsync, rename — the exact
+ * three-syscall pattern {@link writeJsonAtomic} uses, so a **rewriting**
+ * retention trim gets the crash guarantee an ordinary JSON write gets: old
+ * file or new one, never a torn half-trail (constitution III; 006 FR-055).
+ * The mode is `0600` *before* the rename, so the pre-rename window never
+ * widens the trail to anyone but the owner (SEC-13 rule 1), and a failed
+ * rename removes the temporary rather than leaving debris.
  */
 export async function writeJsonLinesAtomic(filePath: string, entries: readonly unknown[]): Promise<void> {
     const text = entries.map((entry) => `${JSON.stringify(entry)}\n`).join('');
@@ -93,12 +72,6 @@ export async function writeJsonLinesAtomic(filePath: string, entries: readonly u
 
 /**
  * Read every usable line of an NDJSON file.
- *
- * @param filePath - Absolute path of the log file.
- * @param parse - Shape check for one parsed document; return `null` to count
- *   the line as malformed.
- * @returns The entries plus the count of lines that could not be used.
- * @throws {StorageUnavailableError} When the file exists but cannot be read.
  */
 export async function readJsonLines<T>(
     filePath: string,
