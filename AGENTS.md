@@ -145,7 +145,7 @@ exiting non-zero on any finding.
    `tests/service-server.test.ts` pins them together.
 6. **SDK pinned exactly** (`@openchamber/sdk`, no `~`/`^`, no preview). Re-pin
    only together with a check of the host build in the operator's OpenChamber
-   (engine floor: `>=1.24.0`).
+   (engine floor: `>=2.0.0`).
 7. **Scoped suppressions, zero `any`.** No `@ts-ignore`, `@ts-expect-error`,
    `# type: ignore` — those are how code lies to the compiler, and a cast that
    satisfies a rule is the same lie as disabling it. A *described*
