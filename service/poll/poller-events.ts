@@ -100,7 +100,6 @@ export type ActorRefusal =
     /** The naming event's actor member is `null` or empty. */
     | 'unreadable-actor'
     | 'bot-actor'
-    /** The actor **is** the bound account: it names its own decision, no one else's. */
     | 'self-actor';
 
 export type CandidateActor =
