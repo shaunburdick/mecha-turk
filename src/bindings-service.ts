@@ -234,6 +234,11 @@ function booleanFlagOf(record: Record<string, unknown>, field: string, isAbsent:
     return isAbsent;
 }
 
+/**
+ * Missing flags fall back to the MVP defaults rather than failing the whole
+ * binding: a binding stored before M7 has no `reviewRequest` at all, and it
+ * reads as `false` (its operator never asked for it).
+ */
 function readTriggerFlags(value: unknown): PanelTriggers | null {
     const record = asRecord(value);
     if (record === null) {

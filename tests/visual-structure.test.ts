@@ -270,7 +270,6 @@ describe('every tab is a stack of blocks with a real heading', () => {
             }
         }
     });
-
 });
 
 describe('the list surfaces carry the header rows their columns hang from', () => {
@@ -404,10 +403,8 @@ describe('the Status tab renders structure instead of loose lines', () => {
             for (const tone of ['success', 'error', 'neutral']) {
                 expect(badges.some((badge) => badge.tone === tone), `no chip carries the ${tone} tone`).toBe(true);
             }
-
         }
     });
-
 });
 
 /**
