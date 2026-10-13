@@ -1,11 +1,5 @@
 /**
- * The six-tab shell (005 FR-010–FR-019, FR-082): one navigation surface — the
- * SDK's `mountTabs` strip over six body containers. Mount on first
- * activation, never before (FR-013); activation is idempotent except on
- * Status, whose re-read is a GET so looking at the tab cannot cause work
- * (FR-014, FR-100); and the `id`/`aria-labelledby` pair is re-stamped after
- * every repaint, because the SDK repaints its strip by clearing the track
- * (FR-016).
+ * The six-tab shell (FR-010–FR-019): SDK `mountTabs` over six bodies, mount on first activation, idempotent but Status.
  */
 
 import { mountTabs } from '@openchamber/sdk/ui';
@@ -31,14 +25,10 @@ export interface TabSpec {
 export interface TabShell {
     /**
      * Show one tab, mounting its body the first time.
-     *
-     * @param id - The tab to show; a no-op when it already shows.
      */
     activate(id: TabId): void;
     /**
      * Record that a tab landed a read.
-     *
-     * @param at - RFC 3339 stamp of the read that landed.
      */
     noteRead(id: TabId, at: string): void;
     associate(): void;
@@ -140,8 +130,6 @@ function mountOnce(input: {
 
 /**
  * Build the pair that shows exactly one body at a time.
- *
- * @returns `activate` for the strip's callback and `paint` for the shell.
  */
 function createActivation(input: {
     readonly root: HTMLElement;
@@ -244,8 +232,6 @@ function disposeShell(input: {
 
 /**
  * Mount the six-tab strip and its body region under the panel root.
- *
- * @returns The shell; it is also stored on `rt.shell`.
  */
 export function mountTabShell(input: {
     readonly rt: PanelRuntime;

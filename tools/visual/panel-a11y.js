@@ -1,39 +1,13 @@
 /**
- * The panel's rendered accessibility evidence, across all three host fixtures.
- *
- * 005 M-003 is a review, and this is the part of it that can be re-run: it boots the same offline
- * harness `npm run shot` uses, puts the panel into each of the three fixtures — host light, host
- * dark, and the alias-unavailable frame — at each of the widths the review covers, walks the six tabs
- * with the keyboard, and records what a reader would meet.
- *
- * ## What it records
- *
- * - **Roles and names.** Every strip button's role and accessible name, and every focused control's.
- * - **Tab/body association.** Each body names the tab it belongs to, and the body the cascade paints
- *   is the selected tab's body.
- * - **Visible focus.** Per stop, an indicator in whichever form the panel draws it — an outline, or
- *   the SDK's `box-shadow` ring, which is what every text field in this panel uses — and the focused
- *   element not covered by anything else, probed inside its own box, which is what WCAG 2.2 SC 2.4.11
- *   asks about.
- * - **Reach at rail widths.** Every primary action inside the frame, the body region scrolling only
- *   vertically, and nothing clipped out of it.
- * - **State as text.** Every badge the panel paints state through carries words, not only a colour.
- *
- * ## The fallback fixture is measured, never photographed
- *
- * `shot.js` refuses `--fixture fallback` by name and says why: the strip read-back samples the
- * selected tab's painted fill, and in that frame there is none, so photographing it would mean
- * weakening a freshness proof. This tool does not photograph anything, so the frame is measured
- * here instead — `__MT__.applyFixture('fallback')` then `__MT__.hostThemeReport()` — and the aliases
- * it is supposed to have lost are asserted absent before anything is read from the frame.
- *
- * ## Kept apart from the automated contrast evidence
- *
- * `tests/panel-theme-contrast.test.ts` measures the panel's colours from the shipped stylesheet in
- * all three fixtures. This tool never computes a contrast ratio: it records what the browser paints
- * and what a keyboard reaches. The two reports are separate artefacts for that reason, and a reader
- * comparing them is comparing two independent measurements rather than one number twice.
- *
+ * The panel's rendered accessibility evidence, across all three host fixtures — the re-runnable
+ * part of review 005 M-003. It boots the offline harness `npm run shot` uses, puts the panel into
+ * host light, host dark and the alias-unavailable frame at each width the review covers, walks the
+ * six tabs with the keyboard, and records roles and names, tab/body association, visible focus
+ * (the SDK's `box-shadow` ring included), reach at rail widths, and state as text. The fallback
+ * frame is *measured*, never photographed — `shot.js` refuses it by name because its strip
+ * read-back has no fill to sample — and its lost aliases are asserted absent before any reading.
+ * This tool computes no contrast ratio; `tests/panel-theme-contrast.test.ts` owns that, so the
+ * two reports stay independent measurements of one panel.
  * Usage: `node tools/visual/panel-a11y.js [--out DIR] [--width PX] [--session NAME] [--help]`
  */
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -84,20 +58,14 @@ function writeError(text) {
 }
 
 /**
- * The focus half of the panel reading: where the focused control sits, whether anything covers it,
- * and which of the two indicator forms it draws.
- *
- * It is its own fragment because it is the only part of the reading a keyboard stop needs, and the
- * only part that changes when the panel gains a control; kept inside `panelExpression` it pushed
- * the whole expression past the length a single named step is allowed to be.
- *
- * `@openchamber/sdk` draws its focus ring as a box-shadow and sets outline to none, so **both**
- * halves of the indicator are read: a tool that read only the outline would report every input in
- * the panel as having no visible indicator — the check failing on the primitive's own way of
- * drawing one rather than on the panel.
- *
- * The fragment is interpolated verbatim into `panelExpression`, so it may not contain a backtick or
- * a `${`; the panel's own copy arrives through string concatenation for that reason.
+ * The focus half of the panel reading: where the focused control sits, whether anything covers
+ * it, and which of the two indicator forms it draws. Its own fragment because it is the only part
+ * a keyboard stop needs and the only part that changes when the panel gains a control — inside
+ * `panelExpression` it pushed the whole expression past the length one named step may be.
+ * `@openchamber/sdk` draws its ring as a box-shadow with outline none, so **both** halves are
+ * read: an outline-only tool would report every input as having no visible indicator. The
+ * fragment is interpolated verbatim, so it may not contain a backtick or a `${`; the panel's own
+ * copy arrives through string concatenation for that reason.
  */
 const FOCUS_READING = String.raw`
     const focusRect = active === null || active === panel.body ? null : active.getBoundingClientRect();
@@ -136,14 +104,10 @@ const FOCUS_READING = String.raw`
 `;
 
 /**
- * The expression that reads the shell, one tab body, and the focused element.
- *
- * Everything M-003 asks of the panel is in here, so a tab's evidence is one round trip: the strip's
- * roles and names, the association between each body and its tab, the body the cascade actually
- * paints, every badge's text, whether anything inside the region scrolls sideways, and whether the
- * focused control is fully inside the region and not covered.
- *
- * @returns {string} A JavaScript expression whose value is a JSON string.
+ * The expression that reads the shell, one tab body, and the focused element: everything M-003
+ * asks of the panel in one round trip — the strip's roles and names, each body's tab association,
+ * the body the cascade actually paints, every badge's text, sideways scroll inside the region, and
+ * whether the focused control is fully inside the region and not covered.
  */
 function panelExpression() {
     return String.raw`(() => {
@@ -164,8 +128,7 @@ function panelExpression() {
     const controls = [...panel.querySelectorAll('button, input, select, summary, [role="tab"], a')];
     /*
      * The frame is the whole panel, not the body region: the strip sits above the region and is its
-     * own horizontal scroller, so a strip button that has been scrolled partly out of view is a
-     * control the reader can still reach by scrolling, not one that reaches outside the panel.
+     * own horizontal scroller, so a partly scrolled strip button is still reachable by scrolling.
      */
     const frame = root === null ? null : root.getBoundingClientRect();
     const clipped = frame === null
@@ -226,12 +189,7 @@ function panelExpression() {
 })()`;
 }
 
-/**
- * Press `Tab` until the focus order is exhausted, reading each stop.
- *
- * @param {object} input `{ browser }`.
- * @returns {Promise<object[]>} Every stop, in the order the keyboard reached it.
- */
+/** Press `Tab` until the focus order is exhausted, reading each stop. */
 async function walkFocus(input) {
     const { browser } = input;
     const stops = [];
@@ -314,14 +272,9 @@ function badgeFindings(badges, where) {
 }
 
 /**
- * Whether a `box-shadow` paints a ring.
- *
- * Only the offsets and blur after the first colour layer are read, because a colour is allowed to
- * end in `px`-free numbers and the spread can legitimately be zero; what is being asked is whether
- * anything is drawn *beyond* the element's own box.
- *
- * @param {string} shadow - The computed `box-shadow` value.
- * @returns {boolean} True when at least one length in the ring is non-zero.
+ * Whether a `box-shadow` paints a ring. Only the offsets and blur after the first colour layer
+ * are read — a colour may end in `px`-free numbers and the spread can legitimately be zero —
+ * because the question is whether anything is drawn *beyond* the element's own box.
  */
 export function ringIsPainted(shadow) {
     if (shadow === 'none') {
@@ -339,9 +292,8 @@ function stopFindings(stops, where) {
     for (const stop of stops) {
         /*
          * An indicator is an outline with a width, or a box-shadow that paints one. The colour is
-         * not matched by name: the SDK resolves the host's focus token, and a host may express it
-         * as `oklab()` rather than `rgb()`, so a spelling test would report every input in the panel
-         * as having no indicator in one host theme and having one in another.
+         * not matched by name: the SDK resolves the host's focus token, which a host may express
+         * as `oklab()`, so a spelling test would flip with the host theme.
          */
         const { outline } = stop.indicator;
         const hasOutline = outline.style !== 'none' && Number.parseFloat(outline.width) > 0;
@@ -393,11 +345,7 @@ function review(input) {
     };
 }
 
-/**
- * Walk every tab at every width in one fixture.
- *
- * @returns {Promise<object[]>} One review per (width, tab).
- */
+/** Walk every tab at every width in one fixture. */
 async function reviewFixture(input) {
     const { browser, fixture, refs, tabs } = input;
     const applied = String(await browser.evaluate(`__MT__.applyFixture('${fixture}')`));
@@ -408,9 +356,8 @@ async function reviewFixture(input) {
     if (fixture === FALLBACK) {
         /*
          * The fixture's whole claim is that the aliases are gone and the panel's own fallbacks are
-         * what resolve. Asserted here, from the live document, before anything is read from the
-         * frame: a fallback that still had the host's tokens would measure the host's colours and
-         * call them the panel's.
+         * what resolve — asserted here, from the live document, before anything is read: a fallback
+         * that still had the host's tokens would measure them and call them the panel's.
          */
         if (theme.inlineAliases.length > 0 || theme.computedAliases.length > 0) {
             fixtureFindings.push(
@@ -452,12 +399,7 @@ async function reviewFixture(input) {
     return { applied, findings: fixtureFindings, reviews, theme };
 }
 
-/**
- * Run every fixture, judge the answers, and leave the report behind.
- *
- * @param {string[]} argv - The command line, without the script name.
- * @returns {Promise<number>} Zero when nothing failed; one otherwise.
- */
+/** Run every fixture, judge the answers, and leave the report behind: zero when nothing failed. */
 export async function main(argv) {
     if (argv.includes('--help')) {
         writeLine(

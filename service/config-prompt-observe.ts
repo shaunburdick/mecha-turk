@@ -47,8 +47,6 @@ const observationStates = new WeakMap<ServiceStore, ConfigPromptObservationState
 
 /**
  * Get (or create) the observation state for one store handle.
- *
- * @returns The handle's baseline and chain.
  */
 function stateFor(store: ServiceStore): ConfigPromptObservationState {
     let state = observationStates.get(store);
@@ -92,8 +90,6 @@ function startingPromptChangeOf(details: Readonly<Record<string, unknown>>): Pro
 /**
  * Derive the baseline from the trail: the `to` of the highest-`seq`
  * `config.changed` row that carries a `startingPrompt` change.
- *
- * @param entries - Every readable row of `audit.ndjson`, oldest first.
  */
 function baselineFromTrail(entries: readonly AuditEntry[]): string | null {
     let highestSeq = 0;

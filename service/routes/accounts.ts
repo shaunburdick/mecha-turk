@@ -79,8 +79,6 @@ export function unknownAccountResponse(): HttpResponse {
 
 /**
  * Build the `409` refusal for a delete that bindings still reference.
- *
- * @returns The response with operator remediation (contract §2.2).
  */
 function bindingsRefusalResponse(count: number): HttpResponse {
     return errorResponse(STATUS.conflict, {
@@ -230,8 +228,6 @@ async function recordRotation(input: {
 
 /**
  * Persist the rotated account, audit it, and answer `200`.
- *
- * @returns The documented success body (contract §2.2).
  */
 async function persistRotation(input: {
     readonly store: ServiceStore;
@@ -257,8 +253,6 @@ async function persistRotation(input: {
 
 /**
  * Resolve the routed path and body into a ready-to-rotate request.
- *
- * @returns The rotation inputs, or the refusal that beat them.
  */
 async function prepareRotation(input: {
     readonly store: ServiceStore;
@@ -375,8 +369,6 @@ async function recordAccountDeleted(store: ServiceStore, numericUserId: string):
 
 /**
  * Run `DELETE /v1/accounts/:numericUserId` from path to response.
- *
- * @returns `200 { removed: true }`, or the documented refusal.
  */
 async function handleDeleteAccount(context: RouteContext, request: RouteRequest): Promise<HttpResponse> {
     const { store } = context;

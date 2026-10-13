@@ -1,10 +1,5 @@
 /**
- * Bindings-authoritative panel mode (MVP blocker 1 fix, 2026-09-27): when
- * the service reports at least one enabled repository binding, the panel's
- * configuration comes from that binding, not legacy Settings single-repo
- * settings — the first enabled binding becomes the authoritative dispatch
- * context for `rt.state.config`, which the project picker and the message
- * framing read. No loop is armed from here.
+ * Bindings-authoritative panel mode: an enabled binding becomes the dispatch context `rt.state.config` carries.
  */
 
 import { DEFAULT_POLL_INTERVAL_MS, parseRepository, parseWorktreeOption } from './config.ts';
@@ -54,8 +49,6 @@ export function bindingContext(binding: PanelBinding): BindingContext | null {
 
 /**
  * Build the info banner for bindings-authoritative mode.
- *
- * @returns The banner content.
  */
 export function bindingsActiveStatus(count: number): PanelStatus {
     return {
@@ -78,17 +71,14 @@ export function applyBindingsMode(rt: PanelRuntime): void {
 }
 
 /**
- * Load the service bindings once at mount and arm the relay (MVP blocker 1).
- * `applySettings` runs before any service read has answered, so a panel with
- * bindings but no legacy settings would otherwise show the legacy refusal
- * banner for the whole mount — this check re-resolves the configuration once
- * the bindings are in state, and arms the event relay only when bindings
- * actually landed, because a relay dispatching against an empty binding table
- * would drain queued events as `binding-missing` before it ever saw the
- * binding they belong to. The mount-time arm is deliberately duplicated:
- * `bindings.loadBindings` arms on every later read or grant that lands an
- * enabled binding, covering the mount-time 503 and the first binding added
- * in-session (both arm idempotently through `startRelayPolling`).
+ * Load the service bindings once at mount and arm the relay (MVP blocker 1). `applySettings` runs
+ * before any service read has answered, so a panel with bindings but no legacy settings would show
+ * the legacy refusal banner for the whole mount — this re-resolves the configuration once the
+ * bindings are in state, and arms the relay only when bindings actually landed, because a relay
+ * dispatching against an empty table would drain queued events as `binding-missing` before it saw
+ * the binding they belong to. The mount-time arm is deliberately duplicated: `loadBindings` arms
+ * on every later read or grant that lands an enabled binding, both idempotent through
+ * `startRelayPolling`.
  */
 export async function loadInitialBindings(rt: PanelRuntime): Promise<void> {
     await loadBindings(rt);

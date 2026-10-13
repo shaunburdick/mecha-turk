@@ -1,9 +1,5 @@
 /**
- * The Dispatches section's actions (M8): read the history, open the issue,
- * retry. Nothing here dispatches — a retry only returns the run to `pending`
- * for the relay's own loop to start again. Every action is fail-quiet on the
- * section's note line, and the list re-reads after a retry so a refresh can
- * never clobber the explanation.
+ * The Dispatches section's actions: read, open, retry — nothing here dispatches; failures land on the note line (M8).
  */
 
 import { initialAuditHistory } from './audit-view.ts';
@@ -171,9 +167,6 @@ function issueRef(row: RunRow): string {
 
 /**
  * The coordinates FR-027 requires both confirmations to show.
- *
- * @returns `project …, worktree …, attachment …` — what the operator matches
- *   against OpenChamber's own session list.
  */
 function guidanceFor(row: RunRow): string {
     return `project ${row.projectId}, worktree ${row.worktreeOption}, attachment ${row.attachmentId}`;
@@ -447,17 +440,14 @@ async function applyReoffer(input: {
 }
 
 /**
- * Re-offer the selected dispatch's parked follow-ups (002 FR-105, AC-051). The
- * park is not an end: a follow-up that spent the ladder returns to waiting only
- * through this control, and the durable record stays the at-most-once authority
- * — the re-offer clears the park and its cause and nothing else, so an already
- * delivered follow-up is never sent twice and an unattempted one is never
- * touched. It is a **local** action on the panel's own record — no route, no
- * service request, no run state (FR-107) — so it posts nothing and re-reads the
- * record instead. The relay's flags are read before the first `await`: a relay
- * tick is the only other writer of the follow-up record, and a re-offer landing
- * mid-tick would persist a document the tick had already written an outcome
- * into; the two-click confirm narrows that window further.
+ * Re-offer the selected dispatch's parked follow-ups (002 FR-105, AC-051). The park is not an
+ * end: a follow-up that spent the ladder returns to waiting only through this control, and the
+ * durable record stays the at-most-once authority — the re-offer clears the park and its cause and
+ * nothing else, so a delivered follow-up is never sent twice. It is a **local** action on the
+ * panel's own record — no route, no service request, no run state (FR-107) — so it re-reads
+ * instead of posting. The relay's flags are read before the first `await`, because a relay tick is
+ * the only other writer of the follow-up record and a re-offer landing mid-tick would persist a
+ * document the tick had already finished.
  */
 export async function reofferFollowUp(rt: PanelRuntime): Promise<void> {
     const { dispatches: runs } = rt.state;

@@ -94,8 +94,6 @@ const systemSleep: SleepFn = async (milliseconds) => {
 
 /**
  * Build the runtime a poller binds its calls to.
- *
- * @param fetchImpl - Injectable `fetch`; defaults to the process global.
  */
 export function pollerRuntime(deps: PollerDeps, fetchImpl: FetchLike): PollerRuntime {
     return {

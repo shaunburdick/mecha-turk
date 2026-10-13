@@ -46,7 +46,6 @@ export interface ConfigChange {
 
 /**
  * Fingerprint the global tier's text for a row (004 FR-088, 006 FR-071).
- *
  */
 export function configPromptFingerprint(text: string | null | undefined): string | null {
     // `null` and an absent member are the same *unset* to the one validator
@@ -75,7 +74,6 @@ export function recordedConfigPromptFingerprint(value: unknown): string | null {
 /**
  * The value this field's row entry records; every other field records itself
  * (FR-071 as amended for `startingPrompt`).
- *
  */
 function recordedValue(field: ServiceConfigField, value: number | string): ConfigChangeValue {
     if (field !== 'startingPrompt') {

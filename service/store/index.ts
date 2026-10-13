@@ -41,9 +41,6 @@ export interface ServiceStore {
     readonly schemaVersion: number;
     /**
      * Read one JSON document.
-     *
-     * @param validate - Shape check; `null` quarantines the file.
-     * @returns The stored value, absence, or the quarantine path.
      */
     readJson<T>(relativePath: string, validate: (raw: unknown) => T | null): Promise<JsonReadResult<T>>;
     /**
@@ -65,7 +62,6 @@ export interface ServiceStore {
     writeLines(relativePath: string, entries: readonly unknown[]): Promise<void>;
     /**
      * Read every usable line of an NDJSON file.
-     *
      */
     readLines<T>(relativePath: string, parse: (raw: unknown) => T | null): Promise<NdjsonReadResult<T>>;
     /**
@@ -118,7 +114,6 @@ async function readOrCreateSchemaVersion(dataDir: string): Promise<number> {
 
 /**
  * Resolve a relative store path inside the data directory, refusing escape.
- *
  */
 function resolveStorePath(dataDir: string, relativePath: string): string {
     if (relativePath === '' || isAbsolute(relativePath) || relativePath.includes('..')) {
@@ -130,7 +125,6 @@ function resolveStorePath(dataDir: string, relativePath: string): string {
 
 /**
  * List the entries of a directory inside the data directory.
- *
  */
 async function listStoreDir(dataDir: string, relativePath: string): Promise<readonly string[]> {
     const target = resolveStorePath(dataDir, relativePath);
@@ -185,8 +179,6 @@ function createStore(dataDir: string, schemaVersion: number): ServiceStore {
  * read: it verifies (and corrects) the owner-only directory mode through
  * {@link ensureDir}, and sweeps temporary debris an interrupted write left
  * behind so a crash can never leave stale partial files lying around.
- *
- * @returns A handle bound to that directory with `state.json` initialised.
  */
 export async function openStore(options: { readonly dataDir: string }): Promise<ServiceStore> {
     const { dataDir } = options;

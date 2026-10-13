@@ -69,7 +69,6 @@ export function describeError(error: unknown): string {
 
 /**
  * Serialize one entry as a JSON line, redacting secret-shaped text.
- *
  */
 function serialize(entry: PendingEntry): string {
     const raw = JSON.stringify({

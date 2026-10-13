@@ -1,10 +1,5 @@
 /**
- * The Bindings tab's binding rows: which account polls the repository, which
- * project it dispatches to, how long ago it last scanned, and the machine
- * reason when that scan was skipped — the scan phrase always names the
- * reason next to the stamp, closing the "binding on, nothing happens"
- * ambiguity. Pure functions of panel state, so the copy is testable without
- * a DOM.
+ * The Bindings tab's binding rows: poller, project, last scan and its skip reason — pure functions of panel state.
  */
 
 import type { ListItem } from '@openchamber/sdk/ui';
@@ -69,9 +64,6 @@ export interface BindingView {
 
 /**
  * Narrow one stored binding to what a row may show.
- *
- * @returns The view, with the prompt reduced to its length and the allow-list
- *   reduced to one clause.
  */
 function toView(binding: PanelBinding): BindingView {
     return {
@@ -230,8 +222,6 @@ export function accountConsequencePhrase(
 
 /**
  * Compose one binding row.
- *
- * @returns The list row.
  */
 export function bindingRow(bindings: BindingsTabState, binding: BindingView): ListItem {
     const row = statusRowOf(bindings, binding.bindingId);
@@ -264,8 +254,6 @@ export function bindingRow(bindings: BindingsTabState, binding: BindingView): Li
 
 /**
  * Build the bindings list rows from state.
- *
- * @returns The list rows, in stored order.
  */
 export function bindingRows(bindings: BindingsTabState): ListItem[] {
     return bindings.bindings.map((binding) => bindingRow(bindings, toView(binding)));

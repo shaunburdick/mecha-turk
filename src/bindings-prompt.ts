@@ -1,9 +1,5 @@
 /**
- * The binding editor's starting-prompt field (005 FR-051, FR-052; 004
- * FR-014): the one element carrying this binding's prompt. It has no button
- * of its own — the editor's primary control writes it with everything else,
- * so 004 FR-014's untouched-omits, cleared-travels, refusal-lands-here rules
- * have exactly one home.
+ * The binding editor's starting-prompt field — one home for 004 FR-014's untouched-omits rule (005 FR-051/052).
  */
 
 import { mountTextField } from '@openchamber/sdk/ui';
@@ -71,8 +67,6 @@ export interface BindingPromptControls {
 /**
  * Mount the field into the editor, between the other fields and the form's
  * own action row.
- *
- * @returns The handle the pane carries.
  */
 export function mountBindingPrompt(input: {
     readonly rt: PanelRuntime;

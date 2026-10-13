@@ -57,8 +57,6 @@ export interface RefusalTarget {
  * point of the requirement is that these read differently: "already waiting"
  * tells the operator nothing is wrong, "a dispatched run cannot be retried"
  * tells them the opposite, and a generic refusal would collapse them into one.
- *
- * @returns The refusal, naming that state in its own words.
  */
 function invalidTransition(state: RunState): RunRefusal {
     const messages: ReadonlyMap<RunState, string> = new Map<RunState, string>([
@@ -79,8 +77,6 @@ function invalidTransition(state: RunState): RunRefusal {
  * Exported because [`run-verify.ts`](./run-verify.ts) answers its own refusals
  * the same way: one writer for the family is what keeps "every refusal writes
  * exactly one row naming its cause" true across all five operations.
- *
- * @returns The refusal, carrying whether its row reached the trail.
  */
 export async function refused(input: RefusalTarget & {
     readonly run: Run;
@@ -156,8 +152,6 @@ function judgeRetry(input: {
 
 /**
  * Build the waiting run a retry produces.
- *
- * @returns The `pending` run, with the attempt incremented exactly once.
  */
 function waitingRun(input: { readonly run: Run; readonly now: string }): Run {
     const { run, now } = input;
@@ -216,7 +210,6 @@ async function appendRetryRow(input: RetryRowInput): Promise<boolean> {
 
 /**
  * Return a `failed` or `blocked:*` run to waiting under the same run key.
- *
  *
  * The run keeps its source references and every prior attempt's record, and the
  * automatic requeue budget is untouched: only an expired claim consumes it.

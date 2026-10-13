@@ -32,8 +32,6 @@ const BINDINGS_READ_FAILED = 'bindings read failed';
 
 /**
  * Record the first refusal as the `field: remediation` line the log carries.
- *
- * @param note - Sink to fill once; later refusals do not overwrite the first.
  */
 function noteFirstRefusal(note: RefusalNote, issues: readonly BindingIssue[]): void {
     const first = issues[0];
@@ -45,9 +43,6 @@ function noteFirstRefusal(note: RefusalNote, issues: readonly BindingIssue[]): v
 /**
  * Validate a whole bindings file, as the store's read path wants.
  *
- * @param note - Sink the first field-level refusal is captured into, so the
- *   caller can log *why* the file was quarantined without ever logging a byte
- *   of what it held.
  * @returns The bindings, or `null` to quarantine the file (never fail-stuck).
  */
 function parseBindingsFile(raw: unknown, note: RefusalNote): BindingRecord[] | null {
@@ -223,7 +218,6 @@ const NOT_ESTABLISHED: StoredCreationStamp = { kind: 'unreadable' };
 
 /**
  * Read one raw row's creation stamp into its three-state verdict.
- *
  */
 function creationStampOf(entry: Record<string, unknown>): StoredCreationStamp {
     const stored = storedStampOf(entry.createdAt);

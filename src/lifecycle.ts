@@ -74,8 +74,6 @@ export interface MountContext {
  * A missing ledger is itself evidence (removal deletes storage, and each
  * server owns its own namespace), so absence is recorded rather than hidden by
  * a silently fresh state.
- *
- * @param existing - Ledger read from storage, or `null` when absent/unusable.
  */
 export function buildMountContext(existing: PanelLedger | null): MountContext {
     if (existing === null) {

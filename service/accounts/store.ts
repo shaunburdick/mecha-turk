@@ -22,7 +22,6 @@ const ACCOUNT_FILE_SUFFIX = '.json';
 
 /**
  * Build the store-relative path of one account file.
- *
  */
 export function accountPath(numericUserId: string): string {
     if (!isNumericUserId(numericUserId)) {
@@ -43,8 +42,6 @@ interface ReadAccountInput {
 
 /**
  * Log a quarantine without ever failing the read that discovered it.
- *
- * @returns The outcome, its subject, and the parser's refusal note.
  */
 function reportQuarantine(input: {
     /** Outcome of the store read. */
@@ -199,7 +196,6 @@ export async function bindingsReferencing(
 
 /**
  * Disable every binding that references one account, preserving all fields.
- *
  */
 export async function disableBindings(
     store: ServiceStore,

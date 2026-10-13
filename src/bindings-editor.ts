@@ -213,8 +213,6 @@ export function editorStateLine(bindings: BindingsTabState): string {
  * the account's login as the service lists it **now**; it is `null` when the
  * panel cannot establish one (no account selected, or the account is gone),
  * and a `null` current is what stops the override mark from firing.
- *
- * @returns The token's login and the account's current one.
  */
 function mentionParties(bindings: BindingsTabState): {
     /** Login the rendered token is built from, or `null` when there is none. */
@@ -313,8 +311,6 @@ const WORKTREE_OPTIONS = [
  * The two choices are the MVP's own (`new:<branch>` arrives with its own
  * feature); the handler is narrowed to them so a future third option has to
  * widen this signature rather than slip through a string.
- *
- * @returns The props the SDK select takes.
  */
 export function worktreeFieldView(
     bindings: BindingsTabState,
@@ -335,8 +331,6 @@ export function worktreeFieldView(
 
 /**
  * Mount the mention-token line into the pane, right under the account field.
- *
- * @returns The handle the pane carries for repaint and disposal.
  */
 export function mountBindingMention(input: {
     /** Runtime whose tab state the line derives from. */

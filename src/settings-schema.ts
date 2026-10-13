@@ -1,15 +1,5 @@
 /**
- * The projection reader: `GET /v1/config`'s envelope, read fail-closed (006
- * T-017; FR-003, FR-021, FR-027, FR-028; AC-115, AC-116) — the panel's half
- * of "one declaration, read twice". An unknown `kind`, `takesEffect`, or
- * `source`, or a descriptor missing a member its kind requires, refuses the
- * whole envelope (invariant 8); a `config` member the build cannot type lands
- * in {@link ConfigEnvelope.unreadable} while the fields that parsed keep
- * rendering (AC-116), never filled from a default (FR-028); vocabulary values
- * pass through verbatim, never mapped to a guess (FR-021); and a member with
- * no descriptor gets {@link ConfigEnvelope.undisplayed}, so a save that
- * silently dropped an unknown key — the drift this feature exists to remove —
- * is refused (FR-027, AC-115).
+ * The projection reader: `GET /v1/config`'s envelope read fail-closed — the panel's half of "one declaration".
  */
 
 import { asRecord, parseJsonObject } from './json.ts';
@@ -353,16 +343,12 @@ export interface ConfigWriteAnswer {
 }
 
 /**
- * Read a `PUT /v1/config` answer fail closed. The contract's write answer is
- * `{ config, auditWritten }` (§4) — **not** the read envelope, because a write
- * has no `source` or `defaultsApplied` to report. So: a full envelope is
- * adopted as it stands (the §1 co-ship assumption), otherwise `config` is
- * judged against **the declaration the last read supplied** and rebuilt with
- * `source: stored` — the service has just said it wrote the document, and the
- * descriptor list it did not send is immutable by construction (`GET
- * /v1/config` projects it from `service/config.ts`). Anything else — no
- * `config` member, an unparseable body — refuses rather than half-applying
- * (invariant 8). `null` when neither shape can be trusted.
+ * Read a `PUT /v1/config` answer fail closed. The contract's write answer is `{ config,
+ * auditWritten }` (§4) — **not** the read envelope, which has no `source` to report. A full
+ * envelope is adopted as it stands (§1); otherwise `config` is judged against **the declaration the
+ * last read supplied** and rebuilt with `source: stored`, because the descriptors it did not send
+ * are immutable by construction. Anything else refuses rather than half-applying (invariant 8);
+ * `null` when neither shape can be trusted.
  */
 export function parseConfigWriteAnswer(input: {
     readonly body: string;

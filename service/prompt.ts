@@ -64,9 +64,6 @@ const REMEDIATION_CONTROL =
 const REMEDIATION_MARKER = 'startingPrompt must not contain a line beginning with'
     + ' "--- BEGIN " or "--- END " (reserved composition markers)';
 
-/**
- * @param label - The shipped detector's stable label, never the matched text.
- */
 export function credentialRemediation(label: string): string {
     return `startingPrompt must not contain credential-shaped material (matched shape: ${label})`;
 }

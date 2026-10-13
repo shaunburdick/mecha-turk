@@ -301,17 +301,14 @@ async function postReadBack(input: {
 }
 
 /**
- * Verify the agent of one dispatched session and record what was seen (M9).
- * It runs after the dispatch result has reached the service, so a slow or
- * failing verification can never delay or lose the run's own record. The
- * outcome lands three places: a `session` ledger entry correlated to the run,
- * the runs-area banner, and the service's read-back row (`agent.verified`,
- * `agent.mismatch`, or `agent.uncompared`) behind `POST …/verification`,
- * which is warn-only by construction — the route never changes run state. The
- * relay starts this **detached from its tick**
- * ({@link PanelRuntime.pendingVerifications}), so a slow host never holds the
- * claim slot; this function never rejects — a failure lands as the visible
- * warning, never as an unhandled rejection the relay would never see.
+ * Verify the agent of one dispatched session and record what was seen (M9). It runs after the
+ * dispatch result reached the service, so a slow or failing verification can never delay or lose
+ * the run's record. The outcome lands three places: a `session` ledger entry correlated to the
+ * run, the runs-area banner, and the service's read-back row (`agent.verified`/`mismatch`/
+ * `uncompared`) behind `POST …/verification`, which is warn-only by construction — the route never
+ * changes run state. The relay starts this **detached from its tick**
+ * ({@link PanelRuntime.pendingVerifications}), so a slow host never holds the claim slot, and this
+ * function never rejects: a failure lands as the visible warning.
  */
 export async function verifyAgentAfterDispatch(inputs: {
     readonly rt: PanelRuntime;

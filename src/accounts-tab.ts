@@ -58,8 +58,6 @@ export interface AccountsBody {
 
 /**
  * Compose the body's one status line.
- *
- * @returns The summary text the status line shows.
  */
 function composeStatus(input: { readonly total: number; readonly usable: number }): string {
     return `Accounts: ${input.total} (${input.usable} can poll)`;
@@ -169,8 +167,6 @@ interface ListBoard {
 
 /**
  * Mount the status line, list, refresh, note, and the disclaimer, as re-cut.
- *
- * @returns The handles the body carries.
  */
 function mountListBoard(input: {
     readonly rt: PanelRuntime;
@@ -213,8 +209,6 @@ interface AccountsParts {
 
 /**
  * Build the disposer that releases every node and handle the body mounted.
- *
- * @returns The disposer the body hands its caller.
  */
 function accountsDisposer(parts: AccountsParts): () => void {
     const { board, detail, controls, detailBox, detailChips, pane } = parts;
@@ -234,8 +228,6 @@ function accountsDisposer(parts: AccountsParts): () => void {
 
 /**
  * Mount the Accounts body: handoff group, list, detail, and note.
- *
- * @returns The mounted body's handles.
  */
 export function mountAccountsBody(input: {
     readonly rt: PanelRuntime;
@@ -322,8 +314,6 @@ export function selectAccountRow(rt: PanelRuntime, id: string): void {
  *
  * Every row-scoped callback resolves the open row first, so a control with
  * no selection does nothing rather than acting on the first row it finds.
- *
- * @returns The handler table for {@link mountAccountsBody}.
  */
 export function createAccountsHandlers(rt: PanelRuntime): AccountsHandlers {
     return {

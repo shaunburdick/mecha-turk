@@ -1,9 +1,5 @@
 /**
- * The binding editor's history-scope field (002 FR-089–FR-094): the one place
- * in the panel the mode is ever rendered (FR-091), a select over the two
- * fixed names that validates nothing — the panel never pre-empts the service
- * (FR-063) — with a stored value outside the two shown as **unreadable**
- * rather than as the default.
+ * The editor's history-scope field: the panel's one render of the mode, which validates nothing (FR-089–094).
  */
 
 import { mountSelect } from '@openchamber/sdk/ui';
@@ -183,8 +179,6 @@ export interface HistoryScopePatch {
  * The counterpart of {@link historyScopeFor}, answering for the row itself: the
  * patch's value for the row it names, and that row's own stored mode for every
  * other one.
- *
- * @param patch - The edited binding's mode, or `null` when the field was untouched.
  */
 export function historyScopeForRow(patch: HistoryScopePatch | null, binding: PanelBinding): HistoryScope {
     return patch?.bindingId === binding.bindingId ? patch.historyScope : historyScopeFor(binding);
@@ -228,8 +222,6 @@ export function repaintBindingHistoryScope(rt: PanelRuntime, controls: BindingHi
 
 /**
  * Read the stored mode a freshly selected binding carries.
- *
- * @param bindingId - The row the operator just selected, or `null` in add mode.
  */
 export function storedHistoryScopeFor(
     bindings: readonly PanelBinding[],

@@ -92,9 +92,6 @@ export function memberRow(accounts: AccountsTabState, member: AccountMember): st
 
 /**
  * Read the text one member's field currently holds.
- *
- * @param member - Which editable member to read.
- * @returns The draft; `''` before the first load.
  */
 export function memberDraft(accounts: AccountsTabState, member: AccountMember): string {
     return accounts[MEMBER_SLOTS[member].draft];
@@ -103,7 +100,6 @@ export function memberDraft(accounts: AccountsTabState, member: AccountMember): 
 /**
  * Read the service's refusal last rendered on one member's field.
  *
- * @param member - Which editable member to read.
  * @returns The service's own copy, or `null` when nothing was refused.
  */
 export function memberRefusal(accounts: AccountsTabState, member: AccountMember): string | null {

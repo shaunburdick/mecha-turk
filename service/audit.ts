@@ -153,8 +153,6 @@ function isAuditEntity(raw: unknown): raw is { readonly kind: AuditEntityKind; r
 
 /**
  * Read the redaction marker of a stored line, tolerating a missing one.
- *
- * @returns The marker; older lines without one report nothing was redacted.
  */
 function readRedaction(raw: unknown): { readonly redacted: boolean; readonly fields: readonly string[] } {
     if (!isRecord(raw)) {

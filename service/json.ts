@@ -68,8 +68,6 @@ export function readPositiveInt(value: unknown): number | null {
     return parsed !== null && parsed >= 1 ? parsed : null;
 }
 
-/**
- */
 export function readFlag(value: unknown): boolean | null {
     return typeof value === 'boolean' ? value : null;
 }

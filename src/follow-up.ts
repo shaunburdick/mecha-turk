@@ -1,10 +1,5 @@
 /**
- * Following up on a work item the agent is already in: composition,
- * navigation, delivery, and the bounded retry that parks (002 FR-104,
- * FR-105). Delivered by `host.prompt({ send: true })` into the session the
- * run's dispatch already created — it starts no session and joins no other
- * run (constitution VII) — and judged exactly as `start_work` is under
- * FR-027: autonomously by default, no approval gate of its own.
+ * Following up on a work item the agent is in: delivered by `host.prompt({ send: true })`, starting no session.
  */
 
 import type { PromptRequest, PromptResult, SessionSnapshot } from '@openchamber/sdk';
@@ -182,16 +177,12 @@ const FOLLOW_UP_PAGE_GUARD = 10;
 const DELIVERABLE_RUN_STATE: PlainRunState = 'dispatched';
 
 /**
- * Where the relay's read opens the follow-up window: past everything this panel
- * has settled, and never past a follow-up it still owes. The record is the
- * **only** party that knows a delivery happened (FR-104) — the service holds no
- * record of one — and the list is oldest-first by last write, so keeping the
- * last delivered entry opens at the most recent settlement. The scan stops at
- * the first owed record and opens *at* it: a window opened early costs a denser
- * page, one opened late strands the follow-up for good, and the owed record's
- * id is a position in the run's own list whatever its number (the read cannot
- * page inside one run's follow-ups). A parked record is not owed — excluded
- * until an operator re-offers it (FR-105) — so it does not stop the walk.
+ * Where the relay's read opens the follow-up window: past everything this panel has settled, never
+ * past a follow-up it still owes. The record is the **only** party that knows a delivery happened
+ * (FR-104) and the list is oldest-first by last write, so keeping the last delivered entry opens
+ * at the most recent settlement. The scan stops at the first owed record and opens *at* it — early
+ * costs a denser page, late strands the follow-up for good — and a parked record is not owed
+ * (FR-105), so it does not stop the walk.
  */
 export function followUpWindowOpening(document: DispatchRecordDocument): string | null {
     const records = document.followUps ?? [];

@@ -1,10 +1,5 @@
 /**
- * The Bindings tab's accounts side (005 FR-120–FR-123, issue #18): the gate on
- * *New binding*, the reason it is blocked, the list's empty text, and the add
- * form's account refusal. The gate is a conjunction over a successful accounts
- * read, never a length test — missing evidence is a stop condition, not
- * permission to guess (constitution II; 005 AC-156), and it is zero accounts
- * *at all*, not zero *usable* ones (FR-120, FR-124).
+ * Bindings-tab accounts: the *New binding* gate, its reason, the empty text, the refusal (005 FR-120–FR-123, #18).
  */
 
 import { mountText } from '@openchamber/sdk/ui';
@@ -134,18 +129,14 @@ export function emptyBindingsText(bindings: BindingsTabState): string {
 }
 
 /**
- * The add form's refusal when no account is selected (FR-123's closed table):
- * total over the reachable cases in the order **none exist → some `usable` →
- * otherwise**, so a case the requirement does not have would have to be added
- * to this `if` before it could render. **none exist** ⇒
- * {@link ACCOUNT_REQUIRED_REASON}, reachable only where the list emptied while
- * the editor was already open (the gate otherwise prevents opening it, and the
- * pre-read states disable *Add binding*); **some exist, none `active`** ⇒
- * {@link NO_ACTIVE_ACCOUNT_REFUSAL}, naming the remediation rather than a
- * selection the operator cannot make; **at least one `active`** ⇒
- * {@link PICK_ACCOUNT_REFUSAL}, unchanged and actionable, because there is
- * something to pick. A **stale** selection lands in the second or third row by
- * the same fact — both read truthfully, so no fourth case is invented.
+ * The add form's refusal when no account is selected (FR-123's closed table): total over the
+ * reachable cases in the order **none exist → some `usable` → otherwise**, so a case the
+ * requirement lacks must be added to this `if` before it could render. **none exist** ⇒
+ * {@link ACCOUNT_REQUIRED_REASON} (reachable only where the list emptied mid-edit); **some exist,
+ * none `active`** ⇒ {@link NO_ACTIVE_ACCOUNT_REFUSAL}, naming the remediation rather than a
+ * selection the operator cannot make; **at least one `active`** ⇒ {@link PICK_ACCOUNT_REFUSAL},
+ * unchanged and actionable. A **stale** selection lands in the second or third row by the same
+ * fact, so no fourth case is invented.
  */
 export function accountSelectionRefusal(bindings: BindingsTabState): string {
     if (bindings.accounts.length === 0) {

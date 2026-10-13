@@ -143,8 +143,6 @@ export interface BindingsTabState {
 
 /**
  * Build the empty Bindings tab state.
- *
- * @returns The state before the first load.
  */
 export function initialBindings(): BindingsTabState {
     return {

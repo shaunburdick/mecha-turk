@@ -304,9 +304,6 @@ async function pullStateObject(runtime: PollerRuntime, query: ItemStateQuery): P
 
 /**
  * Create the GitHub client the poll loop uses.
- *
- * @param fetchImpl - Injectable `fetch`; defaults to the process global so
- *   production uses Node's built-in client and tests supply a fake.
  */
 export function createGitHubIssuePoller(
     deps: PollerDeps,

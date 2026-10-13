@@ -1,12 +1,5 @@
 /**
- * Mount-time reconciliation (003 T-022; FR-025; contracts/reconciliation.md
- * §2): every attempt the panel durably recorded but has not seen
- * acknowledged is reported again before the first claim, so a lost result
- * recovers instead of wedging a run (FR-025, AC-111). Bounded by
- * {@link RECONCILE_BUDGET_MS}, idempotent — byte-identical bodies, and
- * nothing here dispatches, so it can never create a session — and never
- * silent: what stays outstanding becomes a visible warning. The clock is
- * injectable so the budget is tested by moving it rather than sleeping.
+ * Mount-time reconciliation: re-report every unacknowledged attempt before the first claim — bounded, never silent.
  */
 
 import { dispatchedPath, servicePost } from './service-calls.ts';
@@ -26,8 +19,6 @@ const MS_PER_SECOND = 1_000;
 
 /**
  * Whether one pass is still inside its budget.
- *
- * @returns `true` while there is budget left to spend.
  */
 function withinBudget(clock: () => number, startedAt: number): boolean {
     return clock() - startedAt < RECONCILE_BUDGET_MS;
@@ -97,8 +88,6 @@ function refusalLine(attempt: DispatchAttemptRecord, answer: ServiceRefusal): st
  * The run names come first, so cutting the body to {@link MAX_WARNING_CHARS}
  * can only ever shorten the *reasons* — the runs an operator has to look at
  * are never the part that gets truncated away.
- *
- * @returns The banner body, already bounded.
  */
 function warningBody(input: {
     readonly outstanding: readonly string[];
@@ -112,8 +101,6 @@ function warningBody(input: {
 
 /**
  * Publish one reconciliation warning: banner first, refusal copy on the note.
- *
- * @returns The warning the panel now shows.
  */
 function publishWarning(rt: PanelRuntime, input: {
     readonly outstanding: readonly string[];
@@ -133,9 +120,6 @@ function publishWarning(rt: PanelRuntime, input: {
 
 /**
  * Report every outstanding attempt, within one budget, and say what is left.
- *
- * @param options - Injectable clock so the budget is testable without sleeping.
- * @returns What the pass reached, including the warning it published.
  */
 interface PassResult {
     readonly attempted: number;
@@ -147,8 +131,6 @@ interface PassResult {
 
 /**
  * Re-report every outstanding attempt inside the remaining budget.
- *
- * @returns What the loop reached, before anything is published.
  */
 async function reportOutstanding(input: {
     readonly rt: PanelRuntime;
@@ -203,9 +185,6 @@ async function reportOutstanding(input: {
 
 /**
  * Report every outstanding attempt, within one budget, and say what is left.
- *
- * @param options - Injectable clock so the budget is testable without sleeping.
- * @returns What the pass reached, including the warning it published.
  */
 export async function reconcileDispatchAttempts(
     rt: PanelRuntime,

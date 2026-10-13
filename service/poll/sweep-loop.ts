@@ -41,8 +41,6 @@ interface LoopState {
 /**
  * Read the stop flag through a function, so the compiler cannot narrow it away
  * across the `await` boundaries in the cycle.
- *
- * @returns `true` once shutdown has landed.
  */
 function isHalted(state: LoopState): boolean {
     return state.stopped;
@@ -139,7 +137,6 @@ async function runPass(input: {
  * Each tick re-reads the configured durations, so `PUT /v1/config` retunes the
  * cadence without a restart, and the **first** tick is armed from the stored
  * durations rather than the defaults (T-040f).
- *
  */
 export function startSweep(input: SweepLoopInput): SweepLoop {
     const state: LoopState = { timer: null, stopped: false, inFlight: false };

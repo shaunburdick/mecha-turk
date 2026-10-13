@@ -84,7 +84,6 @@ async function recordRejection(input: {
 
 /**
  * Classify a non-`ok` outcome into its documented response.
- *
  */
 async function refusalFor(attempt: VerifyAttempt): Promise<HttpResponse> {
     const { outcome, deps, correlationId } = attempt;
@@ -169,8 +168,6 @@ async function recordVerified(input: {
 
 /**
  * Persist a freshly verified account and answer `201` (SEC-05 ordering).
- *
- * @returns The `201` identity body (contract §2.2).
  */
 async function persistVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
     const { deps, credential, correlationId, outcome } = attempt;
@@ -212,8 +209,6 @@ async function persistVerified(attempt: AcceptedAttempt): Promise<HttpResponse> 
 
 /**
  * Accept a successful verification: identity rules, then persist.
- *
- * @returns The `201` body, or the fail-closed refusal that beat it.
  */
 async function acceptVerified(attempt: AcceptedAttempt): Promise<HttpResponse> {
     const { deps, credential, correlationId, outcome } = attempt;

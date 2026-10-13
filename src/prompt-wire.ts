@@ -1,12 +1,5 @@
 /**
- * Reading the prompt's reference members off the wire (004 FR-015, FR-037,
- * FR-052, FR-087; contracts `dispatch-prompt.md` §1–§2, `layered-prompt.md`
- * §3): two readers, one rule set. A present reference is internally
- * consistent, the claim answer's fifth member obeys the contract's iff
- * (`promptText` non-null **iff** `promptPresent` true), one refused entry
- * refuses the whole answer, and the readers validate *shape* never content —
- * re-running the credential detector here would be the second validation
- * boundary plan D10 rejects.
+ * Reading the prompt's reference members off the wire: two readers, one rule set, shape never content (D10).
  */
 
 import {

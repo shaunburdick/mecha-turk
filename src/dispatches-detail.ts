@@ -1,14 +1,5 @@
 /**
- * The runs-history row's **structured** members and their readers (005
- * FR-048, FR-094; 002 FR-036, FR-105): the retained source references, the
- * session pointer, the recorded agent read-back, the references' reveal, and
- * the follow-up view. Each reader answers `null` for a member it cannot
- * understand and `undefined` for one present but not the shape, so the row
- * parser refuses rather than half-applies (invariant 8); an unrecognized
- * actor basis refuses rather than defaults (002 FR-024, NFR-011), a blank
- * `expectedAgent` is the documented *no baseline configured* rather than a
- * malformed record (002 FR-029), and no permitted login ever reaches a panel
- * document (002 NFR-113, 005 FR-091).
+ * The runs-history row's structured members and readers — each refuses rather than half-applies (FR-048, inv. 8).
  */
 
 import type { ListItem } from '@openchamber/sdk/ui';
@@ -96,9 +87,6 @@ export interface RunFollowUp {
     readonly headSha?: string;
 }
 
-/**
- * @returns The value, or `null` when it is missing, not a string, or empty.
- */
 function requiredText(record: Record<string, unknown>, field: string): string | null {
     const value = record[field];
 
@@ -170,10 +158,6 @@ export function parseReferences(value: unknown): RunReference[] | null {
     return references;
 }
 
-/**
- * @returns The pointer, `null` when the run has none, or `undefined` when the
- *   member is present but not a pointer this build may half-apply.
- */
 export function parseSession(value: unknown): RunSession | null | undefined {
     if (value === null) {
         return null;
@@ -194,10 +178,6 @@ export function parseSession(value: unknown): RunSession | null | undefined {
     return { sessionId, attachmentId, dispatchedAt };
 }
 
-/**
- * @returns The read-back, `null` when none was filed, or `undefined` when the
- *   member is present but not one this build may half-apply.
- */
 export function parseVerification(value: unknown): RunVerification | null | undefined {
     if (value === null) {
         return null;
@@ -237,10 +217,6 @@ function followUpKindOfValue(value: unknown): FollowUpKind | null {
     return value === 'comment' || value === 'head' ? value : null;
 }
 
-/**
- * @returns The value, `undefined` when the member is absent, or `null` when it
- *   is present and not usable text.
- */
 function optionalText(record: Record<string, unknown>, field: string): string | undefined | null {
     const value = record[field];
     if (value === undefined || value === null) {
@@ -493,9 +469,6 @@ function referenceLine(reference: RunReference): string {
         + ` · ${reference.sourceUrl} · ${actorPhrase(reference)}${late}`;
 }
 
-/**
- * @returns One line per retained reference, earliest first.
- */
 export function referenceDetailLines(row: RunRow): readonly string[] {
     return row.sourceReferences.map((reference) => referenceLine(reference));
 }

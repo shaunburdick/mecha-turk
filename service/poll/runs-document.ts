@@ -61,8 +61,6 @@ const queueChain: { write: Promise<unknown> } = { write: Promise.resolve() };
 
 /**
  * Serialize one queue-or-run mutation behind everything already chained.
- *
- * @returns Whatever `task` produced, once every earlier task settled.
  */
 export function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
     // eslint-disable-next-line unicorn/prefer-then-catch -- .catch re-runs task on its own rejection; this runs once.
@@ -73,20 +71,16 @@ export function inQueueChain<T>(task: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Resolve once every chain task queued so far has settled. A reader that
- * decides *whether* to take the chain needs this first: a read issued while
- * writes are still landing would act on a document that is about to change,
- * and the work it skipped would come back on the very next poll. Draining
- * makes the snapshot true at the moment it is taken. This is a *read* helper
- * that takes no chain slot of its own, so an idle queue resolves immediately
- * without queueing behind anything.
+ * Resolve once every chain task queued so far has settled. A reader that decides *whether* to take
+ * the chain needs this first: a read issued while writes are still landing would act on a document
+ * about to change, and the work it skipped would come back on the next poll — draining makes the
+ * snapshot true when it is taken. A *read* helper that takes no chain slot of its own, so an idle
+ * queue resolves immediately.
  */
 /**
- * The "the chain is idle" handler, written once so both arms of
- * {@link whenQueueIdle} cannot drift.
- *
- * Intentionally empty: a drained chain and a failed one are both idle, and
- * the caller's own read reports any failure with the store's own error.
+ * The "the chain is idle" handler, written once so both arms of {@link whenQueueIdle} cannot drift.
+ * Intentionally empty: a drained chain and a failed one are both idle, and the caller's own read
+ * reports any failure with the store's own error.
  */
 function settled(): void {
     // Nothing to do: both arms of the chain are idle however they settled.
@@ -123,7 +117,6 @@ export function runHistoryIndicatesSession(run: Run): boolean {
 
 /**
  * Run the one-shot adoption pass for this store handle.
- *
  */
 async function runAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
     const stored = await input.store.readJson(RUNS_FILE, parseRunsDocument);
@@ -172,7 +165,6 @@ function startAdoption(input: RunsReadInput): Promise<AdoptionOutcome> {
 /**
  * Ensure the store's run document exists, adopting the legacy queue on the
  * first read of this handle.
- *
  */
 export async function ensureRunsAdopted(input: RunsReadInput): Promise<AdoptionOutcome> {
     return await (adoptionPasses.get(input.store) ?? startAdoption(input));
@@ -332,8 +324,6 @@ export function currentAttempt(run: Run): DispatchAttempt {
  *
  * Closing or enriching replaces only the current attempt's record: records
  * from earlier attempts survive FR-033's attempt reset untouched.
- *
- * @returns The bounded history to store on the run.
  */
 export function attemptHistory(run: Run, record: DispatchAttempt): readonly DispatchAttempt[] {
     const index = run.attempts.map((entry) => entry.attempt).lastIndexOf(record.attempt);
@@ -347,8 +337,6 @@ export function attemptHistory(run: Run, record: DispatchAttempt): readonly Disp
 /**
  * Open one claim's record: a claim starts an attempt whether or not it ever
  * reserves, and this record is what the outcome transitions later close.
- *
- * @returns The bounded history including the fresh open record.
  */
 export function openedHistory(run: Run): readonly DispatchAttempt[] {
     return [...run.attempts, openAttempt(run.attempt)].slice(-MAX_ATTEMPT_RECORDS);

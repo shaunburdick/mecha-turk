@@ -1,12 +1,5 @@
 /**
- * The panel's one-shot credential handoff (task T-009, token-handoff §2):
- * write-through, one shot, no cache — the token enters as a function argument
- * and is never retained, stored, rendered, or interpolated into a note
- * (contract §2 step ⑧, failure modes F1–F16). Order is the contract's:
- * `/v1/status` pre-flight (F10/SEC-08) → verify → map the outcome; a
- * `HOST_TIMEOUT` re-reads `/v1/status` before the panel declares failure
- * (F4/SEC-05), and the service's 409 `duplicate-account` is a positive
- * signal that routes to silent adoption instead of the refusal copy.
+ * The panel's one-shot credential handoff: write-through, no cache, never retained — status, verify, map (T-009).
  */
 
 import type { GuestRequestResult } from '@openchamber/sdk';
@@ -58,8 +51,6 @@ export interface HandoffInput {
 
 /**
  * Create the empty handoff state shown before the first pre-flight.
- *
- * @returns The initial state.
  */
 export function initialHandoffState(): HandoffState {
     return {

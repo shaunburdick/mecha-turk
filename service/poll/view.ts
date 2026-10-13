@@ -76,7 +76,6 @@ export function createPollingView(): PollingViewSlot {
 
 /**
  * The `nextPollAt` member of the polling block (contract §1).
- *
  */
 export function nextPollAtOf(view: PollingView, intervalMs: number): string | null {
     if (!view.isRunning()) {

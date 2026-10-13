@@ -1,13 +1,5 @@
 /**
- * One authorized attempt, from the host call to the acknowledgement (003
- * T-021; contracts/reconciliation.md). Everything runs **after**
- * `relay-gates.ts` passed and the service answered a reserve — except the
- * budget floor (004 FR-085), which refuses an over-bound message before
- * `host.startSession()` is reachable, no session started and nothing
- * truncated (FR-003, constitution II). The record is durable before the
- * report leaves (FR-024), the acknowledgement flips only on the 2xx for that
- * exact attempt (FR-025), and the agent read-back comes last and warns only —
- * never blocks, never changes a state (FR-043).
+ * One authorized attempt, host call to ack: durable record, 2xx-keyed ack, read-back warns only (FR-024/025/043).
  */
 
 import type { GuestProject, StartSessionRequest } from '@openchamber/sdk';
@@ -54,8 +46,6 @@ export interface HostCall {
 
 /**
  * Build the matched-issue record one offered run maps into.
- *
- * @returns The issue the context builder and the attachment both read.
  */
 function issueOf(run: ClaimedRun): GitHubIssue {
     return {
@@ -71,8 +61,6 @@ function issueOf(run: ClaimedRun): GitHubIssue {
 
 /**
  * Project the run's source references into the context's sources.
- *
- * @returns One context source per retained reference, in join order.
  */
 function contextSourcesOf(run: ClaimedRun): ContextSource[] {
     return run.sourceReferences.map((reference) => ({
@@ -96,17 +84,13 @@ function failureReason(summary: LedgerDetail): string {
 }
 
 /**
- * The fail-closed budget floor: the composed first message against
- * {@link CONTEXT_MAX_CHARS} (004 FR-085, plan D22, research R-2). A legal
- * composition never reaches this check — three maximal tiers plus the full
- * frame come to ≈ 7,700 of the 12,000 characters (FR-085's own arithmetic) — so
- * what it exists for is the one case FR-085 names, a store hand-edited past its
- * own validators, where the floor **refuses rather than shortens**: no session
- * starts, and no tier, frame, or marker structure is truncated (FR-003;
- * constitution II: a stop condition, not permission to guess). The refusal is
- * reported as a failed attempt through the existing `problem` path (research
- * R-2): no new `blocked:` reason — 003 owns that closed set — no new state, no
- * new vocabulary.
+ * The fail-closed budget floor: the composed first message against {@link CONTEXT_MAX_CHARS} (004
+ * FR-085, plan D22, research R-2). A legal composition never reaches it — three maximal tiers
+ * plus the full frame come to ≈7,700 of the 12,000 characters — so what it exists for is FR-085's
+ * one case, a store hand-edited past its own validators, where the floor **refuses rather than
+ * shortens**: no session starts and no tier, frame or marker structure is truncated (FR-003;
+ * constitution II). Reported as a failed attempt through `problem`: no new `blocked:` reason, no
+ * new state, no new vocabulary.
  */
 export function budgetFloorProblem(input: {
     readonly composed: string;
@@ -207,17 +191,13 @@ export function runRequestOf(input: {
 }
 
 /**
- * Make the one authorized host call; never throws. **The floor sits here**: the
- * message is composed, then measured — an over-budget composition is refused
- * **before** `host.startSession()` is called, so no session is started and
- * nothing is truncated, and the refusal takes the shape a rejected start does
- * (`sessionId: null`, `sent: 'skipped'`, the remediation as its `failure`), so
- * it reaches the operator's run row through the existing failed-attempt
- * `problem` path without a new state or reason. A rejected `host.startSession()`
- * is recorded as a failure with the transport problem as its reason: a created
- * session is a resolved result carrying its id, so a rejection means none came
- * back — and an outcome, either way, is what FR-024 requires the panel to hold
- * before it reports anything.
+ * Make the one authorized host call; never throws. **The floor sits here**: the message is
+ * composed, then measured — an over-budget composition is refused **before** `host.startSession()`,
+ * so no session starts and nothing is truncated, and the refusal takes the shape a rejected start
+ * does (`sessionId: null`, `sent: 'skipped'`, the remediation as its `failure`) so it reaches the
+ * run row through the existing failed-attempt `problem` path. A rejected `host.startSession()` is
+ * recorded as a failure with the transport problem as its reason — an outcome either way, which is
+ * what FR-024 requires the panel to hold before it reports anything.
  */
 export async function startRunSession(input: {
     readonly rt: PanelRuntime;

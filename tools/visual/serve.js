@@ -1,11 +1,8 @@
 /**
- * Static file server for the visual harness.
- *
- * Loopback only, cache headers switched off, and nothing outside the repo
- * root reachable: a screenshot run must never serve a stale bundle or a file
- * the caller did not intend. `shot.js` starts one on an ephemeral port for the
- * duration of a run; running this file directly keeps one up for manual
- * inspection (`node tools/visual/serve.js`, override with `MT_SHOT_PORT`).
+ * Static file server for the visual harness: loopback only, cache headers off, and nothing outside
+ * the repo root reachable — a screenshot run must never serve a stale bundle or a file the caller
+ * did not intend. `shot.js` starts one on an ephemeral port; running this file directly keeps one
+ * up for manual inspection (`node tools/visual/serve.js`, override with `MT_SHOT_PORT`).
  */
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
@@ -57,13 +54,7 @@ const ALLOWED_METHODS = ['GET', 'HEAD'];
 /** Name of the document a directory path is served as. */
 const INDEX_DOCUMENT = 'index.html';
 
-/**
- * Map a request path to a file inside the root, or null if it leaves it.
- *
- * @param root - Directory the server may read from.
- * @param pathname - Raw path from the request line.
- * @returns Absolute file path inside `root`, or null when out of bounds.
- */
+/** Map a request path to a file inside the root, or null when it leaves the root. */
 function resolveFile(root, pathname) {
     const decoded = decodeURIComponent(pathname);
     const candidate = resolveFrom(root, decoded.replace(/^[/\\]+/, ''));
@@ -80,11 +71,7 @@ function contentType(pathname) {
     return MIME_TYPES.get(extname(pathname).toLowerCase()) ?? 'application/octet-stream';
 }
 
-/**
- * Write one response, with the headers that keep captures reproducible.
- *
- * @param answer - `{ status, headers, body }`; `body` may be undefined.
- */
+/** Write one response, with the headers that keep captures reproducible. */
 function send(response, answer) {
     response.writeHead(answer.status, {
         'cache-control': 'no-store, no-cache, must-revalidate, max-age=0',
@@ -138,10 +125,8 @@ function createHandler(root) {
 }
 
 /**
- * Serve the repository over loopback.
- *
- * @param options - `{ root, port }`; port 0 asks the OS for a free one.
- * @returns `{ url, port, close }` — `close` drops live connections first.
+ * Serve the repository over loopback: `{ url, port, close }` — port 0 asks the OS for a free one,
+ * and `close` drops live connections first.
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export async function startServer(options = {}) {

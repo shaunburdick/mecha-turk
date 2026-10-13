@@ -1,12 +1,5 @@
 /**
- * The panel's shared visual vocabulary — structure, never copy: it creates
- * the surfaces the tab modules place their existing strings into, while the
- * stylesheet lives in `panel/index.html` keyed to the host theme tokens, so
- * light and dark both follow the host and no colour is written here. Text
- * still reaches the SDK — every cell wraps a `mountText` handle, the path
- * tests scan for HTML sinks (003 NFR-109, 005 FR-080) — and
- * {@link splitLine} splits losslessly, reproducing the original line byte for
- * byte.
+ * The panel's shared visual vocabulary — structure, never copy: cells whose text still reaches the SDK (NFR-109).
  */
 
 import { mountText } from '@openchamber/sdk/ui';
@@ -89,8 +82,6 @@ export interface DefInput {
 
 /**
  * Create the styled wrapper a text handle renders inside.
- *
- * @returns The wrapper element.
  */
 function styleWrapper(parent: HTMLElement, className: string): HTMLElement {
     const document = parent.ownerDocument;
@@ -107,8 +98,6 @@ function styleWrapper(parent: HTMLElement, className: string): HTMLElement {
  *
  * The props object is built rather than spread so `update({ text })` on a
  * repaint keeps working exactly as it did before links had anywhere to go.
- *
- * @returns The props `mountText` takes.
  */
 function withLinkHandler(input: CellInput): TextProps {
     return input.onOpenUrl === undefined
@@ -122,8 +111,6 @@ function withLinkHandler(input: CellInput): TextProps {
  * The wrapper exists purely to carry a class: `mountText` renders into a node
  * it owns and exposes no way to tag it, so the class lives on the parent and
  * the SDK's text node inherits the treatment.
- *
- * @returns The handle a repaint updates.
  */
 export function mountCell(parent: HTMLElement, input: CellInput): Cell {
     const wrapper = styleWrapper(parent, input.className);
@@ -145,8 +132,6 @@ export function mountCell(parent: HTMLElement, input: CellInput): Cell {
  * interfaces already type their lines as `TextHandle` — a redesign may move
  * where a sentence sits, but it should not force every `.update({ text })`
  * call site to change shape with it.
- *
- * @returns The SDK text handle a repaint updates.
  */
 export function mountStyledText(parent: HTMLElement, input: CellInput): TextHandle {
     return mountText(styleWrapper(parent, input.className), withLinkHandler(input));
@@ -189,8 +174,6 @@ export function mountColumnHead(parent: HTMLElement, input: ColumnHeadInput): HT
  * `mountText` rather than written with `textContent`: an outline the
  * accessibility pass can walk, over copy that keeps travelling the one path
  * every other string in the panel takes.
- *
- * @returns The block, whose `body` is where content goes.
  */
 export function createBlock(parent: HTMLElement, input: BlockInput): Block {
     const document = parent.ownerDocument;
@@ -277,8 +260,6 @@ function makeRow(input: { readonly element: HTMLElement; readonly key: Cell | nu
  * The cells carry no part of the separator: the column gap stands where the
  * punctuation used to, and the split's own `separator` is what the row tests
  * rejoin to prove no word moved.
- *
- * @returns The row, with both cells.
  */
 export function definitionRow(parent: HTMLElement, input: DefInput): DefRow {
     const document = parent.ownerDocument;
@@ -314,8 +295,6 @@ export function noteRow(parent: HTMLElement, text: string): DefRow {
 
 /**
  * Mount a row list — the element every definition row of a section appends to.
- *
- * @returns The list element.
  */
 export function createRowList(parent: HTMLElement): HTMLElement {
     const document = parent.ownerDocument;
@@ -335,8 +314,6 @@ export interface LineInput {
 /**
  * Mount a row from one line, splitting it into a label and a value when the
  * line carries a structural separator and rendering it whole when it is prose.
- *
- * @returns The row, so a caller can dispose or restyle it.
  */
 export function lineRow(parent: HTMLElement, input: LineInput): DefRow {
     const split = splitLine(input.line);

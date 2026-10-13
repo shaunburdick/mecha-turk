@@ -26,9 +26,6 @@ const DISCLAIMER_NOTE_CLASS = 'oc-sdk-field-note';
  * Informational only — the mount creates one wrapper and one paragraph and
  * wires nothing: no button, no handler, no stored flag, so there is no state
  * a panel could get out of step with and no copy an operator can "complete".
- *
- * @param parent - Element the disclaimer is appended to (the Accounts block).
- * @returns The mounted container, for disposal with the block it sits in.
  */
 export function mountAccountsDisclaimer(parent: HTMLElement): HTMLElement {
     const doc = parent.ownerDocument;

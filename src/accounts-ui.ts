@@ -109,17 +109,13 @@ export interface HandoffSubmission {
 }
 
 /**
- * Run one handoff and repaint twice: once as it starts (the group disables
- * itself while the credential is in flight) and once when it settles. The
- * credential input is cleared in `finally`, on **every** exit — success,
- * service refusal, host failure, timeout, or a thrown error — so a paste
- * never survives the handoff it belonged to (contract §2 step ⑧); the mount
- * step already wrote the value through at capture, and this second clear is
- * what removes a value that reappeared while the request was in flight, which
- * is why {@link HandoffView.setTokenValue} has a production call site. The
- * expected-login constraint travels only when the operator typed one — an
- * empty or blank field omits `expectedLogin` entirely, which is how the
- * service is told *no constraint*.
+ * Run one handoff and repaint twice: once as it starts (the group disables itself while the
+ * credential is in flight) and once when it settles. The credential input is cleared in `finally`,
+ * on **every** exit — success, refusal, host failure, timeout or thrown error — so a paste never
+ * survives the handoff it belonged to (contract §2 step ⑧); this second clear removes a value that
+ * reappeared while the request was in flight, which is why {@link HandoffView.setTokenValue} has a
+ * production call site. The expected-login constraint travels only when the operator typed one —
+ * blank omits `expectedLogin` entirely, telling the service *no constraint*.
  */
 export async function submitHandoffAndRepaint(
     rt: PanelRuntime,
@@ -157,8 +153,6 @@ interface CredentialField {
 
 /**
  * Create one element with the SDK's own class names.
- *
- * @returns The element.
  */
 function makeElement(spec: { readonly doc: Document; readonly tag: string; readonly className: string }): HTMLElement {
     const node = spec.doc.createElement(spec.tag);
@@ -279,8 +273,6 @@ function mountSubmitButton(spec: {
 
 /**
  * Mount the handoff group: credential input, submit, and outcome lines.
- *
- * @returns The view over the mounted nodes.
  */
 export function mountHandoffDom(input: DomInput): HandoffView {
     const { root, handlers } = input;

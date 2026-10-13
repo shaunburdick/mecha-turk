@@ -38,8 +38,6 @@ export interface DetailChips {
  * They describe the *selected* binding, which is exactly the one the form
  * underneath it edits — so the chips and the form cannot disagree about which
  * row they are about.
- *
- * @returns The chip row, repainted and disposed as one unit.
  */
 export function mountDetailChips(detailBox: HTMLElement): DetailChips {
     const container = detailBox.ownerDocument.createElement('div');

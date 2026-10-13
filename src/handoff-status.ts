@@ -1,9 +1,5 @@
 /**
- * `GET /v1/status` pre-flight for the one-shot handoff (task T-009): the
- * panel reads the service's own health document **before** it enables the
- * credential input (F10/SEC-08) and again after a host timeout (F4/SEC-05) —
- * the service, not the clock, is the authority on whether an account
- * appeared. Nothing here ever carries a credential.
+ * `GET /v1/status` pre-flight for the one-shot handoff: the service, not the clock, decides if an account appeared.
  */
 
 import { HostRequestError } from '@openchamber/sdk';

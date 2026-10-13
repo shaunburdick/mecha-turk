@@ -35,8 +35,6 @@ const REFUSAL_STATUS = new Map<RunRefusal['code'], number>([
 
 /**
  * The `404` for an operation addressed to a run this service does not have.
- *
- * @returns The unknown-run response (contract §Error-code additions).
  */
 export function unknownRunResponse(): HttpResponse {
     return errorResponse(STATUS.notFound, {

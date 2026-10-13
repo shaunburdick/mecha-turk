@@ -1,11 +1,5 @@
 /**
- * The one place a service answer is classified (006 FR-043; 005 FR-088). The
- * envelope is read, never quoted into a request (SEC-11); issues are the
- * service's, in the service's order, and an entry missing a string field *and*
- * remediation is dropped rather than guessed at (invariant 8, AC-107); a
- * `422` is a refusal of the resource the caller named and everything else is
- * a status, so a `503` cannot be read as a validation refusal (FR-061,
- * FR-063).
+ * The one place a service answer is classified: envelope read, never quoted, issues in the service's order (inv. 8).
  */
 
 import type { GuestRequestResult } from '@openchamber/sdk';
@@ -94,8 +88,6 @@ export type ServiceConfigPutResult =
 
 /**
  * Decide whether one HTTP status lands in the 2xx band.
- *
- * @returns `true` inside the band.
  */
 export function isOkStatus(status: number): boolean {
     return status >= STATUS_OK_MIN && status < STATUS_OK_MAX_EXCLUSIVE;
@@ -112,8 +104,6 @@ export function isErrorStatus(status: number): boolean {
 
 /**
  * Describe one non-2xx service answer from the status and the resource.
- *
- * @returns A short, secret-free problem string.
  */
 export function httpProblem(status: number, resource: ServiceResource): string {
     if (status === STATUS_VALIDATION) {
@@ -213,8 +203,6 @@ export function envelopeIssuesOf(body: string): readonly ConfigIssueView[] {
 
 /**
  * Describe one transport failure without quoting host payloads.
- *
- * @returns A short, secret-free problem string.
  */
 export function describeTransport(cause: unknown): string {
     const code = typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : null;
@@ -224,8 +212,6 @@ export function describeTransport(cause: unknown): string {
 
 /**
  * Turn one service answer into the plain wrapper's result.
- *
- * @returns The body, or a status-named problem.
  */
 export function resultOf(answer: GuestRequestResult, resource: ServiceResource): ServiceResult {
     if (isOkStatus(answer.status)) {
@@ -263,8 +249,6 @@ export function resultWithErrorOf(answer: GuestRequestResult, resource: ServiceR
 
 /**
  * Turn a configuration answer into its wrapper's result, issues and all.
- *
- * @returns The body, or the problem, code, and issue list of a refusal.
  */
 export function configResultOf(answer: GuestRequestResult): ServiceConfigPutResult {
     if (isOkStatus(answer.status)) {

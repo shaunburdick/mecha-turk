@@ -1,12 +1,5 @@
 /**
- * The destructive-confirmation content (006 T-022; FR-016, FR-036,
- * FR-050–FR-054; AC-117–AC-121, SC-108): pure copy, no host, no DOM, no
- * clock, composed only from material the panel already holds — no number is
- * invented here (FR-022, AC-106). A save arms only when it lowers a
- * retention knob, a restore always arms (naming every field it changes, with
- * the deletion block when a default trims more than the current setting
- * deletes), and the copy states rules, never outcomes the panel has not read
- * (FR-052, NFR-112).
+ * The destructive-confirmation content: pure copy from what the panel holds, armed by a lower retention knob.
  */
 
 import type { ConfigEnvelope, FieldDescriptor } from './settings-schema.ts';
@@ -98,8 +91,6 @@ const RESTORE_HEADLINE = 'Restore defaults writes the documented defaults for th
  * The same rule the draft's baseline uses (`settings-edit.ts`'s `baselineOf`),
  * restated here rather than imported so that the confirmation module and the
  * state machine stay independent of each other.
- *
- * @returns The value in force, as text.
  */
 function currentValueOf(envelope: ConfigEnvelope, descriptor: FieldDescriptor): string {
     const value = envelope.config[descriptor.name];
@@ -151,8 +142,6 @@ export function loweredRetention(input: {
 
 /**
  * The eight content items the contract owes for one lowered knob (§2).
- *
- * @returns The lines, already in the order the contract lists them.
  */
 function loweringBlock(input: {
     readonly lowering: RetentionLowering;
@@ -201,8 +190,6 @@ interface DraftChange {
  * One comparison per descriptor — the same `document member ?? descriptor
  * default` baseline the draft itself is built from — so the list a restore
  * names and the list it writes can never disagree.
- *
- * @returns The changes, in the service's field order.
  */
 function changesIn(input: {
     readonly envelope: ConfigEnvelope;
@@ -250,8 +237,6 @@ export function saveConfirmation(input: {
 
 /**
  * The confirmation a restore always raises before it writes.
- *
- * @returns The confirmation naming every field the write will change.
  */
 export function restoreConfirmation(input: {
     readonly envelope: ConfigEnvelope;

@@ -290,7 +290,6 @@ function sessionReference(input: {
  * A legacy delivery whose origin cannot be derived contributes a run with no
  * reference rather than none at all — the row the operator sees is the
  * evidence, and an empty list is honest where a guessed origin is not.
- *
  */
 function retainedReferences(reference: SourceReference | null): {
     readonly sourceReferences: readonly SourceReference[];

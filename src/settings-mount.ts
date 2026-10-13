@@ -1,12 +1,5 @@
 /**
- * The Settings tab's regions: the things it mounts outside its rows (006
- * T-020; FR-012, FR-013, FR-014, FR-042, FR-078). Every handler arrives as a
- * parameter rather than being imported, keeping the two modules from
- * importing each other. The read row never writes; the save bar is mounted
- * *hidden* when no save is possible (FR-011, FR-042); the confirmation box
- * stays hidden until something is armed (FR-016, FR-051, FR-054); and the
- * error region carries the service's issues in the service's order, as text
- * (FR-024, FR-029).
+ * The Settings regions outside its rows: read row, save bar, confirmation box, error region — handlers as parameters.
  */
 
 import { mountBanner, mountButton, mountText } from '@openchamber/sdk/ui';
@@ -62,8 +55,6 @@ export interface ControlRegion {
 
 /**
  * Mount the failure notice, hidden until a read fails.
- *
- * @returns The wrapper, which the repaint shows, and the banner inside it.
  */
 export function mountFailureNotice(pane: HTMLElement): {
     /** Wrapper whose `hidden` flag is "there is nothing to report here". */
@@ -86,8 +77,6 @@ export function mountFailureNotice(pane: HTMLElement): {
 
 /**
  * Mount the source note, the empty message, and the row region.
- *
- * @returns The handles and the region element rows are painted into.
  */
 export function mountRowRegion(pane: HTMLElement): RowRegion {
     const block = createBlock(pane, { heading: CONFIG_HEADING });
@@ -109,8 +98,6 @@ export function mountRowRegion(pane: HTMLElement): RowRegion {
  *
  * A box rather than a dialog: it mounts the same way the "no save" reason
  * does, so an unarmed tab never shows a control that cannot act.
- *
- * @returns The wrapper, the copy inside it, and the control that disarms it.
  */
 function mountArmBox(input: {
     readonly pane: HTMLElement;
@@ -137,8 +124,6 @@ function mountArmBox(input: {
  * way the "no save" reason does, so an unarmed tab never shows a control that
  * cannot act — and it carries its own Cancel, because the panel has no dialog
  * primitive to lean on and never reintroduces one.
- *
- * @returns The handles and wrappers.
  */
 export function mountControlRegion(input: {
     readonly pane: HTMLElement;
@@ -192,8 +177,6 @@ export function mountControlRegion(input: {
 
 /**
  * Mount the re-read row: the read controls and their state line.
- *
- * @returns The handles.
  */
 export function mountReadControls(input: {
     readonly pane: HTMLElement;
@@ -217,9 +200,6 @@ export function mountReadControls(input: {
 
 /**
  * Dispose every region the body mounted.
- *
- * @param input - Everything {@link buildTabUi} was handed, minus the pane it
- *   can read off the regions themselves.
  */
 function disposeRegions(input: {
     readonly pane: HTMLElement;
@@ -264,8 +244,6 @@ function disposeRegions(input: {
  * teardown" is one function rather than a promise spread across the mount
  * — including the rows, which are rebuilt whenever the field list
  * changes and disposed with everything else when the body goes.
- *
- * @returns The view, ready to hand to the runtime.
  */
 export function buildTabUi(input: {
     readonly pane: HTMLElement;

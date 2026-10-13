@@ -1,11 +1,5 @@
 /**
- * Service read/write side the Bindings tab and the relay share (re-cut): one
- * small client for the HTTP calls the panel makes over the documented
- * `host.serviceRequest()` bridge — bindings GET/PUT, the configuration PUT,
- * event relay GET/POST, runs history GET/POST — with answer classification
- * left to `service-envelope.ts`, one classifier for every wrapper (never
- * quoting a payload). MVP-DEBT: a long-poll cursor and lease headers are
- * contract §2.4 machinery this simple client replaces for the MVP cut.
+ * The service read/write side the Bindings tab and relay share — one small client over `host.serviceRequest()`.
  */
 
 import type { PanelHost } from './session.ts';
@@ -101,8 +95,6 @@ const ACCOUNT_ID_SEGMENT = ':numericUserId';
 
 /**
  * Run one GET through `host.serviceRequest`.
- *
- * @returns The wrapper's result.
  */
 export async function serviceGet(input: {
     readonly serviceRequest: ServiceRequester;
@@ -142,16 +134,12 @@ export async function servicePut(input: {
 }
 
 /**
- * Write the whole configuration document, keeping the refusal's issue list.
- * The one configuration path in the panel (`PUT /v1/config` and nothing else),
- * and the wrapper the misnamed-refusal problem was about: the answer keeps the
- * service's own `error.issues` **in the service's order**, so a `422` can be
- * rendered field by field with the service's wording instead of behind one
- * generic sentence — and its problem string names the *configuration*, never
- * the bindings list. A `503`, a `401`, and a transport failure reach the
- * caller as themselves with no issues: they are not refusals of these values,
- * and the panel must not present them as one. The body on success; the
- * problem, code, issues, and correlation id on a refusal.
+ * Write the whole configuration document, keeping the refusal's issue list — the one configuration
+ * path in the panel (`PUT /v1/config` and nothing else). The answer keeps the service's own
+ * `error.issues` **in the service's order**, so a `422` renders field by field with the service's
+ * wording instead of one generic sentence, and its problem names the *configuration*, never the
+ * bindings list. A `503`, `401` or transport failure reaches the caller as itself with no issues:
+ * it is not a refusal of these values. Body on success; problem, code and issues on a refusal.
  */
 export async function servicePutConfig(input: {
     readonly serviceRequest: ServiceRequester;
@@ -174,8 +162,6 @@ export async function servicePutConfig(input: {
  * retry from the service's own envelope code — `invalid-transition` means the
  * run was already dispatched, which is a fact about the run, not about the
  * panel's connection.
- *
- * @returns The wrapper's error-aware result.
  */
 export async function servicePost(input: {
     readonly serviceRequest: ServiceRequester;
@@ -202,8 +188,6 @@ export async function servicePost(input: {
  * invalid-transition while bindings still reference the account), and the
  * removal affordance needs that code to tell the operator to remove the
  * binding first — so this wrapper surfaces the code next to the problem.
- *
- * @returns The wrapper's error-aware result.
  */
 export async function serviceDelete(input: {
     readonly serviceRequest: ServiceRequester;
@@ -280,8 +264,6 @@ export function resolvePath(correlationId: string): string {
 
 /**
  * Build the verification path: the post-dispatch agent read-back.
- *
- * @returns The path segment to POST to.
  */
 export function verificationPath(correlationId: string): string {
     return runOperationPath(correlationId, 'verification');
@@ -289,8 +271,6 @@ export function verificationPath(correlationId: string): string {
 
 /**
  * Build the correlation-filtered audit-read path.
- *
- * @returns `GET` path carrying the filter as a query parameter.
  */
 export function auditPath(correlationId: string): string {
     return `${AUDIT_PATH}?correlationId=${encodeURIComponent(correlationId)}`;

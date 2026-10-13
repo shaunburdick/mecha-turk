@@ -87,9 +87,6 @@ export const STALE_LEASE_CODE = 'stale-lease';
  * A refusal is data, not transport: this is the only place the pair is formed,
  * which is what keeps the `dispatch.refused` row and the response envelope
  * provably the same cause (contract §9).
- *
- * @param message - Secret-free cause; the same string the response carries.
- * @returns The refusal.
  */
 export function refuse(code: RunRefusalCode, message: string): RunRefusal {
     return { code, message };

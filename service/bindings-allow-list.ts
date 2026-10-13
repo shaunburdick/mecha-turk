@@ -77,8 +77,6 @@ const NOT_A_LOGIN_REMEDIATION = 'allowedUsers must name GitHub logins: at most 3
 
 /**
  * Build this field's refusal envelope.
- *
- * @param remediation - What the operator must send instead, naming the shape.
  */
 function refuse(remediation: string): { readonly issue: BindingIssue } {
     return { issue: { field: FIELD, remediation } };

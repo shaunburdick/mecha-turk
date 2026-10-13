@@ -101,7 +101,6 @@ interface RunPart<T> {
  * present value must parse, because a lease or session the parser cannot
  * read is exactly the ambiguity that must never reach a dispatch decision
  * (constitution II).
- *
  */
 function parsePart<T>(stored: unknown, parse: (candidate: unknown) => T | null): RunPart<T> {
     if (stored === undefined || stored === null) {
@@ -115,7 +114,6 @@ function parsePart<T>(stored: unknown, parse: (candidate: unknown) => T | null):
 
 /**
  * Validate one run row's nullable lifecycle sub-objects as a group.
- *
  */
 function parseRunObjects(raw: Record<string, unknown>): RunObjects | null {
     const lease = parsePart(raw.lease, parseLease);
@@ -264,7 +262,6 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
 
 /**
  * Project validated storage fields into the run model.
- *
  */
 function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run {
     const { scalars, objects, references, attempts, prompt } = parts;

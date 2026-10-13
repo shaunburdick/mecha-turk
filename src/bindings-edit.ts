@@ -1,9 +1,5 @@
 /**
- * The binding editor's edit mode (005 FR-050, FR-053): load a row into the
- * editor, leave it, or save through the same whole-file `PUT /v1/bindings`
- * grant every other write uses — deliberately no per-binding endpoint, so an
- * edit is a rebuilt row in a whole-list grant (005 FR-050 keeps 002's MVP
- * decision closed).
+ * The binding editor's edit mode: load a row, leave, or save through the one whole-file grant (005 FR-050, FR-053).
  */
 
 import { actorsRefusal, allowedUsersPatch, storedActorsFor } from './bindings-actors.ts';
@@ -45,18 +41,13 @@ export function startNewBinding(rt: PanelRuntime): void {
 }
 
 /**
- * Load the selected binding into the editor and enter edit mode. Every field
- * the editor presents is loaded from the stored row — repository, bound
- * account, project, the three triggers, worktree option, and FR-051's prompt
- * field fed from the stored text — so what the form shows is what a save
- * would write. Two refusals to load are deliberate: no selection, and a
- * worktree option this editor cannot render (`new:<branch>`, which the
- * service accepts and the panel's two-choice select does not): loading it
- * would display *none* and silently rewrite it on save, so the edit is
- * refused with the reason (FR-003: a displayed value and a saved value are
- * the same value, or the edit does not open) — and the editor **closes with a
- * clean draft**, because a form left open on one row's values while another
- * is selected is how a save writes one binding's values into another.
+ * Load the selected binding into the editor and enter edit mode: every field comes from the stored
+ * row — including FR-051's prompt fed from the stored text — so what the form shows is what a save
+ * would write. Two refusals are deliberate: no selection, and a worktree option this editor cannot
+ * render (`new:<branch>`), where loading would display *none* and silently rewrite it on save — the
+ * edit is refused with the reason (FR-003: a displayed value and a saved value are the same value,
+ * or the edit does not open), and the editor **closes with a clean draft**, because a form left
+ * open on one row's values while another is selected is how a save writes one binding into another.
  */
 export function startEditingBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
@@ -145,21 +136,16 @@ export function stopEditingBinding(rt: PanelRuntime, note: string | null): void 
 }
 
 /**
- * Save the edited row through the same whole-file grant every other write
- * uses (005 FR-050: no per-binding endpoint, no second write path). The row
- * is rebuilt from the draft under its own id, state, and creation stamp; a
- * touched prompt travels with the write and an untouched one is omitted so
- * the service keeps what it holds. A refusal leaves the stored list
- * byte-identical and keeps the draft on screen with the remediation.
+ * Save the edited row through the same whole-file grant every other write uses (005 FR-050: no
+ * per-binding endpoint): the row is rebuilt from the draft under its own id, state and creation
+ * stamp, a touched prompt travels while an untouched one is omitted, and a refusal leaves the
+ * stored list byte-identical with the draft and remediation on screen.
  */
 /**
- * Apply one save's answer to the editor's state. **Accepted** closes the
- * editor and repaints both fields from what the service actually stored —
- * what makes a *cleared* field read as cleared rather than as a draft that
- * failed to save. **Refused** leaves the draft on screen with the service's
- * remediation split back to whichever field it names and never reports the
- * value as saved; the stored list stays byte-identical because the grant is
- * all-or-nothing after validation.
+ * Apply one save's answer to the editor's state. **Accepted** closes the editor and repaints from
+ * what the service actually stored, so a *cleared* field reads as cleared; **Refused** leaves the
+ * draft with the service's remediation and never reports the value as saved — the stored list
+ * stays byte-identical because the grant is all-or-nothing after validation.
  */
 function applySaveOutcome(input: {
     /** The Bindings tab's state. */

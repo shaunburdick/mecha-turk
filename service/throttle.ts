@@ -33,9 +33,6 @@ export interface VerifyThrottle {
 
 /**
  * Build a throttle instance over a rolling window.
- *
- * @param now - Clock injection so tests can advance time deterministically.
- * @returns The throttle bound to that clock.
  */
 export function createVerifyThrottle(now: () => number = Date.now): VerifyThrottle {
     const stamps: number[] = [];

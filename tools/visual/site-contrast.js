@@ -1,38 +1,12 @@
 /**
- * The site contrast and style model: what to ask the browser, and how to judge the answer.
- *
- * 007 AC-033, AC-035 and AC-036 are, in three of their four clauses, questions only a browser
- * can answer — what a heading resolves to *at this viewport*, what a focus indicator paints after
- * a keystroke, and what colour is really behind text where a gradient paints it. The built-output
- * assertion (`site/scripts/assert-build.mjs`) answers the fourth clause, the declared pairs, by
- * reading each page's cascade, and states in its own words what it cannot do. This module is the
- * other half, split so the two questions can be read apart:
- *
- * - the **expressions** below are what the browser is asked. They return JSON strings, so a whole
- *   case is one round trip rather than one per subject, and every subject list travels inside the
- *   expression as data rather than being read from a global the page could disagree with.
- * - the **arithmetic** below judges what comes back. WCAG 2.2's ratio, its 18pt/14pt-bold large-text
- *   boundary, and the floors `site-matrix.json` names.
- *
- * ## The one thing the arithmetic refuses to do
- *
- * A text colour is meaningless without the colour behind it, and a computed `background-color` is
- * not that colour when anything translucent or an image sits between them. The drafting grid a
- * `::before` overlay paints, a gradient over a colour, and a surface fading into the page are all
- * cases where it is wrong. So every subject is judged **twice** — once from the cascade and once
- * from the pixels of a real capture — and the lower of the two figures is the one that has to
- * clear the floor. Glyph pixels are excluded from a sample by proximity to the colours that drew
- * them; that tolerance is part of the measurement's own limit and is reported with every run.
- *
- * ## Limits, stated rather than implied
- *
- * - **It is a floor, not a conformance claim.** 4.5:1, 3:1 and 3:1 are the minima NFR-004 names.
- * - **No axe and no Lighthouse.** `agent-browser a11y` exists and is not run: a score is not
- *   evidence for the clauses these criteria state, and a missing browser feature must not become
- *   a dependency install.
- * - **Keyboard focus is measured after a real keystroke.** A scripted `.focus()` is not used for
- *   the focus figure, because it does not produce `:focus-visible` and can reach an element tab
- *   order skips — which would answer a question nobody asked.
+ * The site contrast and style model: what to ask the browser, and how to judge the answer — the
+ * half of 007 AC-033/AC-035/AC-036 that `site/scripts/assert-build.mjs` cannot answer by reading
+ * a cascade. Every subject is judged **twice**, once from the cascade and once from the pixels of
+ * a real capture, and the lower figure has to clear the floor: a computed `background-color` is
+ * not the colour behind text when a translucent layer or an image sits between them. Limits,
+ * stated rather than implied: 4.5:1, 3:1 and 3:1 are minima NFR-004 names, not a conformance
+ * claim; no axe and no Lighthouse, because a score is not evidence for these clauses; focus is
+ * measured after a real keystroke, since a scripted `.focus()` does not produce `:focus-visible`.
  */
 import { mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -41,7 +15,6 @@ import { fileURLToPath } from 'node:url';
 import { startServer } from './serve.js';
 import matrix from './site-matrix.json' with { type: 'json' };
 
-/** Font size in CSS pixels at or above which WCAG 2.2 counts text as large (18pt). */
 export { matrix };
 
 /** sRGB's own transfer function, and relative luminance's per-channel weights. */
@@ -68,32 +41,25 @@ const REQUIRED_CHANNELS = 3;
 const SEARCH_STEPS = 24;
 
 /**
- * How far a pixel may sit from a colour and still be read as part of it.
- *
- * Used for one thing only: keeping a focus indicator out of its own adjacent-surface sample. The
- * text itself is never excluded this way — the run measures surfaces from a capture taken with the
- * page's text made transparent, so there are no glyphs to confuse with a surface, and a background
- * within this distance of the text colour is still measured rather than quietly skipped.
+ * How far a pixel may sit from a colour and still be read as part of it — for one thing only:
+ * keeping a focus indicator out of its own adjacent-surface sample. Text is never excluded this
+ * way (the capture is taken with the text transparent), so a background near the text colour is
+ * measured rather than quietly skipped.
  */
 export const GLYPH_TOLERANCE = 16;
 
 /**
- * The share of a box a colour must paint before it counts as the surface the text sits on.
- *
- * The box a sample is taken from excludes the subject's own text, its descendants, and its
- * pseudo-elements that do not sit behind that text. What is left is background — but background
- * with texture in it: a drafting grid, a glow, a hero ramp, a diagonal motif. A colour admitted at
- * a hair's breadth would admit the anti-aliased rim of a 1px decoration instead, so a colour
- * counts as surface when it paints at least this share of the box. The value is reported with
- * every run: at 0.5% a 320px-wide box admits a colour after roughly three pixels in a row.
+ * The share of a box a colour must paint before it counts as the surface the text sits on. The
+ * box excludes the subject's own text, its descendants, and the pseudo-elements that do not sit
+ * behind that text, leaving background with texture in it — a colour admitted at a hair's breadth
+ * would admit the anti-aliased rim of a 1px decoration, so it must paint at least this share. At
+ * 0.5% a 320px-wide box admits a colour after roughly three pixels in a row. Reported with every run.
  */
 export const SURFACE_SHARE = 0.005;
 
 /**
- * The width of one histogram bucket, in channels.
- *
- * Small enough that a gradient still reads as several bands rather than one average, large enough
- * that the anti-aliased rim around a hairline decoration does not become a dozen buckets.
+ * The width of one histogram bucket: small enough that a gradient still reads as several bands
+ * rather than one average, large enough that a hairline's anti-aliased rim is not a dozen buckets.
  */
 const BUCKET = 4;
 
@@ -180,24 +146,16 @@ export function squaredDistance(left, right) {
 }
 
 /**
- * The slack an excluded rectangle is grown by, in pixels.
- *
- * A browser reports fractional boxes, and a derived rectangle — a generated mark's box, rebuilt
- * from the host's padding rather than read from the page — is never exact: a flex host centres its
- * mark, and a box derived from the leading edge lands a pixel or two off. A hairline of a 1px
- * `--signal` rule left inside the sample is 0.85% of a navigation label's box, which clears the
- * surface share and then reports the wordmark as text painted on its own marker. Three pixels of
- * slack removes that; it can only exclude a little more of the border between two boxes, never less
- * of the surface.
+ * The slack an excluded rectangle is grown by, in pixels. A browser reports fractional boxes and
+ * a derived rectangle is never exact — a flex host centres its mark, so one built from the leading
+ * edge lands a pixel or two off — and a hairline of a 1px `--signal` rule left inside the sample
+ * is 0.85% of a navigation label's box, which clears the surface share and reports the wordmark as
+ * text painted on its own marker. Three pixels remove that; the slack can only exclude a little
+ * more of the border between two boxes, never less of the surface.
  */
 const EXCLUSION_SLACK = 3;
 
-/**
- * A rectangle grown to whole pixels, outwards, with the slack above.
- *
- * @param {object} box - `{ x, y, width, height }`, possibly fractional.
- * @returns {object} The same rectangle on whole-pixel boundaries, grown by the slack.
- */
+/** A rectangle grown to whole pixels, outwards, with the slack above. */
 function outward(box) {
     const x = Math.max(Math.floor(box.x) - EXCLUSION_SLACK, 0);
     const y = Math.max(Math.floor(box.y) - EXCLUSION_SLACK, 0);
@@ -211,36 +169,22 @@ function outward(box) {
 }
 
 /**
- * The worst contrast any *surface* colour in a box gives a foreground.
- *
- * The box is walked whole, less the rectangles the page says are not surface — the subject's own
- * text, its descendants, and its own pseudo-elements that do not sit behind that text — and what
- * remains is histogrammed. The colours that paint at least `SURFACE_SHARE` of it are the surfaces,
- * and the **lowest** ratio among those is returned: a gradient band that dips below the floor
- * anywhere a reader can see fails, rather than averaging itself away.
- *
- * The capture this reads was taken with the page's text made transparent, so there are no glyphs
- * in the sample and nothing has to be excluded by proximity to the text colour. That is the whole
- * reason the run takes a second frame: a "worst pixel in the box" rule over an ordinary capture
- * reads the anti-aliased rim of a heading as the surface the heading is painted on, and reports
- * every large title as unreadable text on its own lettering.
- *
- * @param {object} image - A decoded PNG, as `tools/visual/png.js` returns it.
- * @param {object} box - `{ x, y, width, height }` in image pixels.
- * @param {number[]} foreground - The text colour the surface is judged against.
- * @param {object[]} holes - Boxes whose pixels are not the subject's surface.
- * @returns {{ ratio: number, background: number[] | null, sampled: number, skipped: number, surfaces: number }}
- *   The worst ratio, the colour that produced it, how many pixels went into the histogram, how many
- *   were excluded, and how many distinct surfaces were admitted. A `sampled` of zero is a
- *   measurement that measured nothing, and the runner reports it rather than reading it as a pass.
+ * The worst contrast any *surface* colour in a box gives a foreground. The box is walked whole,
+ * less the rectangles the page says are not surface, and what remains is histogrammed: the
+ * colours painting at least `SURFACE_SHARE` of it are the surfaces, and the **lowest** ratio
+ * among them wins, so a gradient band that dips below the floor anywhere a reader can see fails
+ * rather than averaging itself away. The capture was taken with the page's text transparent, so
+ * there are no glyphs to exclude by proximity — the whole reason the run takes a second frame,
+ * since a "worst pixel in the box" rule over an ordinary capture reads a heading's anti-aliased
+ * rim as its surface. A `sampled` of zero is a measurement that measured nothing, and the runner
+ * reports it rather than reading it as a pass.
  */
 export function worstPixelRatio(image, box, foreground, holes = []) {
     const excluded = holes.map((hole) => outward(hole));
     /*
-     * The bounds are rounded to whole pixels before the walk. A browser reports fractional
-     * rectangles, and indexing a pixel array with a fractional offset reads `undefined` rather than
-     * a colour — which is a NaN that would surface as a NaN ratio and a NaN surface, and would look
-     * like a palette defect rather than an arithmetic one.
+     * Bounds are rounded to whole pixels before the walk: indexing a pixel array at a fractional
+     * offset reads `undefined` rather than a colour — a NaN that would surface as a NaN ratio and
+     * look like a palette defect rather than an arithmetic one.
      */
     const xStart = Math.max(Math.round(box.x), 0);
     const yStart = Math.max(Math.round(box.y), 0);
@@ -264,8 +208,7 @@ export function worstPixelRatio(image, box, foreground, holes = []) {
             const pixel = [image.data[offset], image.data[offset + 1], image.data[offset + 2]];
 
             sampled += 1;
-            // Quantised before counting, so a smooth ramp lands in a handful of buckets and each
-            // is admitted on its own share rather than the ramp being averaged into one colour.
+            // Quantised before counting, so a smooth ramp lands in a few buckets, each on its own share.
             const key = pixel.map((channel) => Math.round(channel / BUCKET) * BUCKET).join(',');
             const entry = histogram.get(key) ?? { colour: pixel, count: 0 };
 
@@ -305,16 +248,10 @@ function mix(foreground, background, share) {
 }
 
 /**
- * Mix a colour toward its surface until the pair lands on a target ratio.
- *
- * The injected figures have to be derived rather than typed: a literal low-contrast colour clears
- * one preference cascade comfortably and sits far above the floor in the other, and a negative
- * proof that only bites half the time is not a proof.
- *
- * @param {number[]} foreground - The colour the text is currently painted in.
- * @param {number[]} background - The colour behind it.
- * @param {number} target - The ratio the mixed colour should land on.
- * @returns {number[]} The mixed colour.
+ * Mix a colour toward its surface until the pair lands on a target ratio. The injected figures
+ * have to be derived rather than typed: a literal low-contrast colour clears one preference
+ * cascade comfortably and sits far above the floor in the other, and a negative proof that only
+ * bites half the time is not a proof.
  */
 export function injectColour(foreground, background, target) {
     let low = 0;
@@ -375,16 +312,11 @@ function subjectOf(record, sample, computed) {
 }
 
 /**
- * Judge one measured subject against the floor its size and kind carry.
- *
- * The lower of the two readings decides, and a pixel reading is **required** where the cascade
- * reading is known to be incomplete: an ancestor painting an image means the colour under the text
- * is not any declared background, so a figure from the cascade alone would be a figure for a
- * surface nobody sees. Where nothing in the chain paints an image, the cascade reading is exact and
- * the sample corroborates it.
- *
- * @param {object} input `{ record, page, viewport, scheme, pixel }`.
- * @returns {object} The finding: both colours, both figures, the floor, and whether it passes.
+ * Judge one measured subject against the floor its size and kind carry. The lower of the two
+ * readings decides, and a pixel reading is **required** where the cascade reading is known to be
+ * incomplete: an ancestor painting an image means the colour under the text is not any declared
+ * background, so a cascade-only figure would be one for a surface nobody sees. Where nothing in
+ * the chain paints an image, the cascade reading is exact and the sample corroborates it.
  */
 export function assessSubject(input) {
     const { pixel, record } = input;
@@ -425,14 +357,9 @@ export function assessSubject(input) {
 }
 
 /**
- * The one-line form a finding is reported in.
- *
- * It carries the page, the viewport, the preference, the element, both colours and the ratio,
- * because a contrast number without those is not actionable and a floor that cannot be acted on
- * is a number in a log.
- *
- * @param {object} finding - One assessed subject.
- * @returns {string} The sentence.
+ * The one-line form a finding is reported in — page, viewport, preference, element, both colours
+ * and the ratio, because a contrast number without those is not actionable and a floor that
+ * cannot be acted on is a number in a log.
  */
 export function describe(finding) {
     const where = [finding.page, finding.viewport, finding.scheme].filter((part) => part !== undefined).join(' ');
@@ -445,12 +372,10 @@ export function describe(finding) {
 }
 
 /**
- * Serve `site/dist` at the base path it is published under.
- *
- * The published address puts the site under `/mecha-turk`, so every internal link in the built
- * pages is written against that prefix. Serving `dist` at the server root would render fine and
- * 404 every one of those links — exactly the base-path mistake the built-output assertion exists
- * to catch — so the harness mounts it the same way the address does and a 404 here is a real one.
+ * Serve `site/dist` at the base path it is published under: every internal link in the built
+ * pages is written against `/mecha-turk`, so serving `dist` at the server root would render fine
+ * and 404 them all — exactly the base-path mistake the built-output assertion exists to catch. The
+ * harness mounts it the same way the address does, so a 404 here is a real one.
  *
  * @returns The loopback server's URL and a closer that also removes the mount.
  */

@@ -1,10 +1,5 @@
 /**
- * The gates between a claim and the host call (003 T-021): decide, then stop
- * before `host.startSession()` is reachable (FR-028's panel half). The
- * guards refuse a missing/disabled binding or an unlisted project as
- * `blocked:<reason>` (FR-042), a refused reserve ends the attempt with
- * nothing written and nothing started, and the project is resolved here,
- * before the reservation, so the guard and the dispatch cannot disagree.
+ * The gates between a claim and the host call: refuse first, resolve the project before the reservation (FR-028).
  */
 
 import type { GuestProject } from '@openchamber/sdk';
@@ -68,8 +63,6 @@ export type GuardVerdict =
  * Whether the mount is still alive mid-tick.
  *
  * A function call, so the type analyzer never narrows a check past it.
- *
- * @returns `true` while the panel is alive.
  */
 export function stillRunning(rt: PanelRuntime): boolean {
     return !rt.disposed;
@@ -77,8 +70,6 @@ export function stillRunning(rt: PanelRuntime): boolean {
 
 /**
  * Split one `owner/name` repository label into its reference.
- *
- * @returns The reference.
  */
 export function splitRepository(label: string): { readonly owner: string; readonly name: string } {
     const index = label.indexOf('/');
@@ -214,17 +205,13 @@ const ALLOW_LIST_GUIDANCE = 'add the GitHub logins that may trigger this reposit
     + 'then retry this dispatch';
 
 /**
- * The guidance the same refusal carries when the gate judged a **partial**
- * reference list: `ALLOW_LIST_GUIDANCE` is *false* there — the gate judges the
- * run's **retained** references and retention stops at the cap, so the one
- * reference that would have authorized the run may be among the dropped, and
- * telling an operator to widen a list that cannot widen is useless advice
- * (constitution IV), the defect this branch exists to close. It therefore
- * states what *can* be done, checked against `dispatches-rows.ts`'s
- * affordance table: a `blocked:<reason>` run offers **Retry and nothing else**,
- * re-judged against the same list — so it names consequences (still parked,
- * costs no attempt and no requeue budget) and no nonexistent control, and
- * names no login: denied ones ride the service's `detail` verbatim, and a
+ * The guidance the same refusal carries when the gate judged a **partial** reference list:
+ * `ALLOW_LIST_GUIDANCE` is *false* there — the gate judges the **retained** references and
+ * retention stops at the cap, so the reference that would have authorized the run may be among the
+ * dropped, and telling an operator to widen a list that cannot widen is useless advice
+ * (constitution IV). It therefore states what *can* be done, checked against `dispatches-rows.ts`'s
+ * affordance table: a `blocked:<reason>` run offers **Retry and nothing else** — consequences
+ * named, no nonexistent control, no login: denied ones ride the service's `detail` verbatim and a
  * permitted one never leaves the service at all.
  */
 const TRUNCATED_WINDOW_GUIDANCE = 'this run collected more triggers than the service retains, so the allow-list was '
@@ -232,20 +219,14 @@ const TRUNCATED_WINDOW_GUIDANCE = 'this run collected more triggers than the ser
     + 'for the same reason — the run stays parked and costs no attempt or requeue budget';
 
 /**
- * The guard failure for the actor-policy gate's refusal, or `null` for any
- * other. Narrowed on the **code**, never on the status: `stale-lease`,
- * `already-reserved`, and `cause-not-cleared` are `409` too, and reporting one
- * as a policy denial would announce a verdict the service never reached — the
- * drift 003 exists to end. The service's own message is carried **verbatim**
- * (it names every denied login and its basis, FR-077), and the guidance names
- * the **field** restricting the binding — the permitted set is configuration
- * and never reaches the panel. The branch is on the refusal's
- * `referenceWindow` word, never on the message: a panel matching prose would be
- * a second parse that silently reverts to advice that cannot work when the
- * service rewords — an absent or unknown word takes
- * {@link ALLOW_LIST_GUIDANCE}, the safe direction: unhelpful advice costs an
- * edit, the wrong branch would have them dead-letter a run one login would
- * have dispatched.
+ * The guard failure for the actor-policy gate's refusal, or `null` for any other. Narrowed on the
+ * **code**, never the status: `stale-lease`, `already-reserved` and `cause-not-cleared` are `409`
+ * too, and reporting one as a policy denial would announce a verdict the service never reached.
+ * The service's message is carried **verbatim** (it names every denied login and its basis,
+ * FR-077); the guidance names the **field** restricting the binding, since the permitted set never
+ * reaches the panel. The branch is on the refusal's `referenceWindow` word, never the prose — an
+ * absent or unknown word takes {@link ALLOW_LIST_GUIDANCE}: unhelpful advice costs an edit, the
+ * wrong branch would have them dead-letter a run one login would have dispatched.
  */
 export function actorGateFailure(refusal: {
     readonly code: string | null;

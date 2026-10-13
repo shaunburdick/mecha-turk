@@ -218,8 +218,6 @@ interface RunCreationInput {
 
 /**
  * Mint the run one delivery creates, at the subject's next ordinal.
- *
- * @returns A fresh `pending` run with the FR-050 identity derived.
  */
 function runForDelivery(input: RunCreationInput): Run {
     const { delivery, shape, ordinal, reference, now, prompt } = input;

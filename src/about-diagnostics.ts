@@ -29,8 +29,6 @@ function formatTime(iso: string): string {
 
 /**
  * The phase record, read-only.
- *
- * @returns The last recorded phase, or that there is none yet.
  */
 export function phaseRecordLine(rt: PanelRuntime): string {
     const phase = rt.state.ledger.entries.findLast((entry) => entry.kind === 'phase');
@@ -63,8 +61,6 @@ export function ledgerLines(rt: PanelRuntime): string {
 
 /**
  * Mount the read-only Diagnostics block's three lines.
- *
- * @returns The three handles the pane carries.
  */
 export function mountDiagnostics(input: {
     readonly rt: PanelRuntime;

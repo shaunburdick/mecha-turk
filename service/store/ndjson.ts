@@ -25,7 +25,6 @@ export interface NdjsonReadResult<T> {
 
 /**
  * Append one JSON document as a single NDJSON line.
- *
  */
 export async function appendJsonLine(filePath: string, entry: unknown): Promise<void> {
     const line = `${JSON.stringify(entry)}\n`;
@@ -73,7 +72,6 @@ export async function writeJsonLinesAtomic(filePath: string, entries: readonly u
 
 /**
  * Read every usable line of an NDJSON file.
- *
  */
 export async function readJsonLines<T>(
     filePath: string,

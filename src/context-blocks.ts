@@ -1,10 +1,5 @@
 /**
- * The bounded excerpt renderer: delimiters, defusing, and the per-source
- * budget (002 FR-028, 003 FR-014). Source text is copied, bounded, and
- * neutralized, never interpreted; a source can never forge a delimiter
- * ({@link defuseDelimiters} runs before any truncation), nothing is dropped
- * silently, and the budget is one running number subtracted across every
- * block.
+ * The bounded excerpt renderer: delimiters, defusing, budget — copied and neutralized, never interpreted (FR-028).
  */
 
 /** Line separator used by the bounded context. */
@@ -72,11 +67,6 @@ export function defuseDelimiters(text: string): string {
 
 /**
  * Fit one source's excerpt into its share of the budget, marking the cut.
- *
- * @param excerpt - Untrusted excerpt, delimiters already neutralized.
- * @param bound - Characters this source may spend on its excerpt.
- * @returns The excerpt, a truncation-marked prefix of it, or the omission
- *   marker when not even the marker's own length fits.
  */
 function fitExcerpt(excerpt: string, bound: number): string {
     if (excerpt.length <= bound) {

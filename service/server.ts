@@ -158,9 +158,6 @@ async function adoptStoredLogLevel(store: ServiceStore | null, log: ServiceLogge
 
 /**
  * Bind the listener to `127.0.0.1`.
- *
- * @returns Resolves once the listener is accepting connections.
- * @throws When the port cannot be bound (already taken, or not permitted).
  */
 function listen(server: Server, port: number): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -177,7 +174,6 @@ function listen(server: Server, port: number): Promise<void> {
 
 /**
  * Read the bound port from a listening server.
- *
  */
 function boundPort(server: Server): number {
     const address = server.address();
@@ -393,9 +389,6 @@ function buildContext(input: {
 
 /**
  * Start the loopback service.
- *
- * @throws When the port cannot be bound; store failures do *not* throw — the
- *   instance starts degraded so the panel can report them.
  */
 export async function startService(options: StartServiceOptions): Promise<ServiceHandle> {
     const store = await openStoreSafe(options);

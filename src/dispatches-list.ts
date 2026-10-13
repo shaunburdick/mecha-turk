@@ -1,9 +1,5 @@
 /**
- * The paged `GET /v1/events` answer: its rows and their page label (005
- * FR-042). The DTO parser refuses a row it cannot fully understand; this one
- * refuses an **answer** whose page label is missing or out of contract, and
- * the query half of the contract (`dispatchListPath`) lives here too so
- * asking for a page and reading it back cannot drift apart.
+ * The paged `GET /v1/events` answer: its rows, its page label, and the query half of the contract (FR-042).
  */
 
 import { asRecord, parseJsonObject } from './json.ts';
@@ -41,7 +37,6 @@ export interface DispatchListAnswer {
 /**
  * Read the filter echo, which must name both members even when they are off.
  *
- * @param value - The `filter` member (unchecked).
  * @returns The applied filters, or `null` when the shape is wrong.
  */
 function parseFilterEcho(value: unknown): DispatchFilters | null {
@@ -87,7 +82,6 @@ function pageLabelsUsable(page: Record<string, unknown>): boolean {
 /**
  * Read the `page` member of a paged answer, fail closed.
  *
- * @param value - The `page` member (unchecked).
  * @returns The metadata, or `null` when any member is missing or wrong.
  */
 function parsePageMeta(value: unknown): DispatchPageMeta | null {
@@ -140,8 +134,6 @@ export function parseDispatchListBody(text: string): DispatchListAnswer | null {
  * travels when the operator has stepped past page one, and a filter only when
  * it is on — so the barest call is still the closest analogue of an unfiltered
  * first page rather than a filter nobody chose.
- *
- * @returns `GET /v1/events` with this read's parameters.
  */
 export function dispatchListPath(runs: DispatchesState): string {
     const params: string[] = [`limit=${runs.page.limit}`];

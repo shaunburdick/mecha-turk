@@ -86,7 +86,6 @@ interface PlannedRecovery {
 
 /**
  * The automatic requeue budget, as a secret-free reason line.
- *
  */
 function budgetReason(requeuesUsed: number): string {
     return `automatic requeue budget exhausted after ${requeuesUsed} requeues`;
@@ -270,8 +269,6 @@ function recoverLateResult(input: { readonly run: Run; readonly now: string }): 
 
 /**
  * Decide every recovery one pass makes, without writing anything.
- *
- * @returns The document to persist plus the recoveries to log and audit.
  */
 export function planSweep(input: {
     /** Document as stored, before this pass. */
@@ -353,7 +350,6 @@ function withIntents(input: {
  * The durable write comes first — state **and** the intents for its rows — and
  * the audit rows follow, so a row that cannot be appended is retried by the
  * outbox on the next read rather than rolled back (FR-063, T-040b).
- *
  */
 export async function sweepOnce(input: {
     readonly store: ServiceStore;

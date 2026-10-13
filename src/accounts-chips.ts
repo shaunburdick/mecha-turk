@@ -26,8 +26,6 @@ const WARNING_PHRASES: ReadonlySet<string> = new Set(['auth-failed', 'rate-limit
  * is green, the three named failures are amber, and anything else — a state
  * this build does not name, or none reported at all — stays neutral rather
  * than being read as either a pass or a fault.
- *
- * @returns The badge tone for that phrase.
  */
 function connectionTone(phrase: string): Tone {
     if (phrase === 'connected') {
@@ -59,8 +57,6 @@ function scopeTone(account: PanelAccount): Tone {
  *
  * They describe the *selected* account, which is exactly the one the display
  * name, rotation, and removal controls underneath them act on.
- *
- * @returns The chip row, repainted and disposed as one unit.
  */
 export function mountDetailChips(detailBox: HTMLElement): DetailChips {
     const container = detailBox.ownerDocument.createElement('div');

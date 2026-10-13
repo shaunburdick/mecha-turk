@@ -1,15 +1,5 @@
 /**
- * The Status tab's operator-facing copy, as pure functions of the document —
- * the honesty rules testable without a DOM and unable to drift from what
- * renders: an unmeasured budget reads *not measured yet* (FR-034, AC-107), an
- * unreadable binding row stays on the page (FR-032, AC-105), an
- * out-of-vocabulary pause reason prints verbatim (FR-031), an overdue stamp
- * reads *overdue*, the agent pin is never "ok" (FR-033, AC-106), and every
- * string renders as text (FR-080). {@link cadenceLine} says *not refreshing
- * itself* when no period is known (005 FR-100, FR-101), and
- * {@link actorPolicyLines} states an open allow-list as a count with its
- * consequence — never a plausible default that would be a security control
- * that does not exist (005 FR-093, NFR-113, NFR-114, AC-149).
+ * The Status tab's operator-facing copy as pure functions of the document — testable without a DOM (FR-031–034).
  */
 
 import type { StatusAccountView, StatusBindingView, StatusTabState, StatusView } from './status-document.ts';
@@ -47,9 +37,6 @@ function intervalText(ms: number): string {
     return ms.toLocaleString(INTERVAL_GROUPING);
 }
 
-/**
- * @returns e.g. `2h 5m 3s`, or `0s` for a non-positive input.
- */
 export function formatUptime(ms: number): string {
     const total = Math.max(0, Math.floor(ms / MS_PER_SECOND));
     const hours = Math.floor(total / SECONDS_PER_HOUR);
@@ -231,19 +218,14 @@ export function bindingLines(view: StatusView): readonly string[] {
 }
 
 /**
- * The counted line: how many of the **enabled** bindings carry **no**
- * allow-list, and what that means (005 FR-093 as re-cut). Five load-bearing
- * properties: the count is over **enabled** bindings in both halves — a
- * disabled binding is neither an exposure nor a non-exposure, and the
- * denominator is labelled `enabled` wherever a count renders; the consequence
- * clause is trigger-neutral (*whoever the trigger lets act*), since Status
- * carries no trigger set and is forbidden from acquiring one (005 FR-039,
- * clarification row 48); zero is a positive statement scoped to `enabled`,
- * because silence cannot distinguish "none open" from "did not check";
- * `0 of 0` is banned in every case (NFR-113) — bindings-present-but-none-enabled
- * gets its own sentence naming both numbers — and no login, no repository, no
- * trigger act, ever: naming them would make Status a second index of the
- * Bindings tab (005 FR-039, clarification row 42).
+ * The counted line: how many of the **enabled** bindings carry **no** allow-list, and what that
+ * means (005 FR-093 as re-cut). Five load-bearing properties: the count is over **enabled**
+ * bindings in both halves, with the denominator labelled `enabled` wherever it renders; the
+ * consequence clause is trigger-neutral (*whoever the trigger lets act*), since Status carries no
+ * trigger set and is forbidden acquiring one (FR-039, clarification row 48); zero is a positive
+ * statement scoped to `enabled`, because silence cannot distinguish "none open" from "did not
+ * check"; `0 of 0` is banned (NFR-113) — bindings-present-but-none-enabled gets its own sentence
+ * naming both numbers — and no login, repository or trigger act is ever named (FR-039, row 42).
  */
 export function actorPolicyLines(view: StatusView | null): readonly string[] {
     if (view === null) {

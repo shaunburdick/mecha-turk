@@ -80,8 +80,6 @@ const UNREADABLE_NOTE =
 
 /**
  * Build the empty audit-history state.
- *
- * @returns The state before the first read.
  */
 export function initialAuditHistory(): AuditViewState {
     return { status: 'idle', correlationId: null, rows: [], note: '' };
@@ -89,9 +87,6 @@ export function initialAuditHistory(): AuditViewState {
 
 /**
  * Cut one line to a character budget, marking the cut.
- *
- * @param limit - Character budget (the marker is counted inside it).
- * @returns The text, whole or cut with {@link TRUNCATED_SUFFIX}.
  */
 function truncate(text: string, limit: number): string {
     return text.length <= limit ? text : `${text.slice(0, Math.max(limit - 1, 1))}${TRUNCATED_SUFFIX}`;
@@ -99,8 +94,6 @@ function truncate(text: string, limit: number): string {
 
 /**
  * Serialize one row's details for the line, bounded.
- *
- * @returns JSON text, cut to the details budget.
  */
 function detailsText(details: Readonly<Record<string, unknown>>): string {
     return truncate(JSON.stringify(details), DETAILS_CHARS);
@@ -148,9 +141,6 @@ function parseAuditRow(value: unknown): AuditRow | null {
 
 /**
  * Parse the audit-read body (`{ entries: AuditEntry[] }`, contract §2).
- *
- * @returns The rows in the order the service sent them, capped at
- *   {@link AUDIT_ROW_LIMIT}, or `null` when any part of the shape is unusable.
  */
 export function parseAuditBody(text: string): AuditRow[] | null {
     const root = parseJsonObject(text);
@@ -176,8 +166,6 @@ export function parseAuditBody(text: string): AuditRow[] | null {
 
 /**
  * Compose one audit row as a list row: seq, event, actor, decision, reason.
- *
- * @returns The list row, every string written as text by the primitive.
  */
 export function auditItem(row: AuditRow): ListItem {
     const reason = row.reason === null ? '' : truncate(row.reason, REASON_CHARS);
@@ -196,8 +184,6 @@ export function auditItem(row: AuditRow): ListItem {
 
 /**
  * Build the audit list from the view's state.
- *
- * @returns At most {@link AUDIT_ROW_LIMIT} rows, oldest first.
  */
 export function auditItems(state: AuditViewState): ListItem[] {
     return state.rows.slice(0, AUDIT_ROW_LIMIT).map((row) => auditItem(row));
@@ -205,8 +191,6 @@ export function auditItems(state: AuditViewState): ListItem[] {
 
 /**
  * Compose the audit view's status line.
- *
- * @returns The status text for where the read stands.
  */
 export function auditStatusText(state: AuditViewState): string {
     if (state.status === 'idle') {

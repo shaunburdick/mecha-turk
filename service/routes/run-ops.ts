@@ -352,7 +352,6 @@ function readReportMembers(
  * not blur — a body that fails FR-051's echo or §5's attempt is a `422` about
  * the *run identity*, and a body missing the read-back itself is a `422` about
  * the *report*.
- *
  */
 function readReadBack(request: RouteRequest, correlationId: string): ReadBack | HttpResponse {
     const parsed = readRunScopeRequest({ raw: request.body, correlationId, needs: {} });

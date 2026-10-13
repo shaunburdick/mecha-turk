@@ -43,7 +43,6 @@ function scheduleForceExit(log: ServiceLogger): void {
 
 /**
  * Drain the service and record how the process should exit.
- *
  */
 async function stopService(handle: ServiceHandle, log: ServiceLogger): Promise<void> {
     try {

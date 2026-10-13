@@ -38,8 +38,6 @@ export const MAX_ECHOED_FIELD_CHARS = 64;
 
 /**
  * Bound one unknown field name before it is echoed back.
- *
- * @param name - The offending key, exactly as it arrived.
  */
 export function truncatedFieldName(name: string): string {
     return name.length > MAX_ECHOED_FIELD_CHARS ? `${name.slice(0, MAX_ECHOED_FIELD_CHARS)}…` : name;
@@ -216,8 +214,6 @@ export function unauthorizedResponse(): HttpResponse {
  * FR-039 names unavailable storage as a setup prerequisite failure the panel
  * must surface explicitly rather than start degraded, which is why this is a
  * stable code the panel can render guidance for.
- *
- * @returns The `503 storage-unavailable` response (contract §4).
  */
 export function storageUnavailableResponse(): HttpResponse {
     return errorResponse(STATUS.storageUnavailable, {
@@ -228,7 +224,6 @@ export function storageUnavailableResponse(): HttpResponse {
 
 /**
  * Parse and confine a request target to this service.
- *
  */
 export function parseRequestTarget(raw: string | undefined): URL | null {
     if (raw === undefined || !raw.startsWith('/') || raw.length > MAX_TARGET_CHARS) {
@@ -250,8 +245,6 @@ export function parseRequestTarget(raw: string | undefined): URL | null {
  * A body over the cap is replaced by an explicit error rather than truncated
  * silently: contract §1 says the service measures before writing and never
  * ships half a payload.
- *
- * @returns The serialized text, or a small fallback response to send instead.
  */
 export function serializeBody(body: unknown): SerializedBody {
     try {

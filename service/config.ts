@@ -161,10 +161,6 @@ function isLogLevel(value: unknown): value is LogLevel {
     return typeof value === 'string' && LOG_LEVELS.has(value);
 }
 
-/**
- * @returns Zero or one issue; an out-of-bounds, fractional, or missing value
- *   all produce the same actionable remediation.
- */
 function numericIssue(raw: Record<string, unknown>, field: NumericField): readonly ConfigIssue[] {
     const bounds = NUMERIC_BOUNDS[field];
     const value = raw[field];
@@ -180,8 +176,6 @@ function numericIssue(raw: Record<string, unknown>, field: NumericField): readon
     ];
 }
 
-/**
- */
 function retryOrderIssue(raw: Record<string, unknown>): readonly ConfigIssue[] {
     const base = raw.retryBaseMs;
     const ceiling = raw.retryMaxMs;
@@ -227,8 +221,6 @@ function isKnownField(key: string): boolean {
     return Object.hasOwn(DEFAULT_CONFIG, key);
 }
 
-/**
- */
 function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
     // First, mirroring `DEFAULT_CONFIG`'s own key order, so this list stays
     // the order the schema projection pushes its descriptors in. No numeric
@@ -255,8 +247,6 @@ function collectIssues(raw: Record<string, unknown>): readonly ConfigIssue[] {
     return issues;
 }
 
-/**
- */
 function readNumber(raw: Record<string, unknown>, field: NumericField): number {
     const value = raw[field];
     if (typeof value !== 'number') {
@@ -266,8 +256,6 @@ function readNumber(raw: Record<string, unknown>, field: NumericField): number {
     return value;
 }
 
-/**
- */
 function readLogLevel(raw: Record<string, unknown>): LogLevel {
     const value = raw.logLevel;
     if (!isLogLevel(value)) {
@@ -330,9 +318,6 @@ function buildConfig(raw: Record<string, unknown>): ServiceConfig {
     };
 }
 
-/**
- * @returns The typed config, or every issue found (never just the first).
- */
 export function validateConfig(raw: unknown): ConfigValidation {
     if (!isRecord(raw)) {
         return {

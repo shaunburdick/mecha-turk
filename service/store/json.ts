@@ -113,7 +113,6 @@ async function quarantine(
 
 /**
  * Write a JSON document atomically: temp file, fsync, rename.
- *
  */
 export async function writeJsonAtomic(filePath: string, value: unknown): Promise<void> {
     const text = `${JSON.stringify(value, null, JSON_INDENT)}\n`;
@@ -142,7 +141,6 @@ const SWEEP_MAX_DEPTH = 3;
  * Readers ignore these by construction (they open exact target names), so the
  * only thing left to do with one is sweep it — it must never shadow a real
  * target or linger world-readable (contract §6 rule 5).
- *
  */
 export function isTempDebris(name: string): boolean {
     return TEMP_DEBRIS_PATTERN.test(name);
@@ -150,7 +148,6 @@ export function isTempDebris(name: string): boolean {
 
 /**
  * Remove orphaned temporary files under a directory, recursively but bounded.
- *
  */
 export async function sweepTempDebris(dirPath: string, depth: number = SWEEP_MAX_DEPTH): Promise<number> {
     if (depth < 0) {
@@ -182,8 +179,6 @@ export async function sweepTempDebris(dirPath: string, depth: number = SWEEP_MAX
 
 /**
  * Read and validate a store file, quarantining it when it cannot be used.
- *
- * @returns The stored value, absence, or the quarantine path.
  */
 export async function readJsonFile<T>(
     filePath: string,

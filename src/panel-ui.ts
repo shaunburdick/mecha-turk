@@ -1,9 +1,5 @@
 /**
- * Panel rendering: the UI is built once from `@openchamber/sdk/ui` controls
- * and repainted from state, so refreshes never replace a control the user is
- * interacting with and a tab the operator never opened owns no handles yet
- * (FR-013, FR-019). The panel-level project picker is gone (issue #39): the
- * binding form's *Dispatch project* field is the one project control.
+ * Panel rendering: built once from `@openchamber/sdk/ui` and repainted from state; the binding form owns project pick.
  */
 
 import { mountBanner } from '@openchamber/sdk/ui';

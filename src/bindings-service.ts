@@ -266,9 +266,6 @@ function statusRowOf(
     };
 }
 
-/**
- * @returns Rows this panel can render, dropping rows it cannot.
- */
 export function readStatusRows(rows: readonly unknown[]): BindingStatusRow[] {
     const usable: BindingStatusRow[] = [];
     for (const row of rows) {
@@ -383,9 +380,6 @@ function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
     };
 }
 
-/**
- * @returns The binding, or `null` when its shape is unusable.
- */
 function parseBindingEntry(value: unknown): PanelBinding | null {
     const record = asRecord(value);
     if (record === null || !fieldsHoldText(record, BINDING_STRING_FIELDS)) {
@@ -445,9 +439,6 @@ export function countEnabledBindings(bindings: readonly PanelBinding[]): number 
     return bindings.filter((binding) => binding.state === 'active').length;
 }
 
-/**
- * @returns The snapshot, or `null` when the shape is unusable.
- */
 export function parseBindingsBody(text: string): BindingsSnapshot | null {
     const root = parseJsonObject(text);
     if (root === null || !Array.isArray(root.bindings)) {

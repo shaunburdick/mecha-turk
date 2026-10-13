@@ -1,9 +1,5 @@
 /**
- * The eight-state dispatch vocabulary and its reader (003 data-model §1): the
- * constant list, the type aliases, and the narrowers. The fail-closed rule
- * they exist for (FR-074): an unknown state — retired word, typo, a future
- * build's row — refuses the record rather than rendering something the panel
- * would have to guess tone and affordances for.
+ * The eight-state dispatch vocabulary and its reader: an unknown state refuses the record (FR-074).
  */
 
 export const PLAIN_RUN_STATES = [
@@ -27,7 +23,6 @@ export const BLOCKED_PREFIX = 'blocked:';
  * Check the reason half of a `blocked:<reason>` state: a non-empty kebab
  * token, never a fixed enum (data-model §1), and never an empty suffix.
  *
- * @param reason - Whatever follows the `blocked:` prefix.
  * @returns `true` when every hyphen-separated part is lowercase alphanumeric.
  */
 export function isBlockedReason(reason: string): boolean {
@@ -44,7 +39,6 @@ export function isBlockedReason(reason: string): boolean {
  * An unknown state refuses the row, which refuses the body: the list must
  * never render a state it would then have to guess the tone of.
  *
- * @param value - Candidate state from a stored row or a served answer.
  * @returns The state, or `null` when the value is unusable.
  */
 export function runStateOf(value: unknown): RunState | null {

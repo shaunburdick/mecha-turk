@@ -1,9 +1,5 @@
 /**
- * The Dispatches tab's paging, filter, and row-detail controls: the range
- * line, the two server-side filters, Previous/Next, the page-size select, the
- * source-reference reveal, and the correlation-id copy — pure functions of
- * panel state, with no control here talking to the service (the paging lives
- * in `dispatches-paging.ts`, the row actions in `dispatches.ts`).
+ * The Dispatches paging, filter and row-detail controls — pure functions of state, none talking to the service.
  */
 
 import { mountButton, mountList, mountSelect } from '@openchamber/sdk/ui';
@@ -52,9 +48,6 @@ const STATE_FILTER_TOKENS: readonly string[] = [
  * state labels itself by reason — so the filter names the family explicitly
  * rather than rendering the token through {@link stateLabel}, which would
  * answer *unknown state* for it.
- *
- * @param token - Exact state token or the literal `blocked` family.
- * @returns The operator-facing label for that filter entry.
  */
 function stateFilterLabel(token: string): string {
     return token === 'blocked' ? 'blocked — every guarded state' : stateLabel(token);
@@ -204,8 +197,6 @@ export function dispatchEmptyText(runs: DispatchesState): string {
 
 /**
  * Name a row-level action with the row it acts on.
- *
- * @returns `Retry dispatch for #412 in owner/name` and its siblings.
  */
 export function rowActionLabel(base: string, row: RunRow): string {
     return `${base} for #${row.issueNumber} in ${row.repository}`;

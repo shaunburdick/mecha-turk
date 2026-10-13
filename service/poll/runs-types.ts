@@ -29,72 +29,57 @@ export interface SourceReference {
     /** `false` iff the run already held a reservation when this arrived. */
     readonly presentAtAuthorization: boolean;
     /**
-     * The actor this delivery is attributed to, copied from the queue row at
-     * join. **Absentable on read, validated when present**: a run stored
-     * before attribution existed carries neither actor member and still
-     * parses, because it is history. Absence means *no attribution was
-     * recorded* — not an empty actor and not a guessed one — which is exactly
-     * what makes the gate's own refusal reachable rather than an admission
-     * on the strength of the binding's list.
+     * The actor this delivery is attributed to, copied from the queue row at join. **Absentable on
+     * read, validated when present**: a pre-attribution run carries neither member and still
+     * parses, because it is history — absence means *no attribution was recorded*, not an empty or
+     * guessed actor, which is what makes the gate's refusal reachable rather than an admission.
      */
     readonly actorLogin?: string;
     /**
-     * How that attribution was made: `direct` when GitHub named
-     * the author of the text that carried the trigger, `subject-author` when the
-     * issue or pull-request author stands in as a documented proxy.
-     *
-     * Absentable and validated on the same terms as {@link
-     * SourceReference.actorLogin}; an unrecognized basis refuses the run rather
-     * than defaulting to a guess.
+     * How that attribution was made: `direct` when GitHub named the author of the text that carried
+     * the trigger, `subject-author` when the issue or pull-request author stands in as a documented
+     * proxy. Absentable and validated on the same terms as {@link SourceReference.actorLogin}: an
+     * unrecognized basis refuses the run rather than defaulting to a guess.
      */
     readonly actorAttribution?: ActorAttribution;
 }
 
 /**
- * The **shape** of the binding's allow-list at the moment of authorization.
- *
- * Two words, never the logins: an audit trail or a run record listing who may
- * trigger a repository is a second copy of the access policy in a file retained
- * for months, and the permitted set's home is `bindings.json`. `'restricted'`
- * therefore always means **at least one** login — an empty list is refused at
- * save *and* on read, so it can never reach here.
+ * The **shape** of the binding's allow-list at the moment of authorization: two words, never the
+ * logins — an audit trail or run record listing who may trigger a repository is a second copy of
+ * the access policy in a file retained for months, and the permitted set's home is `bindings.json`.
+ * `'restricted'` therefore always means **at least one** login; an empty list is refused at save
+ * *and* on read, so it can never reach here.
  */
 export type ActorPolicy = 'open' | 'restricted';
 
 /**
- * The gate's extra `dispatch.refused` details: every denied login and each
- * one's basis, because a refusal a reader cannot attribute is not an
- * explainable refusal — but never a *permitted* login, since the detail set
- * is built from the run's own references and the policy's **shape**, never
- * from the stored list. Declared here because the shared chain threads it to
- * the row builder, and the run vocabulary is the one module both already
- * import.
+ * The gate's extra `dispatch.refused` details: every denied login and each one's basis — a
+ * refusal a reader cannot attribute is not an explainable refusal — but never a *permitted* login,
+ * since the detail set is built from the run's own references and the policy's **shape**, never
+ * from the stored list. Declared here because the shared chain threads it to the row builder and
+ * the run vocabulary is the one module both already import.
  */
 export interface ActorGateRefusal {
     readonly bindingId: string;
     /** Shape of the allow-list in force, or `null` when it could not be read. */
     readonly actorPolicy: ActorPolicy | null;
     /**
-     * Every denied login, in the order the run's references list them.
-     *
-     * **Absent** on the one refusal made without a policy in hand — an
-     * unreadable bindings document, or a binding the document does not carry —
-     * because nothing was compared and naming a "denial" there would record a
-     * verdict the gate never reached (constitution II: a missing authorization
-     * is a stop condition, not a finding).
+     * Every denied login, in the order the run's references list them. **Absent** on the one
+     * refusal made without a policy in hand — an unreadable bindings document, or a binding the
+     * document does not carry — because nothing was compared and naming a "denial" would record a
+     * verdict the gate never reached (constitution II: a missing authorization is a stop condition,
+     * not a finding).
      */
     readonly deniedLogins?: readonly string[] | undefined;
     /** Each denied login's basis, index-parallel to {@link deniedLogins}. */
     readonly deniedAttributions?: readonly string[] | undefined;
     readonly unreadableReferences: number;
     /**
-     * How many references the gate actually judged.
-     *
-     * Recorded beside the refusal because a truncated list is what makes the
-     * verdict incomplete: the gate classifies from `sourceReferences`
-     * **exclusively**, so a run whose list was cut at the cap is judged
-     * on less than it recorded, and an actor among the *dropped* references is
-     * invisible to the gate under **every** policy.
+     * How many references the gate actually judged, beside the refusal because a truncated list is
+     * what makes the verdict incomplete: the gate classifies from `sourceReferences` **exclusively**,
+     * so a run cut at the cap is judged on less than it recorded, and an actor among the *dropped*
+     * references is invisible under **every** policy.
      */
     readonly retainedReferences: number;
     readonly referencesNotRetained: number;
@@ -118,13 +103,11 @@ export interface DispatchAttempt {
 }
 
 /**
- * Which path minted a lease (FR-030, data-model §1). A lease is a
- * fencing/consistency token and not a capability: its id carries no authority
- * of its own, is a deterministic function of answer-visible inputs, and gates
- * nothing — the bearer token authenticates and the single-use dispatch token
- * authorizes. Provenance is a typed member rather than a naming convention
- * inside the id so {@link parseLease} can refuse an id shape no path in this
- * build mints.
+ * Which path minted a lease (FR-030, data-model §1). A lease is a fencing/consistency token and not
+ * a capability: its id carries no authority of its own and gates nothing — the bearer token
+ * authenticates and the single-use dispatch token authorizes. Provenance is a typed member rather
+ * than a naming convention inside the id so {@link parseLease} can refuse an id shape no path in
+ * this build mints.
  */
 export type LeaseProvenance =
     /** A panel's live claim through `GET /v1/events/pending`. */
@@ -183,14 +166,11 @@ export interface RunVerification {
 }
 
 /**
- * Where a verification report's comparison baseline came from.
- *
- * Only the panel can know this — it is the party that read `GET /v1/config` —
- * so it travels on the report and lands on the `agent.uncompared` row beside
- * the observed agent as the answer to *why* nothing was compared, recorded
- * rather than inferred. The service checks it against the baseline's emptiness
- * instead of trusting it: `configured` exactly when `expectedAgent` is
- * non-blank, `defaulted`/`unset` exactly when it is empty.
+ * Where a verification report's comparison baseline came from — only the panel can know this, it is
+ * the party that read `GET /v1/config`, so it travels on the report and lands on the
+ * `agent.uncompared` row beside the observed agent as the answer to *why* nothing was compared,
+ * recorded rather than inferred. The service checks it against the baseline's emptiness instead of
+ * trusting it: `configured` exactly when `expectedAgent` is non-blank, the others when it is empty.
  */
 export type BaselineProvenance = 'configured' | 'defaulted' | 'unset';
 
@@ -216,24 +196,19 @@ export interface Run {
     /** Worktree option snapshotted at enqueue. */
     readonly worktreeOption: string;
     /**
-     * The binding's starting prompt as it stood when this run was enqueued.
-     *
-     * `null` for a run queued with no prompt — which includes every run
-     * written before this field existed, so absence keeps its plain reading.
-     * It is never re-read from the binding: an edit, a clear, or a delete
-     * changes nothing about a stored run, and a retry reuses it
-     * and therefore composes a byte-identical message.
+     * The binding's starting prompt as it stood when this run was enqueued — `null` for a run
+     * queued with no prompt, which includes every run written before this field existed. It is
+     * never re-read from the binding: an edit, a clear, or a delete changes nothing about a stored
+     * run, and a retry reuses it and therefore composes a byte-identical message.
      */
     readonly prompt: PromptSnapshot | null;
     /**
-     * The shape of the binding's allow-list **in force when this run was
-     * authorized**, snapshotted by the gate from the same read that made its
-     * decision so `dispatch.reserved` and `dispatch.result` provably
-     * describe one policy. `null` means **no authorization has been recorded
-     * yet** — a freshly enqueued run, an adopted pre-`actorPolicy` row, or
-     * one the gate refused (a refusal writes nothing to the run). It is a
-     * statement about the run, never a default of `'open'`, and never a
-     * permitted login.
+     * The shape of the binding's allow-list **in force when this run was authorized**, snapshotted
+     * by the gate from the same read that made its decision so `dispatch.reserved` and
+     * `dispatch.result` provably describe one policy. `null` means **no authorization has been
+     * recorded yet** — a freshly enqueued run, an adopted pre-`actorPolicy` row, or one the gate
+     * refused (a refusal writes nothing). A statement about the run, never a default of `'open'`,
+     * and never a permitted login.
      */
     readonly actorPolicy: ActorPolicy | null;
     /** Current state: one of the eight model states, or `blocked:<reason>`. */
@@ -245,21 +220,17 @@ export interface Run {
     /** Automatic requeues consumed so far (`0…MAX_AUTO_REQUEUES`). */
     readonly requeuesUsed: number;
     /**
-     * One entry per joining delivery, capped at {@link MAX_SOURCE_REFERENCES}.
-     *
-     * Every retained entry carries the reference's full detail; the cap is the only
-     * thing that ever removes one, and what it removed is counted rather than
-     * hidden.
+     * One entry per joining delivery, capped at {@link MAX_SOURCE_REFERENCES}: every retained entry
+     * carries the reference's full detail, and the cap is the only thing that ever removes one —
+     * what it removed is counted rather than hidden.
      */
     readonly sourceReferences: readonly SourceReference[];
     /** How many deliveries have joined, retained or not. */
     readonly referenceCount: number;
     /**
-     * How many joining triggers were **not** retained.
-     *
-     * The marker is additive: it never stands in for a reference, and every
-     * delivery it counts still earns its own `run.coalesced` audit row,
-     * so the operator can see that a row is lossy instead of inferring it.
+     * How many joining triggers were **not** retained. The marker is additive: it never stands in
+     * for a reference, and every delivery it counts still earns its own `run.coalesced` audit row,
+     * so the operator can see a lossy row instead of inferring it.
      */
     readonly referencesNotRetained: number;
     readonly referencesTruncated: boolean;
@@ -272,14 +243,12 @@ export interface Run {
     /** The session this run produced, at most one ever. */
     readonly session: SessionRef | null;
     /**
-     * The head SHA this run's establishing cycle observed, so the next cycle
-     * can tell a push from the state that already existed at dispatch.
-     * **Absentable and validated when present** — absent means *no seed
-     * recorded*, never *the head changed*** (002 FR-103). The seed is the
-     * **dispatch-time baseline**, never re-based on a later observation, which
-     * is what makes the from → to pair recoverable from the run's own history.
-     * An **issue** subject carries no seed and never produces a head
-     * follow-up, so the member is absent on every issue run forever.
+     * The head SHA this run's establishing cycle observed, so the next cycle can tell a push from
+     * the state that already existed at dispatch. **Absentable and validated when present** —
+     * absent means *no seed recorded*, never *the head changed* (002 FR-103). The seed is the
+     * **dispatch-time baseline**, never re-based, which is what makes the from → to pair
+     * recoverable from the run's own history. An **issue** subject carries no seed and never
+     * produces a head follow-up, so the member is absent on every issue run forever.
      */
     readonly lastHeadSha?: string;
     readonly verification: RunVerification | null;
@@ -312,11 +281,9 @@ export type RunAuditIntent =
     }
     | {
         /**
-         * A sweep recovery needs its lifecycle row.
-         *
-         * The sweep has no caller to answer, so its trail is the only record an
-         * operator has of an automatic recovery; the intent is what makes a
-         * failed append recoverable rather than lost.
+         * A sweep recovery needs its lifecycle row: the sweep has no caller to answer, so its trail
+         * is the only record an operator has of an automatic recovery, and the intent is what makes
+         * a failed append recoverable rather than lost.
          */
         readonly eventType: 'dispatch.lease-expired' | 'run.dead_lettered' | 'dispatch.unconfirmed';
         /** The run's identity, never a fresh identifier. */
@@ -327,11 +294,9 @@ export type RunAuditIntent =
         /** Structured, credential-free details; never a dispatch token value. */
         readonly details: RunAuditDetails;
         /**
-         * What distinguishes this row from an earlier one for the same run.
-         *
-         * The outbox retires an intent by finding a matching row, and a run can
-         * be lease-expired three times — without a discriminator the second
-         * recovery would match the first row and never be written at all.
+         * What distinguishes this row from an earlier one for the same run: the outbox retires an
+         * intent by finding a matching row, and a run can be lease-expired three times — without a
+         * discriminator the second recovery would match the first and never be written at all.
          */
         readonly sequence: string;
     };

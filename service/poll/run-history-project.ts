@@ -302,10 +302,6 @@ function liveResultDeadlineOf(run: Run): string | null {
     return run.reservation.resultDeadlineAt;
 }
 
-/**
- * @returns The live lease's issue and expiry stamps, both `null` when no lease
- *   is held (the run model keeps no claim history — see {@link RunHistoryRow}).
- */
 function leaseViewOf(run: Run): { readonly leaseExpiresAt: string | null; readonly claimedAt: string | null } {
     if (run.lease === null) {
         return { leaseExpiresAt: null, claimedAt: null };
@@ -388,8 +384,6 @@ function headShaOfRow(row: QueuedEvent): string | undefined {
     return row.headSha !== null && row.headSha !== '' ? row.headSha : undefined;
 }
 
-/**
- */
 function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): HistoryFollowUp | null {
     const kind = followUpKindOf(row.id);
     if (kind === null) {
@@ -525,9 +519,6 @@ function historyRowOf(input: {
 
 /**
  * Project the runs history: newest detected first, capped, never claiming.
- *
- * @returns At most `cap` rows, freshest detection first; oldest runs dropped
- *   first.
  */
 export function projectRunHistory(input: {
     /** Every retained run, in creation order. */

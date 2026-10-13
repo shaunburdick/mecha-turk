@@ -116,8 +116,6 @@ export function parseCredentialBody(raw: unknown, canAcceptExpectedLogin: boolea
 
 /**
  * Human name of a scope-missing capability, as the contract's copy spells it.
- *
- * @returns The capability name shown to the operator.
  */
 function capabilityLabel(reason: `scope-missing:${ScopeCapability}`): string {
     const capability = reason.slice(SCOPE_MISSING_PREFIX.length);

@@ -83,7 +83,6 @@ function keySegments(input: RunKeyInput): readonly string[] {
 
 /**
  * Build the run key: FR-010's deterministic tuple.
- *
  */
 export function buildRunKey(input: RunKeyInput): string {
     return keySegments(input).join(KEY_SEPARATOR);
@@ -96,7 +95,6 @@ export function buildRunKey(input: RunKeyInput): string {
  * coalescing looks up: every run of one subject under one account
  * shares it, so the counter survives terminal-run eviction and ordinals are
  * never reused (data-model §2.6).
- *
  */
 export function buildSubjectKey(input: RunKeyInput): string {
     return keySegments(input).slice(0, -1).join(KEY_SEPARATOR);
@@ -137,7 +135,6 @@ export function buildAttachmentId(correlationId: string): string {
  * re-derives and validates it without storing a token table, and FR-033's
  * attempt reset re-derives a *fresh* token for the reset attempt.
  * Callers mint it **at reservation only** — never at claim.
- *
  */
 export function buildDispatchToken(runKey: string, attempt: number): string {
     if (!Number.isSafeInteger(attempt) || attempt < 1) {

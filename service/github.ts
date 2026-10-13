@@ -94,7 +94,6 @@ export interface GitHubVerifier {
     /**
      * Verify one credential and recover its identity.
      *
-     * @param token - Credential to present; never logged or echoed.
      * @returns The classified outcome; upstream detail never escapes as text.
      */
     verify(token: string): Promise<VerifyOutcome>;
@@ -139,8 +138,6 @@ const OAUTH_SCOPES_HEADER = 'x-oauth-scopes';
  * The prefix is the only thing read here: the value itself never leaves this
  * call, and the result (`classic`/`fine-grained`) is stored with the
  * credential where it belongs.
- *
- * @returns The credential family, or `'unknown'` for an unrecognised shape.
  */
 export function credentialKindOf(token: string): CredentialKind {
     if (token.startsWith('github_pat_')) {
@@ -185,7 +182,6 @@ function readIdentity(text: string): GitHubIdentity | null {
 
 /**
  * Decide one capability from the granted classic scopes.
- *
  */
 function scopeVerdict(granted: readonly string[]): ScopeResult {
     if (granted.length === 0) {
@@ -197,8 +193,6 @@ function scopeVerdict(granted: readonly string[]): ScopeResult {
 
 /**
  * Build the FR-010 scope matrix from the granted classic scopes.
- *
- * @returns One result per capability, keyed as the data model declares.
  */
 function scopeResults(granted: readonly string[]): Record<ScopeCapability, ScopeResult> {
     const verdict = scopeVerdict(granted);
@@ -209,7 +203,6 @@ function scopeResults(granted: readonly string[]): Record<ScopeCapability, Scope
 
 /**
  * Build the FR-010 scope matrix from a response's `x-oauth-scopes` header.
- *
  */
 function buildScopeCheck(header: string | null): ScopeCheck {
     const granted = (header ?? '')
@@ -222,8 +215,6 @@ function buildScopeCheck(header: string | null): ScopeCheck {
 
 /**
  * Parse `retry-after` (seconds) out of a refusal, falling back to a default.
- *
- * @param response - Upstream response that refused the call.
  */
 export function retryAfterOf(response: Response): number {
     const header = response.headers.get(RETRY_AFTER_HEADER);
@@ -236,7 +227,6 @@ export function retryAfterOf(response: Response): number {
 
 /**
  * Read `GET /rate_limit` as a budget baseline; failures are not fatal.
- *
  */
 async function readRateBaseline(response: Response): Promise<RateBaseline | null> {
     const parsed = parseJsonText(await response.text());
@@ -289,8 +279,6 @@ function isSsoRefusal(response: Response): boolean {
 
 /**
  * Name the first capability the granted scopes are missing.
- *
- * @returns A `scope-missing:<capability>` reason class.
  */
 function missingScopeReason(scopeCheck: ScopeCheck): RejectReason {
     const missing = SCOPE_CAPABILITIES.find((capability) => scopeCheck.results[capability] === 'missing');
@@ -304,7 +292,6 @@ function missingScopeReason(scopeCheck: ScopeCheck): RejectReason {
  * Order matters: a rate-limited 403/429 must not be mistaken for a scope
  * problem (FR-024 blocks with the *exact* cause), and an SSO refusal must not
  * be mistaken for a missing scope (contract §4 reason classes).
- *
  */
 function classifyRejection(response: Response, scopeCheck: ScopeCheck): VerifyOutcome {
     const { status } = response;
@@ -333,7 +320,6 @@ export type FetchLike = (url: string, init: RequestInit) => Promise<Response>;
 /**
  * Call `GET /rate_limit` without ever letting a probe failure fail a verify.
  *
- * @param token - Credential already proven valid by `GET /user`.
  * @returns The baseline, or `null` on any transport or shape failure.
  */
 async function readRateBaselineQuietly(fetchImpl: FetchLike, token: string): Promise<RateBaseline | null> {
@@ -365,10 +351,6 @@ export function transportDetail(error: unknown): UnavailableDetail {
 
 /**
  * Create the GitHub verifier the service uses for handoffs and rotation.
- *
- * @param fetchImpl - Injectable `fetch`; defaults to the process global so
- *   production uses Node's built-in client and tests supply a fake.
- * @returns The verifier bound to that `fetch`.
  */
 export function createGitHubVerifier(
     fetchImpl: FetchLike = (url, init) => globalThis.fetch(url, init),

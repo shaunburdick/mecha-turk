@@ -1,9 +1,5 @@
 /**
- * Typed bridge between `JSON.stringify` output and typed record reading:
- * parse and then *check* rather than cast an `any` through `JSON.parse`, so
- * the value handed to the host is proven plain JSON before it is written and
- * every panel parser fails closed with one vocabulary instead of growing its
- * own coercions.
+ * Typed bridge between `JSON.stringify` and typed records: parse and check rather than cast, so parsers fail closed.
  */
 
 import type { JsonValue } from '@openchamber/sdk';
@@ -18,8 +14,6 @@ const UTF8_ENCODER = new TextEncoder();
  * `GUEST_STORAGE_VALUE_BYTES`, while `String.length` counts UTF-16 code units
  * — two units for a character the encoder writes as four bytes. Measuring in
  * bytes keeps the panel's own gate honest against the host's own limit.
- *
- * @returns The length of the text in UTF-8 bytes.
  */
 export function utf8ByteLength(text: string): number {
     return UTF8_ENCODER.encode(text).length;
@@ -38,8 +32,6 @@ export class JsonShapeError extends Error {
 
 /**
  * Check that an unknown value is a JSON value.
- *
- * @returns `true` for strings, finite numbers, booleans, arrays, and objects.
  */
 export function isJsonValue(value: unknown): value is JsonValue {
     if (value === null || typeof value === 'string' || typeof value === 'boolean') {
@@ -63,9 +55,6 @@ export function isJsonValue(value: unknown): value is JsonValue {
 
 /**
  * Parse serialized JSON into a `JsonValue`, checking the shape first.
- *
- * @returns The value, safe to hand to `host.storage.set`.
- * @throws {JsonShapeError} When the document is not valid JSON.
  */
 export function parseJsonValue(text: string): JsonValue {
     let parsed: unknown;

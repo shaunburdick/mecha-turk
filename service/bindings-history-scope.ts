@@ -60,7 +60,6 @@ const NOT_A_SCOPE_REMEDIATION = 'historyScope must be `new-only` (watch from thi
  * A `Set` over the declared pair rather than a comparison chain, so the accepted
  * set is the exported vocabulary and cannot drift from the union the type
  * declares.
- *
  */
 function isHistoryScope(value: unknown): value is HistoryScope {
     return value === 'new-only' || value === 'recent-history';
@@ -118,7 +117,6 @@ export function historyScopeOf(raw: Record<string, unknown>): {
  * The **single** place absence becomes the default, so the poll loop, the status
  * row, and the audit writer's comparison cannot each invent their own reading of
  * the same absent key (FR-055, FR-058, plan H13).
- *
  */
 export function effectiveHistoryScope(historyScope?: HistoryScope): HistoryScope {
     return historyScope ?? DEFAULT_HISTORY_SCOPE;

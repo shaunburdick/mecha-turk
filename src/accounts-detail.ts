@@ -88,8 +88,6 @@ function mountMemberControls(input: {
 /**
  * Mount the two row-level controls: rotate and remove, both two-step and
  * both idle until the row they act on is open.
- *
- * @returns The two handles and their disposer.
  */
 function mountRowControls(input: {
     readonly pane: HTMLElement;
@@ -128,8 +126,6 @@ function mountRowControls(input: {
  *
  * They live **inside** the detail box, so a row with nothing selected hides
  * them with it — a control that acts on a selection cannot exist without one.
- *
- * @returns The handles plus their disposer.
  */
 export function mountDetailControls(input: {
     readonly rt: PanelRuntime;

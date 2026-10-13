@@ -1,11 +1,5 @@
 /**
- * The Dispatches section's row copy — pure functions of panel state. One
- * redaction pass runs over the whole composed subtitle as defence in depth
- * while the individual phrases stay *unredacted*, so one secret can never be
- * split across two passes; where no control applies it is absent, not
- * disabled; one reason per state serves both the offered and the absent
- * affordance; and an unrecognised state renders raw and offers nothing
- * rather than being guessed at.
+ * The Dispatches row copy: one redaction pass over the subtitle, absent not disabled, no guessed states.
  */
 
 import type { ListItem, Tone } from '@openchamber/sdk/ui';
@@ -231,10 +225,6 @@ function isPlainState(state: string): state is PlainRunState {
     return !isBlockedState(state) && Object.hasOwn(PLAIN_STATE_LABELS, state);
 }
 
-/**
- * @returns The control, its label, and the reason line; `action: 'none'` with
- *   `label: null` wherever the service would refuse the transition.
- */
 export function runAffordance(row: { readonly state: string }): RunAffordance {
     const { state } = row;
     if (state === 'failed') {
@@ -341,16 +331,12 @@ function verificationPhrase(verification: RunVerification): string {
 }
 
 /**
- * Compose the prompt line: presence, the contributing tiers, the fingerprint,
- * and the length — never the text. The ordered tier list answers *which tiers
- * produced this run*, the fingerprint identifies *which concatenated text* was
- * used (and recognises a pre-upgrade one), and the length says how much there
- * was; the text itself lives in the tiers and the run's snapshot, not on a row
- * that outlives them. A source name reaches this line only through
- * `prompt-wire.ts`'s closed reader, and no tier set — or one whose members
- * disagree — reads as `prompt not set`, the state that reader refuses before a
- * row can reach this function. Answers `prompt set · global+account+binding ·
- * mtp-… · N chars`, or `prompt not set`.
+ * Compose the prompt line: presence, the contributing tiers, the fingerprint, and the length —
+ * never the text. The tier list answers *which tiers produced this run*, the fingerprint *which
+ * concatenated text* was used (recognising a pre-upgrade one), the length how much there was; the
+ * text lives in the tiers and the run's snapshot. A source name reaches this line only through
+ * `prompt-wire.ts`'s closed reader, and no tier set — or one whose members disagree — reads as
+ * `prompt not set`. Answers `prompt set · global+account+binding · mtp-… · N chars`.
  */
 function promptPhrase(row: RunRow): string {
     const { promptFingerprint, promptLength, promptSources } = row;
@@ -422,9 +408,6 @@ export function dispatchRow(
     };
 }
 
-/**
- * @returns The rows, newest detected first (the service caps them at 100).
- */
 export function dispatchRows(runs: DispatchesState): ListItem[] {
     return runs.rows.map((row) => dispatchRow(row, runs.followUpRecords));
 }
@@ -459,9 +442,6 @@ export function dispatchesStatusText(runs: DispatchesState): string {
     return `newest first · ${DISPATCHES_SELECT_HINT}`;
 }
 
-/**
- * @returns The selected run, or `null` when nothing valid is selected.
- */
 export function selectedRun(runs: DispatchesState): RunRow | null {
     return runs.rows.find((row) => row.id === runs.selectedRun) ?? null;
 }

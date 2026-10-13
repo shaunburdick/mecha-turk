@@ -88,7 +88,6 @@ export function emptyScanState(): ScanState {
  * rather than being silently defaulted — a stamp the reader cannot interpret is
  * not the same fact as no stamp at all, and defaulting it would move a window on
  * a value nobody chose (invariant 8).
- *
  */
 function optionalStampHolds(value: unknown): boolean {
     return value === undefined || value === null || typeof value === 'string';
@@ -99,7 +98,6 @@ function optionalStampHolds(value: unknown): boolean {
  *
  * Runs only after {@link optionalStampHolds} has accepted the member, so the
  * absent, `null`, and string cases are the only ones left.
- *
  */
 function stampMemberOf(value: unknown): string | null {
     return typeof value === 'string' ? value : null;

@@ -115,7 +115,6 @@ function provenanceIssue(provenance: BaselineProvenance, expectedAgent: string):
  * One entry point so the route reads as a single step: the member is required,
  * it is closed to three words, and it must agree with the emptiness of
  * `expectedAgent` it arrived beside.
- *
  */
 export function readProvenance(
     fields: Readonly<Record<string, unknown>>,

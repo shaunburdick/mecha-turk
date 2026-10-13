@@ -1,9 +1,5 @@
 /**
- * Shared text rules for a binding's starting prompt (004 FR-022, FR-023,
- * FR-025, FR-026, FR-031). Deliberately browser-safe — no `node:` import —
- * because composition runs panel-side and validation service-side and the two
- * must agree byte for byte about fences and reserved markers. Shape only:
- * there is no content policy here or anywhere in this feature (004 FR-029).
+ * Shared text rules for a binding's starting prompt — browser-safe, shape only, no content policy (FR-022–FR-031).
  */
 
 /** Opening fence of the operator prompt block; byte-equal to the specification's composition block. */
@@ -163,7 +159,6 @@ export function countCodePoints(text: string): number {
 /**
  * Whether any line of the text tries to speak in the composition's voice.
  *
- *
  * A "line" is delimited by the normalised `\n`, so this runs after
  * {@link normaliseLineEndings} — otherwise a CRLF file would hide the prefix
  * behind a trailing carriage return.
@@ -237,8 +232,6 @@ export interface PromptReference {
  * This is the number the bounded context reserves **before** it sizes the
  * excerpt budget, which is what makes FR-035's rule mechanical: the excerpt
  * shortens first and the prompt never shortens at all.
- *
- * @returns The reserved character count; `0` for an unset prompt.
  */
 export function promptBlockChars(prompt: string | null): number {
     if (prompt === null || prompt === '') {

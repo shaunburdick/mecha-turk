@@ -1,9 +1,5 @@
 /**
- * The normalized issue evidence record for the extension (schema
- * `extension-spike-1` — a wire contract, see AGENTS.md): identity, source
- * link, timing, correlation — never the token, never an Authorization header,
- * never an unrestricted issue payload. Serialization runs through
- * {@link assertRedacted} so a leak fails loudly instead of being written.
+ * The normalized issue evidence record (`extension-spike-1`, a wire contract): never a token, redaction-scanned.
  */
 
 import type { JsonValue } from '@openchamber/sdk';
@@ -83,8 +79,6 @@ export class EvidenceError extends Error {
 
 /**
  * Serialize an evidence record for storage.
- *
- * @returns Compact JSON, asserted to be free of secret-shaped material.
  */
 export function serializeEvidence(evidence: PanelEvidence): string {
     const json = JSON.stringify(evidence);
@@ -94,8 +88,6 @@ export function serializeEvidence(evidence: PanelEvidence): string {
 
 /**
  * Assert that a record can be persisted without carrying secret material.
- *
- * @throws {RedactionError} When the serialized record matches a secret shape.
  */
 export function assertEvidenceRedacted(evidence: PanelEvidence): void {
     assertRedacted('evidence record', serializeEvidence(evidence));
@@ -103,9 +95,6 @@ export function assertEvidenceRedacted(evidence: PanelEvidence): void {
 
 /**
  * Build the normalized evidence record for one configured match.
- *
- * @returns The redacted evidence record.
- * @throws {EvidenceError} When an input is missing or malformed.
  */
 export function buildEvidence(input: EvidenceInput): PanelEvidence {
     if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber <= 0) {

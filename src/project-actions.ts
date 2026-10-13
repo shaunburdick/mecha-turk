@@ -1,10 +1,5 @@
 /**
- * Host-facing actions behind the panel's project list: `host.listProjects()`
- * renders the choices the binding form picks from and the ready snapshot's
- * directory seeds the current-project default (002 FR-095). Nothing stores a
- * pick since the panel-level picker went (issue #39), nothing writes the
- * ledger, nothing throws — a failed list lands on the list's own status line —
- * and every rendered string passes through `redact()` first.
+ * Host-facing actions behind the project list: `host.listProjects()` seeds the form; nothing stores a pick (#39).
  */
 
 import {

@@ -106,7 +106,6 @@ async function restoreAccount(input: {
 
 /**
  * Reconcile one stranded account: mark it, then try to re-verify it.
- *
  */
 async function reconcileAccount(
     deps: ReconcileDeps,

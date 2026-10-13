@@ -22,7 +22,6 @@ import type { IssueListOutcome } from './poller-github.ts';
 
 /**
  * Decide whether one character belongs to GitHub's username alphabet.
- *
  */
 function isLoginCharacter(character: string): boolean {
     return /^[A-Za-z0-9_-]$/.test(character);
@@ -36,7 +35,6 @@ function isLoginCharacter(character: string): boolean {
  * neither matches inside `@octocat-mt2` nor inside `x@octocat-mt`. The scan
  * is written out rather than compiled from the login, so no untrusted string
  * ever reaches a regular-expression engine.
- *
  */
 export function mentionsLogin(body: string, login: string): boolean {
     if (login === '') {
@@ -325,8 +323,6 @@ async function listedIssues(input: {
  * Branch order is also the **event** order the queue sees: assignment, then the
  * two mention kinds, then the review request. It is not load-bearing for any
  * rule, and it is fixed rather than incidental so a suite can assert it.
- *
- * @returns Each branch's answer in order; the first failure ends the sequence.
  */
 async function triggerBranches(input: {
     readonly scan: TriggerScanInput;

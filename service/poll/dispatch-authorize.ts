@@ -180,7 +180,6 @@ function reservedRun(input: {
  * Read before the chain, exactly as the claim reads its lease duration: a
  * configuration the operator cannot read must not fail an authorization, and the
  * default is the documented safe window.
- *
  */
 async function readResultDeadlineMs(store: ServiceStore, log: ServiceLogger): Promise<number> {
     try {
@@ -196,8 +195,6 @@ async function readResultDeadlineMs(store: ServiceStore, log: ServiceLogger): Pr
 
 /**
  * Answer a refused reserve with its one `dispatch.refused` row.
- *
- * @returns The refusal, carrying whether its row reached the trail.
  */
 async function refusedReserve(input: {
     /** The reserve's own input. */
@@ -231,7 +228,6 @@ async function refusedReserve(input: {
 /**
  * Authorize one dispatch: mint the single-use token and move the run to
  * `starting`.
- *
  */
 export async function reserveDispatch(input: ReserveInput): Promise<ReserveResult> {
     const deadlineMs = await readResultDeadlineMs(input.store, input.log);

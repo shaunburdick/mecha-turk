@@ -1,11 +1,5 @@
 /**
- * The Dispatches section's mount and repaint (M8, widened by 003 T-025):
- * every control a documented SDK primitive repainted from state, strings
- * through `textContent` only (contract §3 invariant 11). **Selected dispatch**
- * hides as a whole block rather than standing as a heading over an empty
- * region, and the operator actions mount as hidden-flag groups because SDK
- * buttons have no "absent" state — a disabled button would promise an action
- * the service would refuse (FR-041, FR-074, AC-123).
+ * The Dispatches mount and repaint: SDK primitives, `textContent` strings, whole-block hiding (M8, FR-041/074).
  */
 
 import { mountBanner, mountButton, mountList, mountText, mountTextField } from '@openchamber/sdk/ui';
@@ -121,8 +115,6 @@ const LIST_COLUMNS: readonly string[] = ['Trigger', 'Subject', 'State', 'Age'];
 
 /**
  * Mount the status line that says which set is on screen.
- *
- * @returns The status handle.
  */
 function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<DispatchesBoard, DispatchesHeadKeys> {
     const { pane, rt } = input;
@@ -139,8 +131,6 @@ function mountDispatchesHead(input: Pick<MountInputs, 'pane' | 'rt'>): Pick<Disp
  * Its empty slot is the one AC-122 polices: with a filter on it says the
  * filter matched nothing and offers the control that clears it, never that
  * there are no dispatches.
- *
- * @returns The list handle.
  */
 function mountDispatchesList(input: MountInputs): Pick<DispatchesBoard, DispatchesListKeys> {
     const { pane, rt, handlers } = input;
@@ -168,8 +158,6 @@ const OPEN_ISSUE_LABEL = 'Open issue';
 
 /**
  * Mount the two controls every selection offers: refresh, and open the issue.
- *
- * @returns The two buttons.
  */
 function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<DispatchesBoard, SharedActionKeys> {
     const controls = createControlGroup(input.pane);
@@ -232,8 +220,6 @@ function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
 
 /**
  * Mount FR-027's two resolutions and the field that names the session.
- *
- * @returns The group, its heading, its two buttons, and the session field.
  */
 function mountResolutions(input: MountInputs): Pick<
     DispatchesBoard,
@@ -274,8 +260,6 @@ function mountResolutions(input: MountInputs): Pick<
  * The list sits in its own wrapper so it can disappear when there is nothing
  * to show while the status line keeps saying why — an empty trail, a failed
  * read, and a still-loading one all read differently.
- *
- * @returns The audit view's handles.
  */
 function mountAuditView(input: MountInputs): Pick<
     DispatchesBoard,
@@ -309,9 +293,6 @@ function mountAuditView(input: MountInputs): Pick<
 
 /**
  * Mount the verification banner in its own hide-able wrapper.
- *
- * @param runs - Section state, for the wrapper's first flag.
- * @returns The wrapper and the banner.
  */
 function mountAgentNotice(
     pane: HTMLElement,
@@ -394,8 +375,6 @@ function repaintResolutions(input: {
  * thing the control clears, so with none parked it is **absent** rather than
  * greyed out — the same rule the other groups follow — and the confirm label
  * comes from the same armed state the action module writes.
- *
- * @param input - The runs state, the selected row, the label helper, and the board.
  */
 function repaintReoffer(input: {
     readonly runs: DispatchesState;
@@ -477,8 +456,6 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
  * — the body first appears long after the mount-time read landed, and without
  * it the paging controls would render their pre-read flags while the rows
  * already show the answer.
- *
- * @returns The runs handles the pane repaints through.
  */
 export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
     const { pane, rt, handlers } = input;

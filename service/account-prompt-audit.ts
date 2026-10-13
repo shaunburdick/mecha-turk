@@ -69,8 +69,6 @@ const observationStates = new WeakMap<ServiceStore, AccountPromptObservationStat
 
 /**
  * Get (or create) the observation state for one store handle.
- *
- * @returns The handle's baseline and chain.
  */
 function stateFor(store: ServiceStore): AccountPromptObservationState {
     let state = observationStates.get(store);
@@ -84,9 +82,6 @@ function stateFor(store: ServiceStore): AccountPromptObservationState {
 
 /**
  * Seed the baseline from the audit trail: highest-`seq` row per account.
- *
- * @throws {StorageUnavailableError} When the trail cannot be read — a chain
- *   that cannot establish its baseline must not start guessing at diffs.
  */
 async function seedBaseline(store: ServiceStore, baseline: Map<string, string | null>): Promise<void> {
     const trail = await store.readLines(AUDIT_FILE, parseAuditEntry);
@@ -131,8 +126,6 @@ async function seedBaseline(store: ServiceStore, baseline: Map<string, string | 
  * The chain promise stored in the state always **resolves**, so a failed task
  * rejects for its own caller without wedging the next one — the same shape the
  * bindings lane's chain uses, deliberately: two chains, one discipline.
- *
- * @returns The task's result or rejection, exactly as the task produced it.
  */
 export async function runAccountPromptChain<T>(store: ServiceStore, task: () => Promise<T>): Promise<T> {
     const state = stateFor(store);

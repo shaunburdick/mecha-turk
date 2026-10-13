@@ -1,11 +1,5 @@
 /**
- * The first-run setup-prerequisites section (003 FR-071–FR-073, closing 002's
- * FR-038 conformance gap): five prerequisites, each with a state and its own
- * remediation line, derived on read from panel state — never persisted,
- * never fetched, never able to configure anything. Every checkable `not-met`
- * raises a banner **outside** the section (FR-073); a `met` item never does.
- * Mounted surfaces live in a `WeakMap` keyed by runtime, so this module owns
- * all its state.
+ * The first-run prerequisites section: five derived on read, never able to configure anything (FR-071–FR-073).
  */
 
 import { mountBadge, mountBanner } from '@openchamber/sdk/ui';
@@ -36,9 +30,6 @@ export const PREREQUISITES_HEADING = 'Setup prerequisites';
 
 /**
  * Render one prerequisite as the line its `TextHandle` shows.
- *
- * @returns `title · state — detail remediation`, in that order, so the state
- *   is readable even when the line wraps.
  */
 export function prerequisiteLine(item: Prerequisite): string {
     return `${item.title} · ${prerequisiteStateLabel(item.state)} — ${item.detail} ${item.remediation}`;
@@ -50,7 +41,6 @@ export function prerequisiteLine(item: Prerequisite): string {
  * teach the operator to ignore the banner, and `met` never raises it (FR-073's
  * second sentence).
  *
- * @param items - The derived prerequisites.
  * @returns The banner copy, or `null` when nothing checkable is unmet.
  */
 export function prerequisiteNotice(items: readonly Prerequisite[]): PrerequisiteNotice | null {
@@ -105,8 +95,6 @@ const surfaces = new WeakMap<PanelRuntime, PrerequisitesSurface>();
 
 /**
  * Read (or create) one runtime's surface record.
- *
- * @returns The mutable surface record for this runtime.
  */
 function surfaceFor(rt: PanelRuntime): PrerequisitesSurface {
     const existing = surfaces.get(rt);
@@ -178,8 +166,6 @@ export function mountPrerequisiteNotice(input: {
  * as the derivation produced it — the structure replaces the ` · ` and ` — `
  * the single-line format used to print between them, and changes no word
  * inside any of them.
- *
- * @returns The card, repainted and disposed as one unit.
  */
 function mountPrereqCard(parent: HTMLElement, item: Prerequisite): PrereqCard {
     const document = parent.ownerDocument;

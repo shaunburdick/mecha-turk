@@ -57,9 +57,6 @@ function leaseCoordinatesOf(input: ClaimInput): LeaseCoordinates {
 
 /**
  * Apply one state change to one run, serialized onto the shared chain.
- *
- * @param apply - The transition; returns `null` to refuse it (the run is not
- *   in a state this transition accepts) without writing anything.
  */
 async function changeRun(
     input: RunTransitionInput,
@@ -103,8 +100,6 @@ export async function claimRun(input: ClaimInput): Promise<RunChange> {
  * Park a run in `dead-lettered`: the requeue budget is exhausted, or the
  * operator parked it. Terminal runs and runs that already produced a session
  * are never parked.
- *
- * @returns The parked run, or why the park was refused.
  */
 export async function deadLetterRun(input: RunTransitionInput & { readonly reason: string }): Promise<RunChange> {
     return await changeRun(input, (run, now) => parkRun({ run, now, reason: input.reason }));

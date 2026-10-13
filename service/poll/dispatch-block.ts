@@ -158,8 +158,6 @@ async function appendBlockRow(input: {
 /**
  * Hold a claimed run in `blocked:<reason>` after a fail-closed guard refused
  * before any host call.
- *
- * @returns The blocked run, or the refusal.
  */
 export async function blockDispatch(input: BlockInput): Promise<BlockResult> {
     return await operateRun(input, async ({ run, now, persist }): Promise<BlockResult> => {

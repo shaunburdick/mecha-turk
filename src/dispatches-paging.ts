@@ -1,9 +1,5 @@
 /**
- * The Dispatches tab's page and filter controls (005 FR-042, FR-043): six
- * ways an operator changes *which* page is being read. Each moves the
- * position first and then reads, mid-set steps roll the position back when
- * the read fails (FR-019), and a filter or page-size change resets to page
- * one of the set it describes (data-model §3.2).
+ * The Dispatches page and filter controls: move first, read second, roll back on a failed read (FR-019).
  */
 
 import { refresh } from './panel-ui.ts';

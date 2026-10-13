@@ -36,13 +36,9 @@ function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): () => void {
 /**
  * The Status body: the honest projection, then the first-run prerequisites.
  *
- *
  * The projection leads because it is the answer to "is it working"; the
  * checklist follows with its own remediation per line, and the unmet notice
  * it raises lives in the root region where switching tabs cannot hide it.
- *
- * @returns A disposer that releases the projection's handles; the section
- *   disposes through its own registry at teardown.
  */
 function statusSpec(rt: PanelRuntime, body: HTMLElement): () => void {
     mountStatusTab({ rt, parent: body });
@@ -57,8 +53,6 @@ function statusSpec(rt: PanelRuntime, body: HTMLElement): () => void {
  * The mount reads `GET /v1/config` once — the tab's one read, with Refresh as
  * its one retry — and the disposer releases every handle it created. Nothing
  * here writes: the configuration document is rendered, not edited.
- *
- * @returns A disposer that releases the body's handles.
  */
 function settingsSpec(rt: PanelRuntime, body: HTMLElement): TabDisposer {
     mountSettingsTab({ rt, body });
@@ -68,8 +62,6 @@ function settingsSpec(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 
 /**
  * The Dispatches body: the list, its affordances, and its audit trail.
- *
- * @returns A disposer that releases the board's handles.
  */
 function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
     const board = mountDispatchesBoard({ rt, pane: body, handlers: createBindingsHandlers(rt) });
@@ -83,8 +75,6 @@ function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
 
 /**
  * The Bindings body: the status/list and the add form.
- *
- * @returns A disposer that releases the pane's handles.
  */
 function mountBindingsBody(input: {
     readonly rt: PanelRuntime;
@@ -109,8 +99,6 @@ function mountBindingsBody(input: {
 /**
  * The About body: static identity, the version, and the read-only
  * Diagnostics section.
- *
- * @returns A disposer that releases the body's handles.
  */
 function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
     mountAboutTab({ rt, body });
@@ -120,8 +108,6 @@ function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 
 /**
  * The six tab bodies order.
- *
- * @returns The specs the shell mounts from.
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function tabSpecs(rt: PanelRuntime): readonly TabSpec[] {

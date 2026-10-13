@@ -308,8 +308,6 @@ function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
  *
  * Mounts the UI immediately, then waits for `onReady` before reading settings
  * and storage, so the theme and context are applied exactly once.
- *
- * @returns A handle that tears the panel down again.
  */
 export function createPanelApp(options: PanelAppOptions): PanelApp {
     const { host, root, panelWindow } = options;

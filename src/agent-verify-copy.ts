@@ -21,8 +21,6 @@ type ObservationFailure = Extract<AgentVerification, { readonly status: 'timeout
  *
  * `info`, not `warning`: nothing went wrong, and the operator is told where
  * the comparison they may expect actually comes from.
- *
- * @returns The banner content.
  */
 function uncomparedNotice(result: Uncompared): PanelStatus {
     const absent = 'no comparison baseline is configured (Settings → expectedAgent), so nothing was compared.';

@@ -11,8 +11,6 @@ export const SERVICE_VERSION = '0.2.0';
 
 /**
  * Build the ready-probe body.
- *
- * @returns The `{ status, version, schemaVersion }` response (contract §2.1).
  */
 function healthResponse(context: RouteContext): HttpResponse {
     return {

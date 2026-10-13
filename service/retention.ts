@@ -71,8 +71,6 @@ export async function runRetentionPasses(input: RetentionInput): Promise<void> {
  * to the documented defaults with one warn line, so a bad `config.json` costs
  * the operator one pass at default limits rather than a service that never
  * trims at all (invariant 8).
- *
- * @returns The effective configuration for this boundary.
  */
 async function readOpenConfig(store: ServiceStore, log: ServiceLogger): Promise<ServiceConfig> {
     try {

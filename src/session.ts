@@ -208,17 +208,13 @@ export interface BoundedContextInput {
 }
 
 /**
- * Build the bounded first-message context for a dispatched session. Three
- * guarantees hold at once: **both limits** — per-excerpt
- * {@link SOURCE_EXCERPT_MAX_CHARS} and the whole-context
- * {@link CONTEXT_MAX_CHARS} — apply to any mix, because every emitted
- * character is subtracted from one running budget; **nothing is dropped
- * silently** — truncation and omission markers, plus a roll-up line whose
- * length was reserved before the first block ran; and **source text cannot
- * reach past the delimiters** — markers are elided out of every untrusted
- * string before quoting and before any truncation. The frame is counted in
- * full first, so a cut never eats the closing delimiter, and the context never
- * contains a token or Authorization material.
+ * Build the bounded first-message context for a dispatched session. Three guarantees hold at
+ * once: **both limits** — per-excerpt {@link SOURCE_EXCERPT_MAX_CHARS} and whole-context
+ * {@link CONTEXT_MAX_CHARS} — apply to any mix, every emitted character subtracted from one
+ * running budget; **nothing is dropped silently** — truncation and omission markers, plus a
+ * roll-up line whose length was reserved before the first block ran; and **source text cannot
+ * reach past the delimiters** — markers are elided out of every untrusted string before quoting
+ * and before any truncation, so a cut never eats the closing delimiter. No token material.
  */
 export function buildBoundedContext(input: BoundedContextInput): string {
     const header = [
@@ -324,8 +320,6 @@ type StartSessionSuccess = Exclude<StartSessionResult, StartSessionFailure>;
 
 /**
  * Summarize a successful `host.startSession()` result for the ledger.
- *
- * @returns Scalar, secret-free fields for the ledger.
  */
 function summarizeSuccess(result: StartSessionSuccess): LedgerDetail {
     return {

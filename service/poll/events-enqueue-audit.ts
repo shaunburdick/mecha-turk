@@ -25,8 +25,6 @@ const FINGERPRINT_CHARS = 24;
  *
  * A fingerprint and a length, never the text: the trail has to be able to say
  * *which* comment was observed without becoming its second home.
- *
- * @param excerpt - The row's bounded untrusted excerpt.
  */
 export function followUpFingerprint(excerpt: string): string {
     return `fp-${createHash('sha256').update(excerpt).digest('hex').slice(0, FINGERPRINT_CHARS)}`;

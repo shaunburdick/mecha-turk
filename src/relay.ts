@@ -1,12 +1,5 @@
 /**
- * Panel event relay (003 T-021): claim runs, run them through the gates, and
- * hand each to exactly one `host.startSession()` — this module owns the loop,
- * `relay-gates.ts` the refusals, `relay-attempt.ts` the host call. Nothing is
- * dispatched that was not offered claimed (FR-035), no host call after any
- * refusal (FR-028), the handled list is keyed `correlationId#attempt`
- * (FR-034), a partial claim answer just means poll again (contract
- * `claim-lease.md`), and follow-up deliveries ride this same tick behind the
- * same one-host-action-at-a-time gate (research §R14.5; 002 FR-105).
+ * Panel event relay: claim runs, gate them, hand each to exactly one `host.startSession()` (T-021, FR-028/034/035).
  */
 
 import { refresh } from './panel-ui.ts';
@@ -44,8 +37,6 @@ export { RELAY_POLL_INTERVAL_MS };
  * Keyed by correlation id **and** attempt, so the service handing the same run
  * back under a new lease and a new attempt is a new key — and a failed report
  * under the old one is not a licence to dispatch it again.
- *
- * @returns `"<correlationId>#<attempt>"`.
  */
 export function handledKey(run: Pick<ClaimedRun, 'correlationId' | 'attempt'>): string {
     return `${run.correlationId}#${run.attempt}`;

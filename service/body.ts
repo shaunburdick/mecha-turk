@@ -69,9 +69,6 @@ function readBytes(request: IncomingMessage): Promise<BufferOutcome> {
     });
 }
 
-/**
- *
- */
 export async function readJsonBody(request: IncomingMessage): Promise<BodyReadResult> {
     const outcome = await readBytes(request);
     if (outcome.kind === 'too-large') {

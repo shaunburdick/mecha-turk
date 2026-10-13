@@ -59,8 +59,6 @@ export interface DispatchListPage {
 
 /**
  * Build the empty server-side filter pair a fresh list starts with.
- *
- * @returns Both filters off: the whole history, unfiltered.
  */
 export function initialDispatchFilters(): DispatchFilters {
     return { bindingId: null, state: null };
@@ -68,8 +66,6 @@ export function initialDispatchFilters(): DispatchFilters {
 
 /**
  * Build the paging position a fresh Dispatches list starts at.
- *
- * @returns The first page of the unfiltered set, reading nothing yet.
  */
 export function initialDispatchListPage(): DispatchListPage {
     return {
@@ -89,9 +85,6 @@ export function initialDispatchListPage(): DispatchListPage {
  * A filter or a page-size change must take the operator to page one of the set
  * it describes — a position carried across the change would describe rows the
  * new set does not contain.
- *
- * @param page - The position to reset; its `limit` is kept, its cursors are not.
- * @returns The first page of the new set.
  */
 export function resetDispatchListPage(page: DispatchListPage): DispatchListPage {
     return { ...initialDispatchListPage(), limit: page.limit };
@@ -99,10 +92,6 @@ export function resetDispatchListPage(page: DispatchListPage): DispatchListPage 
 
 /**
  * Build a paging position at a chosen page size (FR-042's operator select).
- *
- * @param limit - The new page size; unknown values fall back to the default
- *   rather than being sent to a service that would refuse them.
- * @returns The first page of the new set, at `limit`.
  */
 export function dispatchListPageAt(limit: number): DispatchListPage {
     const isAccepted = DISPATCH_PAGE_SIZES.includes(limit as (typeof DISPATCH_PAGE_SIZES)[number]);
@@ -115,8 +104,6 @@ export function dispatchListPageAt(limit: number): DispatchListPage {
  *
  * `null` on page one; the stack entry the operator is standing on afterwards.
  * An explicit refresh resumes here rather than restarting the set.
- *
- * @returns The cursor for the next read.
  */
 export function cursorFor(page: DispatchListPage): string | null {
     return page.cursorStack[page.pageIndex] ?? null;
@@ -157,8 +144,6 @@ export function retreatDispatchPage(page: DispatchListPage): DispatchListPage {
 
 /**
  * Record what the last answer said about the set.
- *
- * @returns The annotated position.
  */
 export function recordDispatchPageMeta(
     page: DispatchListPage,

@@ -108,7 +108,6 @@ export function buildLeaseId(input: {
 
 /**
  * Index the queue by delivery id so each reference finds its excerpt.
- *
  */
 function deliveriesById(queue: readonly QueuedEvent[]): Map<string, QueuedEvent> {
     return new Map(queue.map((event) => [event.id, event]));
@@ -210,20 +209,14 @@ export function planClaim(input: ClaimPlanInput): ClaimOutcome {
 }
 
 /**
- * Whether any run in the document is waiting and therefore worth the chain.
- *
- * The same eligibility rule the planner applies, read without projecting: this
- * only decides whether a write is needed, and the planner re-checks everything
- * inside the chain before anything is leased.
+ * Whether any run in the document is waiting and therefore worth the chain: the same eligibility
+ * rule the planner applies, read without projecting — this only decides whether a write is
+ * needed, and the planner re-checks everything inside the chain before anything is leased.
  */
 /**
- * Read the effective lease duration, answering the default when unreadable.
- *
- * The duration is read before the chain task so a configuration the operator
- * cannot read cannot fail a claim: the default lease is a safe answer, and the
+ * Read the effective lease duration, answering the default when unreadable: the duration is read
+ * before the chain task so a configuration the operator cannot read cannot fail a claim, and the
  * sweep reads the same field.
- *
- * @returns Milliseconds a claim's lease is valid for.
  */
 async function readLeaseMs(store: ServiceStore, log: ServiceLogger): Promise<number> {
     try {

@@ -57,8 +57,6 @@ export interface HostVerification {
 
 /**
  * Wait for a short, bounded interval.
- *
- * @returns A promise resolved after the interval.
  */
 function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
@@ -78,7 +76,6 @@ function noop(): void {
  * a short listen is enough to prove the subscription works without holding one
  * of the host's 32 per-frame slots for the rest of the panel's life.
  *
- * @param waitMs - How long to listen for the replayed snapshot.
  * @returns The captured snapshot (or `null`), any registration error, and a teardown.
  */
 async function probeSubscription<T>(
@@ -191,8 +188,6 @@ async function probeLifecycle(input: {
 
 /**
  * Register every documented subscription, capture replays, then release them.
- *
- * @returns Probes, teardowns, problems, and observed lifecycle phases.
  */
 async function probeSubscriptions(input: { host: PanelHost; projectId: string; waitMs: number }): Promise<ProbeState> {
     const state: ProbeState = { probes: [], teardowns: [], problems: [], lifecyclePhases: [] };
@@ -239,8 +234,6 @@ interface HostLists {
 
 /**
  * Read the three documented list APIs, recording partial failures.
- *
- * @returns List snapshots plus every problem encountered.
  */
 async function readLists(input: { host: PanelHost; projectId: string }): Promise<HostLists> {
     const problems: string[] = [];
@@ -297,8 +290,6 @@ async function readLists(input: { host: PanelHost; projectId: string }): Promise
  * subscription registered and replayed, observes session lifecycle phases for
  * a short window, and never mutates local state. Failures are recorded as
  * problems instead of being retried through an undocumented path.
- *
- * @returns The verification evidence for the ledger.
  */
 export async function verifyHostState(input: VerifyHostInput): Promise<HostVerification> {
     const waitMs = input.waitMs ?? DEFAULT_PROBE_WAIT_MS;
@@ -323,8 +314,6 @@ export async function verifyHostState(input: VerifyHostInput): Promise<HostVerif
 
 /**
  * Flatten a verification result into ledger detail values.
- *
- * @returns Scalar detail for one `host-verify` ledger entry.
  */
 export function summarizeHostVerification(verification: HostVerification): LedgerDetail {
     const registered = verification.probes.filter((probe) => probe.registered);

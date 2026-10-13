@@ -136,8 +136,6 @@ function isCredentialKind(value: unknown): value is CredentialKind {
     return typeof value === 'string' && CREDENTIAL_KINDS.has(value);
 }
 
-/**
-/** Validate a stored scope matrix: all four capabilities carry a legal result. */
 function isScopeCheck(raw: unknown): raw is ScopeCheck {
     if (!isRecord(raw) || typeof raw.checkedAt !== 'string' || !isRecord(raw.results)) {
         return false;

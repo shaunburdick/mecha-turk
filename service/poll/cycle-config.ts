@@ -15,7 +15,6 @@ export function describeKind(cause: unknown): string {
 
 /**
  * Read the effective interval for the next cycle.
- *
  */
 export async function currentIntervalMs(store: ServiceStore | null, log: ServiceLogger): Promise<number> {
     if (store === null) {

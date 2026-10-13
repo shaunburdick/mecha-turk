@@ -79,7 +79,6 @@ export type TriggerEvents =
  * and the issue-body branches all carry an excerpt of the same bound, and a
  * second spelling of the number would be a second answer to "how much of a pull
  * request's text reaches a session's prompt".
- *
  */
 export function bodyExcerptOf(body: string | null): string {
     if (body === null) {

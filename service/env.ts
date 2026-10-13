@@ -35,8 +35,6 @@ export class ServiceEnvError extends Error {
 
 /**
  * Validate the host-provided port variable.
- *
- * @returns The port as a number; `0` is accepted for OS-assigned test ports.
  */
 function readPort(value: string | undefined): number {
     if (value === undefined || !/^\d+$/.test(value)) {
@@ -53,7 +51,6 @@ function readPort(value: string | undefined): number {
 
 /**
  * Validate the host-provided bearer token.
- *
  */
 function readToken(value: string | undefined): string {
     if (value === undefined || value.length < MIN_TOKEN_LENGTH) {
@@ -65,7 +62,6 @@ function readToken(value: string | undefined): string {
 
 /**
  * Read and validate the service environment.
- *
  */
 export function readServiceEnv(env: Readonly<Record<string, string | undefined>>): ServiceEnv {
     return { port: readPort(env[PORT_VARIABLE]), token: readToken(env[TOKEN_VARIABLE]) };

@@ -41,8 +41,6 @@ export type RandomFn = () => number;
 
 /**
  * Clamp a jitter source to the `[0, 1]` fraction the ladder assumes.
- *
- * @returns The value, bounded to the unit interval.
  */
 function unitFraction(value: number): number {
     if (!Number.isFinite(value)) {

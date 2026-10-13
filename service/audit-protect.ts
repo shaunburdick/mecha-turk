@@ -69,8 +69,6 @@ function isStateTransition(entry: AuditEntry): boolean {
 
 /**
  * Index the trail: **one** row per correlation id, the earliest one.
- *
- * @returns Every chain's opener, keyed by correlation id.
  */
 function openersOf(entries: readonly AuditEntry[]): ReadonlyMap<string, AuditEntry> {
     const openers = new Map<string, AuditEntry>();
@@ -87,8 +85,6 @@ function openersOf(entries: readonly AuditEntry[]): ReadonlyMap<string, AuditEnt
 /**
  * Index the trail: **one** row per correlation id, the latest one `accept`
  * takes — the outcome axis and the hop axis are two calls of this one rule.
- *
- * @returns The latest accepted row of every chain, keyed by correlation id.
  */
 function latestOf(
     entries: readonly AuditEntry[],
@@ -113,7 +109,6 @@ function latestOf(
  * The `seq` numbers FR-056(a) and (b) protect for every chain that contains a
  * run-scoped row: its opener, its outcome, and the hop that recorded the state
  * the run was left in.
- *
  */
 function chainSeqs(entries: readonly AuditEntry[], openers: ReadonlyMap<string, AuditEntry>): readonly number[] {
     const outcomes = latestOf(entries, isRunScoped);
@@ -172,7 +167,6 @@ function creationSeqs(entries: readonly AuditEntry[], openers: ReadonlyMap<strin
  * The `seq` numbers FR-056(a), (b), and (d) protect: chain openers, chain
  * outcomes, the hop that recorded the chain's final state, the creation row,
  * and decision rows.
- *
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function chainAndDecisionSeqs(entries: readonly AuditEntry[]): readonly number[] {

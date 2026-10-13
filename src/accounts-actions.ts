@@ -193,8 +193,6 @@ export function splitProfileRefusal(message: string): ProfileRefusal {
  * The route has always taken the two members together (absent = unchanged),
  * so the wire did not change when the owner ruled "One Save button, both
  * fields" (PR #12) — only the panel stopped sending one member at a time.
- *
- * @returns The service's own answer for that one write.
  */
 async function putProfile(input: {
     readonly rt: PanelRuntime;
@@ -262,18 +260,14 @@ function clearProfileRefusals(accounts: AccountsTabState): void {
 }
 
 /**
- * Write **both** operator-editable members of one account's profile, in one
- * body, from the one `Save changes` control (004 FR-082, 005 FR-066, AC-130,
- * AC-150; owner ruling, PR #12: "One Save button, both fields"). **The write is
- * atomic — a feature, not a bug:** the service reads the whole body in one
- * additive pass and *any* issue refuses all of it, so a refusal at either
- * member writes **nothing** — the nothing-half-written guarantee 005 contract
- * §2 invariants 4–6 gave each single-member save, now visible across two
- * fields, and the reason the refusal is split *per member* below. The service
- * stays the only validator: nothing here checks a draft, a member it did not
- * name is left untouched rather than cleared or borrowed, both drafts stay as
- * typed, and a success is confirmed by re-reading the list — the panel never
- * paints a value it invented.
+ * Write **both** operator-editable members of one account's profile, in one body, from the one
+ * `Save changes` control (004 FR-082, 005 FR-066/AC-130/AC-150; owner ruling PR #12: "One Save
+ * button, both fields"). **The write is atomic — a feature, not a bug:** the service reads the
+ * whole body in one additive pass and *any* issue refuses all of it, so a refusal at either member
+ * writes **nothing** — the nothing-half-written guarantee 005 contract §2 invariants 4–6 gave each
+ * single-member save. The service stays the only validator: unnamed members are left untouched,
+ * drafts stay as typed, and a success is confirmed by re-reading — the panel never paints a value
+ * it invented.
  */
 export async function saveProfile(
     rt: PanelRuntime,

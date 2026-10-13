@@ -1,10 +1,5 @@
 /**
- * The whole-file bindings grant (005 FR-050, FR-054, FR-058; 004 FR-014):
- * the one `PUT /v1/bindings` that replaces the stored list wholesale, which
- * is every create, edit, enable, disable, and remove. A prompt travels only
- * where it was edited (004 FR-014), an allow-list travels on every row with
- * the opposite default (002 FR-047: omitted means *unset*), and a refusal
- * changed nothing and says so (FR-058, AC-125).
+ * The whole-file bindings grant: the one `PUT /v1/bindings` replacing the stored list for every write (FR-050/058).
  */
 
 import { refresh } from './panel-ui.ts';
@@ -33,9 +28,6 @@ export interface PromptPatch {
 
 /**
  * Strip the prompt from one row, then write it back on the edited one.
- *
- * @param patch - The edited binding's prompt, or `null` when none was edited.
- * @returns The row as it goes on the wire.
  */
 function forGrant(binding: PanelBinding, patch: PromptPatch | null): PanelBinding {
     if (patch?.bindingId !== binding.bindingId) {
@@ -100,8 +92,6 @@ function rowForGrant(input: {
 
 /**
  * Serialize one whole-file grant.
- *
- * @returns The request body.
  */
 function grantBody(overrides: GrantOverrides): string {
     return JSON.stringify({
@@ -110,17 +100,14 @@ function grantBody(overrides: GrantOverrides): string {
 }
 
 /**
- * Arm the event relay from one bindings list the service just confirmed.
- * Arming used to happen at exactly two mount-time signals, so a panel whose
- * first binding landed in-session — or whose mount-time `GET /v1/bindings`
- * answered 503 (the service's first-run spawn race) — never armed and every
- * later event sat `pending` until a remount. Any read or grant landing here is
- * proof the service is up and the binding exists, so it arms too;
- * `startRelayPolling` is a no-op once `rt.relayArmed` is set, which makes the
- * extra calls idempotent, and it kicks one immediate tick so the operator does
- * not wait out `RELAY_POLL_INTERVAL_MS`. An empty list must not arm: a relay
- * draining against no binding would mark queued events `binding-missing` before
- * the binding they belong to ever lands.
+ * Arm the event relay from one bindings list the service just confirmed. Arming used to happen at
+ * exactly two mount-time signals, so a panel whose first binding landed in-session — or whose
+ * mount-time `GET /v1/bindings` answered 503 (the first-run spawn race) — never armed and every
+ * later event sat `pending` until a remount. Any read or grant landing here proves the service is
+ * up and the binding exists, so it arms too; `startRelayPolling` is a no-op once `rt.relayArmed`
+ * is set, and it kicks one immediate tick so the operator does not wait out
+ * `RELAY_POLL_INTERVAL_MS`. An empty list must not arm: a relay draining against no binding would
+ * mark queued events `binding-missing` before the binding they belong to lands.
  */
 export function armRelayForBindings(rt: PanelRuntime, bindings: readonly PanelBinding[]): void {
     if (countEnabledBindings(bindings) > 0) {

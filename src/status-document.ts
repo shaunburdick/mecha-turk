@@ -1,11 +1,5 @@
 /**
- * The `GET /v1/status` document, and the read state that holds it. Parsing
- * lives apart from rendering so the fail-closed rule is one function deep: a
- * body without the documented shape answers **`null`**, never a
- * partly-populated view (invariant 8), and the tab keeps its last render
- * marked stale rather than painting a default. Every member mirrors
- * contracts/status-projection.md verbatim, and the read state lives here so
- * `panel-state.ts` stays free of a back-edge into the tab that renders it.
+ * The `GET /v1/status` document and its read state: an unshaped body answers `null`, never a partial view (inv. 8).
  */
 
 import { parseJsonObject } from './json.ts';
@@ -39,7 +33,6 @@ export interface StatusBindingView {
     readonly readable: boolean;
     /**
      * The **shape** of this binding's actor allow-list, never its contents.
-     *
      *
      * **Required, and fail-closed on both counts.** A row whose value is
      * outside the closed union, and a row that carries no value at all, each
@@ -185,7 +178,6 @@ function asNumberOrNull(value: unknown): number | null | undefined {
 /**
  * Read the process-health enum without accepting a value outside it.
  *
- * @param value - The `service.status` member.
  * @returns The health, or `null` when it is neither `ok` nor `degraded`.
  */
 function asHealth(value: unknown): 'ok' | 'degraded' | null {
@@ -195,8 +187,6 @@ function asHealth(value: unknown): 'ok' | 'degraded' | null {
 /**
  * Parse the rate block; every member is required so a partial block is a
  * refusal rather than a half-measured budget.
- *
- * @param value - The `rate` member.
  */
 function parseRate(value: unknown): StatusRateView | null {
     const rate = asRecord(value);
@@ -294,10 +284,6 @@ function parseBinding(value: unknown): StatusBindingView | null {
     };
 }
 
-/**
- *
- * @param value - The `service` member.
- */
 function parseService(value: unknown): StatusServiceView | null {
     const service = asRecord(value);
     const storage = service === null ? null : asRecord(service.storage);
@@ -317,10 +303,6 @@ function parseService(value: unknown): StatusServiceView | null {
     return { status, uptimeMs, dataDir, schemaVersion, writable };
 }
 
-/**
- *
- * @param value - The `polling` member.
- */
 function parsePolling(value: unknown): StatusPollingView | null {
     const polling = asRecord(value);
     if (polling === null) {
@@ -340,8 +322,6 @@ function parsePolling(value: unknown): StatusPollingView | null {
 
 /**
  * Parse the agent pin's three-shape verification member.
- *
- * @param value - The `lastVerification` member.
  */
 function parseVerification(value: unknown): StatusVerificationView | null {
     if (value === null) {
@@ -370,10 +350,6 @@ function parseVerification(value: unknown): StatusVerificationView | null {
     return { kind: 'outcome', observedAgent, expectedAgent, ok, at };
 }
 
-/**
- *
- * @param value - The `agentPin` member.
- */
 function parseAgentPin(value: unknown): StatusAgentPinView | null {
     const agentPin = asRecord(value);
     if (agentPin === null) {

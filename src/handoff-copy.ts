@@ -63,8 +63,6 @@ export const DUPLICATE_ADOPTED_CODE = 'duplicate-account';
  * One line, built only from the login the *service* reported — the wording
  * says "already registered" so the operator understands no second paste was
  * needed, then names who was connected.
- *
- * @returns The adopted note line.
  */
 export function duplicateAdoptedLine(login: string): string {
     return `This GitHub account is already registered — connected as ${login}.`;
@@ -72,8 +70,6 @@ export function duplicateAdoptedLine(login: string): string {
 
 /**
  * The copy line a successful handoff renders (contract §2 step ⑨).
- *
- * @returns The connected line.
  */
 export function connectedLine(login: string): string {
     return `Connected as ${login}`;

@@ -1,11 +1,5 @@
 /**
- * The runs-history surface the Dispatches section reads (M8, widened by 003
- * T-023): the credential-free `GET /v1/events` DTO and its two readers. Fail
- * closed — one unusable row fails the whole body (unlike the claim parser,
- * because the runs list is a *record* the operator reads), and the eight
- * states parse strictly, mirroring `service/poll/runs-scalars-parse.ts`,
- * which is the authority; duplicated rather than imported because the panel
- * bundle must stay free of service-tier modules.
+ * The runs-history surface the Dispatches section reads: the credential-free `GET /v1/events` DTO, fail-closed readers.
  */
 
 import { asRecord, fieldsHoldText, parseJsonObject, textOrNull } from './json.ts';
@@ -357,9 +351,6 @@ function parseRunEntry(value: unknown): RunRow | null {
 
 /**
  * Parse the runs-history (`GET /v1/events`) response body.
- *
- * @returns The rows in the order the service sent them (newest detected
- *   first), or `null` when any part of the shape is unusable.
  */
 /**
  * Read one homogeneous element array; one unusable element refuses the answer.
@@ -389,9 +380,6 @@ export function parseEventRows(events: unknown): RunRow[] | null {
 
 /**
  * Parse the runs-history (`GET /v1/events`) response body's rows alone.
- *
- * @returns The rows in the order the service sent them (newest detected
- *   first), or `null` when any part of the shape is unusable.
  */
 export function parseDispatchesBody(text: string): RunRow[] | null {
     const root = parseJsonObject(text);

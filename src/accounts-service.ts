@@ -21,7 +21,6 @@ export interface PanelAccount {
     /**
      * Operator display label as the service stored it, or `null` when unset.
      *
-     *
      * The panel reads it; it never renders it as identity — `login` stays the
      * fact the row shows when there is no label.
      */

@@ -12,9 +12,6 @@ const DIGEST_ALGORITHM = 'sha256';
 
 /**
  * Extract the credential behind the `Bearer ` prefix.
- *
- * @returns The presented credential, or `''` for a missing or differently
- *   shaped header (indistinguishable from an empty credential by design).
  */
 function bearerCredential(header: string | undefined): string {
     if (header === undefined) {

@@ -1,13 +1,5 @@
 /**
- * The Settings tab: one editable row per field `GET /v1/config` carries —
- * this module owns the read, the write, the read state, and the painting
- * (row copy in `settings-rows.ts`, draft and busy gate in
- * `settings-edit.ts`). The save bar's two-way transition is explicit and
- * last-writer-wins (a save replaces the **whole** configuration); static
- * content survives an unreachable service; a refusal renders the service's
- * issues in its order and wording with no submitted value anywhere; and
- * nothing is written by looking — one save activation issues exactly one
- * write, a second refused by the busy gate.
+ * The Settings tab: one editable row per `GET /v1/config` field; one activation, one write, a second refused as busy.
  */
 
 import { mountBanner } from '@openchamber/sdk/ui';
@@ -115,8 +107,6 @@ function issueLines(slice: SettingsTabState): readonly string[] {
 /**
  * The notes each row's helper carries: the pending marker, in the words of the
  * class that governs it.
- *
- * @returns The note per pending field.
  */
 function pendingNotes(edit: SettingsEdit): Readonly<Record<string, string>> {
     const notes: Record<string, string> = {};
@@ -132,8 +122,6 @@ function pendingNotes(edit: SettingsEdit): Readonly<Record<string, string>> {
  * the control it is about. An issue naming no documented field (a foreign key,
  * or the withheld marker) reaches the list only — it is information about the
  * submission, never an editable surface.
- *
- * @returns The remediation per documented field.
  */
 function issueByField(slice: SettingsTabState): Readonly<Record<string, string>> {
     const byField: Record<string, string> = {};
@@ -182,8 +170,6 @@ function rowsContext(
 
 /**
  * Repaint the banner: what a save will do, or why none is possible.
- *
- * @param ui - The mounted view.
  */
 function repaintBanner(ui: SettingsTabUi, slice: SettingsTabState): void {
     const isSavable = slice.doc !== null && slice.edit.blocked === null;
@@ -196,8 +182,6 @@ function repaintBanner(ui: SettingsTabUi, slice: SettingsTabState): void {
 
 /**
  * Repaint the read state, the failure notice, and the source lines.
- *
- * @param ui - The mounted view.
  */
 function repaintReadState(ui: SettingsTabUi, slice: SettingsTabState): void {
     const isLoading = slice.phase === 'loading';
@@ -261,8 +245,6 @@ function repaintRows(input: {
  * Computed as one value rather than inlined at each call site, because the
  * arming rule — *only the control that raised a confirmation may act* — is a
  * single decision that four separate flags have to agree on.
- *
- * @returns The armed confirmation, and the three enabled flags.
  */
 function saveControlsFor(slice: SettingsTabState): {
     readonly saving: boolean;
@@ -287,8 +269,6 @@ function saveControlsFor(slice: SettingsTabState): {
 /**
  * Repaint the save bar, the armed confirmation, the named reason, the save
  * state, and the issues.
- *
- * @param ui - The mounted view.
  */
 function repaintControls(ui: SettingsTabUi, slice: SettingsTabState): void {
     const isSavable = slice.edit.blocked === null;
@@ -350,8 +330,6 @@ export function repaintSettingsTab(rt: PanelRuntime): void {
  * The read is this tab's own: a failure leaves the last document in place,
  * marked stale, names what could not be read, and blocks any save — because a
  * save with no current baseline sends a document the panel cannot stand behind.
- *
- * @returns Resolves once the answer has been applied.
  */
 export async function loadSettings(rt: PanelRuntime): Promise<void> {
     await applyConfigRead(rt, repaintSettingsTab);
@@ -359,8 +337,6 @@ export async function loadSettings(rt: PanelRuntime): Promise<void> {
 
 /**
  * Save the draft: one activation, one whole-document write.
- *
- * @returns Resolves once the answer has been applied.
  */
 export async function saveSettings(rt: PanelRuntime): Promise<void> {
     await applySave(rt, repaintSettingsTab);
@@ -376,8 +352,6 @@ export function discardSettings(rt: PanelRuntime): void {
 /**
  * Restore the declared defaults: stage them under a confirmation, and write
  * only on the armed control's second activation.
- *
- * @returns Resolves once a confirmed write has been applied.
  */
 export async function stageDefaults(rt: PanelRuntime): Promise<void> {
     await applyStageDefaults(rt, repaintSettingsTab);
@@ -395,8 +369,6 @@ export function cancelConfirm(rt: PanelRuntime): void {
  * Mount the Settings tab: heading, banner, read state, the re-read control,
  * the failure notice, the rows, the save bar, the confirmation, and the two
  * notices.
- *
- * @returns The mounted view.
  */
 export function mountSettingsTab(input: {
     readonly rt: PanelRuntime;

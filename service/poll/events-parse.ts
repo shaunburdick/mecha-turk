@@ -187,8 +187,6 @@ type IdDiscriminator =
     /** Carries the `followup` segment with a tail outside the family. */
     | { readonly role: 'malformed' };
 
-/**
- */
 function discriminatorOfId(id: string): IdDiscriminator {
     const segments = id.split('~');
     if (segments.length <= ID_BASE_SEGMENTS + 1 || segments[ID_BASE_SEGMENTS] !== FOLLOW_UP_SEGMENT) {
@@ -261,8 +259,6 @@ function isAbsentableTextFieldSet(record: Record<string, unknown>, fields: reado
 function positiveIntOf(value: unknown): number | null {
     return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
 }
-/**
- */
 function knownStateOf(value: unknown): string | null {
     if (typeof value !== 'string' || !KNOWN_STATES.has(value)) {
         return null;
@@ -271,8 +267,6 @@ function knownStateOf(value: unknown): string | null {
     return value;
 }
 
-/**
- */
 function readStateField(record: Record<string, unknown>): EventState | undefined | null {
     if (record.state === undefined) {
         return undefined;
@@ -281,8 +275,6 @@ function readStateField(record: Record<string, unknown>): EventState | undefined
     return knownStateOf(record.state) as EventState | null;
 }
 
-/**
- */
 function readSubjectTypeField(record: Record<string, unknown>): SubjectType | undefined | null {
     const value = record.subjectType;
     if (value === undefined) {
@@ -292,8 +284,6 @@ function readSubjectTypeField(record: Record<string, unknown>): SubjectType | un
     return typeof value === 'string' && SUBJECT_TYPES.has(value) ? (value as SubjectType) : null;
 }
 
-/**
- */
 function readRunLinkField(record: Record<string, unknown>): string | undefined | null {
     const value = record.runCorrelationId;
     if (value === undefined) {
@@ -303,8 +293,6 @@ function readRunLinkField(record: Record<string, unknown>): string | undefined |
     return typeof value === 'string' && RUN_CORRELATION_ID.test(value) ? value : null;
 }
 
-/**
- */
 function readTrimMarkerField(record: Record<string, unknown>): string | undefined | null {
     const value = record.excerptTrimmedAt;
     if (value === undefined || value === null) {
@@ -417,8 +405,6 @@ function trimMarkerOf(record: Record<string, unknown>): TrimMarkerFields {
     return marker === undefined || marker === null ? {} : { excerptTrimmedAt: marker };
 }
 
-/**
- */
 function coordinatesOf(
     record: Record<string, unknown>,
 ): { readonly headSha: string | null; readonly baseRef: string | null } {
@@ -490,9 +476,6 @@ export function subjectTypeOf(delivery: QueuedEvent): SubjectType {
     return delivery.subjectType ?? (delivery.kind === 'review' ? 'pull_request' : 'issue');
 }
 
-/**
- * @returns The queue, or `null` when the document is unusable (quarantined).
- */
 export function parseStoredEvents(raw: unknown): QueuedEvent[] | null {
     if (!Array.isArray(raw)) {
         return null;

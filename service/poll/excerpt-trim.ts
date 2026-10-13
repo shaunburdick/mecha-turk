@@ -71,7 +71,6 @@ async function readRunStates(input: {
 /**
  * Decide whether one row's dispatch is finished, on the authority its schema
  * gives it.
- *
  */
 function dispatchFinished(event: QueuedEvent, runStates: ReadonlyMap<string, string>): boolean {
     if (isDispatchedTerminal(event)) {
@@ -108,7 +107,6 @@ function clearable(input: {
 
 /**
  * One pass: clear the eligible excerpts, then record what was cleared.
- *
  */
 export async function trimExcerpts(input: TrimExcerptsInput): Promise<TrimExcerptsOutcome> {
     const now = input.now ?? Date.now();

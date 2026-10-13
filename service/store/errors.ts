@@ -17,10 +17,6 @@ export class StorageUnavailableError extends Error {
     /** Wire code returned with a 503, per the error catalog. */
     public readonly code = STORAGE_UNAVAILABLE_CODE;
 
-    /**
-     * @param message - What failed and where; never secret material.
-     * @param cause - The underlying system error, when one caused this failure.
-     */
     public constructor(message: string, cause?: unknown) {
         super(message, cause === undefined ? undefined : { cause });
     }

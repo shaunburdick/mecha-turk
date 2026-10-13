@@ -67,7 +67,6 @@ export interface RunScalars {
 /**
  * Check the reason half of a `blocked:<reason>` state: a non-empty kebab
  * token, never a fixed enum (data-model §1), and never an empty suffix.
- *
  */
 function isBlockedReason(reason: string): boolean {
     if (reason === '') {
@@ -120,7 +119,6 @@ interface StateLine {
  * `null` reasons are legal only on `pending`; every other state must carry a
  * non-empty one (FR-074, data-model §2.2), and a reason of any other type
  * refuses the row outright.
- *
  */
 function readStateLine(raw: Record<string, unknown>): StateLine | null {
     const state = runStateOf(raw.state);
@@ -174,7 +172,6 @@ function readHeadSeed(raw: Record<string, unknown>): string | undefined | null {
 
 /**
  * Validate one run row's scalar fields as a group.
- *
  */
 export function parseRunScalars(raw: Record<string, unknown>): RunScalars | null {
     const line = readStateLine(raw);
@@ -220,7 +217,6 @@ export function parseRunScalars(raw: Record<string, unknown>): RunScalars | null
 
 /**
  * Read the text fields every stored run must carry.
- *
  */
 export function runTextFieldsHold(raw: Record<string, unknown>): boolean {
     return RUN_TEXT_FIELDS.every((field) => readText(raw[field]) !== null);

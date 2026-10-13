@@ -1,13 +1,5 @@
 /**
- * The Status tab's surface: mount, repaint, and the one read (FR-019,
- * FR-030) — copy in `status-lines.ts`, document in `status-document.ts`,
- * handles and read here. The read is explicit and repeating (FR-014,
- * FR-100): mount, activation, a tick armed from the interval the document
- * itself reports, and the tab's own refresh control; a failed read keeps the
- * last document and marks it stale (FR-019) rather than blanking the tab
- * with a summary built from nothing. This module repaints itself instead of
- * being reached from `panel-ui.refresh`, so the shared refresh path stays a
- * leaf.
+ * The Status tab's surface: mount, repaint and the one explicit repeating read — a failed read keeps the last document.
  */
 
 import { mountBanner, mountButton } from '@openchamber/sdk/ui';
@@ -296,17 +288,13 @@ export function stopStatusRefresh(rt: PanelRuntime): void {
 }
 
 /**
- * Arm the tab's refresh tick on the interval the last landed document
- * reported. Two properties are structural rather than tested for, because
- * both are FR-100's "at most one tick per panel" rule: the arm is idempotent
- * for an unchanged period (re-entering the tab cannot leave a second timer
- * behind), and the period is a function of the reported interval **and
- * nothing else** — never of the last read's outcome, which is what keeps a
- * cadence from becoming the retry loop `contracts/panel-service.md` §1 forbids
- * (FR-100). The tick's body is a parameter rather than a call to
- * {@link loadStatus}, because naming the read here would make arming and the
- * timer mutually referential: `loadStatus` is its only caller and passes
- * itself.
+ * Arm the tab's refresh tick on the interval the last landed document reported. Both properties
+ * are structural rather than tested, because both are FR-100's "at most one tick per panel": the
+ * arm is idempotent for an unchanged period, and the period is a function of the reported
+ * interval **and nothing else** — never of the last read's outcome, which is what keeps a cadence
+ * from becoming the retry loop `contracts/panel-service.md` §1 forbids. The tick's body is a
+ * parameter rather than a call to {@link loadStatus}, because naming the read here would make
+ * arming and the timer mutually referential.
  */
 export function armStatusRefresh(input: {
     readonly rt: PanelRuntime;

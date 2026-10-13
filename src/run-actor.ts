@@ -1,11 +1,5 @@
 /**
- * The actor members a runs-history row carries (002 FR-043, FR-044; 003
- * FR-079): the one place the panel holds the two *closed vocabularies* this
- * feature adds. Both members are absentable and validated when present
- * (002 FR-024, NFR-011); the panel computes no policy verdict — `actorPolicy`
- * is the service's snapshotted shape and `null` is never a default of
- * `'open'` (005 FR-093); and a permitted login is unreadable here by design,
- * since the set's home is `bindings.json` (002 NFR-113, 005 FR-091).
+ * The actor members a runs-history row carries: two closed vocabularies, absentable and validated (FR-043/044).
  */
 
 /** How one delivery's actor was attributed (002 FR-044); the closed union. */
@@ -43,7 +37,6 @@ export interface ActorFields {
 /**
  * Read a reference's two actor members, omitting the ones the row lacks.
  *
- * @param record - The parsed reference, read as an untrusted record.
  * @returns The members present, or `null` when a present one is unusable.
  */
 export function actorFieldsOf(record: Record<string, unknown>): ActorFields | null {

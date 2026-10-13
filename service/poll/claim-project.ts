@@ -129,7 +129,6 @@ export interface ClaimRecord {
  * The contract marks both members optional: an issue-origin run carries
  * neither, and a member that is absent stays absent rather than becoming an
  * empty string the panel cannot tell apart from a real value.
- *
  */
 function reviewCoordinates(delivery: QueuedEvent | undefined): { headSha?: string; baseRef?: string } {
     const head = delivery?.headSha ?? null;
@@ -143,7 +142,6 @@ function reviewCoordinates(delivery: QueuedEvent | undefined): { headSha?: strin
  * untrusted title and excerpt, and the PR coordinates. Every one of them
  * degrades to an empty or absent member when the queue row is gone, so a
  * missing delivery can never blank the run's own identity.
- *
  */
 function deliveryView(input: {
     /** The delivery that opened the run, when the queue still holds it. */

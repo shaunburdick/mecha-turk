@@ -1,14 +1,5 @@
 /**
- * The Settings tab's row builder. The panel's stand-in copy of the service's
- * bounds, defaults, and enum set is retired — reversed into a zero-literals
- * scan (`tests/settings-rows.test.ts`): the panel source carries no bound,
- * unit, default, accepted-value, or take-effect literal of its own. Every
- * attribute comes from the wire; a value the build cannot type renders
- * *unreadable* with a remediation and never a default in its place; a member
- * with no descriptor renders *field this version does not show*; and a string
- * field whose value is the document's *unset* shows the not-set word instead
- * of an empty box — that word is panel copy, since a descriptor cannot
- * declare its own emptiness.
+ * The Settings row builder: every attribute from the wire; no bound, unit or default literal in the panel source.
  */
 
 import { mountSelect, mountText, mountTextField } from '@openchamber/sdk/ui';
@@ -245,8 +236,6 @@ export interface RowsContext {
 
 /**
  * The enum control's options, taken from the descriptor's accepted values.
- *
- * @returns The options, verbatim (an unknown value renders as itself).
  */
 function optionsFor(descriptor: FieldDescriptor): readonly { readonly id: string; readonly label: string }[] {
     return descriptor.kind === 'enum' ? descriptor.values.map((value) => ({ id: value, label: value })) : [];

@@ -1,11 +1,5 @@
 /**
- * The Settings tab's state and the copy that state is painted with (006
- * FR-013, FR-019; 005 FR-019, FR-078): the read state in FR-019's three
- * shapes, banner copy that states last-writer-wins while a save is possible
- * and says why none is while it is not (FR-011, FR-045), and the per-source
- * quarantine sentence the contract requires (§3). No configuration value
- * lives here — every bound, unit, default, and class comes from the wire
- * (FR-022, AC-106).
+ * The Settings state and its copy: three read shapes, last-writer-wins banners, the quarantine sentence (FR-013/019).
  */
 
 import type { ConfigEnvelope, ConfigSource } from './settings-schema.ts';
@@ -103,8 +97,6 @@ export const AUDIT_MISSING_LINE =
  * the wrapper's, and the transport prefix is the wrapper's description of a
  * call that never reached the service. Anything else is *undocumented* rather
  * than guessed at.
- *
- * @returns The cause whose copy the tab shows.
  */
 export function causeOf(input: {
     readonly code: string | null;
@@ -128,10 +120,6 @@ export function causeOf(input: {
 
 /**
  * Build the failure a failed write records.
- *
- * @param input - The envelope's code, the wrapper's problem, and the
- *   envelope's correlation identifier, if it sent one.
- * @returns The failure the tab will render.
  */
 export function writeFailure(input: {
     readonly code: string | null;
@@ -146,8 +134,6 @@ export function writeFailure(input: {
  * What the issues region shows for a failed write: the cause's copy, the
  * service's own problem beside it, and — when the envelope carried one — the
  * correlation identifier as its own line of copyable text.
- *
- * @returns The lines, in render order.
  */
 export function writeFailureLines(failure: SettingsFailure): readonly string[] {
     const lines = [`${FAILURE_LINES[failure.cause]} (${failure.problem})`];
@@ -165,8 +151,6 @@ export function writeFailureLines(failure: SettingsFailure): readonly string[] {
  * AC-129 names exactly, the store case is 002 FR-039's setup prerequisite,
  * and the unauthorised case is the grant the panel will not work around
  * (constitution II).
- *
- * @returns The notice body.
  */
 export function readFailureBody(problem: string): string {
     const cause = causeOf({ code: null, problem });
@@ -211,8 +195,6 @@ export interface SettingsTabState {
 
 /**
  * Build the empty Settings tab state.
- *
- * @returns The state before the first read.
  */
 export function initialSettingsTab(): SettingsTabState {
     return { phase: 'idle', at: null, problem: null, stale: false, doc: null, edit: emptyEdit() };
@@ -220,8 +202,6 @@ export function initialSettingsTab(): SettingsTabState {
 
 /**
  * The tab's own read state, in FR-019's three shapes.
- *
- * @returns The read-state line the tab paints.
  */
 export function readStateLine(slice: SettingsTabState): string {
     if (slice.phase === 'idle') {

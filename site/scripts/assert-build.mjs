@@ -1,30 +1,7 @@
 #!/usr/bin/env node
 /**
- * The site's build-output contract, executable.
- *
- * The page/link contract, preference palettes, and contrast floor are properties of
- * what `astro build` emitted, not of what anyone wrote: AC-001 (no page beyond
- * the five), AC-002 (every internal link under the base path), AC-003 (every
- * page reaches all five), AC-004 (no remote resource, no image file), AC-005
- * (one `h1`, a named navigation region, the license link), AC-032 (both CSS
- * preference palettes), NFR-002 (no JavaScript), NFR-003 (no third-party
- * request), and NFR-004's contrast floor in both palettes. A reviewer with `src/` open
- * is checking the wrong artefact — the failure these exist to catch is the one
- * that builds green and 404s on the published address.
- *
- * So this runs over `dist/` after the build and is the last step of
- * `npm run build`: one command for a contributor and for the site's only gate,
- * so the two cannot differ. It is `node`-stdlib-only.
- *
- * Every failure names the file, the markup or path that broke it, and the
- * requirement it breaks. A gate that says "invalid output" is a gate nobody can
- * act on, and one that stops at the first failure costs a contributor a build
- * per finding — so every failure is collected and all of them are reported.
- *
- * Usage: `node scripts/assert-build.mjs [dist-directory]`, defaulting to the
- * `dist/` beside this script's site. The argument exists so the fixtures in
- * `tests/assert-build.assertions.mjs` can point it at a temporary output; the
- * build script passes nothing.
+ * The site's build-output contract, executable: the last step of `npm run build`, auditing `dist/`
+ * for AC-001…AC-006, AC-032 and NFR-002/003/004; every failure names its file, markup and rule.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
@@ -34,15 +11,9 @@ import { fileURLToPath } from 'node:url';
 const SITE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * The five published pages: the path below the base, and the file that serves it (AC-001).
- *
- * The same five addresses are declared in `src/data/site.ts` as `PAGES`, and that
- * is what renders the navigation. This list is deliberately a second reading
- * rather than an import of that module — it is `.ts`, and importing it would put
- * this script behind whatever flags type-stripping needs on the site's Node
- * floor. The two are held to each other anyway: the navigation every page emits
- * is checked against *this* list, so a page dropped from `site.ts` fails here
- * instead of quietly shrinking the site.
+ * The five published pages (AC-001) — a deliberate second reading of `PAGES` in `src/data/site.ts`
+ * rather than an import (it is `.ts`). The navigation every page emits is checked against *this*
+ * list, so a page dropped there fails here instead of quietly shrinking the site.
  */
 const PAGES = [
     { address: '/', label: 'the landing page', file: 'index.html' },
@@ -52,11 +23,7 @@ const PAGES = [
     { address: '/debug/', label: 'the debug page', file: 'debug/index.html' },
 ];
 
-/**
- * NFR-002: a file the browser loads as code. `.map` is here because a source map
- * is only ever emitted beside the script it describes, so finding one means the
- * script is in the output too.
- */
+/** NFR-002: a file the browser loads as code; `.map` counts because a source map means the script beside it shipped. */
 const SCRIPT_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.jsx', '.ts', '.mts', '.cts', '.map', '.wasm']);
 
 /** FR-009 and AC-004: no image of any kind reaches the output. */
@@ -74,50 +41,23 @@ const IMAGE_EXTENSIONS = new Set([
     '.webp',
 ]);
 
-/**
- * FR-052 and AC-006. Spelled out rather than derived, because a marker nobody can
- * name is a marker nobody writes. Each token is a word a page could carry while
- * still being unfinished.
- */
+/** FR-052 and AC-006: spelled out rather than derived — a marker nobody can name is a marker nobody writes. */
 const PLACEHOLDER_TOKENS = ['todo', 'fixme', 'coming soon', 'lorem ipsum', 'placeholder', 'tbd', 'under construction'];
 
 /**
- * A token matched **whole**, which is a different assertion from "matched somewhere".
- *
- * The first cut of this check asked whether the page contained the token at all, and
- * that is a check the shipped prose fails: `service/config-schema.ts` states that the
- * starting prompt is "sent to the agent verbatim, with no placeholders", the configure
- * page renders that sentence verbatim, and AC-006 then rejected *the service promising
- * that substitution does not happen*. A substring test also cannot tell a marker from
- * the word inside `todos.json`, from `tbd` inside a longer identifier, or from a
- * filename quoted in a code span — so a gate that fails on those is a gate a contributor
- * learns to work around rather than one that catches an unfinished page.
- *
- * The boundary is a set of characters that would make the token *part of a longer
- * name* rather than the name itself:
- *
- * - **Before**: a letter, digit, `_`, `.` or `-`. That covers `todos.json`, `.todo` and
- *   `fixme-mode`, none of which is an unfinished marker. A `/` is deliberately *not* in
- *   the set: in running prose a slash separates words far more often than it names a
- *   directory, so exempting it would let `the panel/TBD path` through to buy an exemption
- *   no real page needs. A gate's false *accept* is the expensive direction.
- * - **After**: a letter, digit or `_` (so the plural `placeholders` is not a match), or a
- *   `-` that continues into a word (`todo-list`), or a `.` that is *followed by* a word
- *   (`todo.md`). A trailing `.` with nothing name-like after it is punctuation, which is
- *   what `… fix this TODO.` ends with — that is still a marker and must still fail.
- *
- * The words of a multi-word token are joined by `[\s-]+` so `under-construction` matches
- * the phrase as well as `under construction`.
+ * A token matched **whole**, a different assertion from "matched somewhere": a substring test
+ * rejects the shipped prose (the configure page quotes "no placeholders" verbatim) and confuses a
+ * marker with a word inside a longer name. The boundary is what makes a token *part of a longer*
+ * name* rather than the name: nothing letter/digit/`_`/`.`/`-` before (`todos.json`, `fixme-mode`),
+ * and deliberately no `/` — in running prose a slash separates words more often than it names a
+ * directory, and a false *accept* is the expensive direction. After: no letter/digit/`_` (so
+ * `placeholders` passes), no `-word` (`todo-list`), no `.word` (`todo.md`); a trailing `.` with
+ * nothing name-like after it is still a marker. Multi-word tokens join on `[\s-]+`.
  */
 const TOKEN_LEADING = '(?<![a-z0-9_.-])';
 const TOKEN_TRAILING = '(?![a-z0-9_]|-\\w|\\.[a-z0-9])';
 
-/**
- * Compile one token into the pattern that matches it whole.
- *
- * @param {string} token A word, or two words separated by a single space.
- * @returns {string} A pattern matching the token only where it stands alone.
- */
+/** Compile one token into the pattern that matches it whole. */
 function wholeWordPattern(token) {
     const words = token
         .split(' ')
@@ -128,107 +68,65 @@ function wholeWordPattern(token) {
 }
 
 /**
- * Every token compiled once, paired with the token a failure should quote.
- *
- * The patterns are written in lower case and are matched against lower-cased HTML, so
- * there is no `i` flag: the case is handled by the one `toLowerCase()` at the use site
- * rather than twice over. Compiled here rather than per page because this runs over five
- * pages on every build and a pattern that is rebuilt seven times each time is a
- * readability cost for nothing.
+ * Every token compiled once, paired with the token a failure quotes: lower-case patterns matched
+ * against lower-cased HTML (so no `i` flag), built here rather than per page — five pages, seven
+ * patterns each, on every build.
  */
 const PLACEHOLDER_PATTERNS = PLACEHOLDER_TOKENS.map((token) => ({ token, pattern: new RegExp(wholeWordPattern(token)) }));
 
 /**
- * The other two shapes FR-052 forbids, which no token list can reach because
- * neither carries a word of its own.
- *
- * `PLACEHOLDER_TOKENS` is a vocabulary; these are **syntax**, and the two together
- * are what AC-006 names — *"a placeholder, a template marker, a 'coming soon', an
- * empty section heading, or an instruction to fill something in later"*. A gate
- * holding the vocabulary alone is satisfied by a page whose unfinished parts are
- * spelled as braces rather than as words, which is precisely what a build leaves
- * behind when an `.astro` expression is not a valid identifier, is a raw string, or
- * renders nothing at all.
+ * The two shapes FR-052 forbids that carry no word of their own: `PLACEHOLDER_TOKENS` is a
+ * vocabulary, these are **syntax**, and AC-006 names both — a gate holding only the vocabulary is
+ * satisfied by a page whose unfinished parts are spelled as braces, which is what a build leaves
+ * behind when an `.astro` expression is invalid, a raw string, or renders nothing.
  */
 const UNFINISHED_SHAPES = [
     {
         name: 'a template marker',
-        // `{{name}}`: the shape every template engine and every README placeholder
-        // reserves, and the shape a value read from configuration can carry into a
-        // page verbatim. A single brace pair is not matched here — that is
-        // `UNRESOLVED_EXPRESSION`, below.
+        // `{{name}}`: every template engine's placeholder, and the shape a value read from
+        // configuration can carry into a page verbatim; a single brace pair is the pattern below.
         pattern: /\{\{[^{}]*\}\}/,
     },
     {
         name: 'an unresolved expression',
-        // `{name}`, `{name.member}`, `{name['key']}`, `{name[0]}`: an expression that
-        // reached the output instead of being evaluated, which is what an undefined
-        // binding, a `set:html` of template source, or a component prop holding literal
-        // text leaves on the page.
-        //
-        // **Member access is inside the pattern, not beside it.** Astro's own expressions
-        // are predominantly member access — `{row.entry}`, `{row.holds}` — so a bare
-        // identifier was the narrow reading of a leak that in practice arrives with a dot
-        // in it, and the audit would have called the shipped site's own shapes unreachable
-        // while catching only the one shape the site does not use.
-        //
-        // A `(` is excluded, so `{foo(bar)}` is not matched here: that is a *call*, and
-        // whether it evaluated is not decidable from the output alone. It is left to the
-        // token scan rather than guessed at, because a false accept is the expensive
-        // direction.
+        // `{name}`, `{name.member}`, `{name['key']}`, `{name[0]}`: an expression that reached the
+        // output unevaluated. Member access is inside the pattern because Astro's own expressions
+        // are predominantly member access — a bare identifier would call the shipped site's own
+        // shapes unreachable while catching only what the site does not use. A `(` is excluded:
+        // whether a call evaluated is not decidable from the output, so the token scan owns it.
         pattern: /\{\s*[A-Za-z_$][\w$]*(?:\s*(?:\.\s*[A-Za-z_$][\w$]*|\[\s*(?:'[^']*'|"[^"]*"|\d+)\s*\]))*\s*\}/,
     },
     {
         name: 'an empty heading',
-        // `<h2></h2>`: the section heading FR-052 names explicitly, at any level and
-        // through any attributes. Whitespace-only counts, because that is what a
-        // heading whose only content was an expression that rendered nothing looks
-        // like after the build trims it.
+        // `<h2></h2>`: the heading FR-052 names, at any level. Whitespace-only counts, which is
+        // what a heading whose only content rendered nothing looks like after the build trims it.
         pattern: /<h([1-6])\b[^>]*>\s*<\/h\1\s*>/i,
     },
 ];
 
 /**
- * The one element on the site that spells a literal brace marker on purpose.
- *
- * `/configure/` documents that the starting prompt is sent verbatim by printing
- * the marker itself — `<code>{'{number}'}</code>` — and FR-052's shape check cannot
- * tell that from an expression that leaked into the output. The exemption is an
- * **attribute** rather than an HTML comment for the reason 007 D14 gives the
- * vocabulary scan: Astro strips comments from a template, so a comment would scope
- * the exemption in the source and vanish from the built page, leaving the scan
- * reading the marker in one and not the other. Marking the element is what makes the
- * exemption survive the build, and `AC_LITERAL_MARKER` is asserted to be present
- * below, so the marker cannot be deleted into a failure the contributor does not
- * see.
+ * The one element that spells a literal brace marker on purpose: `/configure/` documents that the
+ * starting prompt is sent verbatim by printing the marker itself, and FR-052's shape check cannot
+ * tell that from an expression that leaked into the output. The exemption is an **attribute**
+ * rather than an HTML comment because Astro strips comments from a template — the exemption would
+ * scope the source and vanish from the built page. Asserted present below, so the marker cannot be
+ * deleted into a failure nobody sees.
  */
 const AC_LITERAL_MARKER = 'data-literal-marker';
 
 /**
- * A page's markup with its style blocks removed.
- *
- * The shape checks above are assertions about **what a reader reads**, and a CSS
- * rule body is a run of braces that no template engine produced. `PLACEHOLDER_PATTERNS`
- * runs over the raw page and is left alone — it is an existing assertion, and
- * narrowing the bytes it reads would only weaken it.
- *
- * @param {string} html A page's markup.
- * @returns {string} The same page with every `<style>` body removed.
+ * A page's markup with its style blocks removed: the shape checks assert what a reader reads, and
+ * a CSS rule body is a run of braces no template engine produced. `PLACEHOLDER_PATTERNS` still
+ * runs over the raw page — narrowing the bytes it reads would only weaken an existing assertion.
  */
 function readMarkup(html) {
     return html.replaceAll(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ');
 }
 
 /**
- * Every page's markup, with the marked literal markers cut out of it.
- *
- * Cut whole elements rather than the attribute alone, so an exempt `<code>` cannot
- * hide a second marker the author put inside it. The span runs from the marked
- * element's opening tag to the first closing tag of the same name — which is
- * unambiguous for the element this site marks, a `<code>` that carries one marker.
- *
- * @param {string} markup A page's markup, style blocks already removed.
- * @returns {string} The same markup with every marked element removed.
+ * Every page's markup with the marked literal markers cut out of it — whole elements, not the
+ * attribute alone, so an exempt `<code>` cannot hide a second marker inside it: the span runs from
+ * the marked opening tag to the first closing tag of the same name.
  */
 function withoutLiteralMarkers(markup) {
     const open = /<([a-zA-Z][^\s/>]*)\b([^>]*)>/g;
@@ -260,30 +158,17 @@ function withoutLiteralMarkers(markup) {
 }
 
 /**
- * Attributes whose value the browser fetches, executes, or resolves every other
- * reference against.
- *
- * This is the distinction the whole off-origin check turns on, and it is a
- * distinction of *position*, not of host. FR-010 and NFR-003 govern the requests
- * a page view makes; a hyperlink is not one. The footer's links into the
- * repository are off-origin by necessity — the site publishes no copy of the
- * license (plan D8) and AC-005 requires the link — so a check that flagged every
- * off-origin URL would be flagging a requirement.
- *
- * **`base` is the first entry that fetches nothing, and the reason it is here.**
- * A `<base href>` names no resource; it re-bases every *relative* URL on the page,
- * so the request it causes is made under whatever origin it names. That is the
- * shape NFR-003 forbids, it is reachable from a build that stays otherwise green,
- * and a position list that omitted it would have left a page able to point its
- * own stylesheet, font and script at a third-party host by changing one attribute
- * in the layout. It carries the same two AC-002 checks as every other position, so
- * a base that is off-origin **or** drops the published path fails either way.
- *
- * `style` is the second such entry, and it is handled rather than listed: a
- * `style` attribute is a stylesheet body, so it is routed through
- * `assertInlineStylesheet` below — which is what catches
- * `style="background:url(https://…)"`. Listing it here would read it as a bare URL
- * and miss every `url()` in it.
+ * Attributes whose value the browser fetches, executes, or resolves every other reference against
+ * — a distinction of *position*, not of host: FR-010 and NFR-003 govern the requests a page view
+ * makes, a hyperlink is not one, and the footer's repository links are off-origin by necessity
+ * (AC-005, plan D8).
+ * **`base` is the first entry that fetches nothing, and the reason it is here**: a `<base href>`
+ * re-bases every *relative* URL on the page, so the requests it causes go to whatever origin it
+ * names — the shape NFR-003 forbids, reachable from an otherwise green build. It carries the same
+ * two AC-002 checks as every other position.
+ * **`style` is handled rather than listed**: a `style` attribute is a stylesheet body and is
+ * routed through `assertInlineStylesheet` below, which is what catches `style="background:url(…)"`
+ * — listed here it would be read as a bare URL and miss every `url()` in it.
  */
 const RESOURCE_POSITIONS = [
     { tag: 'base', attribute: 'href' },
@@ -314,57 +199,33 @@ const INERT_SCHEMES = new Set(['about:']);
 const INLINE_SCHEMES = new Set(['data:', 'blob:']);
 
 // ---------------------------------------------------------------------------------------------
-// NFR-004's contrast floor, over the **static** pairs the built pages state outright.
-//
-// The requirement names an automated audit of the built pages; this reads each emitted page's
-// light and dark cascades independently, because a palette edit can change contrast without
-// touching any markup. Left to a comment, it is a claim; measured here, it is a gate.
-//
+// NFR-004's contrast floor, over the **static** pairs the built pages state outright: a palette
+// edit changes contrast without touching markup, so measured here rather than left a claim.
 // ## What this audit does not claim
-//
-// It is a bounded reader of declarations, not a CSS engine, and three things follow from that
-// boundary — each of them refused loudly rather than skipped quietly:
-//
-// - **Responsive large-text classification.** Every pair below is normal text, and its floor
-//   is 4.5:1. The display titles are sized in `clamp()` against the viewport, so whether one
-//   of them is "large text" is a question about a rendered font size; the browser pass over
-//   the rendered pages answers it with WCAG 2.2's own 18pt/14pt-bold boundary.
-// - **`:focus-visible` and other pseudo-states.** A state-scoped rule paints nothing in the
-//   resting state measured here (`unresolvableBackgrounds` says so), and a focus indicator's
-//   contrast is a question about what the browser paints after a keystroke. The rendered pass
-//   measures the focused element.
-// - **Gradient pixels.** A surface that paints an image layer is refused, not approximated:
-//   the colour under a translucent wash is not the colour a reader sees. `background-color`
-//   plus `background-image` is the form this can read, and the rendered pass samples the
-//   pixels the two together produce.
+// A bounded reader of declarations, not a CSS engine, and three boundary questions are refused
+// loudly rather than skipped: responsive `clamp()` titles stay normal text here (the browser pass
+// applies WCAG 2.2's own 18pt/14pt-bold boundary); a state-scoped rule paints nothing in the
+// resting state (`unresolvableBackgrounds` says so) and the rendered pass measures focus/hover;
+// gradient surfaces are refused, not approximated — the rendered pass samples their pixels.
 // ---------------------------------------------------------------------------------------------
 
 /** NFR-004's floor, as WCAG 2.2 states it: 4.5:1 for body text. */
 const CONTRAST_FLOOR = 4.5;
 
 /**
- * Every surface the audit measures text on, as far as its bounded model can tell.
- *
- * `selector` is the one shape this model can place: the box the text is drawn in. A
- * **bare element name** places itself; the four structural selectors below are the ones
- * the layout paints behind text that a bare name cannot name, and each is listed here
- * because the audit refuses a background it cannot place rather than resolving it by
- * guesswork. A layout rule that paints behind a selector missing from this table fails
- * the build — which is the point: a surface nobody measured is a surface nobody read.
- *
- * `chain` is where a transparent surface falls through. `background` is not inherited in
- * CSS — the initial value is `transparent`, and a transparent box shows whatever is
- * behind it — so "the background behind this text" is a walk up the ancestor chain until
- * something opaque is declared, and that walk is the cascade, not a lookup. A chain that
- * ends without an opaque declaration means the stylesheet paints nothing at all, which
- * the audit reports rather than assumes.
+ * Every surface the audit measures text on, as far as its bounded model can tell. `selector` is
+ * the one shape it can place — the box the text is drawn in — and each entry is listed because the
+ * audit refuses a background it cannot place rather than resolving it by guesswork: a surface
+ * nobody measured is a surface nobody read. `chain` is where a transparent surface falls through:
+ * `background` is not inherited (the initial value is `transparent`), so the background behind
+ * text is a walk up the ancestors until something opaque is declared, and a chain that ends with
+ * none means the stylesheet paints nothing at all — reported rather than assumed.
  */
 const CONTRAST_SURFACES = [
     { name: 'page', selectors: ['body'], chain: ['html'] },
     { name: 'the lead surface', selectors: ['main > h1 + section'], chain: ['section', 'body', 'html'] },
-    // Two selectors, one surface: the title's lead paragraph and a section's first paragraph
-    // are the same sunken band, declared by one rule. A surface is a *painted box*, and a
-    // surface painted by a selector list is still one box.
+    // Two selectors, one surface: the lead paragraph and a section's first paragraph are the same
+    // sunken band, declared by one rule — a surface is a *painted box*.
     { name: 'the lead paragraph', selectors: ['h1 + p', 'h2 + p'], chain: ['body', 'html'] },
     { name: 'a section', selectors: ['section'], chain: ['body', 'html'] },
     { name: 'the navigation', selectors: ['nav'], chain: ['body', 'html'] },
@@ -374,39 +235,23 @@ const CONTRAST_SURFACES = [
     { name: 'a table header', selectors: ['thead th'], chain: ['table', 'body', 'html'] },
     { name: 'a banded table row', selectors: ['tbody tr:nth-child(even)'], chain: ['table', 'body', 'html'] },
     { name: 'inline code', selectors: ['code'], chain: ['body', 'html'] },
-    // `pre code` is listed as well as `pre`: it declares `transparent`, which this audit reads
-    // as *paints nothing*, so it must be a selector the walk recognises or the inner `code`
-    // would be an unplaceable background and the block's own colour would go unmeasured.
+    // `pre code` is listed as well as `pre`, which declares `transparent` — read as *paints
+    // nothing* — so the block's own colour would go unmeasured.
     { name: 'a code block', selectors: ['pre', 'pre code'], chain: ['body', 'html'] },
 ];
 
 /**
- * The text/background pairs the layout can put together.
- *
- * Each pair names the **element the text sits in**, not a colour and not a token: the
- * background that element is drawn on is a fact about the cascade, and a token is not
- * one. `--surface` happens to be what the footer paints today, so a pair could name the
- * token and pass — but it would then be measuring a custom property that no rule is
- * obliged to use, which is the audit telling a story about the stylesheet rather than
- * reading it. The surface is resolved below the way a browser resolves it, so a footer
- * repainted with a literal, a `rgb()`, or nothing at all is measured on what it
- * actually sits on.
- *
- * The foreground stays a token: `:root`'s text roles are what the rules that set `color`
- * reference, so naming them is naming the site's palette rather than hard-coding its
- * values. **Each token named here is the one the layout actually paints that text in**,
- * which is why `--muted` opens the navigation (`nav a` is dim, not link-blue) and
- * `--signal` opens a table caption: a pair that named a different token would report a
- * ratio for a colour no reader ever sees.
- *
- * `--rule` is deliberately absent: it is a border colour, and NFR-004 bounds text
- * contrast — a 1px rule is not text a reader has to read. The audit prints its
- * measurements for both preference cascades.
- *
- * Every pair is **normal text**, because that is what this parser can measure: the
- * display titles are sized in `clamp()` against the viewport, so classifying them as
- * large text is a question about a rendered font size rather than a declaration this
- * audit can read. Everything below is text whose size the stylesheet states outright.
+ * The text/background pairs the layout can put together. Each pair names the **element the text
+ * sits in**, not a colour and not a token: the background under that element is a fact about the
+ * cascade, and naming a token that `--surface` happens to be today would measure a custom
+ * property no rule is obliged to use. Surfaces resolve below the way a browser resolves them, so
+ * a footer repainted with a literal, a `rgb()`, or nothing at all is measured on what it sits on.
+ * The foreground stays a token — `:root`'s text roles are the site's palette — and each one named
+ * is the one the layout actually paints that text in (`--muted` opens the navigation, `--signal`
+ * a table caption): a pair naming a different token would report a ratio no reader ever sees.
+ * `--rule` is deliberately absent: a border is not text, and NFR-004 bounds text contrast.
+ * Every pair is **normal text**, because `clamp()` display titles cannot be classified from a
+ * declaration this audit can read.
  */
 const CONTRAST_PAIRS = [
     { where: 'body text on the page', foreground: '--text', surface: 'page' },
@@ -432,9 +277,8 @@ const CONTRAST_PAIRS = [
 ];
 
 /**
- * The tokens every pair above reads. Asserted **present** rather than assumed, because an
- * audit that reports nothing about a page whose palette it failed to find is the exact shape
- * of gate this file exists to refuse: a green check that measured nothing.
+ * The tokens every pair above reads, asserted **present**: an audit that reports nothing about a
+ * page whose palette it failed to find is a green check that measured nothing.
  */
 const REQUIRED_PALETTE = [
     '--text',
@@ -452,44 +296,31 @@ const REQUIRED_PALETTE = [
 ];
 
 /**
- * How many `var(--x)` hops a declared colour may take before the audit calls it unreadable.
- *
- * The shipped palette resolves in one; the bound exists so a self-referential or circular
- * declaration fails loudly rather than spinning.
+ * How many `var(--x)` hops a declared colour may take before the audit calls it unreadable: the
+ * shipped palette resolves in one, and the bound makes a circular declaration fail rather than spin.
  */
 const MAX_COLOUR_HOPS = 4;
 
 /**
- * A background value that paints nothing, so the element behind it shows through.
- *
- * `transparent` is the initial value and the one this site could plausibly write; `none` is
- * the other half of the same idea, and both mean the walk goes up the chain rather than
- * stopping on a colour nobody can see text against.
+ * A background value that paints nothing, so the element behind it shows through — `transparent`
+ * is the initial value and `none` the other spelling; both send the walk up the chain.
  */
 const SEE_THROUGH_BACKGROUNDS = new Set(['transparent', 'none']);
 
 /**
- * The `background` shorthand values that paint an **image** rather than a colour.
- *
- * An image is pixels, and this audit reads declarations rather than pixels: it resolves the
- * colour each measured surface paints and has no answer for a gradient between two colours.
- * So an image layer is refused rather than approximated — the browser pass over the rendered
- * pages measures those pixels, and this file's job is to be honest about the difference.
+ * The `background` shorthand values that paint an **image** rather than a colour. This audit reads
+ * declarations rather than pixels, so an image layer is refused rather than approximated — the
+ * browser pass over the rendered pages measures those pixels.
  */
 const BACKGROUND_IMAGES = ['linear-gradient(', 'radial-gradient(', 'conic-gradient(', 'repeating-linear-gradient(', 'repeating-radial-gradient(', 'repeating-conic-gradient(', 'image-set(', 'cross-fade(', 'url('];
 
 // ---------------------------------------------------------------------------------------------
-// Reading the site's own configuration. The base path and the canonical origin are declared in
-// exactly one place (FR-005, AC-002), and copying either into this script would make it the second
-// copy — reintroducing the rename bug inside the gate that exists to catch it. So both are parsed
-// out of astro.config.ts, and a shape this script cannot read is a hard error rather than a silent
-// fallback.
+// Reading the site's own configuration: base path and canonical origin are declared in one place
+// (FR-005, AC-002), and copying either here would reintroduce the rename bug inside the gate that
+// exists to catch it — so a shape this script cannot read is a hard error, never a silent fallback.
 // ---------------------------------------------------------------------------------------------
 
-/**
- * @returns {{ base: string, origin: string }} The declared base path, without a trailing slash, and
- *   the canonical origin it is published under.
- */
+/** The declared base path without a trailing slash, and the canonical origin it is published under. */
 function readDeclaredSite() {
     const config = readFileSync(join(SITE_ROOT, 'astro.config.ts'), 'utf8');
     const base = /^\s*base:\s*'([^']+)'/m.exec(config);
@@ -512,17 +343,13 @@ function readDeclaredSite() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// HTML reading. The Node standard library has no DOM parser and a dependency would make the site's
-// only gate depend on an install; the emitted HTML is flat and minified, so a tolerant tag scanner
-// sees every attribute these checks need.
+// HTML reading: no DOM parser in the stdlib and no dependency for the site's only gate; the
+// emitted HTML is flat and minified, so a tolerant tag scanner sees every attribute these need.
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Parse an element's attribute text into a lower-cased name → value map. Handles quoted,
- * single-quoted, and bare values, and treats a valueless attribute as an empty string.
- *
- * @param {string} raw The text between an element's name and its closing `>`.
- * @returns {Map<string, string>} Attribute values, by lower-cased name.
+ * Parse an element's attribute text into a lower-cased name → value map: quoted, single-quoted
+ * and bare values, and a valueless attribute as `''`.
  */
 function readAttributes(raw) {
     const found = new Map();
@@ -534,11 +361,8 @@ function readAttributes(raw) {
 }
 
 /**
- * Every element in a document, in document order. Quoted attribute runs are matched whole, so a `>`
- * inside a value does not end the tag early.
- *
- * @param {string} html A page's markup.
- * @returns {Array<{ name: string, attributes: Map<string, string>, index: number }>}
+ * Every element in document order; quoted attribute runs are matched whole, so a `>` inside a
+ * value does not end the tag early.
  */
 function readElements(html) {
     const elements = [];
@@ -553,26 +377,17 @@ function readElements(html) {
     return elements;
 }
 
-/**
- * @param {string} html A page's markup.
- * @returns {Array<string>} Every `<a href>` target on the page, in document order.
- */
+/** Every `<a href>` target on the page, in document order. */
 function readLinkTargets(html) {
     return [...html.matchAll(/<a\s[^>]*href=(?:"([^"]*)"|'([^']*)')/gi)].map((match) => match[1] ?? match[2] ?? '');
 }
 
 /**
- * Classify a reference, resolving a relative one against the address of the page it appears on.
- *
- * A relative reference resolves onto the site's own origin, so it comes back same-origin; an
- * absolute one keeps whatever host it names. That is what separates "this page links into the site"
- * from "this page points somewhere else", without a host allow-list that a rename would break.
- *
- * @param {string} raw The attribute value as authored.
- * @param {string} pageAddress The page's own published address, including the base path.
- * @param {string} origin The site's canonical origin.
- * @returns {{ kind: string, pathname: string, detail: string }} `kind` is one of `same-document`,
- *   `same-origin`, `off-origin`, or `unusable`; `detail` says why when the reference is not usable.
+ * Classify a reference, resolving a relative one against the address of the page it appears on: a
+ * relative reference resolves onto the site's own origin, an absolute one keeps its host — what
+ * separates "links into the site" from "points elsewhere" without a host allow-list a rename
+ * would break. `kind` is `same-document`, `same-origin`, `off-origin` or `unusable`; `detail` says
+ * why when it is not usable.
  */
 function classify(raw, pageAddress, origin) {
     const value = raw.trim();
@@ -611,12 +426,8 @@ function classify(raw, pageAddress, origin) {
 }
 
 /**
- * Locate a resolved path under the site's own output.
- *
- * @param {string} pathname The resolved path.
- * @param {string} base The declared base path, without a trailing slash.
- * @returns {{ underBase: boolean, directoryForm: boolean, file: string }} `file` is the path it would
- *   have to name inside `dist/`, or the empty string when it is not under the base at all.
+ * Locate a resolved path under the site's own output; `file` is the path it would have to name
+ * inside `dist/`, or the empty string when it is not under the base at all.
  */
 function locateInOutput(pathname, base) {
     const underBase = pathname === base || pathname.startsWith(`${base}/`);
@@ -632,22 +443,12 @@ function locateInOutput(pathname, base) {
 }
 
 /**
- * One selector as the audit compares it.
- *
- * The built stylesheet is minified, and the minifier rewrites more than whitespace:
- *
- * - `main > h1 + section` arrives as `main>h1+section`, so combinator spacing is removed;
- * - `tbody tr:nth-child(even)` arrives as `tbody tr:nth-child(2n)`, because `even` is the
- *   keyword spelling of the `2n` progression with no offset.
- *
- * That second rewrite is the one that could have gone quietly wrong. A surface named in the
- * `even` spelling would simply stop matching, the walk would fall through to the next ancestor,
- * and the pair would be reported against a **lighter** colour than the one actually painted —
- * an inflated ratio on a real build rather than a failure. `CONTRAST_SURFACES` is written in
- * the readable keyword form, so both spellings are normalised to it here.
- *
- * @param {string} selector One selector as authored or as minified.
- * @returns {string} Its normalised spelling.
+ * One selector as the audit compares it. The minifier strips combinator spacing (`main>h1+section`)
+ * and rewrites `tbody tr:nth-child(even)` as `tbody tr:nth-child(2n)` — the rewrite that could have
+ * gone quietly wrong: a surface named in the `even` spelling would stop matching, the walk would
+ * fall through to a lighter ancestor, and the pair would report an inflated ratio on a real build
+ * rather than a failure. `CONTRAST_SURFACES` is written in the readable keyword form, so both
+ * spellings are normalised to it here.
  */
 function normaliseSelector(selector) {
     return selector
@@ -659,22 +460,12 @@ function normaliseSelector(selector) {
 }
 
 /**
- * The colours and rules one page's inlined stylesheet declares.
- *
- * Read out of the **built** page rather than out of `src/layout.astro`, because the
- * requirement's own verification is *"an automated audit of the built pages"* — and because a
- * page that carried a `<style>` of its own would then be audited on its palette too, rather
- * than inheriting the layout's by assumption.
- *
- * The requested `prefers-color-scheme` block is activated and other such blocks are excluded
- * before reading. `unconditional` records whether another at-rule paints a background: a
- * viewport-dependent surface is one whose contrast this audit cannot decide, so it is refused.
- *
- * @param {string} css Every `<style>` body on the page, concatenated.
- * @param {'light' | 'dark'} scheme The preference whose cascade is being read.
- * @returns {{ tokens: Map<string, string>, rules: Array<{ selectors: string[], body: string }>, unconditional: boolean, hasDarkPreference: boolean }}
- *   The active palette's custom properties and rules, whether non-scheme conditional backgrounds
- *   are absent, and whether the stylesheet declares a dark preference.
+ * The colours and rules one page's inlined stylesheet declares, read out of the **built** page
+ * rather than `src/layout.astro`: the requirement's own verification is *"an automated audit of
+ * the built pages"*, and a page carrying a `<style>` of its own would otherwise inherit the
+ * layout's palette by assumption. The requested `prefers-color-scheme` block is activated and the
+ * others excluded first; `unconditional` records whether another at-rule paints a background — a
+ * viewport-dependent surface is one this audit cannot decide, so it is refused.
  */
 function readPalette(css, scheme) {
     const preference = splitPreferenceRules(css, scheme);
@@ -691,8 +482,7 @@ function readPalette(css, scheme) {
         }
     }
     for (const rule of rules) {
-        // Later declarations win, which is the cascade: a page's second `:root` overrides
-        // the first, exactly as a browser resolves it.
+        // Later declarations win, which is the cascade: a page's second `:root` overrides the first.
         for (const declared of rule.body.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;}]+)/gi)) {
             tokens.set((declared[1] ?? '').toLowerCase(), (declared[2] ?? '').trim());
         }
@@ -708,12 +498,8 @@ function readPalette(css, scheme) {
 
 /**
  * Separate color-scheme media rules from the unconditional stylesheet and activate only the
- * requested preference. This lets the audit resolve the browser's two cascades independently
- * without treating a dark-only background as an unknown viewport-dependent surface.
- *
- * @param {string} css Every `<style>` body on the page.
- * @param {'light' | 'dark'} scheme The preference whose cascade is being read.
- * @returns {{ base: string, active: string[], hasDarkPreference: boolean }}
+ * requested preference, so the audit reads the browser's two cascades independently without
+ * treating a dark-only background as an unknown viewport-dependent surface.
  */
 function splitPreferenceRules(css, scheme) {
     const source = css.replaceAll(/\/\*[\s\S]*?\*\//g, ' ');
@@ -746,13 +532,7 @@ function splitPreferenceRules(css, scheme) {
     return { base: base.join(''), active, hasDarkPreference };
 }
 
-/**
- * Find a block's matching closing brace, accounting for nested CSS rules.
- *
- * @param {string} css Stylesheet source.
- * @param {number} opening Index of the opening brace.
- * @returns {number} Index of the matching closing brace, or the final source character.
- */
+/** Find a block's matching closing brace, accounting for nested CSS rules. */
 function matchingBrace(css, opening) {
     let depth = 1;
     for (let index = opening + 1; index < css.length; index += 1) {
@@ -770,16 +550,10 @@ function matchingBrace(css, opening) {
 }
 
 /**
- * Whether any remaining at-rule block — `@media`, `@supports` — declares a background.
- *
- * A background that only applies inside a query is a background the audit cannot resolve:
- * whether it paints depends on a viewport it does not know, and reading the rule as though
- * it were unconditional is the false *accept* this file exists to refuse. The check is a
- * finding rather than a skip for that reason. Braces are counted so a nested block does not
- * end the walk early.
- *
- * @param {string} css Every `<style>` body on the page, concatenated.
- * @returns {boolean} Whether a conditional block declares a background.
+ * Whether any remaining at-rule block — `@media`, `@supports` — declares a background. One that
+ * only applies inside a query depends on a viewport this audit does not know, and reading the rule
+ * as unconditional is the false *accept* this file exists to refuse, so it is a finding rather than
+ * a skip. Braces are counted so a nested block does not end the walk early.
  */
 function atRulePaintsABackground(css) {
     for (const opening of css.matchAll(/@[a-z-]+[^{]*\{/gi)) {
@@ -804,9 +578,6 @@ function atRulePaintsABackground(css) {
 /**
  * Split a shorthand value into its top-level layers, so a comma inside `rgba()` or inside a
  * gradient's own arguments does not read as two layers.
- *
- * @param {string} value A shorthand value as written.
- * @returns {string[]} Every layer, in source order.
  */
 function splitBackgroundLayers(value) {
     const layers = [];
@@ -833,25 +604,13 @@ function splitBackgroundLayers(value) {
 }
 
 /**
- * What one rule body paints behind itself: a colour, nothing, or something this audit
- * cannot read.
- *
- * Both spellings of the property are read, and the **last** of them wins, which is the
- * cascade: a `background-color` written after a `background` shorthand overrides the
- * shorthand's own colour component, and one written before it is reset by it.
- *
- * The one form refused is a shorthand carrying more than one layer. Such a rule paints
- * images over a colour — a gradient with a colour under it — and reading the bottom layer
- * as *the* background would be measuring a colour the reader never sees. It is reported
- * with the declaration to write instead, because "declare the colour as
- * `background-color` and the decoration as `background-image`" is both true CSS and a form
- * this audit can read: an image layer paints no colour at all, so a surface that declares
- * only one genuinely falls through to what is behind it.
- *
- * @param {string} body One rule's declarations.
- * @returns {{ paints: boolean, value: string, problem: string }} Whether the rule paints an
- *   opaque colour, the value it is (or `''` when it paints none), and what stopped the audit
- *   from reading one when it paints something it cannot measure.
+ * What one rule body paints behind itself: a colour, nothing, or something this audit cannot
+ * read. Both spellings of the property are read and the **last** of them wins, which is the
+ * cascade. The one form refused is a shorthand carrying more than one layer — it paints images
+ * over a colour, and reading the bottom layer would measure a colour the reader never sees. It is
+ * reported with the fix, because "declare the colour as `background-color` and the decoration as
+ * `background-image`" is both true CSS and a form this audit can read: an image layer paints no
+ * colour, so a surface declaring only one genuinely falls through to what is behind it.
  */
 function readPaintedBackground(body) {
     const declarations = [...body.matchAll(/(?<![-\w])(background-color|background)\s*:\s*([^;}]+)/gi)]
@@ -896,21 +655,12 @@ function readPaintedBackground(body) {
 }
 
 /**
- * The colour the text on one surface is actually drawn on, resolved the way a browser
- * resolves it: this element's own declaration, or — when it declares none, or declares one
- * that paints nothing — the nearest ancestor's.
- *
- * Each link in the walk is either the surface's own selector (a bare element name, or one
- * of the structural selectors `CONTRAST_SURFACES` enumerates) or a bare ancestor name. A
- * background behind a selector outside that set is not resolved here:
- * `unresolvableBackgrounds` names it and the audit fails, because a background it cannot
- * place is a background nobody measured.
- *
- * @param {Array<{ selectors: string[], body: string }>} rules Every rule, in source order.
- * @param {string} surface The surface's name, as `CONTRAST_SURFACES` spells it.
- * @returns {{ declared: string, from: string, problem: string }} The winning declaration, the
- *   selector that made it, and what stopped the audit from reading it when it painted
- *   something unmeasurable.
+ * The colour the text on one surface is actually drawn on, resolved the way a browser resolves
+ * it: this element's own declaration, or — when it declares none, or one that paints nothing —
+ * the nearest ancestor's. Each link is a surface selector from `CONTRAST_SURFACES` or a bare
+ * ancestor name; a background behind a selector outside that set is not resolved here
+ * (`unresolvableBackgrounds` names it and the audit fails), because a background it cannot place
+ * is a background nobody measured.
  */
 function paintBackground(rules, surface) {
     const definition = CONTRAST_SURFACES.find((candidate) => candidate.name === surface);
@@ -919,10 +669,9 @@ function paintBackground(rules, surface) {
     }
 
     for (const candidate of [...definition.selectors.flat(), ...definition.chain].map(normaliseSelector)) {
-        // The last rule that **declares a background** wins, which is the cascade within the
-        // walk. A later rule that only sets a padding does not reset an earlier background —
-        // that is why this filters to rules that declare one and takes the last of those, rather
-        // than taking the last matching rule and then finding nothing in it.
+        // The last rule that **declares a background** wins, which is the cascade within the walk:
+        // a later padding-only rule does not reset an earlier background, so this filters to rules
+        // that declare one and takes the last of those.
         const winner = rules
             .filter((rule) => rule.selectors.includes(candidate) && readPaintedBackground(rule.body).paints)
             .at(-1);
@@ -937,37 +686,25 @@ function paintBackground(rules, surface) {
 }
 
 /**
- * Every background declaration this audit cannot place, named.
- *
- * A rule may paint behind a bare element name, or behind one of the selectors
- * `CONTRAST_SURFACES` enumerates, to be read. Two kinds of rule sit outside that model, and
- * they are named for opposite reasons:
- *
- * - a selector the model does not know (`.card`, `html[dir='rtl']`, `main p`) paints behind
- *   a box this audit cannot identify, and resolving it as absent would report the inherited
- *   surface for text that is not drawn on it;
- * - a **state- or pseudo-element-scoped** rule (`:hover`, `:focus-visible`, `::before`,
- *   `::after`) paints nothing in the resting state this audit measures. It is left out of
- *   the model deliberately and written down here, because the browser pass over the rendered
- *   pages is what exercises a hover or focus surface and a reader should know which half of
- *   the evidence covers them. *State* means the interaction states only: `:first-child`,
- *   `:nth-child(…)`, `:checked` and `:disabled` all hold while the page sits still, so a
- *   background behind one paints in the state this audit measures and is refused like any
- *   other unplaceable selector rather than skipped.
- *
- * @param {Array<{ selectors: string[], body: string }>} rules Every rule, in source order.
- * @returns {string[]} One line per unplaceable selector, for the failure message.
+ * Every background declaration this audit cannot place, named. Two kinds sit outside the model,
+ * for opposite reasons: a selector it does not know (`.card`, `html[dir='rtl']`, `main p`) paints
+ * behind a box it cannot identify, and resolving that as absent would report the inherited
+ * surface for text not drawn on it; and a **state- or pseudo-element-scoped** rule (`:hover`,
+ * `:focus-visible`, `::before`, `::after`) paints nothing in the resting state this audit
+ * measures. The second is left out deliberately and written down here, because the browser pass
+ * over the rendered pages is what exercises a hover or focus surface and a reader should know
+ * which half of the evidence covers them. *State* means the interaction states only:
+ * `:first-child`, `:nth-child(…)`, `:checked` and `:disabled` hold while the page sits still, so
+ * a background behind one paints in the measured state and is refused like any other.
  */
 function unresolvableBackgrounds(rules) {
     const placed = new Set(
     CONTRAST_SURFACES.flatMap((surface) => [...surface.selectors.flat(), ...surface.chain]).map(normaliseSelector),
 );
     /*
-     * Pseudo-elements — `::x`, and the legacy `:before`/`:after` spelling the minifier ships —
-     * generate boxes this audit does not read text out of, and the four interaction states do not
-     * hold at rest. Everything else is refused. The state name must also be outside a `:not(…)`,
-     * since `a:not(:hover)` *is* the link's resting state; a `(` in front of it is what that
-     * looks like in a selector.
+     * Pseudo-elements generate boxes this audit reads no text out of and the four interaction
+     * states do not hold at rest; everything else is refused. The state name must be outside a
+     * `:not(…)` — `a:not(:hover)` *is* the resting state — hence the `(` in front of it.
      */
     const isScopedToAState = (selector) =>
         /::|:(?:before|after|first-line|first-letter)\b|(?:^|[^:(]):(?:hover|focus|active|visited)\b/.test(selector);
@@ -988,12 +725,9 @@ function unresolvableBackgrounds(rules) {
 }
 
 /**
- * Follow a declared colour through `var(--x)` references to the value at the end of it.
- *
- * @param {string} value A colour as declared, possibly `var(--name)`.
- * @param {Map<string, string>} tokens The page's declared custom properties.
- * @returns {string} The colour as written, with references resolved; unchanged when the chain
- *   does not end within `MAX_COLOUR_HOPS`, which `assertContrast` then reports as unreadable.
+ * Follow a declared colour through `var(--x)` references to the value at the end of it;
+ * unchanged when the chain does not end within `MAX_COLOUR_HOPS`, which `assertContrast` then
+ * reports as unreadable.
  */
 function resolveColour(value, tokens) {
     let resolved = value;
@@ -1013,15 +747,10 @@ function resolveColour(value, tokens) {
 }
 
 /**
- * A `#rgb` or `#rrggbb` colour as its three channels.
- *
- * Anything else is `null` rather than a guess. `rgb()`, `hsl()`, and colour keywords are all
- * valid CSS and none of them is in this site's palette; a gate that skipped what it could not
- * read would report a passing page for a colour it never looked at, so the unreadable shape
- * is a hard failure that names the value and says what to write instead.
- *
- * @param {string} value A colour as declared.
- * @returns {{ r: number, g: number, b: number } | null} Its channels, each 0–255.
+ * A `#rgb` or `#rrggbb` colour as its three channels, `null` for anything else rather than a
+ * guess: `rgb()`, `hsl()` and colour keywords are valid CSS and none is in this site's palette,
+ * and a gate that skipped what it could not read would pass a page for a colour it never looked
+ * at — so the unreadable shape is a hard failure that names the value.
  */
 function parseColour(value) {
     const hex = /^#([\da-f]{3}|[\da-f]{6})$/i.exec(value.trim());
@@ -1038,35 +767,19 @@ function parseColour(value) {
     };
 }
 
-/**
- * One channel's linear-light value, per WCAG 2.2's definition of relative luminance.
- *
- * @param {number} channel One channel, 0–255.
- * @returns {number} Its linear-light value, 0–1.
- */
+/** One channel's linear-light value, per WCAG 2.2's definition of relative luminance. */
 function linearise(channel) {
     const proportion = channel / 255;
 
     return proportion <= 0.039_28 ? proportion / 12.92 : ((proportion + 0.055) / 1.055) ** 2.4;
 }
 
-/**
- * A colour's relative luminance.
- *
- * @param {{ r: number, g: number, b: number }} colour The colour's channels.
- * @returns {number} Its relative luminance, 0–1.
- */
+/** A colour's relative luminance, 0–1. */
 function luminance(colour) {
     return 0.2126 * linearise(colour.r) + 0.7152 * linearise(colour.g) + 0.0722 * linearise(colour.b);
 }
 
-/**
- * The contrast ratio between two colours, as WCAG 2.2 states it.
- *
- * @param {{ r: number, g: number, b: number }} foreground The text's colour.
- * @param {{ r: number, g: number, b: number }} background What it is drawn on.
- * @returns {number} Their ratio, from 1 (identical) to 21 (black on white).
- */
+/** The contrast ratio between two colours, as WCAG 2.2 states it: 1 (identical) to 21 (black on white). */
 function contrastRatio(foreground, background) {
     const lighter = Math.max(luminance(foreground), luminance(background));
     const darker = Math.min(luminance(foreground), luminance(background));
@@ -1075,22 +788,13 @@ function contrastRatio(foreground, background) {
 }
 
 /**
- * NFR-004's contrast floor, audited over the colours a page's stylesheet resolves to.
- *
- * Five assertions beyond the floor itself, and each of them is the one that keeps the next
- * honest: the tokens the pairs name must be declared, both preference palettes must exist and
- * select their own `color-scheme`, every background must be placeable, every surface must
- * resolve to a colour at all, and every colour must be one this audit can read. An audit that
- * finds no palette, or cannot tell which box a background paints, or walks off the end of a
- * chain, or meets a gradient it cannot resolve, reports no failures for a page whose text
- * colour it never looked at — and a green check that measured nothing is the exact shape of
- * gate this file exists to refuse.
- *
- * @param {string} where The emitted file, for the message.
- * @param {string} css Every `<style>` body on the page, concatenated.
- * @param {'light' | 'dark'} scheme The preference whose contrast is being measured.
- * @returns {Array<{ where: string, foreground: string, background: string, ratio: number }>}
- *   Every pair the audit measured, for the ledger the run prints.
+ * NFR-004's contrast floor, audited over the colours a page's stylesheet resolves to. Five
+ * assertions beyond the floor keep the next honest — the pairs' tokens declared, both preference
+ * palettes present and selecting their own `color-scheme`, every background placeable, every
+ * surface resolving to a colour, every colour readable — because an audit that finds no palette,
+ * cannot tell which box a background paints, walks off the end of a chain, or meets a gradient it
+ * cannot resolve reports no failures for a page whose text colour it never looked at, and a green
+ * check that measured nothing is the exact shape of gate this file exists to refuse.
  */
 function assertContrast(where, css, scheme) {
     const { tokens, rules, unconditional, hasDarkPreference } = readPalette(css, scheme);
@@ -1140,9 +844,8 @@ function assertContrast(where, css, scheme) {
             `is a real surface, or paint it behind a bare element name. The surfaces read are ` +
             `\`${[...new Set(CONTRAST_PAIRS.map((pair) => pair.surface))].join('`, `')}\`.`,
     );
-    // Non-vacuity for the cascade itself: a walk that ends on nothing means the stylesheet paints
-    // no surface at all, and an audit that then measured nothing would still exit zero. Checked
-    // once per surface rather than per pair, and reported as the stylesheet finding it is.
+    // Non-vacuity for the cascade: a walk that ends on nothing means the stylesheet paints no
+    // surface at all, and an audit that measured nothing would still exit zero — once per surface.
     for (const name of [...new Set(CONTRAST_PAIRS.map((pair) => pair.surface))]) {
         const definition = CONTRAST_SURFACES.find((candidate) => candidate.name === name);
         const resolved = paintBackground(rules, name);
@@ -1213,33 +916,22 @@ function assertContrast(where, css, scheme) {
 }
 
 /**
- * An element's opening tag as written, so a failure quotes the markup it refused
- * rather than a reconstruction of the one attribute that mattered.
- *
- * @param {{ name: string, attributes: Map<string, string> }} element The element.
- * @returns {string} Its opening tag.
+ * An element's opening tag as written, so a failure quotes the markup it refused rather than a
+ * reconstruction of the one attribute that mattered.
  */
 function openingTag(element) {
     const attributes = [...element.attributes].map(([name, value]) => (value === '' ? ` ${name}` : ` ${name}="${value}"`));
     return `<${element.name}${attributes.join('')}>`;
 }
 
-/**
- * @param {string} file A `/`-separated path.
- * @returns {string} The lower-cased extension including the dot, or the empty string.
- */
+/** The lower-cased extension of a `/`-separated path, including the dot, or the empty string. */
 function extensionOf(file) {
     const name = file.slice(file.lastIndexOf('/') + 1);
     const dot = name.lastIndexOf('.');
     return dot <= 0 ? '' : name.slice(dot).toLowerCase();
 }
 
-/**
- * Every file under a directory, as `/`-separated paths relative to it.
- *
- * @param {string} root The directory to walk.
- * @returns {string[]} Sorted, so two runs report a difference in the same order.
- */
+/** Every file under a directory as `/`-separated paths relative to it, sorted for a stable report. */
 function listFiles(root) {
     const found = [];
     const walk = (directory) => {
@@ -1256,20 +948,14 @@ function listFiles(root) {
     return found.sort();
 }
 
-// ---------------------------------------------------------------------------------------------
 // The checks.
-// ---------------------------------------------------------------------------------------------
 
 const failures = [];
 let checks = 0;
 
 /**
- * Record one assertion. Nothing is thrown and nothing exits early, because a gate that stops at the
- * first failure costs a contributor a build per finding.
- *
- * @param {string} id The requirement the assertion discharges, so a failure says which rule broke.
- * @param {boolean} held Whether the assertion held.
- * @param {string} message What is wrong, naming the file and the markup or path.
+ * Record one assertion. Nothing is thrown and nothing exits early, because a gate that stops at
+ * the first failure costs a contributor a build per finding; `id` names the rule that broke.
  */
 function assert(id, held, message) {
     checks += 1;
@@ -1279,12 +965,9 @@ function assert(id, held, message) {
 }
 
 /**
- * The shape of the output itself: the exact file set, and no script and no image file anywhere.
- *
- * AC-001's "no further page" and NFR-002's "the built output contains no script file" are the same
- * measurement read two ways, and both are reported by name so a failure says which rule broke.
- *
- * @param {string[]} emitted Every emitted file, relative to `dist/`.
+ * The shape of the output itself: the exact file set, and no script and no image file anywhere —
+ * AC-001's "no further page" and NFR-002's "no script file" are one measurement read two ways,
+ * both reported by name so a failure says which rule broke.
  */
 function assertTheOutputShape(emitted) {
     const expected = PAGES.map((page) => page.file);
@@ -1326,15 +1009,8 @@ function assertTheOutputShape(emitted) {
 }
 
 /**
- * Check one page's markup.
- *
- * @param {{ address: string, label: string, file: string }} page The page, with its published address.
- * @param {string} html The page's markup.
- * @param {string} base The declared base path.
- * @param {string} origin The site's canonical origin.
- * @param {Set<string>} emitted The emitted files, as a set of `dist/`-relative paths.
- * @returns {Array<{ where: string, foreground: string, background: string, ratio: number }>}
- *   The contrast pairs NFR-004's audit measured on this page, for the ledger the run prints.
+ * Check one page's markup, returning the contrast pairs NFR-004's audit measured on it, for the
+ * ledger the run prints.
  */
 function assertThePage(page, html, base, origin, emitted) {
     const where = `dist/${page.file}`;
@@ -1398,9 +1074,8 @@ function assertThePage(page, html, base, origin, emitted) {
                 assertResourceReference(where, pageAddress, base, origin, emitted, element, attribute, candidate, 'candidate');
             }
         }
-        // A `style` attribute is a stylesheet body, so it is read as one: this is what
-        // catches `style="background:url(https://cdn.example/a.gif)"`, which no entry in
-        // RESOURCE_POSITIONS can see because the URL is not the attribute's whole value.
+        // A `style` attribute is a stylesheet body, so it is read as one — this catches
+        // `style="background:url(https://…)"`, which no RESOURCE_POSITIONS entry can see.
         if (element.attributes.has('style')) {
             assertInlineStylesheet(
                 `${where}: ${openingTag(element)} \`style\` attribute`,
@@ -1410,10 +1085,8 @@ function assertThePage(page, html, base, origin, emitted) {
         }
     }
 
-    // FR-010 and NFR-003: a meta refresh is the one navigation a page performs with no
-    // reader's click in it, which makes it a reference the page itself makes — the shape
-    // NFR-003 forbids, not the shape it exempts (`<a href>`, a hyperlink the reader may
-    // choose to follow). Treated as a resource reference rather than ignored; see
+    // FR-010/NFR-003: a meta refresh is the one navigation a page performs with no reader's click
+    // in it — a reference the page itself makes, not the `<a href>` shape NFR-003 exempts. See
     // `readRefreshTarget` for why it cannot be read as a bare `content` value.
     for (const element of elements) {
         const equiv = (element.attributes.get('http-equiv') ?? '').trim().toLowerCase();
@@ -1445,8 +1118,8 @@ function assertThePage(page, html, base, origin, emitted) {
             continue;
         }
         if (classified.kind === 'off-origin') {
-            // A hyperlink a reader may choose to follow is not a request the page makes. The footer's
-            // links into the repository are required by AC-005 and are off-origin by necessity.
+            // A hyperlink the reader may choose to follow is not a request the page makes; the
+            // footer's repository links are required by AC-005 and off-origin by necessity.
             continue;
         }
         if (classified.kind === 'unusable') {
@@ -1528,9 +1201,8 @@ function assertThePage(page, html, base, origin, emitted) {
     // AC-005 and FR-076: the footer links the license file in the repository.
     assertTheFooterLicenseLink(where, html, pageAddress, origin);
 
-    // FR-052 and AC-006: nothing unfinished survives into the output, in either of the two
-    // shapes it can take. The vocabulary first — matched whole, see `TOKEN_LEADING` for why
-    // a substring test would refuse the shipped prose.
+    // FR-052 and AC-006: the vocabulary first, matched whole — see `TOKEN_LEADING` for why a
+    // substring test would refuse the shipped prose.
     const lowered = html.toLowerCase();
     for (const { token, pattern } of PLACEHOLDER_PATTERNS) {
         assert(
@@ -1543,12 +1215,8 @@ function assertThePage(page, html, base, origin, emitted) {
         );
     }
 
-    // And then the shapes, which carry no word of their own — a page whose unfinished parts
-    // are spelled as braces rather than as words is exactly what a vocabulary cannot see.
-    //
-    // Marked literal markers are cut first; that the site still declares one is asserted
-    // once over the whole output, in `assertTheLiteralMarkerIsDeclared`, for the reason
-    // every other scan here is paired with a presence check.
+    // Then the shapes, which carry no word of their own. Marked literal markers are cut first,
+    // and that one is still declared is asserted once over the whole output.
     const markup = readMarkup(html);
     const scanned = withoutLiteralMarkers(markup);
     for (const shape of UNFINISHED_SHAPES) {
@@ -1566,10 +1234,7 @@ function assertThePage(page, html, base, origin, emitted) {
     return contrast;
 }
 
-/**
- * @param {string} value A `srcset` attribute's value.
- * @returns {string[]} Its candidate URLs, one per descriptor group.
- */
+/** A `srcset` attribute's candidate URLs, one per descriptor group. */
 function readSrcset(value) {
     return value
         .split(',')
@@ -1579,16 +1244,11 @@ function readSrcset(value) {
 
 /**
  * The URL a `<meta http-equiv="refresh">` navigates to, or the empty string when it only
- * re-renders the page it is on.
- *
- * Read out of the `content` value rather than through `classify`, because `content` is not a
- * URL: `0;url=https://evil.example/` is a *delay* followed by a target, and handing the whole
- * value to `new URL()` would resolve it as a relative path — back onto the site's own origin,
- * where it passes as an internal reference. That is why a meta refresh had to be handled
- * rather than added to `RESOURCE_POSITIONS`.
- *
- * @param {string} content A refresh `content` value.
- * @returns {string} The target URL, or the empty string when there is none.
+ * re-renders the page it is on. Read out of the `content` value rather than through `classify`,
+ * because `content` is not a URL: `0;url=https://evil.example/` is a *delay* followed by a target,
+ * and handing the whole value to `new URL()` resolves it as a relative path — back onto the
+ * site's own origin, where it passes as an internal reference. That is why a meta refresh is
+ * handled rather than added to `RESOURCE_POSITIONS`.
  */
 function readRefreshTarget(content) {
     const found = /(?:^|[;,])\s*url\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s;,]+))/i.exec(content);
@@ -1597,18 +1257,9 @@ function readRefreshTarget(content) {
 }
 
 /**
- * Check one resource reference: a value the browser fetches or executes.
- *
- * @param {string} where The emitted file, for the message.
- * @param {string} pageAddress The page's own published address.
- * @param {string} base The declared base path.
- * @param {string} origin The site's canonical origin.
- * @param {Set<string>} emitted The emitted files.
- * @param {{ name: string, attributes: Map<string, string> }} element The element carrying it.
- * @param {string} attribute The attribute's name.
- * @param {string} [raw] One target read out of the attribute's value — a `srcset` candidate, a
- *   meta refresh's destination — where the attribute itself holds something larger.
- * @param {string} [as] How to name `raw` in the message.
+ * Check one resource reference: a value the browser fetches or executes. `raw` is one target read
+ * out of a larger attribute (a `srcset` candidate, a meta refresh's destination), `as` how to name
+ * it in the message.
  */
 function assertResourceReference(where, pageAddress, base, origin, emitted, element, attribute, raw, as) {
     const value = raw ?? element.attributes.get(attribute) ?? '';
@@ -1645,13 +1296,7 @@ function assertResourceReference(where, pageAddress, base, origin, emitted, elem
     );
 }
 
-/**
- * Check an inline stylesheet: it may not pull in another stylesheet, and it may not name a remote one.
- *
- * @param {string} where Where the block came from, for the message.
- * @param {string} css The block's contents.
- * @param {string} origin The site's canonical origin.
- */
+/** Check an inline stylesheet: it may not pull in another stylesheet, and it may not name a remote one. */
 function assertInlineStylesheet(where, css, origin) {
     for (const imported of css.matchAll(/@import\s+(?:url\(\s*)?["']?([^"')]+)/gi)) {
         assert(
@@ -1672,14 +1317,7 @@ function assertInlineStylesheet(where, css, origin) {
     }
 }
 
-/**
- * Check that the footer carries a link to the license file in the repository.
- *
- * @param {string} where The emitted file, for the message.
- * @param {string} html The page's markup.
- * @param {string} pageAddress The page's own published address.
- * @param {string} origin The site's canonical origin.
- */
+/** Check that the footer carries a link to the license file in the repository. */
 function assertTheFooterLicenseLink(where, html, pageAddress, origin) {
     const footerStart = html.indexOf('<footer');
     const footerEnd = html.indexOf('</footer>');
@@ -1713,21 +1351,13 @@ function assertTheFooterLicenseLink(where, html, pageAddress, origin) {
 }
 
 /**
- * Check that the site still declares the literal marker it is exempt about.
- *
- * **Once over the whole output, not once per page.** The exemption belongs to
- * `/configure/`, which is the one page that prints a literal marker in order to say the
- * prompt is sent verbatim; the other four pages have nothing to mark, and an assertion
- * every page had to satisfy would be satisfied by four copies of a marker nobody needs.
- *
- * The presence check is separate from the scan above for the reason every other scan in
- * this file is paired with one: an **absence** assertion — no unexplained marker survives —
- * is satisfied exactly as well by a site that has deleted the marker and its sentence with
- * it. So the two are checked apart. This is the split `tests/vocabulary.test.ts` makes for
- * the identifier-mapping table (007 AC-013), and it is why deleting the documentation is a
- * visible failure rather than a quiet one.
- *
- * @param {string} markup Every emitted page's markup, concatenated.
+ * Check that the site still declares the literal marker it is exempt about — **once over the
+ * whole output, not once per page**: the exemption belongs to `/configure/`, and an assertion
+ * every page had to satisfy would be satisfied by four copies of a marker nobody needs. The
+ * presence check is separate from the scan for the reason every other scan in this file is paired
+ * with one: an **absence** assertion is satisfied just as well by a site that deleted the marker
+ * and its sentence with it, so deleting the documentation is a visible failure rather than a quiet
+ * one (007 AC-013).
  */
 function assertTheLiteralMarkerIsDeclared(markup) {
     const declared = markup.match(new RegExp(`<[^>]*\\b${AC_LITERAL_MARKER}="true"`, 'gi')) ?? [];
@@ -1743,9 +1373,7 @@ function assertTheLiteralMarkerIsDeclared(markup) {
     );
 }
 
-// ---------------------------------------------------------------------------------------------
 // Run.
-// ---------------------------------------------------------------------------------------------
 
 const { base, origin } = readDeclaredSite();
 const distDirectory = resolve(process.cwd(), process.argv[2] ?? join(SITE_ROOT, 'dist'));
@@ -1777,13 +1405,10 @@ if (!existsSync(distDirectory) || !statSync(distDirectory).isDirectory()) {
             `assert-build: ${checks} assertions hold over ${emitted.size} files and ${PAGES.length} pages, ` +
                 `every internal reference under ${base}/.\n`,
         );
-        // NFR-004 names its verification as *"the site's own check plus an automated audit of
-        // the built pages"*, so the audit's own figures are printed rather than left to be
-        // re-derived by hand. Deduplicated by *preference, pair and colour*, not by colour alone: the
-        // layout inlines one palette into all five pages, so five identical ledgers would be
-        // five times the noise — but two different pairs can share a colour pair (a link on the
-        // page and a link on the surface both measure once the surface is `body`'s), and
-        // collapsing those would hide which pair was read.
+        // NFR-004 names its verification as *"an automated audit of the built pages"*, so the
+        // figures are printed rather than left to be re-derived. Deduplicated by *preference, pair
+        // and colour*: the layout inlines one palette into all five pages, but two different pairs
+        // can share a colour and collapsing those would hide which pair was read.
         const distinct = new Map();
         for (const pair of contrast) {
             distinct.set(`${pair.where}: ${pair.foreground} on ${pair.background}`, pair);

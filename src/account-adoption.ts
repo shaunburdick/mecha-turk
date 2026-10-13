@@ -90,8 +90,6 @@ function parseAccountsBody(text: string): readonly ServiceAccount[] | null {
  * Whether the mount is still alive mid-adoption.
  *
  * A function call, so the type analyzer never narrows a check past it.
- *
- * @returns `true` while the panel is alive.
  */
 function stillMounted(rt: PanelRuntime): boolean {
     return !rt.disposed;
@@ -117,8 +115,6 @@ async function fetchUsableAccounts(rt: PanelRuntime): Promise<readonly ServiceAc
 
 /**
  * Write a mirror for every usable account the mirror does not cover.
- *
- * @param usable - The service's `active` accounts.
  */
 async function writeMissingMirrors(rt: PanelRuntime, usable: readonly ServiceAccount[]): Promise<void> {
     const stored = await readStoredAccounts(rt);

@@ -174,7 +174,6 @@ function authorTypeOf(user: Record<string, unknown> | null): string {
 
 /**
  * Read the issue number out of a comment's `issue_url`.
- *
  */
 function issueNumberOf(value: unknown): number | null {
     if (typeof value !== 'string') {

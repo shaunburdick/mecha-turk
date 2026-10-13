@@ -1,10 +1,5 @@
 /**
- * Bindings-tab actions for the event bindings (M3 re-cut): the add flow, the
- * list reads, the enable/disable toggle, and removal, plus the draft's
- * defaults. Every write is the same `PUT /v1/bindings` whole-file grant and
- * actions never throw — every failure lands on the tab's note line, so one
- * refused PUT cannot take the panel down. A confirmed list with an enabled
- * row also arms the event relay ({@link armRelayForBindings}).
+ * Bindings-tab actions (M3): add, list, toggle, remove over the one whole-file grant; failures land on the note line.
  */
 
 import { nowIso } from './ids.ts';
@@ -207,16 +202,12 @@ export function reloadBindingsAfterConnect(rt: PanelRuntime): void {
 }
 
 /**
- * Add the drafted repository as a binding and grant the whole list. A
- * granted add closes the editor — the new row is on the list the success note
- * reports from — while a refused one leaves the editor open with the draft
- * the operator can correct. The starting prompt rides this write the way it
- * rides the edit save (005 `## Clarifications` row 33), so 004 FR-014's two
- * rules hold in add mode too: a field the operator never touched omits the
- * member (a brand-new row is created prompt-less, and every *other* row's
- * stored prompt survives by the same omission), a touched one travels with an
- * explicit empty value included, and a refusal the prompt caused lands on the
- * field it belongs to rather than the tab's note.
+ * Add the drafted repository as a binding and grant the whole list. A granted add closes the
+ * editor; a refused one leaves it open with the draft. The starting prompt rides this write the way
+ * it rides the edit save (005 `## Clarifications` row 33), so 004 FR-014's two rules hold in add
+ * mode too: a field never touched omits the member — a brand-new row is prompt-less, and every
+ * *other* row's stored prompt survives by the same omission — a touched one travels even when
+ * empty, and a refusal lands on the field it belongs to rather than the tab's note.
  */
 export async function bindRepository(rt: PanelRuntime): Promise<void> {
     const { bindings } = rt.state;

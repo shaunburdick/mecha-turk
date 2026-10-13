@@ -1,11 +1,5 @@
 /**
- * The five first-run prerequisites as pure records (003 FR-071–FR-073):
- * functions of panel state only — no mount, no host call, no persistence — so
- * the section can never be stale and can never configure anything. Three
- * states only (FR-072): `met`, `not-met`, `not-checkable`, and a
- * prerequisite the panel cannot verify says so; what is checkable is checked
- * fail-closed — absent scope evidence reads as no evidence, a binding without
- * a project id is unmet.
+ * The five first-run prerequisites as pure records: no mount, no host call, no persistence, three states only (FR-072).
  */
 
 import type { Tone } from '@openchamber/sdk/ui';
@@ -87,8 +81,6 @@ export function prerequisiteStateLabel(state: PrerequisiteState): string {
  * *not met* is red because it is the one state that raises FR-073's notice,
  * and *not checkable* stays neutral because a panel that could not look must
  * not paint a verdict it never reached.
- *
- * @returns The badge tone that state renders with.
  */
 export function prerequisiteTone(state: PrerequisiteState): Tone {
     if (state === STATE_MET) {
@@ -129,8 +121,6 @@ function defaultAgentPin(): Prerequisite {
 
 /**
  * Whether OpenChamber is running: the host has answered this panel or not.
- *
- * @returns `met` once the host answers, `not-checkable` before that.
  */
 function openChamberRunning(hasAnswered: boolean): Prerequisite {
     if (!hasAnswered) {
@@ -155,8 +145,6 @@ function openChamberRunning(hasAnswered: boolean): Prerequisite {
 /**
  * The desktop-or-web requirement, which no documented API reports (see the
  * module doc for why this is honest rather than lazy).
- *
- * @returns The prerequisite, always `not-checkable`.
  */
 function desktopOrWebSurface(): Prerequisite {
     return {
@@ -177,9 +165,6 @@ function desktopOrWebSurface(): Prerequisite {
  * the panel cannot vouch for means it cannot vouch for the set. No surface in
  * this system reports write scopes, so *read* scopes decide the state and the
  * remediation keeps the no-write-scopes instruction visible.
- *
- * @param accounts - Accounts as the last `GET /v1/accounts` read reported them.
- * @returns The prerequisite for the connected set.
  */
 function tokenScopes(accounts: readonly PanelAccount[]): Prerequisite {
     const usable = accounts.filter((account) => account.usable);
@@ -239,8 +224,6 @@ function tokenScopes(accounts: readonly PanelAccount[]): Prerequisite {
  * A registered OpenChamber project for every binding (plan D12: zero
  * bindings is nothing to satisfy, so a fresh install reads met rather than
  * nagging with nothing actionable).
- *
- * @returns The prerequisite for the bound set.
  */
 function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequisite {
     const title = TITLES.registeredProject;
@@ -282,8 +265,6 @@ function registeredProjectPerBinding(bindings: readonly PanelBinding[]): Prerequ
  * Pure and synchronous: the same state always answers the same five records,
  * which is what makes the section testable without a host and impossible to
  * leave stale.
- *
- * @returns The five prerequisites order.
  */
 export function derivePrerequisites(state: PanelState): readonly Prerequisite[] {
     return [

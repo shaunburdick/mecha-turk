@@ -1,14 +1,5 @@
 /**
- * The Settings draft/save state machine — pure by design: no host, no DOM, no
- * clock, so every rule the edit surface obeys is a testable function call.
- * The draft is *last-read document ∪ projection defaults ∪ edits*; no
- * baseline means no save; one save is one call, refused by the busy gate
- * rather than queued, and nothing flips optimistically — `saved` only ever
- * arrives from the configuration the service returned. Pending markers
- * describe the boundary, not the save: retired only by a later *read*, never
- * by the save that created them. Text stays text until the document is
- * built, so a value out of range reaches the service and is refused there —
- * the panel applies no gate of its own.
+ * The Settings draft/save state machine — pure by design: no host, no DOM, no clock, no panel-side gate on values.
  */
 
 import type { ConfigIssueView } from './service-envelope.ts';
@@ -133,8 +124,6 @@ function draftOf(envelope: ConfigEnvelope): Record<string, string> {
 
 /**
  * The fields whose draft differs from the last-read document.
- *
- * @returns The dirty field names, in descriptor order.
  */
 export function dirtyFields(
     draft: Readonly<Record<string, string>>,
@@ -162,9 +151,6 @@ export function blockedReason(envelope: ConfigEnvelope | null): string | null {
 
 /**
  * Adopt a read: it becomes the baseline, so nothing is dirty any more.
- *
- * @returns The state after the read; a failed read keeps the previous draft
- *   and its dirty set, only re-evaluating the reason no save is offered.
  */
 export function loadEdit(edit: SettingsEdit, envelope: ConfigEnvelope | null): SettingsEdit {
     if (envelope === null) {
@@ -232,8 +218,6 @@ export function editField(input: {
 /**
  * Discard the unsaved edits: the draft goes back to the baseline and the tab
  * says what reverted.
- *
- * @returns The state after the discard.
  */
 export function discard(edit: SettingsEdit, envelope: ConfigEnvelope): SettingsEdit {
     const reverted = edit.dirty;

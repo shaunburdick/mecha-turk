@@ -79,8 +79,6 @@ export function startPollLoop(deps: ScanDeps): PollLoop {
 /**
  * Build the poller production uses: the shared logger, a real timer, and the
  * process' own jitter source.
- *
- * @returns The poller bound to those injectables.
  */
 export function createDefaultPoller(log: ServiceLogger): GitHubIssuePoller {
     return createGitHubIssuePoller({ log });

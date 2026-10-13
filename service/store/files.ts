@@ -1,10 +1,5 @@
 /**
- * Filesystem primitives shared by the store's JSON and NDJSON writers.
- *
- * Reads distinguish "not there yet" (`ENOENT` → `null`, a normal first-run
- * state) from "cannot be read" (anything else → `StorageUnavailableError`),
- * because the two mean very different things to the service: the first is
- * absence, the second is a setup failure the panel must surface (FR-039).
+ * Filesystem primitives for the store's writers: `ENOENT` is absence, anything else a setup failure (FR-039).
  */
 
 import { promises as fs } from 'node:fs';
@@ -22,7 +17,6 @@ export function isMissingFile(error: unknown): boolean {
 
 /**
  * Read a UTF-8 file, treating a missing file as absence rather than failure.
- *
  */
 export async function readTextFile(filePath: string): Promise<string | null> {
     try {

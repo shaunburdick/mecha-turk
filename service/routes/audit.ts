@@ -65,8 +65,6 @@ function auditCursorOf(raw: string | null): number | null {
  * The field is named and the fix is stated; the received value appears nowhere
  * (SEC-11), because a cursor is caller-supplied text that has no business being
  * echoed into an error the panel renders.
- *
- * @returns The refusal response naming `cursor`.
  */
 function cursorIssue(): HttpResponse {
     const issues: FieldIssue[] = [{

@@ -1,13 +1,5 @@
 /**
- * The panel's durable dispatch-attempt record (003 contracts/reconciliation.md): one
- * entry per dispatch attempt under `mecha-turk:dispatches` — a
- * reconciliation aid, never an audit home; the service's `audit.ndjson` stays
- * the trail. Ordering is enforced by the API shape (a record cannot be
- * written before the host call produced an outcome), `acknowledged` flips
- * only on a 2xx keyed by correlation id *and* attempt, and every write is
- * redaction-scanned. Parsing is fail closed (invariant 8): a present but
- * unusable document reads as *unreadable*, never as an empty one — an absent
- * key reads as empty.
+ * The panel's durable dispatch-attempt record: one entry per attempt under `mecha-turk:dispatches`, fail-closed read.
  */
 
 import type { JsonValue } from '@openchamber/sdk';
@@ -497,18 +489,14 @@ function inRecordChain<T>(task: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Read, transform, and persist the dispatch record as one critical section.
- * Checking `relay.inFlight` / `relay.dispatching` before the first `await` makes
- * only the *start* of that section safe: a relay tick that starts inside it
- * writes its own document, and a re-offer then overwrites it with one derived
- * from its earlier read — dropping the tick's `delivered: true`, so the next
- * tick re-offers a delivery that already happened: the second prompt NFR-002 and
- * constitution III exist to prevent. Taking turns on {@link inRecordChain} is
- * what makes the section critical: each transform runs against the document the
- * previous writer left behind, where a reload-and-retry could only refuse a slow
- * host into a lost re-offer. Reads stay outside the chain: `host.storage` answers
- * each call whole, and the stale answer is the safe direction — it projects
- * *more* of a run's movements rather than fewer.
+ * Read, transform, and persist the dispatch record as one critical section. Checking
+ * `relay.inFlight` / `relay.dispatching` before the first `await` makes only the *start* safe: a
+ * relay tick writing inside the section would be overwritten by one derived from an earlier read,
+ * dropping its `delivered: true` and re-offering a delivery that already happened — the second
+ * prompt NFR-002 and constitution III exist to prevent. Taking turns on {@link inRecordChain} is
+ * what makes it critical, where a reload-and-retry could only refuse a slow host into a lost
+ * re-offer. Reads stay outside: `host.storage` answers whole, and a stale answer projects *more*
+ * movements, not fewer.
  */
 async function updateDispatchRecord(
     rt: PanelRuntime,
@@ -642,16 +630,12 @@ export async function recordFollowUpDelivery(
 }
 
 /**
- * Move parked follow-up deliveries back to due, keyed by delivery id — the
- * operator-initiated re-offer FR-105 owes a parked follow-up (AC-051). It
- * clears only `parked` and `reason`: `delivered` has nothing to re-offer, and
- * resetting `attempt` would re-spend the ladder the park just exhausted — the
- * duplicate direction the record exists to refuse (NFR-002). The re-offered
- * record is re-appended at the end of the list, which is load-bearing: the read's
- * window opening is derived from this list ({@link followUpWindowOpening} in
- * `follow-up.ts`), and an owed record sitting *before* a delivered one would
- * open the window past it — a follow-up the relay never sees again. `null` when
- * no listed delivery is parked and undelivered, so the caller writes nothing.
+ * Move parked follow-up deliveries back to due, keyed by delivery id — the operator-initiated
+ * re-offer FR-105 owes a parked follow-up (AC-051). It clears only `parked` and `reason`:
+ * `delivered` has nothing to re-offer, and resetting `attempt` would re-spend the ladder the park
+ * just exhausted (NFR-002). The record is re-appended at the end of the list, which is
+ * load-bearing: {@link followUpWindowOpening} derives the read's window from it, and an owed record
+ * sitting before a delivered one would open the window past it. `null` unless something is parked.
  */
 export function reofferFollowUpRecords(input: {
     readonly document: DispatchRecordDocument;

@@ -1,10 +1,5 @@
 /**
- * The Bindings tab's draft: what the form holds, and the reader that turns it
- * into the row a whole-file grant writes (005 FR-050, FR-053; 004 FR-014; 002
- * FR-047). What the form shows is what the grant writes, nothing is silently
- * dropped on the way out (002 FR-047's omitted-key means *unset*), and the
- * history scope rides the same write read from the draft in both modes (002
- * FR-089).
+ * The Bindings tab's draft and the reader that turns it into the whole-file grant's row (FR-050, FR-014, FR-047/089).
  */
 
 import { parseRepository, repositoryLabel } from './config.ts';
@@ -101,8 +96,6 @@ function draftOrigin(bindings: BindingsTabState, edit?: DraftEditTarget): DraftO
 /**
  * Read the account fields the draft saves under.
  *
- * @param bindings - Panel state to read (add mode's account selection).
- * @param origin - Where the draft is being read from.
  * @returns The account fields, or `null` when add mode picked none.
  */
 function draftAccount(
@@ -135,8 +128,6 @@ function draftAccount(
 /**
  * Read the repository label, refusing a bad shape or a second binding of it.
  *
- * @param origin - Where the draft is being read from; only the edited row is
- *   exempt from the isDuplicate check, because that row already owns the name.
  * @returns The canonical `owner/name`, or `null` (the note then says why).
  */
 function draftRepository(bindings: BindingsTabState, origin: DraftOrigin): string | null {
@@ -205,10 +196,6 @@ function draftHistoryScope(bindings: BindingsTabState): HistoryScope {
 
 /**
  * Read the identity a saved row keeps.
- *
- * @param origin - Where the draft is being read from.
- * @param stamp - This save's RFC 3339 stamp, used for a brand-new row.
- * @returns The id, state, and creation stamp the grant will write.
  */
 function draftIdentity(
     origin: DraftOrigin,

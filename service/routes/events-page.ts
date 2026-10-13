@@ -94,7 +94,6 @@ export interface ListQuery {
  * Absent takes the documented default; anything outside the accepted set is a
  * refusal rather than a guess, because a silently clamped page size would tell
  * the tab it is showing a different number of rows than it is (contract §1).
- *
  */
 export function pageSizeOf(raw: string | null): number | null {
     if (raw === null || raw === '') {
@@ -160,7 +159,6 @@ export function encodeBoundary(row: RunHistoryRow): string {
  * Written as a split rather than one expression with a nested quantifier: the
  * pieces are checked one at a time, so a long hostile reason cannot make the
  * matcher backtrack.
- *
  */
 function isKebabReason(value: string): boolean {
     if (value === '') {
@@ -172,7 +170,6 @@ function isKebabReason(value: string): boolean {
 
 /**
  * Validate the `state` filter against the dispatch vocabulary.
- *
  */
 export function stateFilterOf(
     raw: string | null,
@@ -303,7 +300,6 @@ export function matchesFilters(row: RunHistoryRow, query: ListQuery): boolean {
  * The tiebreak is what makes the cursor deterministic when several rows share a
  * detection stamp — without it a page boundary could drop or duplicate a row,
  * which SC-106/AC-121 forbid.
- *
  */
 export function newestFirst(left: RunHistoryRow, right: RunHistoryRow): number {
     const byStamp = Date.parse(right.detectedAt) - Date.parse(left.detectedAt);

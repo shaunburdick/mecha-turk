@@ -1,9 +1,5 @@
 /**
- * Mounting and disposing the Bindings tab body: the two blocks, the controls
- * inside them, and the one disposer. Every control is a documented SDK
- * primitive handing its strings to the SDK's text path — no HTML sink
- * (panel-service contract §3 invariant 11) — and every one is disposed here
- * (FR-017).
+ * The Bindings tab body's mount and dispose: SDK primitives, no HTML sink, all disposed here (contract §3 inv. 11).
  */
 
 import {
@@ -439,8 +435,6 @@ function disposeBindingsBody(input: BodyParts): void {
  *
  * The editor block lives in its own wrapper so hiding it is one attribute on
  * one element rather than a claim about which node `createBlock` handed back.
- *
- * @returns The list block, the wrapper, and the editor block inside it.
  */
 function createBlocks(pane: HTMLElement): {
     readonly listBlock: Block;

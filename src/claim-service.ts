@@ -1,11 +1,5 @@
 /**
- * The claim and reserve answers the event relay reads (003 T-021, T-023);
- * parsing fails closed — one unreadable run refuses the whole claim answer,
- * because a claim that leases runs the panel then skips burns an attempt and
- * requeue budget while the panel believed it had acted. The lease is a
- * fencing token and the dispatch token an authorization artifact, not
- * credentials, which is why `SECRET_PATTERNS` deliberately does not cover
- * `dtk-` (research §R3).
+ * The claim and reserve answers the relay reads, parsed fail-closed; the tokens fence, never credential (T-021).
  */
 
 import { readClaimPrompt } from './prompt-wire.ts';

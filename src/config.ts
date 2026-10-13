@@ -1,9 +1,5 @@
 /**
- * Shared configuration primitives for repository, worktree, and project
- * references. The integration-card settings path is retired (002 FR-041
- * empties it): bindings are the only configuration resolution mode
- * (`bindings-mode.ts`), and each value parser here still refuses a
- * malformed value rather than forwarding it to `host.startSession()`.
+ * Shared configuration primitives for repository, worktree and project references — parsers refuse malformed values.
  */
 
 /** GitHub repository coordinates as shown in the `owner/name` form. */
@@ -168,8 +164,6 @@ export function parseProjectId(raw: string | null): string | null {
 
 /**
  * Render a worktree selection in the option's own syntax.
- *
- * @returns The `none` / `generated` / `new:<name>` string.
  */
 export function formatWorktreeOption(selection: WorktreeSelection): string {
     if (selection.kind === 'new') {
@@ -181,8 +175,6 @@ export function formatWorktreeOption(selection: WorktreeSelection): string {
 
 /**
  * Render a repository reference as `owner/name`.
- *
- * @returns The `owner/name` label used by GitHub paths and evidence records.
  */
 export function repositoryLabel(repository: RepositoryRef): string {
     return `${repository.owner}/${repository.name}`;
@@ -190,16 +182,13 @@ export function repositoryLabel(repository: RepositoryRef): string {
 
 /**
  * Split a stored `owner/name` label back into its reference — the inverse of
- * {@link repositoryLabel}, beside it so the two directions of one vocabulary
- * cannot drift apart. The service's poll triggers need the reference (GitHub
- * paths take `owner` and `name` separately) while every stored row carries the
- * label, and three modules that must not import each other want the split — so
- * it lives here, in the module that already owns the label, taking a **string**
- * rather than a binding: this is the panel's vocabulary. A label with no `/`
- * splits to an empty `name`, which is what the service's reader has always
- * answered; a stored binding cannot reach that case (`parseRepository` refuses
- * such a label on write and on read), so the branch keeps the function total
- * rather than serving a caller.
+ * {@link repositoryLabel}, beside it so the two directions of one vocabulary cannot drift. The
+ * service's poll triggers need the reference (GitHub paths take `owner` and `name` separately)
+ * while every stored row carries the label, and three modules that must not import each other want
+ * the split — so it lives here, taking a **string** rather than a binding: this is the panel's
+ * vocabulary. A label with no `/` splits to an empty `name`, which the service's reader has always
+ * answered and a stored binding cannot reach (`parseRepository` refuses on write and on read), so
+ * the branch keeps the function total rather than serving a caller.
  */
 export function repositoryRefOf(repository: string): RepositoryRef {
     const index = repository.indexOf('/');

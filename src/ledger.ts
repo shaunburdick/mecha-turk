@@ -1,10 +1,5 @@
 /**
- * The panel's test ledger, persisted through the documented `host.storage`
- * API: lifecycle phases, poll attempts, matches, dispatches, and host
- * verification with correlation IDs (NFR-007). Every write fails closed on
- * secret-shaped content and the host's 64 KiB value limit, and storage
- * content is untrusted — read back through small, total validators rather
- * than casts.
+ * The panel's test ledger (`host.storage`): attempts, dispatches, verification (NFR-007), writes redaction-checked.
  */
 
 import { GUEST_STORAGE_VALUE_BYTES } from '@openchamber/sdk';
@@ -347,7 +342,6 @@ export interface LedgerEntryInput {
 /**
  * Append one entry, returning a new ledger.
  *
- * @returns A new ledger containing the entry, with the oldest entry dropped
  * when {@link MAX_LEDGER_ENTRIES} would be exceeded.
  */
 export function appendEntry(ledger: PanelLedger, input: LedgerEntryInput): PanelLedger {
@@ -404,8 +398,6 @@ export function serializeLedger(ledger: PanelLedger): string {
 
 /**
  * Assert that a ledger can be persisted without carrying secret material.
- *
- * @throws {RedactionError} When the serialized ledger matches a secret shape.
  */
 export function assertLedgerRedacted(ledger: PanelLedger): void {
     serializeLedger(ledger);
@@ -456,8 +448,6 @@ export function analyzePollingGap(input: { ledger: PanelLedger; closedAt: string
 
 /**
  * Return the most recent entries, newest first, for display.
- *
- * @returns Up to `count` entries, newest first.
  */
 export function ledgerTail(ledger: PanelLedger, count: number): readonly LedgerEntry[] {
     return ledger.entries.slice(-count).toReversed();

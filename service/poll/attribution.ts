@@ -17,7 +17,6 @@ export const AUTHOR_LOGIN_MAX_CHARS = 60;
  * GitHub marks its own accounts with a `[bot]` login suffix and reports
  * `type: 'Bot'` for the rest; either signal is enough. One predicate for all
  * three feeds, because `user` is where `type` lives on every one of them.
- *
  */
 export function isBotAuthor(authorLogin: string, authorType: string): boolean {
     return authorLogin.toLowerCase().endsWith('[bot]') || authorType.toLowerCase() === 'bot';
@@ -37,8 +36,6 @@ export function isAttributableAuthor(authorLogin: string, authorType: string): b
 
 /**
  * Bound one attributed login to the length a row may carry.
- *
- * @returns The bounded login.
  */
 export function actorLoginOf(authorLogin: string): string {
     return authorLogin.slice(0, AUTHOR_LOGIN_MAX_CHARS);
@@ -110,7 +107,6 @@ export interface ActorFields {
  * basis would record an inference as a fact. `null` is
  * typed out here rather than asserted away because the caller has already
  * refused a row whose members it could not read.
- *
  */
 export function actorFieldsOf(record: Record<string, unknown>): ActorFields {
     const actorLogin = readActorLoginField(record);

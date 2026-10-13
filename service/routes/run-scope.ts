@@ -28,8 +28,6 @@ export const RUN_SCOPE_PREFIX = '/v1/events/:correlationId';
  * The pipeline hands the segment through **still URL-escaped** and deliberately
  * does not decode it, so a route must not trust an encoding: this accepts only
  * the one shape the service itself mints, which no escape sequence can produce.
- *
- * @param raw - The captured segment, or `undefined` for a non-parameterised path.
  */
 export function pathCorrelationId(raw: string | undefined): string | null {
     if (raw === undefined || raw.length === 0 || raw.length > MAX_CORRELATION_ID_CHARS) {
@@ -97,7 +95,6 @@ function isBodyObject(raw: unknown): boolean {
 
 /**
  * The one rejected body member, and what would fix it.
- *
  */
 function echoIssue(record: Readonly<Record<string, unknown>>, correlationId: string): FieldIssue | null {
     // FR-051: the service mints the id and the panel must not substitute it, so
@@ -286,7 +283,6 @@ export function readRunScopeBody(input: ReadRequest): RunScopeBody | HttpRespons
 
 /**
  * Narrow a parse result to the validation response it may have produced.
- *
  */
 export function isRefusal(parsed: RunScopeRequest | RunScopeBody | HttpResponse): parsed is HttpResponse {
     return 'status' in parsed;

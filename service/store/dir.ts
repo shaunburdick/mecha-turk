@@ -17,7 +17,6 @@ const STORE_RELATIVE_PATH = '.config/openchamber/mecha-turk';
 
 /**
  * Resolve the durable store directory from the service environment.
- *
  */
 export function resolveDataDir(env: Readonly<Record<string, string | undefined>>): string {
     const home = env.HOME;
@@ -34,7 +33,6 @@ export function resolveDataDir(env: Readonly<Record<string, string | undefined>>
  * `mkdir` applies its mode through the process umask, so `chmod` follows to
  * make `0700` explicit: the guarantee must hold whatever umask the host
  * runtime runs with, not just on a default `022` setup.
- *
  */
 export async function ensureDir(dirPath: string): Promise<void> {
     try {

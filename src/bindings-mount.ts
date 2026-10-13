@@ -139,8 +139,6 @@ function cancelNote(rt: PanelRuntime): string {
  * The pane is repainted from state on every patch (`editBindings` refreshes), so
  * the handlers stay one-line delegations and the tab cannot diverge from what
  * the runtime knows.
- *
- * @returns The handler table for {@link mountBindingsPane}.
  */
 export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
     return {

@@ -1,9 +1,5 @@
 /**
- * The Bindings pane's contract and its repaint: what those controls are
- * ({@link BindingsPane}), what they ask for ({@link BindingsPaneHandlers}),
- * the tab's status copy, and the painter that keeps them equal to runtime
- * state. Every service-supplied string reaches the DOM through the SDK
- * primitives' `textContent` writes — no HTML sink (contract §3 invariant 11).
+ * The Bindings pane's contract and repaint: controls, handlers, status copy — strings reach the DOM via `textContent`.
  */
 
 import type {
@@ -163,8 +159,6 @@ export interface BindingsPaneHandlers
  *
  * Exported because [`bindings-body.ts`](./bindings-body.ts) paints it at
  * mount and this module repaints it: one copy of the count, two moments.
- *
- * @returns The summary text the status line shows.
  */
 export function composeStatus(bindings: BindingsTabState): string {
     const enabled = bindings.bindings.filter((binding) => binding.state === 'active').length;

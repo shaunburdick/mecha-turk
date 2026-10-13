@@ -35,7 +35,6 @@ export interface RunTaskContext {
  *
  * Generic over the answer so an operation that carries extra members on its
  * success case keeps them typed instead of widening them away.
- *
  */
 export async function operateRun<T>(
     target: RunOperationTarget,
@@ -79,7 +78,6 @@ export interface RefusalRowInput {
     readonly dispatchTokenFingerprint?: string | undefined;
     /**
      * The gate's extra details, on the one refusal that carries them.
-     *
      *
      * Optional rather than required so the *other* six operations' refusals are
      * unchanged: a staleness verdict has no policy to describe, and a required

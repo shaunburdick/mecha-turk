@@ -1,10 +1,5 @@
 /**
- * Durable ledger writes, shared by every surface that records one. Everything
- * lands through {@link appendEntryAndPersist}, so there is exactly one
- * redaction guard and one repair-on-refusal: a write refused for
- * secret-shaped material or the host's value limit is repaired and retried
- * once, and whatever remains is reported on the banner instead of being
- * claimed as durable progress (constitution IV).
+ * Durable ledger writes shared by every surface: one redaction guard, one repair-on-refusal (constitution IV).
  */
 
 import { parseJsonValue } from './json.ts';
@@ -17,9 +12,6 @@ import { describeError } from './session.ts';
 
 /**
  * Write the serialized ledger to host storage.
- *
- * @throws {Error} When the ledger exceeds the host's value limit, or the
- *   host refuses the write for its own reasons.
  */
 async function writeLedger(rt: PanelRuntime): Promise<void> {
     const json = serializeLedger(rt.state.ledger);

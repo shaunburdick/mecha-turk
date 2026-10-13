@@ -11,7 +11,6 @@ export const TEXT_TRUNCATION_MARKER = '… [truncated]';
 
 /**
  * Bound one value, marking it when it was cut.
- *
  */
 export function boundText(value: string): string {
     if (value.length <= MAX_ROW_TEXT_CHARS) {
