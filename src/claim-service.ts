@@ -1,25 +1,11 @@
 /**
- * The claim and reserve answers the event relay reads (003 T-021, T-023).
- *
- * This surface used to live in `bindings-service.ts`, which is where it stopped
- * fitting: the binding and account readers are the Bindings tab's, and the claim
- * answer is the relay's — a run-shaped document with a lease, a bounded list of
- * source references, and its own counting members. Splitting them is the
- * module map AGENTS.md asks for (one responsibility per module) rather than a
- * move for its own sake, and every reader below keeps the same rule the old
- * home stated: parsing fails closed.
- *
- * **One unreadable run refuses the whole claim answer, deliberately.** A claim
- * that leases runs the panel then skips is worse than a claim the panel
- * refuses — the skipped leases expire, burn an attempt and a unit of the
- * automatic requeue budget, and the panel believed it had acted. The relay
- * surfaces an unreadable answer on its own line rather than dispatching none
- * of it in silence.
- *
- * Nothing here is credential-free by accident: the answer carries a lease (a
- * fencing token, never a capability) and, on reserve, the single-use dispatch
- * token — an authorization artifact, not a credential, which is why
- * `SECRET_PATTERNS` deliberately does not cover `dtk-` (research §R3).
+ * The claim and reserve answers the event relay reads (003 T-021, T-023);
+ * parsing fails closed — one unreadable run refuses the whole claim answer,
+ * because a claim that leases runs the panel then skips burns an attempt and
+ * requeue budget while the panel believed it had acted. The lease is a
+ * fencing token and the dispatch token an authorization artifact, not
+ * credentials, which is why `SECRET_PATTERNS` deliberately does not cover
+ * `dtk-` (research §R3).
  */
 
 import { readClaimPrompt } from './prompt-wire.ts';
@@ -32,14 +18,12 @@ import { eventKindOf, readStatusRows } from './bindings-service.ts';
 export type SubjectType = 'issue' | 'pull_request';
 
 /**
- * The lease a claim issues, as the answer reports it.
- *
- * The lease is a **fencing/consistency token, not a capability**: holding the
- * id authorizes nothing (the service's bearer token is the only authentication
- * gate) and the single-use dispatch token is the only authorization to start a
- * session. It is what proves the service handed this run to
- * this panel — the guard keys off it, not off `state`, because `state` only
- * says the run was *offered*.
+ * The lease a claim issues, as the answer reports it: a
+ * **fencing/consistency token, not a capability** — holding the id authorizes
+ * nothing (the service's bearer token is the only authentication gate) and the
+ * single-use dispatch token is the only authorization to start a session. It
+ * is what proves the service handed this run to this panel, so the guard keys
+ * off it, never off `state`, which only says the run was *offered*.
  */
 export interface ClaimedLease {
     /** Lease identifier echoed on reserve and block report. */
@@ -446,20 +430,15 @@ function parseClaimedRun(value: unknown): ClaimedRun | null {
 
 
 /**
- * Parse the claim answer (`GET /v1/events/pending`).
- *
- * Strict, and deliberately so: one unreadable run refuses the whole answer.
- * A claim that leases runs the panel then skips is worse than a claim the
- * panel refuses — the skipped leases expire, burn an attempt and a unit of the
- * automatic requeue budget, and the panel believed it had acted. The caller
- * surfaces an unreadable answer on its own line rather than dispatching none
- * of it in silence.
- *
- * `auditWritten` is additive: absent reads as `false`, so a build that
- * does not send it reports a degraded trail rather than claiming one it cannot
- * prove — a member that is present but not a boolean refuses the body.
- *
- * @returns The claim answer, or `null` when the shape is unusable.
+ * Parse the claim answer (`GET /v1/events/pending`). Strict, and deliberately
+ * so: one unreadable run refuses the whole answer, because a claim that leases
+ * runs the panel then skips is worse than one it refuses — the skipped leases
+ * expire, burn an attempt and a unit of the requeue budget, and the panel
+ * believed it had acted; the caller surfaces an unreadable answer on its own
+ * line rather than dispatching none in silence. `auditWritten` is additive:
+ * absent reads as `false`, so a build that does not send it reports a degraded
+ * trail rather than claiming one it cannot prove, while a present non-boolean
+ * refuses the body. `null` when the shape is unusable.
  */
 export function parsePendingBody(text: string): ClaimAnswer | null {
     const root = parseJsonObject(text);
@@ -487,15 +466,12 @@ export function parsePendingBody(text: string): ClaimAnswer | null {
 }
 
 /**
- * Parse the reserve answer (`POST /v1/events/:correlationId/reserve`).
- *
- * Both deadlines ride beside the token (contract §1, T-043d): `tokenExpiresAt`
- * is the lease the reservation was made under and `resultDeadlineAt` is when
- * the sweep would wedge the run. Neither is a reason to skip the result report
- * — the authorization outlives the lease — so this reader accepts both and
- * gates on nothing but the token itself.
- *
- * @returns The answer, or `null` when the shape is unusable.
+ * Parse the reserve answer (`POST /v1/events/:correlationId/reserve`). Both
+ * deadlines ride beside the token (contract §1, T-043d): `tokenExpiresAt` is
+ * the lease the reservation was made under, `resultDeadlineAt` is when the
+ * sweep would wedge the run. Neither is a reason to skip the result report —
+ * the authorization outlives the lease — so this reader accepts both and gates
+ * on nothing but the token itself. `null` when the shape is unusable.
  */
 export function parseReserveBody(text: string): ReserveAnswer | null {
     const root = parseJsonObject(text);

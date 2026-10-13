@@ -1,28 +1,13 @@
 /**
- * The Status tab's surface: mount, repaint, and the one read (FR-019, FR-030).
- *
- * The copy this tab prints lives in [`status-lines.ts`](./status-lines.ts)
- * and the document it prints from in
- * [`status-document.ts`](./status-document.ts); this module owns only the
- * handles and the read that feeds them. The tab opens with one title block
- * whose heading is the tab title, and the two blocking notices sit inside it
- * above the refresh control because they are facts rather than rows: an
- * unsupported surface (FR-036) and an unwritable data directory (FR-035),
- * whose copy names the consequence — the token handoff pre-flight fails, so an
- * account cannot be added.
- *
- * The read is explicit and repeating (FR-014, FR-100): the panel reads it once
- * at mount, on every activation of this tab, on a tick armed from the interval
- * the document itself reports, and on a press of the tab's own refresh control.
- * A failed read keeps the last document and marks it stale (FR-019) rather than
- * blanking the tab with a reassuring summary built from nothing, and a failing
- * tick is a failing read in every observable respect — including leaving the
- * armed period exactly where it was.
- *
- * This module repaints itself instead of being reached from
- * `panel-ui.refresh`: its content depends on nothing but its own slice, so a
- * call inside the shared refresh would buy nothing and would put a back-edge
- * in a module graph where `refresh` is currently a leaf.
+ * The Status tab's surface: mount, repaint, and the one read (FR-019,
+ * FR-030) — copy in `status-lines.ts`, document in `status-document.ts`,
+ * handles and read here. The read is explicit and repeating (FR-014,
+ * FR-100): mount, activation, a tick armed from the interval the document
+ * itself reports, and the tab's own refresh control; a failed read keeps the
+ * last document and marks it stale (FR-019) rather than blanking the tab
+ * with a summary built from nothing. This module repaints itself instead of
+ * being reached from `panel-ui.refresh`, so the shared refresh path stays a
+ * leaf.
  */
 
 import { mountBanner, mountButton } from '@openchamber/sdk/ui';
@@ -57,7 +42,6 @@ const POLLING_HEADING = 'Polling';
 
 const ACCOUNTS_HEADING = 'Accounts';
 
-/** Heading above the per-binding rows — the wire says `repositories`. */
 const BINDINGS_HEADING = 'Bindings';
 
 const AGENT_PIN_HEADING = 'Agent pin';
@@ -74,31 +58,23 @@ const FOLLOW_UPS_HEADING = 'Follow-ups';
  */
 const OVERVIEW_HEADING = 'Status';
 
-/** Label treatment for the two groups whose subjects are identifiers. */
 const SUBJECT_KEY_CLASS = 'mt-key--mono';
 
-/** Inputs for {@link mountNotice}; one object so the two notices stay ordered. */
 interface NoticeInput {
     readonly parent: HTMLElement;
-    /** Banner tone; the copy carries the state as well. */
     readonly tone: 'warning' | 'error';
     readonly title: string;
     readonly body: string;
     readonly hidden: boolean;
 }
 
-/** A heading plus the rows under it, repainted as one group. */
 export interface StatusRowGroup {
-    /** The block surface: heading above, body below. */
     readonly block: Block;
     readonly list: HTMLElement;
-    /** Class words for this group's label cells, or `null` for the default. */
     readonly keyClass: string | null;
-    /** One row per line; rebuilt whenever the line set changes. */
     rows: readonly DefRow[];
 }
 
-/** One of the two blocking notices, wrapped so it can be shown and hidden. */
 export interface StatusNotice {
     /** Wrapper whose `hidden` flag is "there is nothing to report here". */
     readonly box: HTMLElement;
@@ -106,7 +82,6 @@ export interface StatusNotice {
 }
 
 export interface StatusTabUi {
-    /** The first block: the tab title over the two notices and the controls. */
     readonly overview: Block;
     /** Unsupported-surface notice, hidden while the surface supports a service. */
     readonly unsupported: StatusNotice;
@@ -114,22 +89,16 @@ export interface StatusTabUi {
     readonly storageBlocked: StatusNotice;
     /** Explicit refresh — the tab's one on-demand read (FR-014). */
     readonly refreshButton: ButtonHandle;
-    /** One line of read state: loading, loaded with a stamp, failed with a cause. */
     readonly readLine: Cell;
     /**
      * One line stating the tab's own refresh cadence and period, or that it is
      * not refreshing itself (FR-101).
      */
     readonly cadenceLine: Cell;
-    /** Process health, uptime, location, schema, storage. */
     readonly service: StatusRowGroup;
-    /** Effective interval, configured interval, cadence, and next poll. */
     readonly polling: StatusRowGroup;
-    /** One row per account, with its rate baseline. */
     readonly accounts: StatusRowGroup;
-    /** The allow-list roll-up, then one row per binding, under **Bindings**. */
     readonly bindings: StatusRowGroup;
-    /** The Default Agent pin's three shapes. */
     readonly agentPin: StatusRowGroup;
     /**
      * The follow-ups waiting to be delivered (002 FR-036, as amended).
@@ -327,24 +296,20 @@ export function stopStatusRefresh(rt: PanelRuntime): void {
 }
 
 /**
- * Arm the tab's refresh tick on the interval the last landed document reported.
- *
- * Two properties are structural rather than tested for, because both are
- * FR-100's "at most one tick per panel" rule: the arm is idempotent for an
- * unchanged period (so re-entering the tab cannot leave a second timer behind),
- * and the period is a function of the reported interval **and nothing else** —
- * never of the last read's outcome, which is what keeps a cadence from
- * becoming the retry loop `contracts/panel-service.md` §1 forbids (FR-100).
- *
- * The tick's body is a parameter rather than a call to {@link loadStatus},
- * because the read arms this function and this function's timer calls the read:
- * naming the read here would make the two mutually referential, and the honest
- * shape is that arming is told what the timer runs. `loadStatus` is its only
- * caller and passes itself.
+ * Arm the tab's refresh tick on the interval the last landed document
+ * reported. Two properties are structural rather than tested for, because
+ * both are FR-100's "at most one tick per panel" rule: the arm is idempotent
+ * for an unchanged period (re-entering the tab cannot leave a second timer
+ * behind), and the period is a function of the reported interval **and
+ * nothing else** — never of the last read's outcome, which is what keeps a
+ * cadence from becoming the retry loop `contracts/panel-service.md` §1 forbids
+ * (FR-100). The tick's body is a parameter rather than a call to
+ * {@link loadStatus}, because naming the read here would make arming and the
+ * timer mutually referential: `loadStatus` is its only caller and passes
+ * itself.
  */
 export function armStatusRefresh(input: {
     readonly rt: PanelRuntime;
-    /** The effective `polling.intervalMs` just read. */
     readonly intervalMs: number;
     readonly tick: () => void;
 }): void {
@@ -464,7 +429,6 @@ function mountControls(rt: PanelRuntime, parent: HTMLElement): {
  */
 export function mountStatusTab(input: {
     readonly rt: PanelRuntime;
-    /** The Status body container the shell created. */
     readonly parent: HTMLElement;
 }): StatusTabUi {
     const { rt, parent } = input;

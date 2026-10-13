@@ -1,19 +1,8 @@
 /**
- * Panel copy for the one-shot handoff's failure paths (task T-009).
- *
- * Every string here is built from a **status code or reason class** and from
- * contract prose — never from a received value — so no failure surface can
- * echo a credential (token-handoff §4 rules 3–4). The three tables are
- * `Map`s rather than object literals because the codes themselves are not
- * camelCase identifiers, and because one lookup per code keeps the routing
- * logic branch-free.
- *
- * **Canonical side (review W2-4/W2-8, reconciled in T-009l/T-009m)**: where
- * panel-service.md §4 quotes operator copy, §4 and this file must carry the
- * *same* string. §4 wins for the `credential-rejected` reason classes
- * (`auth-failed` names a PAT, `scope-missing` names the token to update); the
- * shipped wording wins for `account-rejected` and for the `SERVICE_FAILED`
- * startup line, and §4 was amended to quote those (T-009m).
+ * Panel copy for the one-shot handoff's failure paths (task T-009): every
+ * string is built from a status code or reason class and from contract prose,
+ * never from a received value, so no failure surface can echo a credential
+ * (token-handoff §4 rules 3–4).
  */
 
 /** Host transport failures the panel must map to copy (panel-service §1). */
@@ -62,13 +51,10 @@ export const REASON_COPY: ReadonlyMap<string, string> = new Map([
 /** Shown when the service reported an unwritable store (F10). */
 export const STORAGE_REFUSAL = 'Setup is incomplete: the service storage is not writable.';
 
-/** Shown when `GET /v1/status` answered with something unreadable. */
 export const STATUS_UNREADABLE = 'The service status could not be read — check the service, then retry.';
 
-/** Shown when a request failed without a code the panel recognises. */
 export const UNKNOWN_FAILURE = 'The handoff failed — paste the token again.';
 
-/** Shown after a 409 duplicate-account refusal ends in a silent adoption. */
 export const DUPLICATE_ADOPTED_CODE = 'duplicate-account';
 
 /**

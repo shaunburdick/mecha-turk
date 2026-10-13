@@ -1,18 +1,7 @@
 /**
- * The selected account's chip row.
- *
- * An account row already prints its connection and its scope inside the
- * subtitle the operator reads as prose, and the detail line under it restates
- * both at greater length — so the two facts that decide whether an account
- * can poll are present but never in one place the eye can land on. This
- * module lifts them out: one chip for the connection the service reported,
- * one for the recorded scope verdict, each coloured so a problem reads as a
- * problem (005 FR-062, FR-083).
- *
- * Every label is existing copy: the connection chip is the phrase the row
- * already prints, and the scope chip is the same `scope: …` prefix with the
- * verdict the mirror recorded. Nothing here invents a verdict the service did
- * not give — an absent matrix reads *not checked*, never *ok* (FR-003).
+ * The selected account's chip row: connection and scope verdict lifted into
+ * one place, each coloured so a problem reads as a problem (005 FR-062,
+ * FR-083); an absent matrix reads *not checked*, never *ok* (FR-003).
  */
 
 import { mountBadge } from '@openchamber/sdk/ui';
@@ -20,14 +9,10 @@ import type { BadgeHandle, Tone } from '@openchamber/sdk/ui';
 import { connectionPhrase, SCOPE_UNCHECKED } from './accounts-rows.ts';
 import type { PanelAccount } from './bindings-service.ts';
 
-/** Prefix the scope chip shares with the detail line's own scope phrase. */
 const SCOPE_LABEL_PREFIX = 'scope: ';
 
-/** The chip row over the selected account's detail line. */
 export interface DetailChips {
-    /** Repaint the chips for the open account, or clear them. */
     paint(account: PanelAccount | null): void;
-    /** Release every chip handle the row owns. */
     dispose(): void;
 }
 

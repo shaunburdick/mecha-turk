@@ -1,32 +1,19 @@
 /**
- * The Status tab's operator-facing copy, as pure functions of the document.
- *
- * Everything the tab *says* lives here so the honesty rules are testable
- * without a DOM and cannot drift from what renders: an unmeasured budget
- * reads *not measured yet* (FR-034, AC-107), an unreadable binding row stays
- * on the page (FR-032, AC-105), an out-of-vocabulary pause reason is printed
- * verbatim (FR-031), a next-poll stamp in the past reads *overdue* rather
- * than being replaced by the configured interval, and the agent pin is
- * *not checkable* / *not available* / an outcome — never "ok" (FR-033,
- * AC-106). FR-080 applies in full: these strings are rendered as text.
- *
- * {@link cadenceLine} is the one rule here about the panel's own behaviour
- * rather than the service's: a tab whose values change on their own says so,
- * and a tab with no known period says *not refreshing itself* rather than
- * showing a number nobody reported (005 FR-100, FR-101, NFR-112).
- *
- * {@link actorPolicyLines} is the same rule applied to the one value where a
- * plausible-looking default would be a security control that does not exist:
- * an open allow-list is stated as a **count with its consequence**, a count of
- * zero over a non-empty enabled set is stated positively, and an unreadable
- * document reads *not available*. The count is over **enabled** bindings and the
- * consequence clause names **no act** (005 FR-093 as re-cut at v1.14.0,
- * NFR-113, NFR-114, AC-149).
+ * The Status tab's operator-facing copy, as pure functions of the document —
+ * the honesty rules testable without a DOM and unable to drift from what
+ * renders: an unmeasured budget reads *not measured yet* (FR-034, AC-107), an
+ * unreadable binding row stays on the page (FR-032, AC-105), an
+ * out-of-vocabulary pause reason prints verbatim (FR-031), an overdue stamp
+ * reads *overdue*, the agent pin is never "ok" (FR-033, AC-106), and every
+ * string renders as text (FR-080). {@link cadenceLine} says *not refreshing
+ * itself* when no period is known (005 FR-100, FR-101), and
+ * {@link actorPolicyLines} states an open allow-list as a count with its
+ * consequence — never a plausible default that would be a security control
+ * that does not exist (005 FR-093, NFR-113, NFR-114, AC-149).
  */
 
 import type { StatusAccountView, StatusBindingView, StatusTabState, StatusView } from './status-document.ts';
 
-/** Locale grouping the interval copy uses, so 60000 reads as 60,000. */
 const INTERVAL_GROUPING = 'en-US';
 
 const MS_PER_SECOND = 1_000;
@@ -48,16 +35,12 @@ const MINUTE_WORD_AFTER_MS = 2 * MS_PER_MINUTE;
 
 const RATE_UNMEASURED = 'not measured yet';
 
-/** Empty state for a healthy service that holds no accounts. */
 const ACCOUNTS_NONE = 'No accounts connected yet.';
 
-/** Empty state for accounts the degraded store could not answer. */
 const ACCOUNTS_UNREADABLE = 'The account list could not be read: the data directory is unavailable.';
 
-/** Empty state for a healthy service that holds no bindings. */
 const BINDINGS_NONE = 'No bindings yet.';
 
-/** Empty state for bindings the degraded store could not answer. */
 const BINDINGS_UNREADABLE = 'The binding list could not be read: the data directory is unavailable.';
 
 function intervalText(ms: number): string {
@@ -140,10 +123,8 @@ function nextPollLine(stamp: string, nowMs: number): string {
     return at <= nowMs ? `Next poll: ${stamp} (overdue)` : `Next poll: ${stamp}`;
 }
 
-/** Inputs for {@link pollingLines}; three values, named so they stay ordered. */
 export interface PollingLinesInput {
     readonly view: StatusView;
-    /** Configured interval from `GET /v1/config`, or `null` when not read. */
     readonly configured: number | null;
     readonly nowMs: number;
 }
@@ -251,39 +232,18 @@ export function bindingLines(view: StatusView): readonly string[] {
 
 /**
  * The counted line: how many of the **enabled** bindings carry **no**
- * allow-list, and what that means (005 FR-093 as re-cut).
- *
- * This is Status's whole answer to *"which of my repositories are open?"*, and
- * five properties are load-bearing, each a decision rather than a default:
- *
- * - **The count is over enabled bindings, in both halves.** A disabled binding
- *   can start no session, so it is neither an exposure nor a non-exposure: it
- *   is excluded from the numerator *and* from the denominator, and the
- *   denominator is **labelled** `enabled` wherever a count renders. A count that
- *   filtered on `actorPolicy` alone is non-conforming **whatever it renders** —
- *   `npm run shot` found exactly that, reporting a binding Status itself lists as
- *   `disabled` two lines above as a live exposure.
- * - **The consequence clause is trigger-neutral.** It says *whoever the trigger
- *   lets act*, never *open an issue* or *assign*: one clause spans N bindings
- *   whose switch sets differ, and no single act is true of all of them. A union
- *   would claim an act is possible when for the aggregate it may be something
- *   else, which is the overstatement being fixed. Per-binding derivation belongs
- *   to the Bindings row; Status carries no trigger set and is
- *   forbidden from acquiring one (005 FR-039, clarification row 48).
- * - **Zero is a positive statement, and it is scoped to `enabled`.** *"Every
- *   enabled binding restricts who may trigger"* is a fact worth reading, and
- *   silence is not: an operator cannot tell an absent line from a panel that did
- *   not check. It is scoped because the unqualified form is **false**
- *   the moment a disabled binding is open.
- * - **`0 of 0` is banned in every case**, including bindings-present-but-none-
- *   enabled. A bare `0 of 0` is the reassuring default NFR-113 exists to
- *   prevent: uninformative and reassuring at once, and indistinguishable from a
- *   panel that did not check. That case gets its own sentence naming both how
- *   many bindings exist and that none is on, so the operator never has to infer
- *   a denominator of zero.
- * - **No login, no repository, and no trigger act, ever.** The count is enough
- *   to decide whether to go and look, and naming them would make Status a second
- *   index of the Bindings tab (005 FR-039, clarification row 42).
+ * allow-list, and what that means (005 FR-093 as re-cut). Five load-bearing
+ * properties: the count is over **enabled** bindings in both halves — a
+ * disabled binding is neither an exposure nor a non-exposure, and the
+ * denominator is labelled `enabled` wherever a count renders; the consequence
+ * clause is trigger-neutral (*whoever the trigger lets act*), since Status
+ * carries no trigger set and is forbidden from acquiring one (005 FR-039,
+ * clarification row 48); zero is a positive statement scoped to `enabled`,
+ * because silence cannot distinguish "none open" from "did not check";
+ * `0 of 0` is banned in every case (NFR-113) — bindings-present-but-none-enabled
+ * gets its own sentence naming both numbers — and no login, no repository, no
+ * trigger act, ever: naming them would make Status a second index of the
+ * Bindings tab (005 FR-039, clarification row 42).
  */
 export function actorPolicyLines(view: StatusView | null): readonly string[] {
     if (view === null) {
@@ -337,7 +297,6 @@ export function noticeStates(view: StatusView | null): StatusNoticeStates {
 
 export interface ProjectGuidanceInput {
     readonly bindings: readonly StatusBindingView[];
-    /** Project ids the host lists, or `null` while that list is not loaded. */
     readonly registeredProjectIds: readonly string[] | null;
 }
 
@@ -410,15 +369,11 @@ export function agentPinLines(view: StatusView): readonly string[] {
 }
 
 /**
- * The follow-up queue's one line (002 FR-036, as amended at v1.16.0).
- *
- * **A queue, never as delivered work**: the count is of follow-ups that have
- * *not* reached their session, so a surface can never claim an empty queue
- * while a prompt is still owed. `null` is the honest pre-count — a mount that
- * has not run a relay tick yet has measured nothing, and a zero it has not
- * measured is exactly the claim the amendment forbids.
- *
- * @param waiting - The count the relay last computed, or `null` before it ran.
+ * The follow-up queue's one line (002 FR-036, as amended at v1.16.0): a queue,
+ * never delivered work — the count is of follow-ups that have *not* reached
+ * their session, so a surface can never claim an empty queue while a prompt is
+ * still owed, and `null` is the honest pre-count, because a zero the panel
+ * never measured is the claim the amendment forbids.
  */
 export function followUpQueueLine(waiting: number | null): string {
     if (waiting === null) {
@@ -458,24 +413,15 @@ export function readStateLine(slice: StatusTabState): string {
 }
 
 /**
- * Render a period as the words an operator reads, not as a machine string.
- *
- * **Not** {@link formatUptime}, which is uptime's shape: it always emits at
- * least a seconds part and always emits minutes once hours are present, so
- * 60 000 would read `1m 0s` and 300 000 `5m 0s` — trailing `0s` noise inside a
- * sentence, and no better than the digits it replaces. Its `0s` for a
- * non-positive input is right for an uptime counting up from zero and wrong
- * for a period, where it would claim a duration the service never reported.
- *
- * The range this has to cover is the one `service/config.ts` validates, 15 000
- * – 300 000 ms, and the panel arms whatever period the document carries rather
- * than re-validating it (005 `### Edge Cases`), so anything outside that range
- * still has to render honestly: a whole minute at or above
- * {@link MINUTE_WORD_AFTER_MS} as minutes, a whole second below it as seconds,
- * and anything shorter or non-numeric back in the machine form the Polling
- * block uses, because rounding it into prose would be inventing a period.
- *
- * @returns e.g. `15 seconds`, `60 seconds`, `5 minutes`.
+ * Render a period as the words an operator reads, not as a machine string —
+ * deliberately **not** {@link formatUptime}, whose trailing `0s` (`1m 0s`) is
+ * noise inside a sentence and whose `0s` for a non-positive input would claim a
+ * duration the service never reported. The range is the one `service/config.ts`
+ * validates (15 000–300 000 ms) and the panel re-validates nothing (005
+ * `### Edge Cases`): a whole minute at or above
+ * {@link MINUTE_WORD_AFTER_MS} is minutes, a whole second below it is seconds,
+ * and anything shorter or non-numeric stays in the machine form the Polling
+ * block uses — rounding it into prose would be inventing a period.
  */
 function periodText(ms: number): string {
     if (!Number.isFinite(ms) || ms < MS_PER_SECOND) {
@@ -507,14 +453,12 @@ export interface CadenceLineInput {
 }
 
 /**
- * Render the tab's own refresh cadence in words (005 FR-101).
- *
- * One statement, and the same one whatever caused the read in front of the
- * operator: a page whose values move with no stated reason is a page an
- * operator cannot trust to be current (NFR-111). With no tick armed the
- * statement is *not refreshing itself* and names `Refresh status` — never a
- * plausible-looking period, because the panel holds no default for one
- * (NFR-112), and the copy renders as text rather than colour (FR-083).
+ * Render the tab's own refresh cadence in words (005 FR-101): one statement,
+ * the same whatever caused the read, because a page whose values move with no
+ * stated reason is a page an operator cannot trust to be current (NFR-111).
+ * With no tick armed it says *not refreshing itself* and names
+ * `Refresh status` — never a plausible period the panel holds no default for
+ * (NFR-112) — rendered as text rather than colour (FR-083).
  */
 export function cadenceLine(input: CadenceLineInput): string {
     if (input.refreshMs === null) {

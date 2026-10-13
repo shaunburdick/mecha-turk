@@ -1,16 +1,10 @@
 /**
- * Recovery for ledger writes that fail one of the host's storage gates.
- *
- * The ledger is evidence, not a queue: an entry that trips the redaction
- * assertion or the host's value limit used to fail every later write too,
- * because the offending entry stayed in memory and was re-serialized on each
- * attempt. This module repairs the ledger instead — secret-shaped values are
- * neutralized in place and an over-budget ledger drops its oldest entries — so
- * a single bad entry cannot make durability fail-stuck.
- *
- * Nothing here weakens the gates: {@link serializeLedger} still refuses to
- * write secret-shaped or oversized content. The repair only changes what the
- * ledger contains when a write would otherwise be refused forever.
+ * Recovery for ledger writes that fail one of the host's storage gates:
+ * secret-shaped values are neutralized in place and an over-budget ledger
+ * drops its oldest entries, so a single bad entry cannot make durability
+ * fail-stuck. Nothing weakens the gates — {@link serializeLedger} still
+ * refuses secret-shaped or oversized content; the repair only changes what
+ * the ledger contains when a write would otherwise be refused forever.
  */
 
 import { GUEST_STORAGE_VALUE_BYTES } from '@openchamber/sdk';
@@ -21,16 +15,11 @@ import { findSecretLeak, redact, RedactionError } from './redaction.ts';
 /** Detail recorded in place of an entry whose payload still trips the redaction gate. */
 const QUARANTINED_DETAIL = 'secret-shaped detail removed before the ledger could be written';
 
-/** Working byte budget the ledger is evicted down to, below the host's hard limit. */
 export const LEDGER_BYTE_BUDGET = 60 * 1_024;
 
-/** Result of a repair: the writable ledger plus what the repair changed. */
 export interface LedgerRepair {
-    /** Ledger that can be serialized again. */
     readonly ledger: PanelLedger;
-    /** Number of entries whose detail was neutralized. */
     readonly quarantined: number;
-    /** Number of entries dropped to fit the byte budget. */
     readonly evicted: number;
     /** Operator-facing explanation, recorded in the banner. Never secret material. */
     readonly summary: string;

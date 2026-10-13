@@ -1,31 +1,12 @@
 /**
- * Mount-time reconciliation (003 T-022; FR-025;
- * [contracts/reconciliation.md](../specs/003-dispatch-integrity/contracts/reconciliation.md) §2).
- *
- * On every mount, before the panel issues its first claim, every attempt it
- * durably recorded but has not seen acknowledged is reported again. That is
- * what makes a lost result report recoverable instead of wedging a run:
- * the record from `src/dispatch-record.ts` is the question, this pass is the
- * re-ask, and the service's own idempotency is the answer — a repeat of an
- * already-applied outcome answers `200` unchanged and writes exactly one
- * `dispatch.duplicate-report` row (FR-025, AC-111).
- *
- * Three properties the pass owes:
- *
- * - **Bounded.** {@link RECONCILE_BUDGET_MS} caps the whole pass, every attempt
- *   included, so a silent service cannot stall the panel forever. What the
- *   budget did not reach stays unacknowledged for the next mount.
- * - **Idempotent.** A repeat posts byte-identical bodies and changes no state;
- *   nothing here dispatches, so reconciliation can never create a session.
- * - **Never silent.** Anything still outstanding after the pass — over budget,
- *   refused by the service, or unreachable — becomes a visible warning that
- *   names the runs, and a refusal additionally lands on the panel note with the
- *   service's own copy. An attempt the panel cannot even read gets a warning
- *   that says so rather than a quiet success.
- *
- * The clock is injectable (NFR-112 keeps the *service's* clock injectable at
- * its own seam; this is the panel's), so the budget is tested by moving it
- * rather than by sleeping.
+ * Mount-time reconciliation (003 T-022; FR-025; contracts/reconciliation.md
+ * §2): every attempt the panel durably recorded but has not seen
+ * acknowledged is reported again before the first claim, so a lost result
+ * recovers instead of wedging a run (FR-025, AC-111). Bounded by
+ * {@link RECONCILE_BUDGET_MS}, idempotent — byte-identical bodies, and
+ * nothing here dispatches, so it can never create a session — and never
+ * silent: what stays outstanding becomes a visible warning. The clock is
+ * injectable so the budget is tested by moving it rather than sleeping.
  */
 
 import { dispatchedPath, servicePost } from './service-calls.ts';
@@ -37,13 +18,10 @@ import { setStatus } from './panel-state.ts';
 import { refresh } from './panel-ui.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** Total wall-clock budget for one reconciliation pass, in milliseconds. */
 export const RECONCILE_BUDGET_MS = 5_000;
 
-/** Longest warning body the banner renders before it is cut — visibly. */
 const MAX_WARNING_CHARS = 600;
 
-/** Milliseconds in one second; used to phrase the budget for the operator. */
 const MS_PER_SECOND = 1_000;
 
 /**
@@ -55,15 +33,10 @@ function withinBudget(clock: () => number, startedAt: number): boolean {
     return clock() - startedAt < RECONCILE_BUDGET_MS;
 }
 
-/** What one reconciliation pass reached. */
 export interface ReconcileOutcome {
-    /** Attempts this pass re-reported. */
     readonly attempted: number;
-    /** Attempts whose re-report landed **and** whose acknowledgement stuck. */
     readonly acknowledged: number;
-    /** Runs still unacknowledged after the pass, in report order. */
     readonly outstanding: readonly string[];
-    /** The visible warning the panel renders, or `null` when the pass settled. */
     readonly warning: string | null;
 }
 
@@ -105,7 +78,6 @@ async function reportAttempt(
     });
 }
 
-/** One refusal, narrowed to the branch that carries the envelope's copy. */
 type ServiceRefusal = Extract<ServiceErrorResult, { readonly ok: false }>;
 
 /**
@@ -129,9 +101,7 @@ function refusalLine(attempt: DispatchAttemptRecord, answer: ServiceRefusal): st
  * @returns The banner body, already bounded.
  */
 function warningBody(input: {
-    /** Runs still unacknowledged, in report order. */
     readonly outstanding: readonly string[];
-    /** One line per refusal or budget stop. */
     readonly reasons: readonly string[];
 }): string {
     const runs = [...new Set(input.outstanding)].join(', ');
@@ -146,11 +116,8 @@ function warningBody(input: {
  * @returns The warning the panel now shows.
  */
 function publishWarning(rt: PanelRuntime, input: {
-    /** Runs still unacknowledged, in report order. */
     readonly outstanding: readonly string[];
-    /** One line per refusal or budget stop. */
     readonly reasons: readonly string[];
-    /** Refusal copy to record on the panel note, if any. */
     readonly refusals: readonly string[];
 }): string {
     const warning = warningBody(input);
@@ -170,17 +137,11 @@ function publishWarning(rt: PanelRuntime, input: {
  * @param options - Injectable clock so the budget is testable without sleeping.
  * @returns What the pass reached, including the warning it published.
  */
-/** What one pass over the outstanding attempts reached, before it is published. */
 interface PassResult {
-    /** Attempts this pass re-reported. */
     readonly attempted: number;
-    /** Attempts whose re-report landed and whose acknowledgement stuck. */
     readonly acknowledged: number;
-    /** Runs still unacknowledged after the pass, in report order. */
     readonly outstanding: readonly string[];
-    /** One line per refusal or budget stop, for the warning body. */
     readonly reasons: readonly string[];
-    /** Refusal copy only, for the panel note. */
     readonly refusals: readonly string[];
 }
 
@@ -191,11 +152,8 @@ interface PassResult {
  */
 async function reportOutstanding(input: {
     readonly rt: PanelRuntime;
-    /** The stored record this pass works from. */
     readonly document: DispatchRecordDocument;
-    /** The injected (or real) clock. */
     readonly clock: () => number;
-    /** When the pass began, on that clock. */
     readonly startedAt: number;
 }): Promise<PassResult> {
     const { rt, clock, startedAt } = input;

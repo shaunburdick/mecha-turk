@@ -1,15 +1,8 @@
 /**
- * The account mirror the panel records in `host.storage` (contract §3).
- *
- * One record per connected GitHub account: identity, lifecycle state, and the
- * FR-010 scope matrix, written after a successful handoff and rewritten by the
- * silent account adoption. The module owns the storage key, the narrowing of
- * stored entries, and the read/write helpers, so every consumer (the handoff,
- * the adoption, the removal affordance) shares one shape and one failure rule:
- * a mirror this panel cannot fully vouch for is not one.
- *
- * Extracted from `handoff.ts` so the adoption and the removal can import the
- * mirror rules without an import cycle through the one-shot paste path.
+ * The account mirror the panel records in `host.storage` (contract §3): one
+ * record per connected GitHub account — identity, lifecycle state, FR-010
+ * scope matrix — and one failure rule: a mirror this panel cannot fully
+ * vouch for is not one.
  */
 
 import { writeStorage } from './storage-write.ts';
@@ -24,12 +17,10 @@ const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] a
 /** One FR-010 capability name (contract §2 step ⑥). */
 export type ScopeCapability = (typeof SCOPE_CAPABILITIES)[number];
 
-/** Result recorded for one capability: `ok`, `missing`, or `unknown`. */
 export type ScopeResult = 'ok' | 'missing' | 'unknown';
 
 /** FR-010 scope matrix as the account mirror records it (contract §3, review M1). */
 export interface ScopeMirror {
-    /** RFC 3339 timestamp of the check. */
     readonly checkedAt: string;
     /** One result per FR-010 capability. */
     readonly results: Readonly<Record<ScopeCapability, ScopeResult>>;
@@ -63,16 +54,12 @@ function readScopeResults(raw: unknown): Readonly<Record<ScopeCapability, ScopeR
 }
 
 /**
- * Narrow a service `scopeCheck` payload to the matrix the mirror records.
- *
- * A matrix this panel cannot trust is never guessed into existence, and an
+ * Narrow a service `scopeCheck` payload to the matrix the mirror records: a
+ * matrix this panel cannot trust is never guessed into existence, and an
  * absent one (the F4 status re-read reports no scopes at all) becomes `null`
  * rather than a fabricated verdict — `unknown` is reserved for a check that
- * actually ran (FR-010, review M1). Exported for the silent account
- * adoption, which mirrors the scope matrix the service DTO carries.
- *
- * @param raw - `scopeCheck` from the `201` body, or anything else.
- * @returns The matrix, or `null` when this surface has no usable one.
+ * actually ran (FR-010, review M1). Exported for the silent account adoption.
+ * `null` when this surface has no usable one.
  */
 export function readScopeMirror(raw: unknown): ScopeMirror | null {
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
@@ -94,10 +81,8 @@ export function readScopeMirror(raw: unknown): ScopeMirror | null {
 
 /** Account mirror shape contract §3 records in `host.storage` after a success. */
 export interface AccountMirror {
-    /** GitHub numeric user id. */
     readonly numericUserId: string;
     readonly login: string;
-    /** Connection state the mirror reports. */
     readonly state: 'active';
     /**
      * FR-010 matrix the service reported, or `null` when this surface learned

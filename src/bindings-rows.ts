@@ -1,27 +1,10 @@
 /**
- * The Bindings tab's binding rows (split from `bindings-ui.ts`, MVP fix 2).
- *
- * A row is where the operator finds out *why* a bound repository is or is not
- * producing work: which account polls it, which project it dispatches to, how
- * long ago the service last scanned it, and the machine reason when that scan
- * was skipped (an unusable credential, a disabled account). The scan phrase
- * therefore always names the reason next to the stamp — "binding on, pending
- * 0, nothing happens" is exactly the ambiguity this module exists to close.
- *
- * Everything here is a pure function of panel state, so the copy the operator
- * reads is testable without a live DOM.
- *
- * Two of this tab's clauses live beside it rather than here, each because it is
- * one value with its own rule set: the prompt's presence-and-length summary
- * ({@link promptSummary}, 004/005 FR-051) and the allow-list's row clause
- * (computed in `bindings-actors.ts`, 005 FR-091/FR-092) — a **count** when the
- * binding carries a list, and the worded absent-policy warning when it does not,
- * which is the one place outside its own editor that this product says *anyone
- * may trigger this repository*. That clause is a function of three members and
- * not of the allow-list alone: a binding that is off, or that watches no
- * trigger, has no exposed surface to describe, and the row says so rather than
- * asserting a capability the machine does not have (FR-092's eight-row table,
- * FR-096, NFR-114).
+ * The Bindings tab's binding rows: which account polls the repository, which
+ * project it dispatches to, how long ago it last scanned, and the machine
+ * reason when that scan was skipped — the scan phrase always names the
+ * reason next to the stamp, closing the "binding on, nothing happens"
+ * ambiguity. Pure functions of panel state, so the copy is testable without
+ * a DOM.
  */
 
 import type { ListItem } from '@openchamber/sdk/ui';
@@ -106,13 +89,11 @@ function toView(binding: PanelBinding): BindingView {
 
 /**
  * The prompt words a row summary may carry: presence and length, never text.
- *
  * 005 FR-051 forbids both the instruction and 004's fingerprint on the row —
  * two renderings of one operator instruction is how two versions of it start
  * to disagree — so the summary says only *whether* one exists and *how long*
- * it is, counted the way 004 caps it (code points, not UTF-16 units).
- *
- * @returns `prompt set · N chars`, or `prompt not set`.
+ * it is, counted the way 004 caps it (code points, not UTF-16 units). Answers
+ * `prompt set · N chars`, or `prompt not set`.
  */
 export function promptSummary(binding: BindingView): string {
     if (binding.promptLength === null) {
@@ -133,13 +114,10 @@ function statusRowOf(bindings: BindingsTabState, bindingId: string): StatusRowVi
 
 /**
  * Describe a scan stamp as elapsed time, so the row reads like a status and
- * not like a log line.
- *
- * Shared with the Dispatches rows (M8), which describe `detectedAt` the same way.
- *
- * @param iso - RFC 3339 stamp of the last completed scan.
- * @returns `just now`, `2m ago`, `3h ago`, `2d ago`, or the raw stamp when
- *   it cannot be parsed (an unparseable stamp is shown, never guessed at).
+ * not like a log line — shared with the Dispatches rows (M8), which describe
+ * `detectedAt` the same way. Answers `just now`, `2m ago`, `3h ago`,
+ * `2d ago`, or the raw stamp when it cannot be parsed (shown, never guessed
+ * at).
  */
 export function elapsedSince(iso: string): string {
     const at = Date.parse(iso);
@@ -162,15 +140,12 @@ export function elapsedSince(iso: string): string {
 }
 
 /**
- * Read one status row's scan phrase.
- *
- * The phrase is the operator's only view of *why* nothing is happening on a
- * binding, so it carries the skip reason next to when the last scan ran — and
- * a binding no scan has ever reached reads *not scanned yet* rather than a
- * bare `never`, which reads like a verdict instead of an absence.
- *
- * @returns `scan: <when> · <reason|ok>`, or `not scanned yet` before the
- *   first completed scan with no recorded reason.
+ * Read one status row's scan phrase: the operator's only view of *why*
+ * nothing is happening on a binding, so it carries the skip reason next to
+ * when the last scan ran — and a binding no scan has ever reached reads *not
+ * scanned yet* rather than a bare `never`, which reads like a verdict instead
+ * of an absence. Answers `scan: <when> · <reason|ok>`, or `not scanned yet`
+ * before the first completed scan with no recorded reason.
  */
 function scanPhrase(row: StatusRowView): string {
     if (row.lastScanAt === null) {
@@ -181,21 +156,16 @@ function scanPhrase(row: StatusRowView): string {
 }
 
 /**
- * Why a disabled binding is not polling, when the panel can prove it.
- *
- * The service stores `state: 'disabled'` for both the operator's own toggle
- * and the cascade that follows an account removal, and it writes no reason
- * with it — so the panel checks the one fact it can establish itself: is the
- * account this binding still names in the list the service currently holds?
- * An absent account is the removal; a present one means the operator turned
- * the binding off.
- *
- * The claim is gated on a **completed** read: an accounts list the panel
- * never loaded is not evidence of a removal, and saying "account removed"
- * because a read failed would be exactly the invented value FR-003 forbids.
- *
- * @returns The reason, or `null` when the binding is enabled or the panel
- *   cannot tell.
+ * Why a disabled binding is not polling, when the panel can prove it: the
+ * service stores `state: 'disabled'` for both the operator's own toggle and
+ * the cascade after an account removal, and writes no reason with it — so the
+ * panel checks the one fact it can establish itself: is the account this
+ * binding still names in the list the service currently holds? An absent
+ * account is the removal; a present one, the operator's toggle. The claim is
+ * gated on a **completed** read: an accounts list never loaded is not evidence
+ * of a removal, and saying "account removed" because a read failed would be
+ * exactly the invented value FR-003 forbids. `null` when the binding is
+ * enabled or the panel cannot tell.
  */
 export function disabledReason(bindings: BindingsTabState, binding: BindingView): string | null {
     if (binding.state !== 'disabled' || bindings.status !== 'ready') {
@@ -227,16 +197,13 @@ function statePhrase(state: BindingView['state'], reason: string | null): string
 }
 
 /**
- * Why a binding cannot poll because its account cannot.
- *
- * A binding whose account is unusable is the thing the operator is actually
- * looking at when nothing arrives, so the consequence is stated on *this*
- * row rather than left to a visit to the Accounts tab. The claim is gated on
- * a completed accounts read for the same reason {@link disabledReason} is:
- * a list the panel never loaded is not evidence that an account is unusable.
- *
- * @returns The consequence phrase, or `null` when the account can poll or the
- *   panel cannot tell.
+ * Why a binding cannot poll because its account cannot: a binding whose
+ * account is unusable is what the operator is actually looking at when nothing
+ * arrives, so the consequence is stated on *this* row rather than left to a
+ * visit to the Accounts tab. Gated on a completed accounts read for the same
+ * reason {@link disabledReason} is — a list the panel never loaded is not
+ * evidence that an account is unusable. `null` when the account can poll or
+ * the panel cannot tell.
  */
 export function accountConsequencePhrase(
     bindings: BindingsTabState,
@@ -305,22 +272,15 @@ export function bindingRows(bindings: BindingsTabState): ListItem[] {
 }
 
 /**
- * The selected binding's own line: state, stamps, and its scan (005 FR-053).
- *
- * These are the three facts that describe *this row* rather than the form
- * around it: whether it polls, when it was created and last changed, and what
- * the service's scan has done with it. A binding no scan has reached yet
- * reads `not scanned yet` with a pending count of zero — never a blank, and
- * never an invented "it is fine".
- *
- * **The window in force is deliberately not here** (002 FR-091). A row summary may
- * name the mode's short label and may derive **nothing else** from it, and a bare
- * `window from <stamp>` is exactly that: a second rendering of the window, on a
- * surface with none of FR-092's "the service computed this" labelling beside it, so
- * it reads as something the operator chose. The editor's own line carries both ends
- * of the window with that labelling, and the row carries the label alone.
- *
- * @returns The detail line, or `null` when no binding is selected.
+ * The selected binding's own line: state, stamps, and its scan (005 FR-053) —
+ * the three facts that describe *this row* rather than the form around it. A
+ * binding no scan has reached reads `not scanned yet` with a pending count of
+ * zero — never a blank, never an invented "it is fine". **The window in force
+ * is deliberately not here** (002 FR-091): a row summary may name the mode's
+ * short label and derive **nothing else**, so a bare `window from <stamp>` —
+ * a second rendering without FR-092's "the service computed this" labelling —
+ * would read as something the operator chose. `null` when no binding is
+ * selected.
  */
 export function selectedBindingDetail(bindings: BindingsTabState): string | null {
     const binding = bindings.bindings.find((candidate) => candidate.bindingId === bindings.selectedBinding);

@@ -1,35 +1,9 @@
 /**
- * The binding editor's starting-prompt field (005 FR-051, FR-052; 004 FR-014).
- *
- * Exactly one element carries *this binding's* starting prompt, and this is
- * it: a multiline field in the Bindings editor, fed from `GET /v1/bindings`'s
- * `startingPrompt` and never from an audit fingerprint. The row summary
- * renders presence and length only, so this module — and nothing else — is
- * the one place this binding's text can reach the DOM (005 FR-051 as re-cut
- * at v1.9.0: one rendering *per tier value*; this is the binding tier's).
- *
- * The field also carries the two rules that belong to every surface a tier
- * is rendered on (004 FR-089, AC-144): FR-063's five-fact guidance beside
- * the input, and FR-064's honest `not set` in the value slot while nothing
- * is set.
- *
- * **The field has no button of its own.** It is a field of the binding's
- * form, so the editor's own primary control writes it with everything else
- * (2026-10-01 review: the prompt belongs to the binding, so it saves
- * alongside the rest) — and 004 FR-014's rules ride that write unchanged: a
- * field the operator left alone omits `startingPrompt` entirely, a cleared
- * one travels as an explicit empty value, and a refusal lands back on this
- * field with the service's remediation.
- *
- * It is its own module for the same reason `dispatches-controls.ts` is: the
- * Bindings pane was already close to the file-length cap, and a second
- * responsibility with its own refusal to render is exactly how a file goes
- * over it.
- *
- * The module deliberately imports neither `panel-ui` nor `bindings.ts`: a
- * control that `bindings-ui` composes *and* `refresh` repaints has to stay a
- * leaf, or the two would form an import cycle. Its handler is the form's own
- * in `bindings-mount.ts`, which already owns that table.
+ * The binding editor's starting-prompt field (005 FR-051, FR-052; 004
+ * FR-014): the one element carrying this binding's prompt. It has no button
+ * of its own — the editor's primary control writes it with everything else,
+ * so 004 FR-014's untouched-omits, cleared-travels, refusal-lands-here rules
+ * have exactly one home.
  */
 
 import { mountTextField } from '@openchamber/sdk/ui';
@@ -43,20 +17,13 @@ export const STARTING_PROMPT_LABEL = 'Starting prompt for dispatches from this r
 /**
  * FR-063's guidance, fixed beside the binding-tier field (004 FR-089: the
  * guidance travels with *every* surface that renders a tier, and AC-144 names
- * this one).
- *
- * The five facts, in the operator's terms: the text is sent **verbatim**;
- * there are **no placeholders**; the session runs the operator's **pinned
- * Default Agent**, which this text cannot change; a **credential-shaped
- * value is refused** rather than stored; and there is a **length cap** —
- * the same substance `accounts-rows.ts` states on the Accounts tab and the
- * service's `format` states for the Settings row, with this field's own
- * first sentence kept, because *sent first in every dispatch from this
- * binding* is what the field is.
- *
- * It is fixed copy on purpose: a panel sentence that measured or refused
- * anything would be a second validator disagreeing with the one the service
- * runs, so this states what happens and gates nothing.
+ * this one). The five facts, in the operator's terms: the text is sent
+ * **verbatim**; there are **no placeholders**; the session runs the
+ * operator's **pinned Default Agent**, which this text cannot change; a
+ * **credential-shaped value is refused** rather than stored; and there is a
+ * **length cap**. It is fixed copy on purpose: a panel sentence that measured
+ * or refused anything would be a second validator disagreeing with the one
+ * the service runs, so this states what happens and gates nothing.
  */
 export const PROMPT_GUIDANCE =
     'Sent first in every dispatch from this binding, to the agent verbatim — there are no '
@@ -75,15 +42,13 @@ export const PROMPT_GUIDANCE =
 export const PROMPT_NOT_SET = 'not set';
 
 /**
- * Read the service's refusal **if it belongs to the prompt field**.
- *
- * The whole-file grant validates every binding in one pass, so a 422 can be
- * about any of them; only the one whose message names the prompt may be
- * painted onto the prompt field, and anything else stays on the tab's note
- * where it already has a home. It is read by the binding editor's one save,
- * so the form and the field always classify the same envelope the same way.
- *
- * @returns The field-level copy to render, or `null` when it is not the prompt's.
+ * Read the service's refusal **if it belongs to the prompt field**: the
+ * whole-file grant validates every binding in one pass, so a 422 can be about
+ * any of them, and only the one whose message names the prompt may be painted
+ * onto the prompt field — anything else stays on the tab's note where it
+ * already has a home. Read by the binding editor's one save, so the form and
+ * the field always classify the same envelope the same way. `null` when it is
+ * not the prompt's.
  */
 export function promptRefusal(answer: ServiceErrorResult): string | null {
     if (answer.ok || answer.code !== 'validation' || answer.message === null) {
@@ -131,22 +96,16 @@ export function mountBindingPrompt(input: {
 }
 
 /**
- * Repaint the field from state.
- *
- * The refusal is rendered **as the field's own helper**, directly under the
- * input, because FR-052 asks for a *field-level* refusal with its
- * remediation — and the service's copy never echoes what was submitted, so it
- * can be shown verbatim. It is the only thing that displaces
- * FR-063's guidance: the guidance is the field's resting state, and it comes
- * back the moment the service accepts the next save.
- *
- * What the input shows does not depend on the selection: a form the operator
- * has open is isTypeable in both modes, and *New binding* selects no row *by
- * design* (the add form's own signal throughout). That is also why the
- * guidance is unconditional — an idle line telling an operator who is
- * creating a binding to *select* one is copy FR-063 never asked for, and
- * FR-089 applies the five facts to this field whether or not a row is
- * selected. Only the readiness of the form still follows the selection.
+ * Repaint the field from state. The refusal is rendered **as the field's own
+ * helper**, directly under the input, because FR-052 asks for a *field-level*
+ * refusal with its remediation — and the service's copy never echoes what was
+ * submitted, so it can be shown verbatim; it is the only thing that displaces
+ * FR-063's guidance, the field's resting state, which returns the moment the
+ * next save is accepted. What the input shows does not depend on the selection:
+ * the form is typeable in both modes and *New binding* selects no row *by
+ * design*, so the guidance is unconditional — an idle line telling an
+ * operator creating a binding to *select* one is copy FR-063 never asked for.
+ * Only the readiness of the form still follows the selection.
  */
 export function repaintBindingPrompt(rt: PanelRuntime, controls: BindingPromptControls): void {
     const state = rt.state.bindings;

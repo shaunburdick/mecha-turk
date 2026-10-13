@@ -1,18 +1,11 @@
 /**
- * The eight-state dispatch vocabulary and its reader (003 data-model §1).
- *
- * Split out of [`dispatches-service.ts`](./dispatches-service.ts) so that module stays the
- * runs-history DTO and this one owns the state words themselves: the constant
- * list, the two type aliases the whole panel reads, and the narrowers that
- * decide whether a stored or served state is one this build may render.
- *
- * The rule these functions exist for is the fail-closed one (FR-074): an
- * unknown state — a retired vocabulary word, a typo, a row from a future
- * build — refuses the record rather than rendering a state the panel would
- * then have to guess the tone and affordances for.
+ * The eight-state dispatch vocabulary and its reader (003 data-model §1): the
+ * constant list, the type aliases, and the narrowers. The fail-closed rule
+ * they exist for (FR-074): an unknown state — retired word, typo, a future
+ * build's row — refuses the record rather than rendering something the panel
+ * would have to guess tone and affordances for.
  */
 
-/** The seven states stored as a plain word; the eighth is `blocked:<reason>`. */
 export const PLAIN_RUN_STATES = [
     'pending',
     'claimed',
@@ -23,10 +16,8 @@ export const PLAIN_RUN_STATES = [
     'dead-lettered',
 ] as const;
 
-/** One of the seven plain run states. */
 export type PlainRunState = (typeof PLAIN_RUN_STATES)[number];
 
-/** One of the eight dispatch states, `blocked:<reason>` carrying a non-empty kebab reason. */
 export type RunState = PlainRunState | `blocked:${string}`;
 
 /** Prefix of the `blocked:<reason>` family (data-model §1). */

@@ -1,17 +1,8 @@
 /**
- * The normalised GitHub issue shape the panel composes messages from.
- *
- * The panel makes no GitHub request of its own: every read originates in the
- * *service* (002 FR-031). The REST access this module used to hold — path
- * building, the `host.request()` bridge, the provider payloads, and the
- * `/user` diagnostic — went with the install-time credential.
- *
- * What stays is the record they produced, because two live surfaces still
- * read it: the message composer (`session.ts`) takes one as its issue input,
- * and the relay (`relay-attempt.ts`) projects each claimed run into one.
- * Provider payload fields were always read through accessors rather than
- * destructured, so GitHub's own snake_case names never became identifiers
- * here; nothing in this module parses a payload any more.
+ * The normalised GitHub issue shape the panel composes messages from. The
+ * panel makes no GitHub request of its own (002 FR-031) — the REST access
+ * this module used to hold went with the install-time credential — and two
+ * live surfaces still read this record: the message composer and the relay.
  */
 
 /** Normalised, minimal view of a GitHub issue as the panel reads it. */

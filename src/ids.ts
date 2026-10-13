@@ -1,9 +1,7 @@
 /**
- * Correlation and clock helpers shared by the panel and its tests.
- *
- * Correlation identifiers are the spine of the product's evidence: every ledger
- * entry and evidence record carries one so a poll, a dispatch, and a lifecycle
- * phase can be tied back to a single observation (NFR-007).
+ * Correlation and clock helpers shared by the panel and its tests: every
+ * ledger entry and evidence record carries a correlation id so a poll, a
+ * dispatch, and a lifecycle phase tie back to one observation (NFR-007).
  */
 
 /**

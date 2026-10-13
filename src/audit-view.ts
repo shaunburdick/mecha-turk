@@ -1,23 +1,8 @@
 /**
- * The Audit history view for the selected run (003 T-026; FR-053, FR-064, AC-117).
- *
- * The audit route answers every run-scoped question the trail holds for one
- * correlation id, but it is **not operator-reachable on its own** — the bearer
- * token is service-side and the operator holds no credential. This module is
- * the surface that makes "retrievable by correlation identifier alone,
- * credential-free, without file access" true: select a run row, press
- * **Audit history**, and the rows come back as plain text through the SDK list
- * primitives' `textContent` writes (contract §3, NFR-109 — a hostile reason or
- * details blob is text, never markup).
- *
- * Two rules shape it, matching the runs parser beside it:
- *
- * - **Fail closed.** One unreadable entry refuses the whole body, so the view
- *   shows an honest "could not read" instead of a half-truth (AGENTS invariant 8).
- * - **Bounded.** The fetch asks for {@link AUDIT_ROW_LIMIT} rows, the parser
- *   stops there even if the service sends more, and each row's reason and
- *   details are cut with a visible marker — one loud run cannot fill the pane
- *   (NFR-107), and a cut is never silent.
+ * The Audit history view for the selected run (003 T-026; FR-053, FR-064,
+ * AC-117): run-scoped audit rows as credential-free plain text (contract §3,
+ * NFR-109), failing closed on one unreadable entry and bounded by
+ * {@link AUDIT_ROW_LIMIT} (NFR-107).
  */
 
 import type { ListItem } from '@openchamber/sdk/ui';
@@ -46,10 +31,8 @@ export const AUDIT_ROW_LIMIT = 100;
 export const AUDIT_IDLE_STATUS =
     'No audit history loaded yet — select a dispatch, then press Audit history.';
 
-/** Status line for a run the trail says nothing about (a 200 with no rows). */
 export const AUDIT_EMPTY_STATUS = 'The audit trail holds no rows for this run yet.';
 
-/** Where the audit-history read stands. */
 export type AuditStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 /**
@@ -63,7 +46,6 @@ export type AuditStatus = 'idle' | 'loading' | 'ready' | 'error';
 export interface AuditViewState {
     /** Where the read stands. */
     status: AuditStatus;
-    /** Correlation id these rows answer; `null` before the first read. */
     correlationId: string | null;
     /** Rows in `seq` order, bounded by the fetch's limit (NFR-107). */
     rows: readonly AuditRow[];
@@ -73,17 +55,12 @@ export interface AuditViewState {
 
 /** One audit row exactly as the read returns it (contract §2, verbatim). */
 export interface AuditRow {
-    /** Monotonic sequence number inside the trail. */
     readonly seq: number;
-    /** RFC 3339 write stamp. */
     readonly timestamp: string;
     /** The run's correlation id — what the fetch was keyed by (FR-062). */
     readonly correlationId: string;
-    /** Vocabulary name, e.g. `dispatch.retry`. */
     readonly eventType: string;
-    /** Who acted: `service`, `panel`, or `operator`. */
     readonly actorSource: string;
-    /** Decision recorded, or `null` when the vocabulary defines none. */
     readonly decision: string | null;
     /** Secret-free reason naming the cause, or `null`. */
     readonly reason: string | null;
@@ -91,16 +68,13 @@ export interface AuditRow {
     readonly details: Readonly<Record<string, unknown>>;
 }
 
-/** Characters of one row's reason the line carries before it cuts. */
 const REASON_CHARS = 160;
 
-/** Characters of one row's details the line carries before it cuts. */
 const DETAILS_CHARS = 160;
 
 /** What a cut line ends with, so a truncation is never silent (FR-014's rule). */
 const TRUNCATED_SUFFIX = '…';
 
-/** Note the view shows when the service answers a body it cannot read. */
 const UNREADABLE_NOTE =
     'The service answered an audit history the panel could not read — press Audit history to retry.';
 

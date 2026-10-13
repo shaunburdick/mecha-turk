@@ -1,21 +1,9 @@
 /**
- * The paged `GET /v1/events` answer: its rows and their page label (005 FR-042).
- *
- * Split from `dispatches-service.ts`, which owns the run DTO itself, because
- * the two readers have different failure rules: the DTO parser refuses a row
- * it cannot fully understand, and this one refuses an **answer** whose page
- * label is missing or out of contract — rows without a label would leave the
- * tab unable to say which range it is showing, and a label without rows would
- * let it claim a page it did not read (FR-042, FR-003).
- *
- * Everything mirrors [contracts/dispatch-list.md](../specs/005-panel-ia/contracts/dispatch-list.md):
- * the `events` array keeps its name and its newest-detected-first order, the
- * four accepted page sizes are the service's own, `total` may be `null` and
- * is never the page size by accident, and the `filter` echo is what the tab
- * shows as active rather than the panel's own assumption (FR-043). This is
- * also where the **query half** of that contract lives (`dispatchListPath`),
- * so asking for a page and reading it back sit in one module and cannot
- * drift apart.
+ * The paged `GET /v1/events` answer: its rows and their page label (005
+ * FR-042). The DTO parser refuses a row it cannot fully understand; this one
+ * refuses an **answer** whose page label is missing or out of contract, and
+ * the query half of the contract (`dispatchListPath`) lives here too so
+ * asking for a page and reading it back cannot drift apart.
  */
 
 import { asRecord, parseJsonObject } from './json.ts';

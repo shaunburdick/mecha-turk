@@ -1,18 +1,11 @@
 /**
- * Secret-detection helpers guarding every panel-side write.
- *
- * The panel is not supposed to hold secret material at all: OpenChamber
- * attaches a provider token to outbound requests itself (and the panel makes
- * no GitHub request of its own since the install-time card went), while the
- * one credential that does reach the panel — a pasted PAT for the one-shot
- * handoff — is read and cleared in the same tick. Because the ledger and the
+ * Secret-detection helpers guarding every panel-side write: the panel is not
+ * supposed to hold secret material at all, and because the ledger and the
  * evidence record are built from strings the panel composes, "no secrets in
- * storage" is enforced here as an executable assertion instead of a promise:
- * every value written to `host.storage` passes through
- * {@link assertRedacted} first.
+ * storage" is enforced as an executable assertion — every `host.storage`
+ * write passes through {@link assertRedacted} first.
  */
 
-/** Scalar value kinds a redacted record may hold. */
 type Scalar = string | number | boolean | null;
 
 /** One secret-shaped value the panel must never persist. */
@@ -24,16 +17,13 @@ interface SecretPattern {
 }
 
 /**
- * Secret shapes recognised by {@link findSecretLeak}.
- *
- * The list covers GitHub token formats (`ghp_`, `gho_`, `ghu_`, `ghs_`,
- * `ghr_`, `github_pat_`) plus the two transport spellings that would appear
- * if a header were ever copied into a record: `Authorization:` and
- * `Bearer <credential>`.
- *
- * Patterns are global so {@link redact} replaces every occurrence in one pass;
- * detection uses `String.match`, which scans from the start and never inherits
- * the `lastIndex` state a `RegExp.test()` call would carry over.
+ * Secret shapes recognised by {@link findSecretLeak}: GitHub token formats
+ * (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`) plus the two
+ * transport spellings that would appear if a header were ever copied into a
+ * record — `Authorization:` and `Bearer <credential>`. Patterns are global so
+ * {@link redact} replaces every occurrence in one pass; detection uses
+ * `String.match`, which scans from the start and never inherits the `lastIndex`
+ * state a `RegExp.test()` call would carry over.
  */
 const SECRET_PATTERNS: readonly SecretPattern[] = [
     { label: 'github-token-classic', pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g },
@@ -52,7 +42,6 @@ const CREDENTIAL_KEY_PATTERN = /^(token|pat|password|secret|authorization|api[_-
  * never echoes the matched text, so the failure itself cannot leak.
  */
 export class RedactionError extends Error {
-    /** Stable machine-readable marker so tests and callers can discriminate. */
     public override readonly name = 'RedactionError';
 
     /**

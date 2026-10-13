@@ -1,23 +1,9 @@
 /**
- * The Dispatches tab's paging, filter, and row-detail controls.
- *
- * `dispatches-ui.ts` owns the list, the action groups, the audit trail, and
- * the verification banner; this sibling owns everything an operator uses to
- * move *through* that list and to read one row: the range line, the two
- * server-side filters, Previous/Next, the page-size select, the
- * source-reference reveal, and the correlation-id copy. It is its own module
- * because the board is already close to the file-length cap, and a second
- * responsibility is exactly how a file goes over it.
- *
- * Everything operator-facing here is a **pure function of panel state** —
- * which range is showing, which filters are active, what the empty slot says
- * when a filter matched nothing, and the row-naming accessible names — so the
- * copy is testable without a DOM, and the mount
- * and repaint are thin applications of those strings.
- *
- * No control here talks to the service: the paging actions live in
- * `dispatches-paging.ts` and the row actions in `dispatches.ts`, so the one
- * list read and the one action dispatch path stay exactly where they were.
+ * The Dispatches tab's paging, filter, and row-detail controls: the range
+ * line, the two server-side filters, Previous/Next, the page-size select, the
+ * source-reference reveal, and the correlation-id copy — pure functions of
+ * panel state, with no control here talking to the service (the paging lives
+ * in `dispatches-paging.ts`, the row actions in `dispatches.ts`).
  */
 
 import { mountButton, mountList, mountSelect } from '@openchamber/sdk/ui';

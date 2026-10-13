@@ -1,10 +1,8 @@
 /**
- * Host-owned project, worktree, and session verification (T007).
- *
- * The panel asks OpenChamber for its own state and records what comes back:
- * three documented list calls, four documented subscriptions, the session
- * lifecycle phases observed during the probe, and every partial failure as a
- * problem. Nothing here creates or mutates a project, worktree, or session.
+ * Host-owned project, worktree, and session verification (T007): three
+ * documented list calls, four documented subscriptions, the session phases
+ * observed during the probe, and every partial failure recorded as a problem
+ * — nothing here creates or mutates a project, worktree, or session.
  */
 
 import type { GuestProjectsSnapshot, GuestSessionsSnapshot, GuestWorktreesSnapshot } from '@openchamber/sdk';
@@ -12,11 +10,8 @@ import type { LedgerDetail } from './ledger.ts';
 import { describeError } from './session.ts';
 import type { PanelHost } from './session.ts';
 
-/** Result of probing one host subscription. */
 export interface SubscriptionProbe {
-    /** Which documented subscription was probed. */
     readonly surface: 'projects' | 'worktrees' | 'sessions' | 'session-lifecycle';
-    /** Whether registration succeeded. */
     readonly registered: boolean;
     /**
      * Whether the subscription delivered something while the probe listened.
@@ -38,42 +33,25 @@ export interface SubscriptionProbe {
     readonly error: string | null;
 }
 
-/** How long each subscription probe listens for its replayed snapshot. */
 const DEFAULT_PROBE_WAIT_MS = 75;
 
-/** Inputs for {@link verifyHostState}. */
 interface VerifyHostInput {
-    /** Documented host client. */
     readonly host: PanelHost;
-    /** Resolved project id. */
     readonly projectId: string;
-    /** Optional probe window override. */
     readonly waitMs?: number;
 }
 
-/** Evidence collected from the host about project, worktree, and session state. */
 export interface HostVerification {
-    /** Project id the panel asked about. */
     readonly projectId: string;
-    /** Whether the configured project id exists in `listProjects()`. */
     readonly projectFound: boolean;
-    /** Directory of the resolved project, or `null` when unresolved. */
     readonly projectDirectory: string | null;
-    /** How many projects the host reports. */
     readonly projectCount: number;
-    /** How many worktrees the host reports for the project. */
     readonly worktreeCount: number;
-    /** Branch names the host reports for the project's worktrees. */
     readonly worktreeBranches: readonly string[];
-    /** How many sessions the host reports for the project. */
     readonly sessionCount: number;
-    /** Session ids the host reports for the project. */
     readonly sessionIds: readonly string[];
-    /** Results of the four documented subscription probes. */
     readonly probes: readonly SubscriptionProbe[];
-    /** Session lifecycle phases observed during verification. */
     readonly lifecyclePhases: readonly string[];
-    /** Partial failures and problems; empty when verification was clean. */
     readonly problems: readonly string[];
 }
 
@@ -123,17 +101,12 @@ async function probeSubscription<T>(
     return { snapshot: captured, error: null, teardown: release };
 }
 
-/** One subscription probe to attach to the shared collector. */
 interface ProbeInput<T> {
-    /** Surface name recorded on the probe. */
     readonly surface: SubscriptionProbe['surface'];
-    /** Registration function from the host client. */
     readonly subscribe: (listener: (snapshot: T) => void) => Promise<() => void>;
-    /** How long to listen for the replayed snapshot. */
     readonly waitMs: number;
 }
 
-/** Mutable collector shared by the subscription probes. */
 interface ProbeState {
     readonly probes: SubscriptionProbe[];
     readonly teardowns: (() => void)[];
@@ -195,11 +168,8 @@ function registerLifecycleListener(
  * records whether an event arrived while it listened.
  */
 async function probeLifecycle(input: {
-    /** Host client. */
     readonly host: Pick<PanelHost, 'onSessionLifecycle'>;
-    /** Collector to update. */
     readonly state: ProbeState;
-    /** How long to observe for a lifecycle event. */
     readonly waitMs: number;
 }): Promise<void> {
     const { host, state, waitMs } = input;
@@ -256,7 +226,6 @@ async function probeSubscriptions(input: { host: PanelHost; projectId: string; w
     return state;
 }
 
-/** Snapshots of the three documented list calls. */
 interface HostLists {
     readonly projectFound: boolean;
     readonly projectDirectory: string | null;

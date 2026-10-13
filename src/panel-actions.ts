@@ -1,18 +1,10 @@
 /**
- * Durable ledger writes, shared by every surface that records one.
- *
- * The product's only loops are the service's poll loop and the root-owned
- * relay; neither is armed, stopped, or fed from here. The panel's own poll
- * loop, its `/user` identity diagnostic, its host-state verification action,
- * and its dispatch path all went with the install-time GitHub credential.
- *
- * Everything that still records a ledger entry — the relay, the mount-time
- * reconciliation, the agent read-back — lands through
- * {@link appendEntryAndPersist}, so there is exactly one redaction guard and
- * one repair-on-refusal for all of them: a write refused because an entry
- * carried secret-shaped material or outgrew the host's value limit is
- * repaired and retried once, and whatever is left is reported on the banner
- * instead of being claimed as durable progress (constitution IV).
+ * Durable ledger writes, shared by every surface that records one. Everything
+ * lands through {@link appendEntryAndPersist}, so there is exactly one
+ * redaction guard and one repair-on-refusal: a write refused for
+ * secret-shaped material or the host's value limit is repaired and retried
+ * once, and whatever remains is reported on the banner instead of being
+ * claimed as durable progress (constitution IV).
  */
 
 import { parseJsonValue } from './json.ts';

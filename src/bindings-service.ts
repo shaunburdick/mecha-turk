@@ -1,19 +1,8 @@
 /**
  * The Bindings tab's service surface: bindings, accounts, and the per-binding
- * status rows they answer with.
- *
- * Every call here goes through the documented `host.serviceRequest()` bridge
- * with no credential material: bindings carry account identities only and the
- * accounts list is the credential-free DTO. Parsing fails closed — a body this
- * module cannot fully understand reads as unreadable, and the caller reports
- * that on its own line rather than half-trusting the record.
- *
- * The relay's claim and reserve answers live beside it in
- * [`claim-service.ts`](./claim-service.ts); the two share exactly three
- * things, all exported from here: the {@link BindingStatusRow} row the status
- * member carries, its reader {@link readStatusRows}, and the two row readers
- * `dispatches-service.ts` also holds an opinion about ({@link issueNumberFrom} and
- * {@link eventKindOf}).
+ * status rows, each call through the documented `host.serviceRequest()` bridge
+ * with no credential material. Parsing fails closed — a body this module
+ * cannot fully understand reads as unreadable, never half-trusted.
  */
 
 import { asRecord, fieldsHoldText, integerOrZero, parseJsonObject, textOrEmpty, textOrNull } from './json.ts';
@@ -51,55 +40,36 @@ export interface PanelBinding {
     /** RFC 3339 stamp of the last change. */
     readonly updatedAt: string;
     /**
-     * The stored starting prompt, or absent when this binding has none.
-     *
-     *
-     * Read only: the row summary renders presence and length, never this text
-     * and never a fingerprint, and a whole-file write carries it
-     * for exactly one binding — the one whose prompt the operator edited —
-     * so every other row omits the key and the service preserves its prompt.
-     * `| undefined` is what lets that omission be expressed as
-     * data: `JSON.stringify` drops the member, and the route reads an absent
-     * key as *leave this one alone*.
+     * The stored starting prompt, or absent when this binding has none. Read
+     * only: the row summary renders presence and length, never this text, and a
+     * whole-file write carries it for exactly the one binding whose prompt the
+     * operator edited — `| undefined` expresses that omission as data, since
+     * `JSON.stringify` drops the member and the route reads an absent key as
+     * *leave this one alone*.
      */
     readonly startingPrompt?: string | undefined;
     /**
      * Where this binding's scan window's lower bound comes from, as the service
-     * reports it (002 FR-055, FR-092).
-     *
-     * **Always present, never `undefined`**: absence means the documented
-     * default and the service projects it (FR-058; plan H13), so the editor
-     * renders what the binding will do from one source of truth instead of
-     * inventing a reading. The panel still **refuses** an unusable member rather
-     * than defaulting it (FR-063) — the two rules are about different answers:
-     * an *absent* member is a fact the service states, and an *unusable* one is
-     * something this build cannot judge.
-     *
-     * Read only here and written by the editor's own control; the whole-file
-     * write carries it on **every** row, and omission means *leave this one
-     * alone* (002 FR-057).
+     * reports it (002 FR-055, FR-092). **Always present, never `undefined`** —
+     * absence means the documented default and the service projects it (FR-058;
+     * plan H13) — while the panel still **refuses** an unusable member rather
+     * than defaulting it (FR-063): an absent member is a fact the service
+     * states, an unusable one is something this build cannot judge. The
+     * whole-file write carries it on **every** row; omission means *leave this
+     * one alone* (002 FR-057).
      */
     readonly historyScope?: HistoryScope | undefined;
     /**
-     * The GitHub logins allowed to trigger dispatches from this binding, or
-     * **absent** when it carries no list.
-     *
-     * Three states on the wire and two here: **absent** — no policy is
-     * configured, so any human actor may trigger this repository — and **a
-     * non-empty list**, meaning exactly those logins may. The third wire state,
-     * an explicitly empty array, is a **refusal** rather than a value
-     * (002 FR-047), so {@link parseBindingEntry} refuses it rather than holding
-     * a list the service would never send (invariant 8,
-     * `contracts/binding-allow-list.md` §1).
-     *
-     * Read only: the logins are rendered **exactly once** panel-wide — in the
-     * editor field the operator types into — while a row summary shows the
-     * **count** and nothing else. `| undefined` is
-     * load-bearing in the *other* direction from the prompt's: a whole-file
-     * write carries this member on **every** row and **omission means unset**
-     * (contract §2), so an operator who clears the field takes the binding
-     * back to open. `| undefined` is explicit because `exactOptionalPropertyTypes`
-     * is on and the whole-file write spells the member out on every row.
+     * The GitHub logins allowed to trigger dispatches, or **absent** when it
+     * carries no list. Three wire states, two here: absent means any human
+     * actor may trigger; a non-empty list means exactly those logins; an
+     * explicitly empty array is a **refusal** rather than a value (002
+     * FR-047), so {@link parseBindingEntry} refuses it (invariant 8,
+     * `contracts/binding-allow-list.md` §1). Read only — rendered exactly once
+     * panel-wide, in the editor field — and `| undefined` is load-bearing: the
+     * whole-file write carries the member on **every** row and **omission
+     * means unset** (contract §2), so clearing the field takes the binding back
+     * to open.
      */
     readonly allowedUsers?: readonly string[] | undefined;
 }
@@ -120,30 +90,24 @@ export interface BindingStatusRow {
     /** Pending or in-flight events for the binding. */
     readonly pendingCount: number;
     /**
-     * The lower bound the binding's next scan will open at, as the service
-     * computed it (002 FR-092).
-     *
-     * **Derived state, not configuration.** `null` means the binding has no
-     * window yet — no completed scan and no derivable baseline — and the refusal
-     * that caused it is on `lastError`. Both ends of the window are then readable
-     * together: this, and `lastScanAt`.
+     * The lower bound the binding's next scan will open at (002 FR-092):
+     * **derived state, not configuration.** `null` means no window yet — no
+     * completed scan and no derivable baseline — with the refusal that caused
+     * it on `lastError`, readable together with `lastScanAt`.
      */
     readonly windowStart: string | null;
     /**
      * The history scope in force, as the service reports it (002 FR-092).
-     *
-     * Read **leniently**: an **absent** member is the documented default, because
-     * an older service's answer that does not carry it is not a fault. An
+     * Read **leniently**: an **absent** member is the documented default — an
+     * older service's answer that does not carry it is not a fault — while an
      * *unusable* member is a different case and is refused (FR-063).
      */
     readonly historyScope: HistoryScope;
     /**
-     * Whether a recovery replay is in force for this binding (002 FR-074, FR-078).
-     *
-     * Distinct from `lastScanAt === null`, which also means *never scanned*: the
-     * two are different facts, and this one is what distinguishes a burst of older
-     * events arriving together because the queue was lost from one arriving
-     * because the operator chose to look back.
+     * Whether a recovery replay is in force (002 FR-074, FR-078): distinct
+     * from `lastScanAt === null` — this is what tells a burst of older events
+     * arriving because the queue was lost from one arriving because the
+     * operator chose to look back.
      */
     readonly forceReplay: boolean;
 }
@@ -152,44 +116,37 @@ export interface BindingStatusRow {
 export type EventKind = 'assignment' | 'mention' | 'review';
 
 /**
- * The binding history scope, as the panel reads it (002 FR-053).
- *
- * **The same two names the service stores, and no third.** Re-declared here
- * rather than imported because the panel bundle must not reach into
- * `service/` — the service is a separate artefact behind a request boundary,
- * and a shared module would make a panel build depend on service internals (the
- * same reason `EventKind` is declared on this side). The two are pinned together
- * by `tests/history-scope.test.ts`, which drives the service and the reader over
- * the same fixtures.
+ * The binding history scope, as the panel reads it (002 FR-053). Re-declared
+ * here rather than imported because the panel bundle must not reach into
+ * `service/` — a shared module would make a panel build depend on service
+ * internals — and `tests/history-scope.test.ts` pins the two together over the
+ * same fixtures.
  */
 export type HistoryScope = 'new-only' | 'recent-history';
 
 /**
- * What a binding with no `historyScope` member scans with (002 FR-053, FR-058).
- *
- * Absence has exactly one reading everywhere — `new-only` — and the service
- * projects it, so a binding from an older service still reads as the default
- * rather than as an unknown (002 FR-058; plan H13).
+ * What a binding with no `historyScope` member scans with (002 FR-053,
+ * FR-058): absence has exactly one reading everywhere — `new-only` — and the
+ * service projects it, so a binding from an older service still reads as the
+ * default rather than as an unknown (plan H13).
  */
 export const DEFAULT_HISTORY_SCOPE: HistoryScope = 'new-only';
 
 /**
- * The one mode that is not the default: watch from now on **and** look back over
- * a bounded window once (002 FR-053, FR-084).
- *
- * Named because it is the mode that changes behaviour in three places — the
- * window the scan opens, whether a grant arms a catch-up, and what the row may
- * label — and a literal spelled out three times is three chances to spell it
- * three ways.
+ * The one mode that is not the default: watch from now on **and** look back
+ * over a bounded window once (002 FR-053, FR-084). Named because it changes
+ * behaviour in three places — the window the scan opens, whether a grant arms a
+ * catch-up, and what the row may label — and a literal spelled three times is
+ * three chances to spell it three ways.
  */
 export const RECENT_HISTORY_SCOPE: HistoryScope = 'recent-history';
 
 /**
- * **Fails closed rather than defaulting** (002 FR-063, FR-093): a value outside
- * the vocabulary is something this build cannot judge, and rendering it as the
- * default would tell the operator their binding scans from now on when the
- * service may hold something else. `undefined` is *not* that case — an absent
- * member is the documented default and is accepted as it.
+ * **Fails closed rather than defaulting** (002 FR-063, FR-093): a value
+ * outside the vocabulary is something this build cannot judge, and rendering
+ * it as the default would tell the operator their binding scans from now on
+ * when the service may hold something else. `undefined` is *not* that case —
+ * an absent member is the documented default and is accepted as it.
  */
 export function readHistoryScope(value: unknown): HistoryScope | null {
     if (value === undefined || value === null) {
@@ -219,11 +176,9 @@ const BINDING_STRING_FIELDS = [
 const BINDING_STAMP_FIELDS = ['createdAt', 'updatedAt'] as const;
 
 /**
- * One trigger flag, typed or defaulted.
- *
- * The `typeof` is load-bearing and `??` would lose it: that answers only
- * `null` and `undefined`, while a flag stored as `"yes"` or `0` must read as
- * absent rather than as a truthy member.
+ * One trigger flag, typed or defaulted. The `typeof` is load-bearing and `??`
+ * would lose it: `??` answers only `null` and `undefined`, while a flag stored
+ * as `"yes"` or `0` must read as absent rather than as a truthy member.
  */
 function booleanFlagOf(record: Record<string, unknown>, field: string, isAbsent: boolean): boolean {
     const value = record[field];
@@ -253,11 +208,10 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
 }
 
 /**
- * Shared with `dispatches-service.ts`, which reads the same rows through the runs
- * projection — one reader, one rule, so the claim parser and the runs parser
- * can never disagree about what counts as an issue number.
- *
- * @returns The number, or `0` when absent (the entry was already refused).
+ * Shared with `dispatches-service.ts`, which reads the same rows through the
+ * runs projection — one reader, one rule, so the claim parser and the runs
+ * parser can never disagree about what counts as an issue number. The number,
+ * or `0` when absent (the entry was already refused).
  */
 export function issueNumberFrom(record: Record<string, unknown>): number {
     const value = record.issueNumber;
@@ -266,12 +220,11 @@ export function issueNumberFrom(record: Record<string, unknown>): number {
 }
 
 /**
- * The status row's history-scope read, and what makes the row droppable.
- *
- * Two states, and the difference is a decision: a member this build cannot judge
- * **drops the row** (002 FR-063 — one refused member is never partially applied,
- * invariant 8), while an absent member reads as the documented default, because
- * an answer from a build that does not report it is not a fault (plan H13).
+ * The status row's history-scope read: a member this build cannot judge
+ * **drops the row** (002 FR-063 — one refused member is never partially
+ * applied, invariant 8), while an absent member reads as the documented
+ * default — an answer from a build that does not report it is not a fault
+ * (plan H13).
  */
 interface StatusScopeRead {
     /** The mode, or `null` when the member is present and unusable. */
@@ -345,21 +298,15 @@ type AllowedUsersRead =
     | { readonly ok: false };
 
 /**
- * Read one binding's actor allow-list, fail closed (002 FR-047).
- *
- * Two refusals, each a decision rather than a default. A member that is not an
- * array, and an element that is not text, are refused **whole**: neither can be
+ * Read one binding's actor allow-list, fail closed (002 FR-047). A non-array
+ * member and a non-text element are refused **whole** — neither can be
  * rendered, counted, or re-sent honestly, and a row that silently dropped the
  * field would let the next write take the binding back to open (invariant 8).
- *
- * An **explicitly empty array** is refused too, though the service refuses it
- * first: 002 FR-047 makes `[]` a refusal on write *and* on read, so no
- * compliant service can send one. Holding a value that means neither *open*
- * nor *those logins* would be the third reading this product refuses to pick
- * silently, and 005 renders that case as *unreadable* rather than as open.
- *
- * The submitted spelling is preserved **verbatim** — the
- * panel compares nothing and normalizes nothing here; the service owns that.
+ * An **explicitly empty array** is refused too: 002 FR-047 makes `[]` a
+ * refusal on write *and* on read, and holding a value that means neither
+ * *open* nor *those logins* is the third reading this product refuses to pick
+ * silently (005 renders it *unreadable*). The submitted spelling is preserved
+ * **verbatim** — the service owns comparison and normalization.
  */
 function readAllowedUsers(value: unknown): AllowedUsersRead {
     if (value === undefined) {
@@ -395,16 +342,13 @@ type OptionalMembers =
     | { readonly ok: false };
 
 /**
- * Read the three members a binding carries *optionally*, refusing a bad one.
- *
- * All three are fail-closed for the same reason and together because they share
- * the shape: a value that is neither text, nor a list of text, nor one of the two
- * scope names cannot be rendered, cleared, or re-sent honestly, so the whole body
- * stops rather than half-applying it (004 FR-028, 002 FR-047, 002 FR-063,
- * invariant 8). The prompt and the allow-list stay absent when they are — those
- * are the complete "this binding has none" states — while the **scope never
- * stays absent**: absence means the documented default, and the service projects
- * it (002 FR-055, FR-058).
+ * Read the three members a binding carries *optionally*, refusing a bad one:
+ * a value that is neither text, nor a list of text, nor one of the two scope
+ * names cannot be rendered, cleared, or re-sent honestly, so the whole body
+ * stops rather than half-applying it (004 FR-028, 002 FR-047, 002 FR-063;
+ * invariant 8). Prompt and allow-list stay absent when they are; the **scope
+ * never stays absent** — absence means the documented default, which the
+ * service projects (002 FR-055, FR-058).
  */
 function readOptionalMembers(record: Record<string, unknown>): OptionalMembers {
     const { startingPrompt } = record;
@@ -485,8 +429,7 @@ function parseBindingEntry(value: unknown): PanelBinding | null {
 /**
  * Read one event kind, defaulting to the M1 trigger for anything this build
  * does not know — a stored row from a future build must not break the relay.
- *
- * Shared with `dispatches-service.ts` for exactly the same reason: the runs list
+ * Shared with `dispatches-service.ts` for the same reason: the runs list
  * renders rows the panel's own build may not have enqueued.
  */
 export function eventKindOf(value: unknown): EventKind {

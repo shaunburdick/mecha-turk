@@ -1,12 +1,8 @@
 /**
- * The Dispatches list's paging state (005 FR-042, FR-043;
- * [data-model.md](../specs/005-panel-ia/data-model.md) §3.2).
- *
- * It lives beside the panel state rather than inside it because the page is a
- * small machine of its own: a cursor stack, an index, and two rules (a filter
- * or a page-size change resets; a failed read leaves the position alone). The
- * panel never persists any of it — it is per-mount working state, so a reopen
- * starts on Status with nothing to resume (FR-015).
+ * The Dispatches list's paging state (005 FR-042, FR-043; data-model §3.2): a
+ * cursor stack, an index, and two rules — a filter or page-size change
+ * resets; a failed read leaves the position alone. Per-mount working state,
+ * never persisted, so a reopen starts with nothing to resume (FR-015).
  */
 
 /** Smallest page the Dispatches list offers (FR-042). */

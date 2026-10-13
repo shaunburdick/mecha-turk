@@ -1,52 +1,12 @@
 /**
  * Panel event relay (003 T-021): claim runs, run them through the gates, and
- * hand each one to exactly one `host.startSession()` call.
- *
- * This module owns the **loop** — what a tick claims, which attempts this mount
- * has already made, and when polling starts. The steps of one attempt live in
- * the two modules it drives:
- *
- * ```text
- * relay.ts          claim → handled key → gates → attempt
- * relay-gates.ts    binding + project guards → POST …/blocked → POST …/reserve
- * relay-attempt.ts  host.startSession → record → POST …/dispatched → ack → verify
- * ```
- *
- * Four rules hold for the whole tick:
- *
- * - **Nothing is dispatched that was not offered claimed** (FR-035): the only
- *   source of work is this tick's own claim answer, and an entry whose lease
- *   will not parse is unreadable rather than dispatchable — the guard keys off
- *   `lease`, never off `state`, which only records the state the run was
- *   *offered* in.
- * - **No `host.startSession()` after any refusal** (FR-028's panel half): a
- *   refused guard, a refused reserve, or an unreadable authorization each end
- *   the attempt before the host is called.
- * - **The handled list is keyed `correlationId#attempt`** (FR-034): a failed
- *   result report never clears an entry and never authorizes a re-dispatch; a
- *   new lease and attempt arrive under a different key and are free to proceed.
- * - **A claim answer may be partial** (contract `claim-lease.md`): the service
- *   paginates, so a short answer is not "everything that was waiting". The
- *   panel simply polls again on its own clock, and `status.pendingCount` is the
- *   honest "more is waiting" signal the loop never second-guesses.
- *
- * **The follow-up deliveries ride this same tick.** A follow-up is a prompt into
- * a session the dispatch already created, so it needs no claim and no lease: the
- * rows arrive on the relay's **own** read of `GET /v1/events` — a
- * `state=dispatched`-filtered view this loop refreshes on its own clock
- * ({@link readFollowUpRows}), never the operator's paged list — and they are
- * delivered behind the same one-host-action-at-a-time gate. One timer issuing
- * host calls is one scheduler; a second loop would be two (research §R14.5),
- * and the retry ladder the service's own configuration declares is what paces
- * the repeats rather than a timer of this panel's (002 FR-105).
- *
- * After a report the relay also (M8) refreshes the runs history the Dispatches
- * section renders and (M9) reads back the dispatched session's agent —
- * warn-only, see `agent-verify.ts`. Each tick it also publishes what the
- * panel's durable record says about the follow-ups on those rows — the waiting
- * count the Status surface renders (002 FR-036) and the parked reasons the run
- * row names (002 FR-105) — so neither surface waits on an operator refresh to
- * tell the truth about the queue.
+ * hand each to exactly one `host.startSession()` — this module owns the loop,
+ * `relay-gates.ts` the refusals, `relay-attempt.ts` the host call. Nothing is
+ * dispatched that was not offered claimed (FR-035), no host call after any
+ * refusal (FR-028), the handled list is keyed `correlationId#attempt`
+ * (FR-034), a partial claim answer just means poll again (contract
+ * `claim-lease.md`), and follow-up deliveries ride this same tick behind the
+ * same one-host-action-at-a-time gate (research §R14.5; 002 FR-105).
  */
 
 import { refresh } from './panel-ui.ts';
@@ -302,16 +262,12 @@ async function deliverFollowUps(rt: PanelRuntime): Promise<DispatchRecordDocumen
 
 /**
  * Publish what the panel's durable record says about the follow-ups it holds.
- *
- * Two surfaces read it, and both would otherwise wait on an operator refresh to
- * tell the truth: the Status surface's waiting count (002 FR-036) and the run
- * row's parked reason (002 FR-105). The relay is the publisher because it is the
- * one loop that holds the complete runs view and the record on the same tick —
- * an operator refresh of the Dispatches list publishes the same view through
- * `loadDispatches`.
- *
- * @param rt - Panel runtime whose dispatches slice and relay state are written.
- * @param document - The record document this tick read.
+ * Two surfaces read it, and both would otherwise wait on an operator refresh
+ * to tell the truth: the Status surface's waiting count (002 FR-036) and the
+ * run row's parked reason (002 FR-105). The relay is the publisher because it
+ * is the one loop that holds the complete runs view and the record on the same
+ * tick — an operator refresh of the Dispatches list publishes the same view
+ * through `loadDispatches`.
  */
 function publishFollowUpState(rt: PanelRuntime, document: DispatchRecordDocument): void {
     const records = document.followUps ?? [];
@@ -360,17 +316,14 @@ export async function pollRelay(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Arm the relay loop: one immediate poll, then the interval.
- *
- * Mount-time reconciliation settles first: while it is running this
- * call only records the intent, and reconciliation releases it once every
- * outstanding attempt has been re-reported. That makes "no claim before
- * reconciliation" a property of the arm itself rather than of whichever call
- * site happens to reach here first — there are three of them (connection,
- * mount-time bindings, every later read or grant).
- *
- * The timer is unref'd, so it never keeps an idle process alive; teardown
- * clears it through {@link stopRelayPolling}.
+ * Arm the relay loop: one immediate poll, then the interval. Mount-time
+ * reconciliation settles first — while it runs this call only records the
+ * intent, and reconciliation releases it once every outstanding attempt has
+ * been re-reported — so "no claim before reconciliation" is a property of the
+ * arm itself rather than of whichever call site reaches here first (there are
+ * three: connection, mount-time bindings, every later read or grant). The
+ * timer is unref'd, so it never keeps an idle process alive; teardown clears
+ * it through {@link stopRelayPolling}.
  */
 export function startRelayPolling(rt: PanelRuntime): void {
     if (rt.relayArmed || rt.disposed) {
@@ -416,7 +369,6 @@ export function settleReconciliation(rt: PanelRuntime): void {
     startRelayPolling(rt);
 }
 
-/** Stop the relay loop. */
 export function stopRelayPolling(rt: PanelRuntime): void {
     rt.relayArmed = false;
     if (rt.state.relay.timer === null) {

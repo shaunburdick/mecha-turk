@@ -1,30 +1,8 @@
 /**
- * The Accounts tab's rows and the selected account's detail.
- *
- * A row is where the operator finds out *whether an account can poll*, so it
- * carries every member the service names — display name (falling back to the
- * login), login, numeric id, lifecycle state, connection state, last
- * verified stamp, the four-capability scope matrix, the error reason when the
- * state is `error`, and how many bindings the account backs — as **text**, so
- * a state is never carried by colour alone.
- *
- * Three rules live here rather than at the call site, because a second place
- * they could be got wrong is a second chance to violate them:
- *
- * - **First-class bad states:** `rejected`, `revoked`, and `error`
- *   each render their own words plus a remediation, and `pending_handoff` is
- *   told apart from `error` + `interrupted-handoff` while the two share one
- *   remediation line — an operator who has connected something and
- *   has not is never left guessing which of the two they are looking at.
- * - **Nothing credential-shaped:** the DTO is credential-free
- *   by construction and this module renders strings only — no token, no
- *   scope edit, no read-back.
- * - **Unknown is unknown:** a member the DTO did not carry reads
- *   *not reported*, never a plausible default; a state outside the six reads
- *   `unknown state: <raw>` rather than being mapped to a friendly guess.
- *
- * Everything here is a pure function of panel state, so the copy is testable
- * without a DOM.
+ * The Accounts tab's rows and the selected account's detail: every member the
+ * service names as text; bad states first-class, nothing credential-shaped,
+ * an unknown member reads *not reported* — never colour alone, never a
+ * plausible default.
  */
 
 import type { ListItem } from '@openchamber/sdk/ui';
@@ -45,7 +23,6 @@ export const HANDOFF_REMEDIATION = 'Complete or replace the handoff to finish co
 /** What one lifecycle state reads as: its words and the way out of it. */
 interface LifecycleCopy {
     readonly label: string;
-    /** The remediation line, or `null` when the state needs none. */
     readonly remediation: string | null;
 }
 
@@ -65,33 +42,24 @@ const LIFECYCLE_COPY = new Map<string, LifecycleCopy>([
     ['error', { label: 'error', remediation: 'Rotate the token, or remove the account once nothing needs it.' }],
 ]);
 
-/** Why an account was stopped short of polling, for the cause line. */
 const INTERRUPTED_HANDOFF = 'interrupted-handoff';
 
-/** Words for a connection state the DTO did not carry. */
 const CONNECTION_UNREPORTED = 'connection not reported';
 
-/** Words for a lifecycle state the DTO did not carry. */
 const LIFECYCLE_UNREPORTED = 'state not reported';
 
-/** Words for a verification stamp the DTO did not carry. */
 const VERIFIED_UNREPORTED = 'last verified: not reported';
 
-/** Words for a scope matrix the DTO did not carry. */
 export const SCOPE_UNCHECKED = 'scope: not checked';
 
-/** Order the four capabilities render in, so two rows read alike. */
 const SCOPE_ORDER = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
 
 /**
- * Read the label an account row leads with.
- *
- * The operator's display name wins when there is one and the GitHub login
- * takes over when there is not, because a name the operator chose is the
- * label they recognise — and the login is still rendered beside it, since
- * `displayName` never becomes identity.
- *
- * @returns The title text, verbatim (it renders as text, never as markup).
+ * Read the label an account row leads with: the operator's display name wins
+ * when there is one and the GitHub login takes over when there is not, because
+ * a name the operator chose is the label they recognise — while the login still
+ * renders beside it, since `displayName` never becomes identity. Verbatim text,
+ * never markup.
  */
 export function accountTitle(account: PanelAccount): string {
     return account.displayName ?? account.login;
@@ -113,19 +81,12 @@ export function lifecycleCopy(account: PanelAccount): LifecycleCopy {
 }
 
 /**
- * Read one connection state's words.
- *
- * The four states the service names render verbatim, and so does **needs
- * reconnection**: both the status projection and the accounts mirror have
- * been seen carrying that word (the offline fixtures model it), and the
- * Status tab already prints whatever the service reported
- * (`status-lines.ts`). Calling a word the operator can read on the sibling
- * tab *unknown* is the worse lie — so it joins the known set and gets the
- * warning tone beside it, while any word **outside** the set still reads
- * `unknown connection state: <raw>` rather than being mapped to a friendly
- * guess.
- *
- * @returns The connection phrase, including an unreported or unknown one.
+ * Read one connection state's words. The four states the service names render
+ * verbatim, and so does **needs reconnection** — the sibling Status tab already
+ * prints whatever the service reported (`status-lines.ts`), so calling a word
+ * the operator can read there *unknown* is the worse lie — while any word
+ * **outside** the set still reads `unknown connection state: <raw>` rather than
+ * being mapped to a friendly guess.
  */
 export function connectionPhrase(account: PanelAccount): string {
     const { connectionState } = account;
@@ -149,13 +110,10 @@ export function connectionPhrase(account: PanelAccount): string {
 }
 
 /**
- * How many bindings an account backs, as the rows print it.
- *
- * One place, because `1 bindings` appeared twice and a count that disagrees
- * with its own noun is the kind of detail an operator stops trusting the
- * rest of the row over (product-owner review 2026-10-01).
- *
- * @returns The count with its noun, singular when the count is one.
+ * How many bindings an account backs, as the rows print it: one place, because
+ * `1 bindings` appeared twice and a count that disagrees with its own noun is
+ * the detail an operator stops trusting the rest of the row over (product-owner
+ * review 2026-10-01). Singular when the count is one.
  */
 export function bindingsPhrase(count: number): string {
     return `${count} ${count === 1 ? 'binding' : 'bindings'}`;
@@ -198,16 +156,12 @@ export function bindingsBacked(bindings: BindingsTabState, account: PanelAccount
 }
 
 /**
- * The prompt words an account's row summary carries: presence and length
- * only — never the text, never a fingerprint. One rendering *per tier value*,
- * and the account tier's value renders only in its own field.
- *
- * Length is counted the way the text is capped elsewhere — by code point, so a
- * supplementary character is one and not two — and an account whose tier is
- * unset says so rather than showing nothing, because *absent*
- * is a state an operator should be able to read.
- *
- * @returns `prompt set · N chars`, or `prompt not set`.
+ * The prompt words an account's row summary carries: presence and length only —
+ * never the text, never a fingerprint — one rendering *per tier value*, with the
+ * account tier's rendering only in its own field. Length is counted by code
+ * point, like the text cap elsewhere, and an unset tier says so rather than
+ * showing nothing: *absent* is a state an operator should be able to read.
+ * Answers `prompt set · N chars`, or `prompt not set`.
  */
 export function accountPromptSummary(account: PanelAccount): string {
     const { startingPrompt } = account;
@@ -243,18 +197,15 @@ export function accountRow(bindings: BindingsTabState, account: PanelAccount): L
     };
 }
 
-/** Build the account list rows, in stored order. */
 export function accountRows(bindings: BindingsTabState): ListItem[] {
     return bindings.accounts.map((account) => accountRow(bindings, account));
 }
 
 /**
- * Compose one account's own line, with its remediation.
- *
- * The remediation is what separates a first-class bad state from a badge:
- * `rejected`, `revoked`, `error`, and `pending_handoff` each say what to do
- * next, and an account that is fine says nothing at all rather than
- * reassuring the operator.
+ * Compose one account's own line, with its remediation: the remediation is what
+ * separates a first-class bad state from a badge — `rejected`, `revoked`,
+ * `error`, and `pending_handoff` each say what to do next, and an account that
+ * is fine says nothing rather than reassuring the operator.
  */
 export function accountDetail(bindings: BindingsTabState, account: PanelAccount): string {
     const lifecycle = lifecycleCopy(account);
@@ -278,12 +229,10 @@ export function accountDetail(bindings: BindingsTabState, account: PanelAccount)
 }
 
 /**
- * What a rotation keeps, stated before it happens.
- *
- * It is the operator's first question about rotation and never the one they
- * fear, so the confirmation answers it rather than asking for faith: every
- * checkpoint, delivery, dispatch, and audit record stays where it is, and the
- * only thing that changes is the credential.
+ * What a rotation keeps, stated before it happens — the operator's first
+ * question about rotation and never the one they fear, so the confirmation
+ * answers it rather than asking for faith: every checkpoint, delivery, dispatch,
+ * and audit record stays where it is, and only the credential changes.
  */
 export function rotationStatement(login: string): string {
     return (
@@ -308,7 +257,6 @@ export function removalStatement(bindings: BindingsTabState, account: PanelAccou
     );
 }
 
-/** What the note says once a rotation landed. */
 export function rotationRetained(login: string): string {
     return (
         `Token rotated for ${login} — every checkpoint, delivery, dispatch, and audit record `
@@ -317,13 +265,10 @@ export function rotationRetained(login: string): string {
 }
 
 /**
- * The confirmation the selected row owes the operator right now.
- *
- * Derived at render time from which control is armed, so the statement can
- * never be staler than the arm it describes and never needs clearing.
- *
- * @returns The statement to append to the detail line, or `null` when nothing
- *   on this row is armed.
+ * The confirmation the selected row owes the operator right now: derived at
+ * render time from which control is armed, so the statement can never be staler
+ * than the arm it describes and never needs clearing. `null` when nothing on
+ * this row is armed.
  */
 export function armStatement(input: {
     readonly accounts: AccountsTabState;
@@ -360,7 +305,6 @@ export function detailText(input: {
 
 export function armLabel(input: {
     readonly armed: string | null;
-    /** The row the control acts on, or `null` when nothing is open. */
     readonly id: string | null;
     readonly armedLabel: string;
     readonly idleLabel: string;
@@ -368,7 +312,6 @@ export function armLabel(input: {
     return input.id !== null && input.armed === input.id ? input.armedLabel : input.idleLabel;
 }
 
-/** The display-name field's label and its purpose line. */
 const DISPLAY_NAME_LABEL = 'Display name for this account';
 
 /** Help under the label field: what the member does, never a value. */
@@ -384,15 +327,12 @@ const DISPLAY_NAME_HINT = 'Shown in the list instead of the login';
 export const ACCOUNT_PROMPT_LABEL = 'Starting prompt for dispatches from this account';
 
 /**
- * The guidance fixed beside the account-tier field.
- *
- * The Settings row takes its guidance from the service-declared `format`;
- * the Accounts field carries a fixed helper of its own. All five facts the
- * surface must convey, in the operator's
- * terms: sent verbatim, no placeholders, the pinned Default Agent, the
- * refusal shape, and the cap. It is *fixed* copy on purpose — a panel
- * sentence must never become a second validator that disagrees with the one
- * the service runs.
+ * The guidance fixed beside the account-tier field: the Settings row takes its
+ * guidance from the service-declared `format`, but this Accounts field carries a
+ * fixed helper of its own — sent verbatim, no placeholders, the pinned Default
+ * Agent, the refusal shape, and the cap. *Fixed* copy on purpose: a panel
+ * sentence must never become a second validator that disagrees with the one the
+ * service runs.
  */
 export const ACCOUNT_PROMPT_GUIDANCE =
     'Sent to the agent verbatim — there are no placeholders, and the text cannot change the '
@@ -408,28 +348,21 @@ export const ACCOUNT_PROMPT_GUIDANCE =
 export const ACCOUNT_PROMPT_NOT_SET = 'not set';
 
 export interface AccountFieldView {
-    /** The field's accessible name. */
     readonly label: string;
-    /** The draft the input holds. */
     readonly value: string;
     /** Shown only while the input is empty — never typed into the value. */
     readonly placeholder: string;
-    /** The service's refusal when there is one, else this field's help. */
     readonly helper: string;
-    /** Whether the field can be typed into (it needs an open row). */
     readonly isDisabled: boolean;
-    /** Whether the input is multiline — the prompt is, the label is not. */
     readonly multiline: boolean;
 }
 
 /**
- * Derive one profile member's field from state.
- *
- * Pure, and the only place either field's words are decided, so mount and
- * repaint cannot drift apart and a test can read the copy without a DOM.
- * The service stays the single save boundary: nothing here
- * validates, lengths, or shapes the draft — it only says what to show and
- * whether the row the draft was loaded for is still the one on screen.
+ * Derive one profile member's field from state — pure, and the only place either
+ * field's words are decided, so mount and repaint cannot drift apart and a test
+ * can read the copy without a DOM. The service stays the single save boundary:
+ * nothing here validates, lengths, or shapes the draft, only says what to show
+ * and whether the row the draft was loaded for is still the one on screen.
  */
 export function accountFieldView(
     member: AccountMember,

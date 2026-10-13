@@ -1,15 +1,11 @@
 /**
- * Service read/write side the Bindings tab and the relay share (re-cut).
- *
- * One small client for the HTTP calls the panel makes over the documented
- * `host.serviceRequest()` bridge: bindings GET/PUT, the configuration PUT,
- * event relay GET/POST, and the runs history GET/POST. Classification of the
- * answer itself lives in [`service-envelope.ts`](./service-envelope.ts) — one
- * classifier for every wrapper, so the tab and the loop draw problems from one
- * vocabulary (never quoting a payload).
- *
- * MVP-DEBT: a long-poll cursor and lease headers are contract §2.4
- * machinery this simple client replaces for the MVP cut.
+ * Service read/write side the Bindings tab and the relay share (re-cut): one
+ * small client for the HTTP calls the panel makes over the documented
+ * `host.serviceRequest()` bridge — bindings GET/PUT, the configuration PUT,
+ * event relay GET/POST, runs history GET/POST — with answer classification
+ * left to `service-envelope.ts`, one classifier for every wrapper (never
+ * quoting a payload). MVP-DEBT: a long-poll cursor and lease headers are
+ * contract §2.4 machinery this simple client replaces for the MVP cut.
  */
 
 import type { PanelHost } from './session.ts';
@@ -21,7 +17,6 @@ import {
     resultWithErrorOf,
 } from './service-envelope.ts';
 
-/** The classifier's vocabulary, re-exported so one import path still serves. */
 export type {
     ConfigIssueView,
     ServiceConfigPutResult,
@@ -39,16 +34,13 @@ export type {
  */
 const LEGACY_RESOURCE: ServiceResource = 'bindings list';
 
-/** The one method the wrappers call, typed as the documented host surface. */
 export type ServiceRequester = Pick<PanelHost, 'serviceRequest'>['serviceRequest'];
 
-/** Path of the bindings collection. */
 export const BINDINGS_PATH = '/v1/bindings';
 
 /** Path of the credential-free account collection (service contract §2.2). */
 export const ACCOUNTS_PATH = '/v1/accounts';
 
-/** Path the panel polls for claimed runs. */
 export const EVENTS_PENDING_PATH = '/v1/events/pending';
 
 /**
@@ -71,10 +63,8 @@ export const CONFIG_PATH = '/v1/config';
  */
 export const HEALTH_PATH = '/health';
 
-/** Path of the runs history: every run, every state, newest first. */
 export const EVENTS_PATH = '/v1/events';
 
-/** Path of the correlation-filtered audit read. */
 export const AUDIT_PATH = '/v1/audit';
 
 /**
@@ -94,7 +84,6 @@ const RUN_SCOPE_PATTERN = '/v1/events/:correlationId';
  */
 const ACCOUNT_PATH_PATTERN = '/v1/accounts/:numericUserId';
 
-/** Path pattern of one account's token-replacement route. */
 const ACCOUNT_TOKEN_PATTERN = '/v1/accounts/:numericUserId/token';
 
 /**
@@ -108,7 +97,6 @@ const ACCOUNT_TOKEN_PATTERN = '/v1/accounts/:numericUserId/token';
  */
 const FORCE_DISABLE_QUERY = '?force=1';
 
-/** The path segment every account route substitutes the numeric id into. */
 const ACCOUNT_ID_SEGMENT = ':numericUserId';
 
 /**
@@ -117,9 +105,7 @@ const ACCOUNT_ID_SEGMENT = ':numericUserId';
  * @returns The wrapper's result.
  */
 export async function serviceGet(input: {
-    /** Host `serviceRequest` surface. */
     readonly serviceRequest: ServiceRequester;
-    /** Path to GET. */
     readonly path: string;
 }): Promise<ServiceResult> {
     try {
@@ -143,9 +129,7 @@ export async function serviceGet(input: {
  */
 export async function servicePut(input: {
     readonly serviceRequest: ServiceRequester;
-    /** Path to PUT. */
     readonly path: string;
-    /** Serialized body. */
     readonly body: string;
 }): Promise<ServiceErrorResult> {
     try {
@@ -159,22 +143,18 @@ export async function servicePut(input: {
 
 /**
  * Write the whole configuration document, keeping the refusal's issue list.
- *
- * The one configuration path in the panel (`PUT /v1/config` and
- * nothing else), and the wrapper the misnamed-refusal problem was about:
- * the answer keeps the service's own `error.issues` **in the service's order**,
- * so a `422` can be rendered field by field with the service's wording instead
- * of behind one generic sentence — and its problem string names the
- * *configuration*, never the bindings list. A `503`, a `401`, and a
- * transport failure reach the caller as themselves with no issues: they are not
- * refusals of these values, and the panel must not present them as one.
- *
- * @returns The body on success; the problem, code, issues, and correlation id
- *   on a refusal.
+ * The one configuration path in the panel (`PUT /v1/config` and nothing else),
+ * and the wrapper the misnamed-refusal problem was about: the answer keeps the
+ * service's own `error.issues` **in the service's order**, so a `422` can be
+ * rendered field by field with the service's wording instead of behind one
+ * generic sentence — and its problem string names the *configuration*, never
+ * the bindings list. A `503`, a `401`, and a transport failure reach the
+ * caller as themselves with no issues: they are not refusals of these values,
+ * and the panel must not present them as one. The body on success; the
+ * problem, code, issues, and correlation id on a refusal.
  */
 export async function servicePutConfig(input: {
     readonly serviceRequest: ServiceRequester;
-    /** The complete configuration document, serialized. */
     readonly body: string;
 }): Promise<ServiceConfigPutResult> {
     try {
@@ -200,7 +180,6 @@ export async function servicePutConfig(input: {
 export async function servicePost(input: {
     readonly serviceRequest: ServiceRequester;
     readonly path: string;
-    /** Body — sent only when defined. */
     readonly body?: string;
 }): Promise<ServiceErrorResult> {
     try {
@@ -228,7 +207,6 @@ export async function servicePost(input: {
  */
 export async function serviceDelete(input: {
     readonly serviceRequest: ServiceRequester;
-    /** Path to delete. */
     readonly path: string;
 }): Promise<ServiceErrorResult> {
     try {
@@ -240,7 +218,6 @@ export async function serviceDelete(input: {
     }
 }
 
-/** Build the delete path for one account. */
 export function accountDeletePath(numericUserId: string): string {
     return ACCOUNT_PATH_PATTERN.replace(ACCOUNT_ID_SEGMENT, () => numericUserId);
 }
@@ -265,47 +242,38 @@ export function accountRemovePath(numericUserId: string): string {
     return `${accountDeletePath(numericUserId)}${FORCE_DISABLE_QUERY}`;
 }
 
-/** Build the token-replacement path for one account. */
 export function accountTokenPath(numericUserId: string): string {
     return ACCOUNT_TOKEN_PATTERN.replace(ACCOUNT_ID_SEGMENT, () => numericUserId);
 }
 
-/** Build the path of one run-scoped operation. */
 function runOperationPath(correlationId: string, verb: string): string {
     return `${RUN_SCOPE_PATTERN.replace(':correlationId', () => correlationId)}/${verb}`;
 }
 
-/** Build the reserve path: declare intent and receive the single-use token. */
 export function reservePath(correlationId: string): string {
     return runOperationPath(correlationId, 'reserve');
 }
 
-/** Build the result path: report what `host.startSession()` produced. */
 export function dispatchedPath(correlationId: string): string {
     return runOperationPath(correlationId, 'dispatched');
 }
 
-/** Build the abandon path: a reserved attempt that made no host call at all. */
 export function abandonPath(correlationId: string): string {
     return runOperationPath(correlationId, 'abandon');
 }
 
-/** Build the block-report path: a fail-closed guard refused before any host call. */
 export function blockedPath(correlationId: string): string {
     return runOperationPath(correlationId, 'blocked');
 }
 
-/** Build the retry path. */
 export function retryPath(correlationId: string): string {
     return runOperationPath(correlationId, 'retry');
 }
 
-/** Build the requeue path: return a dead-lettered run to waiting. */
 export function requeuePath(correlationId: string): string {
     return runOperationPath(correlationId, 'requeue');
 }
 
-/** Build the resolve path: one of the two explicit `unconfirmed` decisions. */
 export function resolvePath(correlationId: string): string {
     return runOperationPath(correlationId, 'resolve');
 }

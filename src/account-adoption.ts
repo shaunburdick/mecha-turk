@@ -1,32 +1,7 @@
 /**
- * Silent adoption of service-side accounts the panel mirror lost (MVP
- * blocker 2 fix, 2026-09-27) plus the duplicate-refusal adopt (MVP, 2026-09-27).
- *
- * The service persists accounts outside `host.storage`; reinstalling the
- * extension wipes the panel mirror only. The operator who re-pastes the same
- * token then hits the service's duplicate refusal (409) and is stuck. This
- * module closes that gap from the panel side: every account `GET /v1/accounts`
- * reports as usable (`state: 'active'`) that the mirror does not know is
- * adopted silently — the identity is rendered from the service's own answer
- * and the mirror is rewritten, so the mount shows which account the service
- * already holds instead of a blank add form.
- *
- * The same read answers the duplicate refusal mid-flow (operator re-paste):
- * {@link isDuplicateRefusal} is the envelope check the handoff uses to route
- * the refusal here, and {@link adoptOnDuplicate} drives the shared adoption
- * core with the failed-adoption fallback copy, so the module owns one
- * adoption core plus the refusal test, and the handoff owns only the routing.
- *
- * Adoption asks for nothing of its own — there is no consent step left to
- * skip (002 v1.9.0) — and the one-shot paste path stays untouched for
- * genuinely new tokens.
- *
- * MVP-DEBT: multi-account adoption renders only the first usable account's
- * identity on the connected line (every usable account is still mirrored).
- * The paste form is not gated on adoption — it stays available through the
- * whole mount, so a second account is added through the same paste →
- * connect flow (GitHub issue #35, which the old "hide the form once
- * connected" rule broke: a reload raced adoption or found no form at all).
+ * Silent adoption of service-side accounts the panel mirror lost, plus the
+ * duplicate-refusal adopt (MVP blocker 2 fix, 2026-09-27; issue #35): every
+ * usable account the mirror does not know is adopted on the read.
  */
 
 import type { GuestRequestResult } from '@openchamber/sdk';
@@ -37,12 +12,10 @@ import type { PanelRuntime } from './panel-state.ts';
 import { reloadBindingsAfterConnect } from './bindings.ts';
 import { ACCOUNTS_PATH, serviceGet } from './service-calls.ts';
 
-/** Service error code that says the pasted token belongs to a held account. */
 const DUPLICATE_CODE = 'duplicate-account';
 
 /** One service account row the adoption reads (credential-free DTO). */
 interface ServiceAccount {
-    /** GitHub numeric user id. */
     readonly numericUserId: string;
     readonly login: string;
     /** Lifecycle state; only `active` accounts adopt. */
@@ -167,20 +140,14 @@ async function writeMissingMirrors(rt: PanelRuntime, usable: readonly ServiceAcc
 }
 
 /**
- * Adopt the service's usable accounts the panel mirror is missing.
- *
- * Reads `GET /v1/accounts`, writes a mirror for every usable account the
- * mirror lacks, and connects the first usable one so its identity renders on
- * the connected line — the paste form is not gated on it (GitHub issue #35).
- * Never throws and
- * never touches the one-shot paste path: a failed read or an unreadable body
- * simply leaves the flow exactly as it was. There is nothing to ask the
- * operator here: the service already holds the credential, and the consent
- * step this flow used to skip is gone.
- *
- * @returns The adopted identity, or `null` when the service answered nothing
- *   adoptable (unreachable, unreadable body, no `active` account) or the
- *   panel already shows one.
+ * Adopt the service's usable accounts the panel mirror is missing. Reads
+ * `GET /v1/accounts`, writes a mirror for every usable account the mirror
+ * lacks, and connects the first usable one so its identity renders on the
+ * connected line — the paste form is not gated on it (GitHub issue #35).
+ * Never throws and never touches the one-shot paste path: a failed read or
+ * unreadable body simply leaves the flow exactly as it was. There is nothing
+ * to ask the operator — the service already holds the credential. `null` when
+ * the service answered nothing adoptable or the panel already shows one.
  */
 export async function adoptServiceAccounts(rt: PanelRuntime): Promise<AdoptedIdentity | null> {
     if (!stillMounted(rt) || rt.state.handoff.connected !== null) {
@@ -208,24 +175,19 @@ export async function adoptServiceAccounts(rt: PanelRuntime): Promise<AdoptedIde
     return adopted;
 }
 
-/** The identity shape the handoff state carries once one account connects. */
 export interface AdoptedIdentity {
-    /** GitHub numeric user id. */
     readonly numericUserId: string;
     readonly login: string;
 }
 
 /**
- * Adopt on the duplicate refusal, keeping the panel's answer honest on failure.
- *
- * The happy path is the mount adoption's own: connect the first usable
- * account and hand its identity to the caller — the handoff renders the
+ * Adopt on the duplicate refusal, keeping the panel's answer honest on
+ * failure. The happy path is the mount adoption's own: connect the first
+ * usable account and hand its identity to the caller — the handoff renders the
  * adopted copy. When the service cannot be read at all, this *is* news worth
  * saying: the operator just demonstrated the account exists by hitting the
- * refusal, so the catalogue copy for that code lands on the note line, and
- * the next mount adoption gets its own chance once the service is reachable.
- *
- * @returns The adopted identity, or `null` when adoption found nothing.
+ * refusal, so the catalogue copy for that code lands on the note line, and the
+ * next mount adoption gets its own chance once the service is reachable.
  */
 export async function adoptOnDuplicate(rt: PanelRuntime): Promise<AdoptedIdentity | null> {
     rt.state.handoff.connected = null;

@@ -1,17 +1,9 @@
 /**
- * Typed bridge between `JSON.stringify` output and typed record reading.
- *
- * Two responsibilities, one shape of input: `host.storage.set` accepts only
- * the SDK's `JsonValue`, so {@link parseJsonValue} parses and then *checks*
- * the value before it is written; and once a document *is* parsed, the
- * record readers below read its fields with one vocabulary — usable text,
- * a stamp-or-null, a non-negative integer — so every parser in the panel
- * (bindings, events, runs) fails closed the same way instead of growing its
- * own subtly different coercions.
- *
- * Rather than casting an `any` through `JSON.parse`, this module parses and
- * then checks, so the value handed to the host is proven to be plain JSON
- * before it is written.
+ * Typed bridge between `JSON.stringify` output and typed record reading:
+ * parse and then *check* rather than cast an `any` through `JSON.parse`, so
+ * the value handed to the host is proven plain JSON before it is written and
+ * every panel parser fails closed with one vocabulary instead of growing its
+ * own coercions.
  */
 
 import type { JsonValue } from '@openchamber/sdk';
@@ -37,10 +29,8 @@ export function utf8ByteLength(text: string): number {
  * Raised when serialized JSON does not parse into the host's value type.
  */
 export class JsonShapeError extends Error {
-    /** Stable machine-readable marker so callers can discriminate. */
     public override readonly name = 'JsonShapeError';
 
-    /** `path` locates the offending value inside the document. */
     public constructor(path: string) {
         super(`value at ${path} is not plain JSON`);
     }

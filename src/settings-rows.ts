@@ -1,43 +1,14 @@
 /**
- * The Settings tab's row builder.
- *
- * **The panel's stand-in copy is retired.** This file used to carry a panel-side
- * copy of the service's bounds, defaults, and enum set — a declaration that had
- * to be cross-checked against `service/config.ts` on every run because it
- * *would* drift, and that `tests/settings-rows.test.ts` has now reversed into a
- * zero-literals scan: the panel source carries no bound, unit,
- * default, accepted-value, or take-effect literal of its own (the single
- * documented exception is `DEFAULT_EXPECTED_AGENT`, pinned to
- * `DEFAULT_CONFIG.expectedAgent` by test).
- *
- * What is here now is the projection-driven half: one row per descriptor the
- * service sent, plus a row for any `config` member it sent **no** descriptor
- * for. Three rules the rows obey:
- *
- * 1. **Every attribute comes from the wire** — name, unit-or-*none*,
- *    bounds-or-format, value, the class the service declared, and since the
- *    owner's PR #12 ruling the control's *shape* too (a descriptor that
- *    declares `multiline` gets a textarea). Nothing here knows a number the
- *    service did not send.
- * 2. **A value the build cannot type renders *unreadable*** with a remediation
- *    derived from the descriptor, and **never** a default in its place.
- * 3. **A member with no descriptor renders *field this version does not
- *    show***, with no borrowed bound and no promised effect.
- *
- * And one rule on top of those, from the layered prompt: a **string**
- * field whose value is the empty document's *unset* shows the not-set word in
- * its value slot — in the row line, and as the placeholder that fills the
- * control's box — instead of an empty box that reads as an empty instruction
- * the agent will receive. The word is panel copy: the requirement
- * asks for a *state*, which is the one thing a descriptor cannot declare about
- * its own emptiness. Every fact beside it — the service's `format` guidance
- * rendered as text, the cap, the default, the class — still comes off the wire.
- *
- * The take-effect *words* are panel copy — the service sends the class token,
- * and the product's own words are required beside the field — so the map
- * below is keyed by the service's vocabulary and names no field: it claims
- * nothing about any particular row, which is exactly the line the zero-literals
- * scan draws.
+ * The Settings tab's row builder. The panel's stand-in copy of the service's
+ * bounds, defaults, and enum set is retired — reversed into a zero-literals
+ * scan (`tests/settings-rows.test.ts`): the panel source carries no bound,
+ * unit, default, accepted-value, or take-effect literal of its own. Every
+ * attribute comes from the wire; a value the build cannot type renders
+ * *unreadable* with a remediation and never a default in its place; a member
+ * with no descriptor renders *field this version does not show*; and a string
+ * field whose value is the document's *unset* shows the not-set word instead
+ * of an empty box — that word is panel copy, since a descriptor cannot
+ * declare its own emptiness.
  */
 
 import { mountSelect, mountText, mountTextField } from '@openchamber/sdk/ui';
@@ -52,27 +23,20 @@ import type {
 } from './settings-schema.ts';
 
 export interface SettingsRow {
-    /** Document member this row renders (a descriptor name, or an extra key). */
     readonly field: string;
-    /** The painted line: value, unit-or-none, bounds-or-format, and class. */
     readonly text: string;
-    /** The control's accessible name: name, unit, and the boundary. */
     readonly label: string;
-    /** The presentation affordance: bounds or format, plus the default. */
     readonly helper: string;
-    /** Whether this member gets a control; an undocumented member does not. */
     readonly editable: boolean;
 }
 
 /**
- * The product's words for each class the service may declare.
- *
- * An if-chain rather than an object literal keyed by the vocabulary, for the
- * same reason every other panel module spells these tokens as comparisons:
- * the class token is the **service's**, and this function only ever translates
- * the class it is handed — it never decides which class a field has.
- * `none` and `restart` are covered because the vocabulary is closed;
- * no field in this feature declares either.
+ * The product's words for each class the service may declare. An if-chain
+ * rather than an object literal keyed by the vocabulary, for the same reason
+ * every other panel module spells these tokens as comparisons: the class token
+ * is the **service's** and this function only ever translates the class it is
+ * handed — it never decides which class a field has. `none` and `restart` are
+ * covered because the vocabulary is closed; no field declares either.
  */
 export function takeEffectWords(takesEffect: TakeEffectClass): string {
     if (takesEffect === 'immediate') {
@@ -107,13 +71,13 @@ const NOT_SET_WORD = 'not set';
 
 /**
  * How tall a descriptor-declared textarea renders (owner ruling, PR #12).
- *
- * Panel copy rather than a wire member: it is the same presentation constant
- * the account tier (`accounts-tab.ts`) and the binding tier
+ * Panel copy rather than a wire member: the same presentation constant the
+ * account tier (`accounts-tab.ts`) and the binding tier
  * (`bindings-prompt.ts`) already render with, and unlike a bound, a default,
  * or an accepted value it claims nothing about the configuration — the
- * scan looks for declarations of value, which this is not. *Whether* a row is
- * multiline is the descriptor's; *how many rows* is the panel's.
+ * zero-literals scan looks for declarations of value, which this is not.
+ * *Whether* a row is multiline is the descriptor's; *how many rows* is the
+ * panel's.
  */
 const MULTILINE_ROWS = 4;
 
@@ -213,14 +177,11 @@ function descriptorRow(envelope: ConfigEnvelope, descriptor: FieldDescriptor): S
 }
 
 /**
- * Build the row for a member the service sent no descriptor for.
- *
- * It borrows no bound and promises no effect: this build has nothing to say
- * about a field it does not know beyond naming it and showing what arrived —
- * and it gets **no affordance**, because a control here could not be wired to
- * a declaration the service never made.
- *
- * @returns The row, which is never editable.
+ * Build the row for a member the service sent no descriptor for: it borrows
+ * no bound and promises no effect — this build has nothing to say about a
+ * field it does not know beyond naming it and showing what arrived — and it
+ * gets **no affordance**, because a control here could not be wired to a
+ * declaration the service never made. The row is never editable.
  */
 function undisplayedRow(envelope: ConfigEnvelope, name: string): SettingsRow {
     if (envelope.unreadable.includes(name)) {
@@ -246,13 +207,10 @@ function undisplayedRow(envelope: ConfigEnvelope, name: string): SettingsRow {
 
 /**
  * Build every row the tab paints: one per descriptor in the service's order,
- * then one per member it declared nothing for.
- *
- * The count is derived, never asserted from a literal: twelve against an
- * 006-only projection, fourteen once the dispatch fields are in it, and one more
- * for every key the service sent without a descriptor.
- *
- * @returns The rows, in paint order.
+ * then one per member it declared nothing for. The count is derived, never
+ * asserted from a literal — twelve against an 006-only projection, fourteen
+ * once the dispatch fields are in it, plus one for every key the service sent
+ * without a descriptor. In paint order.
  */
 export function settingsRows(envelope: ConfigEnvelope): readonly SettingsRow[] {
     const rows: SettingsRow[] = envelope.fields.map((descriptor) => descriptorRow(envelope, descriptor));
@@ -263,36 +221,25 @@ export function settingsRows(envelope: ConfigEnvelope): readonly SettingsRow[] {
     return rows;
 }
 
-/** One mounted row: a control for a declared member, or a line for the rest. */
 export type SettingsRowHandle =
-    /** A member this build declares no control for, so no affordance at all. */
     | { readonly field: string; readonly kind: 'text'; readonly handle: TextHandle }
-    /** A declared enum member, edited through the accepted set. */
     | { readonly field: string; readonly kind: 'enum'; readonly handle: SelectHandle }
     /** A declared numeric or text member, edited as text — never gated here. */
     | { readonly field: string; readonly kind: 'value'; readonly handle: TextFieldHandle };
 
 export interface SettingsRowsUi {
-    /** Handles, in paint order. */
     readonly handles: readonly SettingsRowHandle[];
-    /** The members the handles were built for; a different list means rebuild. */
     readonly fields: readonly string[];
     readonly dispose: () => void;
 }
 
 export interface RowsContext {
-    /** Rows, in paint order. */
     readonly rows: readonly SettingsRow[];
     readonly descriptors: readonly FieldDescriptor[];
-    /** What each input should show: the draft, keyed by field. */
     readonly values: Readonly<Record<string, string>>;
-    /** The service's remediation per field, for the field's own error slot. */
     readonly issues: Readonly<Record<string, string>>;
-    /** Extra helper text per field, such as the pending marker. */
     readonly notes: Readonly<Record<string, string>>;
-    /** Whether every control is currently disabled (no save, or a write in flight). */
     readonly disabled: boolean;
-    /** What an input change does: it edits the draft, and nothing else. */
     readonly onChange: (field: string, value: string) => void;
 }
 
@@ -329,20 +276,15 @@ function enumFieldProps(input: {
 }
 
 /**
- * The props a declared **value** member's text control mounts with.
- *
- * Two rules ride the descriptor rather than the field's name:
- *
- * - a **string** field shows the honest-absence word in its value slot — an
- *   empty box states *not set* instead of reading as an empty instruction,
- *   and the word leaves the moment anything is in the field (the control
- *   underneath is untouched: same input, same keyboard path, same accessible
- *   name);
- * - a descriptor that declares **`multiline`** mounts a textarea (owner
- *   ruling, PR #12), so the control's *shape* comes off the wire like every
- *   other row attribute — `expectedAgent`, which declares none, stays a
- *   one-line input. The row count is the shared presentation constant the
- *   account and binding tiers render with: a height, not a bound.
+ * The props a declared **value** member's text control mounts with. Two rules
+ * ride the descriptor rather than the field's name: a **string** field shows
+ * the honest-absence word in its value slot — an empty box states *not set*
+ * instead of reading as an empty instruction, and the word leaves the moment
+ * anything is in the field (same input, same keyboard path, same accessible
+ * name) — and a descriptor that declares **`multiline`** mounts a textarea
+ * (owner ruling, PR #12), so the control's *shape* comes off the wire like
+ * every other row attribute. The row count is the shared presentation
+ * constant: a height, not a bound.
  */
 function valueFieldProps(input: {
     readonly row: SettingsRow;

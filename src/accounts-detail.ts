@@ -1,19 +1,7 @@
 /**
  * The selected account's controls (005 FR-062, FR-064–FR-066; 004 FR-082,
- * FR-089).
- *
- * This module owns what the "Selected account" block *offers*: the two
- * profile members' fields, the **one** `Save changes` that writes them
- * together (owner ruling, PR #12 — "One Save button, both fields"; the
- * inputs stay per member, only the save is shared), and the two-step
- * rotate/remove pair with the labels each control reads. It was split out of
- * [`accounts-tab.ts`](./accounts-tab.ts) so each file keeps one
- * responsibility and the shell stays inside its length gate (AGENTS.md) —
- * the same split `accounts-chips.ts` and `accounts-rows.ts` already drew.
- *
- * The module mounts and nothing else: every field renders the words
- * `accountFieldView` derives, and the shell repaints every handle from
- * state, so mount and repaint cannot disagree (FR-063, FR-064, FR-085).
+ * FR-089): profile fields, the one shared `Save changes` (owner ruling PR #12),
+ * and the two-step rotate/remove pair with the labels each control reads.
  */
 
 import { mountButton, mountTextField } from '@openchamber/sdk/ui';
@@ -22,16 +10,12 @@ import { accountFieldView } from './accounts-rows.ts';
 import type { AccountMember, AccountsHandlers } from './accounts-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** Idle label of the two-step Rotate-token control. */
 export const ROTATE_IDLE_LABEL = 'Rotate token';
 
-/** Label after the first click, while the retention statement shows. */
 export const ROTATE_ARMED_LABEL = 'Cancel rotate';
 
-/** Idle label of the two-step Remove-account control. */
 export const REMOVE_IDLE_LABEL = 'Remove account';
 
-/** Confirm-step label after the first click (no `confirm()` in the frame). */
 export const REMOVE_ARMED_LABEL = 'Confirm remove';
 
 /**
@@ -45,7 +29,6 @@ export const REMOVE_ARMED_LABEL = 'Confirm remove';
  */
 const SAVE_CHANGES_LABEL = 'Save changes';
 
-/** One profile member's field, as the pane carries it. */
 export interface MemberControls {
     /** The field itself — the one element that ever holds its draft. */
     readonly field: TextFieldHandle;
@@ -53,7 +36,6 @@ export interface MemberControls {
     readonly dispose: () => void;
 }
 
-/** Every handle the selected row's control region mounts. */
 export interface DetailControls {
     /** The two editable profile members' fields, keyed by member (FR-066, FR-089). */
     readonly members: Readonly<Record<AccountMember, MemberControls>>;
@@ -62,33 +44,23 @@ export interface DetailControls {
      * (FR-066, 004 FR-082; owner ruling, PR #12).
      */
     readonly saveProfile: ButtonHandle;
-    /** Two-step Rotate-token control. */
     readonly rotateToken: ButtonHandle;
-    /** Two-step Remove-account control. */
     readonly removeAccount: ButtonHandle;
-    /** Release every handle this region mounted. */
     readonly dispose: () => void;
 }
 
 /**
- * Mount one profile member's field (FR-066, 004 FR-089).
- *
- * Both members mount the same way — the draft/label flow the display name
- * shipped with — because they are one flow behind one route,
- * and a second shape would be a second place it could be got wrong. The
- * field renders the words `accountFieldView` derives, so mount and repaint
- * can never disagree (FR-063's guidance, FR-064's not-set state).
- *
- * Neither field mounts a save of its own: the one control belongs to the
- * **pair**, and {@link mountDetailControls} mounts it beside them.
- *
- * @returns The field and its disposer.
+ * Mount one profile member's field (FR-066, 004 FR-089). Both members mount
+ * the same way — the draft/label flow the display name shipped with — because
+ * they are one flow behind one route, and a second shape would be a second
+ * place it could be got wrong; the field renders the words
+ * `accountFieldView` derives, so mount and repaint can never disagree
+ * (FR-063's guidance, FR-064's not-set state). Neither field mounts a save of
+ * its own: the one control belongs to the **pair**.
  */
 function mountMemberControls(input: {
-    /** Runtime whose state the field mounts from. */
     readonly rt: PanelRuntime;
     readonly pane: HTMLElement;
-    /** Which profile member this field edits. */
     readonly member: AccountMember;
     readonly handlers: AccountsHandlers;
 }): MemberControls {
@@ -123,11 +95,8 @@ function mountRowControls(input: {
     readonly pane: HTMLElement;
     readonly handlers: AccountsHandlers;
 }): {
-    /** Two-step rotation control. */
     readonly rotateToken: ButtonHandle;
-    /** Two-step removal control. */
     readonly removeAccount: ButtonHandle;
-    /** Release both handles. */
     readonly dispose: () => void;
 } {
     const rotateToken = mountButton(input.pane, {
@@ -163,7 +132,6 @@ function mountRowControls(input: {
  * @returns The handles plus their disposer.
  */
 export function mountDetailControls(input: {
-    /** Runtime whose state the fields mount from. */
     readonly rt: PanelRuntime;
     readonly pane: HTMLElement;
     readonly handlers: AccountsHandlers;

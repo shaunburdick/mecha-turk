@@ -1,39 +1,13 @@
 /**
- * The panel's durable dispatch-attempt record
- * ([contracts/reconciliation.md](../specs/003-dispatch-integrity/contracts/reconciliation.md)).
- *
- * This is the half of the reconciliation contract the panel owns: one entry per
- * dispatch attempt, written to `host.storage` under `mecha-turk:dispatches` so
- * a report that never reached the service still leaves the truth recoverable on
- * remount. It is a **reconciliation aid, never an audit home** —
- * the service's `audit.ndjson` stays the trail.
- *
- * Three properties this module owes, in order of how badly they are missed:
- *
- * - **Ordering is enforced by the API shape, not by a comment.**
- *   {@link recordDispatchOutcome} accepts a {@link RecordedOutcome} — a session
- *   id *or* a failure reason — so a record cannot be written before the host
- *   call has produced one, and every stored record therefore already carries an
- *   outcome. A crash before this write exists means the service's own
- *   reservation is the only evidence, and the run correctly wedges to
- *   `unconfirmed` instead of being guessed at.
- * - **`acknowledged` flips only on a 2xx for that exact attempt.**
- *   {@link acknowledgeDispatch} is the only writer of `true`, and it is keyed by
- *   `correlationId` *and* attempt so an acknowledgement can never land on a
- *   later attempt of the same run.
- * - **Every write is scanned.** Writes go through `writeStorage`, which applies
- *   `assertRedacted` to the serialized document before `host.storage.set` is
- *   called. The record legitimately holds a `dispatchToken` (`dtk-…`, an
- *   authorization artifact, not a credential), which is why
- *   `SECRET_PATTERNS` deliberately does not cover that prefix: a redaction
- *   guard that refused tokens would break the feature it exists to protect.
- *
- * Parsing is fail closed (AGENTS invariant 8): a present but unusable document
- * reads as *unreadable*, never as an empty one, because silently reporting
- * "nothing to reconcile" over a corrupt record is exactly the quiet data loss
- * this module exists to prevent. An **absent** key — a fresh install, an uninstall,
- * a wiped namespace — is different: it is evidence that there is nothing to
- * reconcile, and it reads as empty.
+ * The panel's durable dispatch-attempt record (003 contracts/reconciliation.md): one
+ * entry per dispatch attempt under `mecha-turk:dispatches` — a
+ * reconciliation aid, never an audit home; the service's `audit.ndjson` stays
+ * the trail. Ordering is enforced by the API shape (a record cannot be
+ * written before the host call produced an outcome), `acknowledged` flips
+ * only on a 2xx keyed by correlation id *and* attempt, and every write is
+ * redaction-scanned. Parsing is fail closed (invariant 8): a present but
+ * unusable document reads as *unreadable*, never as an empty one — an absent
+ * key reads as empty.
  */
 
 import type { JsonValue } from '@openchamber/sdk';
@@ -56,12 +30,10 @@ const DISPATCH_TOKEN_PATTERN = /^dtk-[0-9a-f]{32}$/;
 export type DispatchOutcomeKind = 'dispatched' | 'failed';
 
 /**
- * The outcome of one host call, as {@link recordDispatchOutcome} requires it.
- *
- * The union is the ordering guard: there is no constructor for a record that
- * does not name what `host.startSession()` returned, so the "persist before you
- * report" rule cannot be violated by calling this function too early —
- * the call would not type-check.
+ * The outcome of one host call, as {@link recordDispatchOutcome} requires it:
+ * the union is the ordering guard — no record can be constructed without naming
+ * what `host.startSession()` returned, so "persist before you report" cannot be
+ * violated without the call failing to type-check.
  */
 export type RecordedOutcome =
     | { readonly kind: 'dispatched'; readonly sessionId: string }
@@ -91,33 +63,23 @@ export interface DispatchRecordDocument {
     /** Attempts, oldest first, newest last. */
     readonly attempts: readonly DispatchAttemptRecord[];
     /**
-     * Follow-up delivery state, oldest first.
-     *
-     * **Absentable on read**: a document written before the tracking lifecycle
-     * existed carries none and must still parse, so the reconciliation pass
-     * simply has nothing follow-up-shaped to look at. It is the panel's own
-     * durable record of what it has already delivered and what it has parked —
-     * the half of at-most-once a remount needs, because the service holds no
-     * record of a prompt and cannot be asked for one (002 FR-104, NFR-002).
+     * Follow-up delivery state, oldest first: the panel's own durable record of
+     * what it has delivered and parked — the half of at-most-once a remount
+     * needs, because the service holds no record of a prompt and cannot be
+     * asked for one (002 FR-104, NFR-002). Absentable on read: an older
+     * document must still parse.
      */
     readonly followUps?: readonly FollowUpDeliveryRecord[];
 }
 
 /**
- * What one follow-up delivery attempt produced.
- *
- * A closed union rather than a free string, because the reason a delivery parks
- * is the exact cause an operator reads on the run row and in the trail (002
- * FR-105) — and a second spelling of "the session was busy" would be two answers
- * to one question.
- *
- * **A closed panel is not a cause.** A mount that goes away mid-attempt fails
- * the in-flight host call like any other host refusal (`host-unavailable`), and
- * a mount that goes away between attempts leaves the record *due*: the durable
- * record carries the attempt count and the next-attempt stamp, so the remount
- * resumes the ladder instead of parking on a mount it cannot see (spec.md User
- * Story 7's third scenario). A "panel closed" park would be the one failure this
- * panel could never recover from, and the value it would ride has no writer.
+ * What one follow-up delivery attempt produced: a closed union because the
+ * reason a delivery parks is the exact cause an operator reads on the run row
+ * and in the trail (002 FR-105), and a second spelling of "the session was
+ * busy" would be two answers to one question. **A closed panel is not a
+ * cause** — a mount that goes away between attempts leaves the record *due* and
+ * the remount resumes the ladder (spec.md User Story 7's third scenario); the
+ * value a "panel closed" park would ride has no writer.
  */
 export type FollowUpFailure =
     | 'no-session'
@@ -136,13 +98,9 @@ export interface FollowUpDeliveryRecord {
     readonly correlationId: string;
     /**
      * The session the follow-up is delivered into, or `null` when the attempt
-     * never had one.
-     *
-     * A `NO_SESSION` refusal is a recorded attempt with no session to name:
-     * inventing one — the run's attachment id, say — would put a session id in
-     * the record that no host ever created. Absent and empty are still refused;
-     * `null` is the honest value, and it is the same nullable shape the
-     * attempts' own `sessionId` member already uses.
+     * never had one: a `NO_SESSION` refusal is a recorded attempt with no
+     * session to name, and inventing one would put a session id no host ever
+     * created into the record. Absent and empty are still refused.
      */
     readonly sessionId: string | null;
     /** Attempts used so far; `1` is the first. */
@@ -155,7 +113,6 @@ export interface FollowUpDeliveryRecord {
     readonly reason: FollowUpFailure | null;
     /** `true` once the retry bound is exhausted and the follow-up is parked. */
     readonly parked: boolean;
-    /** RFC 3339 stamp of the last write. */
     readonly updatedAt: string;
 }
 
@@ -166,11 +123,9 @@ export type DispatchRecordRead =
     | { readonly ok: false };
 
 /**
- * Narrow a JSON value to a plain object record.
- *
- * Same rule the ledger reader applies: `null`, arrays, and primitives are not
- * documents, and narrowing here means every member read below is typed as a
- * `JsonValue` rather than as `unknown`.
+ * Narrow a JSON value to a plain object record: `null`, arrays, and primitives
+ * are not documents, and narrowing here means every member read below is typed
+ * as a `JsonValue` rather than as `unknown`.
  */
 function asJsonRecord(value: JsonValue | undefined): Record<string, JsonValue> | null {
     if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -180,27 +135,19 @@ function asJsonRecord(value: JsonValue | undefined): Record<string, JsonValue> |
     return value;
 }
 
-/**
- * The empty document: what a wiped or never-written key means.
- */
+/** The empty document: what a wiped or never-written key means. */
 function emptyDocument(): DispatchRecordDocument {
     return { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts: [] };
 }
 
-/**
- * @returns The value, or `null` when missing, not a string, or empty.
- */
+/** The value, or `null` when missing, not a string, or empty. */
 function readText(record: Record<string, JsonValue>, field: string): string | null {
     const value = record[field];
 
     return typeof value === 'string' && value !== '' ? value : null;
 }
 
-/**
- * Read a required nullable string field: explicit `null` is a value here.
- *
- * @returns The value, `null`, or `undefined` when the member is absent or malformed.
- */
+/** Read a required nullable string field: explicit `null` is a value here; `undefined` means absent or malformed. */
 function readNullableText(record: Record<string, JsonValue>, field: string): string | null | undefined {
     const value = record[field];
     if (value === null) {
@@ -214,15 +161,11 @@ function readNullableText(record: Record<string, JsonValue>, field: string): str
 interface AttemptHead {
     readonly correlationId: string;
     readonly runKey: string;
-    /** Single-use token. */
     readonly dispatchToken: string;
-    /** RFC 3339 write stamp. */
     readonly recordedAt: string;
 }
 
-/**
- * @returns The members, or `null` when any is missing or malformed.
- */
+/** The members, or `null` when any is missing or malformed. */
 function readAttemptHead(record: Record<string, JsonValue>): AttemptHead | null {
     const correlationId = readText(record, 'correlationId');
     const runKey = readText(record, 'runKey');
@@ -247,9 +190,7 @@ interface AttemptFlags {
     readonly acknowledged: boolean;
 }
 
-/**
- * @returns The members, or `null` when either is malformed.
- */
+/** The members, or `null` when either is malformed. */
 function readAttemptFlags(record: Record<string, JsonValue>): AttemptFlags | null {
     const { attempt, acknowledged } = record;
     if (
@@ -266,19 +207,15 @@ function readAttemptFlags(record: Record<string, JsonValue>): AttemptFlags | nul
 
 interface AttemptOutcome {
     readonly outcome: DispatchOutcomeKind;
-    /** Session id on a dispatched outcome, else `null`. */
     readonly sessionId: string | null;
-    /** Cause on a failed outcome, else `null`. */
     readonly reason: string | null;
 }
 
 /**
  * `outcome` decides which of `sessionId` / `reason` must be present, mirroring
- * the service's own "report exactly one outcome" rule: a record that
- * carried both, or neither, would be a fact the reconciliation loop could not
- * turn into a single honest report.
- *
- * @returns The outcome, or `null` when it is not a fact this build can re-send.
+ * the service's own "report exactly one outcome" rule: a record that carried
+ * both, or neither, would be a fact the reconciliation loop could not turn into
+ * a single honest report. `null` means a value this build cannot re-send.
  */
 function readAttemptOutcome(record: Record<string, JsonValue>): AttemptOutcome | null {
     const { outcome } = record;
@@ -300,9 +237,7 @@ function readAttemptOutcome(record: Record<string, JsonValue>): AttemptOutcome |
     return { outcome, sessionId, reason };
 }
 
-/**
- * @returns The attempt, or `null` when its shape is unusable.
- */
+/** The attempt, or `null` when its shape is unusable. */
 function readAttempt(value: JsonValue): DispatchAttemptRecord | null {
     const record = asJsonRecord(value);
     if (record === null) {
@@ -319,9 +254,7 @@ function readAttempt(value: JsonValue): DispatchAttemptRecord | null {
     return { ...head, ...flags, ...outcome };
 }
 
-/**
- * @returns The attempts, or `null` when any element is unusable.
- */
+/** The attempts, or `null` when any element is unusable. */
 function readAttempts(value: JsonValue | undefined): DispatchAttemptRecord[] | null {
     if (!Array.isArray(value)) {
         return null;
@@ -351,10 +284,7 @@ const FOLLOW_UP_FAILURES: ReadonlySet<string> = new Set<FollowUpFailure>([
 
 export const MAX_FOLLOW_UP_RECORDS = 50;
 
-/**
- * @returns The cause, `null` when none is recorded, or `undefined` when a present
- *   value is outside the closed union.
- */
+/** The cause, `null` when none is recorded, `undefined` when a present value is outside the closed union. */
 function readFollowUpReason(record: Record<string, JsonValue>): FollowUpFailure | null | undefined {
     const value = record.reason;
     if (value === null || value === undefined) {
@@ -370,9 +300,7 @@ interface FollowUpFlags {
     readonly parked: boolean;
 }
 
-/**
- * @returns The members, or `null` when any is malformed.
- */
+/** The members, or `null` when any is malformed. */
 function readFollowUpFlags(record: Record<string, JsonValue>): FollowUpFlags | null {
     const { attempt, delivered, parked } = record;
     if (
@@ -388,10 +316,7 @@ function readFollowUpFlags(record: Record<string, JsonValue>): FollowUpFlags | n
     return { attempt, delivered, parked };
 }
 
-/**
- * @returns `null` for "may go now", the epoch milliseconds, or `undefined` when
- *   the value is present and unusable.
- */
+/** `null` for "may go now", the epoch milliseconds, or `undefined` when the value is present and unusable. */
 function readNextAttemptAtMs(record: Record<string, JsonValue>): number | null | undefined {
     const value = record.nextAttemptAtMs;
     if (value === null) {
@@ -401,9 +326,7 @@ function readNextAttemptAtMs(record: Record<string, JsonValue>): number | null |
     return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-/**
- * @returns The record, or `null` when its shape is unusable.
- */
+/** The record, or `null` when its shape is unusable. */
 function readFollowUp(value: JsonValue): FollowUpDeliveryRecord | null {
     const record = asJsonRecord(value);
     if (record === null) {
@@ -433,11 +356,9 @@ function readFollowUp(value: JsonValue): FollowUpDeliveryRecord | null {
 }
 
 /**
- * Absent reads as *no follow-up state recorded*, which is what a document
- * written before this section existed means — never an error, and never an empty
- * list that would lose what the panel already delivered.
- *
- * @returns The records, or `null` when a present list is unusable.
+ * Absent reads as *no follow-up state recorded* — what an older document means —
+ * never an error, and never an empty list that would lose what the panel already
+ * delivered. Answers `null` when a present list is unusable.
  */
 function readFollowUps(value: JsonValue | undefined): readonly FollowUpDeliveryRecord[] | null {
     if (value === undefined) {
@@ -461,10 +382,7 @@ function readFollowUps(value: JsonValue | undefined): readonly FollowUpDeliveryR
     return records;
 }
 
-/**
- * @returns The document for an absent or usable value; `null` when the value is
- *   present but not a document this build may half-apply.
- */
+/** The document for an absent or usable value; `null` for one this build must not half-apply. */
 export function readDispatchRecord(value?: JsonValue): DispatchRecordDocument | null {
     if (value === undefined || value === null) {
         return emptyDocument();
@@ -487,10 +405,7 @@ export function readDispatchRecord(value?: JsonValue): DispatchRecordDocument | 
         };
 }
 
-/**
- * @returns The document (empty when the key is wiped/absent), or `unreadable`
- *   when storage threw or held a document this build refuses.
- */
+/** The document (empty when the key is wiped/absent), or `unreadable` when storage threw or the document is refused. */
 export async function loadDispatchRecord(rt: PanelRuntime): Promise<DispatchRecordRead> {
     let stored: JsonValue | undefined;
     try {
@@ -505,14 +420,12 @@ export async function loadDispatchRecord(rt: PanelRuntime): Promise<DispatchReco
 }
 
 /**
- * Append one attempt, evicting to the cap if the write pushes it over.
- *
+ * Append one attempt, evicting to the cap if the write pushes it over: the
+ * victim is always the **oldest acknowledged** record — an unacknowledged record
+ * is the only evidence that a session may exist — and when nothing is
+ * acknowledged the cap gives way to that rule, because losing the
+ * reconciliation source to a bookkeeping bound would be the wrong trade.
  * Pure, so the cap and the eviction preference are testable without storage.
- * The victim is always the **oldest acknowledged** record; an unacknowledged
- * record is the only evidence that a session may exist, so eviction never takes
- * one. When nothing is acknowledged the cap gives way to that rule — losing the
- * reconciliation source to a bookkeeping bound would be the wrong trade — one
- * honest bound beats a bound that is merely persisted.
  */
 export function appendAttempt(
     document: DispatchRecordDocument,
@@ -531,11 +444,9 @@ export function appendAttempt(
     return { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts };
 }
 /**
- * Flip `acknowledged` on exactly one attempt.
- *
- * Keyed by correlation id **and** attempt, so an acknowledgement for an earlier
- * attempt can never mark a later one as seen — the same discipline the handled
- * list uses in the relay.
+ * Flip `acknowledged` on exactly one attempt, keyed by correlation id **and**
+ * attempt, so an acknowledgement for an earlier attempt can never mark a later
+ * one as seen — the same discipline the handled list uses in the relay.
  */
 export function acknowledgeAttempt(input: {
     readonly document: DispatchRecordDocument;
@@ -553,9 +464,7 @@ export function acknowledgeAttempt(input: {
     return { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts };
 }
 
-/**
- * @returns Every unacknowledged attempt, oldest first.
- */
+/** Every unacknowledged attempt, oldest first. */
 export function unacknowledgedAttempts(document: DispatchRecordDocument): readonly DispatchAttemptRecord[] {
     return document.attempts.filter((attempt) => !attempt.acknowledged);
 }
@@ -568,23 +477,17 @@ async function persist(rt: PanelRuntime, document: DispatchRecordDocument): Prom
         return false;
     }
 
-    // `writeStorage` runs `assertRedacted` over the serialized document before
-    // the host is called — the "every write is scanned" half of the guard.
     return await writeStorage(rt, { key: DISPATCH_STORAGE_KEY, value: document });
 }
 
 /**
- * The chain every writer of {@link DISPATCH_STORAGE_KEY} serializes onto.
- *
- * One chain for the key, not one per writer: a read-modify-write is only safe
- * because no *other* read-modify-write can land between its read and its write,
- * and a chain each writer kept for itself would be four chains for one key.
+ * The chain every writer of {@link DISPATCH_STORAGE_KEY} serializes onto: one
+ * chain for the key, not one per writer — a read-modify-write is only safe
+ * because no *other* read-modify-write can land between its read and its write.
  */
 const recordChain: { write: Promise<unknown> } = { write: Promise.resolve() };
 
-/**
- * @returns Whatever `task` produced, once every earlier writer settled.
- */
+/** Whatever `task` produced, once every earlier writer settled. */
 function inRecordChain<T>(task: () => Promise<T>): Promise<T> {
     // eslint-disable-next-line unicorn/prefer-then-catch -- one task in both arms: a refused write cannot wedge the key
     const write = recordChain.write.then(task, task);
@@ -595,33 +498,17 @@ function inRecordChain<T>(task: () => Promise<T>): Promise<T> {
 
 /**
  * Read, transform, and persist the dispatch record as one critical section.
- *
- * Every writer of the key is `load → transform → persist`, and the section spans
- * two awaits — the host's read and its write. Reading `relay.inFlight` /
- * `relay.dispatching` before the first `await` makes the *start* of that section
- * safe, not the whole of it: a relay tick that starts inside it writes its own
- * document, and a re-offer then overwrites it with one derived from its earlier
- * read. The write lost that way is the tick's `delivered: true`, and a delivery
- * the record forgets is a delivery the next tick re-offers — the second prompt
- * NFR-002 and constitution III exist to prevent. How often an operator clicks
- * during a tick decides how often that happens, not whether it can.
- *
- * Taking turns on {@link inRecordChain} is what makes the section a critical
- * section: each transform runs against the document the previous writer left
- * behind, so a concurrent writer's row is carried forward rather than dropped.
- * The alternative — re-load and re-derive immediately before `persist`, bailing
- * when the document moved — cannot tell the caller *what* moved, so its only
- * safe bail is to refuse the write and report it, which turns a slow host into a
- * lost re-offer. A chain of promises loses nothing and costs one queue.
- *
- * Reads stay outside the chain: `host.storage` answers each call whole, so a
- * reader sees either the previous document or the new one, never half of one —
- * and the stale answer is the safe direction, since it projects *more* of a run's
- * movements rather than fewer.
- *
- * @param transform - Derive the next document, or `null` to write nothing.
- * @returns `true` when the write landed, `false` when the record was unreadable,
- *   the transform declined, or the write was refused.
+ * Checking `relay.inFlight` / `relay.dispatching` before the first `await` makes
+ * only the *start* of that section safe: a relay tick that starts inside it
+ * writes its own document, and a re-offer then overwrites it with one derived
+ * from its earlier read — dropping the tick's `delivered: true`, so the next
+ * tick re-offers a delivery that already happened: the second prompt NFR-002 and
+ * constitution III exist to prevent. Taking turns on {@link inRecordChain} is
+ * what makes the section critical: each transform runs against the document the
+ * previous writer left behind, where a reload-and-retry could only refuse a slow
+ * host into a lost re-offer. Reads stay outside the chain: `host.storage` answers
+ * each call whole, and the stale answer is the safe direction — it projects
+ * *more* of a run's movements rather than fewer.
  */
 async function updateDispatchRecord(
     rt: PanelRuntime,
@@ -643,11 +530,10 @@ async function updateDispatchRecord(
 }
 
 /**
- * Record the outcome of one dispatch attempt, durably, before it is reported.
- *
- * This is the durable write: the relay calls it after `host.startSession()`
- * returns and before the result POST goes out, so a report that never lands
- * still leaves a record reconciliation can re-send on the next mount.
+ * Record the outcome of one dispatch attempt, durably, before it is reported:
+ * the relay calls it after `host.startSession()` returns and before the result
+ * POST goes out, so a report that never lands still leaves a record
+ * reconciliation can re-send on the next mount.
  */
 export async function recordDispatchOutcome(rt: PanelRuntime, input: {
     readonly correlationId: string;
@@ -677,10 +563,7 @@ export async function recordDispatchOutcome(rt: PanelRuntime, input: {
     return await updateDispatchRecord(rt, (document) => appendAttempt(document, record));
 }
 
-/**
- * @returns `true` when the flip landed, `false` when nothing changed or the
- *   write could not be persisted.
- */
+/** `true` when the flip landed, `false` when nothing changed or the write would not persist. */
 export async function acknowledgeDispatch(input: {
     readonly rt: PanelRuntime;
     readonly correlationId: string;
@@ -692,9 +575,9 @@ export async function acknowledgeDispatch(input: {
         const next = acknowledgeAttempt({ document, correlationId, attempt });
         const wasChanged = next.attempts.some((entry, index) => entry !== document.attempts[index]);
         if (!wasChanged) {
-            // No matching attempt, or it was already acknowledged: writing would
-            // only churn the key, and an acknowledgement for an attempt the panel
-            // never recorded is not a fact worth persisting.
+            // Nothing changed: writing would only churn the key, and an
+            // acknowledgement for an attempt the panel never recorded is not a
+            // fact worth persisting.
             return null;
         }
 
@@ -704,13 +587,10 @@ export async function acknowledgeDispatch(input: {
 
 /**
  * Fold one follow-up delivery record into a document, replacing the entry with
- * the same delivery id.
- *
- * The list is bounded the same way the attempts are — oldest first, newest last
- * — but with one difference that matters: a **delivered** record is the
- * at-most-once evidence, so it is never the victim. Eviction takes the oldest
- * record that is neither delivered nor parked, which is the only kind whose loss
- * costs a retry rather than a duplicate or a missing follow-up.
+ * the same delivery id. Eviction takes the oldest record that is neither
+ * delivered nor parked: a **delivered** record is the at-most-once evidence and
+ * never the victim, and the other kind's loss costs a retry rather than a
+ * duplicate or a missing follow-up.
  */
 export function putFollowUpRecord(
     document: DispatchRecordDocument,
@@ -731,9 +611,7 @@ export function putFollowUpRecord(
     return { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts: document.attempts, followUps };
 }
 
-/**
- * @returns The record, or `undefined` when this panel has never touched it.
- */
+/** The record, or `undefined` when this panel has never touched it. */
 export function followUpRecordOf(
     document: DispatchRecordDocument,
     deliveryId: string,
@@ -742,21 +620,19 @@ export function followUpRecordOf(
 }
 
 /**
- * Persist one follow-up delivery record; never throws.
- *
- * The write happens **before** the host call when the record carries an intent,
- * and after it when it carries an outcome — the same "durable before you act"
- * ordering the dispatch record uses, because a delivery whose result never
- * lands has to leave the truth recoverable on this side.
+ * Persist one follow-up delivery record; never throws. The write happens
+ * **before** the host call when the record carries an intent and after it when
+ * it carries an outcome — the same "durable before you act" ordering the
+ * dispatch record uses, because a result that never lands must leave the truth
+ * recoverable on this side.
  */
 export async function recordFollowUpDelivery(
     rt: PanelRuntime,
     record: FollowUpDeliveryRecord,
 ): Promise<boolean> {
-    // Read back what is about to be written: a record the panel could not parse
-    // on remount must never reach storage in the first place. The check goes
-    // through `JsonValue` rather than the typed shape, so it is exactly the
-    // validation a stored row would get on the way back in.
+    // Read back what is about to be written — through `JsonValue`, exactly the
+    // validation a stored row gets on the way back in: a record the panel could
+    // not parse on remount must never reach storage.
     const wire: JsonValue | undefined = isJsonValue(record) ? record : undefined;
     if (wire === undefined || readFollowUp(wire) === null) {
         return false;
@@ -766,30 +642,20 @@ export async function recordFollowUpDelivery(
 }
 
 /**
- * Move parked follow-up deliveries back to due, keyed by delivery id.
- *
- * The operator-initiated re-offer FR-105 owes a parked follow-up (AC-051). The
- * record is the at-most-once authority and this only ever moves a record — it
- * clears the two members that park a delivery (`parked` and `reason`) and makes
- * it due again. **`delivered` and `attempt` are untouched**: a delivered
- * delivery has nothing to re-offer, and an attempt count the re-offer reset
- * would re-spend the ladder the park had just exhausted, which is the duplicate
- * direction the record exists to refuse (NFR-002).
- *
- * The re-offered record goes through {@link putFollowUpRecord}'s replace, so it
- * is appended at the end of the list rather than left where it parked. That is
- * load-bearing for the walk, not tidiness: the read's window opening is derived
- * from this list ({@link followUpWindowOpening} in `follow-up.ts`), and an owed
- * record that sits *before* a delivered one would leave the read's window
- * opening past it — a re-offered follow-up the relay never sees again.
- *
- * @returns The new document, or `null` when no listed delivery is parked and
- *   undelivered — there is nothing to re-offer, and the caller writes nothing.
+ * Move parked follow-up deliveries back to due, keyed by delivery id — the
+ * operator-initiated re-offer FR-105 owes a parked follow-up (AC-051). It
+ * clears only `parked` and `reason`: `delivered` has nothing to re-offer, and
+ * resetting `attempt` would re-spend the ladder the park just exhausted — the
+ * duplicate direction the record exists to refuse (NFR-002). The re-offered
+ * record is re-appended at the end of the list, which is load-bearing: the read's
+ * window opening is derived from this list ({@link followUpWindowOpening} in
+ * `follow-up.ts`), and an owed record sitting *before* a delivered one would
+ * open the window past it — a follow-up the relay never sees again. `null` when
+ * no listed delivery is parked and undelivered, so the caller writes nothing.
  */
 export function reofferFollowUpRecords(input: {
     readonly document: DispatchRecordDocument;
     readonly deliveryIds: readonly string[];
-    /** RFC 3339 stamp of the write. */
     readonly at: string;
 }): DispatchRecordDocument | null {
     const { document, deliveryIds, at } = input;
@@ -812,13 +678,10 @@ export function reofferFollowUpRecords(input: {
 
 /**
  * Re-offer parked follow-up deliveries through the durable record; never throws.
- *
  * The local half of FR-105's re-offer: no route, no service request, no run
  * state — the panel's own record is the only thing that moves, and the relay's
- * next tick is what delivers.
- *
- * @returns `true` when the record landed, `false` when nothing was parked, the
- *   record could not be read, or the write was refused.
+ * next tick is what delivers. `false` when nothing was parked, the record could
+ * not be read, or the write was refused.
  */
 export async function reofferFollowUpDelivery(input: {
     readonly rt: PanelRuntime;
@@ -827,8 +690,7 @@ export async function reofferFollowUpDelivery(input: {
     const { rt, deliveryIds } = input;
 
     // The stamp is taken **inside** the chain, so it is the stamp of the write
-    // rather than of the click that queued it: a re-offer that waited its turn
-    // behind a relay tick records the moment the record actually moved.
+    // rather than of the click that queued it.
     return await updateDispatchRecord(rt, (document) =>
         reofferFollowUpRecords({ document, deliveryIds, at: nowIso() }));
 }

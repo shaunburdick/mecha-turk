@@ -1,21 +1,7 @@
 /**
- * The Accounts body (005 FR-060–FR-069, T-024).
- *
- * The account custody surface, relocated onto its own tab: the one-shot
- * handoff group (paste → connect, with the static disclaimer the consent
- * dialog was replaced by mounted under the Accounts list — 002 FR-008 as
- * re-cut at v1.9.0) above the credential-free
- * account list the service answers with, and one detail line for the row the
- * operator has open. The list is rendered from `GET /v1/accounts` through
- * [`accounts-rows.ts`](./accounts-rows.ts), which owns every word of it; this
- * module owns only the mounts, the repaint, and the one read the tab needs.
- *
- * The read is deliberately the tab's *existing* one — `loadBindings` fetches
- * bindings and accounts together — so the Accounts tab and the Bindings tab
- * cannot disagree about who is registered, and there is no second list
- * primitive to keep in step. It runs only when nothing has been read yet
- * (`status === 'idle'`): a mount that is already reading is left alone, and
- * **Refresh accounts** is the operator's own re-read (FR-014).
+ * The Accounts body (005 FR-060–FR-069, T-024): the one-shot handoff group
+ * with its static disclaimer, the credential-free account list, and one
+ * detail line for the row the operator has open.
  */
 
 import { mountButton, mountList, mountText } from '@openchamber/sdk/ui';
@@ -51,20 +37,13 @@ import { refresh } from './panel-ui.ts';
 import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
 import type { PanelRuntime } from './panel-state.ts';
 
-/** The Accounts body handle: the mounted element and its repaint handles. */
 export interface AccountsBody {
-    /** The body root this view mounted. */
     readonly pane: HTMLElement;
     readonly status: TextHandle;
-    /** The credential-free account list. */
     readonly list: ListHandle;
-    /** Explicit re-read of the accounts list. */
     readonly refreshAccounts: ButtonHandle;
-    /** Wrapper around the selected account's own line. */
     readonly detailBox: HTMLElement;
-    /** Chip row over that line: the account's connection and scope. */
     readonly detailChips: DetailChips;
-    /** The selected account's state, connection, scope, and remediation. */
     readonly detail: TextHandle;
     /**
      * The selected row's controls — two profile fields, the **one** save
@@ -74,7 +53,6 @@ export interface AccountsBody {
     readonly controls: DetailControls;
     /** Note under the body; never credential material. */
     readonly note: TextHandle;
-    /** Remove every node this body mounted. */
     readonly dispose: () => void;
 }
 
@@ -87,16 +65,12 @@ function composeStatus(input: { readonly total: number; readonly usable: number 
     return `Accounts: ${input.total} (${input.usable} can poll)`;
 }
 
-/** Heading above the one-shot handoff group. */
 const CONNECT_HEADING = 'Connect an account';
 
-/** Heading above the credential-free account list. */
 const LIST_HEADING = 'Accounts';
 
-/** Heading above the open row's facts and its controls. */
 const SELECTED_HEADING = 'Selected account';
 
-/** The list's column labels, in the order the SDK row lays its cells out. */
 const LIST_COLUMNS: readonly string[] = ['Lifecycle', 'Account', 'Bindings'];
 
 /**
@@ -186,14 +160,10 @@ function mountHandoffGroup(rt: PanelRuntime, pane: HTMLElement): void {
     refreshHandoff(rt);
 }
 
-/** The three handles the list half of the body mounts. */
 interface ListBoard {
     readonly status: TextHandle;
-    /** The account list itself. */
     readonly list: ListHandle;
-    /** Explicit re-read button. */
     readonly refreshAccounts: ButtonHandle;
-    /** Note under the body. */
     readonly note: TextHandle;
 }
 
@@ -232,19 +202,12 @@ function mountListBoard(input: {
     return { status, list, refreshAccounts, note };
 }
 
-/** Everything the Accounts body's disposer releases, as one value. */
 interface AccountsParts {
-    /** Status, list, refresh, and note. */
     readonly board: ListBoard;
-    /** The open row's own line. */
     readonly detail: TextHandle;
-    /** The open row's two member fields, rotation, and removal controls. */
     readonly controls: ReturnType<typeof mountDetailControls>;
-    /** The open row's card, which doubles as its heading's wrapper. */
     readonly detailBox: HTMLElement;
-    /** The open row's chip row. */
     readonly detailChips: DetailChips;
-    /** The body root. */
     readonly pane: HTMLElement;
 }
 
@@ -276,7 +239,6 @@ function accountsDisposer(parts: AccountsParts): () => void {
  */
 export function mountAccountsBody(input: {
     readonly rt: PanelRuntime;
-    /** Body container the shell created for the Accounts tab. */
     readonly body: HTMLElement;
     readonly handlers: AccountsHandlers;
 }): AccountsBody {

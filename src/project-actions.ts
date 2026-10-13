@@ -1,18 +1,10 @@
 /**
- * Host-facing actions behind the panel's project list.
- *
- * Two documented calls do the work: `host.listProjects()` (covered by the
- * declared `sessions` capability) renders the choices the binding form picks
- * from, and the ready snapshot's directory seeds the current-project default
- * (002 FR-095). Nothing here stores a pick: since the panel-level picker
- * was removed (issue #39) no code writes a project selection, so the
- * `mecha-turk:project` key is dead and the form's project resolves from the
- * default alone (002 FR-097).
- *
- * Nothing here writes to the ledger and nothing here throws: a failed list
- * is reported on the list's own status line, so the poll, the dispatch, and
- * the audit trail are untouched. Every rendered string passes through
- * `redact()` first.
+ * Host-facing actions behind the panel's project list: `host.listProjects()`
+ * renders the choices the binding form picks from and the ready snapshot's
+ * directory seeds the current-project default (002 FR-095). Nothing stores a
+ * pick since the panel-level picker went (issue #39), nothing writes the
+ * ledger, nothing throws — a failed list lands on the list's own status line —
+ * and every rendered string passes through `redact()` first.
  */
 
 import {
@@ -68,17 +60,14 @@ export async function loadProjects(rt: PanelRuntime): Promise<void> {
 }
 
 /**
- * Adopt the project the operator picked for a binding's draft, or refuse it.
- *
- * The binding form is where FR-070's recoverable state lives: the draft only
+ * Adopt the project the operator picked for a binding's draft, or refuse it:
+ * the binding form is where FR-070's recoverable state lives — the draft only
  * ever holds an id the *currently loaded* list contains, so a stale option, a
  * scripted click, or a list that has not arrived yet can never become a
- * binding's dispatch target. A refusal changes nothing — the draft keeps
- * whatever registered project it already held (usually none), `readDraft`
- * therefore keeps refusing to submit, and the binding never leaves the
- * recoverable `project_missing` path for a project the host did not confirm.
- *
- * @param id - Project id the select reported.
+ * binding's dispatch target. A refusal changes nothing: the draft keeps
+ * whatever registered project it already held, `readDraft` therefore keeps
+ * refusing to submit, and the binding never leaves the recoverable
+ * `project_missing` path for a project the host did not confirm.
  */
 export function selectBindingProject(rt: PanelRuntime, id: string): void {
     const { bindings, projects } = rt.state;

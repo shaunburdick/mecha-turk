@@ -1,24 +1,11 @@
 /**
- * The `GET /v1/status` document, and the read state that holds it.
- *
- * Parsing lives apart from rendering so the fail-closed rule is one function
- * deep and testable on its own: a body that does not carry the documented
- * shape answers **`null`**, never a partly-populated view (AGENTS invariant 8).
- * The tab then reports the read as failed and keeps whatever it
- * last rendered marked stale — it never renders a default as though the
- * service had said it.
- *
- * Every member here mirrors [contracts/status-projection.md](../../specs/005-panel-ia/contracts/status-projection.md):
- * `repositories` keeps its historical name, `pausedReason` is opaque
- * text the panel renders verbatim, `readable: false` marks a binding
- * row whose scan projection could not be read, and
- * `agentPin.lastVerification` is an outcome, an explicit *not available*, or
- * `null` — never a reassuring pass.
- *
- * The read state belongs here rather than beside the other `PanelState`
- * slices: it is a statement about *this document* (which read is on screen,
- * whether it is stale), and keeping it in this leaf module keeps
- * `panel-state.ts` free of a back-edge into the tab that renders it.
+ * The `GET /v1/status` document, and the read state that holds it. Parsing
+ * lives apart from rendering so the fail-closed rule is one function deep: a
+ * body without the documented shape answers **`null`**, never a
+ * partly-populated view (invariant 8), and the tab keeps its last render
+ * marked stale rather than painting a default. Every member mirrors
+ * contracts/status-projection.md verbatim, and the read state lives here so
+ * `panel-state.ts` stays free of a back-edge into the tab that renders it.
  */
 
 import { parseJsonObject } from './json.ts';
@@ -26,44 +13,29 @@ import { readRequiredActorPolicy } from './run-actor.ts';
 import type { ActorPolicy } from './run-actor.ts';
 
 export interface StatusAccountView {
-    /** GitHub numeric user id. */
     readonly numericUserId: string;
     readonly login: string;
-    /** Connection state, rendered verbatim — including values this build does not know. */
     readonly connectionState: string;
     /** Rate budget; `null` members are *not measured yet*, never zero. */
     readonly rate: StatusRateView;
 }
 
-/** The honest pre-poll rate baseline. */
 export interface StatusRateView {
-    /** Requests left in the window; `null` before the first measurement. */
     readonly remaining: number | null;
-    /** Hourly budget; `null` before the first measurement. */
     readonly limit: number | null;
-    /** Window reset stamp; `null` before the first measurement. */
     readonly resetAt: string | null;
-    /** Requests used in the rolling hour; a real count, zero when none. */
     readonly usedLastHour: number;
 }
 
-/** One binding row, keyed by the member the wire keeps. */
 export interface StatusBindingView {
     readonly bindingId: string;
-    /** `owner/name`. */
     readonly repository: string;
-    /** Target project id, so Status can notice one the host has not registered. */
     readonly projectId: string;
     readonly accountLogin: string;
-    /** Whether the binding is enabled right now. */
     readonly active: boolean;
-    /** Last completed scan, or `null` when it has never scanned. */
     readonly lastScanAt: string | null;
-    /** Machine reason the last scan skipped or failed, or `null`. */
     readonly lastError: string | null;
-    /** Events pending or in flight for this binding. */
     readonly pendingCount: number;
-    /** `false` marks every scan-derived member unreadable. */
     readonly readable: boolean;
     /**
      * The **shape** of this binding's actor allow-list, never its contents.
@@ -80,61 +52,44 @@ export interface StatusBindingView {
 }
 
 export interface StatusServiceView {
-    /** `degraded` when the data directory is unusable. */
     readonly status: 'ok' | 'degraded';
-    /** Milliseconds since the service started. */
     readonly uptimeMs: number;
-    /** Absolute data directory — the thing to back up. */
     readonly dataDir: string;
-    /** Store schema version, or `null` while the store is unavailable. */
     readonly schemaVersion: number | null;
     readonly writable: boolean;
 }
 
-/** The polling block, computed by the service from its live scheduler. */
 export interface StatusPollingView {
-    /** Effective interval the scheduler is running with. */
     readonly intervalMs: number;
-    /** Next scheduled poll; `null` while polling does not run. */
     readonly nextPollAt: string | null;
-    /** `true` only when the loop is genuinely not running. */
     readonly paused: boolean;
     /** Machine-readable pause reason; rendered verbatim, never mapped to a guess. */
     readonly pausedReason: string;
 }
 
-/** The agent pin's verification member, in its three shapes. */
 export type StatusVerificationView =
-    /** The most recent read-back the service holds. */
     | {
         readonly kind: 'outcome';
-        /** Agent the dispatch observed, or `null` when it was unreadable. */
         readonly observedAgent: string | null;
         readonly expectedAgent: string;
         readonly ok: boolean;
-        /** RFC 3339 stamp of the read-back. */
         readonly at: string;
     }
-    /** The service cannot say: the outcome lives on the dispatch row and audit. */
     | { readonly kind: 'unavailable'; readonly reason: string }
-    /** Nothing has ever been verified. */
     | { readonly kind: 'none' };
 
 export interface StatusAgentPinView {
-    /** The service's own expected-agent member; `null` when it holds none. */
     readonly expectedAgent: string | null;
     readonly verification: StatusVerificationView;
 }
 
 export interface StatusView {
     readonly service: StatusServiceView;
-    /** One row per registered account; `[]` is an honest empty. */
     readonly accounts: readonly StatusAccountView[];
     /** One row per stored binding; never omissions. */
     readonly bindings: readonly StatusBindingView[];
     readonly polling: StatusPollingView;
     readonly agentPin: StatusAgentPinView;
-    /** Whether this host surface can run a service at all. */
     readonly supported: boolean;
 }
 
@@ -146,15 +101,10 @@ export interface StatusView {
  * is cleared by the next read that lands.
  */
 export interface StatusTabState {
-    /** Read phase: nothing yet, in flight, landed, or refused. */
     phase: 'idle' | 'loading' | 'loaded' | 'failed';
-    /** RFC 3339 stamp of the read that last landed, or `null`. */
     at: string | null;
-    /** Why the last read failed; `null` while the tab has no failure to show. */
     problem: string | null;
-    /** Whether `doc` is from an earlier read than the one that just failed. */
     stale: boolean;
-    /** The parsed status document, or `null` until one lands. */
     doc: StatusView | null;
     /**
      * The configured interval read beside the effective one, or
@@ -286,10 +236,8 @@ function parseAccount(value: unknown): StatusAccountView | null {
     return { numericUserId, login, connectionState, rate };
 }
 
-/** A binding's identity members, which the guidance line also needs. */
 interface BindingIdentity {
     readonly bindingId: string;
-    /** `owner/name`. */
     readonly repository: string;
     readonly projectId: string;
     readonly accountLogin: string;

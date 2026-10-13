@@ -1,26 +1,9 @@
 /**
- * Mounting and disposing the Bindings tab body.
- *
- * [`bindings-ui.ts`](./bindings-ui.ts) holds the pane's contract and its
- * repaint; this module holds the **mount** — the two blocks, the controls
- * inside them, and the one disposer that releases them — because the pane's
- * mount had outgrown the file-length cap on its own.
- *
- * The shape this module builds is the review's own: **the list is the tab,
- * the editor is opened on request.** Entering the block shows the status and
- * note lines, the list, and its toolbar — **New binding**, **Refresh**,
- * **Toggle enabled**, **Remove** — while the editor block sits in a wrapper
- * that starts `hidden` and opens on a row click or on New binding. The
- * editor holds the project controls: the *Dispatch project* select with
- * **Reload projects** and the list's status line beside it (issue #39 moved
- * them here, so a failed `host.listProjects()` still has a surface that says
- * why and offers a retry), and the starting-prompt field before the form's
- * own action row, so one button writes the whole binding (005 FR-051; 004
- * FR-014's untouched-omits rides that write unchanged).
- *
- * Every control is a documented SDK primitive handing its strings to the
- * SDK's text path — no HTML sink (panel-service contract §3 invariant 11) —
- * and every one of them is disposed here (FR-017).
+ * Mounting and disposing the Bindings tab body: the two blocks, the controls
+ * inside them, and the one disposer. Every control is a documented SDK
+ * primitive handing its strings to the SDK's text path — no HTML sink
+ * (panel-service contract §3 invariant 11) — and every one is disposed here
+ * (FR-017).
  */
 
 import {
@@ -82,17 +65,13 @@ export const MENTION_SCAN_NOTE = 'Issue bodies and comments that @mention the bo
 export const REVIEW_SCAN_NOTE = 'Pull requests that ask the account to review open a dispatch.';
 
 /**
- * How the history-scope guidance reaches the operator (002 FR-090).
- *
- * Mounted as prose rather than as a select `description`, because the SDK's
- * `SelectProps` has no such member and because six sentences of operator-facing
- * guidance are not a caption. It sits directly under the control it explains, so
- * the operator meets it **without opening anything else** — which is the
- * requirement's own wording.
- *
- * It is mounted as a handle and **repainted from state**, not evaluated once: the
- * add and edit paths differ on the one claim that matters before a catch-up opens,
- * and the editor is a single mounted block reused for both.
+ * How the history-scope guidance reaches the operator (002 FR-090): mounted
+ * as prose rather than a select `description`, because the SDK's `SelectProps`
+ * has no such member and six sentences of operator-facing guidance are not a
+ * caption. It sits directly under the control it explains, so the operator
+ * meets it **without opening anything else** — the requirement's own wording —
+ * and it is a handle **repainted from state**, not evaluated once: the add and
+ * edit paths differ on the claim that matters before a catch-up opens.
  */
 
 const LIST_HEADING = 'Bindings';
@@ -128,17 +107,12 @@ interface Board {
 }
 
 /**
- * The two lines the history-scope field mounts around itself.
- *
- * **Both are derived or explanatory prose, not controls.** The guidance is FR-090's
- * six statements the operator must meet without opening anything else; the window
- * line is FR-092's derived state — the lower bound of the window this binding's
- * next scan will open, the mode that produced it, and whether a recovery replay
- * is in force (FR-078).
- *
- * Held as one object so the disposer releases both from the call site that
- * mounted them; a handle that is mounted and never released outlives the panel's
- * listeners (005 FR-017).
+ * The two lines the history-scope field mounts around itself: **both derived
+ * or explanatory prose, not controls** — the guidance is FR-090's six
+ * statements, the window line FR-092's derived state (the window's lower
+ * bound, the mode that produced it, and whether a recovery replay is in force,
+ * FR-078). Held as one object so the disposer releases both: a handle mounted
+ * and never released outlives the panel's listeners (005 FR-017).
  */
 interface HistoryScopeLines {
     /** FR-090's guidance, mounted directly under the control. */

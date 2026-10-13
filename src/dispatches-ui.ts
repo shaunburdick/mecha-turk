@@ -1,30 +1,11 @@
 /**
- * The Dispatches section's mount and repaint (M8, widened by 003 T-025) — split
- * from `bindings-ui.ts`, which the pane's bindings board and add form already
- * fill to the file-length limit.
- *
- * One heading, one status line, one list of recent events (newest first), the
- * actions over the selected row, a note for outcomes, and the M9
- * agent-verification banner in its own wrapper — a banner cannot be
- * unmounted through its handle, so the wrapper's `hidden` flag is what keeps
- * the area empty until a verification has something to say. Every control is
- * a documented SDK primitive repainted from state, exactly like the rest of
- * the pane, and every service-supplied string reaches the DOM through those
- * primitives' `textContent` writes (panel-service contract §3 invariant 11).
- *
- * The pane is three blocks — the set, the selection, the trail — and the
- * middle one follows Accounts' rule: a control that acts on a selection
- * cannot exist without one, so **Selected dispatch** hides as a whole block,
- * its `h2` included, rather than standing as a heading over an empty region.
- * The outcome note therefore lives at the foot of the *set* block, where the
- * status line's *see the note* still finds it while nothing is selected.
- *
- * The three operator actions mount as **groups that show and hide**: the SDK
- * buttons have no "absent" state of their own, so each group wraps its buttons
- * in an element whose `hidden` flag is the "no control here" the affordance
- * table asks for — a disabled button would promise an action the service would
- * refuse (FR-041, FR-074, AC-123). The resolve group carries FR-027's two
- * resolutions plus the field where the operator names the session.
+ * The Dispatches section's mount and repaint (M8, widened by 003 T-025):
+ * every control a documented SDK primitive repainted from state, strings
+ * through `textContent` only (contract §3 invariant 11). **Selected dispatch**
+ * hides as a whole block rather than standing as a heading over an empty
+ * region, and the operator actions mount as hidden-flag groups because SDK
+ * buttons have no "absent" state — a disabled button would promise an action
+ * the service would refuse (FR-041, FR-074, AC-123).
  */
 
 import { mountBanner, mountButton, mountList, mountText, mountTextField } from '@openchamber/sdk/ui';
@@ -210,16 +191,12 @@ function mountSharedActions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick
 
 /**
  * Mount the state-gated transitions: retry, return to waiting, and the
- * follow-up re-offer.
- *
- * Each sits in its own group so the group's `hidden` flag can say "not this
- * state" without leaving a greyed-out sibling visible. The follow-up re-offer
- * rides the same idiom on the other axis — it is gated by what the panel's own
- * record says about the row's follow-ups, not by the run's state — so a
- * dispatched dispatch, which is the only state a follow-up can belong to, is
+ * follow-up re-offer. Each sits in its own group so the group's `hidden` flag
+ * can say "not this state" without leaving a greyed-out sibling visible. The
+ * follow-up re-offer rides the same idiom on the other axis — gated by what
+ * the panel's own record says about the row's follow-ups, not by the run's
+ * state — so a dispatched run, the only state a follow-up can belong to, is
  * still where the control appears.
- *
- * @returns The groups and their buttons.
  */
 function mountTransitions(input: Pick<MountInputs, 'pane' | 'handlers'>): Pick<
     DispatchesBoard,
@@ -439,18 +416,14 @@ function repaintReoffer(input: {
 }
 
 /**
- * Repaint the runs half of the pane from state.
- *
- * The affordance table decides which transition group exists: one nobody can
- * use is hidden rather than greyed out, because a disabled button still
- * promises an action the service would refuse, and an armed
- * control repaints its confirm label from the same state the action module
- * wrote.
- *
- * Every row-level action also repaints an **accessible name that names its
- * row** — *Retry dispatch for #412 in owner/name* — because a list of
- * identically-labelled buttons is a list an operator cannot act on with a
- * screen reader.
+ * Repaint the runs half of the pane from state. The affordance table decides
+ * which transition group exists: one nobody can use is hidden rather than
+ * greyed out, because a disabled button still promises an action the service
+ * would refuse — and an armed control repaints its confirm label from the
+ * same state the action module wrote. Every row-level action also repaints an
+ * **accessible name that names its row** — *Retry dispatch for #412 in
+ * owner/name* — because a list of identically-labelled buttons is a list an
+ * operator cannot act on with a screen reader.
  */
 export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard): void {
     const { dispatches: runs } = rt.state;

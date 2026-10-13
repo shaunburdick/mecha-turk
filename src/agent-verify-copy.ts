@@ -1,35 +1,19 @@
 /**
- * The words one post-dispatch read-back produces: the runs-area banner and the
- * `note` the service stores beside the report (003 FR-043; contract §5; 002
- * FR-029).
- *
- * Split out of [`agent-verify.ts`](./agent-verify.ts) the way
- * [`status-lines.ts`](./status-lines.ts) sits apart from `status-tab.ts`: that
- * module decides what happened, this one decides how it is said, and both are
- * pure functions of an outcome — no host, no runtime, no state, so every string
- * an operator can read is testable without a dispatch.
- *
- * One rule shapes every line here: **an absence is never phrased as a
- * verdict.** A read-back taken against a blank baseline (the documented *no
- * baseline configured* since 002 v1.10.0 / 006 v1.5.0) reports what was
- * observed and that nothing could be compared — the words *mismatch* and
- * *expected* are reserved for a baseline that exists and differs.
+ * The words one post-dispatch read-back produces: the runs-area banner and
+ * the `note` the service stores beside the report (003 FR-043; contract §5;
+ * 002 FR-029); an absence is never phrased as a verdict.
  */
 
 import { redact } from './redaction.ts';
 import type { PanelStatus } from './panel-state.ts';
 import type { AgentVerification } from './agent-verify.ts';
 
-/** Milliseconds in one second; used to phrase the timeout for the operator. */
 const MS_PER_SECOND = 1_000;
 
-/** The warning every warn-only outcome repeats, so it is worded once. */
 const KEEP_RUNNING = 'Warning only — the session keeps running, nothing was blocked.';
 
-/** What a read-back had no baseline to compare against. */
 type Uncompared = Extract<AgentVerification, { readonly status: 'uncompared' }>;
 
-/** The two outcomes whose *observation* failed rather than its comparison. */
 type ObservationFailure = Extract<AgentVerification, { readonly status: 'timeout' | 'unavailable' }>;
 
 /**
@@ -53,14 +37,11 @@ function uncomparedNotice(result: Uncompared): PanelStatus {
 }
 
 /**
- * The banners for a read-back whose observation failed (timeout, refusal).
- *
- * These warnings are about the *observation*, so the expected agent is named
- * only when there is one: with no baseline there is nothing to set the failure
- * against, and a parenthetical naming an empty baseline would be noise.
- *
- * @param result - The timeout or unavailable outcome.
- * @returns The banner content, already redacted.
+ * The banners for a read-back whose observation failed (timeout, refusal):
+ * these warnings are about the *observation*, so the expected agent is named
+ * only when there is one — with no baseline there is nothing to set the
+ * failure against, and a parenthetical naming an empty baseline would be
+ * noise. Already redacted.
  */
 function observationFailureNotice(result: ObservationFailure): PanelStatus {
     const basis = result.expected === '' ? '' : ` (expected '${result.expected}')`;
@@ -83,21 +64,15 @@ function observationFailureNotice(result: ObservationFailure): PanelStatus {
 }
 
 /**
- * Build the runs-area banner for one verification outcome.
- *
- * Every non-match outcome is a warning, never a block: the session keeps
- * running and the relay keeps dispatching — M9 tells the operator which
- * agent answered, it does not play bouncer. The match outcome gets its own
- * banner so the evidence an operator looks for on a live dispatch is on
- * screen the moment it exists.
- *
- * The one outcome that is *not* a warning is `uncompared`: with no baseline
- * configured there is nothing wrong to report, so it states what was observed
- * and that no comparison was possible, in the plain tone (002 FR-029 as
- * amended — a mismatch warning fires only when a real baseline exists and
- * differs).
- *
- * @returns The banner content, already redacted.
+ * Build the runs-area banner for one verification outcome. Every non-match
+ * outcome is a warning, never a block: the session keeps running and the
+ * relay keeps dispatching — M9 tells the operator which agent answered, it
+ * does not play bouncer — and the match gets its own banner so the evidence
+ * is on screen the moment it exists. The one outcome that is *not* a warning
+ * is `uncompared`: with no baseline configured there is nothing wrong to
+ * report, so it states what was observed and that no comparison was possible
+ * (002 FR-029 as amended: a mismatch warning fires only when a real baseline
+ * exists and differs). Already redacted.
  */
 export function verificationNotice(result: AgentVerification): PanelStatus {
     const expected = `expected '${result.expected}'`;

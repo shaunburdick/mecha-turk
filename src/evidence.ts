@@ -1,13 +1,9 @@
 /**
- * The normalized issue evidence record for the extension (contract:
- * schema `extension-spike-1` — see the invariant on wire contracts in
- * AGENTS.md; the record shape is asserted by `tests/evidence.test.ts`).
- *
- * The record is the only provider-derived fact the panel persists for a
- * match: it carries identity, source link, timing, and correlation — never the
- * token, never an Authorization header, and never an unrestricted issue
- * payload. Serialization runs through {@link assertRedacted} so a leak fails
- * loudly instead of being written.
+ * The normalized issue evidence record for the extension (schema
+ * `extension-spike-1` — a wire contract, see AGENTS.md): identity, source
+ * link, timing, correlation — never the token, never an Authorization header,
+ * never an unrestricted issue payload. Serialization runs through
+ * {@link assertRedacted} so a leak fails loudly instead of being written.
  */
 
 import type { JsonValue } from '@openchamber/sdk';

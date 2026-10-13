@@ -1,12 +1,8 @@
 /**
- * Host-side dispatch and verification for the panel.
- *
- * Everything here goes through the documented `@openchamber/sdk` surface:
- * `host.listProjects`, `host.listWorktrees`, `host.listSessions`, their
- * subscriptions, `host.onSessionLifecycle`, and `host.startSession`. The panel
- * never creates a worktree, a project, or a session on disk itself — it asks
- * OpenChamber and records what OpenChamber answers, including partial
- * bootstrap failures.
+ * Host-side dispatch and verification for the panel: everything goes through
+ * the documented `@openchamber/sdk` surface — the panel never creates a
+ * worktree, a project, or a session on disk itself, it asks OpenChamber and
+ * records what OpenChamber answers, including partial bootstrap failures.
  */
 
 import { GUEST_ATTACH_TITLE_MAX, GUEST_ATTACH_URL_MAX } from '@openchamber/sdk';
@@ -26,18 +22,13 @@ import type { GitHubIssue } from './github.ts';
 import type { LedgerDetail, PanelLedger } from './ledger.ts';
 
 /**
- * The host surface the panel uses.
- *
- * Building this from `Pick<HostClient, …>` keeps the panel on the documented
- * API surface: adding a method here is a deliberate, reviewable act.
- *
- * `'prompt'` is the one method this list gained for the tracking lifecycle
- * (002 FR-104): a follow-up is delivered by writing into the session the run's
- * dispatch already created, which is the only addressing the host publishes for
- * an existing session. It uses the **already-declared** `prompt` capability —
- * no manifest change and no install-time approval change (AGENTS.md invariant
- * 3) — and `'openSession'`, which the agent read-back already calls, is what
- * makes the target session the current one before the write lands.
+ * The host surface the panel uses: `Pick<HostClient, …>` keeps the panel on the
+ * documented API surface, so adding a method here is a deliberate, reviewable
+ * act. `'prompt'` was gained for the tracking lifecycle (002 FR-104) — a
+ * follow-up writes into the session the dispatch created, using the
+ * **already-declared** `prompt` capability, so no manifest or approval change
+ * (invariant 3) — and `'openSession'`, which the read-back already calls, makes
+ * that session the current one before the write lands.
  */
 export type PanelHost = Pick<
     HostClient,
@@ -68,7 +59,6 @@ export const CONTEXT_MAX_CHARS = 12_000;
 
 const NEWLINE = '\n';
 
-/** Re-exported: the context builder stays the one import path for these. */
 export { SOURCE_EXCERPT_MAX_CHARS } from './context-blocks.ts';
 
 /**
@@ -79,10 +69,8 @@ export { SOURCE_EXCERPT_MAX_CHARS } from './context-blocks.ts';
  * alter the frame around it.
  */
 export interface ContextSource {
-    /** Where it matched: `assignment`, `body`, `comment:<id>`, or `review`. */
     readonly origin: string;
     readonly kind: 'assignment' | 'mention' | 'review';
-    /** RFC 3339 detection stamp. */
     readonly detectedAt: string;
     readonly url: string;
     /** Bounded untrusted excerpt. */
@@ -105,12 +93,10 @@ export type ProjectResolution =
     | { readonly ok: false; readonly problem: string; readonly available: readonly string[] };
 
 /**
- * Resolve the configured project reference against `host.listProjects()`.
- *
- * The panel never creates a project implicitly: an absent or invalid reference
- * blocks the dispatch.
- *
- * @returns The project, or the blocking problem plus the available ids.
+ * Resolve the configured project reference against `host.listProjects()`: the
+ * panel never creates a project implicitly — an absent or invalid reference
+ * blocks the dispatch (constitution II). Answers the project, or the blocking
+ * problem plus the available ids.
  */
 export async function resolveProject(
     host: Pick<PanelHost, 'listProjects'>,
@@ -137,18 +123,13 @@ export async function resolveProject(
 }
 
 /**
- * The blocks one bounded context quotes.
- *
- * The source list when the caller has one, and the issue body alone otherwise
- * — the shape the legacy single-source dispatch and every non-run caller use,
- * kept here so the renderer cannot grow a third rule about what a body is.
- *
- * @returns The blocks, in join order.
+ * The blocks one bounded context quotes: the source list when the caller has
+ * one, the issue body alone otherwise — the shape the legacy single-source
+ * dispatch uses, kept here so the renderer cannot grow a third rule about what
+ * a body is. In join order.
  */
 function contextBlocks(input: {
-    /** The run's source references, in join order. */
     readonly sources?: readonly ContextSource[];
-    /** The matched issue the body falls back to. */
     readonly issue: GitHubIssue;
 }): ContextBlock[] {
     const sources = input.sources ?? [];
@@ -163,33 +144,25 @@ function contextBlocks(input: {
 
 export interface BoundedContextRender {
     /**
-     * The frame's own lines, above `BEGIN_UNTRUSTED`.
-     *
-     * The two stories the panel tells — a dispatch and a follow-up — differ in
-     * exactly this header, and nowhere else: the markers, the budget, and the
-     * running subtraction below are the safety half and are shared, so a second
-     * header cannot come with a second (weaker) implementation of them.
+     * The frame's own lines, above `BEGIN_UNTRUSTED`: the panel's two stories —
+     * a dispatch and a follow-up — differ in exactly this header. Markers,
+     * budget, and running subtraction are the shared safety half, so a second
+     * header cannot come with a second, weaker implementation of them.
      */
     readonly header: readonly string[];
-    /** The run's source references, in join order; absent quotes the issue body. */
     readonly sources?: readonly ContextSource[];
     readonly issue: GitHubIssue;
-    /** Optional character budget; defaults to {@link CONTEXT_MAX_CHARS}. */
     readonly maxChars?: number;
-    /** Characters already spoken for by the caller's own frame; defaults to 0. */
     readonly reservedChars?: number;
 }
 
 /**
  * Render one bounded context: a caller's frame, the delimited blocks, the bound.
- *
- * The budget is spent on the sources, never on the frame: the frame is counted
- * in full first, so a shortened quotation can never cut the closing delimiter.
- * Source text is elided of the markers inside {@link renderBlocks}, so a cut
- * can never reassemble one — which is the whole reason this is one function
- * with a parameter rather than two functions with two implementations.
- *
- * @returns Context truncated to the budget, markers intact.
+ * The budget is spent on the sources, never the frame — the frame is counted in
+ * full first, so a shortened quotation can never cut the closing delimiter —
+ * and source text is elided of its markers inside {@link renderBlocks}, so a
+ * cut can never reassemble one: the whole reason this is one function with a
+ * parameter rather than two functions with two implementations.
  */
 export function renderBoundedContext(input: BoundedContextRender): string {
     const maxChars = input.maxChars ?? CONTEXT_MAX_CHARS;
@@ -213,10 +186,8 @@ export function renderBoundedContext(input: BoundedContextRender): string {
 }
 
 export interface BoundedContextInput {
-    /** `owner/name` of the repository. */
     readonly repository: string;
     readonly issue: GitHubIssue;
-    /** Login discovered from `GET /user`. */
     readonly authenticatedLogin: string;
     readonly correlationId: string;
     /**
@@ -237,29 +208,17 @@ export interface BoundedContextInput {
 }
 
 /**
- * Build the bounded first-message context for a dispatched session.
- *
- * Source text is untrusted, so every source is quoted inside one
- * explicit delimited block and bounded before it can dominate the prompt.
- * Three guarantees hold at once, which is the whole point of the shape:
- *
- * - **Both limits, at once.** Each excerpt is capped by
- *   {@link SOURCE_EXCERPT_MAX_CHARS} and the whole context by `maxChars`
- *   ({@link CONTEXT_MAX_CHARS} = 12,000 by default), frame and closing
- *   delimiter included — true for any mix, because every character the
- *   renderer emits is subtracted from one running budget.
- * - **Nothing is dropped silently.** A cut source carries `… [truncated]`, a
- *   source that did not fit carries the omission marker, and sources the
- *   budget could not list are named by a roll-up line whose length was
- *   reserved before the first block ran. The frame states how many references
- *   the run has, so the count of what was quoted checks against the total.
- * - **Source text cannot reach past the delimiters.** Markers are elided out
- *   of every untrusted string before quoting and before any truncation, so a
- *   cut can never reassemble one.
- *
- * The budget is spent on the sources, never on the frame: the frame is
- * counted in full first, so a shortened quotation can never cut the closing
- * delimiter. The context never contains a token or Authorization material.
+ * Build the bounded first-message context for a dispatched session. Three
+ * guarantees hold at once: **both limits** — per-excerpt
+ * {@link SOURCE_EXCERPT_MAX_CHARS} and the whole-context
+ * {@link CONTEXT_MAX_CHARS} — apply to any mix, because every emitted
+ * character is subtracted from one running budget; **nothing is dropped
+ * silently** — truncation and omission markers, plus a roll-up line whose
+ * length was reserved before the first block ran; and **source text cannot
+ * reach past the delimiters** — markers are elided out of every untrusted
+ * string before quoting and before any truncation. The frame is counted in
+ * full first, so a cut never eats the closing delimiter, and the context never
+ * contains a token or Authorization material.
  */
 export function buildBoundedContext(input: BoundedContextInput): string {
     const header = [
@@ -298,7 +257,6 @@ function worktreeValue(selection: WorktreeSelection): GuestSessionWorktree | und
     return { kind: 'new', name: selection.name };
 }
 
-/** The reference a request carries when no prompt was set. */
 const NO_PROMPT: PromptReference = {
     promptPresent: false,
     promptFingerprint: null,
@@ -308,17 +266,11 @@ const NO_PROMPT: PromptReference = {
 
 /**
  * Build the documented `host.startSession()` request for a matched issue.
- *
- * **Attachment identity.** The request's `id` is the attachment
- * identifier OpenChamber's own session list shows, and it is the run's
- * correlation identifier — derived deterministically from it, so one copyable
- * string finds both the session and the audit chain. It is read from the
- * evidence record rather than passed in beside it precisely so `id` and
- * `data.correlationId` cannot drift apart: the relay puts the run's
- * `mt-run-…` correlation id in the evidence record, and every other caller
- * keeps whatever correlation id its own record already carries.
- *
- * @returns The request exactly as it will be sent to the host.
+ * **Attachment identity:** the request's `id` is the attachment identifier
+ * OpenChamber's own session list shows, derived from the run's correlation id
+ * so one copyable string finds both the session and the audit chain — read from
+ * the evidence record rather than passed beside it precisely so `id` and
+ * `data.correlationId` cannot drift apart.
  */
 export function buildStartSessionRequest(input: {
     readonly config: BindingContext;
@@ -366,7 +318,6 @@ export function buildStartSessionRequest(input: {
     };
 }
 
-/** `startSession` result variant that reports a partial bootstrap failure. */
 type StartSessionFailure = Extract<StartSessionResult, { failure: 'bootstrap-failed' | 'session-create-failed' }>;
 
 type StartSessionSuccess = Exclude<StartSessionResult, StartSessionFailure>;
@@ -390,12 +341,9 @@ function summarizeSuccess(result: StartSessionSuccess): LedgerDetail {
 }
 
 /**
- * Summarize a partial bootstrap failure for the ledger.
- *
- * The worktree OpenChamber left behind is part of the record: the relay
- * inspects this before any retry.
- *
- * @returns Scalar, secret-free fields for the ledger.
+ * Summarize a partial bootstrap failure for the ledger: the worktree OpenChamber
+ * left behind is part of the record, because the relay inspects this before any
+ * retry. Scalar, secret-free fields.
  */
 function summarizeFailure(result: StartSessionFailure): LedgerDetail {
     return {
@@ -411,27 +359,19 @@ function summarizeFailure(result: StartSessionFailure): LedgerDetail {
 }
 
 /**
- * Summarize a `host.startSession()` result for the ledger.
- *
- * The full result is recorded, including partial bootstrap failures: a null
- * session id, the failure reason, the directory, and any worktree OpenChamber
- * left behind.
- *
- * @returns A scalar, secret-free summary for the ledger.
+ * Summarize a `host.startSession()` result for the ledger, recording the full
+ * result including partial bootstrap failures — null session id, failure
+ * reason, directory, and any worktree left behind. Scalar and secret-free.
  */
 export function summarizeStartSessionResult(result: StartSessionResult): LedgerDetail {
     return 'failure' in result ? summarizeFailure(result) : summarizeSuccess(result);
 }
 
 /**
- * Check that a session detail records a session the host actually created.
- *
- * Blocked and failed attempts are recorded as `session` entries too — an
- * unresolved project, a source that stopped matching, a `startSession()` that
- * returned a failure — but they carry `problem`/`failure` instead of a session
- * id, so they must never count as a dispatch.
- *
- * @returns `true` when the detail carries a non-empty created session id.
+ * Check that a session detail records a session the host actually created:
+ * blocked and failed attempts are recorded as `session` entries too, carrying
+ * `problem`/`failure` instead of a session id, so they must never count as a
+ * dispatch. `true` only for a non-empty created session id.
  */
 function hasCreatedSession(detail: LedgerDetail): boolean {
     const { sessionId } = detail;
@@ -439,15 +379,11 @@ function hasCreatedSession(detail: LedgerDetail): boolean {
 }
 
 /**
- * Find whether the ledger already dispatched a given issue.
- *
- * Used to keep the relay idempotent: one issue produces at most one created
- * session, so a re-poll cannot create a second one. Only *successful*
- * dispatches count — a transient failure is evidence to retry from, not a
- * permanent block, otherwise one unresolved project would disable the panel
- * until its ledger was deleted.
- *
- * @returns `true` when a `session` entry for that issue holds a created session id.
+ * Find whether the ledger already dispatched a given issue, keeping the relay
+ * idempotent: one issue produces at most one created session, and only
+ * *successful* dispatches count — a transient failure is evidence to retry
+ * from, so one unresolved project cannot disable the panel until its ledger is
+ * deleted.
  */
 export function findDispatchForIssue(ledger: PanelLedger, issueId: string): boolean {
     return ledger.entries.some(

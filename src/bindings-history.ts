@@ -1,44 +1,9 @@
 /**
- * The binding editor's history-scope field (002 FR-089 – FR-094).
- *
- * **The one place in the panel the mode is ever rendered** (002 FR-091): a row
- * summary may name its short label, Status and Diagnostics must not carry it, and
- * no second editor may offer it. That single-rendering rule is why this field
- * lives in its own module beside `bindings-actors.ts` rather than inside the
- * editor — the count of surfaces that show it is the invariant, and one module is
- * what makes it countable.
- *
- * Five decisions the code does not show:
- *
- * - **A select, not a toggle or free text.** The field's whole domain is two
- *   fixed names (002 FR-053), and a select *offers* them rather than describing
- *   them: every option is reachable by keyboard, the accessible name comes from
- *   the SDK's own caption, and a value outside the two cannot be typed at all
- *   (FR-094). A checkbox could not express "which of two", and a text field would
- *   invite the third value the service refuses.
- * - **The panel never pre-empts the service** (002 FR-063). The select offers the
- *   two names and sends the one chosen; it validates **nothing**, so it can neither
- *   accept input the service would refuse nor reject input it would accept. The
- *   only judgement here is the *rendering* one: a stored value outside the two is
- *   shown as **unreadable**, because rendering it as the default would tell the
- *   operator their binding scans from now on when the service may hold something
- *   else.
- * - **The guidance travels with the field** (FR-090), in the operator's own terms
- *   and without opening anything else: what each option does, that the default
- *   watches from now on, that the look-back is a fixed **seven days, once**, that
- *   the window is bounded with **no "all history" option**, and that choosing it on
- *   an existing binding may offer many sessions at once.
- * - **The window in force is labelled derived state** (FR-092), never as something
- *   the operator set — the same sentence every cycle's row would otherwise be read
- *   as a setting.
- * - **The create path carries the default** (FR-089), so a choice the creator may
- *   indicate is met by a control that also works when they indicate nothing: an
- *   untouched select writes `'new-only'`, which is exactly what absence would have
- *   meant.
- *
- * Imports neither `panel-ui` nor `bindings.ts`, for the reason
- * `bindings-actors.ts` gives: a control that `bindings-ui` composes **and** that
- * `refresh` repaints has to stay a leaf, or the two form an import cycle.
+ * The binding editor's history-scope field (002 FR-089–FR-094): the one place
+ * in the panel the mode is ever rendered (FR-091), a select over the two
+ * fixed names that validates nothing — the panel never pre-empts the service
+ * (FR-063) — with a stored value outside the two shown as **unreadable**
+ * rather than as the default.
  */
 
 import { mountSelect } from '@openchamber/sdk/ui';
@@ -75,24 +40,16 @@ export function historyScopeOptions(): SelectOption[] {
 }
 
 /**
- * The guidance the field carries (002 FR-090).
- *
- * Six things the operator must learn **without opening anything else**, and every
- * one of them is stated rather than implied:
- *
- * 1. the default watches from now on;
- * 2. the other option looks back over a fixed **seven-day** period;
- * 3. that look-back happens **once**, and does not repeat on its own;
- * 4. the window is **bounded** and there is **no "all history" option**;
- * 5. choosing it on an **existing** binding offers every matching item inside that
- *    window at once, which **may be many sessions**;
- * 6. a **recovery replay** after data loss re-offers work regardless of the
- *    setting — so the field is never read as the reason a burst of older events
- *    appeared.
- *
- * Returned rather than a module constant because point 5 is conditional on the
- * editor being open on an existing row: a **new** binding cannot open a catch-up,
- * because it has no completed scan to catch up from (002 FR-084; plan H6).
+ * The guidance the field carries (002 FR-090): six things the operator must
+ * learn **without opening anything else**, each stated rather than implied —
+ * the default watches from now on; the other option looks back over a fixed
+ * **seven-day** period, **once**, never repeating on its own; the window is
+ * **bounded** with **no "all history" option**; choosing it on an **existing**
+ * binding offers every matching item inside that window at once, which **may
+ * be many sessions**; and a **recovery replay** after data loss re-offers work
+ * regardless of the setting. Returned rather than a module constant because
+ * point 5 is conditional on editing an existing row: a **new** binding has no
+ * completed scan to catch up from (002 FR-084; plan H6).
  */
 export function historyScopeGuidance(isEditingStoredRow: boolean): string {
     const catchUp = isEditingStoredRow
@@ -105,20 +62,14 @@ export function historyScopeGuidance(isEditingStoredRow: boolean): string {
 }
 
 /**
- * The window-in-force line the editor shows under the control (002 FR-092).
- *
- * **Derived state, labelled as such.** The service computed this window from the
- * binding's history scope and its scan state; the operator set nothing here. Three
- * facts, in the order that answers the question an operator actually has — *what
- * is it watching, since when, and is it recovering*:
- *
- * - no window yet, and the service's reason when it gave one (a refusal is the
- *   only state with no window, so silence would read as "nothing to say");
- * - the mode in force, named as the rule the window came from;
- * - the window's lower bound, next to the last completed scan, so **both ends** of
- *   the window are readable together.
- *
- * @returns The line to render, or `null` while the editor is on a new row.
+ * The window-in-force line the editor shows under the control (002 FR-092):
+ * **derived state, labelled as such** — the service computed this window, the
+ * operator set nothing. Three facts in the order that answers *what is it
+ * watching, since when, and is it recovering*: no window yet with the
+ * service's reason when it gave one (a refusal is the only windowless state);
+ * the mode in force, named as the rule the window came from; and the lower
+ * bound next to the last completed scan, so **both ends** are readable
+ * together. `null` while the editor is on a new row.
  */
 export function windowInForceLine(status: {
     readonly windowStart: string | null;
@@ -151,32 +102,23 @@ export function windowInForceLine(status: {
 }
 
 /**
- * Read the stored mode for the editor's control.
- *
- * **Absent is the documented default** (002 FR-093): a binding storing no mode
- * renders `'new-only'`, because that is what the binding will do, and because
- * absence means the default everywhere (002 FR-058) — never `unset`, which is not
- * a state this field has.
- *
- * A stored mode the panel cannot judge arrives here already **refused** by
- * `parseBindingEntry` (002 FR-063), so this never has to render an unusable value.
- *
- * @param binding - The stored row the editor is open on, or `null` in add mode.
+ * Read the stored mode for the editor's control. **Absent is the documented
+ * default** (002 FR-093): a binding storing no mode renders `'new-only'`,
+ * because that is what the binding will do, and absence means the default
+ * everywhere (002 FR-058) — never `unset`, which is not a state this field
+ * has. A stored mode the panel cannot judge arrives already **refused** by
+ * `parseBindingEntry` (002 FR-063), so this never renders an unusable value.
  */
 export function historyScopeFor(binding: PanelBinding | null): HistoryScope {
     return binding === null ? DEFAULT_HISTORY_SCOPE : readHistoryScope(binding.historyScope) ?? DEFAULT_HISTORY_SCOPE;
 }
 
 /**
- * Read the short label a row summary may name (002 FR-091).
- *
- * A **label, not a claim**: 005 FR-091's reasoning is that a count is not a second
- * rendering of a value, and the same holds here — naming the mode in the row is
- * permitted, deriving anything *else* from it is not, and the row is never the
- * only place the operator can see or change it (the editor control is).
- *
- * @returns The label the row may show, or `null` for the documented default — a
- *   row has nothing to add when the binding is in the mode every binding is in.
+ * Read the short label a row summary may name (002 FR-091): a **label, not a
+ * claim** — naming the mode in the row is permitted, deriving anything *else*
+ * from it is not, and the row is never the only place the operator can see or
+ * change it (the editor control is). `null` for the documented default: a row
+ * has nothing to add when the binding is in the mode every binding is in.
  */
 export function historyScopeLabel(binding: PanelBinding): string | null {
     return historyScopeFor(binding) === RECENT_HISTORY_SCOPE ? 'one-off 7-day look-back' : null;
@@ -195,16 +137,13 @@ export interface BindingHistoryScopeControls {
 type ScopeState = Pick<BindingsTabState, 'historyScopeInput' | 'editing'>;
 
 /**
- * The guidance this field shows, from the state the editor is currently in.
- *
- * **Repainted, not chosen once at mount.** The two variants differ on the one
- * claim an operator needs and cannot otherwise learn: choosing the look-back on a
- * **new** binding sweeps from before it existed, while choosing it on an
- * **existing** one opens a catch-up that may offer many sessions at once
- * (002 FR-090, FR-084). The editor is mounted once and reused for both modes, so
- * a string evaluated at mount time would show the add-path sentence to an operator
- * about to open a catch-up on a binding that has been scanning for months — which
- * is the one moment the warning exists for.
+ * The guidance this field shows, from the state the editor is currently in:
+ * **repainted, not chosen once at mount.** The two variants differ on the one
+ * claim an operator cannot otherwise learn — the look-back on a **new**
+ * binding sweeps from before it existed, while on an **existing** one it opens
+ * a catch-up that may offer many sessions at once (002 FR-090, FR-084) — and
+ * the editor is mounted once for both modes, so a mount-time string would show
+ * the add-path sentence at exactly the moment the warning exists for.
  */
 export function historyScopeHelp(state: ScopeState): string {
     return historyScopeGuidance(state.editing);
@@ -224,17 +163,13 @@ function draftScope(state: ScopeState): HistoryScope {
 }
 
 /**
- * The one binding whose history scope a whole-file write overrides.
- *
- * **A patch naming its row, not a bare value.** The scope is
- * omission-preserves like the prompt (002 FR-057), so every row states its own
- * stored mode and only the row the editor was open on states the control's value
- * instead. A bare `HistoryScope` cannot express that: the grant is
- * whole-file, so a value without a row would stamp the edited binding's choice
- * onto every row — which for the wider mode means the service sees a mode change
- * on bindings the operator never touched, and arms a catch-up for each
- * (002 FR-084). Naming the row is what makes the override *that binding's*
- * override.
+ * The one binding whose history scope a whole-file write overrides: **a patch
+ * naming its row, not a bare value.** The scope is omission-preserves like the
+ * prompt (002 FR-057), so every row states its own stored mode and only the
+ * row the editor was open on states the control's value instead — and a bare
+ * `HistoryScope` would stamp the edited binding's choice onto every row, which
+ * in the wider mode arms a catch-up for bindings the operator never touched
+ * (002 FR-084).
  */
 export interface HistoryScopePatch {
     readonly bindingId: string;

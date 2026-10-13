@@ -1,11 +1,9 @@
 /**
- * `GET /v1/status` pre-flight for the one-shot handoff (task T-009).
- *
- * The panel reads the service's own health document **before** it enables the
- * credential input (token-handoff F10/SEC-08) and again after a host timeout
- * (F4/SEC-05): the service, not the clock, is the authority on whether an
- * account appeared. Nothing here ever carries a credential — the pre-flight
- * is the one handoff request that is safe to make at any time.
+ * `GET /v1/status` pre-flight for the one-shot handoff (task T-009): the
+ * panel reads the service's own health document **before** it enables the
+ * credential input (F10/SEC-08) and again after a host timeout (F4/SEC-05) —
+ * the service, not the clock, is the authority on whether an account
+ * appeared. Nothing here ever carries a credential.
  */
 
 import { HostRequestError } from '@openchamber/sdk';
@@ -22,7 +20,6 @@ export const STATUS_PATH = '/v1/status';
 
 /** Shape of the `GET /v1/status` fields the handoff reads. */
 export interface StatusSnapshot {
-    /** Whether the data directory can serve writes. */
     readonly storageWritable: boolean;
     /** Registered accounts, so a timeout can detect a new one (F4). */
     readonly accounts: readonly { readonly numericUserId: string; readonly login: string }[];

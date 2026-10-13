@@ -1,30 +1,8 @@
 /**
- * The Accounts tab's writes (005 FR-064, FR-065, FR-066).
- *
- * Three operations, each shaped by a rule that must not be re-derived at the
- * call site:
- *
- * - **Removal is two-step and states its cascade first** (FR-055): arming
- *   changes nothing but the arm; the confirmed delete sends `?force=1`, which
- *   is what makes the service's hardened guard disable the account's bindings
- *   (`state: 'disabled'`, one audit row each) instead of refusing — and the
- *   panel renders exactly that outcome, never a deletion (FR-065).
- * - **Rotation retains everything** (FR-064): the panel sends the existing
- *   token-replacement operation and states the retention *before* the paste;
- *   nothing about the account's history is touched by this side of the wire.
- * - **The profile is written as one atomic whole** (FR-066, FR-085; 004
- *   FR-082): the display name and the account tier are never applied
- *   optimistically — one `Save changes` control carries **both** members in
- *   one body (owner ruling, PR #12: "One Save button, both fields"), a
- *   refusal renders at the field it was answered for with the service's own
- *   remediation, and the stored values stay in force; a success is answered
- *   with an authoritative re-read rather than a locally invented value. The
- *   service's one-pass refusal is split back into the two member slots by
- *   **known field name**, because the panel's envelope carries only the
- *   composed `message`.
- *
- * The module imports neither the SDK nor the DOM: every control these actions
- * drive is painted from state by [`accounts-tab.ts`](./accounts-tab.ts).
+ * The Accounts tab's writes (005 FR-064–FR-066): two-step removal that states
+ * its cascade first (FR-055, FR-065), rotation that retains history (FR-064),
+ * and the one Save that writes both profile members atomically (FR-066,
+ * FR-085; 004 FR-082; owner ruling PR #12).
  */
 
 import { loadBindings, stillMounted } from './bindings.ts';
@@ -37,11 +15,9 @@ import type { AccountMember } from './accounts-state.ts';
 import { PROFILE_MEMBERS, memberRow, setMemberEdit, setMemberRefusal } from './accounts-state.ts';
 import type { PanelRuntime, AccountsTabState } from './panel-state.ts';
 
-/** What a removal with a forced cascade answers when the service still refuses. */
 const BINDINGS_REFUSAL =
     'The service refused: bindings still reference this account — remove them first.';
 
-/** What the note says when nothing is selected to remove. */
 const NOTHING_SELECTED = 'Select the account to remove first.';
 
 /**
@@ -166,46 +142,33 @@ export function toggleRotation(rt: PanelRuntime, numericUserId: string): void {
     refresh(rt);
 }
 
-/** What one profile write's success note calls the two members it carries. */
 const PROFILE_TITLE = 'Display name and starting prompt';
 
-/** What the open-row guard's remediation calls the two members it protects. */
 const PROFILE_NOUN = 'display name and starting prompt';
 
-/** The guard's own copy: both drafts belong to the row that loaded them. */
 const ROW_GUARD = `Select the account again before saving its ${PROFILE_NOUN}.`;
 
 /**
  * Where a new `field: remediation` pair begins in a composed `message`.
- *
  * `validationResponse` joins the pairs with `; `, so a new pair starts at a
- * `; ` immediately followed by an identifier and a colon. The lookahead is
- * the whole rule, and it is deliberately *not* "split on every `; `" or
- * "split on every colon": a remediation may contain `; ` of its own ("set
- * startingPrompt to a string; leave it empty…") and `: ` of its own
- * ("…credential-shaped material (matched shape: PAT)"), and neither marks a
- * field — only the service's own `field: ` prefix does.
+ * `; ` immediately followed by an identifier and a colon. That lookahead is the
+ * whole rule — deliberately *not* "split on every `; `" or on every colon,
+ * because a remediation may contain both and neither marks a field: only the
+ * service's own `field: ` prefix does.
  */
 const MESSAGE_SEGMENT = /; (?=[A-Za-z_][A-Za-z0-9_]*: )/;
 
-/** The service's copy per member once a refusal has been split; `null` when unnamed. */
 export type ProfileRefusal = Readonly<Record<AccountMember, string | null>>;
 
 /**
  * Split one refusal back into the member slots it names (owner ruling, PR #12).
- *
- * The panel's generic error envelope carries only `problem`, `code`, and
- * `message` — **no `issues` array** — so the service's own composition is
- * the only structure left to read back, and it is read back by **known field
- * name**, never by position and never by any colon in sight. A segment that
- * names neither member — the `body` refusal, an unexpected key, or a
- * non-validation message with no field shape at all — is appended to **both**
- * slots, so a reason is never dropped on its way to the operator.
- *
- * Every character a slot receives is the service's own copy (already redacted
- * by the caller), so nothing here can echo a submitted value back.
- *
- * @returns Each member's reason, or `null` for a member the refusal did not name.
+ * The generic envelope carries only `problem`, `code`, and `message` — **no
+ * `issues` array** — so the service's own composition is the only structure
+ * left to read, and it is read back by **known field name**, never by position
+ * and never by any colon in sight. A segment naming neither member is appended
+ * to **both** slots, so a reason is never dropped on its way to the operator.
+ * Every character a slot receives is the service's own already-redacted copy,
+ * so nothing here can echo a submitted value back.
  */
 export function splitProfileRefusal(message: string): ProfileRefusal {
     const segments = message.split(MESSAGE_SEGMENT).map((text) => ({
@@ -234,13 +197,9 @@ export function splitProfileRefusal(message: string): ProfileRefusal {
  * @returns The service's own answer for that one write.
  */
 async function putProfile(input: {
-    /** Runtime whose host surface the write runs on. */
     readonly rt: PanelRuntime;
-    /** GitHub numeric user id of the row being edited. */
     readonly numericUserId: string;
-    /** The display name exactly as the field holds it. */
     readonly displayName: string;
-    /** The account tier exactly as the field holds it. */
     readonly startingPrompt: string;
 }): Promise<ServiceErrorResult> {
     return await servicePut({
@@ -265,18 +224,16 @@ function staleProfileRow(accounts: AccountsTabState, numericUserId: string): boo
 }
 
 /**
- * Paint one refused write's reasons onto the two member slots.
- *
- * A blank `message` carries no reason at all, so the problem line stands in
- * for it — a refusal that rendered nothing would leave the operator with a
- * save that silently did nothing. Each slot then takes the half that named
- * it; a member the refusal did not name keeps whatever its own field already
- * said, because this answer had nothing against it and it must not inherit
- * the other member's reason.
+ * Paint one refused write's reasons onto the two member slots. A blank
+ * `message` carries no reason at all, so the problem line stands in for it — a
+ * refusal that rendered nothing would leave the operator with a save that
+ * silently did nothing. Each slot then takes the half that named it; a member
+ * the refusal did not name keeps whatever its own field already said, because
+ * this answer had nothing against it and it must not inherit the other
+ * member's reason.
  */
 function paintProfileRefusal(input: {
     readonly accounts: AccountsTabState;
-    /** The service's refusal for the write. */
     readonly answer: Extract<ServiceErrorResult, { readonly ok: false }>;
 }): void {
     const { accounts, answer } = input;
@@ -307,32 +264,22 @@ function clearProfileRefusals(accounts: AccountsTabState): void {
 /**
  * Write **both** operator-editable members of one account's profile, in one
  * body, from the one `Save changes` control (004 FR-082, 005 FR-066, AC-130,
- * AC-150; owner ruling, PR #12: "One Save button, both fields").
- *
- * **The write is atomic — this is a feature, not a bug.** The service reads
- * the whole body in one additive pass and *any* issue refuses all of it, so a
- * refusal at either member writes **nothing**: one bad value fails both
- * fields together. That is exactly the nothing-half-written guarantee the two
- * single-member saves each had (005 contract §2, invariants 4–6), now visible
- * across two fields — and it is why the refusal is split *per member* below
- * rather than rendered whole on both.
- *
- * The service stays the only validator: nothing here checks a
- * draft, so a refusal is always the service's own, and the answer for a
- * member the service did not name is left untouched rather than cleared or
- * borrowed from the other field. Both drafts stay exactly as typed, both
- * stored members stay in force, and a success is confirmed by re-reading the
- * list — the service is the authority on what it stored, and the panel never
+ * AC-150; owner ruling, PR #12: "One Save button, both fields"). **The write is
+ * atomic — a feature, not a bug:** the service reads the whole body in one
+ * additive pass and *any* issue refuses all of it, so a refusal at either
+ * member writes **nothing** — the nothing-half-written guarantee 005 contract
+ * §2 invariants 4–6 gave each single-member save, now visible across two
+ * fields, and the reason the refusal is split *per member* below. The service
+ * stays the only validator: nothing here checks a draft, a member it did not
+ * name is left untouched rather than cleared or borrowed, both drafts stay as
+ * typed, and a success is confirmed by re-reading the list — the panel never
  * paints a value it invented.
  */
 export async function saveProfile(
     rt: PanelRuntime,
     input: {
-        /** GitHub numeric user id of the row being written. */
         readonly numericUserId: string;
-        /** The display name exactly as its field holds it. */
         readonly displayName: string;
-        /** The account tier exactly as its field holds it. */
         readonly startingPrompt: string;
     },
 ): Promise<void> {

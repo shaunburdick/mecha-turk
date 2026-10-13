@@ -1,14 +1,8 @@
 /**
- * The six tab bodies, in 005 FR-010's order.
- *
- * The shell ([`tabs.ts`](./tabs.ts)) owns *when* a body appears; this module
- * owns *what* appears in each one. Every mount is a mapping from an existing
- * surface onto a container — six bodies, each of which mounts once and stays
- * mounted (FR-013).
- *
- * Each body owns its own read and its own disposer: Settings reads the
- * configuration document on first activation and releases it on teardown,
- * exactly as Status reads the projection and Dispatches reads the list.
+ * The six tab bodies, in 005 FR-010's order: the shell owns *when* a body
+ * appears, this module owns *what* appears in each one — every mount maps an
+ * existing surface onto a container, each body mounts once and stays mounted
+ * (FR-013), and each owns its own read and its own disposer.
  */
 
 import { createAccountsHandlers, mountAccountsBody as mountAccountsTab } from './accounts-tab.ts';
@@ -23,16 +17,12 @@ import type { TabDisposer, TabSpec } from './tabs.ts';
 
 /**
  * The Accounts body: the handoff group, the account list, and one detail
- * line.
- *
- * The flow is relocated with the same storage
- * pre-flight and the same two-step refusal (the consent gate it used to open
- * with was removed by product-owner order on 2026-10-01, 002 v1.9.0) — and
- * the list is the credential-free DTO
- * the service answers with. Only this body's own handles are disposed here:
- * the handoff view stays owned by the panel root, exactly as before.
- *
- * @returns A disposer that releases the list, detail, and note handles.
+ * line. The flow is relocated with the same storage pre-flight and the same
+ * two-step refusal (the consent gate it used to open with was removed by
+ * product-owner order on 2026-10-01, 002 v1.9.0), and the list is the
+ * credential-free DTO the service answers with. Only this body's own handles
+ * are disposed here: the handoff view stays owned by the panel root, exactly
+ * as before.
  */
 function mountAccountsBody(rt: PanelRuntime, body: HTMLElement): () => void {
     const view = mountAccountsTab({ rt, body, handlers: createAccountsHandlers(rt) });
@@ -97,9 +87,7 @@ function mountDispatchesBody(rt: PanelRuntime, body: HTMLElement): () => void {
  * @returns A disposer that releases the pane's handles.
  */
 function mountBindingsBody(input: {
-    /** Panel runtime the body reads and repaints. */
     readonly rt: PanelRuntime;
-    /** The body container the shell created. */
     readonly body: HTMLElement;
 }): () => void {
     const { rt, body } = input;

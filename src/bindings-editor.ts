@@ -1,36 +1,8 @@
 /**
  * The binding editor's derived fields (005 FR-053, FR-057; the recorded PM
- * ruling on T-022).
- *
- * Two facts the editor shows are **derived**, never stored, and both are
- * derived here:
- *
- * - **The mention token in force** is `@${binding.accountLogin}` — precisely
- *   the value `service/poll/triggers.ts#mentionsLogin` matches on. FR-057
- *   asks for it to be rendered and marked as an override when it differs from
- *   the bound account's own `@login`, so the mark fires on *that* difference
- *   (an upstream rename, or any future stored override) and on nothing else.
- *   There is no override **store** in this build: the shipped `BindingRecord`
- *   has no mention-token member, `grep` finds no `mentionToken` anywhere in
- *   `service/`, and an extra `PUT` member is silently dropped by
- *   `assembleBinding` — so the panel renders what the service actually
- *   matches rather than a field it could not write. The deferral and its
- *   lifting condition are recorded in `specs/005-panel-ia/spec.md` →
- *   `### v1.4.0`.
- * - **The bound-account field's scope** is the difference between editing and
- *   adding: with a binding selected the field is fixed to that binding's own
- *   account, so a displayed value and a saved value can never disagree; with
- *   no selection it lists the accounts available to bind.
- * - **The worktree option's declaration** (its two choices and how a choice
- *   is recorded) is a third field view kept here for the same reason: it is
- *   one of FR-053's fields, and `bindings-ui.ts` is at its file-length cap.
- *
- * All three are pure functions of the tab's state, so the copy and the
- * scoping are unit-testable without a DOM. Two mounted pieces live here too —
- * the mention-token line, and the two action rows (the editor's primary
- * control and cancel, plus the list's row-level controls) — and this module
- * deliberately imports neither `panel-ui` nor `bindings.ts`: it is composed by
- * `bindings-ui`, so it has to stay a leaf.
+ * ruling on T-022): the mention token in force, the bound-account field's
+ * scope, and the worktree option's declaration — derived here, never stored,
+ * and pure functions of the tab's state.
  */
 
 import { mountButton, mountText } from '@openchamber/sdk/ui';
@@ -81,16 +53,13 @@ export interface BindingActions {
 }
 
 /**
- * Mount the editor's action row and the list's row-level controls.
- *
- * They are two halves of one rule: a row can only be changed by loading it
- * into this form and saving it through the whole-file grant, so the primary
- * control is the editor's own (005 FR-050 — no second write path), while
- * **New binding**, **Toggle**, and **Remove** live with the list they act on
- * and stay reachable while the editor is closed (2026-10-01 review: the
- * editor is no longer open by default).
- *
- * @returns The five handles the pane carries.
+ * Mount the editor's action row and the list's row-level controls: two halves
+ * of one rule — a row can only be changed by loading it into this form and
+ * saving through the whole-file grant, so the primary control is the editor's
+ * own (005 FR-050 — no second write path), while **New binding**, **Toggle**,
+ * and **Remove** live with the list they act on and stay reachable while the
+ * editor is closed (2026-10-01 review: the editor is no longer open by
+ * default).
  */
 export function mountBindingActions(input: {
     /** Toolbar row in the editor the primary control and Cancel mount into. */
@@ -220,16 +189,12 @@ function selectedBinding(bindings: BindingsTabState): PanelBinding | null {
 }
 
 /**
- * The state the editor states in its own words (005 FR-053, 2026-10-01
- * review: *"no indication in the Binding Editor that the binding is enabled
- * or disabled"*).
- *
- * The line reads the stored row, not the toggle's intent, so it cannot claim
- * a state the service did not confirm; in add mode there is no stored row
- * yet, and the line says what a save will write instead of hiding the
- * question.
- *
- * @returns The line the editor paints under its heading.
+ * The state the editor states in its own words (005 FR-053, 2026-10-01 review:
+ * *"no indication in the Binding Editor that the binding is enabled or
+ * disabled"*). The line reads the stored row, not the toggle's intent, so it
+ * cannot claim a state the service did not confirm; in add mode there is no
+ * stored row yet, and the line says what a save will write instead of hiding
+ * the question.
  */
 export function editorStateLine(bindings: BindingsTabState): string {
     const binding = selectedBinding(bindings);
@@ -276,17 +241,13 @@ function mentionParties(bindings: BindingsTabState): {
 }
 
 /**
- * Derive the mention token the service matches on for this editor.
- *
- * Edit mode reads the selected binding's own `accountLogin` — the value
- * `mentionsLogin` is called with. Add mode reads the account the draft is
- * bound to, which is the token the new binding would match on. The override
- * mark fires only when both a current login is known and the two differ
- * case-insensitively: a binding whose account was removed cannot be compared,
- * and claiming an override without a comparison would be exactly the invented
- * value FR-003 forbids.
- *
- * @returns The line to render and whether it marks an override.
+ * Derive the mention token the service matches on for this editor: edit mode
+ * reads the selected binding's own `accountLogin` — the value `mentionsLogin`
+ * is called with — and add mode reads the account the draft is bound to, the
+ * token a new binding would match on. The override mark fires only when both a
+ * current login is known and the two differ case-insensitively: a binding
+ * whose account was removed cannot be compared, and claiming an override
+ * without a comparison would be exactly the invented value FR-003 forbids.
  */
 export function mentionTokenView(bindings: BindingsTabState): MentionTokenView {
     const { login, current } = mentionParties(bindings);

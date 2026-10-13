@@ -1,8 +1,6 @@
 /**
- * Shared mutable state for the panel.
- *
- * One runtime object carries everything the panel's actions and rendering need:
- * the documented host client, the frame window, the ledger, and the small
+ * Shared mutable state for the panel: one runtime object carrying the
+ * documented host client, the frame window, the ledger, and the small
  * lifecycle flags that keep a single poll loop and a single dispatch honest.
  */
 
@@ -65,18 +63,15 @@ export type TabId = 'status' | 'dispatches' | 'bindings' | 'accounts' | 'setting
 export const TAB_IDS: readonly TabId[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'];
 
 /**
- * The tab that owns a repeating read, and the only one (005 FR-100).
- *
- * Named rather than spelled at each comparison because two modules have to
- * agree on it — `status-tab.ts` arms the refresh tick only while this tab is
- * the active one, and a panel that armed for a hidden tab would repaint a
- * background body under the operator's hands.
+ * The tab that owns a repeating read, and the only one (005 FR-100): named
+ * rather than spelled at each comparison because two modules have to agree on
+ * it — `status-tab.ts` arms the refresh tick only while this tab is active,
+ * and a panel that armed for a hidden tab would repaint a background body.
  */
 export const STATUS_TAB: TabId = 'status';
 
 export interface PanelStatus {
     readonly tone: BannerTone;
-    /** One-line headline. */
     readonly title: string;
     /** Supporting detail; never contains secret material. */
     readonly body: string;
@@ -127,11 +122,9 @@ export interface PanelState {
      */
     config: BindingContext | null;
     /**
-     * Latest settings snapshot from the host, or `null` before the first one.
-     *
-     * The card declares zero settings, so the snapshot is a "the host is
-     * ready" marker rather than a configuration source; prerequisites reads
-     * it for exactly that.
+     * Latest settings snapshot from the host, or `null` before the first one:
+     * the card declares zero settings, so the snapshot is a "the host is
+     * ready" marker rather than a configuration source.
      */
     settings: Readonly<Record<string, string>> | null;
     /**
@@ -149,13 +142,10 @@ export interface PanelState {
     projects: ProjectPickerState;
     evidence: PanelEvidence | null;
     status: PanelStatus;
-    /** Whether an action is running; blocks concurrent dispatches. */
     busy: boolean;
-    /** One-shot handoff state: storage pre-flight and outcome. */
     handoff: HandoffState;
     /** Repository bindings as the Bindings tab reads and edits them (M3). */
     bindings: BindingsTabState;
-    /** Which row the Accounts tab has open, armed, or drafting. */
     accounts: AccountsTabState;
     /** Dispatches list, selection, and M9 notice, as its own tab slice. */
     dispatches: DispatchesState;
@@ -173,59 +163,44 @@ export interface PanelState {
 export interface Relay {
     timer: ReturnType<typeof setInterval> | null;
     inFlight: boolean;
-    /** RFC 3339 stamp of the last completed poll. */
     lastPollAt: string | null;
     dispatching: boolean;
     /**
-     * Attempts this mount has already handed to the dispatch path,
-     * keyed `"<correlationId>#<attempt>"`.
-     *
-     * A duplicate-suppression convenience, never a durability mechanism and
-     * never evidence that a session exists: an entry is only ever *added*, and
-     * because the key carries the attempt, the service handing the same run
-     * back under a new lease and a new attempt arrives as a different key.
-     * Nothing clears an entry — least of all a failed result report, which must
-     * never on its own authorize a re-dispatch.
+     * Attempts this mount has already handed to the dispatch path, keyed
+     * `"<correlationId>#<attempt>"`: a duplicate-suppression convenience,
+     * never a durability mechanism and never evidence that a session exists —
+     * entries are only *added*, the attempt in the key means a new lease
+     * arrives as a different key, and nothing clears an entry, least of all a
+     * failed result report, which must never authorize a re-dispatch alone.
      */
     handled: readonly string[];
-    /** Last relay error line, else empty. */
     lastError: string | null;
     /**
-     * The runs a follow-up can ride, as the relay's own read last saw them.
-     *
-     * `state=dispatched` filtered, newest first, walked to the end of the set:
-     * the relay's own view, refreshed on its own clock rather than borrowed
-     * from the operator's paged list. Starts empty and stays empty until the
-     * first successful read — an empty view is "nothing known", never "nothing
-     * waiting" (FR-036's no-false-claim rule).
+     * The runs a follow-up can ride, as the relay's own read last saw them —
+     * `state=dispatched`, newest first, walked to the end on the relay's own
+     * clock, never borrowed from the operator's paged list. Starts empty, and
+     * an empty view is "nothing known", never "nothing waiting" (FR-036's
+     * no-false-claim rule).
      */
     followUpRows: readonly RunRow[];
     /**
      * How many follow-ups the last relay tick found still waiting, or `null`
-     * before the first tick.
-     *
-     * `null` rather than `0` on purpose: a fresh mount has not read anything
-     * yet, and reporting a zero it has not measured is the exact claim FR-036's
-     * amended clause forbids. The Status surface renders the honest absence
-     * until the relay has counted.
+     * before the first tick: `null` rather than `0` on purpose — a fresh mount
+     * has not read anything, and reporting a zero it never measured is the
+     * claim FR-036's amended clause forbids.
      */
     waitingFollowUps: number | null;
     /**
-     * The session the host is showing right now, or `null` when none is open.
-     *
-     * Tracked from `host.onSession`, which replays the latest value to a late
-     * subscriber, so the follow-up delivery can answer "is the target already
-     * current?" from a fact the panel already holds instead of issuing a host
-     * call of its own (002 FR-104). A navigation only ever happens when this
-     * differs from the run's own session id.
+     * The session the host is showing right now, or `null` when none is open:
+     * tracked from `host.onSession`, which replays the latest value to a late
+     * subscriber, so follow-up delivery can answer "already current?" from a
+     * fact the panel already holds instead of a host call (002 FR-104).
      */
     currentSessionId: string | null;
 }
 
 export interface PanelRuntime {
-    /** Documented host client. */
     readonly host: PanelHost;
-    /** Frame window, used for the unload hook. */
     readonly panelWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>;
     readonly state: PanelState;
     readonly unsubscribes: (() => void)[];
@@ -238,20 +213,13 @@ export interface PanelRuntime {
      * runtime (orchestration tests) never has to know about tabs.
      */
     shell: TabShell | null;
-    /** Bindings body's mounted view, `null` until that tab first activates. */
     bindingsUi: BindingsPane | null;
-    /** Accounts body's mounted view, `null` until that tab first activates. */
     accountsUi: AccountsBody | null;
-    /** Dispatches body's mounted board, `null` until that tab first activates. */
     dispatchesUi: DispatchesBoard | null;
-    /** Status body's mounted view, `null` until that tab first activates. */
     statusUi: StatusTabUi | null;
-    /** Settings body's mounted view, `null` until that tab first activates. */
     settingsUi: SettingsTabUi | null;
-    /** About body's diagnostics list, `null` until that tab first activates. */
     aboutUi: AboutTabUi | null;
     disposed: boolean;
-    /** `true` once the first `onReady` snapshot has been handled. */
     started: boolean;
     /**
      * Which tab is showing — the shell's single activation field.
@@ -260,20 +228,15 @@ export interface PanelRuntime {
      * something happened, so a reopen always starts on Status.
      */
     activeTab: TabId;
-    /** Tabs whose bodies have mounted; each mounts once, on first activation. */
     tabMounted: Set<TabId>;
     tabLastRead: Map<TabId, string | null>;
-    /** Registered unload listener, so teardown can remove exactly what it added. */
     pagehideListener: (() => void) | null;
     /**
      * The Status tab's refresh tick: its timer handle, or `null` while nothing
-     * is armed (005 FR-100).
-     *
-     * Written **only** by `status-tab.ts`'s `armStatusRefresh` /
-     * `stopStatusRefresh`, which set and clear it together with
-     * `statusRefreshMs` — two slots for one fact, because a period with no
-     * handle behind it is a period the tab would claim to be running on and is
-     * not (NFR-112, 005 FR-101).
+     * is armed (005 FR-100). Written **only** by `status-tab.ts`'s arm/stop
+     * helpers, which set and clear it with `statusRefreshMs` — two slots for
+     * one fact, because a period with no handle behind it is a period the tab
+     * would claim to be running on and is not (NFR-112, 005 FR-101).
      */
     statusRefreshTimer: ReturnType<typeof setInterval> | null;
     /**
@@ -283,23 +246,18 @@ export interface PanelRuntime {
     statusRefreshMs: number | null;
     relayArmed: boolean;
     /**
-     * Whether mount-time reconciliation has settled for this runtime.
-     *
-     * `true` for a runtime that has not begun mounting — there is nothing to
-     * reconcile until the panel has read its own record — and `false` for the
-     * whole window in which `app.ts` is re-reporting unacknowledged attempts.
-     * `startRelayPolling` refuses to arm while it is `false`, so "no claim
-     * before reconciliation" holds no matter which call site reaches the relay
-     * first.
+     * Whether mount-time reconciliation has settled for this runtime: `true`
+     * before mounting begins (nothing to reconcile until the panel reads its
+     * own record), `false` while `app.ts` re-reports unacknowledged attempts.
+     * `startRelayPolling` refuses to arm while `false`, so "no claim before
+     * reconciliation" holds whichever call site reaches the relay first.
      */
     reconcileSettled: boolean;
     relayArmPending: boolean;
     /**
-     * Verification read-backs this mount started and has not seen settle.
-     *
-     * The relay starts them detached so a slow read-back can never hold the
-     * claim slot; nothing on a dispatch path awaits them, and a test
-     * drains the list to observe what a verification wrote without racing it.
+     * Verification read-backs this mount started and has not seen settle: the
+     * relay starts them detached so a slow read-back can never hold the claim
+     * slot, and nothing on a dispatch path awaits them.
      */
     readonly pendingVerifications: Promise<void>[];
 }
@@ -308,26 +266,19 @@ export type { BindingStatusRow } from './bindings-service.ts';
 
 /** Lifecycle of the runs list the Dispatches section renders (M8). */
 export type DispatchesStatus =
-    /** Nothing fetched yet. */
     | 'idle'
-    /** A `GET /v1/events` is in flight. */
     | 'loading'
-    /** The service answered a list the panel could read. */
     | 'ready'
-    /** The service refused, was unreachable, or answered something unreadable. */
     | 'error';
 
 /**
- * The Dispatches section's state (M8).
- *
- * Newest-first rows straight from `GET /v1/events` (capped at the 100 the
- * endpoint returns — no pagination in this cut), plus the selection the
- * open/retry buttons act on and the M9 agent-verification notice, which
- * lives here because the runs area is where the operator looks when a
- * dispatch's outcome matters.
+ * The Dispatches section's state (M8): newest-first rows straight from
+ * `GET /v1/events` (capped at the endpoint's 100 — no pagination in this cut),
+ * the selection the open/retry buttons act on, and the M9 agent-verification
+ * notice, which lives here because the runs area is where the operator looks
+ * when a dispatch's outcome matters.
  */
 export interface DispatchesState {
-    /** Rows as the last successful read reported them (newest first). */
     rows: readonly RunRow[];
     status: DispatchesStatus;
     /** Operator-facing note about the list or the last retry; redacted. */
@@ -339,52 +290,38 @@ export interface DispatchesState {
      */
     agentNotice: PanelStatus | null;
     /**
-     * The control the operator armed for its confirm step, or
-     * `null` when nothing is armed.
-     *
-     * The panel has no dialog primitive, so a destructive or state-changing
-     * action confirms the way the Remove-account control already does: first
-     * click arms and states what will happen, second click sends. Retry is
-     * deliberately absent from this list — it changes nothing the run's own
-     * history does not already explain, and the service answers it either way.
+     * The control the operator armed for its confirm step, or `null` when
+     * nothing is armed: the panel has no dialog primitive, so a destructive
+     * action confirms the way Remove-account does — first click arms and
+     * states what will happen, second click sends. Retry is deliberately
+     * absent; it changes nothing the run's own history does not explain.
      */
     pendingAction: RunPendingAction | null;
-    /** Session id typed for the "a session was created" resolution. */
     sessionInput: string;
     /** Single in-flight gate for the run operations; one flag, never several. */
     busy: boolean;
     /** The selected run's audit trail, read on demand (003 T-026). */
     audit: AuditViewState;
-    /** Server-side filters the list applies; both off means the whole set. */
     filters: DispatchFilters;
-    /** Paging position inside the set the filters describe. */
     page: DispatchListPage;
     /** Whether the selected row's source-reference reveal is open (FR-048). */
     referencesOpen: boolean;
     /**
      * What the panel's own durable record says about the follow-ups on the
-     * rows it renders (002 FR-105).
-     *
-     * The service projects a follow-up's *existence* and its text; the panel's
-     * record is the only home for what *happened* to each one — delivered,
-     * parked with its cause, or still waiting. It rides here so the run row can
-     * name a parked follow-up's reason, and it is empty until the first
-     * successful read of `mecha-turk:dispatches`.
+     * rows it renders (002 FR-105): the service projects a follow-up's
+     * *existence* and its text, but only this record knows what *happened* to
+     * each one — delivered, parked with its cause, or still waiting. Empty
+     * until the first successful read of `mecha-turk:dispatches`.
      */
     followUpRecords: readonly FollowUpDeliveryRecord[];
 }
 
-/** The run controls that ask for a confirmation step before they act. */
 export type RunPendingAction = 'requeue' | 'resolve-session' | 'resolve-no-session' | 'reoffer-follow-up';
 
 /**
- * Build the mutable state one mount starts with.
- *
- * Split out of {@link createPanelRuntime} so the constructor reads as a list of
- * runtime slots rather than as one long literal: the state is what every other
- * module shares, and it deserves to be readable in one pass.
- *
- * @param createdAt - RFC 3339 stamp pinned at construction.
+ * Build the mutable state one mount starts with — split out of
+ * {@link createPanelRuntime} so the constructor reads as a list of runtime
+ * slots rather than as one long literal.
  */
 function initialState(createdAt: string): PanelState {
     return {
