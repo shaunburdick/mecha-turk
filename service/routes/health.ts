@@ -7,7 +7,7 @@ import type { HttpResponse } from '../http.ts';
 import type { Route, RouteContext } from './types.ts';
 
 /** Extension version this build reports; tests pin it to `package.json`. */
-export const SERVICE_VERSION = '0.2.0';
+export const SERVICE_VERSION = '0.2.1';
 
 /**
  * Build the ready-probe body.

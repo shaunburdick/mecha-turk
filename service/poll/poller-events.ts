@@ -99,7 +99,8 @@ export type ActorRefusal =
     | 'no-qualifying-event'
     /** The naming event's actor member is `null` or empty. */
     | 'unreadable-actor'
-    | 'bot-actor';
+    | 'bot-actor'
+    | 'self-actor';
 
 export type CandidateActor =
     /** A readable, non-bot actor the naming event records. */
@@ -260,7 +261,7 @@ export function namingEventOf(events: readonly PollItemEvent[], input: Correlati
 
 export type EventActor =
     | { readonly usable: true; readonly login: string }
-    | { readonly usable: false; readonly reason: 'unreadable-actor' | 'bot-actor' };
+    | { readonly usable: false; readonly reason: 'unreadable-actor' | 'bot-actor' | 'self-actor' };
 
 /**
  * The field is the one the **kind** names — `assigner` for an assignment,
@@ -273,10 +274,16 @@ export type EventActor =
 export function actorOfNamingEvent(input: {
     readonly kind: ItemCandidateKind;
     readonly event: PollItemEvent;
+    readonly boundLogin: string;
 }): EventActor {
     const named = input.kind === 'assignment' ? input.event.assigner : input.event.reviewRequester;
     if (!isAttributableAuthor(named.login, named.type)) {
         return { usable: false, reason: named.login === '' ? 'unreadable-actor' : 'bot-actor' };
+    }
+
+    // Refused, not attributed: the bound account's own word vouches for nobody (002 FR-052, issue #45).
+    if (named.login.toLowerCase() === input.boundLogin.toLowerCase()) {
+        return { usable: false, reason: 'self-actor' };
     }
 
     return { usable: true, login: actorLoginOf(named.login) };
@@ -364,7 +371,7 @@ export async function resolveCandidateActor(request: CandidateRequest): Promise<
         return { kind: 'refused', reason: 'no-qualifying-event' };
     }
 
-    const actor = actorOfNamingEvent({ kind: request.kind, event });
+    const actor = actorOfNamingEvent({ kind: request.kind, event, boundLogin: request.boundLogin });
     if (!actor.usable) {
         recordNoEvent({ request, reason: actor.reason });
 
