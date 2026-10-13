@@ -38,7 +38,8 @@ interface PromptObservationState {
     chain: Promise<unknown>;
 }
 
-/** One state per store handle: a restart re-seeds, a shared handle shares. */
+/** One state per store handle: a restart re-seeds `previousFingerprint` from the trail without a
+ * new store file (004 NFR-129) and a trimmed trail honestly yields `null`; a shared handle shares. */
 const observationStates = new WeakMap<ServiceStore, PromptObservationState>();
 
 /**

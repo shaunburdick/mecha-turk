@@ -1,5 +1,6 @@
 /**
- * The destructive-confirmation content: pure copy from what the panel holds, armed by a lower retention knob.
+ * The destructive-confirmation content: pure copy — no host, no DOM, no clock (SC-108) — built
+ * from what the panel holds, armed by a lower retention knob.
  */
 
 import type { ConfigEnvelope, FieldDescriptor } from './settings-schema.ts';

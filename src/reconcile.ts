@@ -166,7 +166,8 @@ async function reportOutstanding(input: {
             } else {
                 // The report landed but the panel could not record that it did;
                 // it stays outstanding so the next mount asks again, which the
-                // service answers as a duplicate rather than as new work.
+                // service answers as a duplicate rather than as new work — one
+                // `dispatch.duplicate-report` row, never a second (AC-111).
                 reasons.push('the acknowledgement could not be written, so it is reported again next mount.');
                 outstanding.push(attempt.correlationId);
             }

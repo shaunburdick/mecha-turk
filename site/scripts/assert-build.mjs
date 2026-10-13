@@ -2,6 +2,9 @@
 /**
  * The site's build-output contract, executable: the last step of `npm run build`, auditing `dist/`
  * for AC-001…AC-006, AC-032 and NFR-002/003/004; every failure names its file, markup and rule.
+ * `node scripts/assert-build.mjs [dist-directory]` defaults to the `dist/` beside this site; the
+ * argument exists so `tests/assert-build.assertions.mjs` — the suite that asserts this script's own
+ * output — can point it at a temporary directory, while the build script passes nothing.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';

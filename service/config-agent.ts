@@ -8,12 +8,13 @@ import type { ConfigIssue } from './config.ts';
 
 /**
  * The one string field's rule, in the same declaration style as the bounds
- * (006 FR-100(c), contract §4). `format` is the service-authored prose the
- * wire carries as a descriptor's `format` member — rendered as text by the
- * panel, never compiled into a second validator. `pattern` is the
- * validator's own gate: one token of letters, digits and `. _ - @ : /`, so
- * a pasted credential (or anything containing a space or control
- * character) never reaches the store.
+ * (006 FR-100(c), contract §4) — one declaration read twice, so a bound
+ * cannot move in one place and not the other (SC-101). `format` is the
+ * service-authored prose the wire carries as a descriptor's `format` member —
+ * rendered as text by the panel, never compiled into a second validator.
+ * `pattern` is the validator's own gate: one token of letters, digits and
+ * `. _ - @ : /`, so a pasted credential (or anything containing a space or
+ * control character) never reaches the store.
  */
 export const EXPECTED_AGENT_RULE = {
     /** Host ceiling for an agent name (002 research §R4, `GUEST_SESSION_AGENT_MAX`). */

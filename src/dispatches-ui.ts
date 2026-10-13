@@ -398,7 +398,7 @@ function repaintReoffer(input: {
  * Repaint the runs half of the pane from state. The affordance table decides
  * which transition group exists: one nobody can use is hidden rather than
  * greyed out, because a disabled button still promises an action the service
- * would refuse — and an armed control repaints its confirm label from the
+ * would refuse (AC-123) — and an armed control repaints its confirm label from the
  * same state the action module wrote. Every row-level action also repaints an
  * **accessible name that names its row** — *Retry dispatch for #412 in
  * owner/name* — because a list of identically-labelled buttons is a list an

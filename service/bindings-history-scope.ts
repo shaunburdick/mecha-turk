@@ -7,7 +7,8 @@ import type { BindingIssue } from './bindings.ts';
 /**
  * The two names a binding's history scope may carry, in the order the operator
  * is offered them: watch from now on, then watch from now on **and** look back
- * over recent activity once.
+ * over recent activity once — two names and no third, a persisted vocabulary
+ * (NFR-012).
  */
 export type HistoryScope = 'new-only' | 'recent-history';
 

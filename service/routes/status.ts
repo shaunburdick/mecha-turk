@@ -163,7 +163,8 @@ export interface ServiceStatusBody {
     };
     /** Platform support for spawning a service at all. */
     readonly surface: {
-        /** Always `true` here; see the module note. */
+        /** Always `true` — a service only runs where the host spawns one, so the panel
+         * owns the unsupported-surface banner (AC-017). */
         readonly supported: boolean;
     };
 }

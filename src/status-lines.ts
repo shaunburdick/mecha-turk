@@ -219,7 +219,7 @@ export function bindingLines(view: StatusView): readonly string[] {
 
 /**
  * The counted line: how many of the **enabled** bindings carry **no** allow-list, and what that
- * means (005 FR-093 as re-cut). Five load-bearing properties: the count is over **enabled**
+ * means (005 FR-093 as re-cut; NFR-114). Five load-bearing properties: the count is over **enabled**
  * bindings in both halves, with the denominator labelled `enabled` wherever it renders; the
  * consequence clause is trigger-neutral (*whoever the trigger lets act*), since Status carries no
  * trigger set and is forbidden acquiring one (FR-039, clarification row 48); zero is a positive

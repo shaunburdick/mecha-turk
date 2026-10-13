@@ -91,12 +91,14 @@ export interface AccountGate {
 /**
  * Whether the panel has established that **no account exists** (FR-120): a
  * conjunction, never a length test — a list the panel could not read is
- * missing evidence, so the gate stays silent there and FR-122's *not known*
- * row answers instead. Where the read **has** succeeded the condition is
- * exactly *"no accounts exist"*, no lifecycle state exempt and `usable`
- * deliberately not consulted. `blocked` is the whole answer; the object carries
- * it so a caller cannot reach for the length or read state and build a second
- * gate.
+ * missing evidence, not permission to guess (constitution II; 005 AC-156),
+ * so the gate stays silent there and FR-122's *not known* row answers
+ * instead. Where the read **has** succeeded the condition is exactly *"no
+ * accounts exist"*, no lifecycle state exempt and `usable` deliberately not
+ * consulted: widening the gate to `usable` would stop bindings the service
+ * accepts from being created or deleted (FR-124). `blocked` is the whole
+ * answer; the object carries it so a caller cannot reach for the length or
+ * read state and build a second gate.
  */
 export function accountGate(bindings: BindingsTabState): AccountGate {
     return { blocked: accountsRead(bindings) && bindings.accounts.length === 0 };

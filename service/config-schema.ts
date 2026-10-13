@@ -1,6 +1,7 @@
 /**
- * The configuration's schema projection: the declaration `config.ts`
- * holds, projected onto the wire (006 FR-020 – FR-022, contract §2).
+ * The configuration's schema projection: the declaration `config.ts` holds, projected onto the
+ * wire so nothing restates a bound, a default or an accepted value — a number cannot move in the
+ * validator and stay put on the wire (SC-101; 006 FR-020 – FR-022, contract §2).
  */
 
 import { DEFAULT_CONFIG, LOG_LEVEL_VALUES, NUMERIC_BOUNDS } from './config.ts';
@@ -129,7 +130,7 @@ export type FieldDescriptor = IntegerFieldDescriptor | EnumFieldDescriptor | Str
  * (006 FR-014). It carries FR-063's guidance in the operator's terms beside
  * this validator's own rules, and the one number it quotes is interpolated
  * from {@link STARTING_PROMPT_MAX_CODE_POINTS} so the cap cannot move in the
- * validator and stay put on the wire.
+ * validator and stay put on the wire (SC-101).
  */
 const STARTING_PROMPT_FORMAT = 'text sent to the agent verbatim, with no placeholders; '
     + `at most ${STARTING_PROMPT_MAX_CODE_POINTS} code points after trimming; `

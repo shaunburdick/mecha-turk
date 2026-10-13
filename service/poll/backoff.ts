@@ -33,7 +33,7 @@ export interface WaitRecord {
     readonly source: WaitSource;
 }
 
-/** Sleep implementation; injected so tests never wait. */
+/** Sleep implementation; injected so tests never wait (SC-116, AC-148: no real timers, no flaky jitter). */
 export type SleepFn = (milliseconds: number) => Promise<void>;
 
 /** Jitter source; injected so recorded delays are deterministic. */

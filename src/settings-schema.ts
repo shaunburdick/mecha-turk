@@ -1,5 +1,6 @@
 /**
- * The projection reader: `GET /v1/config`'s envelope read fail-closed — the panel's half of "one declaration".
+ * The projection reader: `GET /v1/config`'s envelope read fail-closed, refusing a save that would
+ * silently drop an unknown key (AC-115) — the panel's half of "one declaration".
  */
 
 import { asRecord, parseJsonObject } from './json.ts';
@@ -69,6 +70,8 @@ export interface ConfigEnvelope {
     readonly fields: readonly FieldDescriptor[];
     readonly source: ConfigSource;
     readonly defaultsApplied: readonly string[];
+    /** Members no descriptor covers: painted as *field this version does not show* — a save that
+     * would carry one is refused rather than silently dropping it (AC-115). */
     readonly undisplayed: readonly string[];
     readonly unreadable: readonly string[];
 }
