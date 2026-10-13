@@ -14,7 +14,10 @@ import type {
     GuestProjectsSnapshot,
     GuestSessionsSnapshot,
     GuestWorktreesSnapshot,
+    HostReadyContext,
     JsonValue,
+    SessionLifecycleEvent,
+    SessionSnapshot,
     StartSessionResult,
 } from '@openchamber/sdk';
 import type { BindingContext } from '../../src/config.ts';
@@ -147,6 +150,162 @@ export function fakeHost(overrides: Partial<PanelHost> = {}): PanelHost {
         dispose: hasNothingToRelease,
         ...overrides,
     };
+}
+
+/** The event the SDK bridge derives from a session snapshot: busy → `started`, idle → `completed`. */
+function lifecycleFrom(session: SessionSnapshot): SessionLifecycleEvent {
+    return { sessionId: session.id, phase: session.busy ? 'started' : 'completed' };
+}
+
+/** A complete neutral `ready` context; only `session` is a fact the test drives. */
+function readyContext(session: SessionSnapshot | null): HostReadyContext {
+    return {
+        // Inert filler: no test runs the app's `applyHostReady` path, so the tokens only have to typecheck.
+        theme: {
+            mode: 'light',
+            tokens: {
+                background: '',
+                elevated: '',
+                foreground: '',
+                muted: '',
+                subtle: '',
+                border: '',
+                hover: '',
+                selection: '',
+                focus: '',
+                primary: '',
+                mutedSurface: '',
+                elevatedForeground: '',
+                active: '',
+                selectionForeground: '',
+                primaryForeground: '',
+                primaryText: '',
+                successText: '',
+                warningText: '',
+                errorText: '',
+                infoText: '',
+                success: '',
+                warning: '',
+                error: '',
+                info: '',
+                font: '',
+                mono: '',
+                radius: '',
+            },
+        },
+        locale: 'en',
+        directory: PROJECT_DIR,
+        session,
+        surface: 'panel',
+        connection: { connected: true, account: LOGIN },
+        settings: {},
+        item: null,
+    };
+}
+
+/**
+ * Push harness: a fake host that captures the `onSession` /
+ * `onSessionLifecycle` / `onReady` registrations plus the emitters a test
+ * drives them with, replaying a late subscriber as the SDK bridge does.
+ */
+export interface PushHarness {
+    readonly host: PanelHost;
+    readonly emitSession: (session: SessionSnapshot | null) => void;
+    readonly emitLifecycle: (event: SessionLifecycleEvent) => void;
+    readonly emitReady: (session: SessionSnapshot | null) => void;
+}
+
+/**
+ * Build the push harness; overrides win exactly as in {@link fakeHost}, so the
+ * `prompt` / `openSession` call-log overrides keep working.
+ */
+export function createPushHarness(overrides: Partial<PanelHost> = {}): PushHarness {
+    const sessionListeners = new Set<(session: SessionSnapshot | null) => void>();
+    const lifecycleListeners = new Set<(event: SessionLifecycleEvent) => void>();
+    const readyListeners = new Set<(context: HostReadyContext) => void>();
+    // `undefined` until any push says otherwise: the documented replay gate.
+    let lastSession: SessionSnapshot | null | undefined;
+    let lastReady: HostReadyContext | null = null;
+    let lastLifecycle: SessionLifecycleEvent | null = null;
+
+    const emitSession = (session: SessionSnapshot | null): void => {
+        lastSession = session;
+        if (lastReady !== null) {
+            lastReady = { ...lastReady, session };
+        }
+
+        // The bridge re-derives its replayed event on a session push but emits none (SDK `host.ts`).
+        if (session === null) {
+            lastLifecycle = null;
+        } else if (lastLifecycle?.sessionId !== session.id) {
+            lastLifecycle = lifecycleFrom(session);
+        }
+
+        for (const listener of sessionListeners) {
+            listener(session);
+        }
+    };
+
+    const emitLifecycle = (event: SessionLifecycleEvent): void => {
+        lastLifecycle = event;
+        for (const listener of lifecycleListeners) {
+            listener(event);
+        }
+    };
+
+    const emitReady = (session: SessionSnapshot | null): void => {
+        lastSession = session;
+        const context = readyContext(session);
+        lastReady = context;
+        lastLifecycle = session === null ? null : lifecycleFrom(session);
+        for (const listener of readyListeners) {
+            listener(context);
+        }
+        for (const listener of sessionListeners) {
+            listener(session);
+        }
+        if (lastLifecycle !== null) {
+            for (const listener of lifecycleListeners) {
+                listener(lastLifecycle);
+            }
+        }
+    };
+
+    const host = fakeHost({
+        onSession: (listener) => {
+            sessionListeners.add(listener);
+            if (lastSession !== undefined) {
+                listener(lastSession);
+            }
+
+            return () => {
+                sessionListeners.delete(listener);
+            };
+        },
+        onSessionLifecycle: (listener) => {
+            lifecycleListeners.add(listener);
+            if (lastLifecycle !== null) {
+                listener(lastLifecycle);
+            }
+
+            return () => {
+                lifecycleListeners.delete(listener);
+            };
+        },
+        onReady: (listener) => {
+            readyListeners.add(listener);
+            if (lastReady !== null) {
+                listener(lastReady);
+            }
+
+            return () => {
+                readyListeners.delete(listener);
+            };
+        },
+        ...overrides,
+    });
+
+    return { host, emitSession, emitLifecycle, emitReady };
 }
 
 /** Frame window double plus the listener registrations it recorded. */
