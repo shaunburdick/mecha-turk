@@ -1,6 +1,6 @@
 # Challenge ledger: 009-engine-delivery
 
-Gate 1 round 1 returned **rewrite-and-re-present** with four Highs, five Mediums, four Lows, and three PM-approved cuts. Every finding is recorded here with its disposition and where the round-2 draft answers it. Gate 2 reads this file to verify nothing was dropped.
+Gate 1 round 1 returned **rewrite-and-re-present** with four Highs, five Mediums, four Lows, and three PM-approved cuts; round 2 re-presented and round 3's narrow pass closed the round — **Gate 1 passed, decision-closed, and Gate 2 passed**. Every finding is recorded here with its disposition and where the draft that closed it answers it. Gate 2 read this file to verify nothing was dropped, and the four unfixed round-3 Lows were carried into wave 4 (tasks T035, T036).
 
 ## Round-1 findings and dispositions
 
