@@ -22,6 +22,12 @@ const AUTH_HEADER = 'Authorization: Bearer 0123456789abcdef0123456789abcdef';
 /** Label {@link findSecretLeak} reports for the Authorization header shape. */
 const AUTH_LABEL = 'authorization-header';
 
+/** The engine password's env-var spelling — the name-based class of an opaque value (009 invariant 9). */
+const PASSWORD_ENV_HEADER = `OPENCODE_SERVER_PASSWORD=${'s'.repeat(TOKEN_BODY)}`;
+
+/** Label {@link findSecretLeak} reports for that spelling. */
+const PASSWORD_ENV_LABEL = 'opencode-password-env';
+
 describe('findSecretLeak', () => {
     it('detects each shipped secret shape under its own label', () => {
         const detected: readonly (readonly [string, string])[] = [
@@ -29,6 +35,7 @@ describe('findSecretLeak', () => {
             [FINE_GRAINED_TOKEN, 'github-token-fine-grained'],
             [AUTH_HEADER, AUTH_LABEL],
             [`Bearer ${'c'.repeat(TOKEN_BODY)}`, 'bearer-credential'],
+            [PASSWORD_ENV_HEADER, PASSWORD_ENV_LABEL],
         ];
 
         for (const [text, label] of detected) {
@@ -78,6 +85,10 @@ describe('redact', () => {
         expect(bearers).not.toContain('dddd');
 
         expect(redact('issue #7 assigned')).toBe('issue #7 assigned');
+    });
+
+    it('replaces the engine password spelling under its own label (009 invariant 9)', () => {
+        expect(redact(`env ${PASSWORD_ENV_HEADER} end`)).toBe('env [redacted:opencode-password-env] end');
     });
 });
 

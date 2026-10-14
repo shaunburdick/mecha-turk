@@ -73,8 +73,38 @@ async function handleReserve(context: RouteContext, request: RouteRequest): Prom
 
 /** What a result body said, after exactly one outcome validated. */
 type ResultOutcome =
-    | { readonly ok: true; readonly sessionId: string | null; readonly problem: string | null }
+    | {
+        readonly ok: true;
+        readonly sessionId: string | null;
+        readonly problem: string | null;
+        readonly directory: string | null;
+    }
     | { readonly ok: false; readonly response: HttpResponse };
+
+/**
+ * Read the result body's additive `directory` member: absent or blank stays
+ * absent — never guessed, never defaulted from the worktree option — and a
+ * present non-string is refused exactly like a malformed `sessionId`, because
+ * the pre-check this feeds fails safe only when the value is genuinely the
+ * host's (002 v1.19.0; Gate 2 H1).
+ */
+function readReportedDirectory(fields: Readonly<Record<string, unknown>>): string | null | HttpResponse {
+    const value = fields.directory;
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    if (typeof value !== 'string') {
+        return errorResponse(STATUS.validation, {
+            code: 'validation',
+            message: 'directory: send the session directory the host reported, or omit the member entirely',
+        });
+    }
+
+    const trimmed = value.trim();
+
+    return trimmed === '' ? null : trimmed;
+}
 
 /**
  * Read a result body's outcome: exactly one of `sessionId` / `problem`, and
@@ -104,9 +134,13 @@ function readResultOutcome(fields: Readonly<Record<string, unknown>>): ResultOut
     }
 
     const sessionIssue = sessionIdIssue(sessionId);
+    const directory = readReportedDirectory(fields);
+    if (directory !== null && typeof directory === 'object') {
+        return { ok: false, response: directory };
+    }
 
     return sessionIssue === null
-        ? { ok: true, sessionId, problem }
+        ? { ok: true, sessionId, problem, directory }
         : { ok: false, response: validationResponse([sessionIssue]) };
 }
 
@@ -150,6 +184,7 @@ async function handleDispatched(context: RouteContext, request: RouteRequest): P
             attemptOutcome: report.sessionId === null ? 'failed' : 'dispatched',
             sessionId: report.sessionId,
             reason: report.problem,
+            directory: report.directory,
         },
     });
 
@@ -201,7 +236,7 @@ async function handleAbandon(context: RouteContext, request: RouteRequest): Prom
         dispatchToken: parsed.dispatchToken,
         attempt: parsed.attempt,
         operation: 'abandon',
-        outcome: { attemptOutcome: 'abandoned', sessionId: null, reason },
+        outcome: { attemptOutcome: 'abandoned', sessionId: null, reason, directory: null },
     });
 
     return runOutcomeResponse({ context, operation: 'abandon', outcome: abandoned, success: (run, auditWritten) =>

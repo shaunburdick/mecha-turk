@@ -70,7 +70,23 @@ export interface HistoryFollowUp {
     readonly fromHeadSha?: string;
     /** The head this movement observed, for a head change only. */
     readonly headSha?: string;
+    /**
+     * The engine-delivery state the service recorded for this row, absentable
+     * and present **exactly** when the queue row's `engine` member is: `queued`
+     * is an engine admission (reached and engine-held), `unavailable` is the
+     * handoff to the panel fallback, `unknown` is the unconfirmed outcome.
+     * Additive within `/v1` — a caller that ignores it reads the row as it
+     * always did, and `HistorySession` gains nothing from any of this
+     * (002 v1.19.0 FR-104; Gate 2 HIGH B).
+     */
+    readonly engine?: HistoryFollowUpEngine;
 }
+
+/** One follow-up row's projected engine-delivery state (002 v1.19.0 §2.4). */
+export type HistoryFollowUpEngine =
+    | { readonly state: 'queued'; readonly messageId?: string }
+    | { readonly state: 'unavailable' }
+    | { readonly state: 'unknown' };
 
 /**
  * How many follow-ups one history row projects (002 FR-104): a window that
@@ -384,6 +400,23 @@ function headShaOfRow(row: QueuedEvent): string | undefined {
     return row.headSha !== null && row.headSha !== '' ? row.headSha : undefined;
 }
 
+/**
+ * The projected engine member, sourced one-to-one from the queue row's own:
+ * `admitted` renders as the projection's `queued` (engine-admitted, held by
+ * the engine's queue), and an absent member stays absent rather than becoming
+ * a state the row never recorded (002 v1.19.0 §2.4).
+ */
+function engineViewOf(engine: QueuedEvent['engine']): HistoryFollowUpEngine | undefined {
+    if (engine === undefined) {
+        return undefined;
+    }
+
+    // The parser's iff-invariant: `admitted` always carries the receipt.
+    return engine.state === 'admitted'
+        ? { state: 'queued', messageId: engine.messageId }
+        : { state: engine.state };
+}
+
 function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): HistoryFollowUp | null {
     const kind = followUpKindOf(row.id);
     if (kind === null) {
@@ -391,6 +424,7 @@ function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): Hist
     }
 
     const head = headShaOfRow(row);
+    const engine = engineViewOf(row.engine);
 
     return {
         deliveryId: row.id,
@@ -400,6 +434,7 @@ function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): Hist
         detectedAt: row.detectedAt,
         sourceUrl: row.issueUrl,
         ...(head !== undefined && { fromHeadSha: previousHeadSha ?? '', headSha: head }),
+        ...(engine !== undefined && { engine }),
     };
 }
 

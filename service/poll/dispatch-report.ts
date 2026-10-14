@@ -21,6 +21,13 @@ interface ReportOutcome {
     readonly attemptOutcome: 'dispatched' | 'failed' | 'abandoned';
     readonly sessionId: string | null;
     readonly reason: string | null;
+    /**
+     * The dispatch-reported session directory (absentable, additive on the
+     * result body): absent when the caller reported none — a problem report,
+     * an abandon, or a pre-amendment panel — and never guessed from the
+     * worktree option (002 v1.19.0; Gate 2 H1).
+     */
+    readonly directory?: string | null;
 }
 
 export interface ReportInput {
@@ -211,7 +218,15 @@ function reportedRun(input: {
         lease: null,
         reservation: { ...reservation, consumed: true },
         attempts: attemptHistory(run, closedAttempt({ attempt: currentAttempt(run), outcome, now })),
-        ...(sessionId !== null && { session: sessionRefOf({ run, sessionId, now }) }),
+        ...(sessionId !== null && {
+            session: sessionRefOf({
+                run,
+                sessionId,
+                now,
+                ...(outcome.directory !== undefined && outcome.directory !== null
+                    && { directory: outcome.directory }),
+            }),
+        }),
         updatedAt: now,
     };
 }

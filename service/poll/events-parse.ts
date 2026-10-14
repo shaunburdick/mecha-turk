@@ -25,6 +25,28 @@ export type SubjectType = 'issue' | 'pull_request';
  */
 export type { ActorAttribution } from './attribution.ts';
 
+/**
+ * The service's durable engine-delivery record on the follow-up's queue row.
+ * Its three states are 002 v1.19.0 §2.4's closed set: `admitted` holds the
+ * receipt, `unavailable` is the permanent handoff to the fallback, and
+ * `unknown` is the ambiguous outcome that is never auto-retried.
+ *
+ * A closed discriminated union so the iff-invariants are unrepresentable when
+ * writing and re-derived fail-closed when parsing: `messageId` exists only on
+ * `admitted`, `intentAtMs` and `cause` only on `unknown` (never a receipt),
+ * and `unavailable` carries none of the three — a stored member that carries
+ * a cause on a non-`unknown` state is refused exactly as a malformed required
+ * field is. Absentable: a row written before the engine path existed parses
+ * byte-identically (Gate 2 H3; plan pin 10; 002 v1.19.0 §2.4).
+ */
+export type EngineMember =
+    /** The admission receipt (`msg_…`) is persisted. */
+    | { readonly state: 'admitted'; readonly messageId: string }
+    /** Handed to the panel fallback; the service never engine-attempts again. */
+    | { readonly state: 'unavailable' }
+    /** Send-intent persisted, outcome unknowable; never auto-retried. */
+    | { readonly state: 'unknown'; readonly intentAtMs: number; readonly cause: string };
+
 export interface QueuedEvent {
     /** Deterministic `[A-Za-z0-9._~|-]`-shaped id, usable as one path segment. */
     readonly id: string;
@@ -110,6 +132,14 @@ export interface QueuedEvent {
      * same as `direct`, and never silently becomes it.
      */
     readonly actorAttribution?: ActorAttribution;
+    /**
+     * The service's engine-delivery state for this row, **absentable on read
+     * and validated when present** with the closed iff-invariants
+     * {@link EngineMember} states: a row written before the engine path
+     * existed parses byte-identically without it, and a malformed member
+     * refuses the row rather than half-reading it (002 v1.19.0 §2.4).
+     */
+    readonly engine?: EngineMember;
 }
 
 /**
@@ -307,6 +337,80 @@ function readTrimMarkerField(record: Record<string, unknown>): string | undefine
     return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
+/**
+ * Read the `admitted` arm of the engine member's iff-invariants: a receipt,
+ * and nothing else on the member.
+ */
+function admittedEngineOf(value: Record<string, unknown>): EngineMember | null {
+    const { messageId, intentAtMs, cause } = value;
+
+    return typeof messageId === 'string' && messageId !== ''
+        && intentAtMs === undefined && cause === undefined
+        ? { state: 'admitted', messageId }
+        : null;
+}
+
+/** Read the `unavailable` arm: the mark alone, never a cause or a receipt. */
+function unavailableEngineOf(value: Record<string, unknown>): EngineMember | null {
+    const { messageId, intentAtMs, cause } = value;
+
+    return messageId === undefined && intentAtMs === undefined && cause === undefined
+        ? { state: 'unavailable' }
+        : null;
+}
+
+/** Read the `unknown` arm: the intent stamp and its cause, and never a receipt. */
+function unknownEngineOf(value: Record<string, unknown>): EngineMember | null {
+    const { messageId, intentAtMs, cause } = value;
+    const intentStamp = typeof intentAtMs === 'number' && Number.isSafeInteger(intentAtMs) && intentAtMs > 0
+        ? intentAtMs
+        : null;
+    const why = typeof cause === 'string' && cause !== '' ? cause : null;
+    if (messageId !== undefined || intentStamp === null || why === null) {
+        return null;
+    }
+
+    return { state: 'unknown', intentAtMs: intentStamp, cause: why };
+}
+
+/**
+ * Read the engine-delivery member: absent stays absent, and a present member
+ * must satisfy the closed union's iff-invariants exactly — anything else
+ * answers `null`, which refuses the whole row the way a malformed required
+ * field does rather than silently dropping the member a later read would
+ * depend on (Gate 2 H3).
+ */
+function readEngineField(record: Record<string, unknown>): EngineMember | undefined | null {
+    const value = record.engine;
+    if (value === undefined) {
+        return undefined;
+    }
+
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    switch (value.state) {
+        case 'admitted': {
+            return admittedEngineOf(value);
+        }
+        case 'unavailable': {
+            return unavailableEngineOf(value);
+        }
+        case 'unknown': {
+            return unknownEngineOf(value);
+        }
+        default: {
+            return null;
+        }
+    }
+}
+
+/** The two optional marker members, each absent-or-validated when present. */
+function markersAndEngineHold(record: Record<string, unknown>): boolean {
+    return readTrimMarkerField(record) !== null && readEngineField(record) !== null;
+}
+
 function isKnownKind(kind: unknown): boolean {
     return typeof kind === 'string' && KNOWN_KINDS.has(kind);
 }
@@ -322,7 +426,7 @@ function fieldsHold(record: Record<string, unknown>): boolean {
         && readStateField(record) !== null
         && readSubjectTypeField(record) !== null
         && readRunLinkField(record) !== null
-        && readTrimMarkerField(record) !== null
+        && markersAndEngineHold(record)
         && readActorAttributionField(record) !== null
         && readActorLoginField(record) !== null
         // A follow-up id's discriminator is validated against the two-form
@@ -406,6 +510,13 @@ function trimMarkerOf(record: Record<string, unknown>): TrimMarkerFields {
     return marker === undefined || marker === null ? {} : { excerptTrimmedAt: marker };
 }
 
+/** The engine member a row carries; `fieldsHold` has already refused a malformed one. */
+function engineFieldsOf(record: Record<string, unknown>): { readonly engine?: EngineMember } {
+    const engine = readEngineField(record);
+
+    return engine === undefined || engine === null ? {} : { engine };
+}
+
 function coordinatesOf(
     record: Record<string, unknown>,
 ): { readonly headSha: string | null; readonly baseRef: string | null } {
@@ -463,6 +574,7 @@ export function parseStoredEvent(raw: unknown): QueuedEvent | null {
         ...runLinkOf(record, subjectType),
         ...trimMarkerOf(record),
         ...actorFieldsOf(record),
+        ...engineFieldsOf(record),
     };
 }
 

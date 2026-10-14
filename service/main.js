@@ -1,5 +1,5 @@
 // service/main.ts
-import { resolve as resolve3 } from "node:path";
+import { resolve as resolve4 } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // service/env.ts
@@ -36,8 +36,15 @@ var SECRET_PATTERNS = [
   { label: "github-token-classic", pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g },
   { label: "github-token-fine-grained", pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/g },
   { label: "authorization-header", pattern: /\bAuthorization\s*[:=]\s*["']?\S+/g },
-  { label: "bearer-credential", pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/g }
+  { label: "bearer-credential", pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/g },
+  { label: "opencode-password-env", pattern: /\bOPENCODE_SERVER_PASSWORD\s*[:=]\s*["']?\S+/g }
 ];
+class RedactionError extends Error {
+  name = "RedactionError";
+  constructor(subject, patternLabel) {
+    super(`Refusing to persist ${subject}: value matches ${patternLabel}`);
+  }
+}
 function findSecretLeak(text) {
   for (const { label, pattern } of SECRET_PATTERNS) {
     if (text.match(pattern) !== null) {
@@ -45,6 +52,12 @@ function findSecretLeak(text) {
     }
   }
   return null;
+}
+function assertRedacted(subject, text) {
+  const label = findSecretLeak(text);
+  if (label !== null) {
+    throw new RedactionError(subject, label);
+  }
 }
 function redact(text) {
   let result = text;
@@ -1895,11 +1908,54 @@ function readTrimMarkerField(record) {
   }
   return Number.isNaN(Date.parse(value)) ? null : value;
 }
+function admittedEngineOf(value) {
+  const { messageId, intentAtMs, cause } = value;
+  return typeof messageId === "string" && messageId !== "" && intentAtMs === undefined && cause === undefined ? { state: "admitted", messageId } : null;
+}
+function unavailableEngineOf(value) {
+  const { messageId, intentAtMs, cause } = value;
+  return messageId === undefined && intentAtMs === undefined && cause === undefined ? { state: "unavailable" } : null;
+}
+function unknownEngineOf(value) {
+  const { messageId, intentAtMs, cause } = value;
+  const intentStamp = typeof intentAtMs === "number" && Number.isSafeInteger(intentAtMs) && intentAtMs > 0 ? intentAtMs : null;
+  const why = typeof cause === "string" && cause !== "" ? cause : null;
+  if (messageId !== undefined || intentStamp === null || why === null) {
+    return null;
+  }
+  return { state: "unknown", intentAtMs: intentStamp, cause: why };
+}
+function readEngineField(record) {
+  const value = record.engine;
+  if (value === undefined) {
+    return;
+  }
+  if (!isRecord(value)) {
+    return null;
+  }
+  switch (value.state) {
+    case "admitted": {
+      return admittedEngineOf(value);
+    }
+    case "unavailable": {
+      return unavailableEngineOf(value);
+    }
+    case "unknown": {
+      return unknownEngineOf(value);
+    }
+    default: {
+      return null;
+    }
+  }
+}
+function markersAndEngineHold(record) {
+  return readTrimMarkerField(record) !== null && readEngineField(record) !== null;
+}
 function isKnownKind(kind) {
   return typeof kind === "string" && KNOWN_KINDS.has(kind);
 }
 function fieldsHold(record) {
-  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && isKnownKind(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null && readTrimMarkerField(record) !== null && readActorAttributionField(record) !== null && readActorLoginField(record) !== null && followUpDiscriminatorHolds(record.id);
+  return isUsableTextFieldSet(record, REQUIRED_FIELDS) && isAbsentableTextFieldSet(record, ABSENTABLE_FIELDS) && isKnownKind(record.kind) && readStateField(record) !== null && readSubjectTypeField(record) !== null && readRunLinkField(record) !== null && markersAndEngineHold(record) && readActorAttributionField(record) !== null && readActorLoginField(record) !== null && followUpDiscriminatorHolds(record.id);
 }
 function lifecycleOf(record, state) {
   const fields = {};
@@ -1927,6 +1983,10 @@ function runLinkOf(record, subjectType) {
 function trimMarkerOf(record) {
   const marker = readTrimMarkerField(record);
   return marker === undefined || marker === null ? {} : { excerptTrimmedAt: marker };
+}
+function engineFieldsOf(record) {
+  const engine = readEngineField(record);
+  return engine === undefined || engine === null ? {} : { engine };
 }
 function coordinatesOf(record) {
   return {
@@ -1968,7 +2028,8 @@ function parseStoredEvent(raw) {
     ...lifecycleOf(record, state),
     ...runLinkOf(record, subjectType),
     ...trimMarkerOf(record),
-    ...actorFieldsOf(record)
+    ...actorFieldsOf(record),
+    ...engineFieldsOf(record)
   };
 }
 function subjectTypeOf(delivery) {
@@ -2403,6 +2464,10 @@ function parseWorktree(raw) {
   const branch = readText(raw.branch);
   return directory === null || branch === null ? null : { directory, branch };
 }
+function directoryFieldOf(raw) {
+  const reported = readString(raw.directory);
+  return reported === null || reported === "" ? {} : { directory: reported };
+}
 function parseSession(raw) {
   if (!isRecord(raw)) {
     return null;
@@ -2416,6 +2481,7 @@ function parseSession(raw) {
   if (id === null || attachment === null || stamped === null || heading === null || link === null) {
     return null;
   }
+  const directory = directoryFieldOf(raw);
   if (raw.worktree === null) {
     return {
       sessionId: id,
@@ -2423,11 +2489,20 @@ function parseSession(raw) {
       dispatchedAt: stamped,
       title: heading,
       sourceUrl: link,
-      worktree: null
+      worktree: null,
+      ...directory
     };
   }
   const worktree = parseWorktree(raw.worktree);
-  return worktree === null ? null : { sessionId: id, attachmentId: attachment, dispatchedAt: stamped, title: heading, sourceUrl: link, worktree };
+  return worktree === null ? null : {
+    sessionId: id,
+    attachmentId: attachment,
+    dispatchedAt: stamped,
+    title: heading,
+    sourceUrl: link,
+    worktree,
+    ...directory
+  };
 }
 function parseVerification(raw) {
   if (!isRecord(raw)) {
@@ -6571,12 +6646,19 @@ function headShaOfRow(row) {
   }
   return row.headSha !== null && row.headSha !== "" ? row.headSha : undefined;
 }
+function engineViewOf(engine) {
+  if (engine === undefined) {
+    return;
+  }
+  return engine.state === "admitted" ? { state: "queued", messageId: engine.messageId } : { state: engine.state };
+}
 function followUpOf(row, previousHeadSha) {
   const kind = followUpKindOf(row.id);
   if (kind === null) {
     return null;
   }
   const head = headShaOfRow(row);
+  const engine = engineViewOf(row.engine);
   return {
     deliveryId: row.id,
     kind,
@@ -6584,7 +6666,8 @@ function followUpOf(row, previousHeadSha) {
     actorLogin: row.actorLogin ?? "",
     detectedAt: row.detectedAt,
     sourceUrl: row.issueUrl,
-    ...head !== undefined && { fromHeadSha: previousHeadSha ?? "", headSha: head }
+    ...head !== undefined && { fromHeadSha: previousHeadSha ?? "", headSha: head },
+    ...engine !== undefined && { engine }
   };
 }
 function windowStartOf(from, rows) {
@@ -6987,9 +7070,9 @@ async function handleEventHistory(context, request) {
   const filtered = rows.filter((row) => matchesFilters(row, query));
   const { boundary } = query;
   const remaining = boundary === null ? filtered : filtered.filter((row) => afterBoundary(row, boundary));
-  const window = remaining.slice(0, query.limit + 1);
-  const hasMore = window.length > query.limit;
-  const events = window.slice(0, query.limit);
+  const window2 = remaining.slice(0, query.limit + 1);
+  const hasMore = window2.length > query.limit;
+  const events = window2.slice(0, query.limit);
   const last = events.at(-1);
   return {
     status: STATUS.ok,
@@ -7254,16 +7337,16 @@ function judgedWindow(run) {
   };
 }
 function refusalDetails(input) {
-  const window = judgedWindow(input.run);
+  const window2 = judgedWindow(input.run);
   return {
     bindingId: input.run.bindingId,
     actorPolicy: input.policy,
     ...input.deniedLogins !== undefined && { deniedLogins: input.deniedLogins },
     ...input.deniedAttributions !== undefined && { deniedAttributions: input.deniedAttributions },
     unreadableReferences: input.unreadableReferences,
-    retainedReferences: window.retained,
-    referencesNotRetained: window.notRetained,
-    referencesTruncated: window.truncated
+    retainedReferences: window2.retained,
+    referencesNotRetained: window2.notRetained,
+    referencesTruncated: window2.truncated
   };
 }
 function judgedWindowWord(run) {
@@ -7390,7 +7473,8 @@ function sessionRefOf(input) {
     dispatchedAt: input.now,
     title: "",
     sourceUrl: input.run.sourceReferences[0]?.sourceUrl ?? "",
-    worktree: null
+    worktree: null,
+    ...input.directory !== undefined && { directory: input.directory }
   };
 }
 
@@ -7652,7 +7736,14 @@ function reportedRun(input) {
     lease: null,
     reservation: { ...reservation, consumed: true },
     attempts: attemptHistory(run, closedAttempt({ attempt: currentAttempt(run), outcome, now })),
-    ...sessionId !== null && { session: sessionRefOf({ run, sessionId, now }) },
+    ...sessionId !== null && {
+      session: sessionRefOf({
+        run,
+        sessionId,
+        now,
+        ...outcome.directory !== undefined && outcome.directory !== null && { directory: outcome.directory }
+      })
+    },
     updatedAt: now
   };
 }
@@ -8008,6 +8099,20 @@ async function handleReserve(context, request) {
     resultDeadlineAt: reserved.status === "applied" ? reserved.resultDeadlineAt : null
   }) });
 }
+function readReportedDirectory(fields) {
+  const value = fields.directory;
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    return errorResponse(STATUS.validation, {
+      code: "validation",
+      message: "directory: send the session directory the host reported, or omit the member entirely"
+    });
+  }
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
 function readResultOutcome(fields) {
   const sessionId = textMember(fields.sessionId);
   const problem = textMember(fields.problem);
@@ -8023,7 +8128,11 @@ function readResultOutcome(fields) {
     };
   }
   const sessionIssue = sessionIdIssue(sessionId);
-  return sessionIssue === null ? { ok: true, sessionId, problem } : { ok: false, response: validationResponse([sessionIssue]) };
+  const directory = readReportedDirectory(fields);
+  if (directory !== null && typeof directory === "object") {
+    return { ok: false, response: directory };
+  }
+  return sessionIssue === null ? { ok: true, sessionId, problem, directory } : { ok: false, response: validationResponse([sessionIssue]) };
 }
 async function handleDispatched(context, request) {
   const { store } = context;
@@ -8052,7 +8161,8 @@ async function handleDispatched(context, request) {
     outcome: {
       attemptOutcome: report.sessionId === null ? "failed" : "dispatched",
       sessionId: report.sessionId,
-      reason: report.problem
+      reason: report.problem,
+      directory: report.directory
     }
   });
   return runOutcomeResponse({ context, operation: "result", outcome: reported, success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten }) });
@@ -8089,7 +8199,7 @@ async function handleAbandon(context, request) {
     dispatchToken: parsed.dispatchToken,
     attempt: parsed.attempt,
     operation: "abandon",
-    outcome: { attemptOutcome: "abandoned", sessionId: null, reason }
+    outcome: { attemptOutcome: "abandoned", sessionId: null, reason, directory: null }
   });
   return runOutcomeResponse({ context, operation: "abandon", outcome: abandoned, success: (run, auditWritten) => runAnswer({ correlationId, run, auditWritten }) });
 }
@@ -9469,6 +9579,914 @@ async function sweepOnce(input) {
   return { recoveries: planned.recoveries, auditWritten: written.every(Boolean) };
 }
 
+// service/engine/client.ts
+var ENGINE_AUTH_USERNAME = "opencode";
+var ENGINE_TIMEOUT_MS = 1e4;
+function codeOf(cause) {
+  const nested = "cause" in cause ? cause.cause : undefined;
+  if (isRecord(nested) && typeof nested.code === "string") {
+    return nested.code;
+  }
+  const own = "code" in cause ? cause.code : undefined;
+  return typeof own === "string" ? own : undefined;
+}
+function failureKindOf(cause) {
+  if (!(cause instanceof Error)) {
+    return "transport";
+  }
+  if (cause.name === "TimeoutError" || cause.name === "AbortError") {
+    return "timeout";
+  }
+  return codeOf(cause) === "ECONNREFUSED" ? "refused" : "transport";
+}
+function engineClient(input) {
+  return {
+    baseUrl: input.baseUrl,
+    request: async (method, path, body) => {
+      const credential = Buffer.from(`${ENGINE_AUTH_USERNAME}:${input.password}`).toString("base64");
+      try {
+        const response = await fetch(`${input.baseUrl}${path}`, {
+          method,
+          headers: {
+            authorization: `Basic ${credential}`,
+            ...body !== undefined && { "content-type": "application/json" }
+          },
+          redirect: "manual",
+          signal: AbortSignal.timeout(input.timeoutMs ?? ENGINE_TIMEOUT_MS),
+          ...body !== undefined && { body: JSON.stringify(body) }
+        });
+        let parsed = null;
+        try {
+          parsed = JSON.parse(await response.text());
+        } catch {
+          parsed = null;
+        }
+        return { kind: "reply", status: response.status, body: parsed };
+      } catch (cause) {
+        return { kind: failureKindOf(cause) };
+      }
+    }
+  };
+}
+
+// service/engine/discovery.ts
+import { readFile, readdir } from "node:fs/promises";
+import { join as join4, resolve as resolve3 } from "node:path";
+var MANAGED_REGISTRY_ENV = "OPENCHAMBER_MANAGED_PROCESS_REGISTRY";
+var DEFAULT_REGISTRY_RELATIVE_PATH = ".config/openchamber/managed-opencode";
+var REGISTRY_FILE_SUFFIX = ".json";
+var MAX_PORT2 = 65535;
+var REGISTRY_ABSENT = "registry-absent";
+var ENTRY_UNREADABLE = "entry-unreadable";
+var PID_DEAD = "pid-dead";
+var OWNER_MISMATCH = "owner-mismatch";
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (cause) {
+    return cause instanceof Error && "code" in cause && cause.code === "EPERM";
+  }
+}
+async function engineEntryOf(path) {
+  let text;
+  try {
+    text = await readFile(path, "utf8");
+  } catch {
+    return ENTRY_UNREADABLE;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return ENTRY_UNREADABLE;
+  }
+  if (!isRecord(parsed)) {
+    return ENTRY_UNREADABLE;
+  }
+  const pid = readPositiveInt(parsed.pid);
+  const ownerPid = readPositiveInt(parsed.ownerPid);
+  const port = readPositiveInt(parsed.port);
+  if (pid === null || ownerPid === null || port === null || port > MAX_PORT2) {
+    return ENTRY_UNREADABLE;
+  }
+  return { pid, ownerPid, port };
+}
+function entryVerdict(engine, selfPid) {
+  if (!processAlive(engine.pid)) {
+    return PID_DEAD;
+  }
+  return engine.ownerPid === selfPid ? null : OWNER_MISMATCH;
+}
+async function firstEngineOf(directory, names, selfPid) {
+  let firstCause = null;
+  for (const name of names) {
+    const entry = await engineEntryOf(join4(directory, name));
+    if (typeof entry === "string") {
+      firstCause ??= entry;
+      continue;
+    }
+    const verdict = entryVerdict(entry, selfPid);
+    if (verdict === null) {
+      return entry;
+    }
+    firstCause ??= verdict;
+  }
+  return firstCause;
+}
+async function registryNames(directory) {
+  let entries;
+  try {
+    entries = await readdir(directory);
+  } catch {
+    return null;
+  }
+  return entries.filter((name) => name.endsWith(REGISTRY_FILE_SUFFIX)).toSorted((left, right) => left.localeCompare(right));
+}
+function registryDirectory(env) {
+  const override = env[MANAGED_REGISTRY_ENV];
+  if (override !== undefined && override !== "") {
+    return override;
+  }
+  const home = env.HOME;
+  return home === undefined || home === "" ? null : resolve3(home, DEFAULT_REGISTRY_RELATIVE_PATH);
+}
+async function discoverEngine(input) {
+  const directory = registryDirectory(input.env);
+  if (directory === null) {
+    return { ok: false, cause: REGISTRY_ABSENT };
+  }
+  const names = await registryNames(directory);
+  if (names === null || names.length === 0) {
+    return { ok: false, cause: REGISTRY_ABSENT };
+  }
+  const verdict = await firstEngineOf(directory, names, input.selfPid ?? process.pid);
+  return verdict === null || typeof verdict === "string" ? { ok: false, cause: verdict ?? ENTRY_UNREADABLE } : { ok: true, engine: verdict };
+}
+
+// service/engine/info.ts
+var ENGINE_VERSION_RANGE = { min: "2.0.29", maxExclusive: "3.0.0" };
+var VERSION_COMPONENTS = 3;
+function compareComponent(left, right) {
+  const mine = left === undefined ? 0 : Number(left);
+  const theirs = right === undefined ? 0 : Number(right);
+  if (Number.isNaN(mine)) {
+    return 1;
+  }
+  if (Number.isNaN(theirs)) {
+    return -1;
+  }
+  return Math.sign(mine - theirs);
+}
+function compareVersions(left, right) {
+  const mine = left.split(".");
+  const theirs = right.split(".");
+  for (let index = 0;index < VERSION_COMPONENTS; index += 1) {
+    const verdict = compareComponent(mine[index], theirs[index]);
+    if (verdict !== 0) {
+      return verdict;
+    }
+  }
+  return 0;
+}
+function versionInPin(version) {
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    return false;
+  }
+  return compareVersions(version, ENGINE_VERSION_RANGE.min) >= 0 && compareVersions(version, ENGINE_VERSION_RANGE.maxExclusive) < 0;
+}
+function infoOf(body, expectedPid) {
+  if (!isRecord(body)) {
+    return { ok: false, cause: "unreadable" };
+  }
+  const version = readString(body.version);
+  const pid = readPositiveInt(body.pid);
+  if (version === null || pid === null) {
+    return { ok: false, cause: "unreadable" };
+  }
+  if (!versionInPin(version)) {
+    return { ok: false, cause: "version-outside-pin" };
+  }
+  if (pid !== expectedPid) {
+    return { ok: false, cause: "pid-mismatch" };
+  }
+  return { ok: true, version };
+}
+async function probeInfo(input) {
+  const answer = await input.client.request("GET", "/api/info");
+  switch (answer.kind) {
+    case "refused":
+    case "timeout":
+    case "transport": {
+      return { ok: false, cause: answer.kind };
+    }
+    case "reply": {
+      if (answer.status === STATUS.ok) {
+        return infoOf(answer.body, input.expectedPid);
+      }
+      return { ok: false, cause: answer.status === STATUS.unauthorized ? "unauthorized" : "unreadable" };
+    }
+  }
+}
+
+// service/engine/prompt.ts
+var ENGINE_DELIVERY_MODE = "queue";
+var MESSAGE_ID_PREFIX = "msg_";
+var SUCCESS_MIN = STATUS.ok;
+var SERVER_FAILURE_MIN = 500;
+var SUCCESS_MAX = 400;
+function receiptIdOf(data) {
+  if (!isRecord(data)) {
+    return null;
+  }
+  const id = readString(data.id) ?? "";
+  return id.startsWith(MESSAGE_ID_PREFIX) ? id : null;
+}
+function receiptOf(body) {
+  return isRecord(body) ? receiptIdOf(body.data) : null;
+}
+function admissionOf(status, body) {
+  if (status === STATUS.unauthorized) {
+    return { kind: "unauthorized" };
+  }
+  if (status === STATUS.notFound) {
+    return { kind: "no-session" };
+  }
+  if (status >= SUCCESS_MIN && status <= SUCCESS_MAX) {
+    const messageId = receiptOf(body);
+    return messageId === null ? { kind: "unknown", cause: "malformed-receipt" } : { kind: "admitted", messageId };
+  }
+  if (status >= SERVER_FAILURE_MIN) {
+    return { kind: "unknown", cause: "server-failure" };
+  }
+  return { kind: "rejected" };
+}
+async function postFollowUpPrompt(input) {
+  const answer = await input.client.request("POST", `/api/session/${encodeURIComponent(input.sessionId)}/prompt`, { text: input.text, delivery: ENGINE_DELIVERY_MODE });
+  switch (answer.kind) {
+    case "refused": {
+      return { kind: "refused" };
+    }
+    case "timeout": {
+      return { kind: "unknown", cause: "timeout" };
+    }
+    case "transport": {
+      return { kind: "unknown", cause: "transport" };
+    }
+    case "reply": {
+      return admissionOf(answer.status, answer.body);
+    }
+  }
+}
+
+// service/engine/session.ts
+var refused2 = (cause) => ({ ok: false, cause });
+function normalizedDirectory(directory) {
+  return directory.replace(/[\\/]+$/u, "");
+}
+function ownershipOf(body, directory) {
+  if (!isRecord(body)) {
+    return refused2("unreadable");
+  }
+  const { data } = body;
+  if (!isRecord(data)) {
+    return refused2("unreadable");
+  }
+  const locationDirectory = isRecord(data.location) ? readString(data.location.directory) : null;
+  if (locationDirectory === null) {
+    return refused2("location-absent");
+  }
+  if (normalizedDirectory(locationDirectory) !== normalizedDirectory(directory)) {
+    return refused2("directory-mismatch");
+  }
+  if (!isRecord(data.metadata) || !("openchamber" in data.metadata)) {
+    return refused2("metadata-absent");
+  }
+  return { ok: true };
+}
+async function preCheckSession(input) {
+  if (input.directory === undefined || input.directory === "") {
+    return refused2("directory-absent");
+  }
+  const answer = await input.client.request("GET", `/api/session/${encodeURIComponent(input.sessionId)}`);
+  switch (answer.kind) {
+    case "refused":
+    case "timeout":
+    case "transport": {
+      return refused2(answer.kind);
+    }
+    case "reply": {
+      if (answer.status === STATUS.notFound) {
+        return refused2("session-404");
+      }
+      if (answer.status !== STATUS.ok) {
+        return refused2(answer.status === STATUS.unauthorized ? "unauthorized" : "unreadable");
+      }
+      return ownershipOf(answer.body, input.directory);
+    }
+  }
+}
+
+// service/engine/token.ts
+import { readFile as readFile2 } from "node:fs/promises";
+var PASSWORD_ENV = "OPENCODE_SERVER_PASSWORD";
+function systemTokenSource(env) {
+  return {
+    env,
+    procEnviron: async (pid) => {
+      try {
+        return await readFile2(`/proc/${pid}/environ`, "utf8");
+      } catch {
+        return null;
+      }
+    }
+  };
+}
+function environValueOf(environ, name) {
+  for (const entry of environ.split("\x00")) {
+    if (entry.startsWith(`${name}=`)) {
+      const value = entry.slice(name.length + 1);
+      return value === "" ? null : value;
+    }
+  }
+  return null;
+}
+async function acquireToken(input) {
+  const fromEnv = input.source.env[PASSWORD_ENV];
+  if (fromEnv !== undefined && fromEnv !== "") {
+    return { ok: true, password: fromEnv };
+  }
+  const selfPid = input.selfPid ?? process.pid;
+  if (!processAlive(input.engine.pid)) {
+    return { ok: false, cause: "pid-dead" };
+  }
+  if (input.engine.ownerPid !== selfPid) {
+    return { ok: false, cause: "owner-mismatch" };
+  }
+  const environ = await input.source.procEnviron(input.engine.pid);
+  const password = environ === null ? null : environValueOf(environ, PASSWORD_ENV);
+  return password === null ? { ok: false, cause: "acquisition-failed" } : { ok: true, password };
+}
+
+// src/context-blocks.ts
+var NEWLINE2 = `
+`;
+var EXCERPT_TRUNCATION_MARKER2 = "… [truncated]";
+var EXCERPT_OMITTED_MARKER2 = "[excerpt omitted: no room in this dispatch context]";
+var BEGIN_UNTRUSTED = "--- BEGIN UNTRUSTED ISSUE TEXT (truncated) ---";
+var END_UNTRUSTED = "--- END UNTRUSTED ISSUE TEXT ---";
+var DEFUSED_HYPHEN = "‐";
+var SOURCE_EXCERPT_MAX_CHARS = 600;
+function elideMarker(marker) {
+  return marker.replaceAll("-", () => DEFUSED_HYPHEN);
+}
+function defuseDelimiters(text) {
+  return text.replaceAll(BEGIN_UNTRUSTED, () => elideMarker(BEGIN_UNTRUSTED)).replaceAll(END_UNTRUSTED, () => elideMarker(END_UNTRUSTED));
+}
+function fitExcerpt(excerpt, bound) {
+  if (excerpt.length <= bound) {
+    return excerpt;
+  }
+  if (bound <= EXCERPT_TRUNCATION_MARKER2.length) {
+    return EXCERPT_OMITTED_MARKER2;
+  }
+  return `${excerpt.slice(0, bound - EXCERPT_TRUNCATION_MARKER2.length)}${EXCERPT_TRUNCATION_MARKER2}`;
+}
+function rollUpLine(skipped) {
+  const noun = skipped === 1 ? "source" : "sources";
+  return `[+${skipped} ${noun} not listed: dispatch context budget exhausted]`;
+}
+function renderBlocks(input) {
+  const { blocks, available } = input;
+  const reserve = blocks.length > 1 ? rollUpLine(blocks.length).length + NEWLINE2.length * 2 : 0;
+  const budget = Math.max(available - reserve, 0);
+  const rendered = [];
+  let used = 0;
+  let skipped = 0;
+  for (const [index, block] of blocks.entries()) {
+    const separator = rendered.length > 0 ? NEWLINE2.length * 2 : 0;
+    const remaining = budget - used - separator;
+    const sourcesLeft = blocks.length - index;
+    if (remaining <= 0) {
+      skipped = sourcesLeft;
+      break;
+    }
+    const head = block.head === null ? "" : `${defuseDelimiters(block.head)}${NEWLINE2}`;
+    const share = Math.floor(remaining / sourcesLeft);
+    const bound = Math.max(Math.min(SOURCE_EXCERPT_MAX_CHARS, share, remaining - head.length), 0);
+    const text = `${head}${fitExcerpt(defuseDelimiters(block.excerpt), bound)}`;
+    if (text.length > remaining) {
+      skipped = sourcesLeft;
+      break;
+    }
+    rendered.push(text);
+    used += separator + text.length;
+  }
+  if (skipped > 0) {
+    const rollUp = rollUpLine(skipped);
+    const separator = rendered.length > 0 ? NEWLINE2.length * 2 : 0;
+    if (used + separator + rollUp.length <= available) {
+      rendered.push(rollUp);
+    }
+  }
+  return rendered;
+}
+// node_modules/@openchamber/sdk/dist/scrollbar-style.js
+var GUEST_SCROLLING_ATTRIBUTE = "data-oc-scrolling";
+var GUEST_SCROLLBAR_CSS = `
+:root {
+  /* Quiet at rest like the app's own thumbs; hover gives a clear grab target. */
+  --oc-scrollbar-thumb: color-mix(in srgb, var(--oc-muted, currentColor) 18%, transparent);
+  --oc-scrollbar-thumb-hover: color-mix(in srgb, var(--oc-muted, currentColor) 36%, transparent);
+  scrollbar-gutter: stable;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+:hover, [${GUEST_SCROLLING_ATTRIBUTE}] {
+  scrollbar-color: var(--oc-scrollbar-thumb) transparent;
+}
+/* Chromium's standard scrollbar properties otherwise override its pseudo-elements. */
+@supports selector(::-webkit-scrollbar) {
+  *, :hover, [${GUEST_SCROLLING_ATTRIBUTE}] { scrollbar-width: auto; scrollbar-color: auto; }
+  ::-webkit-scrollbar { width: 6px; height: 6px; background: transparent; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: transparent;
+    border-radius: 999px;
+    min-width: 24px;
+    min-height: 24px;
+  }
+  :hover::-webkit-scrollbar-thumb, [${GUEST_SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb { background: var(--oc-scrollbar-thumb); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--oc-scrollbar-thumb-hover); }
+  ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+}
+@media (forced-colors: active) {
+  *, :hover, [${GUEST_SCROLLING_ATTRIBUTE}] { scrollbar-color: auto; }
+  ::-webkit-scrollbar-thumb, ::-webkit-scrollbar-thumb:hover { background: CanvasText; }
+}
+`;
+function installGuestScrollbarActivity(doc) {
+  const root = doc.documentElement;
+  if (root.hasAttribute("data-oc-scrollbar-activity"))
+    return;
+  root.setAttribute("data-oc-scrollbar-activity", "");
+  const timers = new WeakMap;
+  doc.addEventListener("scroll", (event) => {
+    const target = event.target === doc ? root : event.target;
+    if (!(target instanceof Element))
+      return;
+    if (!target.hasAttribute("data-oc-scrolling"))
+      target.setAttribute("data-oc-scrolling", "");
+    const pending = timers.get(target);
+    if (pending !== undefined)
+      clearTimeout(pending);
+    timers.set(target, setTimeout(() => {
+      timers.delete(target);
+      target.removeAttribute("data-oc-scrolling");
+    }, 1000));
+  }, { capture: true, passive: true });
+}
+var GUEST_SCROLLBAR_SCRIPT = `(${installGuestScrollbarActivity.toString()})(document);`;
+// node_modules/@openchamber/sdk/dist/file-editor.js
+var patternExpressions = new Map;
+// node_modules/@openchamber/sdk/dist/contract.js
+var GUEST_FILE_STAT_KINDS = ["file", "directory", "other", "missing"];
+var HOST_REQUEST_ERROR_CODES = [
+  "HOST_UNAVAILABLE",
+  "HOST_TIMEOUT",
+  "HOST_REJECTED",
+  "DISCONNECTED",
+  "DISABLED",
+  "BAD_PATH",
+  "NO_INTEGRATION",
+  "NO_SERVICE",
+  "SERVICE_FAILED",
+  "REQUEST_FAILED",
+  "RESPONSE_TOO_LARGE",
+  "NO_SESSION",
+  "SESSION_BUSY",
+  "NOT_GRANTED",
+  "NO_DIRECTORY",
+  "NOT_FOUND",
+  "FILE_TOO_LARGE",
+  "DENIED",
+  "NO_MODEL",
+  "MODEL_FAILED",
+  "UNSUPPORTED"
+];
+var SERVICE_STATUS_VALUES = ["stopped", "starting", "ready", "failed"];
+var hostRequestErrorCodeSet = new Set(HOST_REQUEST_ERROR_CODES);
+var serviceStatusSet = new Set(SERVICE_STATUS_VALUES);
+var fileStatKindSet = new Set(GUEST_FILE_STAT_KINDS);
+var HOST_PUSH_TYPES = new Set([
+  "workspace",
+  "shells",
+  "ready",
+  "directory",
+  "session",
+  "connection",
+  "settings",
+  "session-lifecycle",
+  "item",
+  "resolve",
+  "action",
+  "status-control-event",
+  "popover-closed",
+  "file-open",
+  "file-snapshot",
+  "file-saved"
+]);
+// node_modules/@openchamber/sdk/dist/service-providers.js
+var BROWSER_CONTROL_ACTIONS = [
+  "browser.open",
+  "browser.snapshot",
+  "browser.click",
+  "browser.type",
+  "browser.scroll",
+  "browser.back",
+  "browser.forward",
+  "browser.inspect",
+  "browser.capture",
+  "browser.resize"
+];
+var BROWSER_PROVIDER_IDLE_MS = 10 * 60000;
+var CONTROL_ACTIONS = new Set(BROWSER_CONTROL_ACTIONS);
+// node_modules/@openchamber/sdk/dist/service-surface.js
+var SURFACE_CONTROLLERS = ["none", "agent", "user"];
+var CONTROLLERS = new Set(SURFACE_CONTROLLERS);
+// src/session.ts
+var CONTEXT_MAX_CHARS = 12000;
+var NEWLINE3 = `
+`;
+function contextBlocks(input) {
+  const sources = input.sources ?? [];
+  return sources.length > 0 ? sources.map((source) => ({
+    head: `${source.origin} · ${source.kind} · ${source.detectedAt} · ${source.url}`,
+    excerpt: source.excerpt
+  })) : [{ head: null, excerpt: input.issue.body ?? "" }];
+}
+function renderBoundedContext(input) {
+  const maxChars = input.maxChars ?? CONTEXT_MAX_CHARS;
+  const reservedChars = Math.max(input.reservedChars ?? 0, 0);
+  const blocks = contextBlocks(input);
+  const frame = [...input.header, BEGIN_UNTRUSTED].join(NEWLINE3);
+  const available = Math.max(maxChars - reservedChars - frame.length - NEWLINE3.length * 2 - END_UNTRUSTED.length, 0);
+  const rendered = renderBlocks({ blocks, available });
+  const body = rendered.length > 0 ? `${NEWLINE3}${rendered.join(NEWLINE3 + NEWLINE3)}${NEWLINE3}` : "";
+  return `${frame}${body}${END_UNTRUSTED}`;
+}
+
+// service/poll/engine-compose.ts
+function headPairOf(input) {
+  if (followUpKindOf(input.row.id) !== "head") {
+    return null;
+  }
+  let previous = input.run.lastHeadSha ?? "an unrecorded head";
+  for (const candidate of input.runRows) {
+    if (candidate.id === input.row.id) {
+      break;
+    }
+    if (followUpKindOf(candidate.id) === "head" && candidate.headSha !== null && candidate.headSha !== "") {
+      previous = candidate.headSha;
+    }
+  }
+  return {
+    from: previous,
+    to: input.row.headSha !== null && input.row.headSha !== "" ? input.row.headSha : "an unrecorded head"
+  };
+}
+function composeEngineFollowUp(input) {
+  const kind = followUpKindOf(input.row.id);
+  if (kind === null) {
+    return { ok: false, cause: "not-a-follow-up" };
+  }
+  const { row } = input;
+  const heads = headPairOf({ run: input.run, row, runRows: input.runRows });
+  const movement = heads === null ? "New comment" : `Head moved from ${defuseDelimiters(heads.from)} to ${defuseDelimiters(heads.to)}`;
+  const header = [
+    "Mecha Turk follow-up (automated — continuing a work item Mecha Turk already started).",
+    `Correlation: ${defuseDelimiters(input.run.correlationId)}`,
+    `Repository: ${defuseDelimiters(row.repository)}`,
+    `Issue #${row.issueNumber}: ${defuseDelimiters(row.issueTitle)}`,
+    `URL: ${defuseDelimiters(row.issueUrl)}`,
+    `Session: ${defuseDelimiters(input.sessionId)}`,
+    `Movement: ${movement}`,
+    `Observed by: ${defuseDelimiters(row.actorLogin ?? "")} at ${defuseDelimiters(row.detectedAt)}`,
+    "Rule: this is the same work item the session was started for; reply inside this session."
+  ];
+  const sources = [{
+    origin: kind === "head" ? "review" : "comment",
+    kind: row.kind,
+    detectedAt: row.detectedAt,
+    url: row.issueUrl,
+    excerpt: row.issueBodyExcerpt
+  }];
+  const text = renderBoundedContext({
+    header,
+    issue: {
+      issueNumber: row.issueNumber,
+      title: row.issueTitle,
+      url: row.issueUrl,
+      state: "open",
+      body: null,
+      assignees: [],
+      isPullRequest: kind === "head"
+    },
+    sources
+  });
+  return text.length <= CONTEXT_MAX_CHARS ? { ok: true, text } : { ok: false, cause: "over-budget" };
+}
+
+// service/poll/engine-state.ts
+async function writeEngineMember(input) {
+  return await inQueueChain(async () => {
+    const stored = await input.store.readJson(EVENTS_FILE, parseStoredEvents);
+    if (stored.status !== "ok") {
+      return false;
+    }
+    const index = stored.value.findIndex((row2) => row2.id === input.deliveryId);
+    const row = stored.value[index];
+    if (index === -1 || row === undefined) {
+      return false;
+    }
+    const rows = [...stored.value];
+    rows[index] = { ...row, engine: input.engine };
+    await input.store.writeJson(EVENTS_FILE, rows);
+    return true;
+  });
+}
+
+// service/poll/engine-delivery.ts
+var ENGINE_LOOPBACK_HOST = "http://127.0.0.1";
+var STAGE_PROMPT = "prompt";
+var CAUSE_NO_SESSION = "no-session";
+var unavailable = (stage, cause) => ({ engine: { state: "unavailable" }, stage, cause });
+function engineBackoffMs(policy, attempt) {
+  const grown = policy.baseMs * 2 ** Math.max(attempt - 1, 0);
+  return Math.min(grown, policy.maxMs);
+}
+function sleepFor(milliseconds) {
+  return new Promise((resolve4) => {
+    setTimeout(resolve4, milliseconds);
+  });
+}
+async function appendEngineAuditRow(input) {
+  try {
+    assertRedacted("engine delivery audit row", `${input.reason} ${JSON.stringify(input.details)}`);
+  } catch {
+    input.log.warn("engine delivery audit row refused: secret-shaped content", {
+      deliveryId: input.deliveryId
+    });
+    return false;
+  }
+  try {
+    await appendAudit(input.store, {
+      eventType: input.eventType,
+      actorSource: "service",
+      entity: { kind: "delivery", id: input.deliveryId },
+      correlationId: input.correlationId,
+      decision: input.decision,
+      reason: input.reason,
+      details: input.details
+    });
+    return true;
+  } catch (cause) {
+    input.log.warn("engine delivery audit row could not be appended", {
+      deliveryId: input.deliveryId,
+      errorKind: describeKind(cause)
+    });
+    return false;
+  }
+}
+async function settle(input) {
+  const { deps, run, row, settlement } = input;
+  const { engine } = settlement;
+  const wasWritten = await writeEngineMember({ store: deps.store, deliveryId: row.id, engine });
+  if (!wasWritten) {
+    deps.log.warn("engine delivery state could not be persisted", {
+      deliveryId: row.id,
+      state: engine.state
+    });
+  }
+  const facts = { correlationId: run.correlationId, deliveryId: row.id, sessionId: run.session?.sessionId ?? null };
+  const trail = { store: deps.store, log: deps.log, ...facts };
+  if (engine.state === "admitted") {
+    await appendEngineAuditRow({
+      ...trail,
+      eventType: "follow_up.engine_admitted",
+      decision: "admitted",
+      reason: "the engine admitted the follow-up; the receipt is the at-most-once record",
+      details: { ...facts, stage: settlement.stage, messageId: engine.messageId }
+    });
+    return;
+  }
+  if (engine.state === "unknown") {
+    await appendEngineAuditRow({
+      ...trail,
+      eventType: "follow_up.engine_unknown",
+      decision: "unknown",
+      reason: "the admission outcome is unknowable; it is never auto-retried or re-sent",
+      details: { ...facts, stage: settlement.stage, cause: settlement.cause, intentAtMs: engine.intentAtMs }
+    });
+    return;
+  }
+  await appendEngineAuditRow({
+    ...trail,
+    eventType: "follow_up.engine_unavailable",
+    decision: "unavailable",
+    reason: "the engine path cannot attempt this delivery; the panel fallback takes it",
+    details: { ...facts, stage: settlement.stage, cause: settlement.cause }
+  });
+}
+async function clientForAttempt(deps) {
+  const { env } = deps;
+  const discovery = await discoverEngine({ env });
+  if (!discovery.ok) {
+    return { ok: false, settlement: unavailable("discovery", discovery.cause) };
+  }
+  const token = await acquireToken({ source: deps.tokenSource ?? systemTokenSource(env), engine: discovery.engine });
+  if (!token.ok) {
+    return { ok: false, settlement: unavailable("token", token.cause) };
+  }
+  return {
+    ok: true,
+    engine: discovery.engine,
+    client: engineClient({
+      baseUrl: `${ENGINE_LOOPBACK_HOST}:${discovery.engine.port}`,
+      password: token.password,
+      ...deps.timeoutMs !== undefined && { timeoutMs: deps.timeoutMs }
+    })
+  };
+}
+async function verifySession(input) {
+  const info = await probeInfo({ client: input.client, expectedPid: input.engine.pid });
+  if (!info.ok) {
+    if (info.cause === "refused") {
+      return { ok: false, retry: true, stage: "info" };
+    }
+    return { ok: false, settlement: unavailable("info", info.cause) };
+  }
+  const ownership = await preCheckSession({
+    client: input.client,
+    sessionId: input.sessionId,
+    directory: input.directory
+  });
+  if (ownership.ok) {
+    return { ok: true };
+  }
+  if (ownership.cause === "refused") {
+    return { ok: false, retry: true, stage: "pre-check" };
+  }
+  const cause = ownership.cause === "session-404" ? CAUSE_NO_SESSION : ownership.cause;
+  return { ok: false, settlement: unavailable("pre-check", cause) };
+}
+function admissionSettlement(admission, intentAtMs) {
+  switch (admission.kind) {
+    case "admitted": {
+      return {
+        engine: { state: "admitted", messageId: admission.messageId },
+        stage: STAGE_PROMPT,
+        cause: "none"
+      };
+    }
+    case "unknown": {
+      return {
+        engine: { state: "unknown", intentAtMs, cause: admission.cause },
+        stage: STAGE_PROMPT,
+        cause: admission.cause
+      };
+    }
+    case "unauthorized": {
+      return unavailable(STAGE_PROMPT, "unauthorized");
+    }
+    case "no-session": {
+      return unavailable(STAGE_PROMPT, CAUSE_NO_SESSION);
+    }
+    case "rejected": {
+      return unavailable(STAGE_PROMPT, "rejected");
+    }
+  }
+}
+async function attemptOnce(input) {
+  const prepared = await clientForAttempt(input.deps);
+  if (!prepared.ok) {
+    return { settlement: prepared.settlement };
+  }
+  const verified = await verifySession({
+    client: prepared.client,
+    engine: prepared.engine,
+    sessionId: input.sessionId,
+    directory: input.run.session?.directory
+  });
+  if (!verified.ok) {
+    return "retry" in verified ? { retry: true, stage: verified.stage } : { settlement: verified.settlement };
+  }
+  const composed = composeEngineFollowUp({
+    run: input.run,
+    row: input.row,
+    sessionId: input.sessionId,
+    runRows: input.runRows
+  });
+  if (!composed.ok) {
+    return { settlement: unavailable("compose", composed.cause) };
+  }
+  const admission = await postFollowUpPrompt({
+    client: prepared.client,
+    sessionId: input.sessionId,
+    text: composed.text
+  });
+  return admission.kind === "refused" ? { retry: true, stage: STAGE_PROMPT } : { settlement: admissionSettlement(admission, input.intentAtMs) };
+}
+async function deliverOne(input) {
+  const { deps, run, row } = input;
+  const sessionId = run.session?.sessionId;
+  if (sessionId === undefined) {
+    return "skipped";
+  }
+  const intentAtMs = (deps.now ?? Date.now)();
+  const intent = { state: "unknown", intentAtMs, cause: "intent" };
+  const hasIntent = await writeEngineMember({ store: deps.store, deliveryId: row.id, engine: intent });
+  if (!hasIntent) {
+    deps.log.warn("engine delivery intent could not be persisted; the delivery waits", {
+      deliveryId: row.id
+    });
+    return "skipped";
+  }
+  const { maxAttempts } = deps.retry;
+  const sleep = deps.sleep ?? sleepFor;
+  for (let attempt = 1;attempt <= maxAttempts; attempt += 1) {
+    const outcome = await attemptOnce({ ...input, sessionId, intentAtMs });
+    if (!("retry" in outcome)) {
+      await settle({ deps, run, row, settlement: outcome.settlement });
+      return outcome.settlement.engine.state;
+    }
+    if (attempt < maxAttempts) {
+      await sleep(engineBackoffMs(deps.retry, attempt));
+    }
+  }
+  const exhausted = unavailable("ladder", "connection-refused");
+  await settle({ deps, run, row, settlement: exhausted });
+  return "unavailable";
+}
+function emptyResult() {
+  return { considered: 0, admitted: 0, unavailable: 0, unknown: 0 };
+}
+function candidatesOf(queue) {
+  const candidates = new Map;
+  for (const row of queue) {
+    if (row.runCorrelationId === undefined || row.engine !== undefined || followUpKindOf(row.id) === null) {
+      continue;
+    }
+    const rows = candidates.get(row.runCorrelationId) ?? [];
+    rows.push(row);
+    candidates.set(row.runCorrelationId, rows);
+  }
+  return candidates;
+}
+function counted(counts, settled2) {
+  if (settled2 === "admitted") {
+    return { ...counts, admitted: counts.admitted + 1 };
+  }
+  if (settled2 === "unavailable") {
+    return { ...counts, unavailable: counts.unavailable + 1 };
+  }
+  if (settled2 === "unknown") {
+    return { ...counts, unknown: counts.unknown + 1 };
+  }
+  return counts;
+}
+async function deliverCandidates(input) {
+  let counts = emptyResult();
+  for (const [correlationId, rows] of input.candidates) {
+    const run = input.runs.get(correlationId);
+    const session = run === undefined ? null : run.session;
+    if (run !== undefined && session !== null) {
+      for (const row of rows) {
+        const settled2 = await deliverOne({ deps: input.deps, run, row, runRows: rows });
+        counts = { ...counted(counts, settled2), considered: counts.considered + 1 };
+      }
+    }
+  }
+  return counts;
+}
+async function runEngineDeliveryPass(deps) {
+  try {
+    const candidates = candidatesOf(await readEvents(deps));
+    if (candidates.size === 0) {
+      return emptyResult();
+    }
+    const document = await previewRunsDocument({ store: deps.store, log: deps.log });
+    const runs = new Map(document.runs.map((run) => [run.correlationId, run]));
+    return await deliverCandidates({ deps, candidates, runs });
+  } catch (cause) {
+    deps.log.warn("engine delivery pass failed", { errorKind: describeKind(cause) });
+    return emptyResult();
+  }
+}
+
 // service/poll/trigger-scan.ts
 var BODY_EXCERPT_MAX_CHARS = 600;
 function bodyExcerptOf(body) {
@@ -10505,6 +11523,16 @@ async function runScanCycle(deps) {
     }
     outcomes.push(scan);
   }
+  await runEngineDeliveryPass({
+    store: context.store,
+    log: context.log,
+    env: deps.env ?? {},
+    retry: {
+      maxAttempts: context.config.retryMaxAttempts,
+      baseMs: context.config.retryBaseMs,
+      maxMs: context.config.retryMaxMs
+    }
+  });
   if (outcomes.length > 0) {
     context.log.info("poll cycle complete", {
       bindings: outcomes.length,
@@ -10556,8 +11584,8 @@ var STATUS_FORBIDDEN2 = 403;
 var STATUS_TOO_MANY_REQUESTS2 = 429;
 var MAX_LIST_PAGES = 2;
 var systemSleep = async (milliseconds) => {
-  await new Promise((resolve3) => {
-    setTimeout(resolve3, milliseconds);
+  await new Promise((resolve4) => {
+    setTimeout(resolve4, milliseconds);
   });
 };
 function pollerRuntime(deps, fetchImpl) {
@@ -11081,14 +12109,14 @@ async function adoptStoredLogLevel(store, log) {
   }
 }
 function listen(server, port) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const onError = (error) => {
       reject(error);
     };
     server.once("error", onError);
     server.listen(port, LOOPBACK_HOST, () => {
       server.removeListener("error", onError);
-      resolve3();
+      resolve4();
     });
   });
 }
@@ -11100,8 +12128,8 @@ function boundPort(server) {
   return address.port;
 }
 function sleep(milliseconds) {
-  return new Promise((resolve3) => {
-    setTimeout(resolve3, milliseconds);
+  return new Promise((resolve4) => {
+    setTimeout(resolve4, milliseconds);
   });
 }
 async function waitForDrain(state, timeoutMs) {
@@ -11112,9 +12140,9 @@ async function waitForDrain(state, timeoutMs) {
 }
 async function withTimeout(promise, timeoutMs) {
   let timer;
-  const deadline = new Promise((resolve3) => {
+  const deadline = new Promise((resolve4) => {
     timer = setTimeout(() => {
-      resolve3();
+      resolve4();
     }, timeoutMs);
   });
   await Promise.race([promise, deadline]);
@@ -11127,9 +12155,9 @@ async function performShutdown(input) {
   polling.beginShutdown();
   poll?.stop();
   sweep?.stop();
-  const closed = new Promise((resolve3) => {
+  const closed = new Promise((resolve4) => {
     server.close(() => {
-      resolve3();
+      resolve4();
     });
   });
   await waitForDrain(state, DRAIN_TIMEOUT_MS);
@@ -11178,8 +12206,8 @@ function startBootSweep(input) {
   });
 }
 function startSchedulers(input) {
-  const { store, log, poller, polling } = input;
-  const poll = store === null ? null : startPollLoop({ store, log, poller });
+  const { store, log, poller, polling, env } = input;
+  const poll = store === null ? null : startPollLoop({ store, log, poller, env });
   polling.observe(poll);
   const sweep = store === null ? null : startSweep({ store, log });
   return { poll, sweep };
@@ -11213,7 +12241,8 @@ async function startService(options) {
     store,
     log: options.log,
     poller: options.poller ?? createDefaultPoller(options.log),
-    polling
+    polling,
+    env: options.processEnv ?? {}
   });
   return createHandle({
     server,
@@ -11233,7 +12262,7 @@ async function startService(options) {
 var FORCE_EXIT_MS = 5000;
 function isEntryPoint() {
   const entry = process.argv[1];
-  return entry !== undefined && resolve3(entry) === fileURLToPath(import.meta.url);
+  return entry !== undefined && resolve4(entry) === fileURLToPath(import.meta.url);
 }
 function scheduleForceExit(log) {
   const watchdog = setTimeout(() => {
@@ -11272,7 +12301,7 @@ async function runService(env = process.env) {
   try {
     const serviceEnv = readServiceEnv(env);
     const dataDir = resolveDataDir(env);
-    const handle = await startService({ env: serviceEnv, dataDir, log });
+    const handle = await startService({ env: serviceEnv, dataDir, log, processEnv: env });
     installSignalHandlers(handle, log);
     log.info("service listening", { port: handle.port, dataDir: handle.dataDir });
   } catch (error) {

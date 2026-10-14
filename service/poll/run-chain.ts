@@ -135,6 +135,14 @@ export function sessionRefOf(input: {
     readonly sessionId: string;
     /** RFC 3339 dispatch stamp. */
     readonly now: string;
+    /**
+     * The dispatch-reported session directory, absentable: the result-report
+     * path passes the member the panel reported (`worktree.directory` when
+     * present, else `result.directory`), and the operator-confirm path — which
+     * has no result body — passes nothing, persisting the intended absent case
+     * (002 v1.19.0; Gate 2 H1).
+     */
+    readonly directory?: string | undefined;
 }): SessionRef {
     return {
         sessionId: input.sessionId,
@@ -143,5 +151,6 @@ export function sessionRefOf(input: {
         title: '',
         sourceUrl: input.run.sourceReferences[0]?.sourceUrl ?? '',
         worktree: null,
+        ...(input.directory !== undefined && { directory: input.directory }),
     };
 }

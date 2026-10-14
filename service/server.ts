@@ -59,6 +59,13 @@ export interface StartServiceOptions {
      * no suite run ever reaches the network.
      */
     readonly poller?: GitHubIssuePoller;
+    /**
+     * The environment map the entry point read `process.env` into, carried
+     * down to the engine-delivery pass's two seams (the registry override
+     * and the token layer) so no module below the entry point reads the
+     * process environment itself (FR-090; 009 invariant 9).
+     */
+    readonly processEnv?: Readonly<Record<string, string | undefined>>;
 }
 
 /** Handle to a running service instance. */
@@ -350,12 +357,14 @@ function startSchedulers(input: {
     readonly poller: GitHubIssuePoller;
     /** Status view the poll loop publishes its state into. */
     readonly polling: PollingViewSlot;
+    /** Environment map the poll loop's engine pass reads its two seams from. */
+    readonly env: Readonly<Record<string, string | undefined>>;
 }): { readonly poll: PollLoop | null; readonly sweep: SweepLoop | null } {
-    const { store, log, poller, polling } = input;
+    const { store, log, poller, polling, env } = input;
     // M1 loop (MVP re-cut): the timer starts only when a store exists, so a
     // degraded start does not poll. The default interval (60 s) is the
     // contract default; `PUT /v1/config` retunes the next cycle.
-    const poll = store === null ? null : startPollLoop({ store, log, poller });
+    const poll = store === null ? null : startPollLoop({ store, log, poller, env });
     polling.observe(poll);
     // The lease/deadline sweep keeps running on its own unref'd timer, at
     // half the shorter of the two configured durations.
@@ -422,6 +431,7 @@ export async function startService(options: StartServiceOptions): Promise<Servic
         log: options.log,
         poller: options.poller ?? createDefaultPoller(options.log),
         polling,
+        env: options.processEnv ?? {},
     });
 
     return createHandle({
