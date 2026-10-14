@@ -1,6 +1,6 @@
 # Research: the 2.x host/SDK surface follow-up delivery rests on (GitHub issue #48)
 
-Companion to [spec.md](spec.md). This is 008's research record; it does **not** amend `specs/002-agent-event-extension/research.md` — the §R13 corrections below are stated here and become 002's conforming edit only after Gate 1 and product-owner approval.
+Companion to [spec.md](spec.md). This is 008's research record; it does **not** amend `specs/002-agent-event-extension/research.md` — the §R13 corrections below are stated here, and they reach 002 through the amendment's **thirteen delivered conforming spans** (FR-104, FR-105, AC-050, AC-051 + the nine companions) rather than as an edit to 002's own dated research record.
 
 ## 1. Provenance
 
@@ -22,7 +22,7 @@ Companion to [spec.md](spec.md). This is 008's research record; it does **not** 
    - `packages/sdk/src/host.ts`: the bridge's replay (`lastLifecycle`) keeps only its **last current-session event** — a late subscriber replays the last *current* session's phase, not a watched session's.
    - **Conclusion**: a **non-current target session's busy/idle state is unknowable to a guest.** `ready.session.busy` and `onSession` are current-scoped too (002 §R13.3), so they add no cross-session channel. The only ways to learn a non-current session's state are (a) wait for the operator to open it, or (b) navigate there — which is exactly the implementable option set in [spec.md](spec.md) §1 (B+ and A′).
 
-## 3. Corrections to 002's §R13 (proposed; applied only at conforming-edit time)
+## 3. Corrections to 002's §R13 (carried by the delivered thirteen-span set)
 
 | §R13 claim (002, 2026-10-09) | Verdict on the 2.x surface | Correction |
 | --- | --- | --- |

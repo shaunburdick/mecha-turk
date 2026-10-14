@@ -112,8 +112,8 @@ const stateMeaning: Readonly<Record<string, string>> = {
 
     <p>
         Delivering a follow-up never navigates: one for a session not on screen waits visibly and is
-        delivered when you open that session and it is idle. A follow-up is judged exactly as the
-        dispatch that started the session was — autonomously by default, with no approval step of its own.
+        delivered when you open that session and it is idle. A follow-up is judged like the dispatch
+        that started it — autonomously, with no approval step.
     </p>
 
     <h3>What ends it, and what does not</h3>
@@ -141,26 +141,23 @@ const stateMeaning: Readonly<Record<string, string>> = {
     </p>
 
     <p>
-        Each dispatch row carries the same three facts about its own follow-ups: how many reached the
-        session, how many are still waiting, and every parked one with its cause — <code>follow-ups: 1
-        delivered · 2 waiting · parked: the host refused or timed out</code>. A mid-turn session, or one
-        not on screen, waits visibly and never parks: it is delivered when you open that session and it
-        is idle. A row with no follow-up state carries no such line.
+        Each dispatch row reports its follow-ups: how many reached the session, how many wait,
+        and every parked one with its cause — <code>follow-ups: 1 delivered · 2 waiting · parked: the
+        host refused or timed out</code>. A mid-turn session, or one not on screen, waits visibly and
+        never parks.
     </p>
 
     <p>
-        A <strong>parked</strong> follow-up kept failing and has spent the bounded retry ladder the
-        service declares — and only a transient host error spends that ladder. The causes that park:
-        no session was open, the navigation unissuable or the target no longer current at a retry, the
-        message over budget, or the host refused or timed out. A mid-turn session is never a park and
-        never spends a rung: nothing was attempted, and the follow-up waits. A parked one is excluded
-        from automatic handling: no later tick attempts it, and it stays parked until you
-        re-offer it. Select its dispatch and <strong>Re-offer parked follow-up</strong> clears the
-        park and its cause on the panel’s own delivery record — never the delivery count and never
-        the attempt history — and the next relay poll gives it one more attempt, which parks it
-        again at once if it fails. A follow-up that already reached the session is never offered
-        a re-offer, and neither is one that has not been attempted: that one is already due. The
-        park’s cause is what the row and the trail keep until you act.
+        A <strong>parked</strong> follow-up has spent the bounded retry ladder the service declares,
+        and only a transient host error spends it. The causes that park: no session was open, the
+        navigation unissuable or the target no longer current at a retry, the message over budget,
+        or the host refused or timed out. A mid-turn session is never a park and never spends a
+        rung: nothing was attempted, and it waits. A parked follow-up is excluded from automatic
+        handling until you re-offer it. Select its dispatch and <strong>Re-offer parked follow-up</strong>
+        clears the park and its cause on the panel’s own delivery record — never the delivery count
+        or the attempt history — and the next relay poll gives it one more attempt, which parks it
+        again at once if it fails. Only a parked follow-up is offered a re-offer — never one already
+        delivered, nor one never attempted, which is already due.
     </p>
 
     <h3>What this did not add</h3>

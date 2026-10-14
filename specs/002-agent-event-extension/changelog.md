@@ -1266,6 +1266,12 @@ nothing — it enters the **waiting state** in the vocabulary the panel already 
 ladder is spent only by transient host errors; a raced `SESSION_BUSY` is an observed-busy outcome; a
 pre-amendment `session-busy` park re-arms from the two fields the record already carries.
 
+**Superseded research premise**: this document's `research.md` §R13.1 called a busy session *"a
+**retryable refusal, not a queue** (FR-105)"* — the amended FR-105 supersedes the retry half (busy is
+no longer an attempt failure at all: waiting state, no ladder rung, never parked), while "not a queue"
+stands; the correction is recorded in `specs/008-follow-up-delivery/research.md` §3, which amends
+008's own record only — `research.md` here stays a dated record of what was verified when.
+
 **Requirement-by-requirement record** (old → new — a rewrite in place in every row; no requirement,
 acceptance criterion, state name, or reason word is added, removed, or renumbered). The byte-exact
 spans are the amendment's (`specs/008-follow-up-delivery/spec.md` §2.1–§2.4 and §3), which is the
@@ -1285,14 +1291,16 @@ authority for the text; the cells quote the operative clauses.
 | **Companion 6 — the v1.16.0 rationale paragraph**: *"… with a bounded retry and an explained stop, because the host owns session scheduling and Mecha Turk must not queue-until-free (constitution VII)."* | *"… with a bounded retry for transient host errors and an explained stop, because the host owns session scheduling and Mecha Turk never queues a send nor attempts against a session it cannot observe as current and idle (constitution VII, FR-104, FR-105 as amended at v1.18.0)."* | **Amended** |
 | **Companion 7 — the `## Clarifications` Q&A**: *"A delivery that fails retries under the declared ladder and, on exhaustion, **parks with a human-visible reason** — never an unbounded wait, because the host owns session scheduling … (constitution VII). → FR-104, FR-105"* | *"A delivery that fails on a transient host error retries under the declared ladder and, on exhaustion, **parks with a human-visible reason**; a follow-up whose target is not the session on screen is never attempted and never navigates — it waits visibly and delivers when the operator opens the target session and it is idle (FR-104, FR-105). The host owns session scheduling and Mecha Turk does not reimplement it (constitution VII). → FR-104, FR-105"* | **Amended** |
 | **Companion 8 — the `## Status` line's v1.16.0 summary**: *"**delivery** into the agent's original session, with navigation whose intent is recorded before it fires, a bounded retry and a parked, human-visible reason (FR-104, FR-105)"* | The clause is kept as the **historical record of v1.16.0 as shipped**, with one marker inserted immediately after it (§3.8): *" — historical record of v1.16.0 as shipped; FR-104 and FR-105 as amended at v1.18.0 govern, and under the amendment's default reading delivery never navigates (under the navigate-once alternative it navigates at most once, at the moment of delivery)"* — phrased conditionally so it is true under either approved option | **Marked (historical record kept)** |
-| **Companion 9 — `site/src/pages/use.astro`:144-149 and `:151-157`** (007 makes the site authoritative where a claim appears in both places): the row example presented a mid-turn **park**, and the *parked follow-up* paragraph listed mid-turn as a cause that spends the ladder | The row example now reads `follow-ups: 1 delivered · 2 waiting · parked: the host refused or timed out`, and the paragraph names only the surviving park causes — no session open, navigation unissuable or target no longer current at a retry, over budget, host refused or timed out — with the ladder spent **only** by a transient host error | **Rewritten (published site)** |
+| **Companion 9 — `site/src/pages/use.astro`:114-116, `:144-147` and `:151-160`** (007 makes the site authoritative where a claim appears in both places): the view-switch claim, the row example's mid-turn **park**, and the *parked follow-up* paragraph listing mid-turn as a cause that spends the ladder | The never-navigates paragraph, the row example `follow-ups: 1 delivered · 2 waiting · parked: the host refused or timed out`, and only the surviving park causes — no session open, navigation unissuable or target no longer current at a retry, over budget, host refused or timed out — with the ladder spent **only** by a transient host error; the three spans are byte-exact in 008 spec §3.9 after the product owner's 2026-10-13 trim | **Rewritten (published site)** |
 
 **Two further operator surfaces corrected in the same wave**, both FR-042 doc-drift: the walkthrough's
 §10 view-switch sentence (`quickstart.md:107`) now states that delivery never navigates and that a
 follow-up for a session not on screen waits visibly until the operator opens that session and it is
 idle; and `site/src/pages/use.astro:113-117`, which still claimed delivery moves the view two spans
 below companion 9, says the same. Neither moves a bound: the walkthrough stays at its pinned **76**
-prose lines, and the site's measured spend falls to **5,838** words against the 5,842 ceiling.
+prose lines, and the site's measured spend is **5,765** words against the unchanged **5,770** ceiling
+(companion 9's three spans were then trimmed under the product owner's 2026-10-13 decision —
+`specs/008-follow-up-delivery/challenge-ledger.md`, pre-PR H1).
 
 **Principles reviewed, unchanged in substance**: **II** (safe autonomy) — delivery stays autonomous
 and the waiting state is a wait with a visible reason, never a silent skip; the missing or ambiguous
