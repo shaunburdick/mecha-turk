@@ -104,4 +104,4 @@ that window, and the upgrade itself writes nothing.
 ## 10. What happens after a dispatch (002 v1.16.0, GitHub issue #13)
 
 Published documentation, and the canonical source for this section:
-<https://shaunburdick.github.io/mecha-turk/use/> — the tracking lifecycle after a dispatch: one run and one session per work item and never a second one; delivering a follow-up may switch your view to the session and closes the panel, which the run's ledger records why; and the item's terminal state is the end, never the session's own outcome.
+<https://shaunburdick.github.io/mecha-turk/use/> — the tracking lifecycle after a dispatch: one run and one session per work item and never a second one; delivery never navigates: a follow-up for a session not on screen waits visibly and is delivered when you open that session and it is idle; and the item's terminal state is the end, never the session's own outcome.

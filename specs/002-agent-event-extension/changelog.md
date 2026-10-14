@@ -1242,3 +1242,93 @@ invariant 2).
 **Approval status**: product-owner decision recorded on GitHub issue #45 (the refusal covers both
 the assignment kind and the review-request kind — one rule in the shared actor-resolution layer);
 implemented the same day, `npm run verify` green.
+
+### v1.18.0 — 2026-10-13 (follow-up cross-session delivery; GitHub issue #48)
+
+**Why**: issue #48 filed the view-yank. Under v1.16.0 a follow-up whose target session was not the one
+on screen was delivered by navigating the operator to it — `host.openSession(sessionId)`, which
+switches the view and closes the panel, with the navigation's intent recorded durably before it fired
+— and a busy or mid-turn session was one more failure the bounded ladder retried until it parked. The
+amendment (`specs/008-follow-up-delivery/spec.md` §2–§3) rewrites the two delivery requirements and
+nine companion texts **in place**, so this document states what ships and nothing else moves. **Two
+product-owner decisions close the amendment, both recorded 2026-10-13 via `pm-handoff.md` on GitHub
+issue #48 and neither re-opened here**: **B+ (park + auto-rearm) is the mandated delivery semantics**
+— rationale as recorded, *"zero view-switches; autonomy preserved at the first moment delivery is
+possible without a yank"* — and **NFR-001's follow-up clock arms at the follow-up's detection,
+excluding intervals in which the target session is observed busy** — *"keeps the bar honest about
+panel-caused delay without penalizing the host's schedule."* One fact shapes the text that follows: a
+guest can observe only the **current** session's state (`onSessionLifecycle`, `ready.session.busy`,
+and `onSession` are current-scoped by construction — `research.md` §1), so delivery is gated on the
+current session and its lifecycle: a follow-up whose target is not the current session performs **no**
+`host.openSession` and **no** `host.prompt({ text, send: true })`, consumes no retry budget and parks
+nothing — it enters the **waiting state** in the vocabulary the panel already has (`session-busy`) and
+**re-arms by itself** the moment the operator opens the target and its lifecycle reports idle. The
+ladder is spent only by transient host errors; a raced `SESSION_BUSY` is an observed-busy outcome; a
+pre-amendment `session-busy` park re-arms from the two fields the record already carries.
+
+**Requirement-by-requirement record** (old → new — a rewrite in place in every row; no requirement,
+acceptance criterion, state name, or reason word is added, removed, or renumbered). The byte-exact
+spans are the amendment's (`specs/008-follow-up-delivery/spec.md` §2.1–§2.4 and §3), which is the
+authority for the text; the cells quote the operative clauses.
+
+| 002 v1.17.0 text (old) | v1.18.0 text (new) | Status |
+| --- | --- | --- |
+| **FR-104**, navigation span: *"When the target session is not the current one, delivery requires `host.openSession(sessionId)`, which switches the operator's view to the session and closes the panel — a user-visible side effect this product performs and MUST own, in three clauses: **no navigation when the target is already current**; the **intent to navigate recorded durably before the call** …; and **no delivery while a dispatch attempt is in flight** — the relay's existing serialization, extended."* | Delivery is gated on the current session and its lifecycle: a non-current target is **never navigated to, prompted, retried, or toasted against** — no `host.openSession`, no `host.prompt`, no budget, no park — it enters the **waiting state** (`session-busy`) and re-arms by itself at the next current-and-idle observation; **every** prompt re-verifies the target is still current first; re-armed follow-ups deliver in **detection order** under the relay's serialization; current + observed idle is one `host.prompt({ text, send: true })` with **zero navigation**. The remainder — the `followUpsFrom` window, composition bounds, measure-before-call, FR-027's authorization clause — stands byte-identical | **Amended** |
+| **FR-105** (whole requirement): *"**Failures retry within the bound, then park with a human-visible reason.** A delivery attempt that fails — the session is mid-turn, `NO_SESSION`, a rejected `openSession`, a host timeout or rejection, or an over-budget composition — MUST be retried under the bounded backoff … and MUST NOT wait indefinitely for the session to become free (constitution VII)."* | *"**Only a transient host error retries; every other stop parks with its human-visible reason.**"* The ladder covers `HOST_UNAVAILABLE`, `HOST_TIMEOUT`, `HOST_REJECTED`, and transport failure (the shipped `host-unavailable`) only; a busy session is not a failure; a raced `SESSION_BUSY` is an **observed-busy outcome** — waiting, no ladder budget, never parked; `NO_SESSION`, a refused or unissuable navigation, and an over-budget composition park **on the first refusal**; the closed union stays five words; the closed-panel clause, the `DISABLED` arm, and **no new state name** stand; the **migration clause** is added | **Amended** |
+| **AC-050**, navigation/busy span: *"Given the target session already current, delivery prompts with **zero** `openSession` calls. Given a different current session, the intent to navigate is durably recorded **before** the `openSession` call the fake host logs, and no delivery happens while a dispatch attempt is in flight."* | Zero `openSession` and zero prompts with a non-current target, `session-busy` on the run row, the record still **due**; current + idle prompts **exactly once** into the run's own session; the **re-arm race** (the operator switches before the prompt, including via serialization deferral) logs zero prompts into the non-target session, consumes nothing, and delivers exactly once later; **retry re-verification** stops `navigation-refused`; **raced busy** consumes no ladder attempt and parks nothing. The remainder — FR-027's reading, the `followUpsFrom` window, measure-never-truncate — stands byte-identical | **Amended** |
+| **AC-051**, retry-shrink span: *"Given the session mid-turn, `NO_SESSION`, a rejected `openSession`, a host timeout or rejection, and an over-budget composition — each retries within the declared bound and, on exhaustion, parks with its reason … with **no** unbounded wait in any case"* | Host timeout, rejection, or unavailability retry within the bound, each retry re-verifying the target and stopping `navigation-refused` with **zero** prompts on mismatch (no second `openSession` under A′); `NO_SESSION`, a refused navigation, and an over-budget composition park on the first refusal with **no** ladder attempt; **mid-turn is no attempt at all** — waiting, never parked; a raced `SESSION_BUSY` consumes nothing and parks nothing. The re-offer assertions stand byte-identical | **Amended** |
+| **Companion 1 — FR-037's follow-up clause**: *"**It MUST NOT wait indefinitely for a session to become free** — the host owns session scheduling, and an unbounded wait is Mecha Turk reimplementing the harness's own queue (constitution VII)."* | *"**It MUST NOT attempt, retry, or hold a queued send against a session it cannot observe as current and idle** — the host owns session scheduling, and Mecha Turk runs no queue of its own: a follow-up that cannot be attempted now waits under FR-104's waiting state with no host call behind it, and the retry bound governs transient host errors only (FR-105) (constitution VII)."* — the `(constitution VII)` citation kept, a recorded choice | **Amended** |
+| **Companion 2 — the deleted-session / mid-turn edge case**: *"both are **retryable refusals, not queues**. The delivery retries under the declared backoff ladder and, on exhaustion, parks with its reason — visible on the run row and in the trail. The product never waits indefinitely for the session to become free …"* | *"a deleted session is a **terminal stop**: `NO_SESSION` parks immediately with its reason (FR-105). A **mid-turn session is never an attempt**: no prompt, no navigation, no toast, no ladder consumption — the follow-up waits under the `session-busy` waiting state and delivers exactly once when the target is the current session and observed idle (FR-104). Nothing re-dispatches, so no second session is ever created as a substitute (constitution VII)."* | **Amended** |
+| **Companion 3 — User Story 7, scenario 2**: *"**Given** a follow-up whose session is mid-turn, **When** delivery is attempted, **Then** it is retried within the declared bound and, on exhaustion, parked with the reason shown on the run row and in the trail — and never waits indefinitely (constitution VII: the host owns session scheduling)."* | *"**Given** a follow-up whose session is mid-turn — or which is not the session on screen — **When** the relay ticks, **Then** no delivery is attempted: the follow-up waits under the `session-busy` waiting state, visible on the run row, and is delivered exactly once into the run's own session when the target is the current session and observed idle; a transient host error is the only thing the declared bound retries, and nothing ever re-dispatches a second session (constitution VII: the host owns session scheduling)."* | **Amended** |
+| **Companion 4 — the `## Out of Scope` row**: *"No background send, no queue-until-free wait, no re-dispatch … The host owns sessions; a busy session is a bounded retry that parks, never an unbounded wait (FR-105)."* | *"No background send, no service-side or host-side queue-until-free, no re-dispatch … The host owns sessions: the panel holds no queued send, attempts only against the current session as observed idle, and schedules nothing (FR-104, FR-105)."* — the row's leading bold goes with the claim it carried | **Amended** |
+| **Companion 5 — NFR-001's follow-up leg**: *"… queued → delivered into the session (panel-side, ≤ 2 × the poll interval while the panel is open — the panel-open boundary is FR-104's, unchanged from a dispatch's)."* | *"… ≤ 2 × the poll interval **from the follow-up's detection**, while the panel is open, **excluding intervals in which the target session is observed busy** — the bar measures panel-caused delay, never the host's own schedule — and the waiting duration stays human-visible on the run row through the existing reason vocabulary, with no new persisted state). The panel-open boundary is FR-104's, unchanged from a dispatch's."* — the decided clock (Q1) | **Amended** |
+| **Companion 6 — the v1.16.0 rationale paragraph**: *"… with a bounded retry and an explained stop, because the host owns session scheduling and Mecha Turk must not queue-until-free (constitution VII)."* | *"… with a bounded retry for transient host errors and an explained stop, because the host owns session scheduling and Mecha Turk never queues a send nor attempts against a session it cannot observe as current and idle (constitution VII, FR-104, FR-105 as amended at v1.18.0)."* | **Amended** |
+| **Companion 7 — the `## Clarifications` Q&A**: *"A delivery that fails retries under the declared ladder and, on exhaustion, **parks with a human-visible reason** — never an unbounded wait, because the host owns session scheduling … (constitution VII). → FR-104, FR-105"* | *"A delivery that fails on a transient host error retries under the declared ladder and, on exhaustion, **parks with a human-visible reason**; a follow-up whose target is not the session on screen is never attempted and never navigates — it waits visibly and delivers when the operator opens the target session and it is idle (FR-104, FR-105). The host owns session scheduling and Mecha Turk does not reimplement it (constitution VII). → FR-104, FR-105"* | **Amended** |
+| **Companion 8 — the `## Status` line's v1.16.0 summary**: *"**delivery** into the agent's original session, with navigation whose intent is recorded before it fires, a bounded retry and a parked, human-visible reason (FR-104, FR-105)"* | The clause is kept as the **historical record of v1.16.0 as shipped**, with one marker inserted immediately after it (§3.8): *" — historical record of v1.16.0 as shipped; FR-104 and FR-105 as amended at v1.18.0 govern, and under the amendment's default reading delivery never navigates (under the navigate-once alternative it navigates at most once, at the moment of delivery)"* — phrased conditionally so it is true under either approved option | **Marked (historical record kept)** |
+| **Companion 9 — `site/src/pages/use.astro`:144-149 and `:151-157`** (007 makes the site authoritative where a claim appears in both places): the row example presented a mid-turn **park**, and the *parked follow-up* paragraph listed mid-turn as a cause that spends the ladder | The row example now reads `follow-ups: 1 delivered · 2 waiting · parked: the host refused or timed out`, and the paragraph names only the surviving park causes — no session open, navigation unissuable or target no longer current at a retry, over budget, host refused or timed out — with the ladder spent **only** by a transient host error | **Rewritten (published site)** |
+
+**Two further operator surfaces corrected in the same wave**, both FR-042 doc-drift: the walkthrough's
+§10 view-switch sentence (`quickstart.md:107`) now states that delivery never navigates and that a
+follow-up for a session not on screen waits visibly until the operator opens that session and it is
+idle; and `site/src/pages/use.astro:113-117`, which still claimed delivery moves the view two spans
+below companion 9, says the same. Neither moves a bound: the walkthrough stays at its pinned **76**
+prose lines, and the site's measured spend falls to **5,838** words against the 5,842 ceiling.
+
+**Principles reviewed, unchanged in substance**: **II** (safe autonomy) — delivery stays autonomous
+and the waiting state is a wait with a visible reason, never a silent skip; the missing or ambiguous
+authorization stop condition is untouched because FR-027's own text stands. **III** (durable and
+idempotent) — at-most-once is unchanged, the waiting state consumes no budget and creates no second
+attempt path, and the migration re-arms from fields the record already carries. **IV** (human-visible
+auditability) — every not-yet-delivered follow-up is explainable from the panel's own words (FR-036's
+queue, the `session-busy` waiting state, the park reasons); the navigation-intent clause IV used to
+serve goes with the navigation it served. **VII** (thin orchestration boundary) is the tension point,
+stated rather than buried: the old text read "no unbounded wait for a session to become free" as VII's
+consequence, and the rewrite keeps VII's actual concern — Mecha Turk runs no queue against the host's
+scheduler — while the panel holds **no queued send** (the message is composed at attempt time under
+FR-104's measure-before-call clause), schedules nothing, and attempts exactly once when the
+current-session signals say delivery is possible. **I, V, and VI** are untouched. No principle is
+weakened.
+
+**Requirements explicitly unchanged**: detection (FR-101, FR-102, FR-103 with the head-SHA seed), the
+terminal end (FR-106), the run-join (FR-100), FR-028's bounded composition and `CONTEXT_MAX_CHARS`,
+FR-027's authorization text, NFR-002's at-most-once under every permutation, FR-104's `followUpsFrom`
+window and FR-107's guard (no new HTTP route, persisted file, state name, `host.storage` key,
+configuration field, or capability), and 005 — untouched, because the waiting state is a reason word on
+an existing record and not a state in the run model (005 FR-041 and FR-084 need no amendment). The
+**requirement count is unchanged**: 104 FR definitions, 13 NFRs, and 52 ACs — FR-104 and FR-105
+rewritten in place, nine companion texts rewritten in place, zero additions or removals.
+
+**Migration impact**: a pre-amendment record carrying `parked: true` with reason `session-busy` was a
+**refused attempt, not delivered work** — on the next read the panel re-arms it into the waiting state
+**with its attempt history intact**, and both facts (`parked`, `reason`) already exist on the record,
+so the migration adds no persisted field, no state name, and no store; a re-armed record that then
+exhausts the remaining ladder parks at once, by design. No storage key, schema, contract member,
+capability, route, or service file changes (`service/` is untouched by this feature).
+`package.json`'s `version` does **not** move: releases are the product owner's call (AGENTS.md
+invariant 2).
+
+**Approval status**: Gate 1 closed **pass-with-cuts, decision-closed**; **B+ (park + auto-rearm)** and
+the **NFR-001 clock** (arming at detection, target-busy intervals excluded) were decided by the
+product owner on **2026-10-13**, GitHub issue #48, and are recorded in
+`specs/008-follow-up-delivery/spec.md` §5. The conforming edits above were applied in Phase 6 wave 4
+(2026-10-13) with `npm run verify` green.
