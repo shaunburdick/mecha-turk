@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BEGIN_UNTRUSTED, END_UNTRUSTED } from '../src/context-blocks.ts';
+import { CONTEXT_MAX_CHARS } from '../src/session.ts';
 import { readAuditEntries } from '../service/audit.ts';
 import { EVENTS_FILE, createEvent, enqueueEvents, readEvents } from '../service/poll/events.ts';
 import { claimPendingRuns } from '../service/poll/claim.ts';
@@ -69,7 +70,7 @@ function ownedSession(): SessionFixture {
 }
 
 /** A follow-up comment detection on a subject whose run already exists. */
-function followUpComment(issueNumber: number, commentId: number): EventSnapshot {
+function followUpComment(issueNumber: number, commentId: number, title = `Issue ${issueNumber}`): EventSnapshot {
     return {
         bindingId: BINDING_ID,
         repository: REPOSITORY,
@@ -83,7 +84,7 @@ function followUpComment(issueNumber: number, commentId: number): EventSnapshot 
         subjectType: 'issue',
         issue: {
             issueNumber,
-            issueTitle: `Issue ${issueNumber}`,
+            issueTitle: title,
             issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
             issueBodyExcerpt: `a new comment arrived on issue ${issueNumber}`,
         },
@@ -160,7 +161,10 @@ function passDeps(
 }
 
 /** One seeded run with a session and one follow-up row linked to it. */
-async function seedDispatchedFollowUp(directory?: string): Promise<{ correlationId: string; deliveryId: string }> {
+async function seedDispatchedFollowUp(
+    directory?: string,
+    title?: string,
+): Promise<{ correlationId: string; deliveryId: string }> {
     const issueNumber = issueCounter;
     issueCounter += 1;
     await enqueueEvents({
@@ -207,7 +211,7 @@ async function seedDispatchedFollowUp(directory?: string): Promise<{ correlation
         throw new Error(`result report answered ${reported.status}`);
     }
 
-    const followUp = createEvent(followUpComment(issueNumber, 9_000 + issueNumber));
+    const followUp = createEvent(followUpComment(issueNumber, 9_000 + issueNumber, title));
     await enqueueEvents({ store, log, incoming: [followUp] });
 
     return { correlationId: offered.correlationId, deliveryId: followUp.id };
@@ -569,6 +573,40 @@ describe('the closed failure classes settle exactly as classified (FR-105 span D
         expect(audit?.details.stage).toBe('pre-check');
         expect(audit?.details.cause).toBe('directory-absent');
     });
+
+    it('an over-budget composition settles compose-stage with zero engine requests (span A/E order)', async () => {
+        const { fake } = await engine();
+        const seeded = await seedDispatchedFollowUp(SESSION_DIR, 'x'.repeat(CONTEXT_MAX_CHARS));
+
+        const counts = await runEngineDeliveryPass(passDeps(engineEnv(fake)));
+
+        expect(counts.unavailable).toBe(1);
+        expect(fake.requests, 'the over-budget composition issued an engine request').toHaveLength(0);
+        expect(sleeps, 'the over-budget composition consumed a ladder rung').toHaveLength(0);
+        const row = await queuedRow(seeded.deliveryId);
+        expect(row?.engine).toEqual({ state: 'unavailable' });
+        const [audit] = await auditRowsOf('follow_up.engine_unavailable');
+        expect(audit?.details.stage).toBe('compose');
+        expect(audit?.details.cause).toBe('over-budget');
+    });
+
+    for (const outcome of ['400', '3xx'] as const) {
+        it(`a ${outcome} admission answer is rejected-class: unavailable, one POST, no rung, audit row`, async () => {
+            const { fake } = await engine({ promptOutcome: outcome });
+            const seeded = await seedDispatchedFollowUp(SESSION_DIR);
+
+            const counts = await runEngineDeliveryPass(passDeps(engineEnv(fake)));
+
+            expect(counts.unavailable).toBe(1);
+            expect(promptRequests(fake), `the ${outcome} answer was not the first refusal`).toBe(1);
+            expect(sleeps, `the ${outcome} answer consumed a ladder rung`).toHaveLength(0);
+            const row = await queuedRow(seeded.deliveryId);
+            expect(row?.engine).toEqual({ state: 'unavailable' });
+            const [audit] = await auditRowsOf('follow_up.engine_unavailable');
+            expect(audit?.details.stage).toBe('prompt');
+            expect(audit?.details.cause).toBe('rejected');
+        });
+    }
 });
 
 describe('restart reconciliation (FR-105 span E)', () => {

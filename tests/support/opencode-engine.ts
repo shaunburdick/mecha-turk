@@ -48,7 +48,14 @@ const STALL_POLL_MS = 10;
 const ENGINE_TMP = '/tmp/opencode';
 
 /** Status codes the fake answers with; the engine's own 5xx is a 503 service failure. */
-const STATUS = { ok: 200, invalidRequest: 400, unauthorized: 401, notFound: 404, serviceUnavailable: 503 };
+const STATUS = {
+    ok: 200,
+    redirect: 302,
+    invalidRequest: 400,
+    unauthorized: 401,
+    notFound: 404,
+    serviceUnavailable: 503,
+};
 
 /**
  * Members `Session.Info` marks required that no suite varies, filled under
@@ -68,7 +75,7 @@ const REQUIRED_SESSION_MEMBERS = {
 export const MANAGED_REGISTRY_ENV = 'OPENCHAMBER_MANAGED_PROCESS_REGISTRY';
 
 /** Canned answers for `POST /api/session/{id}/prompt`. */
-export type PromptOutcome = 'admit' | 'stall' | '5xx' | '401' | '404' | 'malformed-200';
+export type PromptOutcome = 'admit' | 'stall' | '5xx' | '401' | '404' | '400' | '3xx' | 'malformed-200';
 
 /** The two `/api/info` members the adapter reads; the body also carries the members the live schema requires. */
 export interface FakeInfo {
@@ -103,8 +110,8 @@ export interface LoggedRequest {
  *
  * Stored for `admit`, `stall`, `5xx` and `malformed-200` alike — each reached
  * the session, so a second entry is exactly the duplicate the zero-duplicate
- * assertion exists to catch. `401` and `404` store nothing: that body was
- * refused before any session saw it.
+ * assertion exists to catch. `401`, `404`, `400` and `3xx` store nothing: that
+ * body was refused before any session saw it.
  */
 export interface StoredMessage {
     /** Engine-side message id — the receipt `data.id` the `admit` outcome returns. */
@@ -405,6 +412,24 @@ function serveSession(response: ServerResponse, state: FakeState, sessionId: str
     sendJson(response, STATUS.ok, { data: sessionRecord(fixture) });
 }
 
+/** One canned refusal: the status the answer carries and the error envelope it is. */
+interface CannedRefusal {
+    readonly status: number;
+    readonly tag: string;
+    readonly message: string;
+}
+
+/** The refusal answers the rejected-class outcomes give: nothing was admitted, nothing stored. */
+const PROMPT_REFUSALS: Readonly<Record<'400' | '3xx', CannedRefusal>> = {
+    '400': { status: STATUS.invalidRequest, tag: 'InvalidRequestError', message: 'prompt was refused' },
+    '3xx': { status: STATUS.redirect, tag: 'RedirectError', message: 'unexpected redirect' },
+};
+
+/** Whether one outcome is answered by {@link PROMPT_REFUSALS} rather than by the switch below. */
+function isCannedRefusal(outcome: PromptOutcome): outcome is keyof typeof PROMPT_REFUSALS {
+    return outcome === '400' || outcome === '3xx';
+}
+
 /**
  * Answer `POST /api/session/{id}/prompt` from the canned outcome.
  *
@@ -420,12 +445,19 @@ function servePrompt(response: ServerResponse, state: FakeState, sessionId: stri
         return;
     }
 
+    if (isCannedRefusal(state.outcome)) {
+        const refusal = PROMPT_REFUSALS[state.outcome];
+        sendJson(response, refusal.status, errorBody(refusal.tag, refusal.message));
+        return;
+    }
+
     const message: StoredMessage = {
         id: mintMessageId(),
         sessionId,
         text: request.text,
         outcome: state.outcome,
     };
+    const delivery = request.delivery ?? 'steer';
 
     switch (state.outcome) {
         case '401': {
@@ -457,7 +489,7 @@ function servePrompt(response: ServerResponse, state: FakeState, sessionId: stri
                     time: { created: Date.now() },
                     type: 'user',
                     payload: { text: request.text },
-                    delivery: request.delivery ?? 'steer',
+                    delivery,
                 },
             });
             return;
@@ -471,7 +503,7 @@ function servePrompt(response: ServerResponse, state: FakeState, sessionId: stri
                     time: { created: Date.now() },
                     type: 'user',
                     payload: { text: request.text },
-                    delivery: request.delivery ?? 'steer',
+                    delivery,
                 },
             });
             return;

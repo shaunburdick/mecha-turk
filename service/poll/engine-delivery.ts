@@ -1,8 +1,8 @@
 /**
  * The per-cycle engine-delivery pass: for each run-linked follow-up row whose
  * engine member is absent and whose run carries a session, persist the intent,
- * then per attempt re-discover, acquire the token, probe identity, pre-check
- * ownership, compose, and admit — settling admitted, unknown, or unavailable
+ * then per attempt re-discover, acquire the token, compose, probe identity,
+ * pre-check ownership, and admit — settling admitted, unknown, or unavailable
  * under the closed classification (FR-104 span C; FR-105 spans D/E; spec §5).
  */
 
@@ -308,7 +308,12 @@ function admissionSettlement(admission: SettledAdmission, intentAtMs: number): S
     }
 }
 
-/** Run one attempt: discovery → token → identity → ownership → compose → admit. */
+/**
+ * Run one attempt: discovery → token → compose → identity → ownership → admit.
+ * Composition and its budget measurement precede the engine's GETs: an
+ * over-budget composition must issue zero engine requests (FR-104 span A;
+ * FR-105 span E).
+ */
 async function attemptOnce(input: {
     readonly deps: EngineDeliveryDeps;
     readonly run: Run;
@@ -323,6 +328,16 @@ async function attemptOnce(input: {
         return { settlement: prepared.settlement };
     }
 
+    const composed = composeEngineFollowUp({
+        run: input.run,
+        row: input.row,
+        sessionId: input.sessionId,
+        runRows: input.runRows,
+    });
+    if (!composed.ok) {
+        return { settlement: unavailable('compose', composed.cause) };
+    }
+
     const verified = await verifySession({
         client: prepared.client,
         engine: prepared.engine,
@@ -333,16 +348,6 @@ async function attemptOnce(input: {
         return 'retry' in verified
             ? { retry: true, stage: verified.stage }
             : { settlement: verified.settlement };
-    }
-
-    const composed = composeEngineFollowUp({
-        run: input.run,
-        row: input.row,
-        sessionId: input.sessionId,
-        runRows: input.runRows,
-    });
-    if (!composed.ok) {
-        return { settlement: unavailable('compose', composed.cause) };
     }
 
     const admission = await postFollowUpPrompt({

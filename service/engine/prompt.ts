@@ -22,8 +22,8 @@ const SUCCESS_MIN = STATUS.ok;
 /** Lowest status that is a server-side failure rather than a refusal. */
 const SERVER_FAILURE_MIN = 500;
 
-/** Lowest status outside the success band once 401 and 404 are classified. */
-const SUCCESS_MAX = 400;
+/** Exclusive top of the success band: only a 2xx answer can carry a receipt. */
+const SUCCESS_MAX_EXCLUSIVE = 300;
 
 /** Why an admission is unknowable; credential-free and operator-readable. */
 export type UnknownCause = 'timeout' | 'server-failure' | 'malformed-receipt' | 'transport';
@@ -44,7 +44,7 @@ export type AdmissionOutcome =
     | { readonly kind: 'unauthorized' }
     /** The engine answered `404` for the run's session: NO_SESSION. */
     | { readonly kind: 'no-session' }
-    /** Any other refusal the engine answered: nothing was admitted. */
+    /** Any other non-2xx answer — a 3xx, a 400, or another refusal: nothing was admitted. */
     | { readonly kind: 'rejected' };
 
 /** Read the admission receipt out of one `data` member: `msg_…`-shaped only. */
@@ -73,7 +73,7 @@ function admissionOf(status: number, body: unknown): AdmissionOutcome {
         return { kind: 'no-session' };
     }
 
-    if (status >= SUCCESS_MIN && status <= SUCCESS_MAX) {
+    if (status >= SUCCESS_MIN && status < SUCCESS_MAX_EXCLUSIVE) {
         const messageId = receiptOf(body);
 
         return messageId === null

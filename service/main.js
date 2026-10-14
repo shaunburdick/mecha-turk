@@ -9794,7 +9794,7 @@ var ENGINE_DELIVERY_MODE = "queue";
 var MESSAGE_ID_PREFIX = "msg_";
 var SUCCESS_MIN = STATUS.ok;
 var SERVER_FAILURE_MIN = 500;
-var SUCCESS_MAX = 400;
+var SUCCESS_MAX_EXCLUSIVE = 300;
 function receiptIdOf(data) {
   if (!isRecord(data)) {
     return null;
@@ -9812,7 +9812,7 @@ function admissionOf(status, body) {
   if (status === STATUS.notFound) {
     return { kind: "no-session" };
   }
-  if (status >= SUCCESS_MIN && status <= SUCCESS_MAX) {
+  if (status >= SUCCESS_MIN && status < SUCCESS_MAX_EXCLUSIVE) {
     const messageId = receiptOf(body);
     return messageId === null ? { kind: "unknown", cause: "malformed-receipt" } : { kind: "admitted", messageId };
   }
@@ -10375,15 +10375,6 @@ async function attemptOnce(input) {
   if (!prepared.ok) {
     return { settlement: prepared.settlement };
   }
-  const verified = await verifySession({
-    client: prepared.client,
-    engine: prepared.engine,
-    sessionId: input.sessionId,
-    directory: input.run.session?.directory
-  });
-  if (!verified.ok) {
-    return "retry" in verified ? { retry: true, stage: verified.stage } : { settlement: verified.settlement };
-  }
   const composed = composeEngineFollowUp({
     run: input.run,
     row: input.row,
@@ -10392,6 +10383,15 @@ async function attemptOnce(input) {
   });
   if (!composed.ok) {
     return { settlement: unavailable("compose", composed.cause) };
+  }
+  const verified = await verifySession({
+    client: prepared.client,
+    engine: prepared.engine,
+    sessionId: input.sessionId,
+    directory: input.run.session?.directory
+  });
+  if (!verified.ok) {
+    return "retry" in verified ? { retry: true, stage: verified.stage } : { settlement: verified.settlement };
   }
   const admission = await postFollowUpPrompt({
     client: prepared.client,
