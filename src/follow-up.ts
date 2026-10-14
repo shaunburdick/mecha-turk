@@ -5,7 +5,7 @@
 
 import type { PromptRequest, PromptResult, SessionLifecycleEvent, SessionSnapshot } from '@openchamber/sdk';
 import { appendEntryAndPersist } from './panel-actions.ts';
-import { loadDispatchRecord, recordFollowUpDelivery } from './dispatch-record.ts';
+import { followUpRecordOf, loadDispatchRecord, recordFollowUpDelivery } from './dispatch-record.ts';
 import type { DispatchRecordDocument, FollowUpDeliveryRecord, FollowUpFailure } from './dispatch-record.ts';
 import { parseDispatchListBody } from './dispatches-list.ts';
 import type { RunFollowUp, RunRow, PlainRunState } from './dispatches-service.ts';
@@ -115,6 +115,7 @@ export interface FollowUpRefusal {
     readonly ending: RefusalEnding;
 }
 
+/** The fallback's waiting word: `session-busy` marks a target that was not current or not idle (span F). */
 const WAITING_REASON: FollowUpFailure = 'session-busy';
 const HOST_REFUSAL_REASON: FollowUpFailure = 'host-unavailable';
 
@@ -231,27 +232,127 @@ const FOLLOW_UP_PAGE_GUARD = 10;
 const DELIVERABLE_RUN_STATE: PlainRunState = 'dispatched';
 
 /**
- * Where the relay's read opens the follow-up window: past everything this panel has settled, never
- * past a follow-up it still owes. The record is the **only** party that knows a delivery happened
- * (FR-104) and the list is oldest-first by last write, so keeping the last delivered entry opens
- * at the most recent settlement. The scan stops at the first owed record and opens *at* it — early
- * costs a denser page, late strands the follow-up for good — and a parked record is not owed
- * (FR-105), so it does not stop the walk.
+ * Where the relay's read opens the follow-up window: past everything the panel
+ * or the service has settled, never past a follow-up either still owes. The
+ * record is the only party that knows a **panel** delivery happened (FR-104)
+ * and the list is oldest-first by last write, so keeping the last delivered
+ * entry opens at the most recent settlement. The scan stops at the first owed
+ * record and opens *at* it — early costs a denser page, late strands the
+ * follow-up for good — and a parked record is not owed (FR-105), so it does
+ * not stop the walk (span B2).
+ *
+ * The last read's projection moves the opening only where the record did not
+ * decide (span B2): an **engine-admitted** row (`queued`) settles the window
+ * like a delivered record — the engine holds it, reached — and an
+ * `unavailable` or `unknown` row **never** advances past by projection alone,
+ * because neither means the movement was handled: the handoff and the
+ * unconfirmed outcome are exactly what the panel and the operator still owe.
  */
-export function followUpWindowOpening(document: DispatchRecordDocument): string | null {
-    const records = document.followUps ?? [];
-    let newest: string | null = null;
+/** One projected follow-up paired with the panel record that governs it. */
+interface ProjectedFollowUp {
+    readonly followUp: RunFollowUp;
+    readonly record: FollowUpDeliveryRecord | undefined;
+}
+
+/** The v1.18.0 record walk: the opening it lands on, and whether an owed record stopped it there. */
+function recordWindowWalk(records: readonly FollowUpDeliveryRecord[]): {
+    readonly opening: string | null;
+    readonly stoppedAtOwed: boolean;
+} {
+    let opening: string | null = null;
     for (const record of records) {
         if (record.delivered) {
-            newest = record.deliveryId;
+            opening = record.deliveryId;
         } else if (!record.parked) {
             // Owed: open at it, so the read's bound cannot put it out of range.
-            newest = record.deliveryId;
-            break;
+            return { opening: record.deliveryId, stoppedAtOwed: true };
         }
     }
 
-    return newest;
+    return { opening, stoppedAtOwed: false };
+}
+
+/** The projected rows paired with their records; empty when the read holds none. */
+function projectedFollowUpsOf(
+    document: DispatchRecordDocument,
+    rows: readonly RunRow[],
+): readonly ProjectedFollowUp[] {
+    return rows.flatMap((row) => (row.followUps ?? []).map((followUp) => ({
+        followUp,
+        record: followUpRecordOf(document, followUp.deliveryId),
+    })));
+}
+
+/**
+ * Advance the opening past the engine-admitted rows contiguous with it: a
+ * `queued` member with no record of its own settles the window like a
+ * delivered record, and anything else ends the advance where it stands.
+ */
+function advancePastAdmitted(input: {
+    readonly opening: string | null;
+    readonly projected: readonly ProjectedFollowUp[];
+    readonly positions: ReadonlyMap<string, number>;
+}): string | null {
+    const { opening, projected, positions } = input;
+    if (opening === null || !positions.has(opening)) {
+        return opening;
+    }
+
+    let advanced: string | null = opening;
+    const successors = projected.slice((positions.get(opening) ?? 0) + 1);
+    for (const entry of successors) {
+        if (entry.followUp.engine?.state !== 'queued' || entry.record !== undefined) {
+            break;
+        }
+
+        advanced = entry.followUp.deliveryId;
+    }
+
+    return advanced;
+}
+
+/**
+ * Cap the opening at the earliest `unavailable`/`unknown` row the record does
+ * not settle: neither state means the movement was handled, so the read must
+ * keep reaching it — a panel record, never the projection alone, may settle
+ * one.
+ */
+function clampToBlocked(input: {
+    readonly opening: string | null;
+    readonly projected: readonly ProjectedFollowUp[];
+    readonly positions: ReadonlyMap<string, number>;
+}): string | null {
+    const { opening, projected, positions } = input;
+    const blocked = projected.find((entry) =>
+        entry.record === undefined
+        && (entry.followUp.engine?.state === 'unavailable' || entry.followUp.engine?.state === 'unknown'));
+    if (blocked === undefined) {
+        return opening;
+    }
+
+    const position = opening === null ? -1 : (positions.get(opening) ?? -1);
+
+    return position >= (positions.get(blocked.followUp.deliveryId) ?? 0)
+        ? blocked.followUp.deliveryId
+        : opening;
+}
+
+export function followUpWindowOpening(
+    document: DispatchRecordDocument,
+    rows: readonly RunRow[] = [],
+): string | null {
+    const walk = recordWindowWalk(document.followUps ?? []);
+    const projected = projectedFollowUpsOf(document, rows);
+    if (projected.length === 0) {
+        return walk.opening;
+    }
+
+    const positions = new Map(projected.map((entry, index) => [entry.followUp.deliveryId, index]));
+    const opening = walk.stoppedAtOwed
+        ? walk.opening
+        : advancePastAdmitted({ opening: walk.opening, projected, positions });
+
+    return clampToBlocked({ opening, projected, positions });
 }
 
 /**
@@ -259,12 +360,14 @@ export function followUpWindowOpening(document: DispatchRecordDocument): string 
  * unreadable record answers no parameter rather than a guessed position —
  * walking past an unsent follow-up risks a duplicate prompt, the failure
  * NFR-002 exists to prevent — and reading from the start always projects
- * **more** of the run's movements, never fewer.
+ * **more** of the run's movements, never fewer. The rows are the relay's
+ * **last good read**: an engine member can only ever move the opening under
+ * {@link followUpWindowOpening}'s rules when the panel actually read it.
  */
 async function followUpWindowAdvance(rt: PanelRuntime): Promise<string | null> {
     const read = await loadDispatchRecord(rt);
 
-    return read.ok ? followUpWindowOpening(read.document) : null;
+    return read.ok ? followUpWindowOpening(read.document, rt.state.relay.followUpRows) : null;
 }
 
 /**

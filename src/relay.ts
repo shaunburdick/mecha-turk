@@ -148,6 +148,26 @@ async function claimRuns(rt: PanelRuntime): Promise<ClaimAnswer | null> {
 }
 
 /**
+ * The engine gate on one candidate (span C, Gate 2 H2): the projected member
+ * decides whether this panel may attempt at all. **Absent** — a pre-amendment
+ * service — is v1.18.0 behaviour unchanged; `unavailable` is the service's
+ * permanent handoff and the one state the fallback auto-attempts; `queued` is
+ * engine-admitted and engine-held, never prompted; `unknown` is displayed and
+ * never auto-attempted, reachable only through the operator's re-offer — the
+ * durable record that re-offer writes is the one this reads. An unreadable
+ * member never reaches here: the fail-closed parse refuses the page and the
+ * last good view stands, so it too means no attempt.
+ */
+function engineGateAllows(followUp: RunFollowUp, record: FollowUpDeliveryRecord | undefined): boolean {
+    const { engine } = followUp;
+    if (engine === undefined || engine.state === 'unavailable') {
+        return true;
+    }
+
+    return engine.state === 'unknown' && record !== undefined;
+}
+
+/**
  * Whether one follow-up still needs an attempt from this panel.
  *
  * @returns `true` when the record is absent, due, and neither delivered nor parked.
@@ -164,6 +184,9 @@ function isOutstanding(input: {
     }
 
     const record = followUpRecordOf(document, followUp.deliveryId);
+    if (!engineGateAllows(followUp, record)) {
+        return false;
+    }
 
     return record === undefined || (!record.delivered && !record.parked && isFollowUpDue(record, atMs));
 }

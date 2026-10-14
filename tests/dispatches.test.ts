@@ -600,7 +600,13 @@ describe('the follow-up queue on the surfaces (002 FR-036, FR-105)', () => {
             });
             const records = [recordFixture({ reason: 'session-busy' })];
 
-            expect(followUpRowView(row, records)).toEqual({ delivered: 0, waiting: 1, parked: [] });
+            expect(followUpRowView(row, records)).toEqual({
+                delivered: 0,
+                waiting: 1,
+                engineQueued: 0,
+                unconfirmed: 0,
+                parked: [],
+            });
             expect(waitingFollowUps([row], records)).toBe(1);
 
             const [rendered] = dispatchRows(runsState({ rows: [row], status: 'ready', followUpRecords: records }));

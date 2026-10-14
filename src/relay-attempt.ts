@@ -2,7 +2,7 @@
  * One authorized attempt, host call to ack: durable record, 2xx-keyed ack, read-back warns only (FR-024/025/043).
  */
 
-import type { GuestProject, StartSessionRequest } from '@openchamber/sdk';
+import type { GuestProject, StartSessionRequest, StartSessionResult } from '@openchamber/sdk';
 import { verifyAgentAfterDispatch } from './agent-verify.ts';
 import { parseWorktreeOption, repositoryLabel } from './config.ts';
 import type { WorktreeSelection } from './config.ts';
@@ -42,6 +42,25 @@ export interface HostCall {
     /** Outcome the FR-024 record and the result report both carry. */
     readonly outcome: RecordedOutcome;
     readonly sessionId: string | null;
+    /**
+     * The session directory the dispatch reports (Gate 2 H1): the host's own
+     * answer, selected by the one rule below — never derived client-side, and
+     * `null` when the result carried neither member (or the start failed, so
+     * there is no session to report one for).
+     */
+    readonly directory: string | null;
+}
+
+/**
+ * The dispatch-reported session directory, by one unambiguous rule: the
+ * result's `worktree.directory` when it carries one, else the result's own
+ * `directory` — the value the host names as the session's own directory, which
+ * for a `worktreeOption: 'none'` dispatch is the run's checkout directory.
+ * Absent when neither member is there; never guessed, never defaulted (FR-104
+ * span A as amended).
+ */
+function reportedDirectoryOf(result: StartSessionResult): string | null {
+    return result.worktree?.directory ?? result.directory ?? null;
 }
 
 /**
@@ -206,15 +225,20 @@ export async function startRunSession(input: {
 }): Promise<HostCall> {
     const { rt, run } = input;
     let summary: LedgerDetail;
+    let directory: string | null = null;
     try {
         const request = runRequestOf(input);
         const overBudget = budgetFloorProblem({
             composed: request.text ?? '',
             sources: run.promptSources,
         });
-        summary = overBudget === null
-            ? summarizeStartSessionResult(await rt.host.startSession(request))
-            : { sessionId: null, sent: 'skipped', failure: overBudget };
+        if (overBudget === null) {
+            const result = await rt.host.startSession(request);
+            summary = summarizeStartSessionResult(result);
+            directory = reportedDirectoryOf(result);
+        } else {
+            summary = { sessionId: null, sent: 'skipped', failure: overBudget };
+        }
     } catch (cause) {
         summary = { sessionId: null, sent: 'skipped', failure: describeError(cause) };
     }
@@ -229,6 +253,8 @@ export async function startRunSession(input: {
     return {
         sessionId,
         outcome,
+        // A failed start has no session, so it reports no directory either.
+        directory: sessionId === null ? null : directory,
         detail: {
             correlationId: run.correlationId,
             repository: repositoryLabel(splitRepository(run.repository)),
@@ -241,13 +267,16 @@ export async function startRunSession(input: {
 }
 
 /**
- * Report one attempt's outcome, then acknowledge it on its own 2xx.
+ * Report one attempt's outcome, then acknowledge it on its own 2xx. A
+ * dispatched outcome carries the dispatch-reported `directory` member when the
+ * result named one (Gate 2 H1); a failure reports no directory with no session.
  */
 export async function reportAndAcknowledge(input: {
     readonly rt: PanelRuntime;
     readonly run: ClaimedRun;
     readonly token: string;
     readonly outcome: RecordedOutcome;
+    readonly directory: string | null;
 }): Promise<void> {
     const { rt, run, token, outcome } = input;
     const body = JSON.stringify(
@@ -257,6 +286,7 @@ export async function reportAndAcknowledge(input: {
                 attempt: run.attempt,
                 dispatchToken: token,
                 sessionId: outcome.sessionId,
+                ...(input.directory !== null && { directory: input.directory }),
             }
             : { correlationId: run.correlationId, attempt: run.attempt, dispatchToken: token, problem: outcome.reason },
     );
@@ -321,7 +351,7 @@ export async function closeAttempt(input: {
             + ' report would not be recoverable from this panel.');
     }
 
-    await reportAndAcknowledge({ rt, run, token, outcome: started.outcome });
+    await reportAndAcknowledge({ rt, run, token, outcome: started.outcome, directory: started.directory });
 
     // M9: the run's record reaches the service first, then the agent that
     // actually answered is read back. A dispatch that created no session has

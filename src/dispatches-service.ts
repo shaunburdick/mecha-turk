@@ -19,7 +19,14 @@ export type { PlainRunState, RunState } from './run-state.ts';
 
 
 /** The runs row's structured members and their readers, one module per concern. */
-export type { RunFollowUp, RunKind, RunReference, RunSession, RunVerification } from './dispatches-detail.ts';
+export type {
+    RunFollowUp,
+    RunFollowUpEngine,
+    RunKind,
+    RunReference,
+    RunSession,
+    RunVerification,
+} from './dispatches-detail.ts';
 
 /**
  * The two closed vocabularies a runs row adds, read from

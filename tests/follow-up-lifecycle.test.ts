@@ -69,7 +69,9 @@ import {
     trackSessionLifecycle,
 } from '../src/follow-up.ts';
 import { DISPATCH_SCHEMA_VERSION, readDispatchRecord } from '../src/dispatch-record.ts';
-import type { DispatchRecordDocument, FollowUpDeliveryRecord } from '../src/dispatch-record.ts';
+import type { DispatchRecordDocument, FollowUpDeliveryRecord, FollowUpFailure } from '../src/dispatch-record.ts';
+import { followUpRowView, reofferableFollowUps } from '../src/dispatches-detail.ts';
+import { dispatchRow } from '../src/dispatches-rows.ts';
 import { parseJsonValue } from '../src/json.ts';
 import { budgetFloorProblem } from '../src/relay-attempt.ts';
 import { pollRelay } from '../src/relay.ts';
@@ -2501,6 +2503,246 @@ describe('FR-104 the delivery gate (AC-050)', () => {
             expect(message).toContain('deadbeefcafe000000000000000000000000beef');
             expect(message).toContain('0123456789abcdef0123456789abcdef01234567');
             expect(message).toContain('Head moved from');
+        }
+    });
+});
+
+/* ------------------------------------------------------------------ *
+ * FR-104 as amended (span C, Gate 2 H2): the fallback gate reads the
+ * projected engine member — absent is v1.18.0, `unavailable` is the
+ * handoff the panel auto-attempts, `queued`/`unknown` are zero prompts.
+ * ------------------------------------------------------------------ */
+
+describe('the fallback gate reads the projected engine member (span C; Gate 2 H2)', () => {
+    it('auto-attempts a positively unavailable mark: current-and-idle prompts once, exactly as absent', async () => {
+        {
+            const followUp = commentFollowUp({ engine: { state: 'unavailable' } });
+            const rows = { current: [rowWith({ sessionId: TARGET_SESSION, followUps: [followUp] })] };
+            const { host, log: hostLog, emitSession } = pushDeliveryHost({ rows });
+            emitSession({ id: TARGET_SESSION, title: 't', busy: false });
+            const rt = deliveryRuntime(host);
+
+            await pollRelay(rt);
+            await tick();
+
+            expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(1);
+            expect(storedFollowUps(hostLog).at(-1)).toMatchObject({ delivered: true, parked: false, reason: null });
+        }
+    });
+
+    it('a non-current target behind an unavailable mark waits session-busy, then delivers once when the'
+        + ' operator opens it (Gate 2 M5)', async () => {
+        {
+            // The end-to-end handback scenario (AC-050 fallback span): the
+            // service marked the delivery engine-unavailable, so the panel
+            // auto-attempts — but a non-current target is the fallback's own
+            // waiting gate, unchanged: zero prompts, session-busy on the run
+            // row, the record stays due, nothing parked. The operator then
+            // opens the target, its lifecycle reports idle, and the poke
+            // delivers exactly once through the same B+ path.
+            const followUp = commentFollowUp({ engine: { state: 'unavailable' } });
+            const row = rowWith({ sessionId: TARGET_SESSION, followUps: [followUp] });
+            const rows = { current: [row] };
+            const { host, log: hostLog, emitSession, emitLifecycle } = pushDeliveryHost({ rows });
+            emitSession({ id: OTHER_SESSION, title: 't', busy: false });
+            const rt = observedRuntime(host);
+
+            await pollRelay(rt);
+            await tick();
+
+            expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
+            expect(storedFollowUps(hostLog).at(-1)).toMatchObject({
+                parked: false,
+                reason: 'session-busy',
+                nextAttemptAtMs: null,
+            });
+            expect(rt.state.relay.waitingFollowUps).toBe(1);
+            expect(dispatchRow(row, storedRecords(hostLog)).subtitle).toContain('follow-ups: 1 waiting');
+
+            emitSession({ id: TARGET_SESSION, title: 't', busy: false });
+            emitLifecycle({ sessionId: TARGET_SESSION, phase: 'completed' });
+            await settle();
+
+            expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(1);
+            expect(storedFollowUps(hostLog).at(-1)).toMatchObject({ delivered: true, parked: false });
+            expect(rt.state.relay.waitingFollowUps).toBe(0);
+
+            // No panel write ever produced the sixth word on any of this.
+            const reasons = storedRecords(hostLog).map((record) => record.reason);
+            expect(reasons.every((reason) => reason === null || reason !== 'engine-queued')).toBe(true);
+        }
+    });
+
+    it('an engine-queued row is never prompted, never counted waiting, and never claimed delivered', async () => {
+        {
+            const followUp = commentFollowUp({ engine: { state: 'queued', messageId: 'msg_deadbeef' } });
+            const row = rowWith({ sessionId: TARGET_SESSION, followUps: [followUp] });
+            const rows = { current: [row] };
+            const { host, log: hostLog, emitSession } = pushDeliveryHost({ rows });
+            emitSession({ id: TARGET_SESSION, title: 't', busy: false });
+            const rt = deliveryRuntime(host);
+
+            for (let tickIndex = 0; tickIndex < 3; tickIndex += 1) {
+                await pollRelay(rt);
+                await tick();
+            }
+
+            // Zero prompts, zero ladder, nothing parked — and nothing written.
+            expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
+            expect(writeCount(hostLog.writes, 'mecha-turk:dispatches')).toBe(0);
+            expect(writeCount(hostLog.writes, 'mecha-turk:ledger')).toBe(0);
+            expect(rt.state.relay.waitingFollowUps).toBe(0);
+
+            // The row renders the sixth word from the member's queued branch,
+            // for the row's whole life, and the delivered bucket stays the
+            // panel record's alone.
+            const view = followUpRowView(row, []);
+            expect(view).toMatchObject({ delivered: 0, waiting: 0, engineQueued: 1, unconfirmed: 0 });
+            const { subtitle } = dispatchRow(row, []);
+            expect(subtitle).toContain('follow-ups: 1 engine-queued');
+            expect(subtitle).not.toContain('delivered');
+            expect(subtitle).not.toContain('waiting');
+        }
+    });
+
+    it('an unknown member is displayed and never auto-attempted, even when the target is idle', async () => {
+        {
+            const followUp = commentFollowUp({ engine: { state: 'unknown' } });
+            const row = rowWith({ sessionId: TARGET_SESSION, followUps: [followUp] });
+            const rows = { current: [row] };
+            const { host, log: hostLog, emitSession } = pushDeliveryHost({ rows });
+            emitSession({ id: TARGET_SESSION, title: 't', busy: false });
+            const rt = deliveryRuntime(host);
+
+            await pollRelay(rt);
+            await tick();
+            await pollRelay(rt);
+            await tick();
+
+            expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
+            expect(writeCount(hostLog.writes, 'mecha-turk:dispatches')).toBe(0);
+
+            // Waiting with the rendered `unconfirmed` note — a rendering word,
+            // not a seventh reason word — and the re-offer is what reaches it.
+            expect(rt.state.relay.waitingFollowUps).toBe(1);
+            const view = followUpRowView(row, []);
+            expect(view).toMatchObject({ delivered: 0, waiting: 1, engineQueued: 0, unconfirmed: 1 });
+            expect(dispatchRow(row, []).subtitle).toContain('follow-ups: 1 waiting · 1 unconfirmed');
+            expect(reofferableFollowUps(row, [])).toEqual([{
+                deliveryId: commentFollowUp().deliveryId,
+                kind: 'unconfirmed',
+                attempt: 0,
+                cause: 'the engine outcome is unconfirmed',
+            }]);
+        }
+    });
+
+    it('an unreadable engine member refuses the page: the last good view stands and nothing is attempted', async () => {
+        {
+            // The fail-closed parse: a member outside the closed shapes
+            // refuses the whole row, so the relay's read keeps the previous
+            // view and no attempt is made from a half-read page. The fixture
+            // is a good row with the member replaced by the raw bad shape —
+            // `rowWith` parses, so it could never build this itself.
+            const good = rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] });
+            const [projectedFollowUp] = good.followUps ?? [];
+            const spliced = {
+                ...good,
+                followUps: [{ ...projectedFollowUp, engine: { state: 'engaged' } }],
+            };
+            const values = new Map<string, JsonValue>();
+            const writes: { key: string; value: JsonValue }[] = [];
+            const lastError: string[] = [];
+            const host = fakeHost({
+                serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+                    if (request.path === '/v1/config') {
+                        return { status: 200, body: '{}' };
+                    }
+
+                    if (request.path === '/v1/events/pending') {
+                        return { status: 200, body: JSON.stringify({ events: [], status: [], auditWritten: true }) };
+                    }
+
+                    if (request.path.startsWith('/v1/events')) {
+                        return {
+                            status: 200,
+                            body: JSON.stringify({
+                                events: [spliced],
+                                page: {
+                                    limit: 100,
+                                    nextCursor: null,
+                                    hasMore: false,
+                                    total: 1,
+                                    snapshotAt: '2026-10-09T12:35:00.000Z',
+                                    filter: { bindingId: null, state: 'dispatched' },
+                                },
+                            }),
+                        };
+                    }
+
+                    return { status: 404, body: '{}' };
+                },
+                storage: {
+                    get: async (key: string) => values.get(key),
+                    set: async (key: string, value: JsonValue) => {
+                        writes.push({ key, value });
+                        values.set(key, value);
+                    },
+                    delete: async (key: string) => {
+                        values.delete(key);
+                    },
+                    keys: async () => [...values.keys()],
+                },
+                prompt: async () => {
+                    lastError.push('prompt');
+
+                    return { sent: 'sent' };
+                },
+                onSession: (listener: (session: SessionSnapshot | null) => void) => {
+                    listener({ id: TARGET_SESSION, title: 't', busy: false });
+
+                    return release;
+                },
+            });
+            const rt = deliveryRuntime(host);
+
+            await pollRelay(rt);
+            await tick();
+
+            // No attempt is made from the unreadable page, and the read's
+            // failure is reported rather than blanking the view.
+            expect(lastError).toHaveLength(0);
+            expect(writes.filter((write) => write.key === 'mecha-turk:dispatches')).toHaveLength(0);
+            expect(rt.state.relay.lastError).toContain('could not read');
+            expect(rt.state.relay.followUpRows).toEqual([]);
+        }
+    });
+
+    it('the closed reason-word union is six, and the reader accepts every member and refuses a seventh', () => {
+        {
+            // Vocabulary closure (002 v1.19.0 FR-105 span F): `engine-queued`
+            // joins the union for rendering/type closure, the reader accepts
+            // every member of it on a stored record, and a seventh word is
+            // refused exactly as any outsider is.
+            const six: readonly FollowUpFailure[] = [
+                'no-session',
+                'session-busy',
+                'navigation-refused',
+                'over-budget',
+                'host-unavailable',
+                'engine-queued',
+            ];
+            for (const reason of six) {
+                const document = storedDocument([recordFixture({ parked: true, reason })]);
+
+                expect(readDispatchRecord(document)?.followUps?.[0]?.reason, reason).toBe(reason);
+            }
+
+            const seventh = storedDocument([recordFixture({
+                parked: true,
+                reason: 'engine-lost' as FollowUpFailure,
+            })]);
+            expect(readDispatchRecord(seventh)).toBeNull();
         }
     });
 });

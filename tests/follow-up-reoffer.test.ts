@@ -182,6 +182,8 @@ interface ReofferLog {
     readonly writes: readonly { readonly key: string; readonly value: unknown }[];
     /** The host session reads, in order. */
     readonly opened: readonly string[];
+    /** Every service request the relay issued, in order, as `METHOD path`. */
+    readonly requests: readonly string[];
 }
 
 /** The holder a test flips to make the next prompt succeed or be skipped. */
@@ -238,6 +240,7 @@ function reofferHost(input: {
     const prompts: string[] = [];
     const writes: { key: string; value: unknown }[] = [];
     const opened: string[] = [];
+    const requests: string[] = [];
     const values = new Map<string, JsonValue>();
     const sent: SentHolder = input.sent ?? { value: true };
     let held: (() => void) | null = null;
@@ -249,6 +252,7 @@ function reofferHost(input: {
     return {
         host: fakeHost({
             serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+                requests.push(`${request.method} ${request.path}`);
                 if (request.path === '/v1/config') {
                     return { status: 200, body: '{}' };
                 }
@@ -318,7 +322,7 @@ function reofferHost(input: {
                 return { sent: sent.value ? 'sent' : 'skipped' };
             },
         }),
-        log: { prompts, writes, opened },
+        log: { prompts, writes, opened, requests },
         sent,
         hold: {
             release: () => {
@@ -573,6 +577,49 @@ describe('the follow-up window opening (FR-104, FR-105)', () => {
                 .toBe(commentDeliveryId(OWED_COMMENT));
         }
     });
+
+    it('advances past an engine-admitted row the record never settled (span B2)', () => {
+        {
+            // The service admitted the successor into the engine's queue and
+            // the panel never attempted it, so no record exists to settle the
+            // window — the projection's `queued` member is what opens past it,
+            // exactly as a delivered record would.
+            const delivered = documentOf(recordFixture({ delivered: true }));
+            const rows = [rowFixture([
+                followUpFixture(),
+                followUpFixture({
+                    deliveryId: SUCCESSOR,
+                    sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-502',
+                    engine: { state: 'queued', messageId: 'msg_deadbeef' },
+                }),
+            ])];
+
+            expect(followUpWindowOpening(delivered, rows)).toBe(SUCCESSOR);
+        }
+    });
+
+    it('never advances past an unavailable or unknown row by projection alone (span B2)', () => {
+        {
+            // Later delivered records would carry the opening past the marked
+            // row, but neither state means the movement was handled: the
+            // handoff is the panel's to attempt and the unconfirmed outcome is
+            // the operator's to re-offer, so the read must keep reaching it.
+            for (const state of ['unavailable', 'unknown'] as const) {
+                const settled = documentOf(
+                    recordFixture({ deliveryId: SUCCESSOR, delivered: true }),
+                );
+                const rows = [rowFixture([
+                    followUpFixture({ engine: { state } }),
+                    followUpFixture({
+                        deliveryId: SUCCESSOR,
+                        sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-502',
+                    }),
+                ])];
+
+                expect(followUpWindowOpening(settled, rows), state).toBe(DELIVERY);
+            }
+        }
+    });
 });
 
 /* ------------------------------------------------------------------ *
@@ -657,6 +704,69 @@ describe('the operator action (FR-105, AC-051)', () => {
 
             expect(rt.state.dispatches.note).toContain('Nothing to re-offer');
             expect(log.writes).toEqual([]);
+        }
+    });
+
+    it('offers an engine-unconfirmed row, and refuses an engine-admitted one (companion 9)', () => {
+        {
+            const unknown = followUpFixture({ engine: { state: 'unknown' } });
+            const queued = followUpFixture({
+                deliveryId: SUCCESSOR,
+                sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-502',
+                engine: { state: 'queued', messageId: 'msg_deadbeef' },
+            });
+            const neverAttempted = followUpFixture({
+                deliveryId: 'evt-acme~widget~7~77331~followup~503',
+                sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-503',
+            });
+            const row = rowFixture([unknown, queued, neverAttempted]);
+
+            // Parked and unconfirmed are offered; never one engine-admitted
+            // (engine-held), and never one never attempted (already due).
+            expect(reofferableFollowUps(row, [])).toEqual([{
+                deliveryId: DELIVERY,
+                kind: 'unconfirmed',
+                attempt: 0,
+                cause: 'the engine outcome is unconfirmed',
+            }]);
+            expect(reofferableFollowUps(rowFixture([queued]), [])).toEqual([]);
+            expect(reofferableFollowUps(rowFixture([neverAttempted]), [])).toEqual([]);
+        }
+    });
+
+    it('the unknown re-offer arms with the duplicate-acceptance copy and seeds the due record', async () => {
+        {
+            const unknown = followUpFixture({ engine: { state: 'unknown' } });
+            const { host, log } = reofferHost({ followUps: [unknown], stored: storedDocument([]) });
+            const rt = relayRuntime(host);
+            rt.state.dispatches = dispatchesState(rowFixture([unknown]), []);
+
+            await reofferFollowUp(rt);
+
+            // Same control, same two clicks, same confirmation idiom — the
+            // engine-unconfirmed copy puts the possible duplicate on the
+            // operator, exactly as span E requires.
+            expect(rt.state.dispatches.pendingAction).toBe('reoffer-follow-up');
+            expect(rt.state.dispatches.note).toContain('Confirm: re-offer the engine-unconfirmed follow-up for #7');
+            expect(rt.state.dispatches.note).toContain('possible duplicate');
+            expect(log.writes).toEqual([]);
+
+            await reofferFollowUp(rt);
+            await tick();
+
+            expect(rt.state.dispatches.note).toContain('Re-offered the engine-unconfirmed follow-up for #7');
+            // The seeded record is the operator's accepted attempt: due now,
+            // not delivered, not parked — the panel's own at-most-once key.
+            expect(lastRecordWrite(log.writes)?.followUps?.at(-1)).toMatchObject({
+                deliveryId: DELIVERY,
+                correlationId: CORRELATION,
+                sessionId: SESSION,
+                attempt: 1,
+                delivered: false,
+                parked: false,
+                reason: null,
+                nextAttemptAtMs: null,
+            });
         }
     });
 });
@@ -753,6 +863,56 @@ describe('the relay delivers what the re-offer frees (FR-104, FR-105)', () => {
             await pollRelay(rt);
             await tick();
             expect(log.prompts).toHaveLength(1);
+        }
+    });
+});
+
+/* ------------------------------------------------------------------ *
+ * The engine-unconfirmed re-offer: the one operator-initiated attempt
+ * that needs no `unavailable` mark (companion 9; FR-105 span E).
+ * ------------------------------------------------------------------ */
+
+describe('the relay delivers an engine-unconfirmed re-offer through the fallback, exactly once', () => {
+    it('one fallback prompt on a later tick, zero engine POSTs, and the at-most-once record stands', async () => {
+        {
+            const unknown = followUpFixture({ engine: { state: 'unknown' } });
+            const { host, log } = reofferHost({ followUps: [unknown], stored: storedDocument([]) });
+            const rt = relayRuntime(host);
+            rt.state.dispatches = dispatchesState(rowFixture([unknown]), []);
+
+            // Before the re-offer the gate refuses: an unknown member is
+            // displayed and never auto-attempted, however idle the target is.
+            await pollRelay(rt);
+            await tick();
+            expect(log.prompts).toHaveLength(0);
+
+            await reofferFollowUp(rt);
+            await reofferFollowUp(rt);
+            await tick();
+
+            // The relay's next tick delivers it — one fallback `host.prompt`
+            // into the run's own session, and the request log proves the zero
+            // engine POSTs: the panel holds `sessions` and `prompt` only, so
+            // every service call it made was one of the three GETs.
+            await pollRelay(rt);
+            await tick();
+
+            expect(log.prompts).toHaveLength(1);
+            expect(log.prompts[0]).toContain(`Session: ${SESSION}`);
+            expect(log.requests.every((entry) => entry.startsWith('GET ')), log.requests.join(', ')).toBe(true);
+            expect(lastRecordWrite(log.writes)?.followUps?.at(-1)).toMatchObject({
+                deliveryId: DELIVERY,
+                delivered: true,
+                parked: false,
+                reason: null,
+            });
+
+            // At-most-once through the durable record, exactly as a parked
+            // re-offer: the ticks after it deliver nothing further.
+            await pollRelay(rt);
+            await tick();
+            expect(log.prompts).toHaveLength(1);
+            expect(log.opened).toEqual([]);
         }
     });
 });

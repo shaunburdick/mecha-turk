@@ -349,11 +349,14 @@ function promptPhrase(row: RunRow): string {
 }
 
 /**
- * Compose the follow-up line the panel's own record earns a row (002 FR-105):
- * the service projects a follow-up's existence and text, but only the durable
- * record knows what happened to each one — so the row names how many reached
- * the session, how many still wait, and every parked one with its cause, and
- * says nothing when the run has no follow-up state (the ordinary case).
+ * Compose the follow-up line the panel's own record and the service's
+ * projection earn a row (002 FR-105, §4): the record alone knows what reached
+ * the session, the projection alone knows what the engine holds — so the row
+ * names how many reached the session, how many are engine-admitted
+ * (`engine-queued`, for the row's whole life), how many still wait (with the
+ * `unconfirmed` note on an unknown engine outcome), and every parked one with
+ * its cause, and says nothing when the run has no follow-up state (the
+ * ordinary case).
  */
 function followUpPhrase(row: RunRow, records: readonly FollowUpDeliveryRecord[]): string | null {
     const view = followUpRowView(row, records);
@@ -366,8 +369,16 @@ function followUpPhrase(row: RunRow, records: readonly FollowUpDeliveryRecord[])
         parts.push(`${view.delivered} delivered`);
     }
 
+    if (view.engineQueued > 0) {
+        parts.push(`${view.engineQueued} engine-queued`);
+    }
+
     if (view.waiting > 0) {
         parts.push(`${view.waiting} waiting`);
+    }
+
+    if (view.unconfirmed > 0) {
+        parts.push(`${view.unconfirmed} unconfirmed`);
     }
 
     for (const parked of view.parked) {

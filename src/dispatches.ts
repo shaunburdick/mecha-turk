@@ -7,8 +7,9 @@ import { refresh } from './panel-ui.ts';
 import { redact } from './redaction.ts';
 import { runAffordance, selectedRun } from './dispatches-rows.ts';
 import { reofferableFollowUps } from './dispatches-detail.ts';
-import type { ParkedFollowUp } from './dispatches-detail.ts';
+import type { ReofferableFollowUp } from './dispatches-detail.ts';
 import { loadDispatchRecord, reofferFollowUpDelivery } from './dispatch-record.ts';
+import type { FollowUpSeed } from './dispatch-record.ts';
 import { dispatchListPath, parseDispatchListBody } from './dispatches-list.ts';
 import { BLOCKED_PREFIX } from './dispatches-service.ts';
 import { recordDispatchPageMeta } from './dispatch-page.ts';
@@ -181,19 +182,44 @@ function requeueConfirmCopy(row: RunRow): string {
 }
 
 /**
+ * The engine-unconfirmed half of the re-offer's confirmation and outcome: the
+ * one re-offer that needs no park to clear and no `unavailable` mark — the
+ * panel records the operator's acceptance of the possible duplicate an unknown
+ * engine outcome implies, and the delivery reaches the session as the
+ * fallback's own prompt, never an engine POST (FR-105 span E). Spoken only
+ * when such a row is in the set, so the parked copy stands verbatim otherwise.
+ */
+const UNCONFIRMED_REOFFER_NOTE =
+    'An engine-unconfirmed follow-up has no park to clear: the re-offer records your acceptance of the'
+    + ' possible duplicate and delivers it through the panel’s own prompt — the engine is never asked again.';
+
+/**
  * The re-offer confirmation: what the panel clears, and what it buys. The
  * ladder is **not** refreshed — `reofferFollowUpRecords` leaves `attempt`
  * alone, because a reset would re-spend a bound the park had just exhausted —
  * so the re-offer buys one more attempt and a second failure parks the
  * follow-up again at once, which is what the copy has to say.
  */
-function reofferFollowUpCopy(row: RunRow, parked: number): string {
-    const subject = parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`;
+function reofferFollowUpCopy(row: RunRow, reofferable: readonly ReofferableFollowUp[]): string {
+    const parked = reofferable.filter((entry) => entry.kind === 'parked').length;
+    const unconfirmed = reofferable.filter((entry) => entry.kind === 'unconfirmed').length;
+    const parts: string[] = [];
+    if (parked > 0) {
+        parts.push(parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`);
+    }
 
-    return `Confirm: re-offer ${subject} for ${issueRef(row)}? The panel clears the parked flag and its cause on its`
-        + ' own delivery record, which buys one more attempt: the retry ladder is not refreshed, so a second failure'
-        + ' parks it again at once. Every follow-up that already reached the session, and the attempt history, are'
-        + ' kept.';
+    if (unconfirmed > 0) {
+        parts.push(unconfirmed === 1
+            ? 'the engine-unconfirmed follow-up'
+            : `the ${unconfirmed} engine-unconfirmed follow-ups`);
+    }
+
+    const accepted = unconfirmed > 0 ? ` ${UNCONFIRMED_REOFFER_NOTE}` : '';
+
+    return `Confirm: re-offer ${parts.join(' and ')} for ${issueRef(row)}? The panel clears the parked flag and its`
+        + ' cause on its own delivery record, which buys one more attempt: the retry ladder is not refreshed, so a'
+        + ' second failure parks it again at once. Every follow-up that already reached the session, and the attempt'
+        + ` history, are kept.${accepted}`;
 }
 
 /**
@@ -399,13 +425,25 @@ const REFUSED_REOFFER_NOTE =
  * The outcome note: what was re-offered, and what it bought — one more
  * attempt, not a fresh ladder: the re-offer clears the park and its cause and
  * leaves the count alone, so a second failure parks it again at once, the
- * same promise the confirmation made.
+ * same promise the confirmation made. An engine-unconfirmed re-offer's own
+ * outcome is named beside it.
  */
-function reofferOutcomeCopy(row: RunRow, parked: number): string {
-    const subject = parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`;
+function reofferOutcomeCopy(row: RunRow, reofferable: readonly ReofferableFollowUp[]): string {
+    const parked = reofferable.filter((entry) => entry.kind === 'parked').length;
+    const unconfirmed = reofferable.filter((entry) => entry.kind === 'unconfirmed').length;
+    const parts: string[] = [];
+    if (parked > 0) {
+        parts.push(parked === 1 ? 'the parked follow-up' : `the ${parked} parked follow-ups`);
+    }
 
-    return `Re-offered ${subject} for ${issueRef(row)} — the next relay poll gives it one more attempt, which`
-        + ' parks it again at once if it fails.';
+    if (unconfirmed > 0) {
+        parts.push(unconfirmed === 1
+            ? 'the engine-unconfirmed follow-up'
+            : `the ${unconfirmed} engine-unconfirmed follow-ups`);
+    }
+
+    return `Re-offered ${parts.join(' and ')} for ${issueRef(row)} — the next relay poll gives it one more attempt,`
+        + ' which parks it again at once if it fails.';
 }
 
 /**
@@ -417,13 +455,21 @@ function reofferOutcomeCopy(row: RunRow, parked: number): string {
 async function applyReoffer(input: {
     readonly rt: PanelRuntime;
     readonly row: RunRow;
-    readonly reofferable: readonly ParkedFollowUp[];
+    readonly reofferable: readonly ReofferableFollowUp[];
 }): Promise<void> {
     const { rt, row, reofferable } = input;
     const { dispatches: runs } = rt.state;
+    const seeds: FollowUpSeed[] = reofferable
+        .filter((entry) => entry.kind === 'unconfirmed')
+        .map((entry) => ({
+            deliveryId: entry.deliveryId,
+            correlationId: row.correlationId,
+            sessionId: row.session?.sessionId ?? null,
+        }));
     const wasChanged = await reofferFollowUpDelivery({
         rt,
-        deliveryIds: reofferable.map((parkedFollowUp) => parkedFollowUp.deliveryId),
+        deliveryIds: reofferable.map((entry) => entry.deliveryId),
+        ...(seeds.length > 0 && { seeds }),
     });
     if (!stillMounted(rt)) {
         return;
@@ -435,7 +481,7 @@ async function applyReoffer(input: {
     }
 
     runs.pendingAction = null;
-    runs.note = wasChanged ? reofferOutcomeCopy(row, reofferable.length) : REFUSED_REOFFER_NOTE;
+    runs.note = wasChanged ? reofferOutcomeCopy(row, reofferable) : REFUSED_REOFFER_NOTE;
     refresh(rt);
 }
 
@@ -465,17 +511,20 @@ export async function reofferFollowUp(rt: PanelRuntime): Promise<void> {
 
     const reofferable = reofferableFollowUps(row, runs.followUpRecords);
     if (reofferable.length === 0) {
-        // Both absences are facts an operator can act on, so the note names them
-        // rather than refusing silently: a follow-up nobody attempted is already
-        // due, and one that reached its session has nothing to send again.
-        runs.note = 'Nothing to re-offer: this dispatch has no parked follow-up. One that has not been attempted is'
-            + ' already due, and one that already reached its session has nothing to re-offer.';
+        // Every refusal is a fact an operator can act on, so the note names
+        // them rather than refusing silently: a follow-up nobody attempted is
+        // already due, one that already reached its session has nothing to send
+        // again, and one already admitted into the engine's queue is
+        // engine-held — the service's record, not the panel's, governs it.
+        runs.note = 'Nothing to re-offer: this dispatch has no parked or engine-unconfirmed follow-up. One that has'
+            + ' not been attempted is already due, one that already reached its session has nothing to re-offer, and'
+            + ' one already admitted into the engine’s queue is engine-held there.';
         refresh(rt);
 
         return;
     }
 
-    if (!armControl({ rt, action: 'reoffer-follow-up', copy: reofferFollowUpCopy(row, reofferable.length) })) {
+    if (!armControl({ rt, action: 'reoffer-follow-up', copy: reofferFollowUpCopy(row, reofferable) })) {
         return;
     }
 
