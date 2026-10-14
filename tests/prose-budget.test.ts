@@ -124,12 +124,24 @@ const BEFORE = { lines: 446, words: 5_770 } as const;
 
 /**
  * The one enforced ceiling in this file: **prose words**, at the pre-feature
- * figure itself. The shipped site measures 5,233 — 537 words under — so AC-016 is
- * met with room rather than against a ceiling raised to fit the tree. Growth past
- * it fails visibly; admitting a legitimate increase is a one-line diff to this
- * constant, reviewed in the pull request.
+ * figure itself. AC-016 is met against it rather than against a ceiling raised
+ * to fit the tree. Growth past it fails visibly; admitting a legitimate increase
+ * is a one-line diff to this constant, reviewed in the pull request.
+ *
+ * Moved 5,770 → **5,842** for the two `/use/` passages 008 companion 9 rewrites
+ * (spec 008 §3.9, FR-042, FR-105): the follow-up row example stops presenting a
+ * mid-turn *park* — mid-turn and non-current targets are waiting, never parked —
+ * and the parked paragraph now lists the park causes that survive the B+
+ * amendment (no session open, navigation unissuable or target no longer current
+ * at a retry, over budget, host refused or timed out) and states that only a
+ * transient host error spends the ladder. The site is bound to say what the
+ * panel does, so the mandated content is the increase; the figure was trimmed
+ * in review before admission (5859 → 5842), and the previous bound was met with
+ * only 5 words of room, so no smaller faithful rewrite exists. This is the
+ * reader-burden bound the owner protected — a raise here is the product
+ * decision to re-confirm at review, not a formality.
  */
-const CEILING = { words: 5_770 } as const;
+const CEILING = { words: 5_842 } as const;
 
 /**
  * The shipped prose-line figure — **pinned, not a ceiling**. See the header: the
@@ -159,8 +171,18 @@ const CEILING = { words: 5_770 } as const;
  * feature's delivery of FR-105's re-offer made false — FR-042 binds the site to
  * the surfaces this feature changes, so the sentence changed with the panel.
  * `CEILING.words` is untouched, so no enforced bound moved with it.
+ *
+ * Moved 517 → **521** with 008's companion-9 rewrite of the two follow-up
+ * passages on `/use/` (spec 008 §3.9, FR-042): the row example now shows a
+ * waiting-and-parked mix with a surviving park cause, and the parked paragraph
+ * names the four surviving park causes and the transient-only ladder, so the
+ * prose carries the amendment's distinction rather than the retired mid-turn
+ * park. Unlike every move above, `CEILING.words` **did** move with this one —
+ * from 5,770 to 5,842 — because the page previously sat 5 words under the bound
+ * and the mandated content cannot fit in those 5; the ceiling's own docblock
+ * records why.
  */
-const PINNED_LINES = 517;
+const PINNED_LINES = 521;
 
 /**
  * The prose each bound document measures now, so growth cannot pass unnoticed.

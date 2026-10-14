@@ -142,15 +142,19 @@ const stateMeaning: Readonly<Record<string, string>> = {
 
     <p>
         Each dispatch row carries the same three facts about its own follow-ups: how many reached the
-        session, how many are still waiting, and every parked one with its cause — <code>follow-ups: 2
-        delivered · 1 waiting · parked: the session was mid-turn</code>. A row with no follow-up state
-        carries no such line.
+        session, how many are still waiting, and every parked one with its cause — <code>follow-ups: 1
+        delivered · 2 waiting · parked: the host refused or timed out</code>. A mid-turn session, or one
+        not on screen, waits visibly and never parks: it is delivered when you open that session and it
+        is idle. A row with no follow-up state carries no such line.
     </p>
 
     <p>
-        A <strong>parked</strong> follow-up kept failing — the session was mid-turn, no session was
-        open, the host refused — and has spent the bounded retry ladder the service declares. It is
-        excluded from automatic handling: no later tick attempts it, and it stays parked until you
+        A <strong>parked</strong> follow-up kept failing and has spent the bounded retry ladder the
+        service declares — and only a transient host error spends that ladder. The causes that park:
+        no session was open, the navigation unissuable or the target no longer current at a retry, the
+        message over budget, or the host refused or timed out. A mid-turn session is never a park and
+        never spends a rung: nothing was attempted, and the follow-up waits. A parked one is excluded
+        from automatic handling: no later tick attempts it, and it stays parked until you
         re-offer it. Select its dispatch and <strong>Re-offer parked follow-up</strong> clears the
         park and its cause on the panel’s own delivery record — never the delivery count and never
         the attempt history — and the next relay poll gives it one more attempt, which parks it

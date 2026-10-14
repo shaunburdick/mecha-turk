@@ -581,6 +581,34 @@ describe('the follow-up queue on the surfaces (002 FR-036, FR-105)', () => {
         }
     });
 
+    it('counts a session-busy follow-up as waiting — never parked, and mints no new label (008 T011)', () => {
+        {
+            // 008 FR-104 (B+): a mid-turn or non-current target is waited on,
+            // never parked, so a record carrying `session-busy` with
+            // `parked: false` renders through the vocabulary the surfaces
+            // already have — a waiting count, no parked entry, no new reason
+            // word on the row (spec 008 §7: FR-041/FR-084 untouched).
+            const row = runFixture({
+                state: 'dispatched',
+                dispatchResult: SESSION_RESULT,
+                session: {
+                    sessionId: SESSION_RESULT,
+                    attachmentId: RUN_ID,
+                    dispatchedAt: FIXTURE_TIMESTAMP,
+                },
+                followUps: [followUpFixture()],
+            });
+            const records = [recordFixture({ reason: 'session-busy' })];
+
+            expect(followUpRowView(row, records)).toEqual({ delivered: 0, waiting: 1, parked: [] });
+            expect(waitingFollowUps([row], records)).toBe(1);
+
+            const [rendered] = dispatchRows(runsState({ rows: [row], status: 'ready', followUpRecords: records }));
+
+            expect(rendered?.subtitle).toContain('follow-ups: 1 waiting');
+        }
+    });
+
     it('says nothing about a run with no follow-up state, which is the ordinary case', () => {
         {
             const [rendered] = rowsForRun();
