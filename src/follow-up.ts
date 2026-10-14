@@ -3,7 +3,7 @@
  * Anchors: `start_work` judged with no approval gate (FR-027); no delivery mid-dispatch (R14.5); constitution VII.
  */
 
-import type { PromptRequest, PromptResult, SessionSnapshot } from '@openchamber/sdk';
+import type { PromptRequest, PromptResult, SessionLifecycleEvent, SessionSnapshot } from '@openchamber/sdk';
 import { appendEntryAndPersist } from './panel-actions.ts';
 import { loadDispatchRecord, recordFollowUpDelivery } from './dispatch-record.ts';
 import type { DispatchRecordDocument, FollowUpDeliveryRecord, FollowUpFailure } from './dispatch-record.ts';
@@ -70,9 +70,7 @@ function retryPolicyFromConfig(body: string): FollowUpRetryPolicy {
     };
 }
 
-/**
- * Read the retry ladder the service declares; never rejects.
- */
+/** Read the retry ladder the service declares; never rejects. */
 export async function readFollowUpRetryPolicy(serviceRequest: ServiceRequester): Promise<FollowUpRetryPolicy> {
     const answer = await serviceGet({ serviceRequest, path: CONFIG_PATH });
 
@@ -92,7 +90,7 @@ export interface FollowUpAttempt {
     readonly attempt: number;
     readonly delivered: boolean;
     readonly reason: FollowUpFailure | null;
-    /** `true` once the bound is spent and the follow-up is parked. */
+    /** `true` once the follow-up is parked out of automatic handling. */
     readonly parked: boolean;
     /** Epoch milliseconds the next attempt may be made at; `null` when it may go now. */
     readonly nextAttemptAtMs: number | null;
@@ -108,25 +106,49 @@ function hostErrorCode(cause: unknown): string | null {
     return typeof code === 'string' ? code : null;
 }
 
-/** What a settled-but-unsent prompt answer means, in the closed failure union. */
-function classifyPromptAnswer(sent: PromptResult['sent']): FollowUpFailure {
-    return sent === 'skipped' ? 'session-busy' : 'host-unavailable';
+/** How one refusal ends: the ladder's one retryable class, a terminal park, or the waiting state. */
+export type RefusalEnding = 'retry' | 'park' | 'wait';
+
+/** What a settled-but-unsent prompt answer means: the cause word and how the attempt ends. */
+export interface FollowUpRefusal {
+    readonly reason: FollowUpFailure;
+    readonly ending: RefusalEnding;
 }
 
+const WAITING_REASON: FollowUpFailure = 'session-busy';
+const HOST_REFUSAL_REASON: FollowUpFailure = 'host-unavailable';
+
+function classifyPromptAnswer(sent: PromptResult['sent']): FollowUpRefusal {
+    // `skipped` is the raced-busy settlement: observed, waiting, never parked.
+    return sent === 'skipped'
+        ? { reason: WAITING_REASON, ending: 'wait' }
+        : { reason: HOST_REFUSAL_REASON, ending: 'retry' };
+}
+
+/** Host codes the bounded ladder retries: the transient host-error class, and nothing else. */
+const TRANSIENT_HOST_CODES: ReadonlySet<string> = new Set(['HOST_UNAVAILABLE', 'HOST_TIMEOUT', 'HOST_REJECTED']);
+
 /**
- * Classify one rejected or timed-out prompt into the closed failure union — a
- * closed union rather than a free string because the cause is what the
- * operator reads on the run row and in the trail, and `NO_SESSION` and
- * `SESSION_BUSY` are retryable refusals while an unbounded wait is not
- * (FR-105).
+ * Classify one rejected or timed-out prompt: the ending is separate from the
+ * word — only a transient host error retries, `SESSION_BUSY` is the waiting
+ * state, every other stop is terminal at once (FR-105).
  */
-export function classifyHostError(cause: unknown): FollowUpFailure {
+export function classifyHostError(cause: unknown): FollowUpRefusal {
     const code = hostErrorCode(cause);
-    if (code === 'NO_SESSION') {
-        return 'no-session';
+    if (code === null) {
+        // No code at all is a transport failure: the transient class.
+        return { reason: HOST_REFUSAL_REASON, ending: 'retry' };
     }
 
-    return code === 'SESSION_BUSY' ? 'session-busy' : 'host-unavailable';
+    if (code === 'NO_SESSION') {
+        return { reason: 'no-session', ending: 'park' };
+    }
+
+    if (code === 'SESSION_BUSY') {
+        return { reason: WAITING_REASON, ending: 'wait' };
+    }
+
+    return { reason: HOST_REFUSAL_REASON, ending: TRANSIENT_HOST_CODES.has(code) ? 'retry' : 'park' };
 }
 
 function retryAfter(input: {
@@ -138,24 +160,55 @@ function retryAfter(input: {
         : { parked: false, nextAttemptAtMs: followUpBackoffMs(input.policy, input.attempt) };
 }
 
-/**
- * Read the session the host is showing, from the fact the panel already holds:
- * the {@link trackCurrentSession} subscription replays the latest value, so
- * this costs no host call of its own.
- */
+/** The session the host is showing, replayed by {@link trackCurrentSession}; costs no host call. */
 export function currentSessionIdOf(rt: PanelRuntime): string | null {
     return rt.state.relay.currentSessionId;
 }
 
 /**
- * Track the host's current session for as long as the relay runs: one slot in
- * the host's subscription budget, registered when the relay arms and released
- * on teardown with every other subscription.
+ * Track the host's current session — and whether it is busy — for as long as
+ * the relay runs; its `busy` member is an idle fact exactly when `false`
+ * (`ready.session` reaches this listener through the bridge's replay) (FR-104).
  */
 export function trackCurrentSession(rt: PanelRuntime): () => void {
     return rt.host.onSession((snapshot: SessionSnapshot | null) => {
         rt.state.relay.currentSessionId = snapshot?.id ?? null;
+        rt.state.relay.currentSessionBusy = snapshot === null ? null : snapshot.busy;
     });
+}
+
+/**
+ * Track the current session's lifecycle, and poke one immediate poll on an
+ * idle transition: `completed` marks idle, `started` busy, `failure` neither
+ * (delivery fails closed on the unknown). The poke runs through the relay
+ * tick's own in-flight/busy guards, so no second timer exists (plan.md 1/3);
+ * an event for any other session is ignored.
+ */
+export function trackSessionLifecycle(rt: PanelRuntime, onIdle: () => void): () => void {
+    return rt.host.onSessionLifecycle((event: SessionLifecycleEvent) => {
+        if (event.sessionId !== rt.state.relay.currentSessionId || rt.disposed) {
+            return;
+        }
+
+        if (event.phase === 'failure') {
+            rt.state.relay.currentSessionBusy = null;
+
+            return;
+        }
+
+        rt.state.relay.currentSessionBusy = event.phase === 'completed' ? false : true;
+        if (event.phase === 'completed' && (rt.state.relay.waitingFollowUps ?? 0) > 0) {
+            onIdle();
+        }
+    });
+}
+
+/**
+ * The delivery gate's one question (FR-104): is the target the session the
+ * host is showing, **observed idle**? Idle is observed, never assumed.
+ */
+export function targetIsCurrentAndIdle(rt: PanelRuntime, sessionId: string): boolean {
+    return currentSessionIdOf(rt) === sessionId && rt.state.relay.currentSessionBusy === false;
 }
 
 /** Page size the relay's follow-up read asks for: the route's largest (005 contract §1). */
@@ -371,58 +424,10 @@ function recordAttempt(input: {
     });
 }
 
-/** The durable record one navigation intent writes before `openSession` runs. */
-function navigationRecord(input: {
-    readonly row: RunRow;
-    readonly followUp: RunFollowUp;
-    readonly sessionId: string;
-    readonly attempt: number;
-}): FollowUpDeliveryRecord {
-    return {
-        deliveryId: input.followUp.deliveryId,
-        correlationId: input.row.correlationId,
-        sessionId: input.sessionId,
-        attempt: input.attempt,
-        nextAttemptAtMs: null,
-        delivered: false,
-        reason: null,
-        parked: false,
-        updatedAt: nowIso(),
-    };
-}
-
-/**
- * Move the host to the target session, recording the intent before the call:
- * `null` when the navigation succeeded, the refusal that ended the attempt
- * otherwise.
- */
-async function navigateToSession(input: {
-    readonly rt: PanelRuntime;
-    readonly row: RunRow;
-    readonly followUp: RunFollowUp;
-    readonly sessionId: string;
-    readonly attempt: number;
-}): Promise<FollowUpFailure | null> {
-    const { rt, row, followUp, sessionId, attempt } = input;
-    // Durable **before** the call: it moves the operator's view and closes the
-    // panel, so a navigation whose cause lives only in memory is one no later
-    // surface can explain (constitution IV).
-    await recordFollowUpDelivery(rt, navigationRecord({ row, followUp, sessionId, attempt }));
-
-    try {
-        await rt.host.openSession(sessionId);
-    } catch {
-        return 'navigation-refused';
-    }
-
-    return null;
-}
-
 /** What the host answered one `prompt({ send: true })` with. */
-interface PromptVerdict {
-    readonly wasSent: boolean;
-    readonly reason: FollowUpFailure | null;
-}
+type PromptVerdict =
+    | { readonly wasSent: true }
+    | { readonly wasSent: false; readonly refusal: FollowUpRefusal };
 
 /** Send the composed message; never throws. */
 async function sendPrompt(rt: PanelRuntime, message: string): Promise<PromptVerdict> {
@@ -430,37 +435,38 @@ async function sendPrompt(rt: PanelRuntime, message: string): Promise<PromptVerd
         const answer = await rt.host.prompt({ text: message, send: true } satisfies PromptRequest);
 
         return answer.sent === 'sent'
-            ? { wasSent: true, reason: null }
-            : { wasSent: false, reason: classifyPromptAnswer(answer.sent) };
+            ? { wasSent: true }
+            : { wasSent: false, refusal: classifyPromptAnswer(answer.sent) };
     } catch (cause) {
-        return { wasSent: false, reason: classifyHostError(cause) };
+        return { wasSent: false, refusal: classifyHostError(cause) };
     }
 }
 
+interface DeliveryArms {
+    readonly settle: (outcome: Omit<FollowUpAttempt, 'deliveryId'>) => Promise<FollowUpAttempt>;
+    readonly park: (reason: FollowUpFailure) => Promise<FollowUpAttempt>;
+    readonly wait: () => Promise<FollowUpAttempt>;
+}
+
 /**
- * Run one follow-up delivery attempt end to end; never throws. Every refusal
- * ends the attempt before `host.prompt()` is reachable, and the composition is
- * measured before any host call — nothing over budget is ever written into a
- * session, and nothing is truncated to make one fit.
+ * Build the arms one attempt settles with. Every terminal arm writes, even
+ * before any host call: a record that never learns of an attempt is
+ * re-offered forever and never parks (FR-105); the waiting state is the
+ * exception — one write on the transition, none after (FR-104).
  */
-export async function deliverFollowUp(input: {
+function deliveryArms(input: {
     readonly rt: PanelRuntime;
     readonly row: RunRow;
     readonly followUp: RunFollowUp;
-    /** Attempts this delivery has already used, the first included. */
+    readonly sessionId: string | null;
+    /** The ladder attempt number this try would consume, the first included. */
     readonly attempt: number;
-    readonly policy: FollowUpRetryPolicy;
-}): Promise<FollowUpAttempt> {
-    const { rt, row, followUp, attempt, policy } = input;
-    const sessionId = row.session?.sessionId ?? null;
-    /**
-     * Persist one settled outcome and write its trail row. Every arm goes
-     * through here — including the ones that return before any host call —
-     * because a record that never learns of an attempt reports the delivery as
-     * never tried: the relay re-offers it on every tick forever, the ladder
-     * never advances, and nothing ever parks (FR-105's unbounded retry).
-     */
-    const settle = async (outcome: FollowUpAttempt): Promise<FollowUpAttempt> => {
+    readonly existing: FollowUpDeliveryRecord | null;
+}): DeliveryArms {
+    const { rt, row, followUp, sessionId, attempt, existing } = input;
+    // A rungless outcome keeps the attempt the record already holds (AC-051).
+    const heldAttempt = Math.max(attempt - 1, 1);
+    const settle: DeliveryArms['settle'] = async (outcome) => {
         await recordFollowUpDelivery(rt, {
             deliveryId: followUp.deliveryId,
             correlationId: row.correlationId,
@@ -472,53 +478,116 @@ export async function deliverFollowUp(input: {
             parked: outcome.parked,
             updatedAt: nowIso(),
         });
-        recordAttempt({ rt, row, followUp, attempt: outcome });
+        const settled: FollowUpAttempt = { deliveryId: followUp.deliveryId, ...outcome };
+        recordAttempt({ rt, row, followUp, attempt: settled });
 
-        return outcome;
+        return settled;
     };
-    const finish = (result: {
-        readonly reason: FollowUpFailure;
-        readonly parked: boolean;
-        readonly nextAttemptAtMs: number | null;
-    }): Promise<FollowUpAttempt> =>
-        settle({ deliveryId: followUp.deliveryId, attempt, delivered: false, ...result });
 
-    // No recorded session means nothing to deliver into — a delivery must never
-    // start one — and `NO_SESSION` runs the ladder like the others, recording
-    // each attempt as they do.
+    return {
+        settle,
+        park: (reason) =>
+            settle({ attempt: heldAttempt, delivered: false, reason, parked: true, nextAttemptAtMs: null }),
+        wait: async () => {
+            const outcome: Omit<FollowUpAttempt, 'deliveryId'> = {
+                attempt: heldAttempt,
+                delivered: false,
+                reason: WAITING_REASON,
+                parked: false,
+                nextAttemptAtMs: null,
+            };
+            // Re-offered every tick: the transition is the only movement, written once.
+            if (existing !== null && existing.reason === WAITING_REASON && !existing.parked && !existing.delivered) {
+                return { deliveryId: followUp.deliveryId, ...outcome };
+            }
+
+            return await settle(outcome);
+        },
+    };
+}
+
+async function settleVerdict(input: {
+    readonly verdict: PromptVerdict;
+    readonly arms: DeliveryArms;
+    readonly attempt: number;
+    readonly policy: FollowUpRetryPolicy;
+}): Promise<FollowUpAttempt> {
+    const { verdict, arms, attempt, policy } = input;
+    if (verdict.wasSent) {
+        return await arms.settle({ attempt, delivered: true, reason: null, parked: false, nextAttemptAtMs: null });
+    }
+
+    if (verdict.refusal.ending === 'wait') {
+        return await arms.wait();
+    }
+
+    if (verdict.refusal.ending === 'park') {
+        return await arms.park(verdict.refusal.reason);
+    }
+
+    return await arms.settle({
+        attempt,
+        delivered: false,
+        reason: verdict.refusal.reason,
+        ...retryAfter({ attempt, policy }),
+    });
+}
+
+/**
+ * The B+ gate's verdict for an attempt whose target cannot be prompted now: a
+ * retry that finds the target no longer current stops `navigation-refused`
+ * (under B+ there is no navigation left to refuse); else the waiting state.
+ */
+function waitingOrRefused(input: {
+    readonly rt: PanelRuntime;
+    readonly sessionId: string;
+    readonly record: FollowUpDeliveryRecord | null;
+}): 'wait' | 'navigation-refused' {
+    const isRetry = input.record?.reason === HOST_REFUSAL_REASON;
+    const isAnotherSession = currentSessionIdOf(input.rt) !== input.sessionId;
+
+    return isRetry && isAnotherSession ? 'navigation-refused' : 'wait';
+}
+
+/**
+ * Run one follow-up delivery attempt end to end; never throws. The gate runs
+ * immediately before the prompt and the composition is measured before any
+ * host call (FR-104). Under B+ no path calls `host.openSession` — a target
+ * that is not current waits, it never navigates.
+ */
+export async function deliverFollowUp(input: {
+    readonly rt: PanelRuntime;
+    readonly row: RunRow;
+    readonly followUp: RunFollowUp;
+    /** The ladder attempt number this try would consume, the first included. */
+    readonly attempt: number;
+    readonly policy: FollowUpRetryPolicy;
+    /** The record the relay last read for this delivery, or `null` when it has none. */
+    readonly record?: FollowUpDeliveryRecord | null;
+}): Promise<FollowUpAttempt> {
+    const { rt, row, followUp, attempt, policy } = input;
+    const sessionId = row.session?.sessionId ?? null;
+    const arms = deliveryArms({ rt, row, followUp, sessionId, attempt, existing: input.record ?? null });
+
+    // No recorded session means nothing to deliver into; it parks at once (FR-105).
     if (sessionId === null || sessionId === '') {
-        return await finish({ reason: 'no-session', ...retryAfter({ attempt, policy }) });
+        return await arms.park('no-session');
+    }
+
+    if (!targetIsCurrentAndIdle(rt, sessionId)) {
+        const ending = waitingOrRefused({ rt, sessionId, record: input.record ?? null });
+
+        return ending === 'wait' ? await arms.wait() : await arms.park(ending);
     }
 
     const message = followUpMessage({ row, followUp });
-    const overBudget = budgetFloorProblem({ composed: message, sources: row.promptSources });
-    if (overBudget !== null) {
-        // Measured before any host call, as FR-104 requires. The shared renderer
-        // bounds the whole composition, so this arm is a guard against a
-        // composition path that ever stops sharing that budget — and it still
-        // runs the ladder and still records, because a guard that cannot park is
-        // not a guard.
-        return await finish({ reason: 'over-budget', ...retryAfter({ attempt, policy }) });
+    if (budgetFloorProblem({ composed: message, sources: row.promptSources }) !== null) {
+        // Measured before any host call (FR-104); a guard that cannot park is
+        // not a guard, so this composition path parks at once (FR-105).
+        return await arms.park('over-budget');
     }
 
-    // The current session is a fact the panel already holds from `onSession`, so
-    // "already current?" costs no host call and navigates zero times.
-    const refused = currentSessionIdOf(rt) === sessionId
-        ? null
-        : await navigateToSession({ rt, row, followUp, sessionId, attempt });
-    if (refused !== null) {
-        return await finish({ reason: refused, ...retryAfter({ attempt, policy }) });
-    }
-
-    const verdict = await sendPrompt(rt, message);
-
-    return await settle({
-        deliveryId: followUp.deliveryId,
-        attempt,
-        delivered: verdict.wasSent,
-        reason: verdict.reason,
-        ...(verdict.wasSent ? { parked: false, nextAttemptAtMs: null } : retryAfter({ attempt, policy })),
-    });
+    return await settleVerdict({ verdict: await sendPrompt(rt, message), arms, attempt, policy });
 }
 
 export function isFollowUpDue(record: FollowUpDeliveryRecord, atMs: number): boolean {

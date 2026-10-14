@@ -75,9 +75,9 @@ export interface DispatchRecordDocument {
  */
 export type FollowUpFailure =
     | 'no-session'
-    /** The session was mid-turn; a retryable refusal, never a queue. */
+    /** The waiting state: the target is not current or not observed idle; never an attempt. */
     | 'session-busy'
-    /** `host.openSession` was refused. */
+    /** A retry found the target no longer current (under B+ no navigation exists to refuse). */
     | 'navigation-refused'
     | 'over-budget'
     /** The host rejected or timed out the prompt, or the transport failed. */
@@ -318,6 +318,18 @@ function readNextAttemptAtMs(record: Record<string, JsonValue>): number | null |
     return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+/**
+ * The waiting-state migration FR-105 mandates, over the two fields the record
+ * already carries: a pre-amendment record parked with `session-busy` was a
+ * refused attempt, not delivered work, so it reads back re-armed — attempt
+ * history intact, due now — with no persisted field or store (M6).
+ */
+function rearmLegacySessionBusy(record: FollowUpDeliveryRecord): FollowUpDeliveryRecord {
+    return record.parked && record.reason === 'session-busy'
+        ? { ...record, parked: false, nextAttemptAtMs: null }
+        : record;
+}
+
 /** The record, or `null` when its shape is unusable. */
 function readFollowUp(value: JsonValue): FollowUpDeliveryRecord | null {
     const record = asJsonRecord(value);
@@ -344,7 +356,15 @@ function readFollowUp(value: JsonValue): FollowUpDeliveryRecord | null {
         return null;
     }
 
-    return { deliveryId, correlationId, sessionId, ...flags, nextAttemptAtMs, reason, updatedAt };
+    return rearmLegacySessionBusy({
+        deliveryId,
+        correlationId,
+        sessionId,
+        ...flags,
+        nextAttemptAtMs,
+        reason,
+        updatedAt,
+    });
 }
 
 /**

@@ -21,6 +21,7 @@ import {
     readFollowUpRetryPolicy,
     readFollowUpRows,
     trackCurrentSession,
+    trackSessionLifecycle,
 } from './follow-up.ts';
 import { followUpRecordOf, loadDispatchRecord } from './dispatch-record.ts';
 import type { DispatchRecordDocument } from './dispatch-record.ts';
@@ -191,6 +192,7 @@ async function deliverOneFollowUp(input: {
         followUp,
         attempt: record?.attempt === undefined ? 1 : record.attempt + 1,
         policy,
+        record: record ?? null,
     });
 }
 
@@ -328,10 +330,12 @@ export function startRelayPolling(rt: PanelRuntime): void {
     }
 
     rt.relayArmed = true;
-    // The host's current session is the one fact the follow-up delivery needs and
-    // cannot ask for: it is what makes "no navigation when the target is already
-    // current" a property of the design rather than of luck (002 FR-104).
-    rt.unsubscribes.push(trackCurrentSession(rt));
+    // The host's current session and its lifecycle are the only session facts a
+    // guest can observe (research.md §2.5): delivery waits for the target to be
+    // current and observed idle, and an idle transition pokes one immediate
+    // tick through this loop's own guards, so the waiting follow-up re-arms
+    // without a second timer (002 FR-104).
+    rt.unsubscribes.push(trackCurrentSession(rt), trackSessionLifecycle(rt, () => void pollRelay(rt)));
     rt.state.relay.timer = setInterval(() => {
         void pollRelay(rt);
     }, RELAY_POLL_INTERVAL_MS);

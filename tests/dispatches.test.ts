@@ -563,7 +563,7 @@ describe('the follow-up queue on the surfaces (002 FR-036, FR-105)', () => {
                     deliveryId: 'evt-acme~widget~7~77331~followup~503',
                     attempt: 3,
                     parked: true,
-                    reason: 'session-busy',
+                    reason: 'host-unavailable',
                 }),
             ];
 
@@ -573,7 +573,7 @@ describe('the follow-up queue on the surfaces (002 FR-036, FR-105)', () => {
             // still owed, and the parked one with its cause — never as
             // delivered work.
             expect(rendered?.subtitle).toContain(
-                'follow-ups: 1 delivered · 1 waiting · parked: the session was mid-turn',
+                'follow-ups: 1 delivered · 1 waiting · parked: the host refused or timed out the prompt',
             );
             // And the surfaces' count is the same arithmetic, so the Status
             // line and the row cannot disagree about the queue.

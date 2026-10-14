@@ -174,7 +174,7 @@ function parkedFollowUp(): FollowUpDeliveryRecord {
         attempt: 3,
         nextAttemptAtMs: null,
         delivered: false,
-        reason: 'session-busy',
+        reason: 'host-unavailable',
         parked: true,
         updatedAt: '2026-10-09T12:00:00.000Z',
     };

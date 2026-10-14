@@ -107,6 +107,7 @@ export function initialRelay(): Relay {
         handled: [],
         lastError: null,
         currentSessionId: null,
+        currentSessionBusy: null,
         followUpRows: [],
         waitingFollowUps: null,
     };
@@ -193,10 +194,19 @@ export interface Relay {
     /**
      * The session the host is showing right now, or `null` when none is open:
      * tracked from `host.onSession`, which replays the latest value to a late
-     * subscriber, so follow-up delivery can answer "already current?" from a
-     * fact the panel already holds instead of a host call (002 FR-104).
+     * subscriber, so follow-up delivery can answer "is the target the session
+     * on screen?" from a fact the panel already holds instead of a host call
+     * (002 FR-104).
      */
     currentSessionId: string | null;
+    /**
+     * Whether that session was last observed busy, or `null` when no
+     * observation has landed: **idle is observed, never assumed** — snapshots
+     * carry `busy`, a lifecycle `completed` marks idle, `started` marks busy,
+     * and `failure` (or nothing) leaves the slot unknown, which delivery waits
+     * on (002 FR-104; only the current session's state is observable at all).
+     */
+    currentSessionBusy: boolean | null;
 }
 
 export interface PanelRuntime {
