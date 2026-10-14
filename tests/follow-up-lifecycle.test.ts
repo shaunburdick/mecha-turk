@@ -24,7 +24,7 @@
  * reaches a network, a real PAT, or a live OpenChamber (AGENTS.md).
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult, JsonValue, PromptRequest, SessionSnapshot } from '@openchamber/sdk';
 import { readAuditEntries } from '../service/audit.ts';
 import { writeAccount } from '../service/accounts/store.ts';
@@ -1679,11 +1679,17 @@ function recordingOverrides(input: {
     readonly promptBehaviour?: PromptBehaviour;
     /** Called on the config read, so a test can land a switch inside a tick. */
     readonly onConfig?: () => void;
+    /** Answer the config read without retry knobs, so the reader falls back to the documented defaults. */
+    readonly defaultRetryPolicy?: boolean;
 }): Partial<PanelHost> {
     return {
         serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
             if (request.path === '/v1/config') {
                 input.onConfig?.();
+
+                if (input.defaultRetryPolicy === true) {
+                    return { status: 200, body: '{}' };
+                }
 
                 // The same short ladder the direct-call tests pass as
                 // TEST_POLICY, so the relay path parks on the same attempt.
@@ -1792,6 +1798,8 @@ function pushDeliveryHost(input: {
     readonly stored?: JsonValue;
     readonly promptBehaviour?: PromptBehaviour;
     readonly onConfig?: ConfigHook;
+    /** Answer the config read without retry knobs: the documented defaults apply. */
+    readonly defaultRetryPolicy?: boolean;
 } = {}): PushHarness & { readonly log: HostLog } {
     const actions: string[] = [];
     const writes: { key: string; value: JsonValue }[] = [];
@@ -1810,6 +1818,7 @@ function pushDeliveryHost(input: {
             ...(input.rows !== undefined && { rows: input.rows }),
             ...(input.promptBehaviour !== undefined && { promptBehaviour: input.promptBehaviour }),
             ...(input.onConfig !== undefined && { onConfig: () => input.onConfig?.run?.() }),
+            ...(input.defaultRetryPolicy !== undefined && { defaultRetryPolicy: input.defaultRetryPolicy }),
         })),
     };
 }
@@ -2015,6 +2024,19 @@ function storedDocument(records: readonly FollowUpDeliveryRecord[]): JsonValue {
  * ------------------------------------------------------------------ */
 
 describe('FR-104 the delivery gate (AC-050)', () => {
+    it('takes the current session and its busy fact from the ready.session replay', () => {
+        // The bridge replays its last session snapshot to a late subscriber
+        // (research.md §2.3), so a panel that arms after `ready` still knows
+        // which session is on screen and whether it is busy — the two facts
+        // T002's tracking feeds the gate.
+        const harness = pushDeliveryHost({});
+        harness.emitReady({ id: TARGET_SESSION, title: 't', busy: true });
+        const rt = deliveryRuntime(harness.host);
+
+        expect(rt.state.relay.currentSessionId).toBe(TARGET_SESSION);
+        expect(rt.state.relay.currentSessionBusy).toBe(true);
+    });
+
     it('prompts exactly once into the run\'s own session when the target is current and observed idle', async () => {
         {
             const { host, log: hostLog } = recordingHost({ currentSession: TARGET_SESSION });
@@ -2306,7 +2328,9 @@ describe('FR-104 the delivery gate (AC-050)', () => {
             await settle();
 
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(1);
-            expect(storedFollowUps(hostLog).at(-1)).toMatchObject({ delivered: true, attempt: 2, parked: false });
+            // The wait consumed no rung, so the re-armed delivery settles at the
+            // attempt the waiting record already held (AC-051, plan.md decision 4).
+            expect(storedFollowUps(hostLog).at(-1)).toMatchObject({ delivered: true, attempt: 1, parked: false });
             expect(rt.state.relay.waitingFollowUps).toBe(0);
 
             // The at-most-once record is what stops the ticks after it.
@@ -2372,7 +2396,7 @@ describe('FR-104 the delivery gate (AC-050)', () => {
             await tick();
 
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(1);
-            expect(storedFollowUps(hostLog).at(-1)).toMatchObject({ delivered: true, attempt: 2, parked: false });
+            expect(storedFollowUps(hostLog).at(-1)).toMatchObject({ delivered: true, attempt: 1, parked: false });
         }
     });
 
@@ -2511,17 +2535,19 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
             expect(hostLog.actions.filter((action) => action === 'openSession')).toHaveLength(0);
 
             emitSession({ id: TARGET_SESSION, title: 't', busy: false });
+            // The attempt the relay hands a re-armed delivery: the waiting
+            // record's own number, since the wait consumed no rung.
             const rearmed = await deliverFollowUp({
                 rt,
                 row,
                 followUp: commentFollowUp(),
-                attempt: 2,
+                attempt: 1,
                 record: storedRecords(hostLog).at(-1) ?? null,
                 policy: TEST_POLICY,
             });
 
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(1);
-            expect(rearmed).toMatchObject({ delivered: true, attempt: 2, parked: false });
+            expect(rearmed).toMatchObject({ delivered: true, attempt: 1, parked: false });
         }
     });
 
@@ -2532,10 +2558,13 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
             // prompt follows it (AC-051 "Given a SESSION_BUSY refusal racing an
             // idle observation").
             const behaviour: PromptBehaviour = { code: 'SESSION_BUSY' };
-            const { host, log: hostLog, emitSession } = pushDeliveryHost({ promptBehaviour: behaviour });
+            const row = rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] });
+            const { host, log: hostLog, emitSession } = pushDeliveryHost({
+                rows: { current: [row] },
+                promptBehaviour: behaviour,
+            });
             emitSession({ id: TARGET_SESSION, title: 't', busy: false });
             const rt = deliveryRuntime(host);
-            const row = rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] });
 
             const raced = await deliverFollowUp({
                 rt,
@@ -2555,20 +2584,23 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
                 nextAttemptAtMs: null,
             });
 
-            // The next idle signal delivers it exactly once.
+            // The refusal is the host's own busy fact, so the next tick holds
+            // the follow-up rather than re-asking — zero prompts until an idle
+            // signal says otherwise (AC-050 "Raced busy").
+            await pollRelay(rt);
+            await tick();
+            expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(1);
+
+            // The next idle signal delivers it exactly once, at the attempt the
+            // wait held: no rung was consumed by either settlement.
             behaviour.code = undefined;
             behaviour.sent = 'sent';
-            const delivered = await deliverFollowUp({
-                rt,
-                row,
-                followUp: commentFollowUp(),
-                attempt: 2,
-                record: storedRecords(hostLog).at(-1) ?? null,
-                policy: TEST_POLICY,
-            });
+            emitSession({ id: TARGET_SESSION, title: 't', busy: false });
+            await pollRelay(rt);
+            await tick();
 
-            expect(delivered).toMatchObject({ delivered: true, attempt: 2, parked: false });
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(2);
+            expect(storedFollowUps(hostLog).at(-1)).toMatchObject({ delivered: true, attempt: 1, parked: false });
         }
     });
 
@@ -2635,6 +2667,52 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
                 attempt: 3,
                 reason: 'host-unavailable',
             });
+        }
+    });
+
+    it('gives a wait-first delivery the whole declared ladder — five prompts at the default policy', async () => {
+        {
+            // The wait consumed no rung, so the ladder the relay resumes is the
+            // full one the config falls back to — five prompts at the documented
+            // default `retryMaxAttempts`, then the park (AC-051's no-ladder-
+            // attempt Givens; plan.md decision 4). The gaps between prompts are
+            // the backoff the record stamps, so the clock moves instead of the
+            // test sleeping.
+            const behaviour: PromptBehaviour = { code: 'HOST_TIMEOUT' };
+            const row = rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] });
+            const { host, log: hostLog, emitSession } = pushDeliveryHost({
+                rows: { current: [row] },
+                promptBehaviour: behaviour,
+                defaultRetryPolicy: true,
+            });
+            emitSession({ id: OTHER_SESSION, title: 't', busy: false });
+            const rt = deliveryRuntime(host);
+
+            vi.useFakeTimers({ toFake: ['Date'] });
+            try {
+                await pollRelay(rt);
+                await tick();
+                expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
+                expect(storedFollowUps(hostLog).at(-1)).toMatchObject({ attempt: 1, reason: 'session-busy' });
+
+                emitSession({ id: TARGET_SESSION, title: 't', busy: false });
+                for (let rung = 1; rung <= 4; rung += 1) {
+                    await pollRelay(rt);
+                    await tick();
+                    vi.setSystemTime(Date.now() + 61_000);
+                }
+                await pollRelay(rt);
+                await tick();
+
+                expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(5);
+                expect(storedFollowUps(hostLog).at(-1)).toMatchObject({
+                    attempt: 5,
+                    parked: true,
+                    reason: 'host-unavailable',
+                });
+            } finally {
+                vi.useRealTimers();
+            }
         }
     });
 
@@ -2710,6 +2788,44 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
         }
     });
 
+    it('parks an over-budget composition on the first refusal, consuming no ladder attempt', async () => {
+        {
+            // The frame is counted in full before any source is rendered, so a
+            // row whose frame alone clears the budget is refused measure-before-
+            // call: no prompt, no navigation, and the rung the attempt would
+            // have taken is unspent (AC-051 "an over-budget composition … parks
+            // on the first refusal").
+            const { host, log: hostLog } = recordingHost({ currentSession: TARGET_SESSION });
+            const rt = deliveryRuntime(host);
+            const row = rowWith({ sessionId: TARGET_SESSION, issueTitle: 'x'.repeat(12_100) });
+            const followUp = commentFollowUp();
+            const midLadder = recordFixture({ attempt: 1, reason: 'host-unavailable' });
+
+            expect(followUpMessage({ row, followUp }).length).toBeGreaterThan(12_000);
+
+            const attempt = await deliverFollowUp({
+                rt,
+                row,
+                followUp,
+                attempt: 2,
+                record: midLadder,
+                policy: TEST_POLICY,
+            });
+            await tick();
+
+            expect(attempt).toMatchObject({ delivered: false, reason: 'over-budget', parked: true, attempt: 1 });
+            expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
+            expect(hostLog.actions.filter((action) => action === 'openSession')).toHaveLength(0);
+            expect(storedFollowUps(hostLog).at(-1)).toMatchObject({
+                deliveryId: followUp.deliveryId,
+                attempt: 1,
+                delivered: false,
+                parked: true,
+                reason: 'over-budget',
+            });
+        }
+    });
+
     it('parks a DISABLED refusal as host-unavailable, with no ladder attempt behind it', async () => {
         {
             // A paused extension is not a cause of its own: it is not in the
@@ -2779,7 +2895,9 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
 
             // The instant re-park is by design: the ladder the park exhausted
             // is history, so the re-armed record's first transient failure is
-            // its last (AC-051's migration clause).
+            // its last (AC-051's migration clause) — and the re-armed wait held
+            // the attempt, so the park carries the ladder's own count rather
+            // than a fourth attempt a three-attempt ladder never had.
             const rows = { current: [rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] })] };
             const { host, log: hostLog, emitSession } = pushDeliveryHost({
                 rows,
@@ -2795,7 +2913,7 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(1);
             expect(storedFollowUps(hostLog).at(-1)).toMatchObject({
                 parked: true,
-                attempt: 4,
+                attempt: 3,
                 reason: 'host-unavailable',
             });
         }

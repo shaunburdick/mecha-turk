@@ -24,7 +24,7 @@ import {
     trackSessionLifecycle,
 } from './follow-up.ts';
 import { followUpRecordOf, loadDispatchRecord } from './dispatch-record.ts';
-import type { DispatchRecordDocument } from './dispatch-record.ts';
+import type { DispatchRecordDocument, FollowUpDeliveryRecord } from './dispatch-record.ts';
 import { nowIso } from './ids.ts';
 import { waitingFollowUps } from './dispatches-detail.ts';
 import type { PanelRuntime } from './panel-state.ts';
@@ -169,6 +169,19 @@ function isOutstanding(input: {
 }
 
 /**
+ * The ladder attempt one delivery would consume: the record's own number plus
+ * one — except behind a **waiting** settlement, which consumed no rung (AC-051),
+ * so the re-armed delivery continues the ladder where the wait left it.
+ */
+function nextLadderAttempt(record: FollowUpDeliveryRecord | undefined): number {
+    if (record?.attempt === undefined) {
+        return 1;
+    }
+
+    return record.reason === 'session-busy' ? record.attempt : record.attempt + 1;
+}
+
+/**
  * Deliver one follow-up from the rows the relay's own read holds.
  *
  * The follow-up rides the relay's own view of the runs history — refreshed on
@@ -190,7 +203,7 @@ async function deliverOneFollowUp(input: {
         rt,
         row,
         followUp,
-        attempt: record?.attempt === undefined ? 1 : record.attempt + 1,
+        attempt: nextLadderAttempt(record),
         policy,
         record: record ?? null,
     });

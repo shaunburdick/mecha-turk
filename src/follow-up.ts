@@ -429,6 +429,20 @@ type PromptVerdict =
     | { readonly wasSent: true }
     | { readonly wasSent: false; readonly refusal: FollowUpRefusal };
 
+/**
+ * A refusal verdict — and the one fact the host just gave us: a wait-classified
+ * refusal *is* the session reporting busy, so the next tick's gate reads that
+ * instead of asking again (FR-104). An idle signal clears it: a `completed`
+ * push, or the next `onSession` snapshot.
+ */
+function refusalVerdict(rt: PanelRuntime, refusal: FollowUpRefusal): PromptVerdict {
+    if (refusal.ending === 'wait') {
+        rt.state.relay.currentSessionBusy = true;
+    }
+
+    return { wasSent: false, refusal };
+}
+
 /** Send the composed message; never throws. */
 async function sendPrompt(rt: PanelRuntime, message: string): Promise<PromptVerdict> {
     try {
@@ -436,9 +450,9 @@ async function sendPrompt(rt: PanelRuntime, message: string): Promise<PromptVerd
 
         return answer.sent === 'sent'
             ? { wasSent: true }
-            : { wasSent: false, refusal: classifyPromptAnswer(answer.sent) };
+            : refusalVerdict(rt, classifyPromptAnswer(answer.sent));
     } catch (cause) {
-        return { wasSent: false, refusal: classifyHostError(cause) };
+        return refusalVerdict(rt, classifyHostError(cause));
     }
 }
 

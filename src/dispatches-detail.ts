@@ -321,7 +321,7 @@ export function parseFollowUps(value: unknown): readonly RunFollowUp[] | undefin
 const PARKED_CAUSES: Readonly<Record<FollowUpFailure, string>> = {
     'no-session': 'no session was open for the run',
     'session-busy': 'the session was mid-turn',
-    'navigation-refused': 'the host refused to open the session',
+    'navigation-refused': 'the navigation was unavailable, or the session was no longer on screen at a retry',
     'over-budget': 'the composed message was over the dispatch budget',
     'host-unavailable': 'the host refused or timed out the prompt',
 };
