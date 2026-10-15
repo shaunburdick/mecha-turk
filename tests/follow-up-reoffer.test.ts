@@ -37,6 +37,7 @@ import {
 } from '../src/dispatch-record.ts';
 import type { DispatchRecordDocument, FollowUpDeliveryRecord } from '../src/dispatch-record.ts';
 import { reofferableFollowUps } from '../src/dispatches-detail.ts';
+import type { RunFollowUpEngine } from '../src/dispatches-detail.ts';
 import { dispatchRow } from '../src/dispatches-rows.ts';
 import { reofferFollowUp } from '../src/dispatches.ts';
 import { followUpWindowOpening, trackCurrentSession } from '../src/follow-up.ts';
@@ -182,6 +183,8 @@ interface ReofferLog {
     readonly writes: readonly { readonly key: string; readonly value: unknown }[];
     /** The host session reads, in order. */
     readonly opened: readonly string[];
+    /** Every service request the relay issued, in order, as `METHOD path`. */
+    readonly requests: readonly string[];
 }
 
 /** The holder a test flips to make the next prompt succeed or be skipped. */
@@ -238,6 +241,7 @@ function reofferHost(input: {
     const prompts: string[] = [];
     const writes: { key: string; value: unknown }[] = [];
     const opened: string[] = [];
+    const requests: string[] = [];
     const values = new Map<string, JsonValue>();
     const sent: SentHolder = input.sent ?? { value: true };
     let held: (() => void) | null = null;
@@ -249,6 +253,7 @@ function reofferHost(input: {
     return {
         host: fakeHost({
             serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+                requests.push(`${request.method} ${request.path}`);
                 if (request.path === '/v1/config') {
                     return { status: 200, body: '{}' };
                 }
@@ -318,7 +323,7 @@ function reofferHost(input: {
                 return { sent: sent.value ? 'sent' : 'skipped' };
             },
         }),
-        log: { prompts, writes, opened },
+        log: { prompts, writes, opened, requests },
         sent,
         hold: {
             release: () => {
@@ -374,7 +379,7 @@ describe('the re-offer record (FR-105, NFR-002)', () => {
             const document: DispatchRecordDocument = {
                 schemaVersion: DISPATCH_SCHEMA_VERSION,
                 attempts: [],
-                followUps: [recordFixture({ attempt: 3, parked: true, reason: 'session-busy' })],
+                followUps: [recordFixture({ attempt: 3, parked: true, reason: 'host-unavailable' })],
             };
 
             const next = reofferFollowUpRecords({
@@ -406,7 +411,7 @@ describe('the re-offer record (FR-105, NFR-002)', () => {
                 schemaVersion: DISPATCH_SCHEMA_VERSION,
                 attempts: [],
                 followUps: [
-                    recordFixture({ deliveryId: DELIVERY, attempt: 3, parked: true, reason: 'session-busy' }),
+                    recordFixture({ deliveryId: DELIVERY, attempt: 3, parked: true, reason: 'host-unavailable' }),
                     recordFixture({ deliveryId: SUCCESSOR, delivered: true }),
                 ],
             };
@@ -434,7 +439,7 @@ describe('the re-offer record (FR-105, NFR-002)', () => {
             const midLadder: DispatchRecordDocument = {
                 schemaVersion: DISPATCH_SCHEMA_VERSION,
                 attempts: [],
-                followUps: [recordFixture({ attempt: 2, nextAttemptAtMs: 5_000, reason: 'session-busy' })],
+                followUps: [recordFixture({ attempt: 2, nextAttemptAtMs: 5_000, reason: 'host-unavailable' })],
             };
             const empty: DispatchRecordDocument = { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts: [] };
 
@@ -537,14 +542,14 @@ describe('the follow-up window opening (FR-104, FR-105)', () => {
             // later. The opening is the owed record's own id.
             const owed = documentOf(
                 recordFixture({ deliveryId: SUCCESSOR, delivered: true }),
-                recordFixture({ attempt: 2, nextAttemptAtMs: 5_000, reason: 'session-busy' }),
+                recordFixture({ attempt: 2, nextAttemptAtMs: 5_000, reason: 'host-unavailable' }),
             );
             expect(followUpWindowOpening(owed)).toBe(DELIVERY);
 
             // A parked record is excluded from automatic handling, so the walk
             // goes on past it — and a re-offer is what turns it owed again.
             const parked = documentOf(
-                recordFixture({ attempt: 3, parked: true, reason: 'session-busy' }),
+                recordFixture({ attempt: 3, parked: true, reason: 'host-unavailable' }),
                 recordFixture({ deliveryId: SUCCESSOR, delivered: true }),
             );
             expect(followUpWindowOpening(parked)).toBe(SUCCESSOR);
@@ -566,11 +571,54 @@ describe('the follow-up window opening (FR-104, FR-105)', () => {
                 deliveryId: commentDeliveryId(OWED_COMMENT),
                 attempt: 2,
                 nextAttemptAtMs: 5_000,
-                reason: 'session-busy',
+                reason: 'host-unavailable',
             });
 
             expect(followUpWindowOpening(documentOf(...delivered, owed)))
                 .toBe(commentDeliveryId(OWED_COMMENT));
+        }
+    });
+
+    it('advances past an engine-admitted row the record never settled (span B2)', () => {
+        {
+            // The service admitted the successor and the panel never attempted it, so
+            // no record settles the window — the projection's `queued` member opens past it.
+            const delivered = documentOf(recordFixture({ delivered: true }));
+            const rows = [rowFixture([
+                followUpFixture(),
+                followUpFixture({
+                    deliveryId: SUCCESSOR,
+                    sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-502',
+                    engine: { state: 'queued', messageId: 'msg_deadbeef' },
+                }),
+            ])];
+
+            expect(followUpWindowOpening(delivered, rows)).toBe(SUCCESSOR);
+        }
+    });
+
+    it('never advances past an unavailable or unknown row by projection alone (span B2)', () => {
+        {
+            // Neither state means the movement was handled: the handoff is the panel's
+            // to attempt and the unconfirmed outcome is the operator's — the read keeps reaching it.
+            const marked = [
+                { state: 'unavailable' },
+                { state: 'unknown', cause: 'outcome' },
+            ] as const satisfies readonly RunFollowUpEngine[];
+            for (const engine of marked) {
+                const settled = documentOf(
+                    recordFixture({ deliveryId: SUCCESSOR, delivered: true }),
+                );
+                const rows = [rowFixture([
+                    followUpFixture({ engine }),
+                    followUpFixture({
+                        deliveryId: SUCCESSOR,
+                        sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-502',
+                    }),
+                ])];
+
+                expect(followUpWindowOpening(settled, rows), engine.state).toBe(DELIVERY);
+            }
         }
     });
 });
@@ -582,7 +630,7 @@ describe('the follow-up window opening (FR-104, FR-105)', () => {
 describe('the operator action (FR-105, AC-051)', () => {
     it('arms with the copy, then clears the park on the panel’s own record', async () => {
         {
-            const parked = recordFixture({ attempt: 3, parked: true, reason: 'session-busy' });
+            const parked = recordFixture({ attempt: 3, parked: true, reason: 'host-unavailable' });
             const { host, log } = reofferHost({
                 followUps: [followUpFixture()],
                 stored: storedDocument([parked]),
@@ -659,6 +707,74 @@ describe('the operator action (FR-105, AC-051)', () => {
             expect(log.writes).toEqual([]);
         }
     });
+
+    it('offers an outcome-unconfirmed row, and refuses an admitted or fresh-intent one (companion 9; F6)', () => {
+        {
+            const unknown = followUpFixture({ engine: { state: 'unknown', cause: 'outcome' } });
+            const fresh = followUpFixture({
+                deliveryId: 'evt-acme~widget~7~77331~followup~504',
+                sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-504',
+                engine: { state: 'unknown', cause: 'intent' },
+            });
+            const queued = followUpFixture({
+                deliveryId: SUCCESSOR,
+                sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-502',
+                engine: { state: 'queued', messageId: 'msg_deadbeef' },
+            });
+            const neverAttempted = followUpFixture({
+                deliveryId: 'evt-acme~widget~7~77331~followup~503',
+                sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-503',
+            });
+            const row = rowFixture([unknown, fresh, queued, neverAttempted]);
+
+            // Parked and outcome-unconfirmed are offered; never engine-admitted (held),
+            // never a fresh intent (the service's own), never one never attempted (already due).
+            expect(reofferableFollowUps(row, [])).toEqual([{
+                deliveryId: DELIVERY,
+                kind: 'unconfirmed',
+                attempt: 0,
+                cause: 'the engine outcome is unconfirmed',
+            }]);
+            expect(reofferableFollowUps(rowFixture([fresh]), [])).toEqual([]);
+            expect(reofferableFollowUps(rowFixture([queued]), [])).toEqual([]);
+            expect(reofferableFollowUps(rowFixture([neverAttempted]), [])).toEqual([]);
+        }
+    });
+
+    it('the unknown re-offer arms with the duplicate-acceptance copy and seeds the due record', async () => {
+        {
+            const unknown = followUpFixture({ engine: { state: 'unknown', cause: 'outcome' } });
+            const { host, log } = reofferHost({ followUps: [unknown], stored: storedDocument([]) });
+            const rt = relayRuntime(host);
+            rt.state.dispatches = dispatchesState(rowFixture([unknown]), []);
+
+            await reofferFollowUp(rt);
+
+            // Same control, same two clicks, same confirmation idiom — the unconfirmed
+            // copy puts the possible duplicate on the operator.
+            expect(rt.state.dispatches.pendingAction).toBe('reoffer-follow-up');
+            expect(rt.state.dispatches.note).toContain('Confirm: re-offer the engine-unconfirmed follow-up for #7');
+            expect(rt.state.dispatches.note).toContain('possible duplicate');
+            expect(log.writes).toEqual([]);
+
+            await reofferFollowUp(rt);
+            await tick();
+
+            expect(rt.state.dispatches.note).toContain('Re-offered the engine-unconfirmed follow-up for #7');
+            // The seeded record is the operator's accepted attempt: due now,
+            // not delivered, not parked — the panel's own at-most-once key.
+            expect(lastRecordWrite(log.writes)?.followUps?.at(-1)).toMatchObject({
+                deliveryId: DELIVERY,
+                correlationId: CORRELATION,
+                sessionId: SESSION,
+                attempt: 1,
+                delivered: false,
+                parked: false,
+                reason: null,
+                nextAttemptAtMs: null,
+            });
+        }
+    });
 });
 
 /* ------------------------------------------------------------------ *
@@ -668,7 +784,7 @@ describe('the operator action (FR-105, AC-051)', () => {
 describe('the relay delivers what the re-offer frees (FR-104, FR-105)', () => {
     it('delivers the re-offered follow-up exactly once on a later tick', async () => {
         {
-            const parked = recordFixture({ attempt: 3, parked: true, reason: 'session-busy' });
+            const parked = recordFixture({ attempt: 3, parked: true, reason: 'host-unavailable' });
             const { host, log } = reofferHost({ followUps: [followUpFixture()], stored: storedDocument([parked]) });
             const rt = relayRuntime(host);
             rt.state.dispatches = dispatchesState(rowFixture(), [parked]);
@@ -678,7 +794,8 @@ describe('the relay delivers what the re-offer frees (FR-104, FR-105)', () => {
             await pollRelay(rt);
             await tick();
             expect(log.prompts).toHaveLength(0);
-            expect(dispatchRow(rowFixture(), [parked]).subtitle).toContain('parked: the session was mid-turn');
+            expect(dispatchRow(rowFixture(), [parked]).subtitle)
+                .toContain('parked: the host refused or timed out the prompt');
 
             await reofferFollowUp(rt);
             await reofferFollowUp(rt);
@@ -723,7 +840,7 @@ describe('the relay delivers what the re-offer frees (FR-104, FR-105)', () => {
             // record to the end of the list, the relay would never see it
             // again and the re-offer would be a silent no-op.
             const records = [
-                recordFixture({ attempt: 3, parked: true, reason: 'session-busy' }),
+                recordFixture({ attempt: 3, parked: true, reason: 'host-unavailable' }),
                 recordFixture({ deliveryId: SUCCESSOR, delivered: true }),
             ];
             const { host, log } = reofferHost({
@@ -756,6 +873,51 @@ describe('the relay delivers what the re-offer frees (FR-104, FR-105)', () => {
     });
 });
 
+/* The engine-unconfirmed re-offer: the one operator-initiated attempt that needs no `unavailable` mark. */
+
+describe('the relay delivers an engine-unconfirmed re-offer through the fallback, exactly once', () => {
+    it('one fallback prompt on a later tick, zero engine POSTs, and the at-most-once record stands', async () => {
+        {
+            const unknown = followUpFixture({ engine: { state: 'unknown', cause: 'outcome' } });
+            const { host, log } = reofferHost({ followUps: [unknown], stored: storedDocument([]) });
+            const rt = relayRuntime(host);
+            rt.state.dispatches = dispatchesState(rowFixture([unknown]), []);
+
+            // Before the re-offer the gate refuses: an unknown member is
+            // displayed and never auto-attempted, however idle the target is.
+            await pollRelay(rt);
+            await tick();
+            expect(log.prompts).toHaveLength(0);
+
+            await reofferFollowUp(rt);
+            await reofferFollowUp(rt);
+            await tick();
+
+            // The relay's next tick delivers it — one fallback `host.prompt` into the
+            // run's own session; the request log proves zero engine POSTs and only the three GETs.
+            await pollRelay(rt);
+            await tick();
+
+            expect(log.prompts).toHaveLength(1);
+            expect(log.prompts[0]).toContain(`Session: ${SESSION}`);
+            expect(log.requests.every((entry) => entry.startsWith('GET ')), log.requests.join(', ')).toBe(true);
+            expect(lastRecordWrite(log.writes)?.followUps?.at(-1)).toMatchObject({
+                deliveryId: DELIVERY,
+                delivered: true,
+                parked: false,
+                reason: null,
+            });
+
+            // At-most-once through the durable record, exactly as a parked
+            // re-offer: the ticks after it deliver nothing further.
+            await pollRelay(rt);
+            await tick();
+            expect(log.prompts).toHaveLength(1);
+            expect(log.opened).toEqual([]);
+        }
+    });
+});
+
 /* ------------------------------------------------------------------ *
  * The concurrent writer: a re-offer landing inside a relay tick.
  *
@@ -771,7 +933,7 @@ describe('the relay delivers what the re-offer frees (FR-104, FR-105)', () => {
 describe('the re-offer inside a relay tick (NFR-002, constitution III)', () => {
     it('keeps the tick’s delivery write, so the re-offer cannot unpick it', async () => {
         {
-            const parked = recordFixture({ attempt: 3, parked: true, reason: 'session-busy' });
+            const parked = recordFixture({ attempt: 3, parked: true, reason: 'host-unavailable' });
             const followUps = [
                 followUpFixture(),
                 followUpFixture({
@@ -866,7 +1028,7 @@ function owedRecord(overrides: Partial<FollowUpDeliveryRecord> = {}): FollowUpDe
         deliveryId: commentDeliveryId(OWED_COMMENT),
         attempt: 2,
         nextAttemptAtMs: 5_000,
-        reason: 'session-busy',
+        reason: 'host-unavailable',
         ...overrides,
     });
 }
@@ -921,7 +1083,7 @@ describe('the owed follow-up past the read\'s bound (FR-104, FR-105)', () => {
             const records = [...boundDeliveredRecords(), owedRecord({
                 attempt: 3,
                 nextAttemptAtMs: null,
-                reason: 'session-busy',
+                reason: 'host-unavailable',
                 parked: true,
             })];
             const followUps = boundFollowUps();
@@ -989,7 +1151,7 @@ describe('a remount resumes a partially-attempted follow-up', () => {
         }
     });
 
-    it('resumes the ladder when the resumed attempt fails, parking nothing on the mount it cannot see', async () => {
+    it('returns to waiting when the resumed attempt is refused busy, parking nothing', async () => {
         {
             const partial = recordFixture({ attempt: 2, nextAttemptAtMs: null, reason: 'host-unavailable' });
             const { host, log } = reofferHost({
@@ -1002,15 +1164,16 @@ describe('a remount resumes a partially-attempted follow-up', () => {
             await pollRelay(rt);
             await tick();
 
-            // One attempt, recorded, with the cause the host actually answered
-            // — the ladder continued rather than the record parking a mount.
+            // One prompt, and its raced-busy refusal is the waiting state: the attempt
+            // number stands where the ladder left it, due now, with no park.
             expect(log.prompts).toHaveLength(1);
             const document = lastRecordWrite(log.writes);
             expect(document?.followUps?.at(-1)).toMatchObject({
                 deliveryId: DELIVERY,
-                attempt: 3,
+                attempt: 2,
                 delivered: false,
                 parked: false,
+                nextAttemptAtMs: null,
                 reason: 'session-busy',
             });
         }

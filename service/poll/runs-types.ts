@@ -152,6 +152,8 @@ export interface SessionRef {
     readonly title: string;
     readonly sourceUrl: string;
     readonly worktree: { readonly directory: string; readonly branch: string } | null;
+    /** Absentable and store-internal — rides no wire surface; absence fails the pre-check safe to the fallback. */
+    readonly directory?: string;
 }
 
 export interface RunVerification {

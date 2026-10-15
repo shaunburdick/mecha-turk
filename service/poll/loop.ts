@@ -15,6 +15,7 @@ import type { BindingRecord } from '../bindings.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { readCycleConfig } from './cycle-config.ts';
+import { runEngineDeliveryPass } from './engine-delivery.ts';
 import { enqueueEvents, readEvents } from './events.ts';
 import type { QueuedEvent } from './events.ts';
 import { followUpSubjects, withoutEndedFollowUps } from './follow-up.ts';
@@ -84,6 +85,8 @@ export interface ScanDeps {
     readonly store: ServiceStore | null;
     readonly log: ServiceLogger;
     readonly poller: GitHubIssuePoller;
+    /** The entry point's own environment, read only by the engine pass's two seams; an absent map fails safe. */
+    readonly env?: Readonly<Record<string, string | undefined>> | undefined;
 }
 
 /** The narrowed dependencies, built after the null-store check. */
@@ -684,6 +687,19 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
 
         outcomes.push(scan);
     }
+
+    // One engine-delivery pass per cycle, after the enqueue phase — it never
+    // throws, so a broken engine path stops no binding and no cycle.
+    await runEngineDeliveryPass({
+        store: context.store,
+        log: context.log,
+        env: deps.env ?? {},
+        retry: {
+            maxAttempts: context.config.retryMaxAttempts,
+            baseMs: context.config.retryBaseMs,
+            maxMs: context.config.retryMaxMs,
+        },
+    });
 
     if (outcomes.length > 0) {
         context.log.info('poll cycle complete', {

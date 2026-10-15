@@ -63,6 +63,7 @@ import {
     FIXTURE_TIMESTAMP,
     hasNothingToRelease,
     LOGIN,
+    PROJECT_DIR,
     PROJECT_ID,
     PROJECTS,
     REPOSITORY,
@@ -405,18 +406,21 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
         }
     });
 
-    it('reports exactly one result carrying the token, the attempt, and the session', async () => {
+    it('reports exactly one result carrying the token, the attempt, the session, and its directory', async () => {
         {
             const relay = harness();
 
             await dispatchClaimedRun(relay.rt, claimedRun());
 
             const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/dispatched`)) as Record<string, unknown>;
+            // The additive `directory` member: no worktree on the result, so the rule
+            // reports `result.directory` — the value the host named as the session's own.
             expect(body).toEqual({
                 correlationId: CORRELATION,
                 attempt: 1,
                 dispatchToken: TOKEN,
                 sessionId: SESSION_ID,
+                directory: PROJECT_DIR,
             });
         }
     });

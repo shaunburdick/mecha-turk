@@ -124,10 +124,7 @@ const BEFORE = { lines: 446, words: 5_770 } as const;
 
 /**
  * The one enforced ceiling in this file: **prose words**, at the pre-feature
- * figure itself. The shipped site measures 5,233 — 537 words under — so AC-016 is
- * met with room rather than against a ceiling raised to fit the tree. Growth past
- * it fails visibly; admitting a legitimate increase is a one-line diff to this
- * constant, reviewed in the pull request.
+ * figure itself. Growth past it fails visibly; a legitimate increase is a one-line diff, reviewed in the PR.
  */
 const CEILING = { words: 5_770 } as const;
 
@@ -159,8 +156,10 @@ const CEILING = { words: 5_770 } as const;
  * feature's delivery of FR-105's re-offer made false — FR-042 binds the site to
  * the surfaces this feature changes, so the sentence changed with the panel.
  * `CEILING.words` is untouched, so no enforced bound moved with it.
+ *
+ * Moved 517 → 521 → 518 with the follow-up prose's rewrite and the product owner's trim — a real cut, never a reflow.
  */
-const PINNED_LINES = 517;
+const PINNED_LINES = 518;
 
 /**
  * The prose each bound document measures now, so growth cannot pass unnoticed.

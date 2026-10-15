@@ -16,7 +16,8 @@ interface SecretPattern {
  * Secret shapes recognised by {@link findSecretLeak}: GitHub token formats
  * (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`) plus the two
  * transport spellings that would appear if a header were ever copied into a
- * record — `Authorization:` and `Bearer <credential>`. Patterns are global so
+ * record — `Authorization:` and `Bearer <credential>`, plus the engine password's own
+ * env-var spelling — the one name-based class that can recognise random hex. Patterns are global so
  * {@link redact} replaces every occurrence in one pass; detection uses
  * `String.match`, which scans from the start and never inherits the `lastIndex`
  * state a `RegExp.test()` call would carry over.
@@ -26,6 +27,7 @@ const SECRET_PATTERNS: readonly SecretPattern[] = [
     { label: 'github-token-fine-grained', pattern: /\bgithub_pat_[A-Za-z0-9_]{20,}/g },
     { label: 'authorization-header', pattern: /\bAuthorization\s*[:=]\s*["']?\S+/g },
     { label: 'bearer-credential', pattern: /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/g },
+    { label: 'opencode-password-env', pattern: /\bOPENCODE_SERVER_PASSWORD\s*[:=]\s*["']?\S+/g },
 ];
 
 /** Key names that imply the value is credential material. */

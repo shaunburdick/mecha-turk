@@ -30,6 +30,7 @@ import {
     REPOSITORY,
     createTestRuntime,
     fakeHost,
+    hasNothingToRelease,
     tick,
 } from './support/panel.ts';
 import { fixtureBindingRow } from './support/binding-fixture.ts';
@@ -68,6 +69,8 @@ interface MutableService {
     readonly host: ReturnType<typeof fakeHost>;
     /** Every `serviceRequest` the panel made, as `METHOD path`. */
     readonly requests: string[];
+    /** Every session/lifecycle listener registration the panel made. */
+    readonly registrations: string[];
     /** Replace the bindings answer (the spawn race starts as a 503). */
     setBindingsAnswer: (answer: GuestRequestResult) => void;
 }
@@ -83,10 +86,12 @@ interface MutableService {
  */
 function mutableService(initial: GuestRequestResult): MutableService {
     const requests: string[] = [];
+    const registrations: string[] = [];
     let bindings = initial;
 
     return {
         requests,
+        registrations,
         setBindingsAnswer: (answer) => {
             bindings = answer;
         },
@@ -109,6 +114,16 @@ function mutableService(initial: GuestRequestResult): MutableService {
                 }
 
                 return { status: DEFAULT_STATUS, body: UNROUTED_BODY };
+            },
+            onSession: () => {
+                registrations.push('session');
+
+                return hasNothingToRelease;
+            },
+            onSessionLifecycle: () => {
+                registrations.push('lifecycle');
+
+                return hasNothingToRelease;
             },
         }),
     };
@@ -156,6 +171,23 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 // without any timer advancing (no fake timers in this test).
                 await tick();
                 expect(service.requests).toContain(`GET ${EVENTS_PENDING_PATH}`);
+            });
+        }
+    });
+
+    it('arms the delivery observation — session and lifecycle — with the loop', async () => {
+        {
+            // The waiting state is observed, never assumed, so the arm registers the
+            // lifecycle push beside the session subscription and releases both with the others.
+            const service = mutableService({ status: 200, body: bindingsBody([activeBinding()]) });
+            const rt = createTestRuntime(service.host);
+
+            await withRelay(rt, async () => {
+                await loadInitialBindings(rt);
+
+                expect(rt.relayArmed).toBe(true);
+                expect(service.registrations).toContain('session');
+                expect(service.registrations).toContain('lifecycle');
             });
         }
     });

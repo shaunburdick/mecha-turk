@@ -64,24 +64,18 @@ export interface DispatchRecordDocument {
     readonly followUps?: readonly FollowUpDeliveryRecord[];
 }
 
-/**
- * What one follow-up delivery attempt produced: a closed union because the
- * reason a delivery parks is the exact cause an operator reads on the run row
- * and in the trail (002 FR-105), and a second spelling of "the session was
- * busy" would be two answers to one question. **A closed panel is not a
- * cause** — a mount that goes away between attempts leaves the record *due* and
- * the remount resumes the ladder (spec.md User Story 7's third scenario); the
- * value a "panel closed" park would ride has no writer.
- */
+/** The closed vocabulary a delivery settles or waits in; a closed panel is not a cause — it has no writer. */
 export type FollowUpFailure =
     | 'no-session'
-    /** The session was mid-turn; a retryable refusal, never a queue. */
+    /** The fallback's waiting state: the target is not current or not observed idle; never an attempt. */
     | 'session-busy'
-    /** `host.openSession` was refused. */
+    /** A retry found the target no longer current (under B+ no navigation exists to refuse). */
     | 'navigation-refused'
     | 'over-budget'
     /** The host rejected or timed out the prompt, or the transport failed. */
-    | 'host-unavailable';
+    | 'host-unavailable'
+    /** Engine-admitted and engine-held; only the service's projection writes it. */
+    | 'engine-queued';
 
 /** One follow-up delivery's durable state (002 FR-104, FR-105). */
 export interface FollowUpDeliveryRecord {
@@ -265,13 +259,13 @@ function readAttempts(value: JsonValue | undefined): DispatchAttemptRecord[] | n
     return attempts;
 }
 
-/** The failure causes a follow-up delivery parks with, and nothing else. */
 const FOLLOW_UP_FAILURES: ReadonlySet<string> = new Set<FollowUpFailure>([
     'no-session',
     'session-busy',
     'navigation-refused',
     'over-budget',
     'host-unavailable',
+    'engine-queued',
 ]);
 
 export const MAX_FOLLOW_UP_RECORDS = 50;
@@ -318,6 +312,14 @@ function readNextAttemptAtMs(record: Record<string, JsonValue>): number | null |
     return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+// A pre-amendment record parked with `session-busy` was a refused attempt, not
+// delivered work: it reads back re-armed — attempt history intact, due now.
+function rearmLegacySessionBusy(record: FollowUpDeliveryRecord): FollowUpDeliveryRecord {
+    return record.parked && record.reason === 'session-busy'
+        ? { ...record, parked: false, nextAttemptAtMs: null }
+        : record;
+}
+
 /** The record, or `null` when its shape is unusable. */
 function readFollowUp(value: JsonValue): FollowUpDeliveryRecord | null {
     const record = asJsonRecord(value);
@@ -344,7 +346,15 @@ function readFollowUp(value: JsonValue): FollowUpDeliveryRecord | null {
         return null;
     }
 
-    return { deliveryId, correlationId, sessionId, ...flags, nextAttemptAtMs, reason, updatedAt };
+    return rearmLegacySessionBusy({
+        deliveryId,
+        correlationId,
+        sessionId,
+        ...flags,
+        nextAttemptAtMs,
+        reason,
+        updatedAt,
+    });
 }
 
 /**
@@ -573,6 +583,12 @@ export async function acknowledgeDispatch(input: {
     });
 }
 
+export interface FollowUpSeed {
+    readonly deliveryId: string;
+    readonly correlationId: string;
+    readonly sessionId: string | null;
+}
+
 /**
  * Fold one follow-up delivery record into a document, replacing the entry with
  * the same delivery id. Eviction takes the oldest record that is neither
@@ -635,12 +651,13 @@ export async function recordFollowUpDelivery(
  * `delivered` has nothing to re-offer, and resetting `attempt` would re-spend the ladder the park
  * just exhausted (NFR-002). The record is re-appended at the end of the list, which is
  * load-bearing: {@link followUpWindowOpening} derives the read's window from it, and an owed record
- * sitting before a delivered one would open the window past it. `null` unless something is parked.
+ * sitting before a delivered one would open the window past it. `null` unless something was re-offered or seeded.
  */
 export function reofferFollowUpRecords(input: {
     readonly document: DispatchRecordDocument;
     readonly deliveryIds: readonly string[];
     readonly at: string;
+    readonly seeds?: readonly FollowUpSeed[];
 }): DispatchRecordDocument | null {
     const { document, deliveryIds, at } = input;
     const existing = document.followUps ?? [];
@@ -648,12 +665,29 @@ export function reofferFollowUpRecords(input: {
     const reoffered = existing
         .filter((candidate) => wanted.has(candidate.deliveryId) && candidate.parked && !candidate.delivered)
         .map((candidate) => ({ ...candidate, parked: false, reason: null, nextAttemptAtMs: null, updatedAt: at }));
-    if (reoffered.length === 0) {
+    // A record-less seed appends a fresh due record — the engine-unconfirmed
+    // row's accepted attempt; an id the panel already holds is never re-seeded.
+    const seeded = (input.seeds ?? [])
+        .filter((seed) =>
+            wanted.has(seed.deliveryId)
+            && existing.every((candidate) => candidate.deliveryId !== seed.deliveryId))
+        .map((seed): FollowUpDeliveryRecord => ({
+            deliveryId: seed.deliveryId,
+            correlationId: seed.correlationId,
+            sessionId: seed.sessionId,
+            attempt: 1,
+            nextAttemptAtMs: null,
+            delivered: false,
+            reason: null,
+            parked: false,
+            updatedAt: at,
+        }));
+    if (reoffered.length === 0 && seeded.length === 0) {
         return null;
     }
 
     let next = document;
-    for (const record of reoffered) {
+    for (const record of [...reoffered, ...seeded]) {
         next = putFollowUpRecord(next, record);
     }
 
@@ -661,20 +695,26 @@ export function reofferFollowUpRecords(input: {
 }
 
 /**
- * Re-offer parked follow-up deliveries through the durable record; never throws.
+ * Re-offer parked (or engine-unconfirmed, via `seeds`) follow-up deliveries through the durable record; never throws.
  * The local half of FR-105's re-offer: no route, no service request, no run
  * state — the panel's own record is the only thing that moves, and the relay's
- * next tick is what delivers. `false` when nothing was parked, the record could
+ * next tick is what delivers. `false` when nothing was parked or seedable, the record could
  * not be read, or the write was refused.
  */
 export async function reofferFollowUpDelivery(input: {
     readonly rt: PanelRuntime;
     readonly deliveryIds: readonly string[];
+    readonly seeds?: readonly FollowUpSeed[];
 }): Promise<boolean> {
     const { rt, deliveryIds } = input;
 
     // The stamp is taken **inside** the chain, so it is the stamp of the write
     // rather than of the click that queued it.
     return await updateDispatchRecord(rt, (document) =>
-        reofferFollowUpRecords({ document, deliveryIds, at: nowIso() }));
+        reofferFollowUpRecords({
+            document,
+            deliveryIds,
+            at: nowIso(),
+            ...(input.seeds !== undefined && { seeds: input.seeds }),
+        }));
 }

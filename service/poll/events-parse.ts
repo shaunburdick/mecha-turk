@@ -25,6 +25,14 @@ export type SubjectType = 'issue' | 'pull_request';
  */
 export type { ActorAttribution } from './attribution.ts';
 
+/** `intent` is a send-intent this service still owns; `outcome` is spent with no receipt — only it is re-offerable. */
+export type EngineCause = 'intent' | 'outcome';
+
+export type EngineMember =
+    | { readonly state: 'admitted'; readonly messageId: string }
+    | { readonly state: 'unavailable' }
+    | { readonly state: 'unknown'; readonly intentAtMs: number; readonly cause: EngineCause };
+
 export interface QueuedEvent {
     /** Deterministic `[A-Za-z0-9._~|-]`-shaped id, usable as one path segment. */
     readonly id: string;
@@ -110,6 +118,8 @@ export interface QueuedEvent {
      * same as `direct`, and never silently becomes it.
      */
     readonly actorAttribution?: ActorAttribution;
+    /** Absentable on read, validated when present: a malformed member refuses the row. */
+    readonly engine?: EngineMember;
 }
 
 /**
@@ -307,6 +317,72 @@ function readTrimMarkerField(record: Record<string, unknown>): string | undefine
     return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
+function admittedEngineOf(value: Record<string, unknown>): EngineMember | null {
+    const { messageId, intentAtMs, cause } = value;
+
+    return typeof messageId === 'string' && messageId !== ''
+        && intentAtMs === undefined && cause === undefined
+        ? { state: 'admitted', messageId }
+        : null;
+}
+
+function unavailableEngineOf(value: Record<string, unknown>): EngineMember | null {
+    const { messageId, intentAtMs, cause } = value;
+
+    return messageId === undefined && intentAtMs === undefined && cause === undefined
+        ? { state: 'unavailable' }
+        : null;
+}
+
+function engineCauseOf(value: unknown): EngineCause | null {
+    return value === 'intent' || value === 'outcome' ? value : null;
+}
+
+function unknownEngineOf(value: Record<string, unknown>): EngineMember | null {
+    const { messageId, intentAtMs, cause } = value;
+    const intentStamp = typeof intentAtMs === 'number' && Number.isSafeInteger(intentAtMs) && intentAtMs > 0
+        ? intentAtMs
+        : null;
+    const why = engineCauseOf(cause);
+    if (messageId !== undefined || intentStamp === null || why === null) {
+        return null;
+    }
+
+    return { state: 'unknown', intentAtMs: intentStamp, cause: why };
+}
+
+// A present member outside the three closed shapes refuses the whole row, the
+// way a malformed required field does — never a silent drop.
+function readEngineField(record: Record<string, unknown>): EngineMember | undefined | null {
+    const value = record.engine;
+    if (value === undefined) {
+        return undefined;
+    }
+
+    if (!isRecord(value)) {
+        return null;
+    }
+
+    switch (value.state) {
+        case 'admitted': {
+            return admittedEngineOf(value);
+        }
+        case 'unavailable': {
+            return unavailableEngineOf(value);
+        }
+        case 'unknown': {
+            return unknownEngineOf(value);
+        }
+        default: {
+            return null;
+        }
+    }
+}
+
+function markersAndEngineHold(record: Record<string, unknown>): boolean {
+    return readTrimMarkerField(record) !== null && readEngineField(record) !== null;
+}
+
 function isKnownKind(kind: unknown): boolean {
     return typeof kind === 'string' && KNOWN_KINDS.has(kind);
 }
@@ -322,7 +398,7 @@ function fieldsHold(record: Record<string, unknown>): boolean {
         && readStateField(record) !== null
         && readSubjectTypeField(record) !== null
         && readRunLinkField(record) !== null
-        && readTrimMarkerField(record) !== null
+        && markersAndEngineHold(record)
         && readActorAttributionField(record) !== null
         && readActorLoginField(record) !== null
         // A follow-up id's discriminator is validated against the two-form
@@ -406,6 +482,12 @@ function trimMarkerOf(record: Record<string, unknown>): TrimMarkerFields {
     return marker === undefined || marker === null ? {} : { excerptTrimmedAt: marker };
 }
 
+function engineFieldsOf(record: Record<string, unknown>): { readonly engine?: EngineMember } {
+    const engine = readEngineField(record);
+
+    return engine === undefined || engine === null ? {} : { engine };
+}
+
 function coordinatesOf(
     record: Record<string, unknown>,
 ): { readonly headSha: string | null; readonly baseRef: string | null } {
@@ -463,6 +545,7 @@ export function parseStoredEvent(raw: unknown): QueuedEvent | null {
         ...runLinkOf(record, subjectType),
         ...trimMarkerOf(record),
         ...actorFieldsOf(record),
+        ...engineFieldsOf(record),
     };
 }
 

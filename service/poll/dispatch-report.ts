@@ -21,6 +21,8 @@ interface ReportOutcome {
     readonly attemptOutcome: 'dispatched' | 'failed' | 'abandoned';
     readonly sessionId: string | null;
     readonly reason: string | null;
+    /** Absent when the caller reported none — a problem report, an abandon, or a pre-amendment panel. */
+    readonly directory?: string | null;
 }
 
 export interface ReportInput {
@@ -211,7 +213,15 @@ function reportedRun(input: {
         lease: null,
         reservation: { ...reservation, consumed: true },
         attempts: attemptHistory(run, closedAttempt({ attempt: currentAttempt(run), outcome, now })),
-        ...(sessionId !== null && { session: sessionRefOf({ run, sessionId, now }) }),
+        ...(sessionId !== null && {
+            session: sessionRefOf({
+                run,
+                sessionId,
+                now,
+                ...(outcome.directory !== undefined && outcome.directory !== null
+                    && { directory: outcome.directory }),
+            }),
+        }),
         updatedAt: now,
     };
 }

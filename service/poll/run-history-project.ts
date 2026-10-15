@@ -70,7 +70,13 @@ export interface HistoryFollowUp {
     readonly fromHeadSha?: string;
     /** The head this movement observed, for a head change only. */
     readonly headSha?: string;
+    readonly engine?: HistoryFollowUpEngine;
 }
+
+export type HistoryFollowUpEngine =
+    | { readonly state: 'queued'; readonly messageId?: string }
+    | { readonly state: 'unavailable' }
+    | { readonly state: 'unknown'; readonly cause: 'intent' | 'outcome' };
 
 /**
  * How many follow-ups one history row projects (002 FR-104): a window that
@@ -384,6 +390,23 @@ function headShaOfRow(row: QueuedEvent): string | undefined {
     return row.headSha !== null && row.headSha !== '' ? row.headSha : undefined;
 }
 
+/** Sourced one-to-one from the queue row's own member: `admitted` renders as `queued`; absent stays absent. */
+function engineViewOf(engine: QueuedEvent['engine']): HistoryFollowUpEngine | undefined {
+    if (engine === undefined) {
+        return undefined;
+    }
+
+    if (engine.state === 'admitted') {
+        return { state: 'queued', messageId: engine.messageId };
+    }
+
+    if (engine.state === 'unknown') {
+        return { state: 'unknown', cause: engine.cause };
+    }
+
+    return { state: 'unavailable' };
+}
+
 function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): HistoryFollowUp | null {
     const kind = followUpKindOf(row.id);
     if (kind === null) {
@@ -391,6 +414,7 @@ function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): Hist
     }
 
     const head = headShaOfRow(row);
+    const engine = engineViewOf(row.engine);
 
     return {
         deliveryId: row.id,
@@ -400,6 +424,7 @@ function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): Hist
         detectedAt: row.detectedAt,
         sourceUrl: row.issueUrl,
         ...(head !== undefined && { fromHeadSha: previousHeadSha ?? '', headSha: head }),
+        ...(engine !== undefined && { engine }),
     };
 }
 

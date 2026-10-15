@@ -135,6 +135,9 @@ export function sessionRefOf(input: {
     readonly sessionId: string;
     /** RFC 3339 dispatch stamp. */
     readonly now: string;
+    // The result-report path passes `worktree.directory` (else `result.directory`);
+    // the operator-confirm path passes nothing — the intended absent case.
+    readonly directory?: string | undefined;
 }): SessionRef {
     return {
         sessionId: input.sessionId,
@@ -143,5 +146,6 @@ export function sessionRefOf(input: {
         title: '',
         sourceUrl: input.run.sourceReferences[0]?.sourceUrl ?? '',
         worktree: null,
+        ...(input.directory !== undefined && { directory: input.directory }),
     };
 }

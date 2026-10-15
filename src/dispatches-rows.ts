@@ -366,8 +366,16 @@ function followUpPhrase(row: RunRow, records: readonly FollowUpDeliveryRecord[])
         parts.push(`${view.delivered} delivered`);
     }
 
+    if (view.engineQueued > 0) {
+        parts.push(`${view.engineQueued} engine-queued`);
+    }
+
     if (view.waiting > 0) {
         parts.push(`${view.waiting} waiting`);
+    }
+
+    if (view.unconfirmed > 0) {
+        parts.push(`${view.unconfirmed} unconfirmed`);
     }
 
     for (const parked of view.parked) {

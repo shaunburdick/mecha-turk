@@ -21,9 +21,10 @@ import {
     readFollowUpRetryPolicy,
     readFollowUpRows,
     trackCurrentSession,
+    trackSessionLifecycle,
 } from './follow-up.ts';
 import { followUpRecordOf, loadDispatchRecord } from './dispatch-record.ts';
-import type { DispatchRecordDocument } from './dispatch-record.ts';
+import type { DispatchRecordDocument, FollowUpDeliveryRecord } from './dispatch-record.ts';
 import { nowIso } from './ids.ts';
 import { waitingFollowUps } from './dispatches-detail.ts';
 import type { PanelRuntime } from './panel-state.ts';
@@ -146,6 +147,16 @@ async function claimRuns(rt: PanelRuntime): Promise<ClaimAnswer | null> {
     return parsed;
 }
 
+/** `record` is the operator re-offer's durable record — only it lets an `unknown` row attempt. */
+function engineGateAllows(followUp: RunFollowUp, record: FollowUpDeliveryRecord | undefined): boolean {
+    const { engine } = followUp;
+    if (engine === undefined || engine.state === 'unavailable') {
+        return true;
+    }
+
+    return engine.state === 'unknown' && record !== undefined;
+}
+
 /**
  * Whether one follow-up still needs an attempt from this panel.
  *
@@ -163,8 +174,20 @@ function isOutstanding(input: {
     }
 
     const record = followUpRecordOf(document, followUp.deliveryId);
+    if (!engineGateAllows(followUp, record)) {
+        return false;
+    }
 
     return record === undefined || (!record.delivered && !record.parked && isFollowUpDue(record, atMs));
+}
+
+/** A waiting settlement consumed no rung, so the re-armed delivery keeps the record's own attempt number. */
+function nextLadderAttempt(record: FollowUpDeliveryRecord | undefined): number {
+    if (record?.attempt === undefined) {
+        return 1;
+    }
+
+    return record.reason === 'session-busy' ? record.attempt : record.attempt + 1;
 }
 
 /**
@@ -189,8 +212,9 @@ async function deliverOneFollowUp(input: {
         rt,
         row,
         followUp,
-        attempt: record?.attempt === undefined ? 1 : record.attempt + 1,
+        attempt: nextLadderAttempt(record),
         policy,
+        record: record ?? null,
     });
 }
 
@@ -328,10 +352,9 @@ export function startRelayPolling(rt: PanelRuntime): void {
     }
 
     rt.relayArmed = true;
-    // The host's current session is the one fact the follow-up delivery needs and
-    // cannot ask for: it is what makes "no navigation when the target is already
-    // current" a property of the design rather than of luck (002 FR-104).
-    rt.unsubscribes.push(trackCurrentSession(rt));
+    // Current session and lifecycle are the only session facts a guest observes: an
+    // idle transition pokes one tick through these guards — a waiting follow-up re-arms, no second timer.
+    rt.unsubscribes.push(trackCurrentSession(rt), trackSessionLifecycle(rt, () => void pollRelay(rt)));
     rt.state.relay.timer = setInterval(() => {
         void pollRelay(rt);
     }, RELAY_POLL_INTERVAL_MS);

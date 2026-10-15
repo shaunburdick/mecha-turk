@@ -8,6 +8,7 @@ import { reconcileInterruptedAccounts } from './accounts/reconcile.ts';
 import { CONFIG_FILE, configFromStore, parseStoredConfig } from './config.ts';
 import { createGitHubVerifier } from './github.ts';
 import { runRetentionAtOpen } from './retention.ts';
+import { reconcileEngineIntents } from './poll/engine-state.ts';
 import type { GitHubIssuePoller } from './poll/poller-github.ts';
 import { LOOPBACK_HOST } from './http.ts';
 import { createRequestHandler } from './pipeline.ts';
@@ -59,6 +60,8 @@ export interface StartServiceOptions {
      * no suite run ever reaches the network.
      */
     readonly poller?: GitHubIssuePoller;
+    /** `process.env` as the entry point read it, carried to the engine pass's seams — no module below reads it. */
+    readonly processEnv?: Readonly<Record<string, string | undefined>>;
 }
 
 /** Handle to a running service instance. */
@@ -350,12 +353,13 @@ function startSchedulers(input: {
     readonly poller: GitHubIssuePoller;
     /** Status view the poll loop publishes its state into. */
     readonly polling: PollingViewSlot;
+    readonly env: Readonly<Record<string, string | undefined>>;
 }): { readonly poll: PollLoop | null; readonly sweep: SweepLoop | null } {
-    const { store, log, poller, polling } = input;
+    const { store, log, poller, polling, env } = input;
     // M1 loop (MVP re-cut): the timer starts only when a store exists, so a
     // degraded start does not poll. The default interval (60 s) is the
     // contract default; `PUT /v1/config` retunes the next cycle.
-    const poll = store === null ? null : startPollLoop({ store, log, poller });
+    const poll = store === null ? null : startPollLoop({ store, log, poller, env });
     polling.observe(poll);
     // The lease/deadline sweep keeps running on its own unref'd timer, at
     // half the shorter of the two configured durations.
@@ -412,6 +416,14 @@ export async function startService(options: StartServiceOptions): Promise<Servic
     // The sweep runs at service start, before the server accepts a
     // claim, so a restart recovers stranded claims with no operator action.
     const swept = await startBootSweep({ store, log: options.log });
+    // Runs before `listen`, so no read can race it: intents the previous
+    // process outlived flip to `outcome` first — never re-POSTed, re-offerable.
+    if (store !== null) {
+        const spentIntents = await reconcileEngineIntents({ store, log: options.log });
+        if (spentIntents > 0) {
+            options.log.info('reconciliation spent interrupted engine intents', { flipped: spentIntents });
+        }
+    }
     await listen(server, options.env.port);
     // Reconciliation runs after the listener is up: an upstream call must
     // never hold the host's readiness probe hostage (F16 readiness is about
@@ -422,6 +434,7 @@ export async function startService(options: StartServiceOptions): Promise<Servic
         log: options.log,
         poller: options.poller ?? createDefaultPoller(options.log),
         polling,
+        env: options.processEnv ?? {},
     });
 
     return createHandle({

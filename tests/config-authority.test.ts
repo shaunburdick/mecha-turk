@@ -300,14 +300,23 @@ describe('FR-090 / AC-152: the bootstrap pair is the only configuration environm
                 .filter((entry) => entry.tokens.length > 0)
                 .toSorted((left, right) => left.path.localeCompare(right.path));
 
-            // HOME locates the store directory and configures nothing (GUEST_SERVICES.md).
+            // HOME locates the store and configures nothing; the engine path adds exactly
+            // two named env reads, both passed down — the bootstrap pair stays the only configuration.
+            const tokensByPath = new Map(reads.map((entry) => [entry.path, entry.tokens]));
             expect(reads.map((entry) => entry.path)).toEqual([
+                `${SERVICE_DIR}/engine/discovery.ts`,
+                `${SERVICE_DIR}/engine/token.ts`,
                 `${SERVICE_DIR}/env.ts`,
                 `${SERVICE_DIR}/main.ts`,
                 `${SERVICE_DIR}/store/dir.ts`,
             ]);
-            expect(reads[0]?.tokens).toEqual(['env[PORT_VARIABLE]', 'env[TOKEN_VARIABLE]']);
-            expect(reads[2]?.tokens).toEqual(['env.HOME']);
+            expect(tokensByPath.get(`${SERVICE_DIR}/env.ts`)).toEqual(['env[PORT_VARIABLE]', 'env[TOKEN_VARIABLE]']);
+            expect(tokensByPath.get(`${SERVICE_DIR}/engine/discovery.ts`)).toEqual([
+                'env[MANAGED_REGISTRY_ENV]',
+                'env.HOME',
+            ]);
+            expect(tokensByPath.get(`${SERVICE_DIR}/engine/token.ts`)).toEqual(['env[PASSWORD_ENV]']);
+            expect(tokensByPath.get(`${SERVICE_DIR}/store/dir.ts`)).toEqual(['env.HOME']);
             // The declarations those two indexes resolve to are the pair itself —
             // and there are exactly two of them, so no third variable hides behind
             // the same spelling.

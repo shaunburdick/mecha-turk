@@ -55,8 +55,8 @@ const stateMeaning: Readonly<Record<string, string>> = {
 
     <p>
         Mecha Turk does its own work: it polls, it queues, it starts sessions, and it records what
-        happened. This page is about watching that happen — reading a dispatch, understanding the state it
-        is in, and acting on the states that wait for you.
+        happened. This page is about watching that happen — reading a dispatch and acting on the states
+        that wait for you.
     </p>
 
     <h2>Your first dispatch</h2>
@@ -111,9 +111,9 @@ const stateMeaning: Readonly<Record<string, string>> = {
     </p>
 
     <p>
-        Delivering a follow-up moves your view: the panel asks the host to open the session the work is
-        already in, and records why it is moving you before it does. A follow-up is judged exactly as the
-        dispatch that started the session was — autonomously by default, with no approval step of its own.
+        The local service normally delivers follow-ups into the engine’s queue, no panel involved; the fallback
+        never navigates, so one for a session not on screen waits visibly and is delivered when you open that
+        session and it is idle. A follow-up is judged like its dispatch — autonomously, with no approval step.
     </p>
 
     <h3>What ends it, and what does not</h3>
@@ -141,28 +141,29 @@ const stateMeaning: Readonly<Record<string, string>> = {
     </p>
 
     <p>
-        Each dispatch row carries the same three facts about its own follow-ups: how many reached the
-        session, how many are still waiting, and every parked one with its cause — <code>follow-ups: 2
-        delivered · 1 waiting · parked: the session was mid-turn</code>. A row with no follow-up state
-        carries no such line.
+        Each dispatch row reports its follow-ups: reached, engine-held, waiting, and every parked one’s
+        cause — <code>follow-ups: 1 delivered · 2 engine-queued · 1 waiting · parked: the host refused or timed
+        out</code>. <code>engine-queued</code> means reached and engine-held; <code>waiting</code> means waiting
+        for you; neither is ever a park.
     </p>
 
     <p>
-        A <strong>parked</strong> follow-up kept failing — the session was mid-turn, no session was
-        open, the host refused — and has spent the bounded retry ladder the service declares. It is
-        excluded from automatic handling: no later tick attempts it, and it stays parked until you
-        re-offer it. Select its dispatch and <strong>Re-offer parked follow-up</strong> clears the
-        park and its cause on the panel’s own delivery record — never the delivery count and never
-        the attempt history — and the next relay poll gives it one more attempt, which parks it
-        again at once if it fails. A follow-up that already reached the session is never offered
-        a re-offer, and neither is one that has not been attempted: that one is already due. The
-        park’s cause is what the row and the trail keep until you act.
+        A <strong>parked</strong> follow-up has spent the bounded retry ladder; only a transient host error
+        spends it. The causes that park: no session was open, the navigation unissuable or the target no
+        longer current at a retry, the message over budget, or the host refused or timed out. Engine
+        unavailability never parks: it falls back to waiting. On the fallback path a mid-turn session never
+        parks or spends a rung. A parked follow-up is excluded from automatic handling until re-offered:
+        select its dispatch and <strong>Re-offer parked follow-up</strong> clears the park and its cause on
+        the panel’s own delivery record — never the delivery count or the attempt history — and the next relay poll
+        gives one more attempt. Only a parked follow-up — or one whose engine outcome is unconfirmed, `unknown` with
+        `cause: 'outcome'` — is offered a re-offer; never one already delivered, nor one engine-admitted, nor one whose
+        engine attempt is still the service's own (`cause: 'intent'`), nor one never attempted, which is already due.
     </p>
 
     <h3>What this did not add</h3>
 
     <p>
-        Nothing new was installed for any of this: no new manifest capability, no new permission at the
+        Nothing new was installed: no new manifest capability, no new permission at the
         approval dialog, no new GitHub token scope, and no new setting. Follow-up delivery uses the
         already-declared <code>prompt</code> capability, and detecting one adds no request — it rides
         the same feeds the scan already reads.
@@ -206,7 +207,7 @@ const stateMeaning: Readonly<Record<string, string>> = {
         displaying a verdict it never reached.
     </p>
 
-    <p>The five, and what each state can be:</p>
+    <p>The five:</p>
 
     <ul>
         <li>

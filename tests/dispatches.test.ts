@@ -563,7 +563,7 @@ describe('the follow-up queue on the surfaces (002 FR-036, FR-105)', () => {
                     deliveryId: 'evt-acme~widget~7~77331~followup~503',
                     attempt: 3,
                     parked: true,
-                    reason: 'session-busy',
+                    reason: 'host-unavailable',
                 }),
             ];
 
@@ -573,11 +573,42 @@ describe('the follow-up queue on the surfaces (002 FR-036, FR-105)', () => {
             // still owed, and the parked one with its cause — never as
             // delivered work.
             expect(rendered?.subtitle).toContain(
-                'follow-ups: 1 delivered · 1 waiting · parked: the session was mid-turn',
+                'follow-ups: 1 delivered · 1 waiting · parked: the host refused or timed out the prompt',
             );
             // And the surfaces' count is the same arithmetic, so the Status
             // line and the row cannot disagree about the queue.
             expect(waitingFollowUps([row], records)).toBe(1);
+        }
+    });
+
+    it('counts a session-busy follow-up as waiting — never parked, and mints no new label (008 T011)', () => {
+        {
+            // B+: a mid-turn or non-current target is waited on, never parked, so a
+            // `session-busy` record with `parked: false` renders through existing vocabulary.
+            const row = runFixture({
+                state: 'dispatched',
+                dispatchResult: SESSION_RESULT,
+                session: {
+                    sessionId: SESSION_RESULT,
+                    attachmentId: RUN_ID,
+                    dispatchedAt: FIXTURE_TIMESTAMP,
+                },
+                followUps: [followUpFixture()],
+            });
+            const records = [recordFixture({ reason: 'session-busy' })];
+
+            expect(followUpRowView(row, records)).toEqual({
+                delivered: 0,
+                waiting: 1,
+                engineQueued: 0,
+                unconfirmed: 0,
+                parked: [],
+            });
+            expect(waitingFollowUps([row], records)).toBe(1);
+
+            const [rendered] = dispatchRows(runsState({ rows: [row], status: 'ready', followUpRecords: records }));
+
+            expect(rendered?.subtitle).toContain('follow-ups: 1 waiting');
         }
     });
 

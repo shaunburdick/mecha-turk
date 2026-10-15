@@ -91,7 +91,7 @@ export async function runService(env: NodeJS.ProcessEnv = process.env): Promise<
     try {
         const serviceEnv = readServiceEnv(env);
         const dataDir = resolveDataDir(env);
-        const handle = await startService({ env: serviceEnv, dataDir, log });
+        const handle = await startService({ env: serviceEnv, dataDir, log, processEnv: env });
         installSignalHandlers(handle, log);
         log.info('service listening', { port: handle.port, dataDir: handle.dataDir });
     } catch (error) {

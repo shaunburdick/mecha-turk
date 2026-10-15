@@ -107,6 +107,7 @@ export function initialRelay(): Relay {
         handled: [],
         lastError: null,
         currentSessionId: null,
+        currentSessionBusy: null,
         followUpRows: [],
         waitingFollowUps: null,
     };
@@ -197,6 +198,8 @@ export interface Relay {
      * fact the panel already holds instead of a host call (002 FR-104).
      */
     currentSessionId: string | null;
+    /** `null` when no observation has landed: **idle is observed, never assumed** — delivery waits on the unknown. */
+    currentSessionBusy: boolean | null;
 }
 
 export interface PanelRuntime {

@@ -117,6 +117,9 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
         log,
         github: options.github ?? offlineVerifier(),
         poller: options.poller ?? offlinePoller(),
+        // The engine-delivery pass inside the scan cycle reads its two seams
+        // (registry override, token layer) from this same harness environment.
+        processEnv: env,
     });
     const baseUrl = `http://${HOST}:${handle.port}`;
 

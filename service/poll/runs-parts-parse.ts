@@ -209,6 +209,14 @@ function parseWorktree(raw: unknown): { readonly directory: string; readonly bra
     return directory === null || branch === null ? null : { directory, branch };
 }
 
+// Read fail-safe: absent, `null`, or non-string all read as *absent* — a fixed-shape
+// destructure would drop the key on re-read; one optional member must not quarantine the document.
+function directoryFieldOf(raw: Record<string, unknown>): { readonly directory?: string } {
+    const reported = readString(raw.directory);
+
+    return reported === null || reported === '' ? {} : { directory: reported };
+}
+
 /**
  * Validate the session reference, including its optional worktree.
  */
@@ -227,6 +235,8 @@ export function parseSession(raw: unknown): SessionRef | null {
         return null;
     }
 
+    const directory = directoryFieldOf(raw);
+
     if (raw.worktree === null) {
         return {
             sessionId: id,
@@ -235,6 +245,7 @@ export function parseSession(raw: unknown): SessionRef | null {
             title: heading,
             sourceUrl: link,
             worktree: null,
+            ...directory,
         };
     }
 
@@ -242,7 +253,15 @@ export function parseSession(raw: unknown): SessionRef | null {
 
     return worktree === null
         ? null
-        : { sessionId: id, attachmentId: attachment, dispatchedAt: stamped, title: heading, sourceUrl: link, worktree };
+        : {
+            sessionId: id,
+            attachmentId: attachment,
+            dispatchedAt: stamped,
+            title: heading,
+            sourceUrl: link,
+            worktree,
+            ...directory,
+        };
 }
 
 /**

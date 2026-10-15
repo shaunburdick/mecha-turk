@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -12,8 +13,11 @@ import { pollRelay } from '../src/relay.ts';
 import { AUDIT_FILE } from '../service/audit.ts';
 import { BINDINGS_FILE } from '../service/bindings.ts';
 import { CONFIG_FILE } from '../service/config.ts';
+import { MANAGED_REGISTRY_ENV } from '../service/engine/discovery.ts';
+import { PASSWORD_ENV } from '../service/engine/token.ts';
 import { createLogger } from '../service/log.ts';
 import { EVENTS_FILE, createEvent, enqueueEvents } from '../service/poll/events.ts';
+import { runEngineDeliveryPass } from '../service/poll/engine-delivery.ts';
 import { resolvePromptSnapshot } from '../service/prompt.ts';
 import { RUNS_FILE } from '../service/poll/runs.ts';
 import { AUDIT_PATH } from '../service/routes/audit.ts';
@@ -28,7 +32,9 @@ import { readRuns } from './support/dispatch-corpus.ts';
 import { startDispatchLoop } from './support/dispatch-loop.ts';
 import { BINDING_ID, REPOSITORY } from './support/fixture-enqueue.ts';
 import { PROJECT_ID } from './support/panel.ts';
+import { startFakeOpenCode, writeManagedRegistry } from './support/opencode-engine.ts';
 import type { DispatchLoop } from './support/dispatch-loop.ts';
+import type { FakeOpenCode } from './support/opencode-engine.ts';
 import { jsonHeaders } from './support/service-routes.ts';
 
 /** Repository root, derived from this file's location. */
@@ -56,7 +62,13 @@ const UTF8 = 'utf8';
 const AUDIT_READ_SURFACE = 'the audit read';
 
 /** GitHub token shapes that must never appear in shipped artifacts. */
-const TOKEN_PATTERNS: readonly RegExp[] = [/\bgh[pousr]_[A-Za-z0-9]{20,}/, /\bgithub_pat_[A-Za-z0-9_]{20,}/];
+const TOKEN_PATTERNS: readonly RegExp[] = [
+    /\bgh[pousr]_[A-Za-z0-9]{20,}/,
+    /\bgithub_pat_[A-Za-z0-9_]{20,}/,
+    // 009 invariant 9: the engine password's env-var spelling, covered by
+    // name wherever the PAT class is scanned — the value itself is opaque.
+    /\bOPENCODE_SERVER_PASSWORD\s*[:=]\s*\S+/,
+];
 
 /** Exports of the committed service bundle, typed without an `any`. */
 interface ServiceEntryModule {
@@ -1970,6 +1982,105 @@ describe('003 v1.8.0 no permitted login reaches any surface (NFR-113, AC-132)', 
             expect(file.text, `${file.path} escapes the type system`)
                 .not.toMatch(/@ts-ignore|@ts-expect-error|@ts-nocheck|# type: ignore/);
             expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
+        }
+    });
+});
+
+/* Invariant 9: the engine password reaches no surface — a seeded concrete value plus the
+ * name-based pattern, over every surface the delivery pass can reach and both bundles. */
+
+/** The concrete engine password seeded through the delivery pass. */
+const ENGINE_PASSWORD = `opencode-password-${'7e3f'.repeat(8)}`;
+
+/** One follow-up detection on the loop fixture's subject, for the scan cycle. */
+function scanFollowUp(issueNumber: number): EventSnapshot {
+    return {
+        bindingId: BINDING_ID,
+        repository: REPOSITORY,
+        accountNumericUserId: SCANNED_ACCOUNT_ID,
+        accountLogin: 'octocat',
+        projectId: PROJECT_ID,
+        worktreeOption: 'none',
+        kind: 'mention',
+        followUp: 'comment',
+        commentId: 9_900 + issueNumber,
+        subjectType: 'issue',
+        issue: {
+            issueNumber,
+            issueTitle: `Issue ${issueNumber}`,
+            issueUrl: `https://github.com/${REPOSITORY}/issues/${issueNumber}`,
+            issueBodyExcerpt: 'a comment the scan seeds the password beside',
+        },
+        actorLogin: 'bob',
+        actorAttribution: 'direct',
+        triggerNote: 'scan fixture',
+        detectedAt: '2026-10-10T00:00:00.000Z',
+    };
+}
+
+describe('009 the engine password reaches no surface (invariant 9)', () => {
+    it('the by-name pattern bites wherever the PAT class is scanned', () => {
+        const leak = `env OPENCODE_SERVER_PASSWORD=${ENGINE_PASSWORD}`;
+
+        expect(TOKEN_PATTERNS.some((pattern) => pattern.test(leak)), 'no scan pattern covers the class').toBe(true);
+        expect(findSecretLeak(leak)).not.toBeNull();
+    });
+
+    it('scans logs, audit rows, queue rows, the projection, the ledger, panel storage, and both bundles', async () => {
+        const loop = await startDispatchLoop();
+        const registryDir = await mkdtemp(join(tmpdir(), 'mecha-turk-scan-registry-'));
+        const scanLines: string[] = [];
+        const scanLog = createLogger({ level: 'debug', sink: (line) => void scanLines.push(line) });
+        let fake: FakeOpenCode | null = null;
+        try {
+            // One run, dispatched by the panel's own relay…
+            await loop.enqueue({ issueNumber: 91 });
+            const rt = loop.mount();
+            await pollRelay(rt);
+            await drainVerifications(rt);
+
+            // …and one follow-up the engine pass attempts with the seeded password in
+            // play: no directory reported yet, so the pre-check fails safe after carrying it.
+            const followUp = createEvent(scanFollowUp(91));
+            await enqueueEvents({ store: loop.store, log: scanLog, incoming: [followUp] });
+            fake = await startFakeOpenCode({ password: ENGINE_PASSWORD });
+            await writeManagedRegistry(registryDir, fake.registryEntry());
+            const counts = await runEngineDeliveryPass({
+                store: loop.store,
+                log: scanLog,
+                retry: { maxAttempts: 3, baseMs: 1, maxMs: 4 },
+                env: { [MANAGED_REGISTRY_ENV]: registryDir, [PASSWORD_ENV]: ENGINE_PASSWORD },
+                sleep: async () => {
+                    // No ladder waits in a suite; nothing to sleep through here.
+                },
+                now: () => Date.parse('2026-10-14T00:00:00.000Z'),
+            });
+            expect(counts.unavailable, 'the pass did not run against the seeded password').toBe(1);
+            // The panel reads the projected row back with the password nowhere in it.
+            await pollRelay(rt);
+
+            const surfaces: readonly (readonly [string, string])[] = [
+                ['captured logs', [...loop.service.logLines, ...scanLines].join('\n')],
+                [AUDIT_FILE, await readFile(join(loop.service.dataDir, AUDIT_FILE), UTF8)],
+                [EVENTS_FILE, await readFile(join(loop.service.dataDir, EVENTS_FILE), UTF8)],
+                ['the projection answer', await answerText(loop, EVENTS_PATH)],
+                ['the panel ledger', JSON.stringify(rt.state.ledger)],
+                ['host.storage', JSON.stringify([...loop.panelStorage])],
+                ['panel bundle', readFileSync(BUNDLE, UTF8)],
+                ['service bundle', readFileSync(SERVICE_BUNDLE, UTF8)],
+            ];
+
+            for (const [name, text] of surfaces) {
+                expect(text, `${name} carried the engine password`).not.toContain(ENGINE_PASSWORD);
+                expect(findSecretLeak(text), `${name} carried credential material`).toBeNull();
+            }
+        } finally {
+            if (fake !== null) {
+                await fake.shutdown();
+            }
+
+            await rm(registryDir, { recursive: true, force: true });
+            await loop.shutdown();
         }
     });
 });

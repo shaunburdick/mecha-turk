@@ -19,11 +19,12 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { StartSessionResult } from '@openchamber/sdk';
 import { drainVerifications } from '../src/agent-verify.ts';
 import { pollRelay } from '../src/relay.ts';
 import { readRuns, readTrail } from './support/dispatch-corpus.ts';
 import { startDispatchLoop } from './support/dispatch-loop.ts';
-import { SESSION_ID } from './support/panel.ts';
+import { PROJECT_DIR, SESSION_ID } from './support/panel.ts';
 import type { DispatchLoop } from './support/dispatch-loop.ts';
 
 /** Issue the end-to-end run is about. */
@@ -110,5 +111,64 @@ describe('T-036 one end-to-end dispatch on this branch', () => {
         for (const row of trail) {
             expect(row.correlationId).toBe(run.correlationId);
         }
+    });
+});
+
+/* The dispatch result reports the session directory by one rule — `worktree.directory`,
+ * else `result.directory`, absent when neither — and the service persists it. */
+
+/** The worktree directory a worktree-dispatch result reports. */
+const WORKTREE_DIR = '/home/agent/acme/widget/.worktrees/reporting';
+
+describe('the dispatch-reported directory (009 T024; Gate 2 H1)', () => {
+    it('reports worktree.directory when the result carries one, taking precedence over result.directory', async () => {
+        await loop.enqueue({ issueNumber: 91 });
+        const rt = loop.mount({
+            startSession: async (): Promise<StartSessionResult> => ({
+                sessionId: SESSION_ID,
+                sent: 'sent',
+                directory: PROJECT_DIR,
+                worktree: { directory: WORKTREE_DIR, name: 'reporting', branch: 'reporting', status: 'ready' },
+                linked: true,
+            }),
+        });
+        await pollRelay(rt);
+        await drainVerifications(rt);
+
+        const [run] = await readRuns(loop.store);
+        expect(run?.session?.directory).toBe(WORKTREE_DIR);
+    });
+
+    it('reports result.directory when the result carries no worktree — the worktreeOption: none dispatch', async () => {
+        await loop.enqueue({ issueNumber: 92 });
+        const rt = loop.mount({
+            startSession: async (): Promise<StartSessionResult> => ({
+                sessionId: SESSION_ID,
+                sent: 'sent',
+                directory: PROJECT_DIR,
+                linked: true,
+            }),
+        });
+        await pollRelay(rt);
+        await drainVerifications(rt);
+
+        const [run] = await readRuns(loop.store);
+        expect(run?.session?.directory).toBe(PROJECT_DIR);
+    });
+
+    it('reports no directory when the result carries neither — never guessed, never derived', async () => {
+        await loop.enqueue({ issueNumber: 93 });
+        const rt = loop.mount({
+            startSession: async (): Promise<StartSessionResult> => ({
+                sessionId: SESSION_ID,
+                sent: 'sent',
+            }),
+        });
+        await pollRelay(rt);
+        await drainVerifications(rt);
+
+        const [run] = await readRuns(loop.store);
+        expect(run?.session?.sessionId).toBe(SESSION_ID);
+        expect(run?.session?.directory).toBeUndefined();
     });
 });
