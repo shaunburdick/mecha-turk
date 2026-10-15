@@ -1,21 +1,13 @@
 /**
- * The synchronous bootstrap failures (005 `005 AC-162`, `005 SC-116`, NFR-115
- * states 2–3): each of the runner's stages fails in turn, and every failure has
- * to land on the static notice — the only surface a shell that never mounted
- * can reach — under the pinned stage token, with the message verbatim, the
- * insecure-context annotation only where the frame is actually insecure, and
- * nothing scheduled, claimed, or written behind it.
- *
- * Case (d) is the routing proof: the half-built runtime already holds the root
- * element, and the failure still goes to the notice, because routing follows
- * *stage completion*, never root presence.
+ * The synchronous bootstrap failures (005 AC-162, SC-116, NFR-115 states 2–3):
+ * each lands on the static notice under its pinned token, verbatim, unescaped.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runStartup } from '../src/bootstrap.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { createStorageDouble, fakeHost, NO_SESSION } from './support/panel.ts';
-import { fakeDom } from './support/dom.ts';
+import { fakeDom, textOf } from './support/dom.ts';
 import type { FakeDom, FakeElement } from './support/dom.ts';
 
 /** The refusal pinned in `src/ids.ts`, written here as bytes of its own. */
@@ -57,6 +49,7 @@ function drive(options: {
     readonly withNotice: boolean;
     readonly isSecureContext: boolean;
     readonly mountPanelApp?: (rt: PanelRuntime, root: HTMLElement) => void;
+    readonly disposeThrows?: boolean;
 }): Drive {
     const dom = fakeDom();
     if (options.withRoot) {
@@ -74,7 +67,15 @@ function drive(options: {
 
     const startSession = vi.fn(async () => NO_SESSION);
     const storage = createStorageDouble();
-    const host = fakeHost({ startSession, storage: storage.storage });
+    const host = fakeHost({
+        startSession,
+        storage: storage.storage,
+        ...(options.disposeThrows === true && {
+            dispose: (): never => {
+                throw new Error('the host client refused to release');
+            },
+        }),
+    });
     let connectCalls = 0;
     const timeout = vi.spyOn(globalThis, 'setTimeout');
     const interval = vi.spyOn(globalThis, 'setInterval');
@@ -107,11 +108,6 @@ function drive(options: {
 /** The console entry the drive recorded for one stage. */
 function entryFor(lines: readonly string[], stage: string): string | undefined {
     return lines.find((line) => line.includes(`stage="${stage}"`));
-}
-
-/** Every text node under `node`, in document order — the double has no innerText. */
-function textOf(node: FakeElement): string {
-    return [node.textContent, ...node.children.map((child) => textOf(child))].join(' ');
 }
 
 /** Assert the things every failed startup owes, whichever stage it failed in. */
@@ -215,6 +211,29 @@ describe('a shell mount that throws half-built (the partial-mount edge case)', (
         expect(text).toContain(PARTIAL_MOUNT);
         expect(textOf(drv.dom.rootElement), 'nothing leaked into the half-built shell')
             .not.toContain(PARTIAL_MOUNT);
+        expectNothingScheduled(drv);
+    });
+
+    it('a disposer that throws still leaves the runtime torn down and the runner unescaped (SC-116)', () => {
+        const drv = drive({
+            withRoot: true,
+            withNotice: true,
+            isSecureContext: true,
+            disposeThrows: true,
+            mountPanelApp: (rt, root): never => {
+                rt.root = root;
+
+                throw new Error(PARTIAL_MOUNT);
+            },
+        });
+
+        expect(drv.rt, 'the runner still hands the runtime back').not.toBeNull();
+        expect(drv.rt?.reconcileSettled, 'the gate never opened').toBe(false);
+        expect(drv.rt?.relayArmPending, 'no arming intent survives').toBe(false);
+
+        const entry = entryFor(drv.lines, 'shell mount');
+        expect(entry, 'the console kept the record ahead of the failed teardown').toBeDefined();
+        expect(entry).toContain(PARTIAL_MOUNT);
         expectNothingScheduled(drv);
     });
 });

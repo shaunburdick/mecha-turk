@@ -1,8 +1,6 @@
 /**
- * The correlation-id mint (005 FR-144; `005 AC-166` and the mint half of
- * `005 AC-162`(b)): the native source where it exists, the same-CSPRNG
- * fallback where it does not, one byte-level UUIDv4 either way, and a refusal
- * that fires only when neither API is there to refuse for.
+ * The correlation-id mint (005 FR-144; `005 AC-166`, the mint half of
+ * `005 AC-162`(b)): native source, same-CSPRNG fallback, refusal only when neither.
  */
 
 import { readFileSync } from 'node:fs';

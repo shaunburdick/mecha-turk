@@ -12,13 +12,8 @@
             }
 
             /*
-             * The startup notice (005 FR-140): the surface before the bundle
-             * runs, and the only one a failure before `#root` mounts can reach.
-             * It lives outside `#root`, where the `--mt-*` tokens are not in
-             * scope, so colour resolves through the host alias chain directly —
-             * the same chain the root's ink uses — and every rule below is
-             * scoped to the notice, so the mounted layout is unchanged once
-             * the runner removes the node.
+             * The startup notice (005 FR-140), outside `#root` where `--mt-*` is
+             * absent: colour resolves through the host alias chain directly.
              */
             #panel-startup-notice {
                 display: flex;
@@ -33,10 +28,6 @@
 
             #panel-startup-notice p {
                 margin: 0;
-            }
-
-            #panel-startup-notice p:first-child {
-                font-weight: 600;
             }
 
             /*

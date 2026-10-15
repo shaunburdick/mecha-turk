@@ -1,9 +1,4 @@
-/**
- * The startup runner (005 FR-141, FR-142): five stages, one catch each, so a
- * synchronous failure is named by the stage that threw, recorded on the
- * console, and rendered on the surface that exists at that point — never
- * rethrown, never retried.
- */
+/** The startup runner (005 FR-141, FR-142): five stages, one catch each; failures never rethrow. */
 
 import { teardown } from './app.ts';
 import { createPanelRuntime } from './panel-state.ts';
@@ -29,15 +24,8 @@ export interface StartupDeps {
 const ROOT_MISSING = 'panel/index.html is missing its #root element';
 
 /**
- * Run startup to a mounted shell, or as far as it gets.
- *
- * The routing predicate is *stage completion*, never a runtime's root: a
- * `shell mount` that throws half-built never completed, so its failure reaches
- * the static notice — the surface outside `#root` — and the half-built runtime
- * is torn down so a later host `ready` can never start this panel.
- *
- * @returns The runtime once the shell mounted, the runtime a failed shell
- *   mount left behind (torn down), or `null` when none could be constructed.
+ * Run startup to a mounted shell, or as far as it gets. Failures route by
+ * stage completion, never root: a half-built shell tears down behind the notice.
  */
 export function runStartup(deps: StartupDeps): PanelRuntime | null {
     const isInsecureContext = !deps.panelWindow.isSecureContext;
@@ -120,7 +108,13 @@ export function runStartup(deps: StartupDeps): PanelRuntime | null {
             insecureContext: isInsecureContext,
         });
         // The listener this runtime registered must not run `begin` later.
-        teardown(rt);
+        try {
+            teardown(rt);
+        } catch {
+            // A throwing disposer costs the cleanup, never the fail-closed
+            // state: the gate fields are already cleared above (SC-116).
+            return rt;
+        }
 
         return rt;
     }

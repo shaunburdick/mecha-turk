@@ -31,18 +31,7 @@ export interface FakeDocument {
      * @returns The new element, bound to this document.
      */
     createElement(tagName: string): FakeElement;
-    /**
-     * Find the element this document created under an `#id` selector.
-     *
-     * The document-level counterpart to {@link FakeElement.querySelector}: the
-     * runner's only two lookups are `#root` and the startup notice's nodes, and
-     * any other shape throws rather than quietly answering nothing — the same
-     * throw-on-unknown contract the element-level selector keeps.
-     *
-     * @param selectors - An `#id` selector, as `panel/index.html` carries.
-     * @returns The first element created with that id, or `null`.
-     * @throws {Error} When the selector is not an `#id` shape.
-     */
+    /** `#id` lookup; any other selector shape throws rather than answering nothing. */
     querySelector(selectors: string): FakeElement | null;
 }
 
@@ -221,12 +210,7 @@ export class FakeElement {
         }
     }
 
-    /**
-     * Insert child nodes first, exactly as `ParentNode.prepend` does: where the
-     * startup failure renderer puts its banner, above everything already mounted.
-     *
-     * @param nodes - Nodes to insert at the front, in order.
-     */
+    /** Insert first, as `ParentNode.prepend` does — where the failure renderer puts its banner. */
     public prepend(...nodes: FakeElement[]): void {
         for (const node of nodes) {
             node.parent = this;
@@ -268,6 +252,11 @@ export class FakeElement {
     }
 }
 
+/** Every text node under `node`, in document order — the double has no innerText. */
+export function textOf(node: FakeElement): string {
+    return [node.textContent, ...node.children.map((child) => textOf(child))].join(' ');
+}
+
 /** A fake document as the handoff adapter receives it. */
 export interface FakeDom {
     /** Root element to mount into, typed as `mountHandoffDom` expects. */
@@ -282,11 +271,7 @@ export interface FakeDom {
      * written in the first place.
      */
     readonly rootElement: FakeElement;
-    /**
-     * The document those elements were created from — the face the startup
-     * runner takes, which the double satisfies structurally, so a test passes
-     * it on without a cast.
-     */
+    /** The document those elements were created from — the face the runner takes. */
     readonly document: FakeDocument;
     /** Every element the adapter created, in creation order. */
     readonly created: readonly FakeElement[];

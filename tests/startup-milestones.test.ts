@@ -1,9 +1,6 @@
 /**
- * The startup milestone record (005 `005 AC-164`, `005 SC-117`, NFR-115's
- * success state, FR-144's exactly-once announcement, FR-074's single version
- * source): a full successful startup leaves one entry per stage in the fixed
- * shape, the environment on the first entry, `unknown` until the version
- * source answers — and no startup record anywhere in host storage.
+ * The startup milestone record (005 AC-164, SC-117, NFR-115): one entry per
+ * stage, environment on the first, and no startup record in host storage.
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -157,11 +154,8 @@ vi.mock('../src/tab-bodies.ts', async (importOriginal) => {
 });
 
 /**
- * Parse one console line back into its fields.
- *
- * The fields are matched in the fixed order and the tail must be exactly the
- * failure field, so a line that fits no part of the shape throws instead of
- * parsing into something a later assertion could pass on.
+ * Parse one console line back into its fields; a line that fits no part of the
+ * shape throws rather than parsing into something an assertion could pass on.
  */
 function parseEntry(line: string): {
     readonly stage: string;

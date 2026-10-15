@@ -1,16 +1,6 @@
 /**
- * The asynchronous initial-setup rejection (005 `005 AC-163`, `005 SC-116`,
- * `005 SC-117`, NFR-115): a mount step rejects after the shell is up, and the
- * failure must land in the top-of-panel notice region — above the strip, with
- * Bindings still active beneath it — carrying the stage token and the message
- * verbatim, while the reconciliation gate stays closed, the deferred arming
- * intent clears, and nothing retries, claims, or persists.
- *
- * The shell is real (prerequisite notice, framing banner, six-tab strip); only
- * the SDK mounts and `tabSpecs` are doubled, the pattern the tabs and
- * prerequisites suites already use. The rejection is injected at the seam the
- * plan names — the awaited `loadInitialBindings` step — and the real read runs
- * first, so the arming intent the failure has to clear genuinely exists.
+ * The asynchronous initial-setup rejection (005 AC-163, SC-116, SC-117, NFR-115):
+ * failure lands above the strip verbatim; gate closed, nothing persisted.
  */
 
 import { describe, expect, it, vi } from 'vitest';
@@ -20,7 +10,7 @@ import { LEDGER_STORAGE_KEY } from '../src/ledger.ts';
 import type { PanelRuntime, TabId } from '../src/panel-state.ts';
 import type * as bindingsMode from '../src/bindings-mode.ts';
 import type * as tabBodies from '../src/tab-bodies.ts';
-import { fakeDom } from './support/dom.ts';
+import { fakeDom, textOf } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import {
     NO_SESSION,
@@ -49,6 +39,8 @@ const injected = vi.hoisted(() => ({
 const recorded = vi.hoisted(() => ({
     strip: null as FakeElement | null,
     lines: [] as string[],
+    /** Thrown by the error-tone banner mount, to prove a failing surface cannot escape. */
+    throwOnBanner: false,
 }));
 
 vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
@@ -72,8 +64,12 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     stubbed.mountBanner = (
         root: MountRoot,
-        initial: { readonly title: string; readonly body?: string },
+        initial: { readonly tone?: string; readonly title: string; readonly body?: string },
     ): { update: (next: { readonly title?: string; readonly body?: string }) => void; dispose: () => void } => {
+        if (recorded.throwOnBanner && initial.tone === 'error') {
+            throw new Error('the SDK banner mount refused');
+        }
+
         const node = root.ownerDocument.createElement('div');
         let { title } = initial;
         let body = initial.body ?? '';
@@ -197,11 +193,6 @@ async function serviceRequest(request: GuestRequest): Promise<GuestRequestResult
     return { status: 404, body: '{"error":{"code":"not-found","message":"unrouted"}}' };
 }
 
-/** Every text node under `node`, in document order — the double has no innerText. */
-function textOf(node: FakeElement): string {
-    return [node.textContent, ...node.children.map((child) => textOf(child))].join(' ');
-}
-
 /** The first descendant carrying `name` in its `data-body` attribute. */
 function bodyUnder(root: FakeElement, name: string): FakeElement | undefined {
     for (const child of root.children) {
@@ -313,5 +304,52 @@ describe('a rejected initial setup renders where the operator is looking (005 AC
         expect(storage.operations.filter((operation) => operation.startsWith('set:'))).toEqual([
             `set:${LEDGER_STORAGE_KEY}`,
         ]);
+    });
+
+    it('a failure surface that throws still leaves the gate closed and no rejection (SC-116)', async () => {
+        recorded.lines.length = 0;
+        injected.pendingWhenRejected = false;
+        const storage = createStorageDouble();
+        const startSession = vi.fn(async () => NO_SESSION);
+        const harness = createPushHarness({ serviceRequest, storage: storage.storage, startSession });
+        const dom = fakeDom();
+        dom.rootElement.setAttribute('id', 'root');
+        const rt = createTestRuntime(harness.host);
+
+        mountPanelApp(rt, dom.root);
+
+        const capture: { ready: HostReadyContext | null } = { ready: null };
+        harness.host.onReady((context): void => {
+            capture.ready = context;
+        });
+        rt.started = true;
+        harness.emitReady(null);
+        if (capture.ready === null) {
+            throw new Error('the harness never fired ready');
+        }
+
+        const consoleLog = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]): void => {
+            recorded.lines.push(args.map(String).join(' '));
+        });
+        // The console record and the gate clears run before the DOM write, so a
+        // renderer that throws may cost the surface and nothing else.
+        recorded.throwOnBanner = true;
+
+        try {
+            await expect(begin(rt, capture.ready)).resolves.toBeUndefined();
+        } finally {
+            recorded.throwOnBanner = false;
+            consoleLog.mockRestore();
+        }
+
+        expect(rt.reconcileSettled, 'a throwing renderer cannot reopen the gate').toBe(false);
+        expect(rt.relayArmPending, 'the arming intent is still cleared').toBe(false);
+
+        const entry = recorded.lines.find((line) => line.includes('stage="initial setup"'));
+        expect(entry, 'the console kept the record ahead of the failed surface').toBeDefined();
+        expect(entry).toContain('outcome=failed');
+        expect(entry).toContain(injected.message);
+
+        expect(startSession).not.toHaveBeenCalled();
     });
 });

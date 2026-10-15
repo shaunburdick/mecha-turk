@@ -1,9 +1,4 @@
-/**
- * Startup vocabulary, console milestones, and the two failure surfaces (005
- * FR-140 – FR-142, NFR-115): one builder per failure, so the console entry and
- * the surface an operator sees carry the same stage string and the same error
- * text by construction rather than by promise.
- */
+/** Startup vocabulary, console milestones, and the two failure surfaces (005 FR-140 – FR-142, NFR-115). */
 
 import { mountBanner } from '@openchamber/sdk/ui';
 import { correlationIdMode } from './ids.ts';
@@ -38,9 +33,8 @@ const FALLBACK_MINT = 'getRandomValues'
     + ' (crypto.randomUUID is unavailable; the getRandomValues fallback is in use)';
 
 /**
- * The document face this module addresses: an `#id` lookup whose result can
- * take text or leave the page. Both the frame's `Document` and the test
- * double satisfy it, which is what keeps the runner testable without a DOM.
+ * The document face this module addresses: an `#id` lookup. Both the frame's
+ * `Document` and the test double satisfy it, keeping the runner DOM-free.
  */
 export interface StartupDocument {
     querySelector(selectors: string): StartupNode | null;
@@ -80,11 +74,8 @@ export interface StartupFailureInput {
 }
 
 /**
- * The environment the first milestone of a startup records: secure context,
- * `crypto.randomUUID` availability, and the mint in use — naming the
- * `getRandomValues` fallback in full whenever it is taken, which is FR-144's
- * exactly-once announcement. Nothing failed when it appears, so it is a
- * milestone, never a failure surface.
+ * The environment a startup's first milestone records — secure context,
+ * `randomUUID` availability, mint in use (FR-144's announcement), never a failure.
  */
 export function startupEnvironment(isSecureContext: boolean): StartupEnvironment {
     const mode = correlationIdMode();
@@ -144,8 +135,7 @@ export function emitStartupStage(input: {
 
 /**
  * Build one failure: the message verbatim — never `describeError()`, which
- * would prefix it — plus the insecure-context remediation exactly where the
- * environment reports an insecure frame and nowhere else.
+ * would prefix it — plus the insecure-context remediation where it applies.
  */
 function buildFailure(input: StartupFailureInput): StartupFailure {
     const message = input.cause instanceof Error ? input.cause.message : String(input.cause);
@@ -155,10 +145,8 @@ function buildFailure(input: StartupFailureInput): StartupFailure {
 }
 
 /**
- * Render one failure where the operator is looking: the top-of-panel banner
- * once the shell exists (it shows whichever tab is active), the static notice
- * before it — the only surface a half-built shell can reach. Both write text
- * through created nodes, never markup (FR-080).
+ * Render one failure where the operator is looking: the banner once the shell
+ * exists, the static notice before it — text through nodes, never markup (FR-080).
  */
 function renderFailure(input: StartupFailureInput, failure: StartupFailure): void {
     const root = input.runtime?.root ?? null;
@@ -177,9 +165,8 @@ function renderFailure(input: StartupFailureInput, failure: StartupFailure): voi
 }
 
 /**
- * Record a failed startup: the console entry first, so a DOM the operator
- * edited by hand still leaves the record; then the fail-closed gate fields
- * whenever there is a runtime to clear; then the visible surface.
+ * Record a failed startup: the console entry first (a hand-edited DOM still
+ * leaves the record), then the fail-closed gate fields, then the surface.
  */
 export function recordStartupFailure(input: StartupFailureInput): void {
     const failure = buildFailure(input);
@@ -198,5 +185,12 @@ export function recordStartupFailure(input: StartupFailureInput): void {
         input.runtime.relayArmPending = false;
     }
 
-    renderFailure(input, failure);
+    try {
+        renderFailure(input, failure);
+    } catch {
+        // The surface is the only thing lost: the console entry and the gate
+        // clears above already landed, so a throwing renderer cannot turn a
+        // fail-closed startup into an escaping exception (SC-116).
+        return;
+    }
 }

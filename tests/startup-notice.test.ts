@@ -1,12 +1,6 @@
 /**
- * The static startup notice (005 FR-140, `005 AC-161`): what the shipped
- * `panel/index.html` says before any script runs, and the binary rule around
- * it — present while no shell has mounted, gone the moment one has.
- *
- * The static half reads the shipped markup. The dynamic half drives the real
- * runner against the DOM double with a stand-in shell mount, because what is
- * under test is the runner's own removal of the notice, not the shell it
- * removes it for.
+ * The static startup notice (005 FR-140, `005 AC-161`): present while no shell
+ * has mounted, gone the moment one has.
  */
 
 import { readFileSync } from 'node:fs';

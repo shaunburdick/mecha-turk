@@ -5,18 +5,14 @@
  */
 
 /**
- * Which source {@link newCorrelationId} would draw from in this environment,
- * as FR-142's milestone announces it: the native `randomUUID`, the
- * `getRandomValues` fallback, or neither (FR-144's refusal).
+ * Which source {@link newCorrelationId} draws from here, as FR-142's milestone
+ * announces it: `randomUUID`, the `getRandomValues` fallback, or neither.
  */
 export type CorrelationIdMode = 'randomUUID' | 'getRandomValues' | 'unavailable';
 
 /**
- * The byte count a UUIDv4 is assembled from, and the RFC 4122 shapes the mint
- * applies to it: byte 6 carries version 4 (low nibble `4`), byte 8 carries the
- * `10x` variant. The `mod`/`tag` pairs are the arithmetic spellings of
- * `& 0x0f | 0x40` and `& 0x3f | 0x80` — the repo's lint forbids bitwise
- * operators, and neither pair of bits overlaps, so the sums are identical.
+ * RFC 4122's version and variant shapes spelled without bitwise operators
+ * (the lint forbids them): byte 6 `% 16 + 64`, byte 8 `% 64 + 128` — no overlap.
  */
 const UUID_BYTES = 16;
 const VERSION_BYTE = 6;
@@ -31,10 +27,8 @@ const UUID_HEAD_GROUP = 8;
 const UUID_GROUP_WIDTHS = [UUID_HEAD_GROUP, 4, 4, 4] as const;
 
 /**
- * Assemble one UUIDv4 from 16 CSPRNG bytes: 8-4-4-4-12 lowercase hex, version
- * nibble `4`, RFC 4122 variant nibble — byte-level what `randomUUID` produces,
- * so stored rows, audit rows, and the copy affordance cannot tell the two mint
- * paths apart (FR-144).
+ * Assemble one UUIDv4 from 16 CSPRNG bytes — byte-level what `randomUUID`
+ * produces, so no stored or rendered row can tell the two mint paths apart.
  */
 function uuidV4(bytes: Uint8Array): string {
     const hex = Array.from(bytes, (byte, index) => {
@@ -57,11 +51,8 @@ function uuidV4(bytes: Uint8Array): string {
 }
 
 /**
- * Which mint this environment can use (FR-142's announced mode).
- *
- * The preference order `newCorrelationId` follows: the native API where the
- * context exposes it, the same `Crypto` interface's CSPRNG where it does not,
- * and `unavailable` only when neither exists.
+ * Which mint this environment can use (FR-142's announced mode): the native
+ * API where exposed, the same interface's CSPRNG where not, else `unavailable`.
  */
 export function correlationIdMode(): CorrelationIdMode {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -76,18 +67,8 @@ export function correlationIdMode(): CorrelationIdMode {
 }
 
 /**
- * Create a new correlation identifier.
- *
- * The strongest available source of the same `Crypto` interface mints it
- * (FR-144): `randomUUID()` where the context exposes it — secure contexts
- * only — and otherwise a UUIDv4 assembled from `getRandomValues` over the same
- * OS-seeded entropy, so a plain-HTTP self-hosted install starts instead of
- * dying at runtime construction. Only when neither API exists does the mint
- * refuse, rather than fall back to weaker entropy: `Math.random()` is not a
- * third source and appears nowhere in this path.
- *
- * @throws {Error} When neither API is available — the refusal FR-141 renders
- *   as a categorized startup failure, never a fallback.
+ * Create a correlation identifier from the strongest available source (FR-144):
+ * `randomUUID` where exposed, a same-interface CSPRNG UUIDv4 otherwise.
  */
 export function newCorrelationId(): string {
     const mode = correlationIdMode();

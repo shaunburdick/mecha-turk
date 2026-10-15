@@ -108,11 +108,8 @@ export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<v
 }
 
 /**
- * Release timers, subscriptions, UI, and the host client.
- *
- * Exported for the orchestration tests, which assert that every subscription
- * collected on the runtime is released; the panel reaches it through the
- * `pagehide` hook the mount registers.
+ * Release timers, subscriptions, UI, and the host client; the panel reaches
+ * it through the `pagehide` hook the mount registers.
  */
 export function teardown(rt: PanelRuntime): void {
     if (rt.disposed) {
@@ -241,13 +238,8 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
 }
 
 /**
- * First-time start, driven by `onReady`.
- *
- * The reconcile gate closes before anything that could arm the relay and opens
- * only after every outstanding attempt has been re-reported — on the path that
- * got there. A rejected mount records the failure (005 FR-141), leaves the
- * gate closed, clears any deferred arming, and returns without rethrowing, so
- * the fire-and-forget caller can never turn it into an unhandled rejection.
+ * First-time start, driven by `onReady`; a rejected mount records the failure
+ * (005 FR-141), leaves the gate closed, and returns without rethrowing.
  */
 export async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
     rt.reconcileSettled = false;
@@ -309,11 +301,8 @@ function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
 }
 
 /**
- * Mount the shell for a runtime the startup runner has already constructed:
- * notice region, framing banner, six-tab strip, frame listeners, initial status
- * line. It does not construct and does not catch — the runner owns the stage
- * around this call (005 FR-141) — and `rt.root` lands first, so the async
- * failure renderer always has the element it prepends to.
+ * Mount the shell for a runtime the startup runner constructed (005 FR-141):
+ * it neither constructs nor catches, and `rt.root` lands before anything can throw.
  */
 export function mountPanelApp(rt: PanelRuntime, root: HTMLElement): void {
     rt.root = root;

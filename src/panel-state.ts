@@ -207,11 +207,7 @@ export interface PanelRuntime {
     readonly panelWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>;
     readonly state: PanelState;
     readonly unsubscribes: (() => void)[];
-    /**
-     * The element the shell mounted into, recorded by `mountPanelApp` before
-     * it mounts anything else and left for the async failure renderer to
-     * prepend above the tab strip (005 FR-141).
-     */
+    /** Where the shell mounted; the failure renderer prepends above the strip (005 FR-141). */
     root: HTMLElement | null;
     ui: PanelUi | null;
     handoffView: HandoffView | null;
