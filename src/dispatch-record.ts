@@ -69,7 +69,7 @@ export type FollowUpFailure =
     | 'no-session'
     /** The fallback's waiting state: the target is not current or not observed idle; never an attempt. */
     | 'session-busy'
-    /** A retry found the target no longer current (under B+ no navigation exists to refuse). */
+    /** A retry found the target no longer current (no navigation exists to refuse). */
     | 'navigation-refused'
     | 'over-budget'
     /** The host rejected or timed out the prompt, or the transport failed. */
@@ -646,12 +646,8 @@ export async function recordFollowUpDelivery(
 }
 
 /**
- * Move parked follow-up deliveries back to due, keyed by delivery id — the operator-initiated
- * re-offer FR-105 owes a parked follow-up (AC-051). It clears only `parked` and `reason`:
- * `delivered` has nothing to re-offer, and resetting `attempt` would re-spend the ladder the park
- * just exhausted (NFR-002). The record is re-appended at the end of the list, which is
- * load-bearing: {@link followUpWindowOpening} derives the read's window from it, and an owed record
- * sitting before a delivered one would open the window past it. `null` unless something was re-offered or seeded.
+ * Move parked follow-up deliveries back to due — the operator's re-offer. It clears only `parked` and `reason`:
+ * `attempt` would re-spend the ladder. Re-appended last: `followUpWindowOpening` reads the window from list order.
  */
 export function reofferFollowUpRecords(input: {
     readonly document: DispatchRecordDocument;
@@ -695,11 +691,8 @@ export function reofferFollowUpRecords(input: {
 }
 
 /**
- * Re-offer parked (or engine-unconfirmed, via `seeds`) follow-up deliveries through the durable record; never throws.
- * The local half of FR-105's re-offer: no route, no service request, no run
- * state — the panel's own record is the only thing that moves, and the relay's
- * next tick is what delivers. `false` when nothing was parked or seedable, the record could
- * not be read, or the write was refused.
+ * The local half of FR-105's re-offer: no route, no service request, no run state — the panel's own
+ * record is the only thing that moves; the relay's next tick delivers. Never throws; `false` when nothing changed.
  */
 export async function reofferFollowUpDelivery(input: {
     readonly rt: PanelRuntime;

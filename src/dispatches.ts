@@ -416,10 +416,8 @@ const REFUSED_REOFFER_NOTE =
     'The re-offer did not land: the panel could not read or write its own delivery record, so nothing changed.';
 
 /**
- * The outcome note: what was re-offered, and what it bought — one more
- * attempt, not a fresh ladder: the re-offer clears the park and its cause and
- * leaves the count alone, so a second failure parks it again at once, the
- * same promise the confirmation made. An engine-unconfirmed re-offer's own outcome is named beside it.
+ * The outcome note: one more attempt, not a fresh ladder — the re-offer leaves the count alone: a second failure
+ * parks it again at once, the same promise the confirmation made. An engine-unconfirmed outcome is named beside it.
  */
 function reofferOutcomeCopy(row: RunRow, reofferable: readonly ReofferableFollowUp[]): string {
     const parked = reofferable.filter((entry) => entry.kind === 'parked').length;
