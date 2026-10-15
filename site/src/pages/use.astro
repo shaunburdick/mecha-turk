@@ -55,8 +55,8 @@ const stateMeaning: Readonly<Record<string, string>> = {
 
     <p>
         Mecha Turk does its own work: it polls, it queues, it starts sessions, and it records what
-        happened. This page is about watching that happen — reading a dispatch, understanding the state it
-        is in, and acting on the states that wait for you.
+        happened. This page is about watching that happen — reading a dispatch and acting on the states
+        that wait for you.
     </p>
 
     <h2>Your first dispatch</h2>
@@ -155,15 +155,15 @@ const stateMeaning: Readonly<Record<string, string>> = {
         parks or spends a rung. A parked follow-up is excluded from automatic handling until re-offered:
         select its dispatch and <strong>Re-offer parked follow-up</strong> clears the park and its cause on
         the panel’s own delivery record — never the delivery count or the attempt history — and the next relay poll
-        gives one more attempt. Only a parked follow-up — or one whose engine outcome is unconfirmed — is
-        offered a re-offer; never one already delivered, nor one engine-admitted, nor one never attempted,
-        which is already due.
+        gives one more attempt. Only a parked follow-up — or one whose engine outcome is unconfirmed, `unknown` with
+        `cause: 'outcome'` — is offered a re-offer; never one already delivered, nor one engine-admitted, nor one whose
+        engine attempt is still the service's own (`cause: 'intent'`), nor one never attempted, which is already due.
     </p>
 
     <h3>What this did not add</h3>
 
     <p>
-        Nothing new was installed for any of this: no new manifest capability, no new permission at the
+        Nothing new was installed: no new manifest capability, no new permission at the
         approval dialog, no new GitHub token scope, and no new setting. Follow-up delivery uses the
         already-declared <code>prompt</code> capability, and detecting one adds no request — it rides
         the same feeds the scan already reads.
@@ -207,7 +207,7 @@ const stateMeaning: Readonly<Record<string, string>> = {
         displaying a verdict it never reached.
     </p>
 
-    <p>The five, and what each state can be:</p>
+    <p>The five:</p>
 
     <ul>
         <li>
