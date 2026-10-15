@@ -1,0 +1,181 @@
+# Cut the release tag the moment a version bump reaches main, then ask
+# `release.yml` to publish it.
+#
+# Why this exists: the tag is the step invariant 2 asks a person to remember,
+# and three versions forgot it — 0.2.0, 0.2.1 and 0.3.0 shipped without a tag,
+# so no GitHub Release was published and OpenChamber's update notice never fired
+# for any of them. The manifest version is already the number installed copies
+# compare against, so the tag is *derived* from it rather than typed again by
+# hand; a typo cannot disagree with the manifest because there is no second
+# place to type it.
+#
+# The path filter is the correctness argument: a real version bump always
+# touches `package.json`. Every other push to main is a no-op here, and a push
+# that touches the manifest without changing the version is caught by the
+# idempotency guard below.
+#
+# It never publishes: `release.yml` keeps its one gate (the tag names the
+# manifest, and main has taken the commit) and its one publish job. A tag pushed
+# with this workflow's own `GITHUB_TOKEN` will *not* start `release.yml` —
+# GitHub suppresses workflow runs caused by the default token, with
+# `workflow_dispatch` as the documented exception — so this workflow dispatches
+# `release.yml` explicitly and names the tag to release.
+name: Auto-tag
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'package.json'
+  workflow_dispatch:
+    inputs:
+      confirm_version:
+        description: 'Type the exact version to tag, e.g. 0.3.1'
+        type: string
+        required: true
+
+# One tagging run at a time, and never cancel one mid-mint.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+# `contents: write` is the minimum the tag ref needs, and `actions: write` the
+# minimum the dispatch of `release.yml` needs. Nothing here writes to the
+# checkout: the ref is created through the API, so no credential is ever
+# persisted into the workspace's git configuration.
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  tag:
+    name: tag the version main now ships
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The guard reads remote tags and this step reads the manifest — no
+          # local history is needed, and the token stays out of the config.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Read the version from the manifest that main actually ships. No Node
+      # setup: the runner's own Node parses it, and a missing or malformed
+      # version stops the run before anything is minted.
+      - name: Read the manifest version
+        id: version
+        run: |
+          set -euo pipefail
+
+          version="$(node -p "require('./package.json').version")"
+          if ! printf '%s' "$version" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error title=Manifest version is not X.Y.Z::package.json declares '$version'; a release tag names an X.Y.Z version."
+            exit 1
+          fi
+          echo "value=${version}" >> "$GITHUB_OUTPUT"
+          echo "Canonical version: **${version}**" >> "$GITHUB_STEP_SUMMARY"
+
+      # A manual dispatch has to type the version it is cutting; a mismatch
+      # aborts before a ref exists. Push events skip this entirely.
+      - name: Verify the dispatch confirmation matches the manifest
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          CONFIRMED_VERSION: ${{ inputs.confirm_version }}
+          CANONICAL_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+
+          if [ "${CONFIRMED_VERSION}" != "${CANONICAL_VERSION}" ]; then
+            echo "::error title=Confirmation does not match the manifest::You typed '${CONFIRMED_VERSION}' but package.json ships '${CANONICAL_VERSION}'. Re-run and type the manifest's version."
+            exit 1
+          fi
+
+      # Idempotency, and the ordering guard. `git ls-remote --exit-code` answers
+      # 0 for "the tag exists" and 2 for "no such tag"; anything else is auth or
+      # network trouble, which is refused rather than guessed around.
+      - name: Check the tag against the tags that exist
+        id: tag-check
+        env:
+          CANONICAL_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+
+          rc=0
+          git ls-remote --exit-code --tags origin "refs/tags/v${CANONICAL_VERSION}" >/dev/null 2>&1 || rc=$?
+          case "$rc" in
+            0)
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Already released::v${CANONICAL_VERSION} exists; nothing to tag."
+              echo "v${CANONICAL_VERSION} already exists — nothing to do." >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+              ;;
+            2) ;;
+            *)
+              echo "::error title=Could not read remote tags::git ls-remote failed with exit ${rc}; refusing to guess whether v${CANONICAL_VERSION} exists."
+              exit "$rc"
+              ;;
+          esac
+
+          # A version below the newest tag would publish a *latest* release for
+          # old code — the failure a revert that drags the manifest back would
+          # cause. The new version has to be the greatest one the repository
+          # has seen.
+          highest="$(git ls-remote --tags origin 'refs/tags/v*' \
+            | awk -F/ '{print $3}' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V | tail -n1)"
+          if [ -n "${highest}" ] && [ "$(printf '%s\nv%s\n' "${highest}" "${CANONICAL_VERSION}" | sort -V | tail -n1)" != "v${CANONICAL_VERSION}" ]; then
+            echo "::error title=Version would not be the newest::v${CANONICAL_VERSION} is at or below ${highest}, so tagging it would publish old code as the latest release."
+            exit 1
+          fi
+
+          echo "exists=false" >> "$GITHUB_OUTPUT"
+          echo "Tag v${CANONICAL_VERSION} does not exist yet; proceeding." >> "$GITHUB_STEP_SUMMARY"
+
+      # The changelog is the release body, so a version with no section would
+      # ship a release that says nothing about itself. Refused here, where the
+      # fix is one heading, rather than published as an empty note.
+      - name: Refuse a version the changelog does not describe
+        if: steps.tag-check.outputs.exists != 'true'
+        env:
+          CANONICAL_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+
+          if ! grep -qE "^## \[${CANONICAL_VERSION}\]" CHANGELOG.md; then
+            echo "::error title=No changelog section::CHANGELOG.md has no '## [${CANONICAL_VERSION}]' heading. Add the release's notes, push, and re-run."
+            exit 1
+          fi
+
+      # Mint the ref through the API — no credential is written to the
+      # workspace, and a lost race with another run surfaces as the API's own
+      # 422 rather than a force-push.
+      - name: Create the tag on the commit main shipped
+        if: steps.tag-check.outputs.exists != 'true'
+        id: mint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANONICAL_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/v${CANONICAL_VERSION}" \
+            -f sha="${GITHUB_SHA}" > /dev/null
+          echo "::notice title=Tagged::Created v${CANONICAL_VERSION} at ${GITHUB_SHA}."
+          echo "v${CANONICAL_VERSION} created at ${GITHUB_SHA}." >> "$GITHUB_STEP_SUMMARY"
+
+      # Hand the tag to the publisher. `release.yml` runs its own gate over it
+      # before anything is published, so this dispatch is a request, not a
+      # command.
+      - name: Ask release.yml to publish the tag
+        if: steps.tag-check.outputs.exists != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANONICAL_VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+
+          gh workflow run Release --ref main --field "tag=v${CANONICAL_VERSION}"
+          echo "Dispatched Release for v${CANONICAL_VERSION}." >> "$GITHUB_STEP_SUMMARY"

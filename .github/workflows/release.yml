@@ -1,10 +1,14 @@
-# Publish the release the pushed tag names.
+# Publish the release a tag names.
 #
-# The tag is cut by hand — `git tag v0.1.0 && git push origin v0.1.0` after the
-# version bump of AGENTS.md invariant 2 — and this workflow is what the push
-# earns: it refuses a tag the manifest disagrees with, refuses a tag `main` has
-# not taken, and publishes the GitHub Release from what is left, with generated
-# notes.
+# The tag is cut by `.github/workflows/auto-tag.yml`, which derives it from the
+# manifest version the moment a bump reaches main, or by hand — `git tag v0.1.0
+# && git push origin v0.1.0` — when a release is cut out of band. Both paths
+# pay the same gate: this workflow refuses a tag the manifest disagrees with,
+# refuses a tag `main` has not taken, and publishes the GitHub Release from
+# what is left — the tag's own section of `CHANGELOG.md`, with GitHub's
+# generated notes appended beneath it. A section the changelog is missing
+# degrades to generated notes with a warning rather than an empty release; the
+# refusal for that case lives in auto-tag.yml, where it stops the tag.
 #
 # Why no install and no second `npm run verify`: a commit is content-addressed,
 # so the run that passed on `<sha>` is a statement about *these bytes* — paying
@@ -21,7 +25,10 @@
 #   rather than left to be rediscovered.
 #
 # A tag push starts this file and nothing else: `verify.yml` and `site.yml` are
-# filtered to `branches: main`, so neither answers a tag.
+# filtered to `branches: main`, so neither answers a tag. auto-tag.yml
+# dispatches this workflow instead of relying on that push — a tag pushed with
+# the workflow's own `GITHUB_TOKEN` starts no run, and `workflow_dispatch` is
+# the documented exception — and names the tag to release through its input.
 #
 # It never pushes a ref, and it talks to no API: the whole gate is read from
 # the checkout, on the workflow-level `contents: read`. `contents: write` is
@@ -35,6 +42,14 @@ on:
   push:
     tags:
       - 'v*'
+  # auto-tag.yml asks for a release by name. The tag is the input rather than
+  # this run's ref, because a dispatch runs on a branch.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release, e.g. v0.3.1'
+        required: true
+        type: string
 
 # Read-only, and inherited by the gate job, which reads the repository and
 # nothing else. Only the publish job asks for more, by name.
@@ -48,10 +63,33 @@ jobs:
     name: the tagged commit is one main has taken
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      # The publish job releases exactly this tag. It must not re-derive it from
+      # its own ref, which on a dispatch is the branch rather than the tag.
+      tag: ${{ steps.tag.outputs.value }}
     steps:
-      - name: Check out the repository with its history
+      # One name for both ways in: the pushed tag, or the tag a dispatch asks
+      # for. Anything that is not a release tag stops here.
+      - name: Resolve the tag this run releases
+        id: tag
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if ! printf '%s' "${TAG}" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error title=Not a release tag::'${TAG}' is not a vX.Y.Z tag, so there is no release to publish."
+            exit 1
+          fi
+          echo "value=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the tagged commit with its history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The tag's own tree, not the trigger's commit — on a dispatch those
+          # are different commits, and the gate's two questions are about the
+          # tree being released.
+          ref: ${{ steps.tag.outputs.value }}
           # Ancestry needs the history, not just the tagged commit. Nothing
           # here talks to git over the network beyond that fetch, so the token
           # is never written into the workspace's configuration.
@@ -64,10 +102,14 @@ jobs:
       # release the extension never reports, so the run stops here before it
       # looks at anything else.
       - name: Refuse a tag that does not name the shipped version
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
         run: |
+          set -euo pipefail
+
           version="$(node -p "require('./package.json').version")"
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "::error title=Tag does not match the manifest::${GITHUB_REF_NAME} names a version the manifest does not ship (v${version})"
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "::error title=Tag does not match the manifest::${TAG} names a version the tagged tree does not ship (v${version})"
             exit 1
           fi
 
@@ -75,15 +117,18 @@ jobs:
       # commit, or on history main never took, is refused here — the release
       # exists for what main has accepted, not for any SHA someone can name.
       - name: Refuse a tag main has not taken
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
         run: |
           set -euo pipefail
 
+          tagged="$(git rev-parse HEAD)"
           git fetch --quiet origin main
-          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
-            echo "::error title=Tag is not on main::${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which main does not contain. A release is published from a commit main has taken."
+          if ! git merge-base --is-ancestor "${tagged}" origin/main; then
+            echo "::error title=Tag is not on main::${TAG} points at ${tagged}, which main does not contain. A release is published from a commit main has taken."
             exit 1
           fi
-          echo "${GITHUB_SHA} is on main; the branch's own rules are what let it land."
+          echo "${tagged} is on main; the branch's own rules are what let it land."
 
   publish:
     needs: gate
@@ -93,10 +138,34 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Check out the repository
+      - name: Check out the tagged tree
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # The tag, not this run's ref: on a dispatch those are different
+          # commits, and the notes below are read from the tree being released.
+          ref: ${{ needs.gate.outputs.tag }}
           persist-credentials: false
+
+      # The changelog is the release body, cut at the next `## [` heading. A tag
+      # with no section still publishes — the generated notes below carry it —
+      # but the run says so, and loudly: an empty release is the failure this
+      # whole file exists to prevent.
+      - name: Cut the tag's section out of the changelog
+        env:
+          TAG: ${{ needs.gate.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          version="${TAG#v}"
+          awk -v v="${version}" '
+              $0 ~ "^## \\[" v "\\]" { take = 1; next }
+              take && /^## / { take = 0 }
+              take { print }
+          ' CHANGELOG.md > release-notes.md
+
+          if [ ! -s release-notes.md ]; then
+            echo "::warning title=No changelog section::CHANGELOG.md has no '## [${version}]' heading, so this release's body is GitHub's generated notes alone."
+          fi
 
       - name: Create the release from the tag
         # SHA-pinned with the version in a comment — the convention the other two
@@ -105,12 +174,16 @@ jobs:
         # runtime.
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ needs.gate.outputs.tag }}
           # The tag names the release, so the title is the tag rather than a
           # sentence someone has to remember to write.
-          name: ${{ github.ref_name }}
-          # Notes from the commits since the previous release; with no previous
-          # tag — the case this repository is in — from the whole history, which
-          # is what a first release should say. The token is the job's own
-          # `github.token`, which is the action's default, so it is not restated.
+          name: ${{ needs.gate.outputs.tag }}
+          # The tag's own changelog section first, then GitHub's generated notes
+          # — the merged PRs, the new contributors, the compare link. The action
+          # appends the generated part when it is given both, so a release says
+          # what the changelog says about it *and* what landed around it.
+          # Empty when the section is missing, which is the warning above.
+          body_path: release-notes.md
+          # The token is the job's own `github.token`, which is the action's
+          # default, so it is not restated.
           generate_release_notes: true
