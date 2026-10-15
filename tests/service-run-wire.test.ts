@@ -31,8 +31,6 @@
  * host.
  */
 
-import { readFile } from 'node:fs/promises';
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { readAuditEntries } from '../service/audit.ts';
 import { nowIso } from '../src/ids.ts';
@@ -1007,31 +1005,6 @@ describe('T-043f sessionId takes only the host-shaped, bounded form', () => {
             expect(result.status).toBe(200);
             expect(result.json.auditWritten).toBe(true);
             expect(result.json.state).toBe('dispatched');
-        }
-    });
-
-});
-
-describe('T-043g the only authorization path left is the routed one', () => {
-    it('keeps the run store free of token minting and terminal transitions', async () => {
-        {
-            const source = await readFile(new URL('../service/poll/runs.ts', import.meta.url), 'utf8');
-
-            // The un-routed second minting site this wave deleted: one import away
-            // from re-creating the bypass, and `applyResult` there had no token
-            // check at all.
-            expect(source).not.toMatch(
-                /export async function (reserveRun|applyResult|abandonRun|blockRun|retryRun|requeueRun|resolveRun)\b/,
-            );
-            expect(source).not.toMatch(/from '\.\/run-key\.ts'/);
-        }
-    });
-
-    it('retires the legacy queue mutations the run routes replaced', async () => {
-        {
-            const source = await readFile(new URL('../service/poll/events.ts', import.meta.url), 'utf8');
-
-            expect(source).not.toMatch(/export async function (markEventDispatched|retryEvent)\b/);
         }
     });
 

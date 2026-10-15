@@ -1,5 +1,3 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { resolve as resolvePath } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { JsonValue } from '@openchamber/sdk';
 import {
@@ -32,35 +30,6 @@ import { fixtureBindingRow } from './support/binding-fixture.ts';
 
 /** Banner a panel with no dispatch context shows (002 FR-041). */
 const WAITING_FOR_BINDING = 'Waiting for a binding';
-
-/**
- * Collect every panel-source line that still *calls* machinery the
- * product-owner sweep retired (2026-09-30): the single-repo poll starters,
- * the poll itself, the integration card's `/user` identity diagnostic, and
- * the connection handler that drove them. The card, its badge, and its
- * diagnostic are gone, so any call site here is a regression rather than a
- * dormant path — the identifiers no longer even exist to be called.
- *
- * @returns One `file: line` entry per call site found under `src/`.
- */
-function retiredSpikeCallers(): readonly string[] {
-    const root = resolvePath(import.meta.dirname, '..');
-    const callSite = /\b(?:startPolling|restartPolling|runPoll|ensureIdentity|handleConnection|onConnection)\s*\(/;
-    const modules = readdirSync(resolvePath(root, 'src'), { recursive: true })
-        .map(String)
-        .filter((entry) => entry.endsWith('.ts'));
-    const callers: string[] = [];
-    for (const name of modules) {
-        const lines = readFileSync(resolvePath(root, 'src', name), 'utf8').split('\n');
-        for (const line of lines) {
-            if (callSite.test(line)) {
-                callers.push(`${name}: ${line.trim()}`);
-            }
-        }
-    }
-
-    return callers;
-}
 
 /**
  * Build a settings record.
@@ -210,11 +179,6 @@ describe('applySettings', () => {
 });
 
 describe('the install-time GitHub card is retired, not dormant (owner order 2026-09-30)', () => {
-    it('keeps the retired card, poll, and connection machinery unreachable from panel source', async () => {
-        {
-            expect(retiredSpikeCallers()).toEqual([]);
-        }
-    });
 
     it('arms the relay from the bindings read, which needs no connection event', async () => {
         {

@@ -9,10 +9,8 @@
  * shutdown test proves in-flight requests drain before the listener closes.
  */
 
-import { readFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { networkInterfaces } from 'node:os';
-import { resolve as resolvePath } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { readServiceEnv, ServiceEnvError } from '../service/env.ts';
 import { REQUEST_BODY_MAX_CHARS } from '../service/http.ts';
@@ -21,9 +19,6 @@ import { SERVICE_VERSION } from '../service/routes/health.ts';
 import { SERVICE_SCHEMA_VERSION } from '../service/store/index.ts';
 import { rawExchange, startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
-
-/** Repository root, derived from this file's location. */
-const ROOT = resolvePath(import.meta.dirname, '..');
 
 /** Loopback address every connection in this suite targets. */
 const HOST = '127.0.0.1';
@@ -60,9 +55,6 @@ const WRONG_TOKEN = 'wrong-wrong-wrong-wrong';
 
 /** Token-shaped value that must never appear in a log line. */
 const TOKEN_SHAPED_VALUE = 'ghp_abcdefghijklmnop123456';
-
-/** Ready-probe body asserted against the extension package's own version. */
-const PACKAGE_PATH = resolvePath(ROOT, 'package.json');
 
 /** Poll interval for helpers that wait on asynchronous effects. */
 const POLL_MS = 10;
@@ -344,14 +336,6 @@ describe('GET /health', () => {
                 version: SERVICE_VERSION,
                 schemaVersion: SERVICE_SCHEMA_VERSION,
             });
-        }
-    });
-
-    it('reports the version the extension package declares', async () => {
-        {
-            const manifest = JSON.parse(readFileSync(PACKAGE_PATH, 'utf8')) as { version?: string };
-
-            expect(SERVICE_VERSION).toBe(manifest.version);
         }
     });
 

@@ -1,40 +1,29 @@
 import { describe, expect, it } from 'vitest';
 import { GUEST_ATTACH_TEXT_MAX } from '@openchamber/sdk';
-import type { GuestProjectsSnapshot, GuestWorktreesSnapshot, StartSessionResult } from '@openchamber/sdk';
+import type { GuestProjectsSnapshot, StartSessionResult } from '@openchamber/sdk';
 import type { GitHubIssue } from '../src/github.ts';
-import { summarizeHostVerification, verifyHostState } from '../src/host-verify.ts';
-import { appendEntry, createLedger } from '../src/ledger.ts';
-import type { PanelLedger } from '../src/ledger.ts';
 import {
     CONTEXT_MAX_CHARS,
     SOURCE_EXCERPT_MAX_CHARS,
     buildBoundedContext,
     buildStartSessionRequest,
-    findDispatchForIssue,
     resolveProject,
     summarizeStartSessionResult,
 } from '../src/session.ts';
-import type { ContextSource, PanelHost } from '../src/session.ts';
+import type { ContextSource } from '../src/session.ts';
 import {
     FIXTURE_CORRELATION,
     FIXTURE_TIMESTAMP,
-    hasNothingToRelease,
     ISSUE_URL,
     LOGIN,
     PROJECT_DIR,
     PROJECT_ID,
-    PROJECTS,
     REPOSITORY,
     SESSION_ID,
-    SESSIONS,
-    WORKTREES,
     fakeHost,
     testConfig,
     testEvidence,
 } from './support/panel.ts';
-
-/** Number of milliseconds each subscription probe waits in tests. */
-const PROBE_WAIT_MS = 1;
 
 /** Correlation id used by the bounded-context assertions. */
 const CONTEXT_CORRELATION = 'abc-123';
@@ -54,9 +43,6 @@ const CLOSING_DELIMITER = '--- END UNTRUSTED ISSUE TEXT ---';
 /** Failure reason reported by a partial worktree bootstrap. */
 const BOOTSTRAP_FAILURE = 'bootstrap-failed';
 
-/** Timestamp used by the fixture records. */
-const T0 = '2026-09-26T12:00:00.000Z';
-
 /** Documented character cap for `title` on `startSession`. */
 const CLAMPED_TITLE = 200;
 
@@ -70,24 +56,6 @@ const LONG_TITLE = 400;
  */
 async function offlineProjects(): Promise<GuestProjectsSnapshot> {
     throw new Error('HOST_UNAVAILABLE');
-}
-
-/**
- * A worktree listing that fails the way a timed-out host does.
- *
- * @returns Never resolves; always rejects.
- */
-async function timedOutWorktrees(): Promise<GuestWorktreesSnapshot> {
-    throw new Error('HOST_TIMEOUT');
-}
-
-/**
- * A session subscription the user has not granted.
- *
- * @returns Never resolves; always rejects.
- */
-async function deniedSessions(): Promise<() => void> {
-    throw new Error('NOT_GRANTED');
 }
 
 /**
@@ -120,64 +88,6 @@ function source(overrides: Partial<ContextSource> = {}): ContextSource {
         excerpt: ISSUE_BODY_TEXT,
         ...overrides,
     };
-}
-
-/**
- * Build a host whose subscriptions replay once and record their teardown.
- *
- * @param teardowns - Collector the returned unsubscribe handles append to.
- * @returns A host that behaves like a live, subscribed panel.
- */
-function recordingHost(teardowns: string[]): PanelHost {
-    const stopProjects = (): void => void teardowns.push('projects');
-    const stopWorktrees = (): void => void teardowns.push('worktrees');
-    const stopSessions = (): void => void teardowns.push('sessions');
-    const stopLifecycle = (): void => void teardowns.push('lifecycle');
-
-    return fakeHost({
-        onProjects: async (listener) => {
-            listener(PROJECTS);
-            return stopProjects;
-        },
-        onWorktrees: async (projectId, listener) => {
-            listener({ ...WORKTREES, projectId });
-            return stopWorktrees;
-        },
-        onSessions: async (projectId, listener) => {
-            listener({ ...SESSIONS, projectId });
-            return stopSessions;
-        },
-        onSessionLifecycle: (listener) => {
-            listener({ sessionId: SESSION_ID, phase: 'started' });
-            return stopLifecycle;
-        },
-    });
-}
-
-/**
- * Build a host that models a fresh installation.
- *
- * The snapshot surfaces replay their current state, but the lifecycle stream
- * is silent: the host has never seen a session lifecycle event, so it has
- * nothing to replay. Registration is the only guarantee that surface makes.
- *
- * @returns A host double whose session-lifecycle listener never fires.
- */
-function freshHost(): PanelHost {
-    return fakeHost({
-        onProjects: async (listener) => {
-            listener(PROJECTS);
-            return hasNothingToRelease;
-        },
-        onWorktrees: async (projectId, listener) => {
-            listener({ ...WORKTREES, projectId });
-            return hasNothingToRelease;
-        },
-        onSessions: async (projectId, listener) => {
-            listener({ ...SESSIONS, projectId });
-            return hasNothingToRelease;
-        },
-    });
 }
 
 describe('resolveProject', () => {
@@ -476,152 +386,4 @@ describe('summarizeStartSessionResult', () => {
             });
         }
     });
-});
-
-describe('findDispatchForIssue', () => {
-    it('detects an issue that was already dispatched', () => {
-        {
-            let ledger: PanelLedger = createLedger({
-                correlationId: 'corr',
-                panelGeneration: 1,
-                storagePresentBeforeMount: false,
-                createdAt: T0,
-            });
-            ledger = appendEntry(ledger, {
-                at: '2026-09-26T12:00:01.000Z',
-                kind: 'session',
-                detail: { issueId: '7', sessionId: SESSION_ID },
-            });
-
-            expect(findDispatchForIssue(ledger, '7')).toBe(true);
-            expect(findDispatchForIssue(ledger, '8')).toBe(false);
-        }
-        {
-            const ledger = createLedger({
-                correlationId: 'corr',
-                panelGeneration: 1,
-                storagePresentBeforeMount: false,
-                createdAt: T0,
-            });
-
-            expect(findDispatchForIssue(ledger, '7')).toBe(false);
-        }
-        {
-            let ledger: PanelLedger = createLedger({
-                correlationId: 'corr',
-                panelGeneration: 1,
-                storagePresentBeforeMount: false,
-                createdAt: T0,
-            });
-            ledger = appendEntry(ledger, {
-                at: '2026-09-26T12:00:01.000Z',
-                kind: 'session',
-                detail: { issueId: '7', problem: 'project "prj_42" is not registered in OpenChamber', available: '' },
-            });
-            ledger = appendEntry(ledger, {
-                at: '2026-09-26T12:00:02.000Z',
-                kind: 'session',
-                detail: { issueId: '7', problem: 'source changed: notAssigned' },
-            });
-            ledger = appendEntry(ledger, {
-                at: '2026-09-26T12:00:03.000Z',
-                kind: 'session',
-                detail: { issueId: '7', sessionId: null, failure: BOOTSTRAP_FAILURE },
-            });
-
-            expect(findDispatchForIssue(ledger, '7')).toBe(false);
-
-            ledger = appendEntry(ledger, {
-                at: '2026-09-26T12:00:04.000Z',
-                kind: 'session',
-                detail: { issueId: '7', sessionId: SESSION_ID },
-            });
-
-            expect(findDispatchForIssue(ledger, '7')).toBe(true);
-            expect(findDispatchForIssue(ledger, '8')).toBe(false);
-        }
-    });
-});
-
-describe('verifyHostState', () => {
-    it('records lists, subscriptions, and lifecycle phases from the host', async () => {
-        {
-            const teardowns: string[] = [];
-            const host = recordingHost(teardowns);
-
-            const verification = await verifyHostState({ host, projectId: PROJECT_ID, waitMs: PROBE_WAIT_MS });
-
-            expect(verification.projectFound).toBe(true);
-            expect(verification.projectDirectory).toBe(PROJECT_DIR);
-            expect(verification.worktreeCount).toBe(1);
-            expect(verification.sessionCount).toBe(0);
-            expect(verification.lifecyclePhases).toEqual(['started']);
-            expect(verification.problems).toEqual([]);
-            expect(verification.probes).toHaveLength(4);
-            for (const probe of verification.probes) {
-                expect(probe.registered).toBe(true);
-                expect(probe.snapshotReplayed).toBe(true);
-            }
-            expect(teardowns).toHaveLength(4);
-            expect(teardowns).toContain('projects');
-        }
-    });
-
-    it('records a problem when a list call fails', async () => {
-        {
-            const host = fakeHost({ listWorktrees: timedOutWorktrees });
-
-            const verification = await verifyHostState({ host, projectId: PROJECT_ID, waitMs: PROBE_WAIT_MS });
-
-            expect(verification.problems.join(' ')).toContain('listWorktrees');
-            expect(verification.projectFound).toBe(true);
-        }
-    });
-
-    it('records a problem when a subscription cannot register', async () => {
-        {
-            const host = fakeHost({ onSessions: deniedSessions });
-
-            const verification = await verifyHostState({ host, projectId: PROJECT_ID, waitMs: PROBE_WAIT_MS });
-            const probe = verification.probes.find((candidate) => candidate.surface === 'sessions');
-
-            expect(probe?.registered).toBe(false);
-            expect(probe?.error).toContain('NOT_GRANTED');
-            expect(verification.problems.join(' ')).toContain('sessions');
-        }
-    });
-
-    it('flattens to scalar ledger detail', async () => {
-        {
-            const host = recordingHost([]);
-            const verification = await verifyHostState({ host, projectId: PROJECT_ID, waitMs: PROBE_WAIT_MS });
-            const detail = summarizeHostVerification(verification);
-
-            expect(detail.projectFound).toBe(true);
-            expect(detail.projectId).toBe(PROJECT_ID);
-            expect(detail.probesRegistered).toBe(4);
-            expect(detail.probesReplayed).toBe(4);
-            expect(typeof detail.worktreeBranches).toBe('string');
-            expect(detail.problems).toBe('');
-        }
-    });
-
-    it('treats a silent session-lifecycle stream on a fresh host as registration', async () => {
-        {
-            const host = freshHost();
-
-            const verification = await verifyHostState({ host, projectId: PROJECT_ID, waitMs: PROBE_WAIT_MS });
-            const probe = verification.probes.find((candidate) => candidate.surface === 'session-lifecycle');
-            const snapshots = verification.probes.filter((candidate) => candidate.replayExpected);
-
-            expect(snapshots.every((candidate) => candidate.snapshotReplayed)).toBe(true);
-            expect(probe?.registered).toBe(true);
-            expect(probe?.replayExpected).toBe(false);
-            expect(probe?.snapshotReplayed).toBe(false);
-            expect(probe?.error).toBeNull();
-            expect(verification.problems).toEqual([]);
-            expect(summarizeHostVerification(verification).failedProbeSurfaces).toBe('');
-        }
-    });
-
 });

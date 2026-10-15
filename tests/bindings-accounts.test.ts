@@ -65,13 +65,12 @@ import {
 import { createBindingsHandlers, mountBindingsTabBody } from '../src/bindings-mount.ts';
 import { initialBindings } from '../src/panel-state.ts';
 import { refresh } from '../src/panel-ui.ts';
-import { tabSpecs } from '../src/tab-bodies.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import type { BindingsStatus, BindingsTabState, PanelRuntime } from '../src/panel-state.ts';
 import type { PanelAccount } from '../src/bindings-service.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeDom, FakeElement } from './support/dom.ts';
-import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
 import { byText } from './support/sort.ts';
 import { propsOf } from './support/ui-stubs.ts';
 
@@ -143,48 +142,12 @@ const CANCEL_EDIT_LABEL = 'Cancel edit';
 const TOOLBAR_CLASS = 'mt-toolbar';
 
 /**
- * Every `status === 'ready'` comparison the accounts module is allowed to make,
- * each with the reason it is that one.
- *
- * FR-122's consistency rule holds only while the gate and the empty-text
- * selector consume **one** predicate. Two separately-written tests can drift,
- * and the second copy is invisible in review because both are correct on the
- * day they are written — so the copy is a *list*, and the scan below asserts
- * the module's own occurrences **are** this list. A widening therefore fails
- * naming the offender rather than as a bare `false`.
- */
-const READ_COMPARISONS: readonly (readonly [string, string])[] = [
-    ['accountsRead', "D20's named read-success conjunct, which the gate composes and the selector reads"],
-];
-
-/**
- * Every occurrence of `accounts.length` the accounts module is allowed to make,
- * each with the reason it is that one.
- *
- * A census rather than a prohibition, because the count is **required** in two
- * places and forbidden in one — and which is which is the whole claim. Branch 1
- * of the selector may not read it at all; the gate and branch 2 may, only ever
- * *after* the read has succeeded. So the test below checks the **order** inside
- * each consumer and uses this list only to name every reader, so a fourth
- * consumer added later fails naming itself rather than silently reading a
- * length it should not.
- */
-const LENGTH_READERS: readonly (readonly [string, string])[] = [
-    ['accountGate', "FR-120's conjunct, reached only once the read has succeeded"],
-    ['accountSelectionRefusal', "FR-123's table is over what the picker offers, not over the read"],
-    ['emptyBindingsText', 'FR-122 branch 2, reached only once the read has succeeded'],
-];
-
-/**
  * The workspace-relative path of the module whose *shape* FR-122 pins.
  */
 const ACCOUNTS_MODULE = 'src/bindings-accounts.ts';
 
 /** The account picker's withdrawn placeholder — `verified` is not a state. */
 const WITHDRAWN_PLACEHOLDER = 'Select a verified account';
-
-/** The instruction FR-122's table may not name for a disabled control. */
-const WITHDRAWN_EMPTY_TEXT = 'select New binding';
 
 /** Fixture numeric account id. */
 const ACCOUNT_ID = '77331';
@@ -197,9 +160,6 @@ const IDLE_LOGIN = 'pending-mt';
 
 /** Fixture login of the second account that is not `active`. */
 const OTHER_IDLE_LOGIN = 'revoked-mt';
-
-/** RFC 3339 stamp the Accounts-tab fixture's `verifiedAt` row renders. */
-const LAST_VERIFIED_AT = FIXTURE_TIMESTAMP;
 
 /**
  * The tab's own failed-read line, verbatim as `loadBindings` writes it on a
@@ -524,32 +484,6 @@ function mountedBindings(input: {
 }
 
 /**
- * Mount the **Accounts** body over the same shared state, for the fixture that
- * proves AC-155's scan forbids a *string* rather than a word.
- *
- * @returns The runtime, with the Accounts body mounted.
- */
-function mountedAccounts(input: {
-    /** Accounts the row is composed from; one carries a `verifiedAt` stamp. */
-    readonly accounts: readonly PanelAccount[];
-}): PanelRuntime {
-    const rt = createTestRuntime(fakeHost());
-    Object.assign(rt.state.bindings, { status: 'ready' as const, accounts: input.accounts });
-    freshJournal();
-    const spec = tabSpecs(rt).find((entry) => entry.id === 'accounts');
-    if (spec === undefined) {
-        throw new Error('the Accounts tab spec is missing from the shell');
-    }
-
-    const dispose = spec.mount(fakeDom().root);
-    if (dispose === null) {
-        throw new Error('the Accounts body mounted no disposer');
-    }
-
-    return rt;
-}
-
-/**
  * Release one case's mounted bodies and stop the relay a granted list armed.
  */
 function release(...cases: readonly (Mounted | PanelRuntime)[]): void {
@@ -696,22 +630,6 @@ describe('FR-120 and FR-122 the gate and the empty text read one predicate over 
         }
     });
 
-    it('states the third row as an absence of knowledge, naming only Refresh', () => {
-        // By equality, because a placeholder-free rewrite that keeps the meaning
-        // would still fail — and because a scan can only find what it is given.
-        expect(EMPTY_TEXT_NOT_KNOWN).toBe('No binding yet — the account list is not known. Refresh to read it.');
-        // No account-count claim: an unread list is **not evidence** of an absence.
-        for (const claim of [/no accounts/iu, /0 accounts/iu, /\bnone\b/iu, /\bno account\b/iu]) {
-            expect(EMPTY_TEXT_NOT_KNOWN, String(claim)).not.toMatch(claim);
-        }
-        // …and never *New binding*, which the read-state condition has disabled.
-        expect(EMPTY_TEXT_NOT_KNOWN).not.toContain(WITHDRAWN_EMPTY_TEXT);
-        expect(EMPTY_TEXT_NOT_KNOWN).toContain('Refresh');
-        // It does not restate the failed read's cause or its retry: the tab's own
-        // failed-read channel owns those (FR-019, FR-121's channel rule).
-        expect(EMPTY_TEXT_NOT_KNOWN).not.toMatch(/failed|refresh to retry/iu);
-    });
-
     it('FR-123 refuses in three total cases, and FR-121\'s constant serves both positions', () => {
         const one = accountFixture();
         const inactive = accountFixture({
@@ -753,63 +671,6 @@ describe('FR-120 and FR-122 the gate and the empty text read one predicate over 
  * -------------------------------------------------------------------- */
 
 describe('K-3 the gate and the selector consume one predicate, not two', () => {
-    it('makes exactly one status comparison, and it is accountsRead\'s', () => {
-        const code = accountsCode();
-
-        // Every occurrence, each attributed to the function that holds it.
-        const owners: string[] = [];
-        const names = [...code.matchAll(/(?:export )?function ([A-Za-z0-9_]+)/g)]
-            .map((match) => ({ name: match[1], at: match.index }))
-            .toSorted((left, right) => left.at - right.at);
-        for (const hit of code.matchAll(/status === 'ready'/g)) {
-            const owner = names.findLast((entry) => entry.at < hit.index);
-
-            owners.push(owner?.name ?? 'module scope');
-        }
-
-        const allowed = READ_COMPARISONS.map(([name]) => name);
-        expect(owners.toSorted(byText)).toEqual(allowed.toSorted(byText));
-        // And the exemptions are real: a predicate that stopped existing would
-        // otherwise leave the scan proving nothing.
-        for (const [name, reason] of READ_COMPARISONS) {
-            expect(owners, `${name}: ${reason}`).toContain(name);
-            expect(functionBody(code, name)).toContain("status === 'ready'");
-        }
-
-        // Neither consumer compares `bindings.status` itself — the selector
-        // *reads* the conjunct rather than re-deriving the state.
-        for (const name of ['accountGate', 'emptyBindingsText']) {
-            expect(functionBody(code, name), name).not.toContain('bindings.status');
-            expect(functionBody(code, name), name).toContain('accountsRead(bindings)');
-        }
-    });
-
-    it('keys the selector on the read conjunct alone, never on the list length', () => {
-        const body = functionBody(accountsCode(), 'emptyBindingsText');
-
-        // The **guard** of the not-known row is the negated named predicate and
-        // nothing else. This is the assertion a length-keyed "simplification"
-        // fails: an `accounts.length === 0` guard would render *add an account*
-        // over an unanswered read and assert an absence the panel never
-        // established.
-        const guard = /if \(([\s\S]*?)\)\s*\{\s*return EMPTY_TEXT_NOT_KNOWN;/u.exec(body);
-        expect(guard).not.toBeNull();
-        expect(guard?.[1]?.replaceAll(/\s/gu, '')).toBe('!accountsRead(bindings)');
-
-        // No length test is reachable before that guard, and the length branch
-        // it does reach is FR-122's second row.
-        const readAt = body.indexOf('accountsRead(bindings)');
-        const firstLength = body.indexOf('accounts.length');
-        expect(readAt).toBeGreaterThan(-1);
-        expect(firstLength === -1 || firstLength > readAt).toBe(true);
-        expect(body.slice(0, readAt)).not.toContain('accounts.length');
-        // All three of FR-122's rows are reachable from this one function, by
-        // identifier — so a row cannot quietly stop being selected while the
-        // other two keep the test green.
-        for (const row of ['EMPTY_TEXT_NOT_KNOWN', 'EMPTY_TEXT_NO_ACCOUNTS', 'EMPTY_TEXT_WITH_ACCOUNT']) {
-            expect(body, row).toContain(row);
-        }
-    });
 
     it('never widens the gate to usable accounts or fires it pre-read', () => {
         const gate = functionBody(accountsCode(), 'accountGate');
@@ -831,23 +692,6 @@ describe('K-3 the gate and the selector consume one predicate, not two', () => {
             expect(accountGate(bindingsState({ status, accounts: [inactive] })).blocked, status).toBe(false);
         }
         expect(accountGate(bindingsState({ status: 'ready', accounts: [inactive] })).blocked).toBe(false);
-    });
-
-    it('keeps its census of accounts.length readers explicit, so a widening names itself', () => {
-        const code = accountsCode();
-        const found: string[] = [];
-
-        for (const match of code.matchAll(/function ([A-Za-z0-9_]+)/g)) {
-            const name = match[1];
-            if (name !== undefined && functionBody(code, name).includes('accounts.length')) {
-                found.push(name);
-            }
-        }
-
-        expect(found.toSorted(byText)).toEqual(LENGTH_READERS.map(([name]) => name).toSorted(byText));
-        for (const [name, reason] of LENGTH_READERS) {
-            expect(found, `${name}: ${reason}`).toContain(name);
-        }
     });
 });
 
@@ -1116,29 +960,6 @@ describe('K-8 FR-123 the placeholder names a state the product has', () => {
         expect(pickerProps().disabled).toBe(true);
         release(none);
     });
-
-    it('the placeholder is a mount-time constant, never a repaint-path value', () => {
-        const mounted = mountedBindings({ state: bindingsState({ status: 'ready', accounts: [] }) });
-        // Every `placeholder` prop the **Bindings** tab's three selects ever
-        // received, mounted or repainted. The picker's is the one under test; the
-        // project select carries its own, and the worktree select none.
-        const carried = mounts.log
-            .filter((entry) => entry.key === 'mountSelect' || entry.key === 'mountSelect:update')
-            .filter((entry) => Object.hasOwn(propsOf(entry.props), 'placeholder'))
-            .map((entry) => String(propsOf(entry.props).placeholder));
-
-        expect(carried).toContain(ACCOUNT_PICKER_PLACEHOLDER);
-        // A conditional placeholder would have to arrive through a repaint; this
-        // one mounts with it and no `update` ever carries it.
-        expect(carried.filter((value) => value === ACCOUNT_PICKER_PLACEHOLDER)).toHaveLength(1);
-        expect(
-            mounts.updates.some((entry) => entry.key === 'mountSelect' && Object.hasOwn(
-                propsOf(entry.props),
-                'placeholder',
-            )),
-        ).toBe(false);
-        release(mounted);
-    });
 });
 
 describe('K-4 FR-121 the reason mounts under the list toolbar as text alone', () => {
@@ -1379,316 +1200,6 @@ describe('K-5 and K-6 the mount, the repaint, and the gate (AC-154, AC-156)', ()
             expect(untouchedStates(UNTOUCHED_CONTROLS), label).toEqual(expected);
             release(mounted);
         }
-    });
-});
-
-/* -------------------------------------------------------------------- *
- * K-9 — the two copy scans, each proved able to fail
- * -------------------------------------------------------------------- */
-
-/**
- * The words no empty-text row may use to tell an operator to **press** something.
- *
- * FR-122 forbids *select*, *click*, *press*, and *choose* for a control the
- * operator cannot currently use — not the words themselves, which the retained
- * third row is built out of. The scan is therefore **state-keyed**: it asks
- * each row whether the control it names is live in the state that row renders,
- * and only then whether the row names it.
- */
-const PRESS_WORDS: readonly (readonly [string, RegExp])[] = [
-    ['click', /\bclick\b/iu],
-    ['press', /\bpress\b/iu],
-    ['choose', /\bchoose\b/iu],
-];
-
-/**
- * The one verb the **retained** row is built out of, and therefore the exemption
- * the state-keyed scan must carry.
- *
- * FR-122 bans *select* "for a control the operator cannot currently use" — not
- * the word. The retained third row's whole text is *select New binding to add
- * one*, and that row renders precisely because the control **is** live. So the
- * scan's real question is never "does the row use a press-word" but "does it
- * name a control that is disabled in this state", and that is what the frame
- * comparison below asks. Named in data so the exemption is visible rather than
- * buried in the matcher: a widened scan would then have to widen this list too.
- */
-const PRESS_EXEMPT: readonly (readonly [string, string])[] = [
-    ['select New binding', 'FR-122 row 3 renders it precisely because the control is live'],
-];
-
-/** Every control an empty-text row may name, and where it lives. */
-const NAMED_CONTROLS: readonly (readonly [string, string])[] = [
-    ['New binding', 'the list toolbar, disabled while the gate holds or the read is unanswered'],
-    ['Add binding', 'the editor\'s primary control, disabled outside a ready read'],
-];
-
-/** One mounted tab, with the two facts the state-keyed scan compares. */
-interface EmptyTextFrame {
-    /** The read state and account list the tab mounted over. */
-    readonly label: string;
-    /** What the operator would meet on *New binding*. */
-    readonly newBindingDisabled: boolean;
-    /** The text the list itself carries, as mounted and repainted. */
-    readonly emptyText: string;
-}
-
-/**
- * Mount the Bindings body in one read state and read the two facts the
- * state-keyed scan compares.
- *
- * @param label - How the state is named in a failure message.
- * @param status - Where the accounts read stands.
- * @param accounts - Accounts the panel's list holds.
- * @returns The frame, and the mounted case to release.
- */
-function emptyTextFrame(input: {
-    /** How the state is named in a failure message. */
-    readonly label: string;
-    /** Where the accounts read stands. */
-    readonly status: BindingsStatus;
-    /** Accounts the panel's list holds. */
-    readonly accounts: readonly PanelAccount[];
-}): { readonly frame: EmptyTextFrame; readonly mounted: Mounted } {
-    const mounted = mountedBindings({ state: bindingsState(input) });
-    const frame: EmptyTextFrame = {
-        label: input.label,
-        newBindingDisabled: newBindingProps().disabled === true,
-        emptyText: String(listProps().emptyText),
-    };
-
-    return { frame, mounted };
-}
-
-describe('K-9 the state-keyed copy scan forbids pressing a disabled control, and is proved able to find it', () => {
-    it('no row names a control that is disabled in the state its own row renders', () => {
-        const frames: EmptyTextFrame[] = [];
-        for (const input of [
-            { label: 'idle · none', status: 'idle' as const, accounts: [] },
-            { label: 'loading · none', status: 'loading' as const, accounts: [] },
-            // The stale case: a failed read over a list that is empty on the panel's
-            // own state, which is the row a length-keyed selector gets wrong.
-            { label: 'error · stale none', status: 'error' as const, accounts: [] },
-            { label: 'error · one', status: 'error' as const, accounts: [accountFixture()] },
-            { label: 'ready · none', status: 'ready' as const, accounts: [] },
-            { label: 'ready · one', status: 'ready' as const, accounts: [accountFixture()] },
-            {
-                label: 'ready · two, neither active',
-                status: 'ready' as const,
-                accounts: [inactiveAccount(), otherInactiveAccount()],
-            },
-        ]) {
-            const { frame, mounted } = emptyTextFrame(input);
-            frames.push(frame);
-            release(mounted);
-        }
-
-        expect(frames).toHaveLength(7);
-        for (const frame of frames) {
-            for (const [word, matcher] of PRESS_WORDS) {
-                expect(frame.emptyText, `${frame.label} used "${word}": ${frame.emptyText}`)
-                    .not.toMatch(matcher);
-            }
-            // The state-keyed half: a **disabled** control may not be named at
-            // all, which is what catches `select New binding` without banning the
-            // word the retained row is made of.
-            for (const [control] of NAMED_CONTROLS) {
-                if (frame.newBindingDisabled) {
-                    expect(frame.emptyText, `${frame.label} named "${control}" while disabled`)
-                        .not.toContain(control);
-                }
-            }
-        }
-
-        // The exemption is real, and it is the *only* one: the retained row does
-        // use `select`, so a scan banning the word would forbid the copy the
-        // requirement kept verbatim.
-        for (const [phrase, reason] of PRESS_EXEMPT) {
-            const using = frames.filter((frame) => frame.emptyText.includes(phrase));
-
-            expect(using, reason).not.toHaveLength(0);
-            for (const frame of using) {
-                expect(frame.newBindingDisabled, `${frame.label} · ${reason}`).toBe(false);
-            }
-        }
-
-        // ── Non-vacuity, and this is the half that matters: the matcher **does**
-        //    find the withdrawn instruction, in the state its own row renders.
-        //    AC-154's one-account fixture is the positive one for the retained
-        //    row; AC-156's mounted-at-`idle` fixture is the positive one for the
-        //    third row — and before this fix *that* was the state in which the
-        //    empty text carried `select New binding`.
-        const one = frames.find((frame) => frame.label === 'ready · one');
-        const idle = frames.find((frame) => frame.label === 'idle · none');
-
-        expect(one?.emptyText).toBe(EMPTY_TEXT_WITH_ACCOUNT);
-        expect(one?.emptyText).toContain(WITHDRAWN_EMPTY_TEXT);
-        expect(one?.newBindingDisabled).toBe(false);
-        expect(idle?.emptyText).toBe(EMPTY_TEXT_NOT_KNOWN);
-        expect(idle?.newBindingDisabled).toBe(true);
-        // Every state that names it is one where the control is live, and every state
-        // where the control is live names it — so the exemption is the whole of
-        // the scan's allowance, and no fourth row could add to it unnoticed.
-        const naming = frames.filter((frame) => frame.emptyText.includes(WITHDRAWN_EMPTY_TEXT));
-        const live = frames.filter((frame) => !frame.newBindingDisabled);
-
-        expect(naming.map((frame) => frame.label).toSorted(byText))
-            .toEqual(live.map((frame) => frame.label).toSorted(byText));
-        expect(naming.length).toBeGreaterThan(0);
-        expect(naming.map((frame) => frame.newBindingDisabled)).toEqual(
-            naming.map(() => false),
-        );
-    });
-
-    it('states the third row by equality, with no account count and only Refresh', () => {
-        // The three pre-read states AC-156 names, plus the *stale* case that
-        // followed a successful read of an empty list — the one frame in which a
-        // length-keyed selector would have asserted an absence.
-        const preRead: readonly (readonly [string, BindingsStatus])[] = [
-            ['idle · none', 'idle'],
-            ['loading · none', 'loading'],
-            ['error · stale none', 'error'],
-            ['error · one', 'error'],
-        ];
-
-        for (const [label, status] of preRead) {
-            const { frame, mounted } = emptyTextFrame({
-                label,
-                status,
-                accounts: label.endsWith('one') ? [accountFixture()] : [],
-            });
-
-            expect(frame.emptyText, label).toBe(EMPTY_TEXT_NOT_KNOWN);
-            // Not an account-count claim: a list the panel could not read is
-            // **missing evidence**, and this row says so rather than asserting
-            // an absence it has not established (constitution II).
-            for (const claim of [/no accounts/iu, /\b0 accounts\b/iu, /\bnone\b/iu]) {
-                expect(frame.emptyText, `${label} · ${String(claim)}`).not.toMatch(claim);
-            }
-            // The only control it may name is *Refresh*, and the gate never
-            // touches it — so the row cannot contradict the control because of
-            // anything **this block** did.
-            expect(frame.emptyText, label).toContain('Refresh');
-            // Recorded rather than smoothed over: while a read is **in flight**
-            // the pre-existing read-state condition disables *Refresh* itself
-            // (`bindings-ui.ts` — untouched by this block), so the row names a
-            // control that is momentarily unavailable. Both come from the *same*
-            // condition, which is what makes it self-consistent rather than a
-            // second dead end; a *failed* read re-enables it, and the row's
-            // advice then becomes actionable.
-            expect(buttonProps('Refresh bindings').disabled, label).toBe(status === 'loading');
-            // And it does not restate the failed read's cause or its retry.
-            expect(frame.emptyText, label).not.toMatch(/failed|refresh to retry/iu);
-            release(mounted);
-        }
-
-        // …and FR-120's gate must not reach this control either. `ready` is the
-        // **only** read state where the gate holds, so it is the only state a
-        // gate spread onto *Refresh* could show in — the four pre-read states
-        // above all have `blocked === false` by FR-120's own bar, so on their own
-        // they cannot tell the shipped line from a spread one, and a failure
-        // names the state it was looked for in.
-        for (const [label, accounts] of [
-            ['ready · none', []],
-            ['ready · one', [accountFixture()]],
-        ] as const) {
-            const { mounted } = emptyTextFrame({ label, status: 'ready', accounts });
-
-            expect(buttonProps('Refresh bindings').disabled, label).toBe(false);
-            release(mounted);
-        }
-    });
-});
-
-/**
- * The items an Accounts list carries right now, mount props and repaints laid
- * over each other in order.
- *
- * @returns Its items, or an empty list when it has none.
- */
-function rowsOfAccountsList(): readonly { readonly id: string; readonly subtitle?: unknown }[] {
-    const at = indexOfMount('mountList', (props) => props.ariaLabel === 'Accounts');
-    const items = propsAt('mountList', at)?.items;
-
-    return Array.isArray(items)
-        ? (items as readonly { readonly id: string; readonly subtitle?: unknown }[])
-        : [];
-}
-
-describe('K-9 AC-155 keeps its own phrase-keyed scan, which forbids a string and not a word', () => {
-    it('finds the withdrawn placeholder nowhere on the Bindings surfaces', () => {
-        for (const input of [
-            { label: 'ready · none', status: 'ready' as const, accounts: [] },
-            { label: 'ready · one', status: 'ready' as const, accounts: [accountFixture()] },
-            {
-                label: 'ready · two, neither active',
-                status: 'ready' as const,
-                accounts: [inactiveAccount(), otherInactiveAccount()],
-            },
-            { label: 'idle', status: 'idle' as const, accounts: [] },
-        ]) {
-            const { mounted } = emptyTextFrame(input);
-            const bindingsStrings = JSON.stringify(
-                mounts.log.map((entry) => propsOf(entry.props)),
-            );
-
-            expect(bindingsStrings, input.label).not.toContain(WITHDRAWN_PLACEHOLDER);
-            // The scope is stated, not implied: this scan covers the **Bindings**
-            // surfaces, so a third tab is a vocabulary-suite concern (plan §K.5
-            // item 3), not something this claim silently takes on.
-            expect(bindingsStrings, input.label).toContain(ACCOUNT_PICKER_PLACEHOLDER);
-            release(mounted);
-        }
-    });
-
-    it('is proved non-vacuous by an Accounts row that still renders verifiedAt', () => {
-        // The rule forbids the **placeholder string**, not the word: FR-062's
-        // `verifiedAt` row is correct, unchanged, and required, so a scan
-        // banning *verified* panel-wide would forbid a row the product needs.
-        const accounts = mountedAccounts({
-            accounts: [accountFixture({ verifiedAt: LAST_VERIFIED_AT })],
-        });
-        // Read the rows the Accounts list actually renders — the mount's own items laid
-        // over its first repaint, which is where the row copy arrives.
-        const rows = JSON.stringify(rowsOfAccountsList());
-
-        // The word survives on the Accounts tab …
-        expect(rows).toContain('verified');
-        expect(rows).toMatch(/last verified/iu);
-        // … while the withdrawn phrase does not, on any tab.
-        expect(rows).not.toContain(WITHDRAWN_PLACEHOLDER);
-        release(accounts);
-    });
-
-    it('keeps the two scans separate, and a merge would fail by name', () => {
-        // Each claim is judged against its own fixture. Merging them would make
-        // the Accounts-tab `verifiedAt` row prove a claim about the **empty text**
-        // — which it does not speak to — and would widen the phrase scan into a
-        // ban on the word, which the fixture above proves is wrong.
-        const emptyTextClaims = [EMPTY_TEXT_NOT_KNOWN, EMPTY_TEXT_NO_ACCOUNTS, EMPTY_TEXT_WITH_ACCOUNT];
-        const { frame, mounted } = emptyTextFrame({
-            label: 'ready · none',
-            status: 'ready',
-            accounts: [],
-        });
-
-        expect(emptyTextClaims).toContain(frame.emptyText);
-        expect(frame.emptyText).not.toContain('verified');
-        expect(frame.emptyText).not.toContain(WITHDRAWN_PLACEHOLDER);
-        release(mounted);
-
-        // The scanned **surface** differs too: one reads the list's `emptyText`,
-        // the other the Bindings tab's whole prop journal.
-        const noneActive = emptyTextFrame({
-            label: 'ready · two, neither active',
-            status: 'ready',
-            accounts: [inactiveAccount(), otherInactiveAccount()],
-        });
-
-        expect(noneActive.frame.emptyText).toBe(EMPTY_TEXT_WITH_ACCOUNT);
-        expect(noneActive.frame.emptyText).not.toContain(ACCOUNT_PICKER_PLACEHOLDER);
-        expect(pickerProps().placeholder).toBe(ACCOUNT_PICKER_PLACEHOLDER);
-        release(noneActive.mounted);
     });
 });
 

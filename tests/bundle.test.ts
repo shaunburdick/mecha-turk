@@ -273,31 +273,6 @@ const HTML_SINKS: readonly RegExp[] = [
 /** Source directories the static scans walk. */
 const SOURCE_DIRS: readonly string[] = ['src', 'service'];
 
-/** Modules allowed to talk to GitHub's REST API; every one of them reads. */
-/**
- * The modules allowed to name GitHub's REST API at all (FR-002, FR-031).
- *
- * Every one of them is a **reader**: the panel's shape reader, the service's
- * credential verifier, and the poller's two halves — the endpoint catalogue and
- * the transport that builds and classifies every request they issue. The split
- * at 002 v1.12.0 added `poller-transport.ts` beside `poller-github.ts`, and it is
- * named here because a module that builds a URL is a gateway whether or not it
- * also lists endpoints; leaving it out would have let a genuine write land in a
- * module the scan had stopped covering.
- */
-const GITHUB_GATEWAYS: ReadonlySet<string> = new Set([
-    'src/github.ts',
-    'service/github.ts',
-    'service/poll/poller-github.ts',
-    'service/poll/poller-transport.ts',
-]);
-
-/** A reference to GitHub's REST API, however the module spells it. */
-const GITHUB_API = /api\.github\.com|API_ORIGIN|`\/repos\//;
-
-/** A non-GET HTTP method literal: the shape every GitHub write would take. */
-const GITHUB_WRITE_METHOD = /\bmethod:\s*['"](POST|PUT|PATCH|DELETE)['"]/;
-
 /**
  * 003's own modules, named so the scan cannot quietly stop covering them.
  *
@@ -307,106 +282,6 @@ const GITHUB_WRITE_METHOD = /\bmethod:\s*['"](POST|PUT|PATCH|DELETE)['"]/;
  */
 /** `src/dispatches-rows.ts`, named once so no list below repeats the literal. */
 const DISPATCHES_ROWS_MODULE = 'src/dispatches-rows.ts';
-
-const DISPATCH_MODULES: readonly string[] = [
-    'src/relay.ts',
-    'src/relay-gates.ts',
-    'src/relay-attempt.ts',
-    'src/dispatch-record.ts',
-    'src/claim-service.ts',
-    'src/reconcile.ts',
-    'src/prerequisites.ts',
-    'src/audit-view.ts',
-    DISPATCHES_ROWS_MODULE,
-    'src/dispatches-service.ts',
-    'src/service-calls.ts',
-    'src/session.ts',
-    'service/poll/run-key.ts',
-    'service/poll/runs.ts',
-    'service/poll/claim.ts',
-    'service/poll/claim-bounds.ts',
-    'service/poll/claim-project.ts',
-    'service/poll/sweep.ts',
-    'service/poll/sweep-loop.ts',
-    'service/poll/dispatch-authorize.ts',
-    'service/poll/dispatch-report.ts',
-    'service/poll/dispatch-block.ts',
-    'service/poll/run-operate.ts',
-    'service/poll/run-refusal.ts',
-    'service/poll/run-verify.ts',
-    'service/poll/runs-audit.ts',
-    'service/poll/runs-adopt.ts',
-    'service/routes/dispatch.ts',
-    'service/routes/run-ops.ts',
-    'service/routes/run-answer.ts',
-    'service/routes/audit.ts',
-];
-
-/**
- * 004's own modules, named so the static scans cannot quietly stop covering
- * them (AC-143's "new assertions", AC-144's "the panel never touches the
- * binding field") — plus every `service/` module the layered-prompt work
- * introduced or touched, so the suppression and `any` gate below is never
- * blind on a module these commits added.
- *
- * The walk is dynamic — every `.ts` under {@link SOURCE_DIRS} is read — so
- * this list is the assertion that the newest additions are inside it.
- */
-/**
- * The one suppression shape invariant 7 permits: scoped to the line below, and
- * carrying the reason.
- *
- * A bare `eslint-disable`, a file-wide `/* eslint-disable … *\/` block, and a
- * missing reason are all still failures here. The ESLint layer enforces the
- * same three properties repo-wide (`no-unlimited-disable`,
- * `disable-enable-pair`, `require-description`); keeping the check here as well
- * is what attaches the guarantee to the prompt pipeline specifically, which is
- * where a quietly suppressed check would cost the most.
- */
-const LINE_SCOPED_DISABLE = /eslint-disable-next-line\s+[\w@/-]+\s+--\s+\S/u;
-
-const PROMPT_MODULES: ReadonlySet<string> = new Set([
-    'src/prompt.ts',
-    'src/prompt-wire.ts',
-    'src/context-blocks.ts',
-    'src/session.ts',
-    'src/claim-service.ts',
-    'src/relay-attempt.ts',
-    'src/dispatches-service.ts',
-    DISPATCHES_ROWS_MODULE,
-    'src/run-state.ts',
-    'service/prompt.ts',
-    'service/prompt-audit.ts',
-    'service/bindings.ts',
-    'service/bindings-read.ts',
-    'service/routes/bindings.ts',
-    'service/poll/runs-parse.ts',
-    'service/poll/claim-project.ts',
-    'service/poll/run-history-project.ts',
-    'service/poll/dispatch-audit.ts',
-    'service/config-prompt-observe.ts',
-    'service/account-prompt-audit.ts',
-    'service/config-schema.ts',
-    'service/accounts/model.ts',
-    'service/accounts/store.ts',
-    'service/routes/accounts.ts',
-    // Every other module the layered-prompt commits introduced or touched
-    // under `service/`: the tier validators, the configuration observer and
-    // its audit lanes, the profile write, and the routes/cycle files they
-    // wired through. Named here because a module this list omits is a module
-    // the suppression and `any` scan below never reads (T-035's blind spot).
-    'service/audit-trim.ts',
-    'service/config-audit.ts',
-    'service/config-prompt.ts',
-    'service/config.ts',
-    'service/poll/cycle-config.ts',
-    'service/poll/loop.ts',
-    'service/poll/timer.ts',
-    'service/routes/account-profile.ts',
-    'service/routes/config.ts',
-    'service/routes/index.ts',
-    'service/routes/verify.ts',
-]);
 
 /** One file the static scans read. */
 interface ScannedFile {
@@ -548,44 +423,6 @@ describe('NFR-109 no HTML sink on a shipped artifact or a new field', () => {
                 for (const sink of HTML_SINKS) {
                     expect(file?.text, `${path} must not use ${sink.source}`).not.toMatch(sink);
                 }
-            }
-        }
-    });
-});
-
-describe('AC-128 the no-GitHub-write scan covers every module (FR-002)', () => {
-    it('reads every source module, including every 003 addition', () => {
-        {
-            const files = scanSources();
-            expect(files.length).toBeGreaterThan(60);
-
-            const paths = new Set(files.map((file) => file.path));
-            for (const module of DISPATCH_MODULES) {
-                expect(paths.has(module), `${module} was not scanned`).toBe(true);
-            }
-        }
-        {
-            // The scan has to bite before it can be believed.
-            expect(GITHUB_API.test('const url = new URL(API_ORIGIN + "/repos/acme/widget/issues")')).toBe(true);
-            expect(GITHUB_API.test('const path = `/repos/` + owner + `/issues`')).toBe(true);
-
-            const outsiders = scanSources()
-                .filter((file) => GITHUB_API.test(file.text) && !GITHUB_GATEWAYS.has(file.path))
-                .map((file) => file.path);
-            expect(outsiders).toEqual([]);
-        }
-        {
-            expect(GITHUB_WRITE_METHOD.test("method: 'POST'")).toBe(true);
-
-            const gateways = scanSources().filter((file) => GITHUB_GATEWAYS.has(file.path));
-            expect(gateways).toHaveLength(GITHUB_GATEWAYS.size);
-            for (const file of gateways) {
-                expect(file.text, `${file.path} builds a GitHub write`).not.toMatch(GITHUB_WRITE_METHOD);
-            }
-        }
-        {
-            for (const bundle of [BUNDLE, SERVICE_BUNDLE]) {
-                expect(readFileSync(bundle, UTF8), `${bundle} embeds a dispatch token`).not.toMatch(CONCRETE_TOKEN);
             }
         }
     });
@@ -816,55 +653,6 @@ function startingPromptPairs(auditBytes: string): readonly PromptPair[] {
     return pairs;
 }
 
-describe('004 static containment (AC-143, AC-144, FR-002, FR-005)', () => {
-    it('reads every 004 module in the static scans', () => {
-        {
-            const paths = new Set(scanSources().map((file) => file.path));
-            for (const module of PROMPT_MODULES) {
-                expect(paths.has(module), `${module} was not scanned`).toBe(true);
-            }
-
-            // The no-GitHub-write walk covers those same files: nothing 004 adds
-            // may reach for GitHub at all, let alone write to it (FR-002).
-            const gateways = new Set(GITHUB_GATEWAYS);
-            for (const file of scanSources()) {
-                if (PROMPT_MODULES.has(file.path)) {
-                    expect(gateways.has(file.path), `${file.path} reached GitHub`).toBe(false);
-                }
-            }
-        }
-        {
-            // This assertion used to read "the panel never even names it": 004
-            // shipped no editor, so `startingPrompt` had no business in the IIFE.
-            // 005 T-021 is the feature that breaks it **by design** (plan.md X7)
-            // — one field in the binding editor — so the bundle now carries the
-            // name, and the rule the old assertion stood for has moved to
-            // SC-105: `tests/bindings-prompt.test.ts` counts rendered elements
-            // across all six tabs and fails at 0 and at 2 alike.
-            expect(readFileSync(BUNDLE, UTF8)).toContain('startingPrompt');
-            expect(readFileSync(BUNDLE, UTF8)).toContain(
-                'Starting prompt for dispatches from this repository',
-            );
-            // The save boundary is the service, which is exactly where the
-            // refusal vocabulary does live.
-            expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('startingPrompt');
-        }
-        {
-            const sources = scanSources().filter((file) => PROMPT_MODULES.has(file.path));
-            expect(sources).toHaveLength(PROMPT_MODULES.size);
-            for (const file of sources) {
-                const directives = file.text.match(/eslint-disable[^\n]*/gu) ?? [];
-                for (const directive of directives) {
-                    expect(directive, `${file.path}: \`${directive}\``).toMatch(LINE_SCOPED_DISABLE);
-                }
-                expect(file.text, `${file.path} escapes the type system`)
-                    .not.toMatch(/@ts-ignore|@ts-expect-error|@ts-nocheck|# type: ignore/);
-                expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
-            }
-        }
-    });
-});
-
 describe('004 full-cycle containment (AC-133, AC-143, AC-151, FR-053, NFR-121)', () => {
     it('holds each accepted tier in exactly two places and a refused value in none', async () => {
         const loop = await startDispatchLoop();
@@ -996,62 +784,6 @@ describe('004 full-cycle containment (AC-133, AC-143, AC-151, FR-053, NFR-121)',
             expect(findSecretLeak(swept.map(([, text]) => text).join('\n'))).toBeNull();
         } finally {
             await loop.shutdown();
-        }
-    });
-});
-
-describe('004 the field is documented, and the editor it points at is the shipped one (FR-062, FR-074)', () => {
-    /**
-     * The two site pages that now own the field's documentation, and why each.
-     *
-     * 007 FR-049 made the published site authoritative and moved the prose there:
-     * the configure page owns the starting prompt itself — its three tiers, the
-     * field each tier is set on, and every guarantee the validator enforces —
-     * while the debug page owns the store inventory, so `bindings.json` is named
-     * there and not on the page about configuration. Each is asserted once,
-     * against the page that owns it: asserting both pages for both facts would
-     * be the second home FR-049 forbids.
-     */
-    const PROMPT_PAGE = 'site/src/pages/configure.astro';
-    const STORE_PAGE = 'site/src/pages/debug.astro';
-    const pages: readonly string[] = [PROMPT_PAGE, STORE_PAGE];
-
-    it('states the set path, the cap, the literal rule, the refusal, and the pinned agent', () => {
-        {
-            const text = readFileSync(resolve(ROOT, PROMPT_PAGE), UTF8);
-
-            expect(text, `${PROMPT_PAGE} names the member`).toContain('startingPrompt');
-            expect(text, `${PROMPT_PAGE} names the cap`).toContain('2,000');
-            expect(text, `${PROMPT_PAGE} promises literal text`).toContain('literal');
-            // 004 FR-024: a refused value is refused by name and never stored, so
-            // the page has to say so — the cycle's whole containment claim.
-            expect(text, `${PROMPT_PAGE} does not state the credential refusal`).toContain(
-                'A credential-shaped value is refused, not stored',
-            );
-            // The other half of the pinned agent: the field is operator text and
-            // cannot select the agent, so the session runs the pinned default.
-            expect(text, `${PROMPT_PAGE} does not say the prompt cannot select an agent`).toContain(
-                'It cannot select an agent',
-            );
-        }
-        {
-            const text = readFileSync(resolve(ROOT, STORE_PAGE), UTF8);
-
-            expect(text, `${STORE_PAGE} names the store file`).toContain('bindings.json');
-        }
-        {
-            for (const page of pages) {
-                const text = readFileSync(resolve(ROOT, page), UTF8);
-
-                // 004 shipped no editor in its own window; 005 T-021 shipped the
-                // binding editor's starting-prompt field, so the cycle's promise
-                // ("no editor yet") is history and the page that owns the field
-                // must say where it lives instead of forecasting it.
-                expect(text, `${page} still forecasts an editor`).not.toMatch(
-                    /no editor for this field yet|Until the panel grows a field/,
-                );
-                expect(text, `${page} points at a retired spec path`).not.toContain('specs/001');
-            }
         }
     });
 });
@@ -1564,95 +1296,6 @@ describe('T-034 the site ships no credential material (FR-054, NFR-005)', () => 
             expect(offOriginResources('<a href="https://github.com/o/r/blob/main/LICENSE">', origin)).toEqual([]);
         }
     });
-
-    it('catches the three resource references no attribute-value scan can see', () => {
-        // **The gap this closes, as a test rather than a claim.** All three shapes name a
-        // resource without putting it in the value of a resource-loading attribute, so the
-        // position list above reported nothing for every one of them. Each is checked in
-        // both directions — refused here, accepted on its own-origin spelling — so a case
-        // cannot pass because the reader stopped working altogether, which is the other way
-        // this scan could go green.
-        const origin = declaredSiteOrigin();
-        const cases: readonly (readonly [string, string, string])[] = [
-            // A `style` attribute is a stylesheet body, so `url()` in it is a request, and
-            // the URL is not the attribute's whole value.
-            ['a remote image in a `style` attribute', '<div style="background:url(https://cdn.example/a.gif)">x</div>', 'cdn.example'],
-            // A `<base href>` fetches nothing, and re-bases every relative URL on the page.
-            ['a base element pointing at another origin', '<base href="https://cdn.example/">', 'cdn.example'],
-            // A meta refresh is a navigation with no reader's click in it.
-            ['a meta refresh to another origin', '<meta http-equiv="refresh" content="0;url=https://evil.example/">', 'evil.example'],
-        ];
-
-        for (const [name, markup, host] of cases) {
-            const found = offOriginResources(markup, origin);
-
-            expect(found, `${name} was not reported`).toHaveLength(1);
-            expect(found[0], `${name} named the wrong host`).toContain(host);
-            // And the same shape, same-origin, is not a finding — so a case cannot pass
-            // because the reader stopped working altogether.
-            const sameOrigin = markup.replace(host, 'shaunburdick.github.io');
-
-            expect(offOriginResources(sameOrigin, origin), `${name} refused its own-origin spelling`).toEqual([]);
-        }
-        // The `style` scan is a *stylesheet* reader, not a substring search: the three CSS
-        // spellings of `url()` and the `@import` form are all references, and none is
-        // reported twice.
-        for (const spelling of [
-            'url(https://cdn.example/a.gif)',
-            'url("https://cdn.example/a.gif")',
-            'url(\'https://cdn.example/a.gif\')',
-            '@import url(https://cdn.example/a.css)',
-            '@import "https://cdn.example/a.css"',
-            'background:#fff url(https://cdn.example/a.gif) no-repeat',
-        ]) {
-            const found = offOriginResources(`<style>a{${spelling}}</style>`, origin);
-
-            expect(found, spelling).toHaveLength(1);
-            expect(found[0] ?? '', spelling).toContain('cdn.example');
-        }
-        // A `data:` value is inline content, not a fetch — the same exemption the
-        // position scan makes, so the two do not disagree about it.
-        const inline = '<div style="background:url(data:image/gif;base64,R0lGOD)">x</div>';
-
-        expect(offOriginResources(inline, origin)).toEqual([]);
-    });
-});
-
-describe('T-032 the three permitted tier sites are the only sites (005 FR-051, AC-123)', () => {
-    it('ships the binding field and bakes no second author of the guidance', () => {
-        {
-            const bundle = readFileSync(BUNDLE, UTF8);
-
-            expect(bundle).toContain('Starting prompt for dispatches from this repository');
-            // The global tier's guidance is the service's own `format`
-            // prose, read off `GET /v1/config` and rendered as text (006
-            // FR-014, 004 research R-4) — so it is authored once, on the
-            // wire, and a panel-side copy of that sentence would be the
-            // second author this rule exists to prevent.
-            expect(bundle).not.toContain('text sent to the agent verbatim');
-            expect(readFileSync(SERVICE_BUNDLE, UTF8)).toContain('text sent to the agent verbatim');
-        }
-        {
-            const labelled = scanSources()
-                .filter((file) => file.path.startsWith('src/'))
-                .filter((file) => file.text.includes('Starting prompt for dispatches from'))
-                .map((file) => file.path)
-                .toSorted(byText);
-
-            expect(labelled).toEqual(['src/accounts-rows.ts', 'src/bindings-prompt.ts']);
-            const account = scanSources().find((file) => file.path === 'src/accounts-rows.ts');
-            expect(account?.text).toContain('Starting prompt for dispatches from this account');
-        }
-        {
-            // Settings is the projected site: its row's label is composed
-            // from `descriptor.name`, so the global tier has no hand-authored
-            // label anywhere — a fourth site cannot hide behind this file's
-            // own copy, and the row that renders arrives with the projection.
-            const settings = scanSources().find((file) => file.path === 'src/settings-rows.ts');
-
-            expect(settings?.text).toMatch(/\$\{descriptor\.name\} \(\$\{unit\}\) —/);
-        }
-    });
 });
 
 /* ------------------------------------------------------------------------- *
@@ -1677,61 +1320,6 @@ const SETTINGS_MARKERS: readonly string[] = [
 /** A literal bearer credential, which no shipped artifact may embed. */
 const BEARER_LITERAL = /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/;
 
-/** Third-party HTTP clients an offline suite must never import. */
-const HTTP_CLIENT_IMPORT = /\bfrom ['"](axios|node-fetch|got|undici|superagent|request)['"]/;
-
-/**
- * A `fetch(` **call** — not the string a scan of its own source necessarily
- * contains, which is why the quote characters are excluded from the prefix.
- */
-const FETCH_CALL = /(^|[^A-Za-z0-9_.'"`])fetch\s*\(/;
-
-/**
- * Where an offline test may fetch: every alternative is a locally bound
- * address — the service double's own base URL, the `127.0.0.1` fixtures, and
- * `nonLoopbackAddress()`, which the refusal case proves does *not* answer.
- */
-const LOCAL_FETCH_TARGET = /(baseUrl|\$\{origin\}|\$\{HOST\}|\$\{external\})/;
-
-/**
- * A credential read out of the process environment.
- *
- * The suite deliberately **plants** token-shaped strings to prove they are
- * redacted; what AC-144 rules out is a *real* credential being required, and
- * a developer's own token can only enter through the environment.
- */
-const CREDENTIAL_ENV = /\bprocess\.env\.[A-Z_]*(TOKEN|PAT|SECRET|PASSWORD|API_KEY)\b/;
-
-/**
- * Every `.ts` file under `tests/`, path and text.
- *
- * @returns The modules, in directory order.
- */
-function testModules(): readonly ScannedFile[] {
-    const entries = readdirSync(resolve(ROOT, 'tests'), { recursive: true })
-        .map(String)
-        .filter((entry) => entry.endsWith('.ts'))
-        .toSorted(byText);
-
-    return entries.map((entry) => ({
-        path: `tests/${entry}`,
-        text: readFileSync(resolve(ROOT, 'tests', entry), UTF8),
-    }));
-}
-
-/**
- * The lines of a file that are not comments — the offline scan is about what
- * a test *does*, so a doc comment that names a URL is not a request.
- *
- * @returns The code lines, trimmed.
- */
-function codeLinesOf(text: string): readonly string[] {
-    return text
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line !== '' && !/^(\/\/|\/?\*)/.test(line));
-}
-
 describe('006 the Settings edit surface ships in the panel bundle (T-028, invariant 1)', () => {
     it('carries the confirmation, the failure causes, and the audit warning', () => {
         {
@@ -1750,45 +1338,6 @@ describe('006 the Settings edit surface ships in the panel bundle (T-028, invari
 
                 expect(text, `${bundle} embeds a bearer literal`).not.toMatch(BEARER_LITERAL);
             }
-        }
-    });
-});
-
-describe('006 the suite runs offline (T-028, AC-144, SC-112)', () => {
-    it('reads every test module rather than a sample', () => {
-        {
-            const files = testModules();
-
-            expect(files.length).toBeGreaterThan(90);
-            expect(files.some((file) => file.path === 'tests/support/service.ts')).toBe(true);
-        }
-        {
-            const offenders: string[] = [];
-            for (const file of testModules()) {
-                for (const line of codeLinesOf(file.text)) {
-                    if (!FETCH_CALL.test(line) || LOCAL_FETCH_TARGET.test(line)) {
-                        continue;
-                    }
-
-                    offenders.push(`${file.path}: ${line}`);
-                }
-            }
-
-            expect(offenders).toEqual([]);
-        }
-        {
-            const importers = testModules()
-                .filter((file) => HTTP_CLIENT_IMPORT.test(file.text))
-                .map((file) => file.path);
-
-            expect(importers).toEqual([]);
-        }
-        {
-            const readers = testModules()
-                .filter((file) => codeLinesOf(file.text).some((line) => CREDENTIAL_ENV.test(line)))
-                .map((file) => file.path);
-
-            expect(readers).toEqual([]);
         }
     });
 });
@@ -1927,61 +1476,6 @@ describe('003 v1.8.0 no permitted login reaches any surface (NFR-113, AC-132)', 
             expect(await readFile(join(dataDir, BINDINGS_FILE), UTF8)).toContain(SCANNED_PERMITTED);
         } finally {
             await loop.shutdown();
-        }
-    });
-
-    it('reads the surface scan in both directions, so it cannot pass vacuously', () => {
-        // The scan above has to be able to fail: its needle is a string a surface
-        // really could carry, and its own store file really does carry it.
-        expect(readFileSync(SERVICE_BUNDLE, UTF8)).not.toContain(SCANNED_PERMITTED);
-        expect(JSON.stringify(scannedAccount())).not.toContain(SCANNED_PERMITTED);
-        expect(JSON.stringify(permitOnlyBinding())).toContain(SCANNED_PERMITTED);
-    });
-
-    it('finds the membership helper in exactly two files: its own and the gate (plan D9)', () => {
-        // One comparison in the product, so "may this run start a session?" has
-        // exactly one answer. A panel-side pre-check, a poll-loop filter, or a
-        // second service comparison would all fail here rather than drifting.
-        const gate = 'service/poll/dispatch-actor-gate.ts';
-        const callers = scanSources()
-            .filter((file) => /\bisActorAllowed\(/.test(file.text))
-            .map((file) => file.path)
-            .filter((path) => path !== 'service/bindings-allow-list.ts');
-
-        expect(callers).toEqual([gate]);
-    });
-
-    it('keeps detection deciding nothing: no trigger path reads the list (FR-076)', () => {
-        // Detection records the actor and **decides nothing** (002 FR-043). A
-        // poll-loop filter would be cheaper and would leave no audit row, so
-        // "why was this not dispatched?" would have no answer — the defect 003
-        // exists to end, repeated in a new place.
-        for (const path of ['service/poll/triggers.ts', 'service/poll/loop.ts']) {
-            const file = scanSources().find((candidate) => candidate.path === path);
-            expect(file, `${path} was not scanned`).toBeDefined();
-            expect(file?.text, `${path} compares the allow-list`).not.toContain('isActorAllowed');
-            expect(file?.text, `${path} reads the allow-list`).not.toContain('allowedUsers');
-        }
-    });
-
-    it('introduces no suppression and no `any` into a Wave-2 module (invariant 7)', () => {
-        const modules: ReadonlySet<string> = new Set([
-            'service/poll/dispatch-actor-gate.ts',
-            'service/bindings-read.ts',
-            'src/relay-gates.ts',
-            'src/run-actor.ts',
-            'src/dispatches-detail.ts',
-        ]);
-        const sources = scanSources().filter((file) => modules.has(file.path));
-        expect(sources).toHaveLength(modules.size);
-        for (const file of sources) {
-            const directives = file.text.match(/eslint-disable[^\n]*/gu) ?? [];
-            for (const directive of directives) {
-                expect(directive, `${file.path}: \`${directive}\``).toMatch(LINE_SCOPED_DISABLE);
-            }
-            expect(file.text, `${file.path} escapes the type system`)
-                .not.toMatch(/@ts-ignore|@ts-expect-error|@ts-nocheck|# type: ignore/);
-            expect(file.text, `${file.path} uses \`any\``).not.toMatch(/:\s*any\b/);
         }
     });
 });

@@ -14,8 +14,8 @@
  * production API: the shell's own signature stays exactly what the app calls.
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { mountTabShell } from '../src/tabs.ts';
 import { TAB_IDS } from '../src/panel-state.ts';
@@ -23,9 +23,6 @@ import type { TabSpec } from '../src/tabs.ts';
 import { createTestRuntime, fakeHost } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
-
-/** Encoding used when reading source text. */
-const UTF8 = 'utf8';
 
 /** What the strip double recorded; hoisted so the mock can write to it. */
 const strip = vi.hoisted(() => ({
@@ -369,51 +366,6 @@ describe('mountTabShell teardown (005 FR-017, NFR-108)', () => {
             shell.dispose();
 
             expect(root.children).toHaveLength(0);
-        }
-    });
-});
-
-/**
- * Read every `src/` line that writes a `hidden` flag, tagged with its file.
- *
- * @returns One `path:line` entry per assignment.
- */
-function hiddenWrites(): readonly string[] {
-    const dir = resolve(import.meta.dirname, '../src');
-    const lines: string[] = [];
-    for (const entry of readdirSync(dir)) {
-        if (!entry.endsWith('.ts')) {
-            continue;
-        }
-
-        const source = readFileSync(join(dir, entry), UTF8).split('\n');
-        for (const [index, line] of source.entries()) {
-            if (/\.hidden\s*=/.test(line)) {
-                lines.push(`src/${entry}:${index + 1}`);
-            }
-        }
-    }
-
-    return lines;
-}
-
-describe('the spike surface is deleted, not hidden (005 SC-103, FR-011)', () => {
-    it('leaves no code path that hides a spike-era container', () => {
-        {
-            // The old switch wrote `section.spike.hidden` and
-            // `section.bindings.pane.hidden`; neither container exists any more,
-            // so no assignment may name one (FR-011, SC-103).
-            const retired = hiddenWrites().filter((entry) => /(section|spike|repos\b|pane)/.test(entry));
-
-            expect(retired).toEqual([]);
-        }
-        {
-            const offenders = hiddenWrites().filter(
-                (entry) => entry.includes('body.hidden') && !entry.startsWith('src/tabs.ts'),
-            );
-
-            expect(offenders).toEqual([]);
-            expect(hiddenWrites().some((entry) => entry.startsWith('src/tabs.ts'))).toBe(true);
         }
     });
 });

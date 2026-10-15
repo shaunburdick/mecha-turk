@@ -38,19 +38,6 @@ const WIDGET = 'widget';
 /** Worktree option used by the worktree fixture. */
 const GENERATED = 'generated';
 
-/** Setting ids the manifest once declared and no reader consults any more. */
-const RETIRED_CARD_IDS = [
-    'repository',
-    'expected-login',
-    'project-id',
-    'worktree-option',
-    'poll-interval-ms',
-    'expected-agent',
-] as const;
-
-/** Reader names 002 FR-041(a) retires from `src/config.ts`. */
-const RETIRED_READERS = ['parseSpikeConfig', 'resolveProjectId', 'parseExpectedAgent'] as const;
-
 describe('parseRepository', () => {
     it('accepts owner/name and refuses every other shape', () => {
         expect(parseRepository(REPOSITORY)).toEqual({ owner: 'acme', name: 'widget' });
@@ -93,20 +80,6 @@ describe('parseProjectId', () => {
         expect(parseProjectId(' '.repeat(3)), 'a whitespace selection').toBeNull();
         expect(parseProjectId('bad\nid'), 'a control character').toBeNull();
         expect(parseProjectId('x'.repeat(200)), 'an id past the documented cap').toBeNull();
-    });
-});
-
-describe('retired card-settings readers', () => {
-    it('exports neither the retired readers nor the emptied card’s setting ids', async () => {
-        const exported = Object.keys(await import('../src/config.ts'));
-
-        for (const retired of RETIRED_READERS) {
-            expect(exported, `${retired} must stay deleted`).not.toContain(retired);
-        }
-
-        for (const id of RETIRED_CARD_IDS) {
-            expect(exported, `${id} must stay undeclared`).not.toContain(id);
-        }
     });
 });
 

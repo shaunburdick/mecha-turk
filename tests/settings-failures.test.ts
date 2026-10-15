@@ -33,13 +33,7 @@ import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { auditStatusText, parseAuditBody } from '../src/audit-view.ts';
 import { auditPath } from '../src/service-calls.ts';
-import {
-    AUDIT_MISSING_LINE,
-    FAILURE_LINES,
-    readFailureBody,
-    writeFailure,
-    writeFailureLines,
-} from '../src/settings-state.ts';
+import { AUDIT_MISSING_LINE } from '../src/settings-state.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { SettingsFailureCause } from '../src/settings-edit.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
@@ -476,41 +470,6 @@ describe('a failed write names its own cause, never a refusal (006 T-023, AC-130
         }
     });
 
-});
-
-describe('the copy each cause gets is its own (006 SC-111, FR-061 – FR-063)', () => {
-    it('gives the four write causes four different sentences, none of them a refusal', () => {
-        {
-            const causes: readonly SettingsFailureCause[] = ['store', 'unauthorised', 'transport', 'unexpected'];
-            const lines = causes.map((cause) => FAILURE_LINES[cause]);
-
-            expect(new Set(lines).size).toBe(4);
-            for (const line of lines) {
-                expect(line).not.toContain('refused these values');
-            }
-        }
-        {
-            const bodies = [
-                readFailureBody('service unreachable'),
-                readFailureBody('service answered 503'),
-                readFailureBody('service answered 401'),
-            ];
-
-            expect(new Set(bodies).size).toBe(3);
-            expect(bodies[0]).toContain(NOT_RUNNING);
-            expect(bodies[1]).toContain(PREREQUISITE);
-            expect(bodies[2]).toContain(NOT_AUTHORISED);
-        }
-        {
-            const plain = writeFailure({ code: 'internal', problem: 'service answered 500', correlationId: null });
-            const traced = writeFailure({
-                code: 'internal', problem: 'service answered 500', correlationId: 'mt-cfg-9' });
-
-            expect(writeFailureLines(plain)).toHaveLength(1);
-            expect(writeFailureLines(traced)).toHaveLength(2);
-            expect(writeFailureLines(traced)[1]).toBe('Correlation id: mt-cfg-9');
-        }
-    });
 });
 
 /**

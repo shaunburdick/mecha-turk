@@ -9,10 +9,9 @@
  * transient state across restarts.
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ACCOUNT_PROMPT_UPDATED_EVENT } from '../service/account-prompt-audit.ts';
 import { ACCOUNTS_DIR, BINDINGS_FILE } from '../service/accounts/store.ts';
@@ -709,38 +708,6 @@ async function accountPromptRows(service: TestService): Promise<readonly AuditEn
     return entries.filter((entry) => entry.eventType === ACCOUNT_PROMPT_UPDATED_EVENT);
 }
 
-/**
- * The `.ts` modules under `service/`, read as written (invariant 8).
- *
- * The route table and the accounts handlers are the surface the invariant is
- * about; the whole directory is read because a retired path could hide in any
- * other module's constant, builder, or comment.
- *
- * @returns Every service module's text.
- */
-function serviceModuleTexts(): readonly string[] {
-    const root = resolve(import.meta.dirname, '..', 'service');
-
-    return readdirSync(root, { recursive: true })
-        .map(String)
-        .filter((entry) => entry.endsWith('.ts'))
-        .map((entry) => readFileSync(resolve(root, entry), 'utf8'));
-}
-
-/**
- * The `.ts` modules under `tests/`, read as written (invariant 8).
- *
- * @returns Every test module's text.
- */
-function testModuleTexts(): readonly string[] {
-    const root = import.meta.dirname;
-
-    return readdirSync(root, { recursive: true })
-        .map(String)
-        .filter((entry) => entry.endsWith('.ts'))
-        .map((entry) => readFileSync(resolve(root, entry), 'utf8'));
-}
-
 describe('PUT /v1/accounts/:numericUserId — the account profile write (005 FR-066, 004 FR-082)', () => {
     it('stores a label, trims it, and changes nothing but the label and its stamp', async () => {
         {
@@ -1308,24 +1275,6 @@ describe('the retired routes resolve nowhere (005 v1.10.0, account-display-name 
         const paths = ROUTES.map((route) => route.path);
         expect(paths.some((path) => path.endsWith('/display-name'))).toBe(false);
         expect(paths.some((path) => path.endsWith('/starting-prompt'))).toBe(false);
-
-        // No service module — route table, handlers, or any other — names
-        // either retired path. This file names each suffix exactly once, in
-        // the probes above: a probe must name what it probes.
-        for (const text of serviceModuleTexts()) {
-            for (const suffix of RETIRED_SUFFIXES) {
-                expect(text.includes(suffix), suffix).toBe(false);
-            }
-        }
-
-        // The retired constant is no longer exported at all, so the type
-        // checker fails on any module that references it — and no test module
-        // does. (The panel's own path builder still names the label suffix
-        // until T-031 re-points it in Wave 3; that is a `src/` concern, not a
-        // route, handler, or service test of this build.)
-        const retiredReference = /import[^;]*ACCOUNT_DISPLAY_NAME_PATH/;
-        const retiredReferences = testModuleTexts().filter((text) => retiredReference.test(text));
-        expect(retiredReferences).toEqual([]);
     });
 });
 

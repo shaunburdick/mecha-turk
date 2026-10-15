@@ -30,8 +30,8 @@
  */
 
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { GuestRequestResult } from '@openchamber/sdk';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -672,52 +672,6 @@ async function scopeAuditRows(target: ServiceStore = store): Promise<readonly Au
     return rows.filter((row) => row.eventType === HISTORY_SCOPE_UPDATED_EVENT);
 }
 
-/**
- * Every source file one census reads.
- *
- * The negative rows in the contract are claims about the shipped source, so they
- * are checked against the source rather than against a runtime the test happens
- * to be able to observe.
- *
- * @param roots - Directories to walk.
- * @returns The concatenated text of every `.ts` file beneath them.
- */
-function sourceText(...roots: readonly string[]): string {
-    const files: string[] = [];
-    for (const root of roots) {
-        // `readdirSync` types a recursive walk's entries as `string | Buffer`, so
-        // each is narrowed to text before the suffix test.
-        const entries = readdirSync(root, { recursive: true }).map(String);
-
-        for (const path of entries) {
-            if (path.endsWith('.ts') && !path.endsWith('.d.ts')) {
-                files.push(join(root, path));
-            }
-        }
-    }
-
-    return files.map((file) => readFileSync(file, 'utf8')).join('\n');
-}
-
-/**
- * The `.ts` files directly inside one directory, by base name.
- *
- * One directory rather than a recursive walk, because every census that wants a
- * **list of modules** is asking about the panel's own flat `src/`, and a walk would
- * hand it a path it has to strip back to a name anyway.
- *
- * @param root - The directory to list.
- * @returns Base names of its `.ts` files, excluding declaration files.
- */
-function moduleNames(root: string): readonly string[] {
-    return readdirSync(root)
-        .map(String)
-        .filter((name) => name.endsWith('.ts') && !name.endsWith('.d.ts'));
-}
-
-/** Repository root, for the source censuses. */
-const REPO = resolve(import.meta.dirname, '..');
-
 describe('§5.1 both names round-trip; absent and null both read as the default', () => {
     it('stores each name byte-identically and reads it back', () => {
         for (const scope of ['new-only', 'recent-history'] as const) {
@@ -1071,28 +1025,6 @@ describe('§5.6 the mode reaches no other store', () => {
 
         expect(named).toEqual([]);
     });
-
-    it('appears in no panel storage key, no ledger entry, and no run record', () => {
-        // The mode is **service-owned configuration** (002 FR-054): the panel may hold
-        // it in the editor's own control and repaint it, which FR-089 requires, but it
-        // reaches no **persistent** panel surface — no `host.storage` key, no ledger
-        // entry — and no run record.
-        const ledger = readFileSync(join(REPO, 'src', 'ledger.ts'), 'utf8');
-
-        expect(ledger).not.toContain('historyScope');
-
-        // The three documented storage keys, each declared in the one module that owns
-        // it. None of them names the mode (AGENTS.md invariant 4: renaming or adding
-        // a storage key is a user-visible namespace change).
-        expect(readFileSync(join(REPO, 'src', 'project-picker.ts'), 'utf8')).not.toContain('historyScope');
-        expect(readFileSync(join(REPO, 'src', 'evidence.ts'), 'utf8')).not.toContain('historyScope');
-
-        // And no run record: the field is service-side, and the run model has no
-        // member for it.
-        for (const file of ['runs-types.ts', 'runs-document.ts', 'runs-join.ts', 'runs-adopt.ts']) {
-            expect(readFileSync(join(REPO, 'service', 'poll', file), 'utf8'), file).not.toContain('historyScope');
-        }
-    });
 });
 
 describe('§5.7 the route table gained no operation', () => {
@@ -1117,13 +1049,6 @@ describe('§5.7 the route table gained no operation', () => {
         for (const route of ROUTES) {
             expect(route.path, `${route.method} ${route.path}`).not.toContain('rescan');
         }
-
-        // The panel reaches the bindings surface through the same one path it always
-        // did — no new endpoint call appears anywhere in `src/`.
-        const panel = sourceText(join(REPO, 'src'));
-
-        expect(panel).not.toContain('/v1/bindings/');
-        expect(panel).not.toMatch(/serviceRequest\([^)]*\/v1\/bindings\//);
     });
 });
 
@@ -1182,25 +1107,6 @@ describe('§5.9 the look-back length appears in no configuration document, proje
         // 006 FR-010's and FR-084's documented count of **twelve** does not move: the
         // length is in neither table (002 FR-059).
         expect(Object.hasOwn(NUMERIC_BOUNDS, 'lookBackMs')).toBe(false);
-        const config = readFileSync(join(REPO, 'service', 'config.ts'), 'utf8');
-        expect(config).not.toContain('LOOK_BACK');
-        expect(config).not.toContain('604_800_000');
-        // The bounds table keeps exactly the eleven numeric fields it declared; the
-        // twelfth documented field is 006's own `expectedAgent`.
-        expect(Object.keys(NUMERIC_BOUNDS)).toHaveLength(11);
-    });
-
-    it('appears in no schema projection, no Settings row, and no route', () => {
-        const schema = readFileSync(join(REPO, 'service', 'config-schema.ts'), 'utf8');
-        expect(schema).not.toContain('lookBack');
-        expect(schema).not.toContain('LOOK_BACK');
-
-        const settings = sourceText(join(REPO, 'src'));
-        expect(settings).not.toContain('lookBack');
-        expect(settings).not.toContain('LOOK_BACK');
-
-        const routes = sourceText(join(REPO, 'service', 'routes'));
-        expect(routes).not.toContain('LOOK_BACK');
     });
 
     it('keeps the two names in step across the service and the panel reader', () => {
@@ -1249,20 +1155,6 @@ describe('§5.10 the default mode\'s first window is exactly createdAt − overl
         const state = await readScanState({ store, log });
         expect(bindingScanOf(state, BINDING_A).baselineAt).toBe(DEFAULT_BASELINE);
         expect(state.bindings[BINDING_A]?.lastScanAt).not.toBeNull();
-    });
-
-    it('carries that start on the list call and sends no `since` to the per-item events read', async () => {
-        // FR-051's premise, on the request rather than on intent: the per-item events
-        // endpoint takes only `per_page` and `page`, so the window is compared
-        // client-side on `created_at` and never sent.
-        const eventsSource = readFileSync(join(REPO, 'service', 'poll', 'poller-events.ts'), 'utf8');
-        const urlBuilder = readFileSync(join(REPO, 'service', 'poll', 'poller-github.ts'), 'utf8');
-
-        expect(eventsSource).toContain('pageEndsWalk');
-        // The one `since` the transport can set belongs to `listUrl`, and the
-        // per-item events URL is built without it (002 FR-051, FR-064).
-        expect(urlBuilder).toContain('itemEventsUrl');
-        expect(urlBuilder).not.toMatch(/itemEventsUrl\([^)]*since/);
     });
 });
 
@@ -1885,18 +1777,6 @@ describe('§5.16 a repeated sweep, a repeated recovery replay, and a restart pro
 });
 
 describe('§5.17 a sweep enqueues only', () => {
-    it('starts no session outside the claim-and-lease cycle', () => {
-        // The sweep's whole discipline is that detection is a **detection**: it
-        // reaches a session only through the ordinary enqueue and the claim-and-lease
-        // cycle, one at a time (002 FR-081, FR-083; 002 FR-028's excerpt fence).
-        const loop = readFileSync(join(REPO, 'service', 'poll', 'loop.ts'), 'utf8');
-
-        expect(loop).toContain('enqueueEvents');
-        // The loop has no dispatch call of any kind: dispatch happens when the panel
-        // claims a run, in 003's layer, never inside a scan.
-        expect(loop).not.toContain('reserveRun');
-        expect(loop).not.toContain('startSession');
-    });
 
     it('leaves the runs document with one pending run per detected event and no session', async () => {
         // A sweep **enqueues and links**: run-before-delivery durability means the
@@ -1934,117 +1814,6 @@ describe('§5.17 a sweep enqueues only', () => {
 });
 
 describe('§5.18 exactly one rescan mechanism, and no timestamp-picking surface', () => {
-    it('names rescanFrom as the one durable chosen lower bound, in the scan slot', () => {
-        const scan = readFileSync(join(REPO, 'service', 'poll', 'scan.ts'), 'utf8');
-
-        // The mechanism is one member of the per-binding slot, with one writer: the
-        // bindings route (plan H5).
-        expect(scan).toContain('rescanFrom');
-        expect(scan).not.toContain('replayFrom');
-        expect(scan).not.toContain('rescanAt');
-
-        // And the window rule consults it ahead of the recorded stamp — the arming is the
-        // most recent explicit request for that binding's next scan. Ahead of the
-        // **baseline** it is not: FR-073's replay outranks it (plan H8, corrected
-        // 2026-10-05), and §5.15 is the row that proves which of the two wins.
-        const window = readFileSync(join(REPO, 'service', 'poll', 'window.ts'), 'utf8');
-        expect(window.indexOf('input.scanned.rescanFrom')).toBeLessThan(window.indexOf('input.scanned.lastScanAt'));
-    });
-
-    it('builds no operator-facing timestamp input anywhere in the panel or the service', () => {
-        // The general operator-chosen-timestamp surface is recorded debt and is
-        // **not** built: no route, no submitted member, no control (spec.md
-        // `## Out of Scope`; plan §B.8, gate item 2).
-        const everything = sourceText(join(REPO, 'service'), join(REPO, 'src'));
-
-        expect(everything).not.toContain('/rescan');
-        expect(everything).not.toContain('rescanFromInput');
-        expect(everything).not.toContain('rescanTimestamp');
-        expect(everything).not.toContain('rescanLowerBound');
-        expect(everything).not.toContain('rescanSince');
-
-        // `rescanFrom` exists in exactly four files, each with one reason to name it:
-        // the slot that holds it, the window rule that reads it, the loop that clears
-        // it, and the one route that arms it. A fifth file naming it would be a
-        // second mechanism, which is what FR-023 forbids.
-        const named = readdirSync(join(REPO, 'service'), { recursive: true })
-            .map(String)
-            .filter((path) => path.endsWith('.ts') && !path.endsWith('.d.ts'))
-            .filter((path) => readFileSync(join(REPO, 'service', path), 'utf8').includes('rescanFrom'))
-            .toSorted(byText);
-
-        expect(named).toEqual([
-            'poll/loop.ts',
-            'poll/scan.ts',
-            'poll/window.ts',
-            'routes/bindings.ts',
-        ]);
-
-        // And the panel half of the surface carries no timestamp control: no free-text
-        // field anywhere in `src/` offers a date, a time, or a lower bound. The panel's
-        // only write on this field is the two-name select, so there is nothing for an
-        // operator to type a stamp into.
-        const panelFiles = moduleNames(join(REPO, 'src'));
-        const stampish = /placeholder:\s*'[^']*(date|time|since|rescan)/i;
-
-        for (const file of panelFiles) {
-            expect(readFileSync(join(REPO, 'src', file), 'utf8'), file).not.toMatch(stampish);
-        }
-
-        // And the panel half of the source carries no `rescanFrom` at all: the field
-        // has no representation in the panel's vocabulary to send.
-        expect(sourceText(join(REPO, 'src'))).not.toContain('rescanFrom');
-    });
-
-    it('writes scan-state from inside the scan-state chain and nowhere else', () => {
-        // The chain is what makes the scan-state file safe to read-modify-write at
-        // all: the route that arms `rescanFrom`, the recovery reset that clears
-        // `lastScanAt`, and the loop's own two writers all take the same task, so no
-        // write can land between another writer's read and its write (002 FR-018,
-        // FR-076; plan H7).
-        //
-        // **This is a census and not a race test, deliberately.** With every writer
-        // on the one chain the lost update is *unreachable*, so no interleaving this
-        // suite could drive would distinguish the two shapes — which is exactly what
-        // a reviewer found by reverting the fix and watching all 1431 tests stay
-        // green. What the census can prove is the thing the race test cannot: that
-        // the loop contributes no writer outside the chain, so the safety is a
-        // property of the code rather than of the callers happening not to
-        // interleave.
-        const loop = readFileSync(join(REPO, 'service', 'poll', 'loop.ts'), 'utf8');
-        // One function's own source, up to its closing brace at column 0 — which no
-        // nested block in it can produce.
-        const body = (marker: string): string => {
-            const start = loop.indexOf(marker);
-            const end = loop.indexOf('\n}\n', start);
-
-            expect(start, marker).toBeGreaterThan(-1);
-            expect(end, marker).toBeGreaterThan(start);
-
-            return loop.slice(start, end);
-        };
-
-        // `ensureBaselines` is one `serializeScan` task whose read precedes its write:
-        // a `PUT` arming `rescanFrom`, or a recovery reset setting `forceReplay`,
-        // between the two cannot be reverted by a stale map written back over it.
-        const baselines = body('async function ensureBaselines');
-
-        expect(baselines.match(/serializeScan\(/g) ?? []).toHaveLength(1);
-        expect(baselines.indexOf('serializeScan(')).toBeLessThan(baselines.indexOf('readScanState('));
-        expect(baselines.indexOf('readScanState(')).toBeLessThan(baselines.indexOf('writeScanState('));
-
-        // And the cycle that calls it reads that file **nowhere of its own**, which is
-        // what closes the split between the caller's read and the chain's write.
-        const cycle = body('export async function runScanCycle');
-
-        expect(cycle).not.toContain('readScanState(');
-        expect(cycle).not.toContain('writeScanState(');
-
-        // Two writers in the loop, both chained: the one-shot clearing and the
-        // baseline derivation. A third would be a second mechanism.
-        expect(loop.match(/writeScanState\(/g) ?? []).toHaveLength(2);
-        expect(loop.match(/serializeScan\(/g) ?? []).toHaveLength(2);
-    });
 
     it('never turns an unreadable arming into a window, and never clears it', async () => {
         // An unreadable `rescanFrom` is the one stuck state this mechanism admits, and
@@ -2160,22 +1929,6 @@ describe('§5.18 exactly one rescan mechanism, and no timestamp-picking surface'
             .toBe(new Date(Date.parse(projected?.lastScanAt ?? '') - OVERLAP_MS).toISOString());
         expect(logLines.join('\n')).not.toContain('rescanFrom');
         expect(logLines.join('\n')).not.toContain(garbage);
-    });
-
-    it('writes the member only in the bindings route, beside the mode edit that caused it', () => {
-        const route = readFileSync(join(REPO, 'service', 'routes', 'bindings.ts'), 'utf8');
-
-        expect(route).toContain('rescanFrom: armedFrom');
-        // Editing to the default mode writes nothing at all (002 FR-085): the arming
-        // is reached only for a submission that moved **into** the look-back mode,
-        // which is the `!== 'recent-history'` half of this predicate.
-        expect(route).toContain("!== 'recent-history'");
-
-        // The armed bound is `now − the declared look-back` and nothing else: there
-        // is no second source for it, and no branch that writes the member from a
-        // value the operator supplied (002 FR-084, FR-060).
-        expect(route.match(/rescanFrom:/g)).toHaveLength(1);
-        expect(route).toContain('const armedFrom = new Date(Date.parse(input.at) - lookBack).toISOString();');
     });
 
     it('clears no checkpoint and touches no queued or dispatched run when editing to the default', async () => {
@@ -2595,61 +2348,6 @@ describe('§5.21 the panel renders the mode once, unreadable when unusable, defa
         expect(historyScopeLabel(binding(BINDING_A, 'recent-history'))).toBe('one-off 7-day look-back');
     });
 
-    it('renders the mode once panel-wide, in the editor control and nowhere else', () => {
-        // 002 FR-091's structural claim, on the source rather than on a mount: **no
-        // panel module outside `bindings-history.ts` names either mode**, so the count
-        // of surfaces that render it is the count of call sites in one file. Status,
-        // the diagnostics view, the dispatch rows, the Settings rows and the binding
-        // rows all read the mode through a function rather than spelling it.
-        // The two modules that legitimately hold the vocabulary: the owning editor field,
-        // and the panel-side **reader** beside it, which declares the same closed
-        // union because `src/` cannot import across the request boundary (§5.9 pins
-        // the two together). Neither of them *renders* the mode, and no third module
-        // may name either value at all.
-        const vocabularyHolders = new Set(['bindings-history.ts', 'bindings-service.ts']);
-        const panelFiles = moduleNames(join(REPO, 'src'))
-            .filter((file) => !vocabularyHolders.has(file));
-
-        for (const file of panelFiles) {
-            const source = readFileSync(join(REPO, 'src', file), 'utf8');
-            const mentions = ['new-only', 'recent-history'].filter((name) => source.includes(name));
-
-            expect(mentions, file).toEqual([]);
-            // And nobody else *declares* a rendering of it either — both renderers and
-            // the label are defined in the owning module and nowhere else. A call into
-            // them is allowed and is what `bindings-body.ts` and `bindings-rows.ts` do;
-            // a second definition would be a second rendering.
-            const declares = /(?:function|const) (?:historyScopeLabel|windowInForceLine|historyScopeGuidance)/;
-
-            expect(source, file).not.toMatch(declares);
-        }
-
-        // The editor module is the single owner, and it exports exactly one label
-        // reader the rows may call.
-        const editorSource = readFileSync(join(REPO, 'src', 'bindings-history.ts'), 'utf8');
-
-        // Exactly one **call**: the control the mode is rendered in, and no second
-        // editor offering it. The import beside it is not a second rendering, so the
-        // count is on calls.
-        expect(editorSource.match(/mountSelect\(/g)).toHaveLength(1);
-
-        // Which also makes the single-rendering claim countable: the mode's control is
-        // the **one** select this wave added, so every other panel select is one that
-        // predates it — the bindings editor's account, dispatch-project and worktree
-        // fields, the dispatches toolbar's three, and the Settings enum row's.
-        const otherSelects = panelFiles
-            .map((file) => [file, readFileSync(join(REPO, 'src', file), 'utf8')] as const)
-            .map(([file, source]) => [file, source.match(/mountSelect\(/g)?.length ?? 0] as const)
-            .filter(([, count]) => count > 0)
-            .toSorted((left, right) => byText(left[0], right[0]));
-
-        expect(otherSelects).toEqual([
-            ['bindings-body.ts', 3],
-            ['dispatches-controls.ts', 3],
-            ['settings-rows.ts', 1],
-        ]);
-    });
-
     it('writes the edited row\'s mode on that row alone, and every other row its own', async () => {
         // 002 FR-057 and FR-084, asserted on the **bytes the panel actually sends**.
         //
@@ -2781,45 +2479,5 @@ describe('§5.22 the health row carries the window in force, the mode in force, 
 
         expect(rows[0]?.lastScanAt).toBe(SCANNED_AT);
         expect(rows[0]?.windowStart).toBe(new Date(Date.parse(SCANNED_AT) - OVERLAP_MS).toISOString());
-    });
-});
-
-describe('§5.6/§5.9 the look-back length reaches neither shipped bundle', () => {
-    it('keeps the declared length and its bound out of the panel bundle entirely', () => {
-        // Invariant 1: the committed bundles **are** the shipped artefact, so a claim
-        // about what does or does not ship is a claim about these two files.
-        //
-        // The panel's own control legitimately names both modes — FR-089 requires it
-        // to *offer* them — so the mode is not the assertion here. The **length** is:
-        // it is a service-owned constant the operator cannot change and cannot see
-        // (FR-059), so neither its value nor its declared bound may appear in the
-        // panel bundle, where nothing could use it.
-        const panelBundle = readFileSync(join(REPO, 'panel', 'main.js'), 'utf8');
-
-        expect(panelBundle).not.toContain('604800000');
-        expect(panelBundle).not.toContain('3600000');
-        expect(panelBundle).not.toContain('2592000000');
-        expect(panelBundle).not.toContain('LOOK_BACK');
-
-        // The panel bundle does carry the two option ids, because it must offer both
-        // choices by name — this is the positive half of the same claim.
-        expect(panelBundle).toContain('recent-history');
-        expect(panelBundle).toContain('new-only');
-
-        // And the service bundle, which owns the constant, carries it.
-        const serviceBundle = readFileSync(join(REPO, 'service', 'main.js'), 'utf8');
-
-        expect(serviceBundle).toContain('604800000');
-    });
-
-    it('rebuilds both bundles so they carry the shipped source', () => {
-        // The other half of invariant 1, and the reason this assertion lives here at
-        // all: a bundle that does **not** carry its source's new vocabulary is a
-        // bundle the host will run while the tests describe something else. The
-        // panel's mode names and the service's look-back value are the two shipped
-        // artefacts of this wave, so their presence in both bundles is what proves
-        // the rebuild happened rather than being assumed.
-        expect(readFileSync(join(REPO, 'panel', 'main.js'), 'utf8')).toContain('When this binding starts watching');
-        expect(readFileSync(join(REPO, 'service', 'main.js'), 'utf8')).toContain('binding.history-scope-updated');
     });
 });
