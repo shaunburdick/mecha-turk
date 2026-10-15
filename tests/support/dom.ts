@@ -31,6 +31,8 @@ export interface FakeDocument {
      * @returns The new element, bound to this document.
      */
     createElement(tagName: string): FakeElement;
+    /** `#id` lookup; any other selector shape throws rather than answering nothing. */
+    querySelector(selectors: string): FakeElement | null;
 }
 
 /**
@@ -208,6 +210,15 @@ export class FakeElement {
         }
     }
 
+    /** Insert first, as `ParentNode.prepend` does — where the failure renderer puts its banner. */
+    public prepend(...nodes: FakeElement[]): void {
+        for (const node of nodes) {
+            node.parent = this;
+        }
+
+        this.children.unshift(...nodes);
+    }
+
     /**
      * Detach this node from its parent; a node without one is a no-op.
      */
@@ -241,6 +252,11 @@ export class FakeElement {
     }
 }
 
+/** Every text node under `node`, in document order — the double has no innerText. */
+export function textOf(node: FakeElement): string {
+    return [node.textContent, ...node.children.map((child) => textOf(child))].join(' ');
+}
+
 /** A fake document as the handoff adapter receives it. */
 export interface FakeDom {
     /** Root element to mount into, typed as `mountHandoffDom` expects. */
@@ -255,6 +271,8 @@ export interface FakeDom {
      * written in the first place.
      */
     readonly rootElement: FakeElement;
+    /** The document those elements were created from — the face the runner takes. */
+    readonly document: FakeDocument;
     /** Every element the adapter created, in creation order. */
     readonly created: readonly FakeElement[];
     /** First element created with `tagName`, or `undefined`. */
@@ -284,6 +302,16 @@ export function fakeDom(): FakeDom {
 
             return node;
         },
+        querySelector: (selectors: string): FakeElement | null => {
+            const match = /^#([\w-]+)$/.exec(selectors);
+            if (match === null) {
+                throw new Error(`the DOM double answers #id selectors only, not ${selectors}`);
+            }
+
+            const wanted = match[1] ?? '';
+
+            return created.find((node) => node.attribute('id') === wanted) ?? null;
+        },
     };
     const root = doc.createElement('div');
 
@@ -294,6 +322,7 @@ export function fakeDom(): FakeDom {
         // eslint-disable-next-line llm-core/no-chained-type-assertions, llm-core/no-type-system-bypass -- a stand-in
         root: root as unknown as HTMLElement,
         rootElement: root,
+        document: doc,
         created,
         findByTag: (tagName: string): FakeElement | undefined =>
             created.find((node) => node.tagName === tagName),

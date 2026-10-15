@@ -5,18 +5,82 @@
  */
 
 /**
- * Create a new correlation identifier.
- *
- * Uses `crypto.randomUUID()`, which the sandboxed iframe provides in secure
- * contexts (localhost or https). The panel fails closed when it is missing
- * rather than inventing an identifier from weaker entropy.
+ * Which source {@link newCorrelationId} draws from here, as FR-142's milestone
+ * announces it: `randomUUID`, the `getRandomValues` fallback, or neither.
  */
-export function newCorrelationId(): string {
-    if (typeof crypto === 'undefined' || typeof crypto.randomUUID !== 'function') {
-        throw new Error('crypto.randomUUID is unavailable; refusing to record an observation without a correlation id');
+export type CorrelationIdMode = 'randomUUID' | 'getRandomValues' | 'unavailable';
+
+/**
+ * RFC 4122's version and variant shapes spelled without bitwise operators
+ * (the lint forbids them): byte 6 `% 16 + 64`, byte 8 `% 64 + 128` — no overlap.
+ */
+const UUID_BYTES = 16;
+const VERSION_BYTE = 6;
+const VERSION_MOD = 16;
+const VERSION_TAG = 64;
+const VARIANT_BYTE = 8;
+const VARIANT_MOD = 64;
+const VARIANT_TAG = 128;
+const HEX_RADIX = 16;
+/** Group widths of the 8-4-4-4-12 spelling; the last group takes the rest. */
+const UUID_HEAD_GROUP = 8;
+const UUID_GROUP_WIDTHS = [UUID_HEAD_GROUP, 4, 4, 4] as const;
+
+/**
+ * Assemble one UUIDv4 from 16 CSPRNG bytes — byte-level what `randomUUID`
+ * produces, so no stored or rendered row can tell the two mint paths apart.
+ */
+function uuidV4(bytes: Uint8Array): string {
+    const hex = Array.from(bytes, (byte, index) => {
+        const withVersion = index === VERSION_BYTE ? (byte % VERSION_MOD) + VERSION_TAG : byte;
+        const withVariant = index === VARIANT_BYTE ? (withVersion % VARIANT_MOD) + VARIANT_TAG : withVersion;
+
+        return withVariant.toString(HEX_RADIX).padStart(2, '0');
+    }).join('');
+
+    const groups: string[] = [];
+    let at = 0;
+    for (const width of UUID_GROUP_WIDTHS) {
+        groups.push(hex.slice(at, at + width));
+        at += width;
     }
 
-    return crypto.randomUUID();
+    groups.push(hex.slice(at));
+
+    return groups.join('-');
+}
+
+/**
+ * Which mint this environment can use (FR-142's announced mode): the native
+ * API where exposed, the same interface's CSPRNG where not, else `unavailable`.
+ */
+export function correlationIdMode(): CorrelationIdMode {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+        return 'randomUUID';
+    }
+
+    if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+        return 'getRandomValues';
+    }
+
+    return 'unavailable';
+}
+
+/**
+ * Create a correlation identifier from the strongest available source (FR-144):
+ * `randomUUID` where exposed, a same-interface CSPRNG UUIDv4 otherwise.
+ */
+export function newCorrelationId(): string {
+    const mode = correlationIdMode();
+    if (mode === 'randomUUID') {
+        return crypto.randomUUID();
+    }
+
+    if (mode === 'getRandomValues') {
+        return uuidV4(crypto.getRandomValues(new Uint8Array(UUID_BYTES)));
+    }
+
+    throw new Error('crypto.randomUUID is unavailable; refusing to record an observation without a correlation id');
 }
 
 /**

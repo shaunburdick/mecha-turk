@@ -207,6 +207,8 @@ export interface PanelRuntime {
     readonly panelWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>;
     readonly state: PanelState;
     readonly unsubscribes: (() => void)[];
+    /** Where the shell mounted; the failure renderer prepends above the strip (005 FR-141). */
+    root: HTMLElement | null;
     ui: PanelUi | null;
     handoffView: HandoffView | null;
     /**
@@ -367,6 +369,7 @@ export function createPanelRuntime(
         panelWindow,
         state: initialState(createdAt),
         unsubscribes: [],
+        root: null,
         ui: null,
         handoffView: null,
         shell: null,
