@@ -1,21 +1,7 @@
 /**
- * Configuration authority (006 T-025, T-026 — block J; FR-090, AC-152).
- *
- * Three layers, in this order, with no overlap between them — so precedence
- * is a property of the ordering rather than a tie-break (FR-090):
- *
- * 1. **Bootstrap environment**, read at process start before the store opens:
- *    the host-provided pair only, validated fail-closed and never echoed.
- * 2. **`config.json`**, authoritative for every documented field once the
- *    store opens.
- * 3. **The manifest**, which carries **no** service configuration at all —
- *    its integration card is gone entirely (product-owner order,
- *    2026-09-30), so there is no second input surface to arbitrate.
- *
- * What is asserted here is layer 1: `readServiceEnv` starts from exactly the
- * host-provided pair, ignores an unrelated variable in the environment it is
- * handed, refuses a missing or malformed half naming the field that failed,
- * and echoes neither the token nor the value it refused.
+ * Configuration authority (006 T-025, T-026 — block J; FR-090, AC-152): the
+ * bootstrap pair is read fail-closed before `config.json` and the manifest
+ * can arbitrate, so precedence is the ordering itself rather than a tie-break.
  *
  * Offline: the pure environment reader (FR-086). No network, no PAT, no live
  * host.

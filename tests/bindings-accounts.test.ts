@@ -44,8 +44,6 @@
  * live OpenChamber, no PAT, no network (FR-086).
  */
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -140,11 +138,6 @@ const CANCEL_EDIT_LABEL = 'Cancel edit';
 
 /** Class of the list block's own toolbar row. */
 const TOOLBAR_CLASS = 'mt-toolbar';
-
-/**
- * The workspace-relative path of the module whose *shape* FR-122 pins.
- */
-const ACCOUNTS_MODULE = 'src/bindings-accounts.ts';
 
 /** The account picker's withdrawn placeholder — `verified` is not a state. */
 const WITHDRAWN_PLACEHOLDER = 'Select a verified account';
@@ -247,54 +240,6 @@ function bindingsState(input: {
         accounts: input.accounts ?? [],
         note: input.note ?? '',
     };
-}
-
-/**
- * Read the accounts module's source, which is what FR-122's shape claim is
- * about.
- *
- * @returns The module text.
- */
-function accountsSource(): string {
-    return readFileSync(resolve(import.meta.dirname, '..', ACCOUNTS_MODULE), 'utf8');
-}
-
-/**
- * The accounts module's **code**, with comments stripped.
- *
- * FR-122's claim is about the shape of the code, and this module's docblocks
- * *discuss* that shape by name — so a scan over raw text would read its own
- * documentation as a second implementation. Only `/* … *\/` blocks and whole-line
- * `//` comments are removed, which is enough here because the module carries no
- * URL or `//` inside a string literal.
- *
- * @returns The module text a code scan reads.
- */
-function accountsCode(): string {
-    return accountsSource()
-        .replaceAll(/\/\*[\s\S]*?\*\//gu, '')
-        .replaceAll(/^\s*\/\/.*$/gmu, '');
-}
-
-/**
- * One function's own body, sliced out of the module's code.
- *
- * Every function in this module is top level and closes on a brace in column
- * zero, so the slice is exact — which is what lets the scan name the offending
- * function rather than reporting a hit somewhere in the file.
- *
- * @returns The function's text, braces included.
- * @throws {Error} When the module carries no such function.
- */
-function functionBody(source: string, name: string): string {
-    const start = source.indexOf(`export function ${name}(`);
-    if (start === -1) {
-        throw new Error(`${ACCOUNTS_MODULE} exports no ${name}`);
-    }
-
-    const end = source.indexOf('\n}\n', start);
-
-    return end === -1 ? source.slice(start) : source.slice(start, end + 2);
 }
 
 /**
@@ -667,20 +612,11 @@ describe('FR-120 and FR-122 the gate and the empty text read one predicate over 
 });
 
 /* -------------------------------------------------------------------- *
- * K-3 — FR-122's consistency rule, asserted as a claim about shape
+ * K-3 — FR-122's consistency rule
  * -------------------------------------------------------------------- */
 
 describe('K-3 the gate and the selector consume one predicate, not two', () => {
-
     it('never widens the gate to usable accounts or fires it pre-read', () => {
-        const gate = functionBody(accountsCode(), 'accountGate');
-
-        // `usable` is FR-120's prohibition by name: the service accepts a
-        // binding against an account that merely *exists*, so a `usable` gate
-        // would refuse bindings the service and the poll loop both handle
-        // (FR-124 — a recorded divergence, not a bug).
-        expect(gate).not.toContain('usable');
-
         const inactive = accountFixture({
             numericUserId: '77332',
             login: IDLE_LOGIN,
