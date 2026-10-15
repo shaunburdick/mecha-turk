@@ -1,6 +1,5 @@
 /**
- * Configuration authority (006 T-025, T-026 — block J; FR-004, FR-090 –
- * FR-092; AC-151, AC-152, AC-153; 002 FR-041).
+ * Configuration authority (006 T-025, T-026 — block J; FR-090, AC-152).
  *
  * Three layers, in this order, with no overlap between them — so precedence
  * is a property of the ordering rather than a tie-break (FR-090):
@@ -13,19 +12,13 @@
  *    its integration card is gone entirely (product-owner order,
  *    2026-09-30), so there is no second input surface to arbitrate.
  *
- * What is asserted here is the *absence* half of that statement, which is the
- * half that rots: no `.env` of any kind ships, no dotenv-style loader exists,
- * no `MECHA_TURK_` identifier survives outside the specification corpus, and
- * the poll interval has **exactly one** operator input — the Settings row,
- * whose bounds come from the service's own declaration.
+ * What is asserted here is layer 1: `readServiceEnv` starts from exactly the
+ * host-provided pair, ignores an unrelated variable in the environment it is
+ * handed, refuses a missing or malformed half naming the field that failed,
+ * and echoes neither the token nor the value it refused.
  *
- * The AC-153 scan counts **inputs** (surfaces an operator can set), not
- * constants; the panel does carry a poll cadence for its own refresh timer,
- * and the last case below argues — rather than assumes — why it is not a
- * second one.
- *
- * Offline: local files, `git ls-files`, and the pure environment reader
- * (FR-086). No network, no PAT, no live host.
+ * Offline: the pure environment reader (FR-086). No network, no PAT, no live
+ * host.
  */
 
 import { describe, expect, it } from 'vitest';
