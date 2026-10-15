@@ -1,10 +1,5 @@
-/**
- * T014: the engine-delivery pass end to end against the T001 fake —
- * admission, the closed classification, the ladder and its no-rung classes,
- * the intent→receipt write order, restart reconciliation, the invariant-10
- * request log, and the SessionRef.directory store round trip (009 FR-104
- * span C; FR-105 spans D/E).
- */
+/** The engine-delivery pass end to end against the fake OpenCode server: admission, the closed
+ * classification, the ladder, write order, reconciliation, the request log, and the round trip. */
 
 import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -321,9 +316,8 @@ describe('the engine path admits one follow-up, exactly once (AC-050 engine span
     });
 
     it('the admission succeeds whatever the session fixture carries: turn state is never consulted', async () => {
-        // The engine admits into a busy or an idle session alike (research
-        // §2.1, live-confirmed); the pass consults no lifecycle surface at all,
-        // which the invariant-10 request log proves below.
+        // The engine admits into a busy or an idle session alike — the pass consults
+        // no lifecycle surface at all, which the request log proves.
         const { fake } = await engine({ sessions: [{ ...ownedSession(), time: { created: 1, updated: 2 } }] });
         await seedDispatchedFollowUp(SESSION_DIR);
 
@@ -384,9 +378,8 @@ describe('the engine member exists from the row’s first projected byte (009 F6
         expect(await queuedRow(seeded.deliveryId), 'the enqueue wrote no engine member').toMatchObject({
             engine: { state: 'unknown', cause: 'intent' },
         });
-        // …and the row's very first projection, read before any pass could
-        // touch it, already carries the member: no caller can observe a frame
-        // in which the engine pass's own delivery is unmarked (009 F6; span C).
+        // …and the row's very first projection, read before any pass could touch it,
+        // already carries the member: no caller sees a frame where the delivery is unmarked.
         expect(await projectedFollowUp(seeded.correlationId)).toMatchObject({
             engine: { state: 'unknown', cause: 'intent' },
         });
@@ -437,9 +430,8 @@ describe('the unknown class is terminal: zero re-POSTs, ever (Gate 2 M4)', () =>
             expect(promptRequests(fake), 'the unknown class consumed the only POST').toBe(1);
             expect(sleeps, 'an unknown outcome never runs the ladder').toHaveLength(0);
             const row = await queuedRow(seeded.deliveryId);
-            // The intent is spent and the receipt never arrived, so the member
-            // records the outcome cause; the class word this case named lives
-            // on the audit row below, where the trail keeps it.
+            // The intent is spent and the receipt never arrived, so the member records
+            // the outcome cause; the class word this case named lives on the audit row.
             expect(row?.engine).toEqual({
                 state: 'unknown',
                 intentAtMs: FIXED_NOW_MS,
@@ -463,9 +455,8 @@ describe('the unknown class is terminal: zero re-POSTs, ever (Gate 2 M4)', () =>
 
         await runEngineDeliveryPass(passDeps(engineEnv(fake)));
 
-        // Admission is delivery; execution is observation. Nothing is ever
-        // auto-approved, so no approve/resolve-shaped call can exist — the
-        // log carries exactly the three named routes and nothing else.
+        // Admission is delivery; execution is observation. Nothing is ever auto-approved,
+        // so no approve/resolve-shaped call can exist — the log carries exactly three routes.
         const paths = fake.requests.map((request) => request.path);
         expect(paths.every((path) => /^\/api\/(info|session\/[^/]+(\/prompt)?)$/u.test(path))).toBe(true);
     });

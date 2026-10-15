@@ -63,18 +63,7 @@ export interface RunVerification {
 
 export type FollowUpKind = 'comment' | 'head';
 
-/**
- * The engine-delivery state the service projects on a follow-up row (002
- * v1.19.0 §2.4): `queued` is an engine admission — reached and engine-held —
- * `unavailable` is the service's handoff to this panel's fallback, and
- * `unknown` is the unconfirmed outcome the panel displays and never
- * auto-attempts, its `cause` splitting a **fresh** row the engine pass still
- * owns (`intent` — no re-offer, no note) from a **spent** intent with no
- * receipt (`outcome` — the re-offer-eligible one; 009 F6). Absentable: a
- * pre-amendment service projects nothing. The dispatch-reported session
- * directory is **not** here — it is store-internal to the service and rides
- * no run-row surface (Gate 2 HIGH B).
- */
+/** Absentable on read; `cause` splits a fresh intent the engine pass owns from a spent, re-offer-eligible one. */
 export type RunFollowUpEngine =
     | { readonly state: 'queued'; readonly messageId?: string }
     | { readonly state: 'unavailable' }
@@ -102,11 +91,6 @@ export interface RunFollowUp {
     readonly fromHeadSha?: string;
     /** The head this movement observed; head changes only. */
     readonly headSha?: string;
-    /**
-     * The engine-delivery state, absentable; read fail-closed below. An
-     * `unknown` member carries its cause, and a member without one refuses
-     * the follow-up (009 F6).
-     */
     readonly engine?: RunFollowUpEngine;
 }
 
@@ -275,7 +259,6 @@ function readFollowUpText(record: Record<string, unknown>): FollowUpText | null 
     return { excerpt, actorLogin, detectedAt, sourceUrl };
 }
 
-/** Read the `queued` arm: the receipt when present, and never a cause. */
 function queuedEngineMember(record: Record<string, unknown>): RunFollowUpEngine | null {
     if (Object.hasOwn(record, 'cause')) {
         return null;
@@ -286,12 +269,10 @@ function queuedEngineMember(record: Record<string, unknown>): RunFollowUpEngine 
     return messageId === null ? null : { state: 'queued', ...(messageId !== undefined && { messageId }) };
 }
 
-/** Read the `unavailable` arm: the handoff mark alone, never a receipt or a cause. */
 function unavailableEngineMember(record: Record<string, unknown>): RunFollowUpEngine | null {
     return Object.hasOwn(record, 'messageId') || Object.hasOwn(record, 'cause') ? null : { state: 'unavailable' };
 }
 
-/** Read the `unknown` arm: its closed cause, and never a receipt. */
 function unknownEngineMember(record: Record<string, unknown>): RunFollowUpEngine | null {
     if (Object.hasOwn(record, 'messageId')) {
         return null;
@@ -302,16 +283,8 @@ function unknownEngineMember(record: Record<string, unknown>): RunFollowUpEngine
     return cause === 'intent' || cause === 'outcome' ? { state: 'unknown', cause } : null;
 }
 
-/**
- * Read the absentable `engine` projection member: absent stays absent, and a
- * **present** member that is not one of the three closed shapes refuses the
- * whole follow-up — the gate and every surface read this member, so a
- * half-readable one would render one word and attempt another (invariant 8).
- * A receipt rides `queued` alone; `unavailable` and `unknown` carry none, and
- * `unknown` carries its cause alone — the cause is absent or inside the closed
- * `intent`/`outcome` pair, and on either settled arm its presence refuses, so
- * the mirror answers the store's iff exactly (009 F6).
- */
+// A present member outside the three closed shapes refuses the whole follow-up:
+// a half-read one would render one word and attempt another.
 function parseEngineMember(value: unknown): RunFollowUpEngine | null | undefined {
     if (value === undefined || value === null) {
         return undefined;
@@ -338,15 +311,6 @@ function parseEngineMember(value: unknown): RunFollowUpEngine | null | undefined
     }
 }
 
-/**
- * The follow-up's optional members as one step: the two head stamps and the
- * engine-delivery member. An absent `headSha` on a comment follow-up and an
- * absent `fromHeadSha` on the first head movement are both legitimate, and
- * inventing either would name a head nobody observed; a present-but-unusable
- * member is refused rather than defaulted.
- *
- * @returns The members, or `null` when any present one is unusable.
- */
 function readFollowUpOptional(record: Record<string, unknown>): {
     readonly fromHeadSha?: string;
     readonly headSha?: string;
@@ -439,18 +403,6 @@ export interface ParkedFollowUp {
     readonly cause: string;
 }
 
-/**
- * What the panel's own record and the service's projection say about one
- * row's follow-ups: **waiting** means not yet in its session and not parked;
- * **parked** is excluded from automatic handling until an operator re-offers it
- * (FR-105), so it is never counted as waiting — the row says *parked*, with
- * its cause. The engine members are sourced from the projection alone:
- * `engineQueued` is engine-admitted and engine-held (§4's rule 1 — reached, so
- * never waiting and never claimed delivered), and `unconfirmed` counts the
- * outcome-unknown rows — the spent intents — inside the waiting total,
- * rendered with the `unconfirmed` note rather than a seventh reason word; a
- * fresh `intent` row counts as waiting with no note (§4's rule 2, 009 F6).
- */
 export interface FollowUpRowView {
     readonly delivered: number;
     readonly waiting: number;
@@ -512,9 +464,8 @@ export function followUpRowView(
     }
 
     const engineQueued = projected.filter((followUp) => followUp.engine?.state === 'queued').length;
-    // The note rides only a spent intent (§4's rule 2; 009 F6): a fresh
-    // `intent` row is simply in flight — nothing is unconfirmed yet — so it
-    // counts as waiting and carries no note.
+    // The note rides only a spent intent: a fresh `intent` row is simply in
+    // flight — nothing is unconfirmed yet — so it waits with no note.
     const unconfirmed = projected.filter((followUp) =>
         followUp.engine?.state === 'unknown' && followUp.engine.cause === 'outcome').length;
 
@@ -523,7 +474,7 @@ export function followUpRowView(
     // waiting too. The second arm counts the records whose follow-up has left
     // the projection window: the movement still exists in the queue, and the
     // panel still owes the session a prompt for it. Engine-admitted follow-ups
-    // are excluded: reached and engine-held is not waiting (§4's rule 1).
+    // are excluded: reached and engine-held is not waiting.
     const waiting = projected.filter((followUp) => {
         if (followUp.engine?.state === 'queued') {
             return false;
@@ -539,13 +490,9 @@ export function followUpRowView(
     return { delivered, waiting, engineQueued, unconfirmed, parked };
 }
 
-/** The note an engine-unconfirmed row carries into the re-offer (companion 9). */
 const UNCONFIRMED_CAUSE = 'the engine outcome is unconfirmed';
 
-/**
- * One follow-up the re-offer control offers: a parked one with its cause, or
- * an engine-unconfirmed one the panel never attempted (companion 9's span).
- */
+/** A parked follow-up with its cause, or an engine-unconfirmed one the panel never attempted. */
 export interface ReofferableFollowUp {
     readonly deliveryId: string;
     readonly kind: 'parked' | 'unconfirmed';
@@ -554,20 +501,8 @@ export interface ReofferableFollowUp {
     readonly cause: string;
 }
 
-/**
- * Companion 9's eligibility, widened over {@link followUpRowView}'s parked
- * set: a parked follow-up — one that exhausted the retry ladder and sits out
- * automatic handling — **or** one whose engine outcome is `unknown` with its
- * intent already spent (`cause: 'outcome'`). Never one already delivered
- * (nothing to send again), never one engine-admitted (`engine-queued` is
- * engine-held), never one the engine pass still owns (`cause: 'intent'` —
- * seeding a fallback prompt there would race the admission, 009 F6), and
- * never one never attempted — it is already due and the relay's tick
- * delivers it unaided. The unconfirmed re-offer is the one operator-initiated
- * attempt that needs no `unavailable` mark: it records through the panel's
- * own durable record and reaches the session as a fallback prompt, never an
- * engine POST (FR-105 span E).
- */
+// Eligible: parked rows, or spent unknown intents the panel never attempted.
+// A fresh `intent` row is excluded — seeding a fallback there would race the admission.
 export function reofferableFollowUps(
     row: RunRow,
     records: readonly FollowUpDeliveryRecord[],

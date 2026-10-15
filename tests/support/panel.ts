@@ -203,11 +203,8 @@ function readyContext(session: SessionSnapshot | null): HostReadyContext {
     };
 }
 
-/**
- * Push harness: a fake host that captures the `onSession` /
- * `onSessionLifecycle` / `onReady` registrations plus the emitters a test
- * drives them with, replaying a late subscriber as the SDK bridge does.
- */
+/** Push harness: a fake host capturing the session/lifecycle/ready registrations plus their
+ * emitters, replaying a late subscriber as the SDK bridge does. */
 export interface PushHarness {
     readonly host: PanelHost;
     readonly emitSession: (session: SessionSnapshot | null) => void;
@@ -215,10 +212,7 @@ export interface PushHarness {
     readonly emitReady: (session: SessionSnapshot | null) => void;
 }
 
-/**
- * Build the push harness; overrides win exactly as in {@link fakeHost}, so the
- * `prompt` / `openSession` call-log overrides keep working.
- */
+/** Build the push harness; overrides win exactly as in {@link fakeHost}, so the call-log overrides keep working. */
 export function createPushHarness(overrides: Partial<PanelHost> = {}): PushHarness {
     const sessionListeners = new Set<(session: SessionSnapshot | null) => void>();
     const lifecycleListeners = new Set<(event: SessionLifecycleEvent) => void>();

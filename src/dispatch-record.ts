@@ -64,24 +64,7 @@ export interface DispatchRecordDocument {
     readonly followUps?: readonly FollowUpDeliveryRecord[];
 }
 
-/**
- * The closed vocabulary a delivery settles or waits in, because the reason a
- * delivery parks is the exact cause an operator reads on the run row and in the
- * trail (002 FR-105), and a second spelling of one cause would be two answers
- * to one question. `session-busy` is the FR-104 **waiting state** rather than
- * an attempt failure — the **fallback's** word: the target was not current or
- * not observed idle — and `engine-queued` (added at v1.19.0 by product-owner
- * decision) is the **waiting state for an engine admission**, in the same
- * precedent: the follow-up was admitted engine-side and is engine-held until
- * the engine promotes it — never a park, never a panel auto-attempt, and
- * nothing is ever re-sent for it while the word stands. **No panel write ever
- * produces `engine-queued`**: its only writer is the service-owned projection
- * member's `queued` branch, so the union grows for rendering/type closure
- * while every panel writer stays where it was. **A closed panel is not a
- * cause** — a mount that goes away between attempts leaves the record *due*
- * and the remount resumes the ladder (spec.md User Story 7's third scenario);
- * the value a "panel closed" park would ride has no writer.
- */
+/** The closed vocabulary a delivery settles or waits in; a closed panel is not a cause — it has no writer. */
 export type FollowUpFailure =
     | 'no-session'
     /** The fallback's waiting state: the target is not current or not observed idle; never an attempt. */
@@ -91,7 +74,7 @@ export type FollowUpFailure =
     | 'over-budget'
     /** The host rejected or timed out the prompt, or the transport failed. */
     | 'host-unavailable'
-    /** Engine-admitted and engine-held; the service-owned member's `queued` branch is its only writer. */
+    /** Engine-admitted and engine-held; only the service's projection writes it. */
     | 'engine-queued';
 
 /** One follow-up delivery's durable state (002 FR-104, FR-105). */
@@ -276,7 +259,6 @@ function readAttempts(value: JsonValue | undefined): DispatchAttemptRecord[] | n
     return attempts;
 }
 
-/** The causes a stored record may carry, the closed union's runtime half. */
 const FOLLOW_UP_FAILURES: ReadonlySet<string> = new Set<FollowUpFailure>([
     'no-session',
     'session-busy',
@@ -330,12 +312,8 @@ function readNextAttemptAtMs(record: Record<string, JsonValue>): number | null |
     return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
-/**
- * The waiting-state migration FR-105 mandates, over the two fields the record
- * already carries: a pre-amendment record parked with `session-busy` was a
- * refused attempt, not delivered work, so it reads back re-armed — attempt
- * history intact, due now — with no persisted field or store (M6).
- */
+// A pre-amendment record parked with `session-busy` was a refused attempt, not
+// delivered work: it reads back re-armed — attempt history intact, due now.
 function rearmLegacySessionBusy(record: FollowUpDeliveryRecord): FollowUpDeliveryRecord {
     return record.parked && record.reason === 'session-busy'
         ? { ...record, parked: false, nextAttemptAtMs: null }
@@ -605,7 +583,6 @@ export async function acknowledgeDispatch(input: {
     });
 }
 
-/** The coordinates an engine-unconfirmed row's first panel record is seeded from. */
 export interface FollowUpSeed {
     readonly deliveryId: string;
     readonly correlationId: string;
@@ -674,11 +651,7 @@ export async function recordFollowUpDelivery(
  * `delivered` has nothing to re-offer, and resetting `attempt` would re-spend the ladder the park
  * just exhausted (NFR-002). The record is re-appended at the end of the list, which is
  * load-bearing: {@link followUpWindowOpening} derives the read's window from it, and an owed record
- * sitting before a delivered one would open the window past it. A `seed`d id with **no record at
- * all** appends a fresh due record instead — the operator's accepted attempt on an
- * engine-unconfirmed row, the one re-offer that needs no `unavailable` mark (FR-105 span E); an id
- * the panel already holds a record for is never re-seeded. `null` unless something was re-offered
- * or seeded.
+ * sitting before a delivered one would open the window past it. `null` unless something was re-offered or seeded.
  */
 export function reofferFollowUpRecords(input: {
     readonly document: DispatchRecordDocument;
@@ -692,6 +665,8 @@ export function reofferFollowUpRecords(input: {
     const reoffered = existing
         .filter((candidate) => wanted.has(candidate.deliveryId) && candidate.parked && !candidate.delivered)
         .map((candidate) => ({ ...candidate, parked: false, reason: null, nextAttemptAtMs: null, updatedAt: at }));
+    // A record-less seed appends a fresh due record — the engine-unconfirmed
+    // row's accepted attempt; an id the panel already holds is never re-seeded.
     const seeded = (input.seeds ?? [])
         .filter((seed) =>
             wanted.has(seed.deliveryId)
@@ -720,11 +695,11 @@ export function reofferFollowUpRecords(input: {
 }
 
 /**
- * Re-offer parked (or engine-unconfirmed, via `seeds`) follow-up deliveries through the durable
- * record; never throws. The local half of FR-105's re-offer: no route, no service request, no run
- * state — the panel's own record is the only thing that moves, and the relay's next tick is what
- * delivers. `false` when nothing was parked or seedable, the record could not be read, or the
- * write was refused.
+ * Re-offer parked (or engine-unconfirmed, via `seeds`) follow-up deliveries through the durable record; never throws.
+ * The local half of FR-105's re-offer: no route, no service request, no run
+ * state — the panel's own record is the only thing that moves, and the relay's
+ * next tick is what delivers. `false` when nothing was parked or seedable, the record could
+ * not be read, or the write was refused.
  */
 export async function reofferFollowUpDelivery(input: {
     readonly rt: PanelRuntime;

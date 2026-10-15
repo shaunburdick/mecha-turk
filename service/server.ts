@@ -60,12 +60,7 @@ export interface StartServiceOptions {
      * no suite run ever reaches the network.
      */
     readonly poller?: GitHubIssuePoller;
-    /**
-     * The environment map the entry point read `process.env` into, carried
-     * down to the engine-delivery pass's two seams (the registry override
-     * and the token layer) so no module below the entry point reads the
-     * process environment itself (FR-090; 009 invariant 9).
-     */
+    /** `process.env` as the entry point read it, carried to the engine pass's seams — no module below reads it. */
     readonly processEnv?: Readonly<Record<string, string | undefined>>;
 }
 
@@ -358,7 +353,6 @@ function startSchedulers(input: {
     readonly poller: GitHubIssuePoller;
     /** Status view the poll loop publishes its state into. */
     readonly polling: PollingViewSlot;
-    /** Environment map the poll loop's engine pass reads its two seams from. */
     readonly env: Readonly<Record<string, string | undefined>>;
 }): { readonly poll: PollLoop | null; readonly sweep: SweepLoop | null } {
     const { store, log, poller, polling, env } = input;
@@ -422,12 +416,8 @@ export async function startService(options: StartServiceOptions): Promise<Servic
     // The sweep runs at service start, before the server accepts a
     // claim, so a restart recovers stranded claims with no operator action.
     const swept = await startBootSweep({ store, log: options.log });
-    // Spend the engine intents the previous process outlived before anything
-    // can engine-attempt them: each row it left without a receipt flips from
-    // the `intent` cause to `outcome`, so it is never re-POSTed and is
-    // re-offerable instead (009 F6; FR-105 span E). It runs before `listen`,
-    // so no read can race it, and it is a no-op on a degraded start — the
-    // poll loop never starts there either, so nothing is left un-flipped.
+    // Runs before `listen`, so no read can race it: intents the previous
+    // process outlived flip to `outcome` first — never re-POSTed, re-offerable.
     if (store !== null) {
         const spentIntents = await reconcileEngineIntents({ store, log: options.log });
         if (spentIntents > 0) {

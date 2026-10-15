@@ -85,12 +85,7 @@ export interface ScanDeps {
     readonly store: ServiceStore | null;
     readonly log: ServiceLogger;
     readonly poller: GitHubIssuePoller;
-    /**
-     * The environment map the entry point handed the server, read only by the
-     * engine-delivery pass's two seams (the registry override and the token
-     * layer) — the scan itself reads nothing from it, and an absent map means
-     * the engine path discovers nothing and fails safe (FR-090; 009).
-     */
+    /** The entry point's own environment, read only by the engine pass's two seams; an absent map fails safe. */
     readonly env?: Readonly<Record<string, string | undefined>> | undefined;
 }
 
@@ -693,16 +688,11 @@ export async function runScanCycle(deps: ScanDeps): Promise<ScanResult> {
         outcomes.push(scan);
     }
 
-    // One engine-delivery pass per cycle, after the enqueue phase: it works
-    // the run-linked follow-up rows whose engine member is still absent under
-    // the cycle's own retry knobs (002 v1.19.0 FR-104; plan pin 6). It never
+    // One engine-delivery pass per cycle, after the enqueue phase — it never
     // throws, so a broken engine path stops no binding and no cycle.
     await runEngineDeliveryPass({
         store: context.store,
         log: context.log,
-        // Absent — an embedding that passes no environment — means the engine
-        // path discovers nothing and fails safe rather than reading the
-        // process environment from down here (FR-090).
         env: deps.env ?? {},
         retry: {
             maxAttempts: context.config.retryMaxAttempts,

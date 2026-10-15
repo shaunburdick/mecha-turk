@@ -70,28 +70,12 @@ export interface HistoryFollowUp {
     readonly fromHeadSha?: string;
     /** The head this movement observed, for a head change only. */
     readonly headSha?: string;
-    /**
-     * The engine-delivery state the service recorded for this row, absentable
-     * and present **exactly** when the queue row's `engine` member is: `queued`
-     * is an engine admission (reached and engine-held), `unavailable` is the
-     * handoff to the panel fallback, `unknown` is the unconfirmed outcome.
-     * Additive within `/v1` — a caller that ignores it reads the row as it
-     * always did, and `HistorySession` gains nothing from any of this
-     * (002 v1.19.0 FR-104; Gate 2 HIGH B).
-     */
     readonly engine?: HistoryFollowUpEngine;
 }
 
-/** One follow-up row's projected engine-delivery state (002 v1.19.0 §2.4). */
 export type HistoryFollowUpEngine =
     | { readonly state: 'queued'; readonly messageId?: string }
     | { readonly state: 'unavailable' }
-    /**
-     * `cause: 'intent'` is a row the engine pass still owns — the enqueue
-     * wrote it, and no re-offer reaches it; `cause: 'outcome'` is a spent
-     * intent with no receipt — displayed, never auto-attempted, re-offerable
-     * (009 F6; FR-105 span E).
-     */
     | { readonly state: 'unknown'; readonly cause: 'intent' | 'outcome' };
 
 /**
@@ -406,20 +390,12 @@ function headShaOfRow(row: QueuedEvent): string | undefined {
     return row.headSha !== null && row.headSha !== '' ? row.headSha : undefined;
 }
 
-/**
- * The projected engine member, sourced one-to-one from the queue row's own:
- * `admitted` renders as the projection's `queued` (engine-admitted, held by
- * the engine's queue), an `unknown` row carries its cause through unchanged,
- * and an absent member stays absent rather than becoming a state the row
- * never recorded (002 v1.19.0 §2.4).
- */
+/** Sourced one-to-one from the queue row's own member: `admitted` renders as `queued`; absent stays absent. */
 function engineViewOf(engine: QueuedEvent['engine']): HistoryFollowUpEngine | undefined {
     if (engine === undefined) {
         return undefined;
     }
 
-    // The parser's iff-invariants: `admitted` always carries the receipt, and
-    // `unknown` always carries its cause.
     if (engine.state === 'admitted') {
         return { state: 'queued', messageId: engine.messageId };
     }

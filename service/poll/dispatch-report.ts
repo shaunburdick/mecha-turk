@@ -21,12 +21,7 @@ interface ReportOutcome {
     readonly attemptOutcome: 'dispatched' | 'failed' | 'abandoned';
     readonly sessionId: string | null;
     readonly reason: string | null;
-    /**
-     * The dispatch-reported session directory (absentable, additive on the
-     * result body): absent when the caller reported none — a problem report,
-     * an abandon, or a pre-amendment panel — and never guessed from the
-     * worktree option (002 v1.19.0; Gate 2 H1).
-     */
+    /** Absent when the caller reported none — a problem report, an abandon, or a pre-amendment panel. */
     readonly directory?: string | null;
 }
 

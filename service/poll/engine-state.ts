@@ -1,10 +1,4 @@
-/**
- * The single-writer engine-member write: it joins the queue's existing chain
- * — the same slot an enqueue and the excerpt trim use — so it serializes with
- * every other queue mutation, and it **never prunes a queue row on any path**
- * (002 v1.19.0 §2.4, span B). The restart reconciliation's cause flip writes
- * here too, for the same single-writer reason.
- */
+/** The single-writer queue write: it joins the queue's existing chain and never prunes a row on any path. */
 
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
@@ -13,12 +7,7 @@ import { EVENTS_FILE, parseStoredEvents } from './events-parse.ts';
 import { inQueueChain } from './runs-document.ts';
 import type { EngineMember } from './events-parse.ts';
 
-/**
- * Set one row's engine member, rewriting the queue exactly as read with only
- * that row changed. One atomic `writeJson` per write; `false` when the row or
- * the queue is currently unreadable, so a caller records the loss instead of
- * assuming the delivery settled.
- */
+/** Atomic rewrite of the queue as read; `false` when unreadable, so the caller records the loss, not the delivery. */
 export async function writeEngineMember(input: {
     readonly store: ServiceStore;
     readonly deliveryId: string;
@@ -44,16 +33,7 @@ export async function writeEngineMember(input: {
     });
 }
 
-/**
- * Restart reconciliation (009 F6; FR-105 span E): a restart over a
- * send-intent that never gained its receipt spends the intent — the row's
- * cause moves `'intent'` → `'outcome'`, it stays `unknown` (never re-POSTed,
- * ever), and it becomes an ordinary outcome-unknown row: displayed, and
- * re-offerable by the operator. One atomic queue-chain write, and only when a
- * row actually flips; returns how many did. Never throws, because a
- * reconciliation that failed must not stop the boot that ran it — a later
- * boot simply finds the same rows again.
- */
+/** Never throws: a reconciliation that failed must not stop the boot — a later boot finds the same rows again. */
 export async function reconcileEngineIntents(input: {
     readonly store: ServiceStore;
     readonly log: ServiceLogger;

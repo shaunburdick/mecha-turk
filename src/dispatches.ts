@@ -181,14 +181,8 @@ function requeueConfirmCopy(row: RunRow): string {
         + 'requeue budget to 0; source references and every prior attempt record are kept.';
 }
 
-/**
- * The engine-unconfirmed half of the re-offer's confirmation and outcome: the
- * one re-offer that needs no park to clear and no `unavailable` mark — the
- * panel records the operator's acceptance of the possible duplicate an unknown
- * engine outcome implies, and the delivery reaches the session as the
- * fallback's own prompt, never an engine POST (FR-105 span E). Spoken only
- * when such a row is in the set, so the parked copy stands verbatim otherwise.
- */
+// The re-offer that needs no park to clear: it records the operator's acceptance
+// of the possible duplicate and reaches the session as a fallback prompt, never an engine POST.
 const UNCONFIRMED_REOFFER_NOTE =
     'An engine-unconfirmed follow-up has no park to clear: the re-offer records your acceptance of the'
     + ' possible duplicate and delivers it through the panel’s own prompt — the engine is never asked again.';
@@ -425,8 +419,7 @@ const REFUSED_REOFFER_NOTE =
  * The outcome note: what was re-offered, and what it bought — one more
  * attempt, not a fresh ladder: the re-offer clears the park and its cause and
  * leaves the count alone, so a second failure parks it again at once, the
- * same promise the confirmation made. An engine-unconfirmed re-offer's own
- * outcome is named beside it.
+ * same promise the confirmation made. An engine-unconfirmed re-offer's own outcome is named beside it.
  */
 function reofferOutcomeCopy(row: RunRow, reofferable: readonly ReofferableFollowUp[]): string {
     const parked = reofferable.filter((entry) => entry.kind === 'parked').length;
@@ -512,10 +505,7 @@ export async function reofferFollowUp(rt: PanelRuntime): Promise<void> {
     const reofferable = reofferableFollowUps(row, runs.followUpRecords);
     if (reofferable.length === 0) {
         // Every refusal is a fact an operator can act on, so the note names
-        // them rather than refusing silently: a follow-up nobody attempted is
-        // already due, one that already reached its session has nothing to send
-        // again, and one already admitted into the engine's queue is
-        // engine-held — the service's record, not the panel's, governs it.
+        // them rather than refusing silently; the service's record governs the engine-held.
         runs.note = 'Nothing to re-offer: this dispatch has no parked or engine-unconfirmed follow-up. One that has'
             + ' not been attempted is already due, one that already reached its session has nothing to re-offer, and'
             + ' one already admitted into the engine’s queue is engine-held there.';

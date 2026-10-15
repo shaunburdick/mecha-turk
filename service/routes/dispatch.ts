@@ -81,13 +81,8 @@ type ResultOutcome =
     }
     | { readonly ok: false; readonly response: HttpResponse };
 
-/**
- * Read the result body's additive `directory` member: absent or blank stays
- * absent — never guessed, never defaulted from the worktree option — and a
- * present non-string is refused exactly like a malformed `sessionId`, because
- * the pre-check this feeds fails safe only when the value is genuinely the
- * host's (002 v1.19.0; Gate 2 H1).
- */
+// Absent or blank stays absent — never guessed, never defaulted from the
+// worktree option; a present non-string is refused like a malformed `sessionId`.
 function readReportedDirectory(fields: Readonly<Record<string, unknown>>): string | null | HttpResponse {
     const value = fields.directory;
     if (value === undefined || value === null) {

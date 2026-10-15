@@ -22,7 +22,7 @@ const AUTH_HEADER = 'Authorization: Bearer 0123456789abcdef0123456789abcdef';
 /** Label {@link findSecretLeak} reports for the Authorization header shape. */
 const AUTH_LABEL = 'authorization-header';
 
-/** The engine password's env-var spelling — the name-based class of an opaque value (009 invariant 9). */
+/** The engine password's env-var spelling — the name-based class of an opaque value. */
 const PASSWORD_ENV_HEADER = `OPENCODE_SERVER_PASSWORD=${'s'.repeat(TOKEN_BODY)}`;
 
 /** Label {@link findSecretLeak} reports for that spelling. */

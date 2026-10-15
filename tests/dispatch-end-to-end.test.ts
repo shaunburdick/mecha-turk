@@ -114,12 +114,8 @@ describe('T-036 one end-to-end dispatch on this branch', () => {
     });
 });
 
-/* ------------------------------------------------------------------ *
- * 009 T024 (Gate 2 H1): the dispatch result reports the session
- * directory by one rule — `worktree.directory` when the result carries
- * one, else `result.directory`, absent when neither — and the service
- * persists it on the run's session ref.
- * ------------------------------------------------------------------ */
+/* The dispatch result reports the session directory by one rule — `worktree.directory`,
+ * else `result.directory`, absent when neither — and the service persists it. */
 
 /** The worktree directory a worktree-dispatch result reports. */
 const WORKTREE_DIR = '/home/agent/acme/widget/.worktrees/reporting';

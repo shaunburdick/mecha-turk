@@ -25,37 +25,12 @@ export type SubjectType = 'issue' | 'pull_request';
  */
 export type { ActorAttribution } from './attribution.ts';
 
-/**
- * Why an `unknown` member is unknown (009 span C/E): `intent` is a
- * send-intent this service still owns — written with the row's own enqueue
- * and re-stamped immediately before the admission POST — and `outcome` is a
- * spent intent with no receipt: the settled ambiguous outcome, and what a
- * restart reconciliation writes over an interrupted one. Only `outcome` is
- * re-offerable (companion 9).
- */
+/** `intent` is a send-intent this service still owns; `outcome` is spent with no receipt — only it is re-offerable. */
 export type EngineCause = 'intent' | 'outcome';
 
-/**
- * The service's durable engine-delivery record on the follow-up's queue row.
- * Its three states are 002 v1.19.0 §2.4's closed set: `admitted` holds the
- * receipt, `unavailable` is the permanent handoff to the fallback, and
- * `unknown` is the ambiguous outcome that is never auto-retried.
- *
- * A closed discriminated union so the iff-invariants are unrepresentable when
- * writing and re-derived fail-closed when parsing: `messageId` exists only on
- * `admitted`, `intentAtMs` and a {@link EngineCause} only on `unknown` (never
- * a receipt), and `unavailable` carries none of the three — a stored member
- * that carries a cause on a non-`unknown` state, or a cause outside the
- * closed two, is refused exactly as a malformed required field is. Absentable:
- * a row written before the engine path existed parses byte-identically (Gate
- * 2 H3; plan pin 10; 002 v1.19.0 §2.4).
- */
 export type EngineMember =
-    /** The admission receipt (`msg_…`) is persisted. */
     | { readonly state: 'admitted'; readonly messageId: string }
-    /** Handed to the panel fallback; the service never engine-attempts again. */
     | { readonly state: 'unavailable' }
-    /** Send-intent persisted, outcome unknowable; never auto-retried. */
     | { readonly state: 'unknown'; readonly intentAtMs: number; readonly cause: EngineCause };
 
 export interface QueuedEvent {
@@ -143,13 +118,7 @@ export interface QueuedEvent {
      * same as `direct`, and never silently becomes it.
      */
     readonly actorAttribution?: ActorAttribution;
-    /**
-     * The service's engine-delivery state for this row, **absentable on read
-     * and validated when present** with the closed iff-invariants
-     * {@link EngineMember} states: a row written before the engine path
-     * existed parses byte-identically without it, and a malformed member
-     * refuses the row rather than half-reading it (002 v1.19.0 §2.4).
-     */
+    /** Absentable on read, validated when present: a malformed member refuses the row. */
     readonly engine?: EngineMember;
 }
 
@@ -348,10 +317,6 @@ function readTrimMarkerField(record: Record<string, unknown>): string | undefine
     return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
-/**
- * Read the `admitted` arm of the engine member's iff-invariants: a receipt,
- * and nothing else on the member.
- */
 function admittedEngineOf(value: Record<string, unknown>): EngineMember | null {
     const { messageId, intentAtMs, cause } = value;
 
@@ -361,7 +326,6 @@ function admittedEngineOf(value: Record<string, unknown>): EngineMember | null {
         : null;
 }
 
-/** Read the `unavailable` arm: the mark alone, never a cause or a receipt. */
 function unavailableEngineOf(value: Record<string, unknown>): EngineMember | null {
     const { messageId, intentAtMs, cause } = value;
 
@@ -370,12 +334,10 @@ function unavailableEngineOf(value: Record<string, unknown>): EngineMember | nul
         : null;
 }
 
-/** The closed cause union, read fail-closed: anything else answers `null`. */
 function engineCauseOf(value: unknown): EngineCause | null {
     return value === 'intent' || value === 'outcome' ? value : null;
 }
 
-/** Read the `unknown` arm: the intent stamp and its closed cause, and never a receipt. */
 function unknownEngineOf(value: Record<string, unknown>): EngineMember | null {
     const { messageId, intentAtMs, cause } = value;
     const intentStamp = typeof intentAtMs === 'number' && Number.isSafeInteger(intentAtMs) && intentAtMs > 0
@@ -389,13 +351,8 @@ function unknownEngineOf(value: Record<string, unknown>): EngineMember | null {
     return { state: 'unknown', intentAtMs: intentStamp, cause: why };
 }
 
-/**
- * Read the engine-delivery member: absent stays absent, and a present member
- * must satisfy the closed union's iff-invariants exactly — anything else
- * answers `null`, which refuses the whole row the way a malformed required
- * field does rather than silently dropping the member a later read would
- * depend on (Gate 2 H3).
- */
+// A present member outside the three closed shapes refuses the whole row, the
+// way a malformed required field does — never a silent drop.
 function readEngineField(record: Record<string, unknown>): EngineMember | undefined | null {
     const value = record.engine;
     if (value === undefined) {
@@ -422,7 +379,6 @@ function readEngineField(record: Record<string, unknown>): EngineMember | undefi
     }
 }
 
-/** The two optional marker members, each absent-or-validated when present. */
 function markersAndEngineHold(record: Record<string, unknown>): boolean {
     return readTrimMarkerField(record) !== null && readEngineField(record) !== null;
 }
@@ -526,7 +482,6 @@ function trimMarkerOf(record: Record<string, unknown>): TrimMarkerFields {
     return marker === undefined || marker === null ? {} : { excerptTrimmedAt: marker };
 }
 
-/** The engine member a row carries; `fieldsHold` has already refused a malformed one. */
 function engineFieldsOf(record: Record<string, unknown>): { readonly engine?: EngineMember } {
     const engine = readEngineField(record);
 

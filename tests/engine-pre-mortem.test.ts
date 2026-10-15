@@ -1,17 +1,5 @@
-/**
- * T026: the mandated pre-mortem table — one row per distinct final-word
- * outcome, each asserting the **final operator-visible word/state** through
- * the whole chain: service classification → persisted engine member →
- * projection member → panel rendering, driven through the panel's own entry
- * points (`followUpRowView` and the reason map in `src/dispatches-detail.ts`,
- * plus `waitingFollowUps` and `dispatchRow`) against the T001 fake, the real
- * service pass, and the fake host in one loop (009 AC-050/AC-051 as amended;
- * FR-104, FR-105; constitution IV). The test fails if any link of the
- * classification→word chain breaks.
- *
- * Offline by construction: a temp store, the fake OpenCode over loopback, the
- * fake panel host, no clock the test waits on (AGENTS.md).
- */
+/** The mandated pre-mortem table: one row per distinct final-word outcome, asserting the
+ * operator-visible word through the whole classification→word chain. */
 
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -111,14 +99,8 @@ interface PremortemCase {
     readonly offered: 'unconfirmed' | 'parked' | null;
 }
 
-/**
- * The table, one row per distinct final-word outcome (Gate 2 round 2):
- * connection-refused after ladder exhaustion, the `unknown` class by one
- * representative (timeout — T014 covers each cause; the member records the
- * outcome cause and the audit row keeps the class, 009 F6), the no-rung
- * `unavailable` class by one representative (401), and the 404's first-
- * refusal park.
- */
+/** One row per distinct final-word outcome: ladder exhaustion, the `unknown` class, the no-rung
+ * `unavailable` class (401), and the 404's first-refusal park. */
 const TABLE: readonly PremortemCase[] = [
     {
         outcome: 'refused',
@@ -429,8 +411,7 @@ describe('the pre-mortem table: one row per distinct final-word outcome (Gate 2 
     for (const scenario of TABLE) {
         it(`${scenario.outcome} → the operator reads “${scenario.finalWord}”`, async () => {
             // The refused row points discovery at a dead port so the ladder
-            // exhausts into the unavailable mark; the live fake only carries
-            // the password the token chain must accept on the last rung.
+            // exhausts into the unavailable mark; only the last rung meets the live fake's password.
             const fake = await engine(scenario.outcome === 'refused' ? {} : { promptOutcome: scenario.outcome });
             if (scenario.outcome === 'refused') {
                 const dead = await startFakeOpenCode();
@@ -474,7 +455,7 @@ describe('the pre-mortem table: one row per distinct final-word outcome (Gate 2 
 
             const view = followUpRowView(row, records);
             expect(view, 'the row view').toMatchObject(scenario.view);
-            // `unconfirmed` counts inside `waiting` (§4's rule 2): the rendered
+            // `unconfirmed` counts inside `waiting`: the rendered
             // note rides the waiting total, it does not add to it.
             expect(waitingFollowUps([row], records), 'the waiting count').toBe(scenario.view.waiting);
             const subtitle = dispatchRow(row, records).subtitle ?? '';
@@ -512,9 +493,8 @@ describe('restart reconciliation hands a spent intent to the operator (009 F6)',
         );
         expect(fake.requests, 'a restart re-POSTed an unknown delivery').toHaveLength(0);
 
-        // The operator's side of the flip, through the panel's own parser and
-        // entry points: waiting with the unconfirmed note, and the re-offer
-        // — never an engine POST — is what now reaches it.
+        // The operator's side of the flip: waiting with the unconfirmed note, and
+        // the re-offer — never an engine POST — is what now reaches it.
         const row = await projectedRow(seeded.correlationId);
         expect(row.followUps?.[0]?.engine, 'the projected member').toEqual({ state: 'unknown', cause: 'outcome' });
         const view = followUpRowView(row, []);

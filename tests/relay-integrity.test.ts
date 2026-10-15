@@ -413,9 +413,8 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
             await dispatchClaimedRun(relay.rt, claimedRun());
 
             const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/dispatched`)) as Record<string, unknown>;
-            // The additive `directory` member (009 T024, Gate 2 H1): the
-            // result carried no worktree, so the rule reports `result.directory`
-            // — the value the host named as the session's own directory.
+            // The additive `directory` member: no worktree on the result, so the rule
+            // reports `result.directory` — the value the host named as the session's own.
             expect(body).toEqual({
                 correlationId: CORRELATION,
                 attempt: 1,

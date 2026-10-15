@@ -177,10 +177,8 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
 
     it('arms the delivery observation — session and lifecycle — with the loop', async () => {
         {
-            // The waiting state is observed, never assumed, so the relay arm
-            // registers the lifecycle push beside the session subscription
-            // and releases both with the runtime's other subscriptions
-            // (002 FR-104; plan.md decision 1).
+            // The waiting state is observed, never assumed, so the arm registers the
+            // lifecycle push beside the session subscription and releases both with the others.
             const service = mutableService({ status: 200, body: bindingsBody([activeBinding()]) });
             const rt = createTestRuntime(service.host);
 

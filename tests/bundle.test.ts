@@ -1986,17 +1986,10 @@ describe('003 v1.8.0 no permitted login reaches any surface (NFR-113, AC-132)', 
     });
 });
 
-/* ------------------------------------------------------------------------- *
- * 009 invariant 9: the engine password reaches no surface (T015)
- *
- * The password is a new secret with an opaque value, so the scan is two-
- * headed: a concrete seeded value proves the pass writes it nowhere, and the
- * name-based pattern joins TOKEN_PATTERNS so the class is covered wherever
- * the PAT class is. The surfaces are every durable or projected place the
- * delivery pass can reach, plus both shipped bundles.
- * ------------------------------------------------------------------------- */
+/* Invariant 9: the engine password reaches no surface — a seeded concrete value plus the
+ * name-based pattern, over every surface the delivery pass can reach and both bundles. */
 
-/** The concrete engine password seeded through the delivery pass (009 invariant 9). */
+/** The concrete engine password seeded through the delivery pass. */
 const ENGINE_PASSWORD = `opencode-password-${'7e3f'.repeat(8)}`;
 
 /** One follow-up detection on the loop fixture's subject, for the scan cycle. */
@@ -2046,10 +2039,8 @@ describe('009 the engine password reaches no surface (invariant 9)', () => {
             await pollRelay(rt);
             await drainVerifications(rt);
 
-            // …and one follow-up the engine pass attempts with the seeded
-            // password in play. The panel reported no directory yet (wave 3's
-            // T024), so the pre-check fails safe — which is exactly the path
-            // that carried the token through every layer before refusing.
+            // …and one follow-up the engine pass attempts with the seeded password in
+            // play: no directory reported yet, so the pre-check fails safe after carrying it.
             const followUp = createEvent(scanFollowUp(91));
             await enqueueEvents({ store: loop.store, log: scanLog, incoming: [followUp] });
             fake = await startFakeOpenCode({ password: ENGINE_PASSWORD });

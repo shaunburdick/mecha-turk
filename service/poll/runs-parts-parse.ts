@@ -209,15 +209,8 @@ function parseWorktree(raw: unknown): { readonly directory: string; readonly bra
     return directory === null || branch === null ? null : { directory, branch };
 }
 
-/**
- * The dispatch-reported `directory` member, read **fail-safe**: absent,
- * `null`, or any non-string value all read as *absent* rather than refusing
- * the run document — a fixed-shape destructure would otherwise silently drop
- * the key on every `runs.json` re-read, and quarantining a whole run document
- * over one optional member would be the harsher failure the member's own
- * convention (absent-byte-identical) exists to avoid (002 v1.19.0; Gate 2
- * HIGH A).
- */
+// Read fail-safe: absent, `null`, or non-string all read as *absent* — a fixed-shape
+// destructure would drop the key on re-read; one optional member must not quarantine the document.
 function directoryFieldOf(raw: Record<string, unknown>): { readonly directory?: string } {
     const reported = readString(raw.directory);
 

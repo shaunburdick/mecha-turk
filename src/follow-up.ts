@@ -106,16 +106,14 @@ function hostErrorCode(cause: unknown): string | null {
     return typeof code === 'string' ? code : null;
 }
 
-/** How one refusal ends: the ladder's one retryable class, a terminal park, or the waiting state. */
 export type RefusalEnding = 'retry' | 'park' | 'wait';
 
-/** What a settled-but-unsent prompt answer means: the cause word and how the attempt ends. */
 export interface FollowUpRefusal {
     readonly reason: FollowUpFailure;
     readonly ending: RefusalEnding;
 }
 
-/** The fallback's waiting word: `session-busy` marks a target that was not current or not idle (span F). */
+/** The fallback's waiting word: `session-busy` marks a target not current or not idle. */
 const WAITING_REASON: FollowUpFailure = 'session-busy';
 const HOST_REFUSAL_REASON: FollowUpFailure = 'host-unavailable';
 
@@ -129,11 +127,6 @@ function classifyPromptAnswer(sent: PromptResult['sent']): FollowUpRefusal {
 /** Host codes the bounded ladder retries: the transient host-error class, and nothing else. */
 const TRANSIENT_HOST_CODES: ReadonlySet<string> = new Set(['HOST_UNAVAILABLE', 'HOST_TIMEOUT', 'HOST_REJECTED']);
 
-/**
- * Classify one rejected or timed-out prompt: the ending is separate from the
- * word — only a transient host error retries, `SESSION_BUSY` is the waiting
- * state, every other stop is terminal at once (FR-105).
- */
 export function classifyHostError(cause: unknown): FollowUpRefusal {
     const code = hostErrorCode(cause);
     if (code === null) {
@@ -166,11 +159,7 @@ export function currentSessionIdOf(rt: PanelRuntime): string | null {
     return rt.state.relay.currentSessionId;
 }
 
-/**
- * Track the host's current session — and whether it is busy — for as long as
- * the relay runs; its `busy` member is an idle fact exactly when `false`
- * (`ready.session` reaches this listener through the bridge's replay) (FR-104).
- */
+/** Track the host's current session and its busy flag — an idle fact exactly when `busy` is `false`. */
 export function trackCurrentSession(rt: PanelRuntime): () => void {
     return rt.host.onSession((snapshot: SessionSnapshot | null) => {
         rt.state.relay.currentSessionId = snapshot?.id ?? null;
@@ -178,13 +167,8 @@ export function trackCurrentSession(rt: PanelRuntime): () => void {
     });
 }
 
-/**
- * Track the current session's lifecycle, and poke one immediate poll on an
- * idle transition: `completed` marks idle, `started` busy, `failure` neither
- * (delivery fails closed on the unknown). The poke runs through the relay
- * tick's own in-flight/busy guards, so no second timer exists (plan.md 1/3);
- * an event for any other session is ignored.
- */
+// Pokes one immediate poll on an idle transition through the relay's own
+// guards, so a waiting follow-up re-arms with no second timer.
 export function trackSessionLifecycle(rt: PanelRuntime, onIdle: () => void): () => void {
     return rt.host.onSessionLifecycle((event: SessionLifecycleEvent) => {
         if (event.sessionId !== rt.state.relay.currentSessionId || rt.disposed) {
@@ -204,10 +188,7 @@ export function trackSessionLifecycle(rt: PanelRuntime, onIdle: () => void): () 
     });
 }
 
-/**
- * The delivery gate's one question (FR-104): is the target the session the
- * host is showing, **observed idle**? Idle is observed, never assumed.
- */
+/** The delivery gate: the target must be the session on screen **and observed idle** — never assumed. */
 export function targetIsCurrentAndIdle(rt: PanelRuntime, sessionId: string): boolean {
     return currentSessionIdOf(rt) === sessionId && rt.state.relay.currentSessionBusy === false;
 }
@@ -231,30 +212,11 @@ const FOLLOW_UP_PAGE_GUARD = 10;
  */
 const DELIVERABLE_RUN_STATE: PlainRunState = 'dispatched';
 
-/**
- * Where the relay's read opens the follow-up window: past everything the panel
- * or the service has settled, never past a follow-up either still owes. The
- * record is the only party that knows a **panel** delivery happened (FR-104)
- * and the list is oldest-first by last write, so keeping the last delivered
- * entry opens at the most recent settlement. The scan stops at the first owed
- * record and opens *at* it — early costs a denser page, late strands the
- * follow-up for good — and a parked record is not owed (FR-105), so it does
- * not stop the walk (span B2).
- *
- * The last read's projection moves the opening only where the record did not
- * decide (span B2): an **engine-admitted** row (`queued`) settles the window
- * like a delivered record — the engine holds it, reached — and an
- * `unavailable` or `unknown` row **never** advances past by projection alone,
- * because neither means the movement was handled: the handoff and the
- * unconfirmed outcome are exactly what the panel and the operator still owe.
- */
-/** One projected follow-up paired with the panel record that governs it. */
 interface ProjectedFollowUp {
     readonly followUp: RunFollowUp;
     readonly record: FollowUpDeliveryRecord | undefined;
 }
 
-/** The v1.18.0 record walk: the opening it lands on, and whether an owed record stopped it there. */
 function recordWindowWalk(records: readonly FollowUpDeliveryRecord[]): {
     readonly opening: string | null;
     readonly stoppedAtOwed: boolean;
@@ -272,7 +234,6 @@ function recordWindowWalk(records: readonly FollowUpDeliveryRecord[]): {
     return { opening, stoppedAtOwed: false };
 }
 
-/** The projected rows paired with their records; empty when the read holds none. */
 function projectedFollowUpsOf(
     document: DispatchRecordDocument,
     rows: readonly RunRow[],
@@ -283,11 +244,7 @@ function projectedFollowUpsOf(
     })));
 }
 
-/**
- * Advance the opening past the engine-admitted rows contiguous with it: a
- * `queued` member with no record of its own settles the window like a
- * delivered record, and anything else ends the advance where it stands.
- */
+/** The engine already holds a `queued` row — reached elsewhere — so the window may pass it. */
 function advancePastAdmitted(input: {
     readonly opening: string | null;
     readonly projected: readonly ProjectedFollowUp[];
@@ -311,12 +268,7 @@ function advancePastAdmitted(input: {
     return advanced;
 }
 
-/**
- * Cap the opening at the earliest `unavailable`/`unknown` row the record does
- * not settle: neither state means the movement was handled, so the read must
- * keep reaching it — a panel record, never the projection alone, may settle
- * one.
- */
+/** Neither `unavailable` nor `unknown` means the movement was handled, so the read must keep reaching it. */
 function clampToBlocked(input: {
     readonly opening: string | null;
     readonly projected: readonly ProjectedFollowUp[];
@@ -360,9 +312,7 @@ export function followUpWindowOpening(
  * unreadable record answers no parameter rather than a guessed position —
  * walking past an unsent follow-up risks a duplicate prompt, the failure
  * NFR-002 exists to prevent — and reading from the start always projects
- * **more** of the run's movements, never fewer. The rows are the relay's
- * **last good read**: an engine member can only ever move the opening under
- * {@link followUpWindowOpening}'s rules when the panel actually read it.
+ * **more** of the run's movements, never fewer.
  */
 async function followUpWindowAdvance(rt: PanelRuntime): Promise<string | null> {
     const read = await loadDispatchRecord(rt);
@@ -532,12 +482,8 @@ type PromptVerdict =
     | { readonly wasSent: true }
     | { readonly wasSent: false; readonly refusal: FollowUpRefusal };
 
-/**
- * A refusal verdict — and the one fact the host just gave us: a wait-classified
- * refusal *is* the session reporting busy, so the next tick's gate reads that
- * instead of asking again (FR-104). An idle signal clears it: a `completed`
- * push, or the next `onSession` snapshot.
- */
+// A wait-classified refusal *is* the session reporting busy, so the next
+// tick's gate reads that instead of asking again; an idle signal clears it.
 function refusalVerdict(rt: PanelRuntime, refusal: FollowUpRefusal): PromptVerdict {
     if (refusal.ending === 'wait') {
         rt.state.relay.currentSessionBusy = true;
@@ -565,23 +511,18 @@ interface DeliveryArms {
     readonly wait: () => Promise<FollowUpAttempt>;
 }
 
-/**
- * Build the arms one attempt settles with. Every terminal arm writes, even
- * before any host call: a record that never learns of an attempt is
- * re-offered forever and never parks (FR-105); the waiting state is the
- * exception — one write on the transition, none after (FR-104).
- */
+// Every terminal arm writes, even before any host call: a record that never
+// learns of an attempt is re-offered forever and never parks. The wait writes once.
 function deliveryArms(input: {
     readonly rt: PanelRuntime;
     readonly row: RunRow;
     readonly followUp: RunFollowUp;
     readonly sessionId: string | null;
-    /** The ladder attempt number this try would consume, the first included. */
     readonly attempt: number;
     readonly existing: FollowUpDeliveryRecord | null;
 }): DeliveryArms {
     const { rt, row, followUp, sessionId, attempt, existing } = input;
-    // A rungless outcome keeps the attempt the record already holds (AC-051).
+    // A rungless outcome keeps the attempt the record already holds.
     const heldAttempt = Math.max(attempt - 1, 1);
     const settle: DeliveryArms['settle'] = async (outcome) => {
         await recordFollowUpDelivery(rt, {
@@ -650,11 +591,7 @@ async function settleVerdict(input: {
     });
 }
 
-/**
- * The B+ gate's verdict for an attempt whose target cannot be prompted now: a
- * retry that finds the target no longer current stops `navigation-refused`
- * (under B+ there is no navigation left to refuse); else the waiting state.
- */
+/** Under B+ there is no navigation left to refuse, so a moved-away retry keeps the old word. */
 function waitingOrRefused(input: {
     readonly rt: PanelRuntime;
     readonly sessionId: string;
@@ -666,27 +603,20 @@ function waitingOrRefused(input: {
     return isRetry && isAnotherSession ? 'navigation-refused' : 'wait';
 }
 
-/**
- * Run one follow-up delivery attempt end to end; never throws. The gate runs
- * immediately before the prompt and the composition is measured before any
- * host call (FR-104). Under B+ no path calls `host.openSession` — a target
- * that is not current waits, it never navigates.
- */
+/** Under B+ no path calls `host.openSession`: a target that is not current waits, it never navigates. */
 export async function deliverFollowUp(input: {
     readonly rt: PanelRuntime;
     readonly row: RunRow;
     readonly followUp: RunFollowUp;
-    /** The ladder attempt number this try would consume, the first included. */
     readonly attempt: number;
     readonly policy: FollowUpRetryPolicy;
-    /** The record the relay last read for this delivery, or `null` when it has none. */
     readonly record?: FollowUpDeliveryRecord | null;
 }): Promise<FollowUpAttempt> {
     const { rt, row, followUp, attempt, policy } = input;
     const sessionId = row.session?.sessionId ?? null;
     const arms = deliveryArms({ rt, row, followUp, sessionId, attempt, existing: input.record ?? null });
 
-    // No recorded session means nothing to deliver into; it parks at once (FR-105).
+    // Nothing to deliver into, and a delivery never starts a session: it parks at once.
     if (sessionId === null || sessionId === '') {
         return await arms.park('no-session');
     }
@@ -699,8 +629,8 @@ export async function deliverFollowUp(input: {
 
     const message = followUpMessage({ row, followUp });
     if (budgetFloorProblem({ composed: message, sources: row.promptSources }) !== null) {
-        // Measured before any host call (FR-104); a guard that cannot park is
-        // not a guard, so this composition path parks at once (FR-105).
+        // Measured before any host call; a guard that cannot park is not a
+        // guard, so this composition path parks at once.
         return await arms.park('over-budget');
     }
 

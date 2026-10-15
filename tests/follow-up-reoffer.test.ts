@@ -581,10 +581,8 @@ describe('the follow-up window opening (FR-104, FR-105)', () => {
 
     it('advances past an engine-admitted row the record never settled (span B2)', () => {
         {
-            // The service admitted the successor into the engine's queue and
-            // the panel never attempted it, so no record exists to settle the
-            // window — the projection's `queued` member is what opens past it,
-            // exactly as a delivered record would.
+            // The service admitted the successor and the panel never attempted it, so
+            // no record settles the window — the projection's `queued` member opens past it.
             const delivered = documentOf(recordFixture({ delivered: true }));
             const rows = [rowFixture([
                 followUpFixture(),
@@ -601,10 +599,8 @@ describe('the follow-up window opening (FR-104, FR-105)', () => {
 
     it('never advances past an unavailable or unknown row by projection alone (span B2)', () => {
         {
-            // Later delivered records would carry the opening past the marked
-            // row, but neither state means the movement was handled: the
-            // handoff is the panel's to attempt and the unconfirmed outcome is
-            // the operator's to re-offer, so the read must keep reaching it.
+            // Neither state means the movement was handled: the handoff is the panel's
+            // to attempt and the unconfirmed outcome is the operator's — the read keeps reaching it.
             const marked = [
                 { state: 'unavailable' },
                 { state: 'unknown', cause: 'outcome' },
@@ -731,10 +727,8 @@ describe('the operator action (FR-105, AC-051)', () => {
             });
             const row = rowFixture([unknown, fresh, queued, neverAttempted]);
 
-            // Parked and outcome-unconfirmed are offered; never one engine-
-            // admitted (engine-held), never one whose engine attempt is still
-            // the service's own (`cause: 'intent'`, 009 F6), and never one
-            // never attempted (already due).
+            // Parked and outcome-unconfirmed are offered; never engine-admitted (held),
+            // never a fresh intent (the service's own), never one never attempted (already due).
             expect(reofferableFollowUps(row, [])).toEqual([{
                 deliveryId: DELIVERY,
                 kind: 'unconfirmed',
@@ -756,9 +750,8 @@ describe('the operator action (FR-105, AC-051)', () => {
 
             await reofferFollowUp(rt);
 
-            // Same control, same two clicks, same confirmation idiom — the
-            // engine-unconfirmed copy puts the possible duplicate on the
-            // operator, exactly as span E requires.
+            // Same control, same two clicks, same confirmation idiom — the unconfirmed
+            // copy puts the possible duplicate on the operator.
             expect(rt.state.dispatches.pendingAction).toBe('reoffer-follow-up');
             expect(rt.state.dispatches.note).toContain('Confirm: re-offer the engine-unconfirmed follow-up for #7');
             expect(rt.state.dispatches.note).toContain('possible duplicate');
@@ -880,10 +873,7 @@ describe('the relay delivers what the re-offer frees (FR-104, FR-105)', () => {
     });
 });
 
-/* ------------------------------------------------------------------ *
- * The engine-unconfirmed re-offer: the one operator-initiated attempt
- * that needs no `unavailable` mark (companion 9; FR-105 span E).
- * ------------------------------------------------------------------ */
+/* The engine-unconfirmed re-offer: the one operator-initiated attempt that needs no `unavailable` mark. */
 
 describe('the relay delivers an engine-unconfirmed re-offer through the fallback, exactly once', () => {
     it('one fallback prompt on a later tick, zero engine POSTs, and the at-most-once record stands', async () => {
@@ -903,10 +893,8 @@ describe('the relay delivers an engine-unconfirmed re-offer through the fallback
             await reofferFollowUp(rt);
             await tick();
 
-            // The relay's next tick delivers it — one fallback `host.prompt`
-            // into the run's own session, and the request log proves the zero
-            // engine POSTs: the panel holds `sessions` and `prompt` only, so
-            // every service call it made was one of the three GETs.
+            // The relay's next tick delivers it — one fallback `host.prompt` into the
+            // run's own session; the request log proves zero engine POSTs and only the three GETs.
             await pollRelay(rt);
             await tick();
 
@@ -1176,9 +1164,8 @@ describe('a remount resumes a partially-attempted follow-up', () => {
             await pollRelay(rt);
             await tick();
 
-            // One prompt, and its raced-busy refusal is the waiting state: the
-            // attempt number stands where the ladder left it, due now, with no
-            // park for a busy outcome (AC-051 as amended).
+            // One prompt, and its raced-busy refusal is the waiting state: the attempt
+            // number stands where the ladder left it, due now, with no park.
             expect(log.prompts).toHaveLength(1);
             const document = lastRecordWrite(log.writes);
             expect(document?.followUps?.at(-1)).toMatchObject({

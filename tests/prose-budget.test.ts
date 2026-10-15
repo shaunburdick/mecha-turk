@@ -124,9 +124,7 @@ const BEFORE = { lines: 446, words: 5_770 } as const;
 
 /**
  * The one enforced ceiling in this file: **prose words**, at the pre-feature
- * figure itself. AC-016 is met against it rather than against a ceiling raised
- * to fit the tree. Growth past it fails visibly; admitting a legitimate increase
- * is a one-line diff to this constant, reviewed in the pull request.
+ * figure itself. Growth past it fails visibly; a legitimate increase is a one-line diff, reviewed in the PR.
  */
 const CEILING = { words: 5_770 } as const;
 
@@ -159,22 +157,7 @@ const CEILING = { words: 5_770 } as const;
  * the surfaces this feature changes, so the sentence changed with the panel.
  * `CEILING.words` is untouched, so no enforced bound moved with it.
  *
- * Moved 517 → **521** with 008's companion-9 rewrite of the two follow-up
- * passages on `/use/` (spec 008 §3.9, FR-042): the row example now shows a
- * waiting-and-parked mix with a surviving park cause, and the parked paragraph
- * names the four surviving park causes and the transient-only ladder, so the
- * prose carries the amendment's distinction rather than the retired mid-turn
- * park. `CEILING.words` moved with that rewrite (5,770 → 5,842) and is
- * **restored to 5,770**: the product owner's 2026-10-13 decision trimmed the
- * three B+ passages on `/use/` back to what companion 9 mandates — waiting
- * visible, delivered on open + idle, never navigates, mid-turn never parks or
- * spends a rung, the surviving park causes, the re-offer mechanics — and the
- * site spends **5,765** words, the pre-amendment figure, so the raise's
- * justification left with the raise.
- *
- * Moved 521 → **518** by that same trim: the passages lost three prose lines
- * along with their words — a cut, not a reflow — which is the shape change a
- * pin exists to show.
+ * Moved 517 → 521 → 518 with the follow-up prose's rewrite and the product owner's trim — a real cut, never a reflow.
  */
 const PINNED_LINES = 518;
 

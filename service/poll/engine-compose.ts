@@ -1,9 +1,4 @@
-/**
- * The service-side follow-up message: the panel's own frame builder and
- * delimiter defusing under the follow-up header, measured against the same
- * budget floor before any engine call and refused rather than truncated
- * (FR-104 span A; plan pin 9; constitution IV).
- */
+/** The service-side follow-up message: the panel's frame builder and defusing — over budget refused, never cut. */
 
 import { defuseDelimiters } from '../../src/context-blocks.ts';
 import { CONTEXT_MAX_CHARS, renderBoundedContext } from '../../src/session.ts';
@@ -12,7 +7,6 @@ import { followUpKindOf } from './events-parse.ts';
 import type { QueuedEvent } from './events-parse.ts';
 import type { Run } from './runs-types.ts';
 
-/** The head pair a `head` movement renders, derived from the run's own chain. */
 function headPairOf(input: {
     readonly run: Run;
     readonly row: QueuedEvent;
@@ -39,24 +33,14 @@ function headPairOf(input: {
     };
 }
 
-/** What one composition settled as. */
 export type ComposeOutcome =
     | { readonly ok: true; readonly text: string }
-    /** Refused before any engine call; the cause names which refusal it was. */
     | { readonly ok: false; readonly cause: 'over-budget' | 'not-a-follow-up' };
 
-/**
- * Compose the engine path's follow-up message — the same attribution header,
- * FR-028 delimiters, untrusted-source preamble, and correlation id the panel
- * composes, through the same shared modules (plan pin 9). The whole
- * composition is measured against {@link CONTEXT_MAX_CHARS} immediately before
- * it could be sent and refused rather than cut (FR-104).
- */
 export function composeEngineFollowUp(input: {
     readonly run: Run;
     readonly row: QueuedEvent;
     readonly sessionId: string;
-    /** This run's follow-up rows, in detection order, for the head chain. */
     readonly runRows: readonly QueuedEvent[];
 }): ComposeOutcome {
     const kind = followUpKindOf(input.row.id);

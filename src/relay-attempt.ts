@@ -42,23 +42,11 @@ export interface HostCall {
     /** Outcome the FR-024 record and the result report both carry. */
     readonly outcome: RecordedOutcome;
     readonly sessionId: string | null;
-    /**
-     * The session directory the dispatch reports (Gate 2 H1): the host's own
-     * answer, selected by the one rule below — never derived client-side, and
-     * `null` when the result carried neither member (or the start failed, so
-     * there is no session to report one for).
-     */
     readonly directory: string | null;
 }
 
-/**
- * The dispatch-reported session directory, by one unambiguous rule: the
- * result's `worktree.directory` when it carries one, else the result's own
- * `directory` — the value the host names as the session's own directory, which
- * for a `worktreeOption: 'none'` dispatch is the run's checkout directory.
- * Absent when neither member is there; never guessed, never defaulted (FR-104
- * span A as amended).
- */
+// `worktree.directory` wins, else the result's own `directory` (the checkout
+// for `worktreeOption: 'none'`). Absent means absent: never guessed, defaulted.
 function reportedDirectoryOf(result: StartSessionResult): string | null {
     return result.worktree?.directory ?? result.directory ?? null;
 }
@@ -253,7 +241,6 @@ export async function startRunSession(input: {
     return {
         sessionId,
         outcome,
-        // A failed start has no session, so it reports no directory either.
         directory: sessionId === null ? null : directory,
         detail: {
             correlationId: run.correlationId,
@@ -266,11 +253,7 @@ export async function startRunSession(input: {
     };
 }
 
-/**
- * Report one attempt's outcome, then acknowledge it on its own 2xx. A
- * dispatched outcome carries the dispatch-reported `directory` member when the
- * result named one (Gate 2 H1); a failure reports no directory with no session.
- */
+/** Report one attempt's outcome, then acknowledge it on its own 2xx. */
 export async function reportAndAcknowledge(input: {
     readonly rt: PanelRuntime;
     readonly run: ClaimedRun;

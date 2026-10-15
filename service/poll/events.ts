@@ -313,11 +313,8 @@ async function enqueueWithinChain(input: {
         ...(input.prompt !== undefined && { prompt: input.prompt }),
         ...(seeds.size > 0 && { observedHeads: seeds }),
     });
-    // A follow-up row's engine member is written **here**, in the same chain
-    // write that appends it: the intent arm (`unknown`, `cause: 'intent'`) is
-    // the row's initial persisted shape, so no reader — the panel's fallback
-    // gate above all — can ever observe a fresh row with the member absent and
-    // attempt it beside the engine pass (009 F6; span C).
+    // The engine member is written here, in the same chain write that appends the row:
+    // a fresh row is never observable with the member absent, so no reader can attempt it beside the pass.
     const intentAtMs = Date.now();
     const appended: readonly QueuedEvent[] = fresh.map((event) => {
         const runCorrelationId = outcome.links.get(event.id);

@@ -1,8 +1,4 @@
-/**
- * T013: the engine adapter's four routes against the T001 fake, table-driven
- * over the discovery, token, version-pin, directory-match, and admission
- * seams (009 FR-104 span A; FR-105 span D).
- */
+/** The engine adapter's four routes against the fake OpenCode server, table-driven over five seams. */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -359,10 +355,8 @@ describe('the ownership pre-check against the dispatch-reported directory (plan 
     });
 
     it('both dispatch shapes flow into the comparison exactly as reported (Gate 2 Medium C)', async () => {
-        // A worktreeOption "none" dispatch reports result.directory; a worktree
-        // dispatch reports worktree.directory. The service compares against the
-        // one reported member, whichever shape produced it — so each value only
-        // matches its own engine session.
+        // A `worktreeOption: 'none'` dispatch reports `result.directory`; a worktree
+        // dispatch reports `worktree.directory` — each value only matches its own session.
         const shapes: readonly (readonly [string, string])[] = [
             ['result.directory (worktreeOption none)', '/workspace/checkouts/acme-loop'],
             ['worktree.directory (worktree dispatch)', '/workspace/checkouts/acme-loop-worktrees/wt-1'],

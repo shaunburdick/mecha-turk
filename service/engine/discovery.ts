@@ -1,44 +1,27 @@
-/**
- * Managed-OpenCode discovery: the registry read plus the pid-alive and ownerPid
- * checks, re-run per attempt because the engine's port is per-boot random
- * (FR-104 span A; FR-105 span D; research §2.6).
- */
+/** Managed-OpenCode discovery: the registry read plus pid-alive and ownerPid checks — re-run per attempt. */
 
 import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { isRecord, readPositiveInt } from '../json.ts';
 
-/** Env var pointing discovery at an alternate registry directory (tests' seam). */
 export const MANAGED_REGISTRY_ENV = 'OPENCHAMBER_MANAGED_PROCESS_REGISTRY';
 
-/** Where the host writes the registry when no override names a directory. */
 const DEFAULT_REGISTRY_RELATIVE_PATH = '.config/openchamber/managed-opencode';
 
-/** Registry file suffix; the host names each file after the pid it carries. */
 const REGISTRY_FILE_SUFFIX = '.json';
 
-/** Largest legal TCP port number; the registry names the engine's loopback port. */
 const MAX_PORT = 65_535;
 
-/** One registry entry the adapter verified: the engine's pid, owner, and port. */
 export interface ManagedEngine {
-    /** Engine process the entry names; also the file's own name. */
     readonly pid: number;
-    /** Owner process the entry names; verified against this process. */
     readonly ownerPid: number;
-    /** Loopback port the engine answers on — per-boot random. */
     readonly port: number;
 }
 
-/** Why one discovery attempt found no engine to talk to. */
 export type DiscoveryFailure =
-    /** No registry directory, no readable entries in it — never a guessed port. */
     | 'registry-absent'
-    /** An entry file exists but does not parse into pid/ownerPid/port. */
     | 'entry-unreadable'
-    /** The named engine process is not alive. */
     | 'pid-dead'
-    /** The entry's owner is not this process, so it is not our engine. */
     | 'owner-mismatch';
 
 export type DiscoveryOutcome =
@@ -61,7 +44,6 @@ export function processAlive(pid: number): boolean {
     }
 }
 
-/** Read one registry entry file into a verified engine, or a failure cause. */
 async function engineEntryOf(path: string): Promise<ManagedEngine | DiscoveryFailure> {
     let text: string;
     try {
@@ -91,7 +73,6 @@ async function engineEntryOf(path: string): Promise<ManagedEngine | DiscoveryFai
     return { pid, ownerPid, port };
 }
 
-/** Judge one entry against liveness and ownership. */
 function entryVerdict(engine: ManagedEngine, selfPid: number): DiscoveryFailure | null {
     if (!processAlive(engine.pid)) {
         return PID_DEAD;
@@ -100,13 +81,8 @@ function entryVerdict(engine: ManagedEngine, selfPid: number): DiscoveryFailure 
     return engine.ownerPid === selfPid ? null : OWNER_MISMATCH;
 }
 
-/**
- * The first entry, in file-name order, that survives pid-alive and ownerPid —
- * or the first entry's failure, so one stale file cannot hide behind a later
- * one. An empty list answers `null`, which the caller reports as
- * `registry-absent`: a live pid with no registry file is a discovery failure,
- * never a guess (research §2.6).
- */
+// The first entry in file-name order wins, and the first failure is the one
+// reported — so one stale file cannot hide behind a later one.
 async function firstEngineOf(directory: string, names: readonly string[], selfPid: number): Promise<
     ManagedEngine | DiscoveryFailure | null
 > {
@@ -129,7 +105,6 @@ async function firstEngineOf(directory: string, names: readonly string[], selfPi
     return firstCause;
 }
 
-/** The registry file names in one directory, or `null` when there are none to read. */
 async function registryNames(directory: string): Promise<readonly string[] | null> {
     let entries: readonly string[];
     try {
@@ -143,7 +118,6 @@ async function registryNames(directory: string): Promise<readonly string[] | nul
         .toSorted((left, right) => left.localeCompare(right));
 }
 
-/** The registry directory this environment names, or `null` when it names none. */
 function registryDirectory(env: Readonly<Record<string, string | undefined>>): string | null {
     const override = env[MANAGED_REGISTRY_ENV];
     if (override !== undefined && override !== '') {
@@ -155,16 +129,10 @@ function registryDirectory(env: Readonly<Record<string, string | undefined>>): s
     return home === undefined || home === '' ? null : resolve(home, DEFAULT_REGISTRY_RELATIVE_PATH);
 }
 
-/**
- * Discover the managed engine: every registry entry is judged in file-name
- * order and the first one that survives pid-alive and ownerPid wins. A live
- * pid with no registry file is a discovery failure, never a guess — the port
- * is per-boot random, so an unverified port could reach a different service
- * entirely (research §2.6).
- */
+// A live pid with no registry file is a discovery failure, never a guess: the
+// port is per-boot random, so an unverified port could reach a different service.
 export async function discoverEngine(input: {
     readonly env: Readonly<Record<string, string | undefined>>;
-    /** Process the ownerPid check compares against; defaults to this one. */
     readonly selfPid?: number | undefined;
 }): Promise<DiscoveryOutcome> {
     const directory = registryDirectory(input.env);

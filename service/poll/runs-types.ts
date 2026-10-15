@@ -152,15 +152,7 @@ export interface SessionRef {
     readonly title: string;
     readonly sourceUrl: string;
     readonly worktree: { readonly directory: string; readonly branch: string } | null;
-    /**
-     * The dispatch-reported session directory — `worktree.directory` when the
-     * dispatch result carried one, else `result.directory` — the engine
-     * ownership pre-check compares against. **Absentable and store-internal**:
-     * it rides no wire surface, and a pre-amendment dispatch, the
-     * operator-confirm path, or a host that reported none all leave it absent,
-     * which fails the pre-check safe to the fallback (002 v1.19.0 FR-104
-     * span A; Gate 2 H1/HIGH A).
-     */
+    /** Absentable and store-internal — rides no wire surface; absence fails the pre-check safe to the fallback. */
     readonly directory?: string;
 }
 

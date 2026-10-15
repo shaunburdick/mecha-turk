@@ -1,12 +1,4 @@
-/**
- * The per-cycle engine-delivery pass: for each run-linked follow-up row whose
- * engine member still carries the send-intent the enqueue wrote (`unknown`,
- * `cause: 'intent'`) and whose run carries a session, re-stamp the intent,
- * then per attempt re-discover, acquire the token, compose, probe identity,
- * pre-check ownership, and admit — settling admitted, unknown, or unavailable
- * under the closed classification (FR-104 span C; FR-105 spans D/E; spec §5).
- * A `cause: 'outcome'` row is a spent intent the pass no longer owns.
- */
+/** The per-cycle engine-delivery pass: an intent-stamped attempt ladder ending in exactly one admission settlement. */
 
 import { assertRedacted } from '../../src/redaction.ts';
 import { appendAudit } from '../audit.ts';
@@ -31,41 +23,29 @@ import { previewRunsDocument } from './runs-document.ts';
 import type { EngineMember, QueuedEvent } from './events-parse.ts';
 import type { Run } from './runs-types.ts';
 
-/** Loopback host every engine call targets; the port comes from discovery. */
 const ENGINE_LOOPBACK_HOST = 'http://127.0.0.1';
 
-/** Stage words the audit rows and settlements name; one spelling each. */
 const STAGE_PROMPT = 'prompt';
 
-/** The audit-row cause word for the engine's `404` on the run's session. */
 const CAUSE_NO_SESSION = 'no-session';
 
 /** The knobs the engine's connection-refused ladder runs on — the existing three. */
 export interface EngineRetryPolicy {
-    /** Attempts per delivery, the first attempt included. */
     readonly maxAttempts: number;
     readonly baseMs: number;
     readonly maxMs: number;
 }
 
-/** The knobs the engine's connection-refused ladder runs on — the existing three. */
 export interface EngineDeliveryDeps {
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
     readonly retry: EngineRetryPolicy;
-    /**
-     * Environment discovery and the env token layer read, passed down from the
-     * entry point's own `process.env` — no other module reads the process
-     * environment (FR-090; 009 invariant 9).
-     */
+    /** The entry point's own `process.env`, passed down: no module below it reads the environment itself. */
     readonly env: Readonly<Record<string, string | undefined>>;
-    /** The token-chain seam; defaults to {@link systemTokenSource}. */
     readonly tokenSource?: TokenSource | undefined;
     /** Injected sleep so the ladder never waits in a suite. */
     readonly sleep?: ((milliseconds: number) => Promise<void>) | undefined;
-    /** Per-client timeout override so a suite never waits out the live bound. */
     readonly timeoutMs?: number | undefined;
-    /** Injected clock for the intent stamp. */
     readonly now?: (() => number) | undefined;
 }
 
@@ -77,26 +57,21 @@ export interface EngineDeliveryResult {
     readonly unknown: number;
 }
 
-/** One final settlement of a delivery, before the member and row are written. */
 interface Settlement {
     readonly engine: EngineMember;
-    /** Which stage settled it: `discovery`, `token`, `info`, `pre-check`, `compose`, `prompt`, `ladder`. */
     readonly stage: string;
     /** Credential-free cause word; `none` when the delivery was admitted. */
     readonly cause: string;
 }
 
-/** One attempt's outcome: settle, or the one failure class that retries. */
 type AttemptOutcome =
     | { readonly retry: true; readonly stage: string }
     | { readonly settlement: Settlement };
 
-/** Discovery and token resolved for one attempt: the client it talks with. */
 type AttemptClient =
     | { readonly ok: true; readonly client: EngineClient; readonly engine: ManagedEngine }
     | { readonly ok: false; readonly settlement: Settlement };
 
-/** Identity and ownership judged for one attempt. */
 type AttemptVerified =
     | { readonly ok: true }
     | { readonly ok: false; readonly retry: true; readonly stage: string }
@@ -112,18 +87,14 @@ function engineBackoffMs(policy: EngineRetryPolicy, attempt: number): number {
     return Math.min(grown, policy.maxMs);
 }
 
-/** Default sleep: real time, replaced by an injected no-op in suites. */
 function sleepFor(milliseconds: number): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, milliseconds);
     });
 }
 
-/**
- * Append one credential-free engine-delivery audit row, **refusing the write**
- * when the row carries secret-shaped content rather than logging through it
- * (invariant 9). Exported so the refusal itself is testable.
- */
+// Refuses the write rather than logging secret-shaped content; exported so the
+// refusal itself is testable.
 export async function appendEngineAuditRow(input: {
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
@@ -166,7 +137,6 @@ export async function appendEngineAuditRow(input: {
     }
 }
 
-/** Write one settlement's member and its one audit row. */
 async function settle(input: {
     readonly deps: EngineDeliveryDeps;
     readonly run: Run;
@@ -218,7 +188,6 @@ async function settle(input: {
     });
 }
 
-/** Discover the engine and acquire its token for one attempt. */
 async function clientForAttempt(deps: EngineDeliveryDeps): Promise<AttemptClient> {
     const { env } = deps;
     const discovery = await discoverEngine({ env });
@@ -242,7 +211,6 @@ async function clientForAttempt(deps: EngineDeliveryDeps): Promise<AttemptClient
     };
 }
 
-/** Probe identity and pre-check ownership for one attempt. */
 async function verifySession(input: {
     readonly client: EngineClient;
     readonly engine: ManagedEngine;
@@ -271,17 +239,15 @@ async function verifySession(input: {
         return { ok: false, retry: true, stage: 'pre-check' };
     }
 
-    // The engine's own 404 for the run's session is the no-session evidence
-    // the audit row records; the member stays cause-less (plan pin 4).
+    // The engine's own 404 is the no-session evidence the audit row records;
+    // the member stays cause-less.
     const cause = ownership.cause === 'session-404' ? CAUSE_NO_SESSION : ownership.cause;
 
     return { ok: false, settlement: unavailable('pre-check', cause) };
 }
 
-/** An admission answer that settled (the retryable refusal never reaches here). */
 type SettledAdmission = Exclude<AdmissionOutcome, { readonly kind: 'refused' }>;
 
-/** Map one admission answer onto its settlement. */
 function admissionSettlement(admission: SettledAdmission, intentAtMs: number): Settlement {
     switch (admission.kind) {
         case 'admitted': {
@@ -292,10 +258,8 @@ function admissionSettlement(admission: SettledAdmission, intentAtMs: number): S
             };
         }
         case 'unknown': {
-            // The receipt is the at-most-once record, and it never arrived:
-            // the intent is spent, so the member records the outcome cause —
-            // the re-offer-eligible one — while the audit row keeps the class
-            // (`timeout`, `server-failure`, …) as its detail (FR-105 span E).
+            // No receipt arrived, so the intent is spent: the member records the
+            // re-offer-eligible `outcome` cause; the audit row keeps the class.
             return {
                 engine: { state: 'unknown', intentAtMs, cause: 'outcome' },
                 stage: STAGE_PROMPT,
@@ -314,19 +278,13 @@ function admissionSettlement(admission: SettledAdmission, intentAtMs: number): S
     }
 }
 
-/**
- * Run one attempt: discovery → token → compose → identity → ownership → admit.
- * Composition and its budget measurement precede the engine's GETs: an
- * over-budget composition must issue zero engine requests (FR-104 span A;
- * FR-105 span E).
- */
+/** Compose and budget-check before any engine GET: an over-budget composition must issue zero engine requests. */
 async function attemptOnce(input: {
     readonly deps: EngineDeliveryDeps;
     readonly run: Run;
     readonly row: QueuedEvent;
     readonly runRows: readonly QueuedEvent[];
     readonly sessionId: string;
-    /** The intent stamp the unknown state keeps as its evidence. */
     readonly intentAtMs: number;
 }): Promise<AttemptOutcome> {
     const prepared = await clientForAttempt(input.deps);
@@ -367,7 +325,6 @@ async function attemptOnce(input: {
         : { settlement: admissionSettlement(admission, input.intentAtMs) };
 }
 
-/** Deliver one row: intent first, then the ladder, then exactly one settlement. */
 async function deliverOne(input: {
     readonly deps: EngineDeliveryDeps;
     readonly run: Run;
@@ -409,19 +366,17 @@ async function deliverOne(input: {
     }
 
     // Connection-refused exhausts the ladder into the unavailable mark — the
-    // one class the knobs retry, and never a park (FR-105 span D).
+    // one class the knobs retry, and never a park.
     const exhausted = unavailable('ladder', 'connection-refused');
     await settle({ deps, run, row, settlement: exhausted });
 
     return 'unavailable';
 }
 
-/** One pass's zero counts. */
 function emptyResult(): EngineDeliveryResult {
     return { considered: 0, admitted: 0, unavailable: 0, unknown: 0 };
 }
 
-/** The run-linked follow-up rows the engine pass still owns: the intent cause. */
 function candidatesOf(queue: readonly QueuedEvent[]): ReadonlyMap<string, readonly QueuedEvent[]> {
     const candidates = new Map<string, QueuedEvent[]>();
     for (const row of queue) {
@@ -443,7 +398,6 @@ function candidatesOf(queue: readonly QueuedEvent[]): ReadonlyMap<string, readon
     return candidates;
 }
 
-/** Tally one row's settlement into the pass's counts. */
 function counted(counts: EngineDeliveryResult, settled: Awaited<ReturnType<typeof deliverOne>>): EngineDeliveryResult {
     if (settled === 'admitted') {
         return { ...counts, admitted: counts.admitted + 1 };
@@ -460,12 +414,7 @@ function counted(counts: EngineDeliveryResult, settled: Awaited<ReturnType<typeo
     return counts;
 }
 
-/**
- * Deliver every candidate whose run carries a session. Rows the pass no
- * longer owns — an admission, a handoff, a settled unknown, and a spent
- * intent a restart already flipped — are never revisited: zero automatic
- * re-POSTs, ever (FR-105 span E).
- */
+/** A row the pass no longer owns is never revisited: zero automatic re-POSTs, ever. */
 async function deliverCandidates(input: {
     readonly deps: EngineDeliveryDeps;
     readonly candidates: ReadonlyMap<string, readonly QueuedEvent[]>;
@@ -474,8 +423,6 @@ async function deliverCandidates(input: {
     let counts: EngineDeliveryResult = emptyResult();
     for (const [correlationId, rows] of input.candidates) {
         const run = input.runs.get(correlationId);
-        // A missing run and a run with no session are both nothing to deliver
-        // into, and neither is this pass's delivery to settle.
         const session = run === undefined ? null : run.session;
         if (run !== undefined && session !== null) {
             for (const row of rows) {
@@ -488,11 +435,7 @@ async function deliverCandidates(input: {
     return counts;
 }
 
-/**
- * Run one engine-delivery pass. Never throws: an unreadable queue or run
- * document leaves every candidate for a later cycle, because a delivery whose
- * intent could not be persisted is a delivery this pass must not attempt.
- */
+/** Never throws: an unreadable queue or run document leaves every candidate for a later cycle. */
 export async function runEngineDeliveryPass(deps: EngineDeliveryDeps): Promise<EngineDeliveryResult> {
     try {
         const candidates = candidatesOf(await readEvents(deps));

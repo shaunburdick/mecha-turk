@@ -387,9 +387,8 @@ const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
 
 /**
  * `package.json`'s sha256 — re-derived, not carried, on each deliberate change:
- * #17's Node floor, the invariant-6 SDK re-pin that moved the dependency pin and
- * raised the engine floor to `>=2.0.0` (issue #48), and every invariant-2 version
- * bump, which moves `version` and nothing else.
+ * #17's Node floor, and every invariant-2 version bump, which moves `version`
+ * and nothing else.
  *
  * AC-017 asks for the root manifest to be **byte-identical**, so this is a digest
  * rather than a list of the fields that must not move. That is also what keeps

@@ -147,17 +147,8 @@ async function claimRuns(rt: PanelRuntime): Promise<ClaimAnswer | null> {
     return parsed;
 }
 
-/**
- * The engine gate on one candidate (span C, Gate 2 H2): the projected member
- * decides whether this panel may attempt at all. **Absent** — a pre-amendment
- * service — is v1.18.0 behaviour unchanged; `unavailable` is the service's
- * permanent handoff and the one state the fallback auto-attempts; `queued` is
- * engine-admitted and engine-held, never prompted; `unknown` is displayed and
- * never auto-attempted, reachable only through the operator's re-offer — the
- * durable record that re-offer writes is the one this reads. An unreadable
- * member never reaches here: the fail-closed parse refuses the page and the
- * last good view stands, so it too means no attempt.
- */
+// `unavailable` is the service's permanent handoff — the fallback owns it;
+// `unknown` attempts only behind the operator's re-offer record.
 function engineGateAllows(followUp: RunFollowUp, record: FollowUpDeliveryRecord | undefined): boolean {
     const { engine } = followUp;
     if (engine === undefined || engine.state === 'unavailable') {
@@ -191,11 +182,7 @@ function isOutstanding(input: {
     return record === undefined || (!record.delivered && !record.parked && isFollowUpDue(record, atMs));
 }
 
-/**
- * The ladder attempt one delivery would consume: the record's own number plus
- * one — except behind a **waiting** settlement, which consumed no rung (AC-051),
- * so the re-armed delivery continues the ladder where the wait left it.
- */
+/** A waiting settlement consumed no rung, so the re-armed delivery keeps the record's own attempt number. */
 function nextLadderAttempt(record: FollowUpDeliveryRecord | undefined): number {
     if (record?.attempt === undefined) {
         return 1;
@@ -366,11 +353,8 @@ export function startRelayPolling(rt: PanelRuntime): void {
     }
 
     rt.relayArmed = true;
-    // The host's current session and its lifecycle are the only session facts a
-    // guest can observe (research.md §2.5): delivery waits for the target to be
-    // current and observed idle, and an idle transition pokes one immediate
-    // tick through this loop's own guards, so the waiting follow-up re-arms
-    // without a second timer (002 FR-104).
+    // Current session and lifecycle are the only session facts a guest observes: an
+    // idle transition pokes one tick through these guards — a waiting follow-up re-arms, no second timer.
     rt.unsubscribes.push(trackCurrentSession(rt), trackSessionLifecycle(rt, () => void pollRelay(rt)));
     rt.state.relay.timer = setInterval(() => {
         void pollRelay(rt);

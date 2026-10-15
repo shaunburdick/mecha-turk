@@ -300,12 +300,8 @@ describe('FR-090 / AC-152: the bootstrap pair is the only configuration environm
                 .filter((entry) => entry.tokens.length > 0)
                 .toSorted((left, right) => left.path.localeCompare(right.path));
 
-            // HOME locates the store directory and configures nothing
-            // (GUEST_SERVICES.md); 009's engine path adds exactly two named
-            // environment reads — the managed-opencode registry override seam
-            // (which may name a directory instead of HOME's default) and the
-            // token layer — both passed down from the entry point's own read,
-            // so the bootstrap pair stays the only *configuration* input.
+            // HOME locates the store and configures nothing; the engine path adds exactly
+            // two named env reads, both passed down — the bootstrap pair stays the only configuration.
             const tokensByPath = new Map(reads.map((entry) => [entry.path, entry.tokens]));
             expect(reads.map((entry) => entry.path)).toEqual([
                 `${SERVICE_DIR}/engine/discovery.ts`,

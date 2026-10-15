@@ -1,14 +1,5 @@
-/**
- * Fake OpenCode engine for the engine-delivery suites (task T001).
- *
- * A stdlib `node:http` loopback server for the adapter's three routes with
- * per-test canned outcomes, plus the request/message logs, the managed-process
- * registry fixture, and the token-layer double Waves 2–3 drive. Response shapes
- * follow research.md §2 (live probe 2026-10-14), widened wherever they speak to
- * the live instance's own `/openapi.json` (fetched read-only 2026-10-14) and
- * OpenCode's e2e mock-server. No SSE writer; no session create or delete
- * (research §2.4 Cut 2; invariant 10).
- */
+/** Fake OpenCode engine: a stdlib loopback server for the adapter's three routes, with canned
+ * outcomes, request/message logs, the registry fixture, and the token-layer double. */
 
 import { randomBytes } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -26,13 +17,13 @@ const OS_ASSIGNED_PORT = 0;
 /** `/api/info` version at start: the live-probed point inside the plan's `>= 2.0.29 < 3.0.0` pin. */
 const DEFAULT_VERSION = '2.0.29';
 
-/** Engine username in the Basic auth header (research §2.6). */
+/** Engine username in the Basic auth header. */
 const AUTH_USERNAME = 'opencode';
 
-/** Password env var the token chain reads first (research §2.6). */
+/** Password env var the token chain reads first. */
 const PASSWORD_ENV = 'OPENCODE_SERVER_PASSWORD';
 
-/** Bytes of randomness behind one receipt id (openapi `Session.Message.ID` is `^msg_`). */
+/** Bytes of randomness behind one receipt id; the engine's message ids are `^msg_`-shaped. */
 const MESSAGE_ID_BYTES = 8;
 
 /** Token bytes behind the default Basic auth password; hex doubles them. */
@@ -57,13 +48,8 @@ const STATUS = {
     serviceUnavailable: 503,
 };
 
-/**
- * Members `Session.Info` marks required that no suite varies, filled under
- * whatever the fixture sets. `location` and `metadata` are deliberately not
- * among them: the fail-safe rows need records without them, and a record with
- * no `location` is the one shape no live engine serves (openapi marks it
- * required) — the pre-check must refuse it rather than read it.
- */
+/** Required `Session.Info` members no suite varies; `location` and `metadata` stay out — the
+ * fail-safe rows need records without them, and the pre-check must refuse a record missing one. */
 const REQUIRED_SESSION_MEMBERS = {
     projectID: 'project',
     cost: 0,
@@ -71,7 +57,7 @@ const REQUIRED_SESSION_MEMBERS = {
     time: { created: 0, updated: 0 },
 };
 
-/** Env var the discovery seam reads instead of `~/.config/openchamber/managed-opencode/` (research §2.6). */
+/** Env var the discovery seam reads instead of the default registry directory. */
 export const MANAGED_REGISTRY_ENV = 'OPENCHAMBER_MANAGED_PROCESS_REGISTRY';
 
 /** Canned answers for `POST /api/session/{id}/prompt`. */
@@ -105,14 +91,8 @@ export interface LoggedRequest {
     readonly body: string;
 }
 
-/**
- * One prompt that reached a session.
- *
- * Stored for `admit`, `stall`, `5xx` and `malformed-200` alike — each reached
- * the session, so a second entry is exactly the duplicate the zero-duplicate
- * assertion exists to catch. `401`, `404`, `400` and `3xx` store nothing: that
- * body was refused before any session saw it.
- */
+/** One prompt that reached a session: stored for every outcome that reached one, so a second
+ * entry is exactly the duplicate the zero-duplicate assertion catches. */
 export interface StoredMessage {
     /** Engine-side message id — the receipt `data.id` the `admit` outcome returns. */
     readonly id: string;
@@ -124,16 +104,13 @@ export interface StoredMessage {
     readonly outcome: PromptOutcome;
 }
 
-/**
- * One `~/.config/openchamber/managed-opencode/<pid>.json` entry, shaped as
- * the host writes it (observed 2026-10-14).
- */
+/** One managed-opencode registry entry, shaped as the host writes it. */
 export interface ManagedRegistryEntry {
     /** Engine process the file names; its pid is also the file name. */
     readonly pid: number;
-    /** Owner process discovery and the token chain verify (T002/T003). */
+    /** Owner process discovery and the token chain verify. */
     readonly ownerPid: number;
-    /** Loopback port the engine answers on — per-boot random (research §2.6). */
+    /** Loopback port the engine answers on — per-boot random. */
     readonly port: number;
     /** Engine binary path; carried in the host's files, read by no adapter code. */
     readonly binary?: string;
@@ -143,26 +120,20 @@ export interface ManagedRegistryEntry {
     readonly startedAt?: string;
 }
 
-/** Which layer of the token chain answers: the operator's env, the `/proc` chain, or neither (research §4). */
+/** Which layer of the token chain answers: the operator's env, the `/proc` chain, or neither. */
 export type TokenSourceMode = 'env' | 'proc' | 'dead';
 
-/** One token-chain scenario as data, for the injectable source seam (T003). */
+/** One token-chain scenario as data, for the injectable source seam. */
 export interface TokenDouble {
     /** Scenario this double stands for. */
     readonly mode: TokenSourceMode;
     /** Password a live layer yields; `null` when both layers are dead. */
     readonly password: string | null;
-    /**
-     * Environment overlay: the password key is spelled `undefined` unless
-     * this scenario's env layer is live, so an ambient value cannot stand in
-     * for a `proc`-only run.
-     */
+    /** The password key is spelled `undefined` unless this scenario's env layer is live — an
+     * ambient value cannot stand in for a `proc`-only run. */
     readonly env: Readonly<Record<string, string | undefined>>;
-    /**
-     * `/proc/<pid>/environ` content (NUL-terminated) for the pid the
-     * registry fixture names; any other pid gets nothing, exactly as a dead
-     * process would.
-     */
+    /** NUL-terminated `/proc/<pid>/environ` for the registry fixture's pid; any other pid
+     * gets nothing, as a dead process would. */
     procEnviron(pid: number): string | null;
 }
 
@@ -202,10 +173,8 @@ export interface FakeOpenCode {
     setSession(session: SessionFixture): void;
     /** Registry entry that cross-checks this fake: its own pid and bound port, this process as owner. */
     registryEntry(overrides?: Partial<ManagedRegistryEntry>): ManagedRegistryEntry;
-    /**
-     * Resolve once the stall outcome is holding `expected` prompt requests;
-     * fails with a count of what it did hold when the deadline passes.
-     */
+    /** Resolves once the stall outcome holds `expected` prompt requests; fails with the count
+     * it held when the deadline passes. */
     whenStalled(expected?: number): Promise<void>;
     /** Close the listener, dropping held connections (stalled prompts among them). */
     shutdown(): Promise<void>;
@@ -236,7 +205,7 @@ interface EngineErrorBody {
     readonly sessionID?: string;
 }
 
-/** The live `ServerInfo` body: research §2.6's two members plus the members the live schema requires. */
+/** The live `ServerInfo` body: the two members the adapter reads plus the members the live schema requires. */
 interface ServerInfoBody {
     readonly version: string;
     readonly pid: number;
@@ -252,12 +221,8 @@ type Route =
     | { readonly kind: 'prompt'; readonly sessionId: string }
     | { readonly kind: 'unknown' };
 
-/**
- * Drain one request body into text.
- *
- * `null` means the connection died before the body ended; the caller answers
- * nothing, because there is no connection left to answer on.
- */
+/** Drain one request body into text: `null` means the connection died before the body ended, so
+ * the caller answers nothing — there is no connection left. */
 function readBody(request: IncomingMessage): Promise<string | null> {
     return new Promise((resolve) => {
         const chunks: Buffer[] = [];
@@ -341,38 +306,30 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
     response.end(text);
 }
 
-/** The engine's API error envelope: `_tag` plus `message` (openapi, and the live instance's own 401). */
+/** The engine's API error envelope: `_tag` plus `message`. */
 function errorBody(tag: string, message: string): EngineErrorBody {
     return { _tag: tag, message };
 }
 
-/** The engine's session-404 envelope, `SessionNotFoundErrorEncoded` (openapi). */
+/** The engine's session-404 envelope, `SessionNotFoundErrorEncoded`. */
 function sessionNotFoundBody(sessionId: string): EngineErrorBody {
     return { _tag: 'SessionNotFoundError', sessionID: sessionId, message: `Session not found: ${sessionId}` };
 }
 
-/** The engine's own rule: every route wants `Basic opencode:<password>` (research §2.6; 401 observed without it). */
+/** The engine's own rule: every route wants `Basic opencode:<password>`; 401 observed without it. */
 function isAuthorized(request: IncomingMessage, password: string): boolean {
     const expected = `Basic ${Buffer.from(`${AUTH_USERNAME}:${password}`).toString('base64')}`;
 
     return request.headers.authorization === expected;
 }
 
-/** One receipt id; openapi pins `Session.Message.ID` to `^msg_`, matching research §2.1's live receipts. */
+/** One receipt id; the engine pins `Session.Message.ID` to `^msg_`. */
 function mintMessageId(): string {
     return `msg_${randomBytes(MESSAGE_ID_BYTES).toString('hex')}`;
 }
 
-/**
- * Read the prompt out of a request body.
- *
- * The body is the flat `{text, delivery}` shape: the live instance's
- * `/openapi.json` requires a top-level `text`, the engine binary's route reads
- * `payload.text`, and OpenCode's mock decodes the same flat keys. research
- * §2.1's recorded `{"prompt": {"text": …}}` notation is the one source that
- * disagrees, so a nested body is refused exactly as the engine refuses it —
- * with a 400 InvalidRequestError.
- */
+/** Read the prompt out of a request body: the flat `{text, delivery}` shape only — a nested
+ * body is refused with 400, exactly as the engine's decode does. */
 function promptRequestOf(body: string): PromptRequest | null {
     const parsed = parseJsonText(body);
     if (!parsed.ok || !isRecord(parsed.value)) {
@@ -430,14 +387,8 @@ function isCannedRefusal(outcome: PromptOutcome): outcome is keyof typeof PROMPT
     return outcome === '400' || outcome === '3xx';
 }
 
-/**
- * Answer `POST /api/session/{id}/prompt` from the canned outcome.
- *
- * The outcome is canned: unlike a live engine the fake does not re-check that
- * the session exists, so one table can drive every outcome against one fixture
- * set. A body the flat schema would reject is refused first, as the engine's
- * decode does.
- */
+/** Answer the admission POST from the canned outcome: no session re-check, so one table drives
+ * every outcome against one fixture set. */
 function servePrompt(response: ServerResponse, state: FakeState, sessionId: string, body: string): void {
     const request = promptRequestOf(body);
     if (request === null) {
@@ -620,12 +571,8 @@ async function closeServer(server: Server): Promise<void> {
     await closed;
 }
 
-/**
- * Start the fake on an OS-assigned loopback port.
- *
- * Every route enforces Basic auth exactly as the engine does, so a suite that
- * reaches any of them has already proven its token chain end to end.
- */
+/** Start the fake on an OS-assigned loopback port; every route enforces Basic auth as the engine
+ * does, so reaching one proves the token chain. */
 export async function startFakeOpenCode(options: StartFakeOpenCodeOptions = {}): Promise<FakeOpenCode> {
     const sessions = new Map<string, SessionFixture>();
     const configured = options.sessions ?? [];
@@ -676,10 +623,7 @@ export async function startFakeOpenCode(options: StartFakeOpenCodeOptions = {}):
     };
 }
 
-/**
- * Write one registry fixture as `<directory>/<pid>.json` — the host's own
- * naming — and return the directory the discovery seam env var should name.
- */
+/** Write one registry fixture as `<directory>/<pid>.json` — the host's own naming — and return the seam's directory. */
 export async function writeManagedRegistry(directory: string, entry: ManagedRegistryEntry): Promise<string> {
     await mkdir(directory, { recursive: true });
     await writeFile(join(directory, `${entry.pid}.json`), `${JSON.stringify(entry, null, 2)}\n`, 'utf8');
@@ -687,13 +631,8 @@ export async function writeManagedRegistry(directory: string, entry: ManagedRegi
     return directory;
 }
 
-/**
- * Build one token-chain scenario as data for the injectable source seam.
- *
- * Each layer is alone in its scenario on purpose: a chain that consults only
- * the env layer fails `'proc'`, one that consults only `/proc` fails `'env'`,
- * and only the live layer carries the password.
- */
+/** Build one token-chain scenario for the injectable seam; each layer is alone in its scenario
+ * so a chain consulting only env fails `'proc'` and vice versa. */
 export function tokenDouble(mode: TokenSourceMode, password: string, pid: number): TokenDouble {
     return {
         mode,

@@ -1624,9 +1624,8 @@ describe('FR-106 the terminal read through the real poller (poller-github)', () 
  * ------------------------------------------------------------------ */
 
 /**
- * The host actions the delivery half performs, recorded in order: every
- * `storage.set`, every prompt, and every navigation — under B+ the navigation
- * list stays empty, which is the assertion AC-050 turns on.
+ * Recorded in order: every `storage.set`, every prompt, every navigation —
+ * under B+ the navigation list stays empty.
  */
 interface HostLog {
     /** Every host action, in order. */
@@ -1829,9 +1828,8 @@ function pushDeliveryHost(input: {
  * Build a runtime whose host session tracking is already armed.
  *
  * Production arms it in `startRelayPolling`; the delivery tests need the same
- * fact — which session the host is showing, and whether it is busy — without a
- * loop, so they subscribe it the same way and release it with the runtime's
- * own disposers.
+ * fact — which session the host is showing and whether it is busy — without a
+ * loop, subscribed the same way and released with the runtime's disposers.
  */
 function deliveryRuntime(host: PanelHost): PanelRuntime {
     const rt = createTestRuntime(host);
@@ -1897,11 +1895,7 @@ function storedFollowUps(writes: WriteLog): readonly StoredFollowUp[] {
     return document?.followUps ?? [];
 }
 
-/**
- * The follow-up records the last dispatch-record write carried, read back
- * through the real reader — so a migrated record arrives in its re-armed
- * shape, exactly as the relay reads it.
- */
+/** The last dispatch-record write, read back through the real reader — a migrated record arrives re-armed. */
 function storedRecords(writes: WriteLog): readonly FollowUpDeliveryRecord[] {
     const last = writes.writes.findLast((write) => write.key === 'mecha-turk:dispatches')?.value;
     const document = last === undefined ? undefined : readDispatchRecord(parseJsonValue(JSON.stringify(last)));
@@ -2021,16 +2015,14 @@ function storedDocument(records: readonly FollowUpDeliveryRecord[]): JsonValue {
 }
 
 /* ------------------------------------------------------------------ *
- * FR-104 — the B+ delivery gate: the target is current, observed idle,
- * one prompt, zero navigation (AC-050 as amended).
+ * The B+ delivery gate: the target is current, observed idle,
+ * one prompt, zero navigation.
  * ------------------------------------------------------------------ */
 
 describe('FR-104 the delivery gate (AC-050)', () => {
     it('takes the current session and its busy fact from the ready.session replay', () => {
-        // The bridge replays its last session snapshot to a late subscriber
-        // (research.md §2.3), so a panel that arms after `ready` still knows
-        // which session is on screen and whether it is busy — the two facts
-        // T002's tracking feeds the gate.
+        // The bridge replays its last snapshot to a late subscriber, so a panel
+        // that arms after `ready` still knows the session on screen and its busyness.
         const harness = pushDeliveryHost({});
         harness.emitReady({ id: TARGET_SESSION, title: 't', busy: true });
         const rt = deliveryRuntime(harness.host);
@@ -2058,7 +2050,7 @@ describe('FR-104 the delivery gate (AC-050)', () => {
             expect(attempt.reason).toBeNull();
             expect(attempt.parked).toBe(false);
             // The one host call the delivery makes is the prompt, and no
-            // navigation exists anywhere in the path (AC-050 "already current").
+            // navigation exists anywhere in the path.
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(1);
             expect(hostLog.actions.filter((action) => action === 'openSession')).toHaveLength(0);
             expect(storedFollowUps(hostLog).at(-1)).toMatchObject({ delivered: true, attempt: 1, parked: false });
@@ -2266,8 +2258,7 @@ describe('FR-104 the delivery gate (AC-050)', () => {
             await tick();
 
             // The waiting state in the existing vocabulary: no prompt, no
-            // navigation, nothing parked, no ladder spent (AC-050 "a different
-            // current session") — and the record stays due.
+            // navigation, nothing parked, no ladder spent — the record stays due.
             expect(attempt).toMatchObject({ delivered: false, reason: 'session-busy', parked: false, attempt: 1 });
             expect(attempt.nextAttemptAtMs).toBeNull();
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
@@ -2288,10 +2279,8 @@ describe('FR-104 the delivery gate (AC-050)', () => {
 
     it('writes exactly one record and one trail row across N relay ticks against a non-current target', async () => {
         {
-            // A due non-current follow-up is re-offered every tick, so a
-            // per-tick settlement would put one ledger entry per tick on the
-            // operator's trail for the whole waiting window (constitution IV):
-            // the transition into waiting is the only movement, written once.
+            // Re-offered every tick, so a per-tick settlement would put one ledger
+            // entry per tick on the trail: only the transition into waiting is written.
             const rows = { current: [rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] })] };
             const { host, log: hostLog, emitSession } = pushDeliveryHost({ rows });
             emitSession({ id: OTHER_SESSION, title: 't', busy: false });
@@ -2321,17 +2310,15 @@ describe('FR-104 the delivery gate (AC-050)', () => {
             await tick();
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
 
-            // The operator opens the target: `onSession` reports it current and
-            // its lifecycle reports it idle — the poke delivers without the
-            // interval advancing, through the tick's own guards (FR-104's
-            // re-arm clause; no second timer).
+            // `onSession` reports the target current and its lifecycle idle — the
+            // poke delivers without the interval advancing, through the tick's own guards.
             emitSession({ id: TARGET_SESSION, title: 't', busy: false });
             emitLifecycle({ sessionId: TARGET_SESSION, phase: 'completed' });
             await settle();
 
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(1);
             // The wait consumed no rung, so the re-armed delivery settles at the
-            // attempt the waiting record already held (AC-051, plan.md decision 4).
+            // attempt the waiting record already held.
             expect(storedFollowUps(hostLog).at(-1)).toMatchObject({ delivered: true, attempt: 1, parked: false });
             expect(rt.state.relay.waitingFollowUps).toBe(0);
 
@@ -2344,10 +2331,8 @@ describe('FR-104 the delivery gate (AC-050)', () => {
 
     it('re-verifies the target immediately before the prompt, even when the switch lands inside the tick', async () => {
         {
-            // The one await between the relay's read and the prompt is the
-            // ladder's config read: an operator switch that lands there must
-            // reach the waiting state, never a prompt into the wrong session
-            // (FR-104: the prompt is never issued on a stale observation).
+            // The one await between read and prompt is the ladder's config read: a
+            // switch landing there must wait, never prompt into the wrong session.
             const rows = { current: [rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] })] };
             const configHook: ConfigHook = {};
             const harness = pushDeliveryHost({ rows, onConfig: configHook });
@@ -2365,10 +2350,8 @@ describe('FR-104 the delivery gate (AC-050)', () => {
 
     it('re-arm race: a switch after the observation yields zero prompts, then delivers once later', async () => {
         {
-            // AC-050's re-arm race with the relay's serialization deferral: the
-            // observation says target-current-and-idle, but a dispatch attempt
-            // owns the one host action, so the delivery is pushed to the next
-            // tick — and by then the operator is elsewhere.
+            // The re-arm race with the relay's serialization: current-and-idle is
+            // observed, but a dispatch attempt owns the host action — delivery slips a tick.
             const rows = { current: [rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] })] };
             const { host, log: hostLog, emitSession } = pushDeliveryHost({ rows });
             emitSession({ id: TARGET_SESSION, title: 't', busy: false });
@@ -2382,9 +2365,8 @@ describe('FR-104 the delivery gate (AC-050)', () => {
             await pollRelay(rt);
             await tick();
 
-            // Zero prompts into the non-target session, nothing parked, no
-            // budget consumed — back in the waiting state (AC-050 "Re-arm
-            // race").
+            // Zero prompts into the non-target session, nothing parked, no budget
+            // consumed — back in the waiting state.
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
             expect(storedFollowUps(hostLog).at(-1)).toMatchObject({
                 parked: false,
@@ -2422,7 +2404,7 @@ describe('FR-104 the delivery gate (AC-050)', () => {
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
             expect(writeCount(hostLog.writes, 'mecha-turk:dispatches')).toBe(1);
 
-            // One observation re-arms both; the ticks deliver them FIFO (AC-050).
+            // One observation re-arms both; the ticks deliver them FIFO.
             emitSession({ id: TARGET_SESSION, title: 't', busy: false });
             await pollRelay(rt);
             await tick();
@@ -2508,9 +2490,8 @@ describe('FR-104 the delivery gate (AC-050)', () => {
 });
 
 /* ------------------------------------------------------------------ *
- * FR-104 as amended (span C, Gate 2 H2): the fallback gate reads the
- * projected engine member — absent is v1.18.0, `unavailable` is the
- * handoff the panel auto-attempts, `queued`/`unknown` are zero prompts.
+ * The fallback gate reads the projected engine member: `unavailable` is the
+ * handoff the panel auto-attempts; `queued`/`unknown` are zero prompts.
  * ------------------------------------------------------------------ */
 
 describe('the fallback gate reads the projected engine member (span C; Gate 2 H2)', () => {
@@ -2533,13 +2514,8 @@ describe('the fallback gate reads the projected engine member (span C; Gate 2 H2
     it('a non-current target behind an unavailable mark waits session-busy, then delivers once when the'
         + ' operator opens it (Gate 2 M5)', async () => {
         {
-            // The end-to-end handback scenario (AC-050 fallback span): the
-            // service marked the delivery engine-unavailable, so the panel
-            // auto-attempts — but a non-current target is the fallback's own
-            // waiting gate, unchanged: zero prompts, session-busy on the run
-            // row, the record stays due, nothing parked. The operator then
-            // opens the target, its lifecycle reports idle, and the poke
-            // delivers exactly once through the same B+ path.
+            // Engine-unavailable means the panel auto-attempts — but a non-current
+            // target still waits; the idle poke then delivers exactly once, same B+ path.
             const followUp = commentFollowUp({ engine: { state: 'unavailable' } });
             const row = rowWith({ sessionId: TARGET_SESSION, followUps: [followUp] });
             const rows = { current: [row] };
@@ -2593,9 +2569,8 @@ describe('the fallback gate reads the projected engine member (span C; Gate 2 H2
             expect(writeCount(hostLog.writes, 'mecha-turk:ledger')).toBe(0);
             expect(rt.state.relay.waitingFollowUps).toBe(0);
 
-            // The row renders the sixth word from the member's queued branch,
-            // for the row's whole life, and the delivered bucket stays the
-            // panel record's alone.
+            // The row renders the sixth word from the member's queued branch for the
+            // row's whole life; the delivered bucket stays the panel record's alone.
             const view = followUpRowView(row, []);
             expect(view).toMatchObject({ delivered: 0, waiting: 0, engineQueued: 1, unconfirmed: 0 });
             const { subtitle } = dispatchRow(row, []);
@@ -2639,10 +2614,8 @@ describe('the fallback gate reads the projected engine member (span C; Gate 2 H2
 
     it('a fresh intent member is waiting with no unconfirmed note and no re-offer (009 F6)', async () => {
         {
-            // The window F6 closed: a row the enqueue just wrote is the engine
-            // pass's own delivery in flight, so the panel never auto-attempts
-            // it, never calls it unconfirmed — nothing is unconfirmed yet — and
-            // never offers the re-offer, which would race the admission.
+            // A just-enqueued row is the engine pass's delivery in flight: never
+            // auto-attempted, never unconfirmed, never re-offered — it would race the admission.
             const followUp = commentFollowUp({ engine: { state: 'unknown', cause: 'intent' } });
             const row = rowWith({ sessionId: TARGET_SESSION, followUps: [followUp] });
             const rows = { current: [row] };
@@ -2670,11 +2643,8 @@ describe('the fallback gate reads the projected engine member (span C; Gate 2 H2
 
     it('an unknown member without a cause — or one outside the pair — refuses the row (009 F6)', () => {
         {
-            // The iff discipline extended to the cause: it rides `unknown`
-            // alone, so a member without it, with a word outside the closed
-            // pair, or a cause on either settled arm is malformed and refuses
-            // the whole row rather than rendering one word and attempting
-            // another (invariant 8).
+            // The iff discipline extends to the cause: it rides `unknown` alone, so
+            // a member without it or outside the closed pair refuses the whole row.
             const good = rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] });
             const [projectedFollowUp] = good.followUps ?? [];
             const splice = (engine: unknown): Record<string, unknown> => ({
@@ -2693,11 +2663,8 @@ describe('the fallback gate reads the projected engine member (span C; Gate 2 H2
 
     it('an unreadable engine member refuses the page: the last good view stands and nothing is attempted', async () => {
         {
-            // The fail-closed parse: a member outside the closed shapes
-            // refuses the whole row, so the relay's read keeps the previous
-            // view and no attempt is made from a half-read page. The fixture
-            // is a good row with the member replaced by the raw bad shape —
-            // `rowWith` parses, so it could never build this itself.
+            // Fail-closed parse: a member outside the closed shapes refuses the whole
+            // row — a good row with its member swapped for the raw bad shape, built by `rowWith`.
             const good = rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] });
             const [projectedFollowUp] = good.followUps ?? [];
             const spliced = {
@@ -2774,10 +2741,8 @@ describe('the fallback gate reads the projected engine member (span C; Gate 2 H2
 
     it('the closed reason-word union is six, and the reader accepts every member and refuses a seventh', () => {
         {
-            // Vocabulary closure (002 v1.19.0 FR-105 span F): `engine-queued`
-            // joins the union for rendering/type closure, the reader accepts
-            // every member of it on a stored record, and a seventh word is
-            // refused exactly as any outsider is.
+            // `engine-queued` joins the union for rendering/type closure: the reader
+            // accepts every member on a stored record, and a seventh word is refused.
             const six: readonly FollowUpFailure[] = [
                 'no-session',
                 'session-busy',
@@ -2801,10 +2766,7 @@ describe('the fallback gate reads the projected engine member (span C; Gate 2 H2
     });
 });
 
-/* ------------------------------------------------------------------ *
- * FR-105 — the transient-only ladder, the terminal parks, and the
- * raced-busy outcome that never parks at all.
- * ------------------------------------------------------------------ */
+/* The transient-only ladder, the terminal parks, and the raced-busy outcome that never parks. */
 
 describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-051)', () => {
     it('never attempts against a mid-turn session, and the idle signal re-arms it for exactly one prompt', async () => {
@@ -2823,9 +2785,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
             });
             await tick();
 
-            // No attempt at all: zero prompts, zero navigations, no ladder
-            // consumption — the waiting state carries the follow-up (AC-051
-            // "Given the session mid-turn"), and it is never parked for it.
+            // No attempt at all: zero prompts, zero navigations, no ladder consumed —
+            // the waiting state carries the follow-up, and it is never parked for it.
             expect(midTurn).toMatchObject({ delivered: false, reason: 'session-busy', parked: false, attempt: 1 });
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
             expect(hostLog.actions.filter((action) => action === 'openSession')).toHaveLength(0);
@@ -2849,10 +2810,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
 
     it('treats a raced SESSION_BUSY as the waiting state: no further attempt, no rung, no park', async () => {
         {
-            // The refusal exists only because a prompt was issued — the session
-            // went busy between the idle observation and the prompt — and no
-            // prompt follows it (AC-051 "Given a SESSION_BUSY refusal racing an
-            // idle observation").
+            // The refusal exists only because a prompt was issued — the session went
+            // busy between the idle observation and the prompt — and no prompt follows it.
             const behaviour: PromptBehaviour = { code: 'SESSION_BUSY' };
             const row = rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] });
             const { host, log: hostLog, emitSession } = pushDeliveryHost({
@@ -2880,9 +2839,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
                 nextAttemptAtMs: null,
             });
 
-            // The refusal is the host's own busy fact, so the next tick holds
-            // the follow-up rather than re-asking — zero prompts until an idle
-            // signal says otherwise (AC-050 "Raced busy").
+            // The refusal is the host's own busy fact, so the next tick holds the
+            // follow-up rather than re-asking — zero prompts until an idle signal.
             await pollRelay(rt);
             await tick();
             expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(1);
@@ -2945,9 +2903,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
             const third = await deliverFollowUp({ rt, row, followUp, attempt: 3, policy: TEST_POLICY });
             await tick();
 
-            // The one class the bounded ladder governs (AC-051 "Given a host
-            // timeout, rejection, or unavailability"): every attempt fails with
-            // its reason named, and the bound parks the last one.
+            // The one class the bounded ladder governs: every attempt fails with its
+            // reason named, and the bound parks the last one.
             expect([first.reason, second.reason, third.reason]).toEqual([
                 'host-unavailable',
                 'host-unavailable',
@@ -2968,12 +2925,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
 
     it('gives a wait-first delivery the whole declared ladder — five prompts at the default policy', async () => {
         {
-            // The wait consumed no rung, so the ladder the relay resumes is the
-            // full one the config falls back to — five prompts at the documented
-            // default `retryMaxAttempts`, then the park (AC-051's no-ladder-
-            // attempt Givens; plan.md decision 4). The gaps between prompts are
-            // the backoff the record stamps, so the clock moves instead of the
-            // test sleeping.
+            // The wait consumed no rung, so the resumed ladder is the full default —
+            // five prompts then the park; the record's stamped gaps move the clock, not the test.
             const behaviour: PromptBehaviour = { code: 'HOST_TIMEOUT' };
             const row = rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] });
             const { host, log: hostLog, emitSession } = pushDeliveryHost({
@@ -3015,10 +2968,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
     it('parks NO_SESSION on the first refusal, consuming no ladder attempt', async () => {
         {
             // `NO_SESSION`: the run carries no session, so there is nothing to
-            // deliver into and a delivery must never start one. It parks at
-            // the first refusal — the ladder governs transient host errors
-            // only (AC-051 "Given NO_SESSION … each parks on the first
-            // refusal … and consumes no ladder attempt").
+            // deliver into and a delivery must never start one: it parks at the
+            // first refusal — the ladder governs transient host errors only.
             const { host, log: hostLog } = recordingHost({ currentSession: TARGET_SESSION });
             const rt = deliveryRuntime(host);
             const row = rowWith({ sessionId: null });
@@ -3046,12 +2997,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
 
     it('stops a retry whose target is no longer current with navigation-refused, and never prompts', async () => {
         {
-            // AC-050's "Retry re-verification": a transient host error left the
-            // record mid-ladder, and the operator switched sessions before the
-            // retry fired. The retry stops, zero prompts into the non-target
-            // session, no second navigation (none exists to issue), and the
-            // park's rung is unspent (AC-051 "a refused navigation … parks on
-            // the first refusal").
+            // A transient host error left the record mid-ladder; the operator switched
+            // sessions before the retry fired: the retry stops, and the park's rung is unspent.
             const { host, log: hostLog, emitSession } = pushDeliveryHost({});
             emitSession({ id: OTHER_SESSION, title: 't', busy: false });
             const rt = deliveryRuntime(host);
@@ -3086,11 +3033,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
 
     it('parks an over-budget composition on the first refusal, consuming no ladder attempt', async () => {
         {
-            // The frame is counted in full before any source is rendered, so a
-            // row whose frame alone clears the budget is refused measure-before-
-            // call: no prompt, no navigation, and the rung the attempt would
-            // have taken is unspent (AC-051 "an over-budget composition … parks
-            // on the first refusal").
+            // The frame counts in full before any source renders, so a row whose frame
+            // alone clears the budget is refused — no prompt, and the rung stays unspent.
             const { host, log: hostLog } = recordingHost({ currentSession: TARGET_SESSION });
             const rt = deliveryRuntime(host);
             const row = rowWith({ sessionId: TARGET_SESSION, issueTitle: 'x'.repeat(12_100) });
@@ -3124,9 +3068,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
 
     it('parks a DISABLED refusal as host-unavailable, with no ladder attempt behind it', async () => {
         {
-            // A paused extension is not a cause of its own: it is not in the
-            // transient class, so the one prompt it refused parks at once
-            // under the host-refusal word (AC-051's parenthetical).
+            // A paused extension is not a cause of its own: outside the transient
+            // class, the one prompt it refused parks at once under the host-refusal word.
             const { host, log: hostLog } = recordingHost({
                 currentSession: TARGET_SESSION,
                 promptBehaviour: { code: 'DISABLED' },
@@ -3150,10 +3093,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
 
     it('classifies the host codes into the closed reason union, each with its own ending', () => {
         {
-            // One union, so the run row and the trail name the same word for
-            // the same cause — and the ending is separate from the word: only
-            // a transient host error (or an uncoded transport failure) runs
-            // the ladder, busy is the waiting state, every other stop parks.
+            // One union, so row and trail name one word per cause — the ending is
+            // separate: only the transient class runs the ladder; busy waits; all else parks.
             const coded = (code: string): Error => Object.assign(new Error('x'), { code });
             const classified: readonly (readonly [string, string, unknown])[] = [
                 ['no-session', 'park', coded('NO_SESSION')],
@@ -3175,10 +3116,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
 
     it('re-arms a pre-amendment parked, session-busy record on read, and it re-parks at once', async () => {
         {
-            // FR-105's migration clause: the two fields already on the record
-            // say a refused attempt, not delivered work, so it reads back into
-            // the waiting state — attempt history intact, due now — with no
-            // new persisted field (challenge-ledger M6).
+            // The two fields already on the record say a refused attempt, not delivered
+            // work: it reads back re-armed — attempt history intact, due now — no new field.
             const legacy = recordFixture({ attempt: 3, parked: true, reason: 'session-busy' });
             const read = readDispatchRecord(storedDocument([legacy]));
 
@@ -3189,11 +3128,8 @@ describe('FR-105 the transient-only ladder, the park, and the waiting state (AC-
                 nextAttemptAtMs: null,
             });
 
-            // The instant re-park is by design: the ladder the park exhausted
-            // is history, so the re-armed record's first transient failure is
-            // its last (AC-051's migration clause) — and the re-armed wait held
-            // the attempt, so the park carries the ladder's own count rather
-            // than a fourth attempt a three-attempt ladder never had.
+            // The instant re-park is by design: the ladder the park exhausted is history,
+            // so the re-armed record's first transient failure is its last, on the ladder's own count.
             const rows = { current: [rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] })] };
             const { host, log: hostLog, emitSession } = pushDeliveryHost({
                 rows,
