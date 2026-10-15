@@ -16,28 +16,18 @@ import { createLedger, LEDGER_STORAGE_KEY, readLedger, recordPhase } from './led
 import type { LedgerDetail } from './ledger.ts';
 import { appendEntryAndPersist, persistLedger } from './panel-actions.ts';
 import { mountPrerequisiteNotice, disposePrerequisites } from './prerequisites.ts';
-import { createPanelRuntime, setStatus } from './panel-state.ts';
+import { setStatus } from './panel-state.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { mountPanelFraming, refresh } from './panel-ui.ts';
 import { loadProjects, recordHostDirectory } from './project-actions.ts';
 import { reconcileDispatchAttempts } from './reconcile.ts';
 import { settleReconciliation, stopRelayPolling } from './relay.ts';
+import { emitStartupStage, recordStartupFailure } from './startup.ts';
 import { loadDispatches } from './dispatches.ts';
 import { loadStatus } from './status-tab.ts';
 import { mountTabShell } from './tabs.ts';
 import { tabSpecs } from './tab-bodies.ts';
 import { describeError } from './session.ts';
-import type { PanelHost } from './session.ts';
-
-export interface PanelAppOptions {
-    readonly host: PanelHost;
-    readonly root: HTMLElement;
-    readonly panelWindow: Pick<Window, 'addEventListener' | 'removeEventListener'>;
-}
-
-export interface PanelApp {
-    dispose: () => void;
-}
 
 /**
  * Apply the host's settings snapshot. Since 002 FR-041 emptied
@@ -122,7 +112,7 @@ export async function loadLedger(rt: PanelRuntime, mountedAt: string): Promise<v
  *
  * Exported for the orchestration tests, which assert that every subscription
  * collected on the runtime is released; the panel reaches it through the
- * `pagehide` hook and the `dispose()` handed back from {@link createPanelApp}.
+ * `pagehide` hook the mount registers.
  */
 export function teardown(rt: PanelRuntime): void {
     if (rt.disposed) {
@@ -254,17 +244,32 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
  * First-time start, driven by `onReady`.
  *
  * The reconcile gate closes before anything that could arm the relay and opens
- * only after every outstanding attempt has been re-reported, in a
- * `finally` so no mount path can leave the relay unarmed — or armed ahead of
- * its own reconciliation.
+ * only after every outstanding attempt has been re-reported — on the path that
+ * got there. A rejected mount records the failure (005 FR-141), leaves the
+ * gate closed, clears any deferred arming, and returns without rethrowing, so
+ * the fire-and-forget caller can never turn it into an unhandled rejection.
  */
-async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
+export async function begin(rt: PanelRuntime, context: HostReadyContext): Promise<void> {
     rt.reconcileSettled = false;
     try {
         await mountPanel(rt, context);
-    } finally {
-        settleReconciliation(rt);
+    } catch (cause) {
+        // The runner's first entry carries the environment; this one is the failure.
+        recordStartupFailure({
+            stage: 'initial setup',
+            cause,
+            shellMounted: true,
+            runtime: rt,
+            doc: rt.root?.ownerDocument ?? null,
+            environment: null,
+            insecureContext: rt.root?.ownerDocument.defaultView?.isSecureContext === false,
+        });
+
+        return;
     }
+
+    emitStartupStage({ stage: 'initial setup', runtime: rt, environment: null });
+    settleReconciliation(rt);
 }
 
 /**
@@ -304,14 +309,14 @@ function registerHostListeners(rt: PanelRuntime, root: HTMLElement): void {
 }
 
 /**
- * Build and start the panel application.
- *
- * Mounts the UI immediately, then waits for `onReady` before reading settings
- * and storage, so the theme and context are applied exactly once.
+ * Mount the shell for a runtime the startup runner has already constructed:
+ * notice region, framing banner, six-tab strip, frame listeners, initial status
+ * line. It does not construct and does not catch — the runner owns the stage
+ * around this call (005 FR-141) — and `rt.root` lands first, so the async
+ * failure renderer always has the element it prepends to.
  */
-export function createPanelApp(options: PanelAppOptions): PanelApp {
-    const { host, root, panelWindow } = options;
-    const rt = createPanelRuntime(host, panelWindow);
+export function mountPanelApp(rt: PanelRuntime, root: HTMLElement): void {
+    rt.root = root;
 
     // Above the tab strip on purpose: FR-036 and FR-037 need the notice region
     // outside every section, and the banner is read-state framing that belongs
@@ -320,13 +325,11 @@ export function createPanelApp(options: PanelAppOptions): PanelApp {
     rt.ui = mountPanelFraming(root);
     mountTabShell({ rt, root, specs: tabSpecs(rt) });
     rt.pagehideListener = () => handlePagehide(rt);
-    panelWindow.addEventListener('pagehide', rt.pagehideListener);
+    rt.panelWindow.addEventListener('pagehide', rt.pagehideListener);
     registerHostListeners(rt, root);
 
     const steps = LIFECYCLE_EXPERIMENT_PLAN.length;
     const body = `Lifecycle experiment plan loaded: ${steps} steps.`;
     setStatus(rt, { tone: 'info', title: 'Mecha Turk', body });
     refresh(rt);
-
-    return { dispose: () => teardown(rt) };
 }

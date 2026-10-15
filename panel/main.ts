@@ -1,18 +1,18 @@
 /**
  * Panel entry point: OpenChamber loads `panel/index.html`, which loads this file as a classic IIFE
- * bundle. It does exactly two things — connect to the documented host bridge and hand the root
- * element to the panel application. `connectHost()` only works inside OpenChamber; opened as a
- * plain file every call rejects with `HOST_UNAVAILABLE`, documented behaviour, not an error.
+ * bundle. It hands the document, the frame, the host bridge, and the shell mount to the startup
+ * runner, which owns the five stages and their failure surfaces (005 FR-140 – FR-142).
+ * `connectHost()` only works inside OpenChamber; opened as a plain file every call rejects with
+ * `HOST_UNAVAILABLE`, documented behaviour, not an error.
  */
 
 import { connectHost } from '@openchamber/sdk';
-import { createPanelApp } from '../src/app.ts';
+import { mountPanelApp } from '../src/app.ts';
+import { runStartup } from '../src/bootstrap.ts';
 
-const root = document.querySelector<HTMLElement>('#root');
-if (root === null) {
-    throw new Error('panel/index.html is missing its #root element');
-}
-
-const host = connectHost();
-
-createPanelApp({ host, root, panelWindow: globalThis });
+runStartup({
+    doc: document,
+    panelWindow: globalThis,
+    connect: connectHost,
+    mountPanelApp,
+});

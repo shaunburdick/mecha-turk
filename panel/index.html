@@ -12,6 +12,34 @@
             }
 
             /*
+             * The startup notice (005 FR-140): the surface before the bundle
+             * runs, and the only one a failure before `#root` mounts can reach.
+             * It lives outside `#root`, where the `--mt-*` tokens are not in
+             * scope, so colour resolves through the host alias chain directly —
+             * the same chain the root's ink uses — and every rule below is
+             * scoped to the notice, so the mounted layout is unchanged once
+             * the runner removes the node.
+             */
+            #panel-startup-notice {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                padding: 12px;
+                color: var(--oc-fg, var(--surface-foreground, inherit));
+                font-family: var(--oc-font, var(--font-sans, inherit));
+                font-size: 0.875rem;
+                line-height: 1.45;
+            }
+
+            #panel-startup-notice p {
+                margin: 0;
+            }
+
+            #panel-startup-notice p:first-child {
+                font-weight: 600;
+            }
+
+            /*
              * Layout contract (005 FR-082; product-owner review 2026-09-30).
              *
              * `#root` is a column flex container, and by default every child
@@ -1028,6 +1056,11 @@
         </style>
     </head>
     <body>
+        <div id="panel-startup-notice" role="status">
+            <p>Mecha Turk is starting.</p>
+            <p>If the panel does not appear, close it and reopen the panel.</p>
+            <p id="panel-startup-detail"></p>
+        </div>
         <div id="root"></div>
         <script src="main.js"></script>
     </body>

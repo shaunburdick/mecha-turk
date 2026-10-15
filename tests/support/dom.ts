@@ -31,6 +31,19 @@ export interface FakeDocument {
      * @returns The new element, bound to this document.
      */
     createElement(tagName: string): FakeElement;
+    /**
+     * Find the element this document created under an `#id` selector.
+     *
+     * The document-level counterpart to {@link FakeElement.querySelector}: the
+     * runner's only two lookups are `#root` and the startup notice's nodes, and
+     * any other shape throws rather than quietly answering nothing — the same
+     * throw-on-unknown contract the element-level selector keeps.
+     *
+     * @param selectors - An `#id` selector, as `panel/index.html` carries.
+     * @returns The first element created with that id, or `null`.
+     * @throws {Error} When the selector is not an `#id` shape.
+     */
+    querySelector(selectors: string): FakeElement | null;
 }
 
 /**
@@ -209,6 +222,20 @@ export class FakeElement {
     }
 
     /**
+     * Insert child nodes first, exactly as `ParentNode.prepend` does: where the
+     * startup failure renderer puts its banner, above everything already mounted.
+     *
+     * @param nodes - Nodes to insert at the front, in order.
+     */
+    public prepend(...nodes: FakeElement[]): void {
+        for (const node of nodes) {
+            node.parent = this;
+        }
+
+        this.children.unshift(...nodes);
+    }
+
+    /**
      * Detach this node from its parent; a node without one is a no-op.
      */
     public remove(): void {
@@ -255,6 +282,12 @@ export interface FakeDom {
      * written in the first place.
      */
     readonly rootElement: FakeElement;
+    /**
+     * The document those elements were created from — the face the startup
+     * runner takes, which the double satisfies structurally, so a test passes
+     * it on without a cast.
+     */
+    readonly document: FakeDocument;
     /** Every element the adapter created, in creation order. */
     readonly created: readonly FakeElement[];
     /** First element created with `tagName`, or `undefined`. */
@@ -284,6 +317,16 @@ export function fakeDom(): FakeDom {
 
             return node;
         },
+        querySelector: (selectors: string): FakeElement | null => {
+            const match = /^#([\w-]+)$/.exec(selectors);
+            if (match === null) {
+                throw new Error(`the DOM double answers #id selectors only, not ${selectors}`);
+            }
+
+            const wanted = match[1] ?? '';
+
+            return created.find((node) => node.attribute('id') === wanted) ?? null;
+        },
     };
     const root = doc.createElement('div');
 
@@ -294,6 +337,7 @@ export function fakeDom(): FakeDom {
         // eslint-disable-next-line llm-core/no-chained-type-assertions, llm-core/no-type-system-bypass -- a stand-in
         root: root as unknown as HTMLElement,
         rootElement: root,
+        document: doc,
         created,
         findByTag: (tagName: string): FakeElement | undefined =>
             created.find((node) => node.tagName === tagName),

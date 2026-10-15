@@ -1137,6 +1137,7 @@ describe('AC-146 no user-facing string implies a policy the service did not repo
                 ['accounts-disclaimer.ts', 'the *extension storage* is protected by file permissions'],
                 ['run-actor.ts', "the closed wire union's own literals, which no surface renders as a claim"],
                 ['settings-confirm.ts', "the audit-retention 'protected set', which is not an authorization"],
+                ['startup.ts', "FR-141/FR-142: the frame's own secure-context facts, never a binding's actor policy"],
             ];
             const dir = resolve(import.meta.dirname, '../src');
             const offenders: string[] = [];

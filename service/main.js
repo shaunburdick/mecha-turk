@@ -108,11 +108,49 @@ function createLogger(options) {
 import { createServer } from "node:http";
 
 // src/ids.ts
-function newCorrelationId() {
-  if (typeof crypto === "undefined" || typeof crypto.randomUUID !== "function") {
-    throw new Error("crypto.randomUUID is unavailable; refusing to record an observation without a correlation id");
+var UUID_BYTES = 16;
+var VERSION_BYTE = 6;
+var VERSION_MOD = 16;
+var VERSION_TAG = 64;
+var VARIANT_BYTE = 8;
+var VARIANT_MOD = 64;
+var VARIANT_TAG = 128;
+var HEX_RADIX = 16;
+var UUID_HEAD_GROUP = 8;
+var UUID_GROUP_WIDTHS = [UUID_HEAD_GROUP, 4, 4, 4];
+function uuidV4(bytes) {
+  const hex = Array.from(bytes, (byte, index) => {
+    const withVersion = index === VERSION_BYTE ? byte % VERSION_MOD + VERSION_TAG : byte;
+    const withVariant = index === VARIANT_BYTE ? withVersion % VARIANT_MOD + VARIANT_TAG : withVersion;
+    return withVariant.toString(HEX_RADIX).padStart(2, "0");
+  }).join("");
+  const groups = [];
+  let at = 0;
+  for (const width of UUID_GROUP_WIDTHS) {
+    groups.push(hex.slice(at, at + width));
+    at += width;
   }
-  return crypto.randomUUID();
+  groups.push(hex.slice(at));
+  return groups.join("-");
+}
+function correlationIdMode() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return "randomUUID";
+  }
+  if (typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function") {
+    return "getRandomValues";
+  }
+  return "unavailable";
+}
+function newCorrelationId() {
+  const mode = correlationIdMode();
+  if (mode === "randomUUID") {
+    return crypto.randomUUID();
+  }
+  if (mode === "getRandomValues") {
+    return uuidV4(crypto.getRandomValues(new Uint8Array(UUID_BYTES)));
+  }
+  throw new Error("crypto.randomUUID is unavailable; refusing to record an observation without a correlation id");
 }
 function nowIso() {
   return new Date().toISOString();
