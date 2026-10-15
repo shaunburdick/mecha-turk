@@ -147,8 +147,7 @@ async function claimRuns(rt: PanelRuntime): Promise<ClaimAnswer | null> {
     return parsed;
 }
 
-// `unavailable` is the service's permanent handoff — the fallback owns it;
-// `unknown` attempts only behind the operator's re-offer record.
+/** `record` is the operator re-offer's durable record — only it lets an `unknown` row attempt. */
 function engineGateAllows(followUp: RunFollowUp, record: FollowUpDeliveryRecord | undefined): boolean {
     const { engine } = followUp;
     if (engine === undefined || engine.state === 'unavailable') {
