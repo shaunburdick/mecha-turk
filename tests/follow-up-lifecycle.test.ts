@@ -2605,9 +2605,9 @@ describe('the fallback gate reads the projected engine member (span C; Gate 2 H2
         }
     });
 
-    it('an unknown member is displayed and never auto-attempted, even when the target is idle', async () => {
+    it('an outcome-unknown member is displayed and never auto-attempted, even when the target is idle', async () => {
         {
-            const followUp = commentFollowUp({ engine: { state: 'unknown' } });
+            const followUp = commentFollowUp({ engine: { state: 'unknown', cause: 'outcome' } });
             const row = rowWith({ sessionId: TARGET_SESSION, followUps: [followUp] });
             const rows = { current: [row] };
             const { host, log: hostLog, emitSession } = pushDeliveryHost({ rows });
@@ -2634,6 +2634,60 @@ describe('the fallback gate reads the projected engine member (span C; Gate 2 H2
                 attempt: 0,
                 cause: 'the engine outcome is unconfirmed',
             }]);
+        }
+    });
+
+    it('a fresh intent member is waiting with no unconfirmed note and no re-offer (009 F6)', async () => {
+        {
+            // The window F6 closed: a row the enqueue just wrote is the engine
+            // pass's own delivery in flight, so the panel never auto-attempts
+            // it, never calls it unconfirmed — nothing is unconfirmed yet — and
+            // never offers the re-offer, which would race the admission.
+            const followUp = commentFollowUp({ engine: { state: 'unknown', cause: 'intent' } });
+            const row = rowWith({ sessionId: TARGET_SESSION, followUps: [followUp] });
+            const rows = { current: [row] };
+            const { host, log: hostLog, emitSession } = pushDeliveryHost({ rows });
+            emitSession({ id: TARGET_SESSION, title: 't', busy: false });
+            const rt = deliveryRuntime(host);
+
+            await pollRelay(rt);
+            await tick();
+            await pollRelay(rt);
+            await tick();
+
+            expect(hostLog.actions.filter((action) => action === 'prompt')).toHaveLength(0);
+            expect(writeCount(hostLog.writes, 'mecha-turk:dispatches')).toBe(0);
+            expect(rt.state.relay.waitingFollowUps).toBe(1);
+
+            const view = followUpRowView(row, []);
+            expect(view).toMatchObject({ delivered: 0, waiting: 1, engineQueued: 0, unconfirmed: 0 });
+            const { subtitle } = dispatchRow(row, []);
+            expect(subtitle).toContain('follow-ups: 1 waiting');
+            expect(subtitle, 'a fresh row carried the unconfirmed note').not.toContain('unconfirmed');
+            expect(reofferableFollowUps(row, [])).toEqual([]);
+        }
+    });
+
+    it('an unknown member without a cause — or one outside the pair — refuses the row (009 F6)', () => {
+        {
+            // The iff discipline extended to the cause: it rides `unknown`
+            // alone, so a member without it, with a word outside the closed
+            // pair, or a cause on either settled arm is malformed and refuses
+            // the whole row rather than rendering one word and attempting
+            // another (invariant 8).
+            const good = rowWith({ sessionId: TARGET_SESSION, followUps: [commentFollowUp()] });
+            const [projectedFollowUp] = good.followUps ?? [];
+            const splice = (engine: unknown): Record<string, unknown> => ({
+                ...good,
+                followUps: [{ ...projectedFollowUp, engine }],
+            });
+
+            expect(parseEventRows([splice({ state: 'unknown' })])).toBeNull();
+            expect(parseEventRows([splice({ state: 'unknown', cause: 'in-flight' })])).toBeNull();
+            expect(parseEventRows([splice({ state: 'unavailable', cause: 'intent' })])).toBeNull();
+            expect(parseEventRows([splice({ state: 'queued', cause: 'outcome' })])).toBeNull();
+            expect(parseEventRows([splice({ state: 'unknown', cause: 'intent' })])?.[0]?.followUps?.[0]?.engine)
+                .toEqual({ state: 'unknown', cause: 'intent' });
         }
     });
 

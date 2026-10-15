@@ -354,7 +354,8 @@ function promptPhrase(row: RunRow): string {
  * the session, the projection alone knows what the engine holds — so the row
  * names how many reached the session, how many are engine-admitted
  * (`engine-queued`, for the row's whole life), how many still wait (with the
- * `unconfirmed` note on an unknown engine outcome), and every parked one with
+ * `unconfirmed` note on a spent engine intent, `cause: 'outcome'`), and every
+ * parked one with
  * its cause, and says nothing when the run has no follow-up state (the
  * ordinary case).
  */

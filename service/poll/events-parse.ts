@@ -26,6 +26,16 @@ export type SubjectType = 'issue' | 'pull_request';
 export type { ActorAttribution } from './attribution.ts';
 
 /**
+ * Why an `unknown` member is unknown (009 span C/E): `intent` is a
+ * send-intent this service still owns — written with the row's own enqueue
+ * and re-stamped immediately before the admission POST — and `outcome` is a
+ * spent intent with no receipt: the settled ambiguous outcome, and what a
+ * restart reconciliation writes over an interrupted one. Only `outcome` is
+ * re-offerable (companion 9).
+ */
+export type EngineCause = 'intent' | 'outcome';
+
+/**
  * The service's durable engine-delivery record on the follow-up's queue row.
  * Its three states are 002 v1.19.0 §2.4's closed set: `admitted` holds the
  * receipt, `unavailable` is the permanent handoff to the fallback, and
@@ -33,11 +43,12 @@ export type { ActorAttribution } from './attribution.ts';
  *
  * A closed discriminated union so the iff-invariants are unrepresentable when
  * writing and re-derived fail-closed when parsing: `messageId` exists only on
- * `admitted`, `intentAtMs` and `cause` only on `unknown` (never a receipt),
- * and `unavailable` carries none of the three — a stored member that carries
- * a cause on a non-`unknown` state is refused exactly as a malformed required
- * field is. Absentable: a row written before the engine path existed parses
- * byte-identically (Gate 2 H3; plan pin 10; 002 v1.19.0 §2.4).
+ * `admitted`, `intentAtMs` and a {@link EngineCause} only on `unknown` (never
+ * a receipt), and `unavailable` carries none of the three — a stored member
+ * that carries a cause on a non-`unknown` state, or a cause outside the
+ * closed two, is refused exactly as a malformed required field is. Absentable:
+ * a row written before the engine path existed parses byte-identically (Gate
+ * 2 H3; plan pin 10; 002 v1.19.0 §2.4).
  */
 export type EngineMember =
     /** The admission receipt (`msg_…`) is persisted. */
@@ -45,7 +56,7 @@ export type EngineMember =
     /** Handed to the panel fallback; the service never engine-attempts again. */
     | { readonly state: 'unavailable' }
     /** Send-intent persisted, outcome unknowable; never auto-retried. */
-    | { readonly state: 'unknown'; readonly intentAtMs: number; readonly cause: string };
+    | { readonly state: 'unknown'; readonly intentAtMs: number; readonly cause: EngineCause };
 
 export interface QueuedEvent {
     /** Deterministic `[A-Za-z0-9._~|-]`-shaped id, usable as one path segment. */
@@ -359,13 +370,18 @@ function unavailableEngineOf(value: Record<string, unknown>): EngineMember | nul
         : null;
 }
 
-/** Read the `unknown` arm: the intent stamp and its cause, and never a receipt. */
+/** The closed cause union, read fail-closed: anything else answers `null`. */
+function engineCauseOf(value: unknown): EngineCause | null {
+    return value === 'intent' || value === 'outcome' ? value : null;
+}
+
+/** Read the `unknown` arm: the intent stamp and its closed cause, and never a receipt. */
 function unknownEngineOf(value: Record<string, unknown>): EngineMember | null {
     const { messageId, intentAtMs, cause } = value;
     const intentStamp = typeof intentAtMs === 'number' && Number.isSafeInteger(intentAtMs) && intentAtMs > 0
         ? intentAtMs
         : null;
-    const why = typeof cause === 'string' && cause !== '' ? cause : null;
+    const why = engineCauseOf(cause);
     if (messageId !== undefined || intentStamp === null || why === null) {
         return null;
     }

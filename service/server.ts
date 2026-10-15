@@ -8,6 +8,7 @@ import { reconcileInterruptedAccounts } from './accounts/reconcile.ts';
 import { CONFIG_FILE, configFromStore, parseStoredConfig } from './config.ts';
 import { createGitHubVerifier } from './github.ts';
 import { runRetentionAtOpen } from './retention.ts';
+import { reconcileEngineIntents } from './poll/engine-state.ts';
 import type { GitHubIssuePoller } from './poll/poller-github.ts';
 import { LOOPBACK_HOST } from './http.ts';
 import { createRequestHandler } from './pipeline.ts';
@@ -421,6 +422,18 @@ export async function startService(options: StartServiceOptions): Promise<Servic
     // The sweep runs at service start, before the server accepts a
     // claim, so a restart recovers stranded claims with no operator action.
     const swept = await startBootSweep({ store, log: options.log });
+    // Spend the engine intents the previous process outlived before anything
+    // can engine-attempt them: each row it left without a receipt flips from
+    // the `intent` cause to `outcome`, so it is never re-POSTed and is
+    // re-offerable instead (009 F6; FR-105 span E). It runs before `listen`,
+    // so no read can race it, and it is a no-op on a degraded start — the
+    // poll loop never starts there either, so nothing is left un-flipped.
+    if (store !== null) {
+        const spentIntents = await reconcileEngineIntents({ store, log: options.log });
+        if (spentIntents > 0) {
+            options.log.info('reconciliation spent interrupted engine intents', { flipped: spentIntents });
+        }
+    }
     await listen(server, options.env.port);
     // Reconciliation runs after the listener is up: an upstream call must
     // never hold the host's readiness probe hostage (F16 readiness is about

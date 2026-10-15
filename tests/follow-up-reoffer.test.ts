@@ -37,6 +37,7 @@ import {
 } from '../src/dispatch-record.ts';
 import type { DispatchRecordDocument, FollowUpDeliveryRecord } from '../src/dispatch-record.ts';
 import { reofferableFollowUps } from '../src/dispatches-detail.ts';
+import type { RunFollowUpEngine } from '../src/dispatches-detail.ts';
 import { dispatchRow } from '../src/dispatches-rows.ts';
 import { reofferFollowUp } from '../src/dispatches.ts';
 import { followUpWindowOpening, trackCurrentSession } from '../src/follow-up.ts';
@@ -604,19 +605,23 @@ describe('the follow-up window opening (FR-104, FR-105)', () => {
             // row, but neither state means the movement was handled: the
             // handoff is the panel's to attempt and the unconfirmed outcome is
             // the operator's to re-offer, so the read must keep reaching it.
-            for (const state of ['unavailable', 'unknown'] as const) {
+            const marked = [
+                { state: 'unavailable' },
+                { state: 'unknown', cause: 'outcome' },
+            ] as const satisfies readonly RunFollowUpEngine[];
+            for (const engine of marked) {
                 const settled = documentOf(
                     recordFixture({ deliveryId: SUCCESSOR, delivered: true }),
                 );
                 const rows = [rowFixture([
-                    followUpFixture({ engine: { state } }),
+                    followUpFixture({ engine }),
                     followUpFixture({
                         deliveryId: SUCCESSOR,
                         sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-502',
                     }),
                 ])];
 
-                expect(followUpWindowOpening(settled, rows), state).toBe(DELIVERY);
+                expect(followUpWindowOpening(settled, rows), engine.state).toBe(DELIVERY);
             }
         }
     });
@@ -707,9 +712,14 @@ describe('the operator action (FR-105, AC-051)', () => {
         }
     });
 
-    it('offers an engine-unconfirmed row, and refuses an engine-admitted one (companion 9)', () => {
+    it('offers an outcome-unconfirmed row, and refuses an admitted or fresh-intent one (companion 9; F6)', () => {
         {
-            const unknown = followUpFixture({ engine: { state: 'unknown' } });
+            const unknown = followUpFixture({ engine: { state: 'unknown', cause: 'outcome' } });
+            const fresh = followUpFixture({
+                deliveryId: 'evt-acme~widget~7~77331~followup~504',
+                sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-504',
+                engine: { state: 'unknown', cause: 'intent' },
+            });
             const queued = followUpFixture({
                 deliveryId: SUCCESSOR,
                 sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-502',
@@ -719,16 +729,19 @@ describe('the operator action (FR-105, AC-051)', () => {
                 deliveryId: 'evt-acme~widget~7~77331~followup~503',
                 sourceUrl: 'https://github.com/acme/widget/issues/7#issuecomment-503',
             });
-            const row = rowFixture([unknown, queued, neverAttempted]);
+            const row = rowFixture([unknown, fresh, queued, neverAttempted]);
 
-            // Parked and unconfirmed are offered; never one engine-admitted
-            // (engine-held), and never one never attempted (already due).
+            // Parked and outcome-unconfirmed are offered; never one engine-
+            // admitted (engine-held), never one whose engine attempt is still
+            // the service's own (`cause: 'intent'`, 009 F6), and never one
+            // never attempted (already due).
             expect(reofferableFollowUps(row, [])).toEqual([{
                 deliveryId: DELIVERY,
                 kind: 'unconfirmed',
                 attempt: 0,
                 cause: 'the engine outcome is unconfirmed',
             }]);
+            expect(reofferableFollowUps(rowFixture([fresh]), [])).toEqual([]);
             expect(reofferableFollowUps(rowFixture([queued]), [])).toEqual([]);
             expect(reofferableFollowUps(rowFixture([neverAttempted]), [])).toEqual([]);
         }
@@ -736,7 +749,7 @@ describe('the operator action (FR-105, AC-051)', () => {
 
     it('the unknown re-offer arms with the duplicate-acceptance copy and seeds the due record', async () => {
         {
-            const unknown = followUpFixture({ engine: { state: 'unknown' } });
+            const unknown = followUpFixture({ engine: { state: 'unknown', cause: 'outcome' } });
             const { host, log } = reofferHost({ followUps: [unknown], stored: storedDocument([]) });
             const rt = relayRuntime(host);
             rt.state.dispatches = dispatchesState(rowFixture([unknown]), []);
@@ -875,7 +888,7 @@ describe('the relay delivers what the re-offer frees (FR-104, FR-105)', () => {
 describe('the relay delivers an engine-unconfirmed re-offer through the fallback, exactly once', () => {
     it('one fallback prompt on a later tick, zero engine POSTs, and the at-most-once record stands', async () => {
         {
-            const unknown = followUpFixture({ engine: { state: 'unknown' } });
+            const unknown = followUpFixture({ engine: { state: 'unknown', cause: 'outcome' } });
             const { host, log } = reofferHost({ followUps: [unknown], stored: storedDocument([]) });
             const rt = relayRuntime(host);
             rt.state.dispatches = dispatchesState(rowFixture([unknown]), []);

@@ -21,7 +21,7 @@ import { PASSWORD_ENV } from '../service/engine/token.ts';
 import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
 import { reportDispatch } from '../service/poll/dispatch-report.ts';
 import { appendEngineAuditRow, runEngineDeliveryPass } from '../service/poll/engine-delivery.ts';
-import { writeEngineMember } from '../service/poll/engine-state.ts';
+import { reconcileEngineIntents } from '../service/poll/engine-state.ts';
 import { projectRunHistory } from '../service/poll/run-history-project.ts';
 import { parseSession } from '../service/poll/runs-parts-parse.ts';
 import { RUNS_FILE, previewRunsDocument } from '../service/poll/runs-document.ts';
@@ -30,6 +30,7 @@ import { openStore } from '../service/store/index.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
 import type { EngineDeliveryDeps } from '../service/poll/engine-delivery.ts';
 import type { AuditEntry } from '../service/audit.ts';
+import type { HistoryFollowUp } from '../service/poll/run-history-project.ts';
 import type { Run } from '../service/poll/runs-types.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type { ServiceStore } from '../service/store/index.ts';
@@ -250,6 +251,19 @@ async function storedRunOf(correlationId: string): Promise<Run | null> {
     return runs.find((run) => run.correlationId === correlationId) ?? null;
 }
 
+/** One run's first projected follow-up, read through the real projection. */
+async function projectedFollowUp(correlationId: string): Promise<HistoryFollowUp | undefined> {
+    const runs = await storedRuns();
+    const queue = await readEvents({ store, log });
+
+    return projectRunHistory({
+        runs,
+        deliveries: new Map(queue.map((entry) => [entry.id, entry])),
+        cap: runs.length,
+        followUpsFrom: null,
+    }).find((row) => row.id === correlationId)?.followUps?.[0];
+}
+
 describe('the engine path admits one follow-up, exactly once (AC-050 engine span)', () => {
     it('one pre-check GET, one admission POST, the receipt persisted, and the row projects engine-queued', async () => {
         const { fake } = await engine();
@@ -362,6 +376,23 @@ describe('the engine path admits one follow-up, exactly once (AC-050 engine span
     });
 });
 
+describe('the engine member exists from the row’s first projected byte (009 F6)', () => {
+    it('a freshly enqueued follow-up already carries the intent member, with no absent frame', async () => {
+        const seeded = await seedDispatchedFollowUp(SESSION_DIR);
+
+        // The stored row first — the enqueue's own write, before any pass…
+        expect(await queuedRow(seeded.deliveryId), 'the enqueue wrote no engine member').toMatchObject({
+            engine: { state: 'unknown', cause: 'intent' },
+        });
+        // …and the row's very first projection, read before any pass could
+        // touch it, already carries the member: no caller can observe a frame
+        // in which the engine pass's own delivery is unmarked (009 F6; span C).
+        expect(await projectedFollowUp(seeded.correlationId)).toMatchObject({
+            engine: { state: 'unknown', cause: 'intent' },
+        });
+    });
+});
+
 describe('invariant 10 and the zero-steer bar (Gate 2 L8)', () => {
     it('the request log names only the three adapter routes — no creates, deletes, or steer', async () => {
         const { fake } = await engine();
@@ -406,10 +437,13 @@ describe('the unknown class is terminal: zero re-POSTs, ever (Gate 2 M4)', () =>
             expect(promptRequests(fake), 'the unknown class consumed the only POST').toBe(1);
             expect(sleeps, 'an unknown outcome never runs the ladder').toHaveLength(0);
             const row = await queuedRow(seeded.deliveryId);
+            // The intent is spent and the receipt never arrived, so the member
+            // records the outcome cause; the class word this case named lives
+            // on the audit row below, where the trail keeps it.
             expect(row?.engine).toEqual({
                 state: 'unknown',
                 intentAtMs: FIXED_NOW_MS,
-                cause,
+                cause: 'outcome',
             });
 
             // Restarting the pass over the settled row changes nothing at all.
@@ -609,19 +643,38 @@ describe('the closed failure classes settle exactly as classified (FR-105 span D
     }
 });
 
-describe('restart reconciliation (FR-105 span E)', () => {
-    it('an intent-without-receipt row is left unknown with zero automatic re-POSTs', async () => {
+describe('restart reconciliation (FR-105 span E; 009 F6)', () => {
+    it('spends an intent the previous process never settled: the row stays unknown, zero re-POSTs', async () => {
         const { fake } = await engine();
         const seeded = await seedDispatchedFollowUp(SESSION_DIR);
-        const parked = { state: 'unknown', intentAtMs: FIXED_NOW_MS, cause: 'timeout' } as const;
-        await writeEngineMember({ store, deliveryId: seeded.deliveryId, engine: parked });
+        // The enqueue wrote the intent member, and this process died before
+        // the pass could settle it — the member a restart finds.
+        const freshRow = await queuedRow(seeded.deliveryId);
+        const stamped = freshRow?.engine;
+        expect(stamped).toMatchObject({ state: 'unknown', cause: 'intent' });
+
+        // A restart is the new boot's reconciliation over the same store.
+        const flipped = await reconcileEngineIntents({ store, log });
+        expect(flipped, 'the restart spent no intent').toBe(1);
+        expect(await queuedRow(seeded.deliveryId), 'the spent intent kept its stamp')
+            .toMatchObject({ engine: { ...stamped, cause: 'outcome' } });
 
         const counts = await runEngineDeliveryPass(passDeps(engineEnv(fake)));
-
-        expect(counts).toEqual({ considered: 0, admitted: 0, unavailable: 0, unknown: 0 });
+        expect(counts, 'the pass revisited a spent intent').toEqual(
+            { considered: 0, admitted: 0, unavailable: 0, unknown: 0 },
+        );
         expect(fake.requests, 'a restart re-POSTed an unknown delivery').toHaveLength(0);
-        const row = await queuedRow(seeded.deliveryId);
-        expect(row?.engine).toEqual(parked);
+    });
+
+    it('a second reconciliation re-flips nothing, and a settled intent stays outcome', async () => {
+        const { fake } = await engine();
+        await seedDispatchedFollowUp(SESSION_DIR);
+        await reconcileEngineIntents({ store, log });
+
+        const again = await reconcileEngineIntents({ store, log });
+        expect(again, 'a second reconciliation re-flipped a settled row').toBe(0);
+        const counts = await runEngineDeliveryPass(passDeps(engineEnv(fake)));
+        expect(counts.considered).toBe(0);
     });
 });
 

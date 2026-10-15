@@ -1,9 +1,11 @@
 /**
  * The per-cycle engine-delivery pass: for each run-linked follow-up row whose
- * engine member is absent and whose run carries a session, persist the intent,
+ * engine member still carries the send-intent the enqueue wrote (`unknown`,
+ * `cause: 'intent'`) and whose run carries a session, re-stamp the intent,
  * then per attempt re-discover, acquire the token, compose, probe identity,
  * pre-check ownership, and admit — settling admitted, unknown, or unavailable
  * under the closed classification (FR-104 span C; FR-105 spans D/E; spec §5).
+ * A `cause: 'outcome'` row is a spent intent the pass no longer owns.
  */
 
 import { assertRedacted } from '../../src/redaction.ts';
@@ -290,8 +292,12 @@ function admissionSettlement(admission: SettledAdmission, intentAtMs: number): S
             };
         }
         case 'unknown': {
+            // The receipt is the at-most-once record, and it never arrived:
+            // the intent is spent, so the member records the outcome cause —
+            // the re-offer-eligible one — while the audit row keeps the class
+            // (`timeout`, `server-failure`, …) as its detail (FR-105 span E).
             return {
-                engine: { state: 'unknown', intentAtMs, cause: admission.cause },
+                engine: { state: 'unknown', intentAtMs, cause: 'outcome' },
                 stage: STAGE_PROMPT,
                 cause: admission.cause,
             };
@@ -415,11 +421,17 @@ function emptyResult(): EngineDeliveryResult {
     return { considered: 0, admitted: 0, unavailable: 0, unknown: 0 };
 }
 
-/** The run-linked follow-up rows whose engine member is still absent. */
+/** The run-linked follow-up rows the engine pass still owns: the intent cause. */
 function candidatesOf(queue: readonly QueuedEvent[]): ReadonlyMap<string, readonly QueuedEvent[]> {
     const candidates = new Map<string, QueuedEvent[]>();
     for (const row of queue) {
-        if (row.runCorrelationId === undefined || row.engine !== undefined || followUpKindOf(row.id) === null) {
+        const { engine } = row;
+        if (
+            row.runCorrelationId === undefined
+            || followUpKindOf(row.id) === null
+            || engine?.state !== 'unknown'
+            || engine.cause !== 'intent'
+        ) {
             continue;
         }
 
@@ -449,10 +461,10 @@ function counted(counts: EngineDeliveryResult, settled: Awaited<ReturnType<typeo
 }
 
 /**
- * Deliver every candidate whose run carries a session. Rows whose engine
- * member is already present — including an intent-without-receipt `unknown` a
- * restart left behind — are never revisited: zero automatic re-POSTs, ever
- * (FR-105 span E).
+ * Deliver every candidate whose run carries a session. Rows the pass no
+ * longer owns — an admission, a handoff, a settled unknown, and a spent
+ * intent a restart already flipped — are never revisited: zero automatic
+ * re-POSTs, ever (FR-105 span E).
  */
 async function deliverCandidates(input: {
     readonly deps: EngineDeliveryDeps;

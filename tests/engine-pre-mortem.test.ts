@@ -25,6 +25,7 @@ import { PASSWORD_ENV } from '../service/engine/token.ts';
 import { reserveDispatch } from '../service/poll/dispatch-authorize.ts';
 import { reportDispatch } from '../service/poll/dispatch-report.ts';
 import { runEngineDeliveryPass } from '../service/poll/engine-delivery.ts';
+import { reconcileEngineIntents } from '../service/poll/engine-state.ts';
 import { projectRunHistory } from '../service/poll/run-history-project.ts';
 import { previewRunsDocument } from '../service/poll/runs-document.ts';
 import { createLogger } from '../service/log.ts';
@@ -113,8 +114,10 @@ interface PremortemCase {
 /**
  * The table, one row per distinct final-word outcome (Gate 2 round 2):
  * connection-refused after ladder exhaustion, the `unknown` class by one
- * representative (timeout — T014 covers each cause), the no-rung `unavailable`
- * class by one representative (401), and the 404's first-refusal park.
+ * representative (timeout — T014 covers each cause; the member records the
+ * outcome cause and the audit row keeps the class, 009 F6), the no-rung
+ * `unavailable` class by one representative (401), and the 404's first-
+ * refusal park.
  */
 const TABLE: readonly PremortemCase[] = [
     {
@@ -134,8 +137,8 @@ const TABLE: readonly PremortemCase[] = [
     {
         outcome: 'stall',
         finalWord: 'follow-ups: 1 waiting · 1 unconfirmed',
-        storedEngine: { state: 'unknown', intentAtMs: FIXED_NOW_MS, cause: 'timeout' },
-        projectedEngine: { state: 'unknown' },
+        storedEngine: { state: 'unknown', intentAtMs: FIXED_NOW_MS, cause: 'outcome' },
+        projectedEngine: { state: 'unknown', cause: 'outcome' },
         currentSession: SESSION_ID,
         prompt: 'sent',
         prompts: 0,
@@ -487,4 +490,37 @@ describe('the pre-mortem table: one row per distinct final-word outcome (Gate 2 
             }
         });
     }
+});
+
+describe('restart reconciliation hands a spent intent to the operator (009 F6)', () => {
+    it('flips intent → outcome, the pass never re-POSTs, and the re-offer is what reaches it', async () => {
+        const fake = await engine();
+        const seeded = await seedDispatchedFollowUp();
+        // The previous process enqueued the row and died before the pass
+        // could settle it: the member still carries the fresh intent.
+        const freshRow = await queuedRow(seeded.deliveryId);
+        expect(freshRow?.engine).toMatchObject({ state: 'unknown', cause: 'intent' });
+
+        // A restart is the new boot's reconciliation over the same store.
+        expect(await reconcileEngineIntents({ store, log }), 'the restart spent no intent').toBe(1);
+        const flippedRow = await queuedRow(seeded.deliveryId);
+        expect(flippedRow?.engine).toMatchObject({ state: 'unknown', cause: 'outcome' });
+
+        const counts = await runEngineDeliveryPass(passDeps(engineEnv(fake)));
+        expect(counts, 'the pass revisited a spent intent').toEqual(
+            { considered: 0, admitted: 0, unavailable: 0, unknown: 0 },
+        );
+        expect(fake.requests, 'a restart re-POSTed an unknown delivery').toHaveLength(0);
+
+        // The operator's side of the flip, through the panel's own parser and
+        // entry points: waiting with the unconfirmed note, and the re-offer
+        // — never an engine POST — is what now reaches it.
+        const row = await projectedRow(seeded.correlationId);
+        expect(row.followUps?.[0]?.engine, 'the projected member').toEqual({ state: 'unknown', cause: 'outcome' });
+        const view = followUpRowView(row, []);
+        expect(view, 'the row view').toMatchObject({ waiting: 1, unconfirmed: 1 });
+        expect(dispatchRow(row, []).subtitle).toContain('follow-ups: 1 waiting · 1 unconfirmed');
+        const offered = reofferableFollowUps(row, []);
+        expect(offered.map((entry) => entry.kind), 'the re-offer’s offer').toEqual(['unconfirmed']);
+    });
 });

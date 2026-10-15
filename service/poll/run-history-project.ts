@@ -86,7 +86,13 @@ export interface HistoryFollowUp {
 export type HistoryFollowUpEngine =
     | { readonly state: 'queued'; readonly messageId?: string }
     | { readonly state: 'unavailable' }
-    | { readonly state: 'unknown' };
+    /**
+     * `cause: 'intent'` is a row the engine pass still owns — the enqueue
+     * wrote it, and no re-offer reaches it; `cause: 'outcome'` is a spent
+     * intent with no receipt — displayed, never auto-attempted, re-offerable
+     * (009 F6; FR-105 span E).
+     */
+    | { readonly state: 'unknown'; readonly cause: 'intent' | 'outcome' };
 
 /**
  * How many follow-ups one history row projects (002 FR-104): a window that
@@ -403,18 +409,26 @@ function headShaOfRow(row: QueuedEvent): string | undefined {
 /**
  * The projected engine member, sourced one-to-one from the queue row's own:
  * `admitted` renders as the projection's `queued` (engine-admitted, held by
- * the engine's queue), and an absent member stays absent rather than becoming
- * a state the row never recorded (002 v1.19.0 §2.4).
+ * the engine's queue), an `unknown` row carries its cause through unchanged,
+ * and an absent member stays absent rather than becoming a state the row
+ * never recorded (002 v1.19.0 §2.4).
  */
 function engineViewOf(engine: QueuedEvent['engine']): HistoryFollowUpEngine | undefined {
     if (engine === undefined) {
         return undefined;
     }
 
-    // The parser's iff-invariant: `admitted` always carries the receipt.
-    return engine.state === 'admitted'
-        ? { state: 'queued', messageId: engine.messageId }
-        : { state: engine.state };
+    // The parser's iff-invariants: `admitted` always carries the receipt, and
+    // `unknown` always carries its cause.
+    if (engine.state === 'admitted') {
+        return { state: 'queued', messageId: engine.messageId };
+    }
+
+    if (engine.state === 'unknown') {
+        return { state: 'unknown', cause: engine.cause };
+    }
+
+    return { state: 'unavailable' };
 }
 
 function followUpOf(row: QueuedEvent, previousHeadSha: string | undefined): HistoryFollowUp | null {

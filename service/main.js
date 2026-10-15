@@ -1916,10 +1916,13 @@ function unavailableEngineOf(value) {
   const { messageId, intentAtMs, cause } = value;
   return messageId === undefined && intentAtMs === undefined && cause === undefined ? { state: "unavailable" } : null;
 }
+function engineCauseOf(value) {
+  return value === "intent" || value === "outcome" ? value : null;
+}
 function unknownEngineOf(value) {
   const { messageId, intentAtMs, cause } = value;
   const intentStamp = typeof intentAtMs === "number" && Number.isSafeInteger(intentAtMs) && intentAtMs > 0 ? intentAtMs : null;
-  const why = typeof cause === "string" && cause !== "" ? cause : null;
+  const why = engineCauseOf(cause);
   if (messageId !== undefined || intentStamp === null || why === null) {
     return null;
   }
@@ -3936,9 +3939,11 @@ async function enqueueWithinChain(input) {
     ...input.prompt !== undefined && { prompt: input.prompt },
     ...seeds.size > 0 && { observedHeads: seeds }
   });
+  const intentAtMs = Date.now();
   const appended = fresh.map((event) => {
     const runCorrelationId = outcome.links.get(event.id);
-    return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
+    const linked = runCorrelationId === undefined ? event : { ...event, runCorrelationId };
+    return followUpKindOf(event.id) === null ? linked : { ...linked, engine: { state: "unknown", intentAtMs, cause: "intent" } };
   });
   const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
   if (appended.length === 0) {
@@ -4055,6 +4060,338 @@ async function runRetentionAtOpen(input) {
   }
   const config = await readOpenConfig(input.store, input.log);
   await runRetentionPasses({ store: input.store, log: input.log, config });
+}
+
+// service/config-schema.ts
+var NEXT_CYCLE = "next-cycle";
+var TAKE_EFFECT = {
+  intervalMs: NEXT_CYCLE,
+  overlapMs: NEXT_CYCLE,
+  perPage: NEXT_CYCLE,
+  retryMaxAttempts: NEXT_CYCLE,
+  retryBaseMs: NEXT_CYCLE,
+  retryMaxMs: NEXT_CYCLE,
+  auditRetentionDays: NEXT_CYCLE,
+  auditMaxEntries: NEXT_CYCLE,
+  excerptRetentionDays: NEXT_CYCLE,
+  leaseMs: NEXT_CYCLE,
+  resultDeadlineMs: NEXT_CYCLE,
+  logLevel: "immediate",
+  expectedAgent: "next-dispatch",
+  startingPrompt: NEXT_CYCLE
+};
+var STARTING_PROMPT_FORMAT = "text sent to the agent verbatim, with no placeholders; " + `at most ${STARTING_PROMPT_MAX_CODE_POINTS} code points after trimming; ` + "credential-shaped, reserved-marker, and control characters refused rather than stored; " + "empty means the global prompt tier is unset; the session still runs the pinned Default Agent, " + "which this text cannot change";
+function configSchema() {
+  const numericFields = Object.keys(NUMERIC_BOUNDS);
+  const descriptors = [
+    {
+      name: "startingPrompt",
+      kind: "string",
+      unit: null,
+      format: STARTING_PROMPT_FORMAT,
+      maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
+      default: DEFAULT_CONFIG.startingPrompt,
+      takesEffect: TAKE_EFFECT.startingPrompt,
+      multiline: true
+    }
+  ];
+  for (const field of numericFields) {
+    descriptors.push({
+      name: field,
+      kind: "integer",
+      unit: NUMERIC_BOUNDS[field].unit,
+      min: NUMERIC_BOUNDS[field].min,
+      max: NUMERIC_BOUNDS[field].max,
+      default: DEFAULT_CONFIG[field],
+      takesEffect: TAKE_EFFECT[field]
+    });
+  }
+  descriptors.push({
+    name: "logLevel",
+    kind: "enum",
+    unit: null,
+    values: LOG_LEVEL_VALUES,
+    default: DEFAULT_CONFIG.logLevel,
+    takesEffect: TAKE_EFFECT.logLevel
+  }, {
+    name: "expectedAgent",
+    kind: "string",
+    unit: null,
+    format: EXPECTED_AGENT_RULE.format,
+    maxLength: EXPECTED_AGENT_RULE.maxLength,
+    default: DEFAULT_CONFIG.expectedAgent,
+    takesEffect: TAKE_EFFECT.expectedAgent
+  });
+  return descriptors;
+}
+
+// service/config-audit.ts
+var CONFIG_CHANGED_EVENT = "config.changed";
+var WITHHELD = "<withheld>";
+var APPLIED_REASON = "configuration replaced";
+var REFUSED_REASON = "configuration refused";
+function configPromptFingerprint(text) {
+  const tier = promptTierOf({ startingPrompt: text ?? null });
+  return tier === null ? null : tier.fingerprint;
+}
+var PROMPT_FINGERPRINT_PATTERN2 = /^mtp-[0-9a-f]{32}$/;
+function recordedConfigPromptFingerprint(value) {
+  return typeof value === "string" && PROMPT_FINGERPRINT_PATTERN2.test(value) ? value : null;
+}
+function recordedValue(field, value) {
+  if (field !== "startingPrompt") {
+    return value;
+  }
+  return configPromptFingerprint(typeof value === "string" ? value : null);
+}
+function configChanges(previous, next) {
+  const fields = Object.keys(DEFAULT_CONFIG).filter((field) => previous[field] !== next[field]).toSorted((left, right) => left.localeCompare(right));
+  return fields.map((field) => ({
+    field,
+    from: recordedValue(field, previous[field]),
+    to: recordedValue(field, next[field])
+  }));
+}
+function takeEffectOf(changes) {
+  const takesEffect = {};
+  for (const change of changes) {
+    takesEffect[change.field] = TAKE_EFFECT[change.field];
+  }
+  return takesEffect;
+}
+function refusedFields(issues) {
+  const documented = new Set(Object.keys(DEFAULT_CONFIG));
+  const fields = [];
+  for (const issue of issues) {
+    const name = documented.has(issue.field) ? issue.field : WITHHELD;
+    if (!fields.includes(name)) {
+      fields.push(name);
+    }
+  }
+  return fields;
+}
+async function appendConfigApplied(input) {
+  try {
+    await appendAudit(input.store, {
+      eventType: CONFIG_CHANGED_EVENT,
+      actorSource: input.actor ?? "operator",
+      entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
+      decision: "applied",
+      reason: APPLIED_REASON,
+      details: {
+        changes: input.changes.map((change) => ({
+          field: change.field,
+          from: change.from,
+          to: change.to
+        })),
+        takesEffect: takeEffectOf(input.changes)
+      }
+    });
+    return true;
+  } catch (cause) {
+    input.log.warn("configuration change could not be recorded", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause,
+      changes: input.changes.length
+    });
+    return false;
+  }
+}
+async function appendConfigRefused(input) {
+  if (input.store === null) {
+    input.log.warn("configuration refusal could not be recorded", {
+      errorKind: "storage-unavailable",
+      issueCount: input.issues.length
+    });
+    return false;
+  }
+  try {
+    await appendAudit(input.store, {
+      eventType: CONFIG_CHANGED_EVENT,
+      actorSource: "operator",
+      entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
+      decision: "refused",
+      reason: REFUSED_REASON,
+      details: {
+        issueCount: input.issues.length,
+        fields: refusedFields(input.issues)
+      }
+    });
+    return true;
+  } catch (cause) {
+    input.log.warn("configuration refusal could not be recorded", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause,
+      issueCount: input.issues.length
+    });
+    return false;
+  }
+}
+
+// service/config-prompt-observe.ts
+var observationStates2 = new WeakMap;
+function stateFor2(store) {
+  let state = observationStates2.get(store);
+  if (state === undefined) {
+    state = { baseline: null, seeded: false, chain: Promise.resolve() };
+    observationStates2.set(store, state);
+  }
+  return state;
+}
+function startingPromptChangeOf(details) {
+  const { changes } = details;
+  if (!Array.isArray(changes)) {
+    return null;
+  }
+  for (const change of changes) {
+    if (isRecord(change) && change.field === "startingPrompt") {
+      return { to: change.to };
+    }
+  }
+  return null;
+}
+function baselineFromTrail(entries) {
+  let highestSeq = 0;
+  let baseline = null;
+  for (const entry of entries) {
+    if (entry.eventType !== CONFIG_CHANGED_EVENT || entry.seq <= highestSeq) {
+      continue;
+    }
+    const change = startingPromptChangeOf(entry.details);
+    if (change === null) {
+      continue;
+    }
+    highestSeq = entry.seq;
+    baseline = recordedConfigPromptFingerprint(change.to);
+  }
+  return baseline;
+}
+async function ensureSeeded(input) {
+  if (input.state.seeded) {
+    return true;
+  }
+  try {
+    const trail = await input.store.readLines(AUDIT_FILE, parseAuditEntry);
+    input.state.baseline = baselineFromTrail(trail.entries);
+    input.state.seeded = true;
+    return true;
+  } catch (cause) {
+    input.log.warn("configuration prompt baseline could not be established", {
+      errorKind: cause instanceof Error ? cause.name : typeof cause
+    });
+    return false;
+  }
+}
+async function runConfigPromptChain(store, task) {
+  const state = stateFor2(store);
+  const run = state.chain.then(task, task);
+  state.chain = run;
+  return await run;
+}
+async function recordConfigPromptChanges(input) {
+  const state = stateFor2(input.store);
+  if (!await ensureSeeded({ store: input.store, state, log: input.log })) {
+    return 0;
+  }
+  const current = configPromptFingerprint(input.config.startingPrompt);
+  const previous = state.baseline;
+  state.baseline = current;
+  if (previous === current) {
+    return 0;
+  }
+  const isWritten = await appendConfigApplied({
+    store: input.store,
+    log: input.log,
+    actor: input.actor,
+    changes: [{ field: "startingPrompt", from: previous, to: current }]
+  });
+  return isWritten ? 1 : 0;
+}
+async function advanceConfigPromptBaseline(input) {
+  const state = stateFor2(input.store);
+  if (!await ensureSeeded({ store: input.store, state, log: input.log })) {
+    return;
+  }
+  state.baseline = configPromptFingerprint(input.config.startingPrompt);
+}
+
+// service/poll/cycle-config.ts
+function describeKind(cause) {
+  return cause instanceof Error ? cause.name : typeof cause;
+}
+async function currentIntervalMs(store, log) {
+  if (store === null) {
+    return DEFAULT_CONFIG.intervalMs;
+  }
+  try {
+    const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
+    return config.intervalMs;
+  } catch (cause) {
+    log.warn("poll interval read failed", { errorKind: describeKind(cause) });
+    return DEFAULT_CONFIG.intervalMs;
+  }
+}
+async function readCycleConfig(input) {
+  try {
+    return await runConfigPromptChain(input.store, async () => {
+      const { config } = configFromStore(await input.store.readJson(CONFIG_FILE, parseStoredConfig), input.log);
+      await recordConfigPromptChanges({
+        store: input.store,
+        log: input.log,
+        config,
+        actor: "service"
+      });
+      return config;
+    });
+  } catch (cause) {
+    input.log.warn("cycle configuration read failed", { errorKind: describeKind(cause) });
+    return DEFAULT_CONFIG;
+  }
+}
+
+// service/poll/engine-state.ts
+async function writeEngineMember(input) {
+  return await inQueueChain(async () => {
+    const stored = await input.store.readJson(EVENTS_FILE, parseStoredEvents);
+    if (stored.status !== "ok") {
+      return false;
+    }
+    const index = stored.value.findIndex((row2) => row2.id === input.deliveryId);
+    const row = stored.value[index];
+    if (index === -1 || row === undefined) {
+      return false;
+    }
+    const rows = [...stored.value];
+    rows[index] = { ...row, engine: input.engine };
+    await input.store.writeJson(EVENTS_FILE, rows);
+    return true;
+  });
+}
+async function reconcileEngineIntents(input) {
+  try {
+    return await inQueueChain(async () => {
+      const stored = await input.store.readJson(EVENTS_FILE, parseStoredEvents);
+      if (stored.status !== "ok") {
+        return 0;
+      }
+      const rows = [...stored.value];
+      let flipped = 0;
+      for (const [index, row] of rows.entries()) {
+        const { engine } = row;
+        if (engine?.state !== "unknown" || engine.cause !== "intent") {
+          continue;
+        }
+        rows[index] = { ...row, engine: { ...engine, cause: "outcome" } };
+        flipped += 1;
+      }
+      if (flipped === 0) {
+        return 0;
+      }
+      await input.store.writeJson(EVENTS_FILE, rows);
+      return flipped;
+    });
+  } catch (cause) {
+    input.log.warn("engine intent reconciliation failed", { errorKind: describeKind(cause) });
+    return 0;
+  }
 }
 
 // service/auth.ts
@@ -5140,257 +5477,6 @@ var auditRoute = {
   path: AUDIT_PATH,
   handler: (context, request) => handleAuditRead(context, request)
 };
-
-// service/config-schema.ts
-var NEXT_CYCLE = "next-cycle";
-var TAKE_EFFECT = {
-  intervalMs: NEXT_CYCLE,
-  overlapMs: NEXT_CYCLE,
-  perPage: NEXT_CYCLE,
-  retryMaxAttempts: NEXT_CYCLE,
-  retryBaseMs: NEXT_CYCLE,
-  retryMaxMs: NEXT_CYCLE,
-  auditRetentionDays: NEXT_CYCLE,
-  auditMaxEntries: NEXT_CYCLE,
-  excerptRetentionDays: NEXT_CYCLE,
-  leaseMs: NEXT_CYCLE,
-  resultDeadlineMs: NEXT_CYCLE,
-  logLevel: "immediate",
-  expectedAgent: "next-dispatch",
-  startingPrompt: NEXT_CYCLE
-};
-var STARTING_PROMPT_FORMAT = "text sent to the agent verbatim, with no placeholders; " + `at most ${STARTING_PROMPT_MAX_CODE_POINTS} code points after trimming; ` + "credential-shaped, reserved-marker, and control characters refused rather than stored; " + "empty means the global prompt tier is unset; the session still runs the pinned Default Agent, " + "which this text cannot change";
-function configSchema() {
-  const numericFields = Object.keys(NUMERIC_BOUNDS);
-  const descriptors = [
-    {
-      name: "startingPrompt",
-      kind: "string",
-      unit: null,
-      format: STARTING_PROMPT_FORMAT,
-      maxLength: STARTING_PROMPT_MAX_CODE_POINTS,
-      default: DEFAULT_CONFIG.startingPrompt,
-      takesEffect: TAKE_EFFECT.startingPrompt,
-      multiline: true
-    }
-  ];
-  for (const field of numericFields) {
-    descriptors.push({
-      name: field,
-      kind: "integer",
-      unit: NUMERIC_BOUNDS[field].unit,
-      min: NUMERIC_BOUNDS[field].min,
-      max: NUMERIC_BOUNDS[field].max,
-      default: DEFAULT_CONFIG[field],
-      takesEffect: TAKE_EFFECT[field]
-    });
-  }
-  descriptors.push({
-    name: "logLevel",
-    kind: "enum",
-    unit: null,
-    values: LOG_LEVEL_VALUES,
-    default: DEFAULT_CONFIG.logLevel,
-    takesEffect: TAKE_EFFECT.logLevel
-  }, {
-    name: "expectedAgent",
-    kind: "string",
-    unit: null,
-    format: EXPECTED_AGENT_RULE.format,
-    maxLength: EXPECTED_AGENT_RULE.maxLength,
-    default: DEFAULT_CONFIG.expectedAgent,
-    takesEffect: TAKE_EFFECT.expectedAgent
-  });
-  return descriptors;
-}
-
-// service/config-audit.ts
-var CONFIG_CHANGED_EVENT = "config.changed";
-var WITHHELD = "<withheld>";
-var APPLIED_REASON = "configuration replaced";
-var REFUSED_REASON = "configuration refused";
-function configPromptFingerprint(text) {
-  const tier = promptTierOf({ startingPrompt: text ?? null });
-  return tier === null ? null : tier.fingerprint;
-}
-var PROMPT_FINGERPRINT_PATTERN2 = /^mtp-[0-9a-f]{32}$/;
-function recordedConfigPromptFingerprint(value) {
-  return typeof value === "string" && PROMPT_FINGERPRINT_PATTERN2.test(value) ? value : null;
-}
-function recordedValue(field, value) {
-  if (field !== "startingPrompt") {
-    return value;
-  }
-  return configPromptFingerprint(typeof value === "string" ? value : null);
-}
-function configChanges(previous, next) {
-  const fields = Object.keys(DEFAULT_CONFIG).filter((field) => previous[field] !== next[field]).toSorted((left, right) => left.localeCompare(right));
-  return fields.map((field) => ({
-    field,
-    from: recordedValue(field, previous[field]),
-    to: recordedValue(field, next[field])
-  }));
-}
-function takeEffectOf(changes) {
-  const takesEffect = {};
-  for (const change of changes) {
-    takesEffect[change.field] = TAKE_EFFECT[change.field];
-  }
-  return takesEffect;
-}
-function refusedFields(issues) {
-  const documented = new Set(Object.keys(DEFAULT_CONFIG));
-  const fields = [];
-  for (const issue of issues) {
-    const name = documented.has(issue.field) ? issue.field : WITHHELD;
-    if (!fields.includes(name)) {
-      fields.push(name);
-    }
-  }
-  return fields;
-}
-async function appendConfigApplied(input) {
-  try {
-    await appendAudit(input.store, {
-      eventType: CONFIG_CHANGED_EVENT,
-      actorSource: input.actor ?? "operator",
-      entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
-      decision: "applied",
-      reason: APPLIED_REASON,
-      details: {
-        changes: input.changes.map((change) => ({
-          field: change.field,
-          from: change.from,
-          to: change.to
-        })),
-        takesEffect: takeEffectOf(input.changes)
-      }
-    });
-    return true;
-  } catch (cause) {
-    input.log.warn("configuration change could not be recorded", {
-      errorKind: cause instanceof Error ? cause.name : typeof cause,
-      changes: input.changes.length
-    });
-    return false;
-  }
-}
-async function appendConfigRefused(input) {
-  if (input.store === null) {
-    input.log.warn("configuration refusal could not be recorded", {
-      errorKind: "storage-unavailable",
-      issueCount: input.issues.length
-    });
-    return false;
-  }
-  try {
-    await appendAudit(input.store, {
-      eventType: CONFIG_CHANGED_EVENT,
-      actorSource: "operator",
-      entity: { kind: "service", id: CONFIGURATION_ENTITY_ID },
-      decision: "refused",
-      reason: REFUSED_REASON,
-      details: {
-        issueCount: input.issues.length,
-        fields: refusedFields(input.issues)
-      }
-    });
-    return true;
-  } catch (cause) {
-    input.log.warn("configuration refusal could not be recorded", {
-      errorKind: cause instanceof Error ? cause.name : typeof cause,
-      issueCount: input.issues.length
-    });
-    return false;
-  }
-}
-
-// service/config-prompt-observe.ts
-var observationStates2 = new WeakMap;
-function stateFor2(store) {
-  let state = observationStates2.get(store);
-  if (state === undefined) {
-    state = { baseline: null, seeded: false, chain: Promise.resolve() };
-    observationStates2.set(store, state);
-  }
-  return state;
-}
-function startingPromptChangeOf(details) {
-  const { changes } = details;
-  if (!Array.isArray(changes)) {
-    return null;
-  }
-  for (const change of changes) {
-    if (isRecord(change) && change.field === "startingPrompt") {
-      return { to: change.to };
-    }
-  }
-  return null;
-}
-function baselineFromTrail(entries) {
-  let highestSeq = 0;
-  let baseline = null;
-  for (const entry of entries) {
-    if (entry.eventType !== CONFIG_CHANGED_EVENT || entry.seq <= highestSeq) {
-      continue;
-    }
-    const change = startingPromptChangeOf(entry.details);
-    if (change === null) {
-      continue;
-    }
-    highestSeq = entry.seq;
-    baseline = recordedConfigPromptFingerprint(change.to);
-  }
-  return baseline;
-}
-async function ensureSeeded(input) {
-  if (input.state.seeded) {
-    return true;
-  }
-  try {
-    const trail = await input.store.readLines(AUDIT_FILE, parseAuditEntry);
-    input.state.baseline = baselineFromTrail(trail.entries);
-    input.state.seeded = true;
-    return true;
-  } catch (cause) {
-    input.log.warn("configuration prompt baseline could not be established", {
-      errorKind: cause instanceof Error ? cause.name : typeof cause
-    });
-    return false;
-  }
-}
-async function runConfigPromptChain(store, task) {
-  const state = stateFor2(store);
-  const run = state.chain.then(task, task);
-  state.chain = run;
-  return await run;
-}
-async function recordConfigPromptChanges(input) {
-  const state = stateFor2(input.store);
-  if (!await ensureSeeded({ store: input.store, state, log: input.log })) {
-    return 0;
-  }
-  const current = configPromptFingerprint(input.config.startingPrompt);
-  const previous = state.baseline;
-  state.baseline = current;
-  if (previous === current) {
-    return 0;
-  }
-  const isWritten = await appendConfigApplied({
-    store: input.store,
-    log: input.log,
-    actor: input.actor,
-    changes: [{ field: "startingPrompt", from: previous, to: current }]
-  });
-  return isWritten ? 1 : 0;
-}
-async function advanceConfigPromptBaseline(input) {
-  const state = stateFor2(input.store);
-  if (!await ensureSeeded({ store: input.store, state, log: input.log })) {
-    return;
-  }
-  state.baseline = configPromptFingerprint(input.config.startingPrompt);
-}
 
 // service/routes/config.ts
 var CONFIG_PATH = "/v1/config";
@@ -6519,40 +6605,6 @@ async function claimPendingRuns(input) {
   };
 }
 
-// service/poll/cycle-config.ts
-function describeKind(cause) {
-  return cause instanceof Error ? cause.name : typeof cause;
-}
-async function currentIntervalMs(store, log) {
-  if (store === null) {
-    return DEFAULT_CONFIG.intervalMs;
-  }
-  try {
-    const { config } = configFromStore(await store.readJson(CONFIG_FILE, parseStoredConfig), log);
-    return config.intervalMs;
-  } catch (cause) {
-    log.warn("poll interval read failed", { errorKind: describeKind(cause) });
-    return DEFAULT_CONFIG.intervalMs;
-  }
-}
-async function readCycleConfig(input) {
-  try {
-    return await runConfigPromptChain(input.store, async () => {
-      const { config } = configFromStore(await input.store.readJson(CONFIG_FILE, parseStoredConfig), input.log);
-      await recordConfigPromptChanges({
-        store: input.store,
-        log: input.log,
-        config,
-        actor: "service"
-      });
-      return config;
-    });
-  } catch (cause) {
-    input.log.warn("cycle configuration read failed", { errorKind: describeKind(cause) });
-    return DEFAULT_CONFIG;
-  }
-}
-
 // service/poll/run-history-project.ts
 var WAITING_REASON = "waiting for a panel";
 var MAX_PROJECTED_FOLLOW_UPS = 20;
@@ -6650,7 +6702,13 @@ function engineViewOf(engine) {
   if (engine === undefined) {
     return;
   }
-  return engine.state === "admitted" ? { state: "queued", messageId: engine.messageId } : { state: engine.state };
+  if (engine.state === "admitted") {
+    return { state: "queued", messageId: engine.messageId };
+  }
+  if (engine.state === "unknown") {
+    return { state: "unknown", cause: engine.cause };
+  }
+  return { state: "unavailable" };
 }
 function followUpOf(row, previousHeadSha) {
   const kind = followUpKindOf(row.id);
@@ -10200,25 +10258,6 @@ function composeEngineFollowUp(input) {
   return text.length <= CONTEXT_MAX_CHARS ? { ok: true, text } : { ok: false, cause: "over-budget" };
 }
 
-// service/poll/engine-state.ts
-async function writeEngineMember(input) {
-  return await inQueueChain(async () => {
-    const stored = await input.store.readJson(EVENTS_FILE, parseStoredEvents);
-    if (stored.status !== "ok") {
-      return false;
-    }
-    const index = stored.value.findIndex((row2) => row2.id === input.deliveryId);
-    const row = stored.value[index];
-    if (index === -1 || row === undefined) {
-      return false;
-    }
-    const rows = [...stored.value];
-    rows[index] = { ...row, engine: input.engine };
-    await input.store.writeJson(EVENTS_FILE, rows);
-    return true;
-  });
-}
-
 // service/poll/engine-delivery.ts
 var ENGINE_LOOPBACK_HOST = "http://127.0.0.1";
 var STAGE_PROMPT = "prompt";
@@ -10354,7 +10393,7 @@ function admissionSettlement(admission, intentAtMs) {
     }
     case "unknown": {
       return {
-        engine: { state: "unknown", intentAtMs, cause: admission.cause },
+        engine: { state: "unknown", intentAtMs, cause: "outcome" },
         stage: STAGE_PROMPT,
         cause: admission.cause
       };
@@ -10437,7 +10476,8 @@ function emptyResult() {
 function candidatesOf(queue) {
   const candidates = new Map;
   for (const row of queue) {
-    if (row.runCorrelationId === undefined || row.engine !== undefined || followUpKindOf(row.id) === null) {
+    const { engine } = row;
+    if (row.runCorrelationId === undefined || followUpKindOf(row.id) === null || engine?.state !== "unknown" || engine.cause !== "intent") {
       continue;
     }
     const rows = candidates.get(row.runCorrelationId) ?? [];
@@ -12235,6 +12275,12 @@ async function startService(options) {
   const deps = { env: options.env, context, routes: ROUTES, log: options.log, state };
   const server = createServer(createRequestHandler(deps));
   const swept = await startBootSweep({ store, log: options.log });
+  if (store !== null) {
+    const spentIntents = await reconcileEngineIntents({ store, log: options.log });
+    if (spentIntents > 0) {
+      options.log.info("reconciliation spent interrupted engine intents", { flipped: spentIntents });
+    }
+  }
   await listen(server, options.env.port);
   const reconciled = startReconciliation({ store, github, log: options.log });
   const { poll, sweep } = startSchedulers({

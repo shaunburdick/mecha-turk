@@ -10,7 +10,7 @@ import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { PromptSnapshot } from '../prompt.ts';
 import type { ServiceStore } from '../store/index.ts';
-import { EVENTS_FILE, parseStoredEvents } from './events-parse.ts';
+import { EVENTS_FILE, followUpKindOf, parseStoredEvents } from './events-parse.ts';
 import { recordEnqueueAudits } from './events-enqueue-audit.ts';
 import { applyEnqueue } from './runs-join.ts';
 import { inQueueChain, readRunsDocument, writeRunsDocument } from './runs-document.ts';
@@ -313,9 +313,19 @@ async function enqueueWithinChain(input: {
         ...(input.prompt !== undefined && { prompt: input.prompt }),
         ...(seeds.size > 0 && { observedHeads: seeds }),
     });
-    const appended = fresh.map((event) => {
+    // A follow-up row's engine member is written **here**, in the same chain
+    // write that appends it: the intent arm (`unknown`, `cause: 'intent'`) is
+    // the row's initial persisted shape, so no reader — the panel's fallback
+    // gate above all — can ever observe a fresh row with the member absent and
+    // attempt it beside the engine pass (009 F6; span C).
+    const intentAtMs = Date.now();
+    const appended: readonly QueuedEvent[] = fresh.map((event) => {
         const runCorrelationId = outcome.links.get(event.id);
-        return runCorrelationId === undefined ? event : { ...event, runCorrelationId };
+        const linked = runCorrelationId === undefined ? event : { ...event, runCorrelationId };
+
+        return followUpKindOf(event.id) === null
+            ? linked
+            : { ...linked, engine: { state: 'unknown', intentAtMs, cause: 'intent' } };
     });
     const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
     if (appended.length === 0) {
