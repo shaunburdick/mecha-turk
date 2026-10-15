@@ -591,7 +591,7 @@ async function settleVerdict(input: {
     });
 }
 
-/** Under B+ there is no navigation left to refuse, so a moved-away retry keeps the old word. */
+/** There is no navigation left to refuse, so a moved-away retry keeps the old word. */
 function waitingOrRefused(input: {
     readonly rt: PanelRuntime;
     readonly sessionId: string;
@@ -603,7 +603,7 @@ function waitingOrRefused(input: {
     return isRetry && isAnotherSession ? 'navigation-refused' : 'wait';
 }
 
-/** Under B+ no path calls `host.openSession`: a target that is not current waits, it never navigates. */
+/** No path calls `host.openSession`: a target that is not current waits, it never navigates. */
 export async function deliverFollowUp(input: {
     readonly rt: PanelRuntime;
     readonly row: RunRow;
