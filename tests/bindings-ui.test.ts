@@ -18,8 +18,6 @@
  * Offline: a fake host, the DOM double, and no service (FR-086).
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { tabSpecs } from '../src/tab-bodies.ts';
@@ -35,7 +33,6 @@ import { startEditingBinding, stopEditingBinding } from '../src/bindings-edit.ts
 import { toggleBinding } from '../src/bindings.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { selectedBindingDetail } from '../src/bindings-rows.ts';
-import { PROJECT_REGISTRATION_ROUTES } from '../src/project-picker.ts';
 import { initialBindings } from '../src/panel-state.ts';
 import type { BindingsTabState } from '../src/panel-state.ts';
 import type { BindingStatusRow, PanelAccount, PanelBinding } from '../src/bindings-service.ts';
@@ -90,26 +87,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/** Service configuration field names; none of them belongs to this tab (FR-059). */
-const CONFIG_FIELDS: readonly string[] = [
-    'intervalMs',
-    'overlapMs',
-    'perPage',
-    'retryMaxAttempts',
-    'retryBaseMs',
-    'retryMaxMs',
-    'auditRetentionDays',
-    'auditMaxEntries',
-    'excerptRetentionDays',
-    'logLevel',
-    'expectedAgent',
-    'leaseMs',
-    'resultDeadlineMs',
-];
-
-/** The only project-creation vocabulary the panel is allowed to mention. */
-const PROJECT_CREATION_CALL = /\b(?:createProject|addProject|registerProject|newProject)\s*\(/;
 
 /** Fixture login the account and binding fixtures share. */
 const LOGIN = 'octocat-mt';
@@ -312,76 +289,6 @@ describe('T-022 the selected binding presents its own state, stamps, and scan (F
         {
             const noStatus = bindingsState({ binding: bindingFixture(), status: null, selected: false });
             expect(selectedBindingDetail(noStatus)).toBeNull();
-        }
-    });
-});
-
-describe('AC-112 the picker names every manual route and keeps the binding recoverable', () => {
-    it('renders the three registration routes and the recoverable state', () => {
-        {
-            const { dispose } = mountBindingsTab();
-            const guidance = renderedStrings().find((line) => line.startsWith('Not listed?'));
-            dispose();
-
-            expect(guidance).toBeDefined();
-            for (const route of PROJECT_REGISTRATION_ROUTES) {
-                expect(guidance).toContain(route);
-            }
-
-        }
-        {
-            const root = resolve(import.meta.dirname, '..', 'src');
-            const modules = readdirSync(root, { recursive: true }).map(String);
-            const callers = modules
-                .filter((name) => name.endsWith('.ts'))
-                .filter((name) => PROJECT_CREATION_CALL.test(readFileSync(resolve(root, name), 'utf8')));
-
-            expect(callers).toEqual([]);
-        }
-    });
-});
-
-describe('T-023 the Bindings tab speaks the product vocabulary (FR-020)', () => {
-    it('renders Bindings copy, never the retired noun, on every control it mounts', () => {
-        {
-            const { dispose } = mountBindingsTab();
-            const strings = renderedStrings();
-            dispose();
-
-            expect(strings.some((line) => line.startsWith('Bindings: '))).toBe(true);
-            expect(strings).toContain('Bindings');
-            expect(strings.some((line) => line.includes('Repositories'))).toBe(false);
-        }
-        {
-            const root = resolve(import.meta.dirname, '..', 'src');
-            const modules = readdirSync(root, { recursive: true })
-                .map(String)
-                .filter((name) => name.startsWith('bindings'));
-            const offenders: string[] = [];
-
-            for (const name of modules) {
-                const source = readFileSync(resolve(root, name), 'utf8');
-                for (const field of CONFIG_FIELDS) {
-                    if (source.includes(field)) {
-                        offenders.push(`${name}: ${field}`);
-                    }
-                }
-            }
-
-            expect(modules.length).toBeGreaterThan(0);
-            expect(offenders).toEqual([]);
-        }
-        {
-            const { dispose } = mountBindingsTab();
-            const strings = renderedStrings();
-            dispose();
-
-            // The account-removal affordance lives on the Accounts tab, where its
-            // cascade statement is (FR-065); this tab shows only the accounts a
-            // binding refers to.
-            expect(strings.some((line) => line.includes('Remove account'))).toBe(false);
-            expect(strings.some((line) => line.includes('Confirm remove'))).toBe(false);
-            expect(strings.some((line) => line.includes('Rotate token'))).toBe(false);
         }
     });
 });

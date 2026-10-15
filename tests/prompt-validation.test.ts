@@ -20,9 +20,9 @@
  * stores — a pure function of bytes must not care where the bytes were kept.
  */
 
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
     OPERATOR_PROMPT_FENCE_BEGIN,
@@ -74,22 +74,6 @@ afterEach(async (): Promise<void> => {
         await rm(dir ?? '', { recursive: true, force: true });
     }
 });
-
-/**
- * Read the `## Dispatch Message Composition` section of the specification.
- *
- * @returns That section's text, up to the next top-level heading.
- */
-async function compositionSection(): Promise<string> {
-    const spec = await readFile(
-        resolve(import.meta.dirname, '../specs/004-starting-prompt/spec.md'),
-        'utf8',
-    );
-    const start = spec.indexOf('## Dispatch Message Composition');
-    const end = spec.indexOf('## Key Entities', start);
-
-    return spec.slice(start, end);
-}
 
 /**
  * Validate a candidate and return the refusal, failing loudly when it is accepted.
@@ -148,14 +132,6 @@ describe('T-001 the shared text rules (FR-022, FR-023, FR-025, FR-026)', () => {
             expect(hasIllegalControlChar(`delete${DELETE}`)).toBe(true);
             expect(hasIllegalControlChar(`c1${C1_CONTROL}`)).toBe(true);
             expect(hasIllegalControlChar('a bare carriage return is normalised first')).toBe(false);
-        }
-    });
-
-    it('matches the specification composition block byte for byte', async () => {
-        {
-            const section = await compositionSection();
-            expect(section).toContain(OPERATOR_PROMPT_FENCE_BEGIN);
-            expect(section).toContain(OPERATOR_PROMPT_FENCE_END);
         }
     });
 

@@ -469,12 +469,10 @@ export function followUpRowView(
     const unconfirmed = projected.filter((followUp) =>
         followUp.engine?.state === 'unknown' && followUp.engine.cause === 'outcome').length;
 
-    // A projected follow-up with no record has never been attempted — it is
-    // waiting. One with a record that is neither delivered nor parked is
-    // waiting too. The second arm counts the records whose follow-up has left
-    // the projection window: the movement still exists in the queue, and the
-    // panel still owes the session a prompt for it. Engine-admitted follow-ups
-    // are excluded: reached and engine-held is not waiting.
+    // A projected follow-up with no record has never been attempted — it is waiting. One with
+    // a record that is neither delivered nor parked is waiting too. The second arm counts the
+    // records whose follow-up has left the projection window: the movement still exists in the
+    // queue, and the panel still owes the session a prompt for it. Reached and engine-held is not waiting.
     const waiting = projected.filter((followUp) => {
         if (followUp.engine?.state === 'queued') {
             return false;

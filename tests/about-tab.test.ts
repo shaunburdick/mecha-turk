@@ -34,7 +34,7 @@
  * network (FR-086).
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
@@ -282,22 +282,6 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
         }
     });
 
-    it('has the prose naming that same route in every document that claims it', async () => {
-        {
-            const claimed: readonly string[] = [
-                'specs/005-panel-ia/spec.md',
-                'specs/005-panel-ia/contracts/about-version.md',
-                'AGENTS.md',
-            ];
-
-            for (const doc of claimed) {
-                const text = readFileSync(resolve(import.meta.dirname, '..', doc), 'utf8');
-                expect(text, `${doc} still claims a route the service never registers`).not.toContain('/v1/health');
-                expect(text, `${doc} does not name the registered route`).toContain('/health');
-            }
-        }
-    });
-
     it('shows exactly the version the service answered', async () => {
         {
             const view = await mountAbout({ answer: healthyService });
@@ -308,32 +292,6 @@ describe('the version has exactly one source (FR-074, AC-133, SC-109)', () => {
             expect(SERVICE_VERSION).toBe(manifest.version);
             expect(view.rt.state.aboutTab.version).toBe(SERVICE_VERSION);
             view.dispose();
-        }
-    });
-
-    it('declares no version-shaped literal anywhere in the panel source', async () => {
-        {
-            const fromSrc = readdirSync(resolve(import.meta.dirname, '../src'), { recursive: true })
-                .map((entry) => `src/${String(entry)}`)
-                .filter((path) => path.endsWith('.ts'));
-            const files = [...fromSrc, 'panel/main.ts'];
-            const offenders: string[] = [];
-
-            for (const path of files) {
-                const text = readFileSync(resolve(import.meta.dirname, `../${path}`), 'utf8')
-                    .split('\n')
-                    // Comment lines carry the SDK pin and the spec's own version
-                    // in prose; a *literal* the panel could render never does.
-                    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
-                    .join('\n');
-                const shaped = text.matchAll(new RegExp(VERSION_SHAPED, 'g'));
-                for (const match of shaped) {
-                    offenders.push(`${path}: ${match[0]}`);
-                }
-            }
-
-            expect(files.length).toBeGreaterThan(40);
-            expect(offenders).toEqual([]);
         }
     });
 

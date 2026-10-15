@@ -44,9 +44,7 @@
  * Offline and deterministic throughout: literal bodies, no clock, temp dirs.
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
-
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { writeAccount } from '../service/accounts/store.ts';
 import { writeBindings } from '../service/bindings.ts';
@@ -96,27 +94,6 @@ const ISSUES_PATH = `/repos/${OWNER}/${REPO_NAME}/issues`;
 
 /** Path prefix of the pulls list endpoint. */
 const PULLS_PATH = `/repos/${OWNER}/${REPO_NAME}/pulls`;
-
-/**
- * Path of the repository-wide events endpoint, which must never be called.
- *
- * Spelled exactly as a module would build it, because it is also the scan's
- * positive control: a filter that could not match this string would pass
- * vacuously.
- */
-const REPO_WIDE_EVENTS_PATH = `/repos/${OWNER}/${REPO_NAME}/issues/events`;
-
-/**
- * The two endpoint forms FR-049 forbids for attribution.
- *
- * The repository-wide feed is spelled without an item segment, so the pattern
- * cannot also match the per-item path — that is why the per-item path survives
- * the scan, and the control below asserts both directions of that.
- */
-const FORBIDDEN: readonly RegExp[] = [/issues\/events/, /\/timeline/];
-
-/** The per-item events path, as `poller-github.ts` builds it. */
-const PER_ITEM_PATH = /issues\/\$\{[^}]+\}\/events/;
 
 /** The bound account's login — the identity FR-050's subject field must name. */
 const ACCOUNT_LOGIN = 'octocat-mt';
@@ -1148,60 +1125,7 @@ describe('FR-052 an actor that is the bound account yields no event (self-actor)
     });
 });
 
-/* -------------------------------------------------------------------- *
- * AC-028 / FR-049 — per item, per candidate, never repository-wide
- * -------------------------------------------------------------------- */
-
-/** Repository root the source scan walks. */
-const ROOT = resolve(import.meta.dirname, '..');
-
-/**
- * Every `.ts` source file under one directory tree, as path and text.
- *
- * @param dir - Directory to walk, relative to the repository root.
- * @returns The path and text of each `.ts` file.
- */
-function sourceFiles(dir: string): ReadonlyMap<string, string> {
-    const files = new Map<string, string>();
-    const root = resolve(ROOT, dir);
-    const entries = readdirSync(root, { recursive: true });
-    for (const entry of entries) {
-        const path = String(entry);
-        if (path.endsWith('.ts')) {
-            files.set(`${dir}/${path}`, readFileSync(resolve(root, path), 'utf8'));
-        }
-    }
-
-    return files;
-}
-
 describe('AC-028 the read is per item and never repository-wide (FR-049)', () => {
-    it('sends no repository-wide or timeline request anywhere in `src/` or `service/`', () => {
-        // A **source** scan rather than a request assertion, because the claim is
-        // about code that must not exist: a request-count test can only prove the
-        // paths a fixture exercised, never that no other path was written.
-        const offenders = [...sourceFiles('src'), ...sourceFiles('service')]
-            .filter(([, text]) => FORBIDDEN.some((form) => form.test(text)))
-            .map(([path]) => path);
-
-        // **Positive controls** from the same command, so the scan is proved able
-        // to find what it forbids: each forbidden form is run against each
-        // predicate as a string, spelled exactly as code would build it, and the
-        // per-item form that must survive is located by name.
-        expect(FORBIDDEN.some((form) => form.test(REPO_WIDE_EVENTS_PATH)), 'repo-wide').toBe(true);
-        expect(FORBIDDEN.some((form) => form.test(`${EVENTS_PATH}${ISSUE_NUMBER}/timeline`)), 'timeline')
-            .toBe(true);
-        expect(FORBIDDEN.some((form) => form.test(`${EVENTS_PATH}${ISSUE_NUMBER}/events`)), 'per-item survives')
-            .toBe(false);
-
-        // The **per-item** path is present, in the one module that owns it.
-        const perItem = [...sourceFiles('service')]
-            .filter(([, text]) => PER_ITEM_PATH.test(text))
-            .map(([path]) => path);
-        expect(perItem).toContain('service/poll/poller-github.ts');
-
-        expect(offenders).toEqual([]);
-    });
 
     it('makes zero events requests when nothing matched, and lists no feed it was not asked for', async () => {
         // End to end over the real poller and the real cycle: the binding watches

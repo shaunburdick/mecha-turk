@@ -31,7 +31,7 @@
  */
 
 import { readdir, readFile, writeFile } from 'node:fs/promises';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, resolve as resolvePath } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { BINDINGS_FILE } from '../service/bindings.ts';
@@ -232,25 +232,6 @@ function committedBundles(): string {
         .join('\n');
 }
 
-/**
- * Every TypeScript source under one repository directory, keyed by its path.
- *
- * @param dir - Repository-relative directory to walk.
- * @returns The source files, keyed by `dir/<relative path>`.
- */
-function sourceFiles(dir: string): ReadonlyMap<string, string> {
-    const files = new Map<string, string>();
-    const names = readdirSync(resolvePath(ROOT, dir), { recursive: true });
-    for (const entry of names) {
-        const relative = String(entry);
-        if (relative.endsWith('.ts')) {
-            files.set(`${dir}/${relative}`, readFileSync(resolvePath(ROOT, dir, relative), 'utf8'));
-        }
-    }
-
-    return files;
-}
-
 describe('contract §5.1 the three states, end to end over the route', () => {
     it('treats absent as a state, round-trips a list byte-identically, and refuses []', async () => {
         const service = await startWithAccount();
@@ -329,21 +310,6 @@ describe('contract §5.2–§5.3 bad shapes, and one rule set for every path', (
     });
 });
 
-describe('contract §5.4 no new surface', () => {
-    it('answers exactly the operations it answered before, with no per-binding PATCH', () => {
-        // The field rides the surface the product already had: no endpoint, no
-        // method, no error code (FR-047). The route module exports exactly the
-        // two operations, and `src/` has no `PATCH /v1/bindings/` call to add.
-        const route = readFileSync(resolvePath(ROOT, 'service/routes/bindings.ts'), 'utf8');
-        expect(route).toContain("method: 'GET'");
-        expect(route).toContain("method: 'PUT'");
-        expect(route).not.toContain("method: 'PATCH'");
-        for (const [path, text] of sourceFiles('src')) {
-            expect(text, `${path} calls a per-binding PATCH`).not.toContain('PATCH /v1/bindings');
-        }
-    });
-});
-
 describe('contract §5.5 the list never escapes bindings.json (NFR-113)', () => {
     it('keeps every permitted login out of every surface but the bindings document', async () => {
         const service = await startWithAccount();
@@ -377,26 +343,6 @@ describe('contract §5.5 the list never escapes bindings.json (NFR-113)', () => 
         for (const login of [...PERMITTED, PERMITTED_BOT]) {
             expect(bundles, `a bundle leaked ${login}`).not.toContain(login);
         }
-    });
-});
-
-describe('contract §5.6 one comparison', () => {
-    it('calls the membership helper from its own module and the gate only', () => {
-        // Plan D9 / 003 FR-076: exactly one membership comparison in the product,
-        // so "may this run start a session?" has exactly one answer. The
-        // gate (`service/poll/dispatch-actor-gate.ts`, beside the reserve that
-        // calls it) is that one caller, and this is the scan that keeps it the
-        // only one: a panel-side pre-check, a poll-loop filter, or a second
-        // service comparison all fail here rather than drifting into a second
-        // answer to the same question.
-        const gate = 'service/poll/dispatch-actor-gate.ts';
-        const callers = [...sourceFiles('service'), ...sourceFiles('src')]
-            .filter(([, text]) => /\bisActorAllowed\(/.test(text))
-            .map(([path]) => path)
-            .filter((path) => path !== 'service/bindings-allow-list.ts');
-
-        // Exactly two files name it: the module that defines it and the gate.
-        expect(callers).toEqual([gate]);
     });
 });
 

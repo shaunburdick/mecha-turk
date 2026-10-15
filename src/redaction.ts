@@ -13,14 +13,8 @@ interface SecretPattern {
 }
 
 /**
- * Secret shapes recognised by {@link findSecretLeak}: GitHub token formats
- * (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, `github_pat_`) plus the two
- * transport spellings that would appear if a header were ever copied into a
- * record — `Authorization:` and `Bearer <credential>`, plus the engine password's own
- * env-var spelling — the one name-based class that can recognise random hex. Patterns are global so
- * {@link redact} replaces every occurrence in one pass; detection uses
- * `String.match`, which scans from the start and never inherits the `lastIndex`
- * state a `RegExp.test()` call would carry over.
+ * Secret shapes {@link findSecretLeak} recognises; `String.match` scans from the start and never
+ * inherits the `lastIndex` a `RegExp.test()` call would carry over.
  */
 const SECRET_PATTERNS: readonly SecretPattern[] = [
     { label: 'github-token-classic', pattern: /\bgh[pousr]_[A-Za-z0-9]{20,}/g },

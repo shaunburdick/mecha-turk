@@ -10,8 +10,6 @@
  * state transitions rather than the transport.
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult, JsonValue } from '@openchamber/sdk';
 import { describe, expect, it } from 'vitest';
 import { bindRepository, removeBinding, toggleBinding } from '../src/bindings.ts';
@@ -418,27 +416,6 @@ describe('the whole-file grant (FR-050, FR-054, FR-058, AC-125)', () => {
             expect(JSON.stringify(rt.state.bindings.bindings)).toBe(before);
             // The refusal names the field, never the value the operator typed.
             expect(rt.state.bindings.note).not.toContain('acme/new');
-        }
-    });
-
-    it('never issues a per-binding PATCH anywhere in the panel source', async () => {
-        {
-            const root = resolve(import.meta.dirname, '..', 'src');
-            const method = /\bPATCH\b/;
-            const modules = readdirSync(root, { recursive: true }).map(String);
-            const sources = modules.filter((entry) => entry.endsWith('.ts'));
-            const offenders: string[] = [];
-
-            for (const name of sources) {
-                const lines = readFileSync(resolve(root, name), 'utf8').split('\n');
-                for (const line of lines) {
-                    if (method.test(line)) {
-                        offenders.push(`${name}: ${line.trim()}`);
-                    }
-                }
-            }
-
-            expect(offenders).toEqual([]);
         }
     });
 

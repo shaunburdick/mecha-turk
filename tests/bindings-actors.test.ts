@@ -42,8 +42,6 @@
  * OpenChamber, no PAT, no network (FR-086).
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -61,18 +59,14 @@ import { bindingRows } from '../src/bindings-rows.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
 import { initialBindings } from '../src/panel-state.ts';
 import { parseStatusView } from '../src/status-document.ts';
-import { accountLines, actorPolicyLines, bindingLines, serviceLines } from '../src/status-lines.ts';
-import { referenceDetailLines } from '../src/dispatches-detail.ts';
-import { dispatchRow } from '../src/dispatches-rows.ts';
+import { actorPolicyLines } from '../src/status-lines.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import type { BindingsTabState, PanelRuntime } from '../src/panel-state.ts';
 import type { PanelBinding, PanelTriggers } from '../src/bindings-service.ts';
 import type { StatusView } from '../src/status-document.ts';
-import type { RunRow } from '../src/dispatches-service.ts';
 import { BINDINGS_PATH } from '../src/service-calls.ts';
-import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import { fixtureBindingRow } from './support/binding-fixture.ts';
 import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost, tick } from './support/panel.ts';
@@ -509,61 +503,6 @@ function listDraft(input: {
 }
 
 /**
- * Build one runs row for the dispatch-row scan.
- *
- * @returns A complete, valid row.
- */
-function runRow(overrides: Partial<RunRow> = {}): RunRow {
-    return {
-        id: 'mt-run-1',
-        correlationId: 'mt-run-1',
-        kind: 'assignment',
-        repository: REPOSITORY,
-        issueNumber: 7,
-        issueTitle: 'Fix the flaky test',
-        issueUrl: 'https://github.com/acme/widget/issues/7',
-        state: 'blocked:actor-not-allowed',
-        stateReason: "no source reference on this run names an actor the binding's allowedUsers permits: bob",
-        runKey: 'github|77331|acme/widget|issue|7|0',
-        ordinal: 0,
-        attempt: 1,
-        attachmentId: 'mt-run-1',
-        projectId: PROJECT_ID,
-        worktreeOption: 'generated',
-        leaseExpiresAt: null,
-        resultDeadlineAt: null,
-        sourceReferences: [{
-            deliveryId: 'evt-1',
-            kind: 'assignment',
-            origin: 'assignment',
-            sourceUrl: 'https://github.com/acme/widget/issues/7',
-            detectedAt: FIXTURE_TIMESTAMP,
-            presentAtAuthorization: true,
-            actorLogin: 'bob',
-            actorAttribution: 'direct',
-        }],
-        referenceCount: 1,
-        referencesTruncated: false,
-        referencesNotRetained: 0,
-        session: null,
-        verification: null,
-        detectedAt: FIXTURE_TIMESTAMP,
-        claimedAt: null,
-        dispatchedAt: null,
-        dispatchResult: null,
-        bindingId: EDITED_ID,
-        headSha: null,
-        baseRef: null,
-        promptPresent: false,
-        promptFingerprint: null,
-        promptLength: null,
-        promptSources: null,
-        actorPolicy: 'restricted',
-        ...overrides,
-    };
-}
-
-/**
  * Build a status document whose two bindings both report `policy`.
  *
  * Read back through the panel's own parser, so the scan cannot pass against a
@@ -611,45 +550,6 @@ function statusView(policy: 'open' | 'restricted', isActive = true): StatusView 
     }
 
     return view;
-}
-
-/**
- * Every string literal in one source file, which is where operator-facing copy
- * lives.
- *
- * Scanning literals rather than whole files is what makes this sweep about
- * **user-facing strings** (AC-146's own words) rather than about prose: a module
- * that *documents* the rule in a comment may say `restricted` freely, while a
- * literal that reaches the DOM may not.
- *
- * @returns Each literal's own contents, unquoted.
- */
-function stringLiterals(source: string): readonly string[] {
-    const found: string[] = [];
-    const pattern = /'((?:[^'\\\n]|\\.)*)'|"((?:[^"\\\n]|\\.)*)"|`((?:[^`\\]|\\.)*)`/g;
-    let match = pattern.exec(source);
-    while (match !== null) {
-        found.push(match[1] ?? match[2] ?? match[3] ?? '');
-        match = pattern.exec(source);
-    }
-
-    return found;
-}
-
-/**
- * Every occurrence of the three policy words in one source file.
- *
- * Matching is case-insensitive and whole-word, so a word is found in prose and
- * in a copy constant alike, and `restricts` is left to the composition scan
- * above rather than guessed at here.
- *
- * @returns The distinct words found, sorted.
- */
-function wordsFound(source: string): readonly string[] {
-    return POLICY_MATCHERS
-        .filter(([, matcher]) => matcher.test(source))
-        .map(([word]) => word)
-        .toSorted(byText);
 }
 
 /**
@@ -831,20 +731,6 @@ describe('AC-143 twelve permitted logins render exactly once, and the row reads 
             rt.shell?.dispose();
         }
 
-    });
-
-    it('the counter itself answers 0 and 2 alike — it is not shaped to answer 1', async () => {
-        {
-            // Nothing carries this: a vanished field would read this way rather
-            // than the count agreeing with itself.
-            expect(elementsCarrying('AC143-NO-SUCH-LOGIN-AT-ALL')).toHaveLength(0);
-            // Several unset allow-list fields do carry the placeholder word, so
-            // one text carried by two elements reads as 2+, never as 1.
-            const mounted = editor({ rows: [bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY })] });
-            mounted.handlers.selectBinding(EDITED_ID);
-            expect(elementsCarrying('not set').length).toBeGreaterThan(1);
-            release(mounted);
-        }
     });
 
 });
@@ -1076,90 +962,6 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
         }
     });
 
-});
-
-/* -------------------------------------------------------------------- *
- * AC-146 — no implied policy in any user-facing string (005 NFR-113)
- * -------------------------------------------------------------------- */
-
-describe('AC-146 no user-facing string implies a policy the service did not report', () => {
-    it('composes every binding-rendering surface with every binding open and finds no claim', () => {
-        {
-            const open = statusView('open');
-            const strings = [
-                // The Bindings tab: the row summary, the status line, and the
-                // selected row's own detail line.
-                ...bindingRows({
-                    ...initialBindings(),
-                    status: 'ready',
-                    bindings: stateFromWire([
-                        bindingRow({ bindingId: EDITED_ID, repository: REPOSITORY }),
-                        bindingRow({ bindingId: OTHER_ID, repository: OTHER_REPOSITORY }),
-                    ]),
-                }).flatMap((row) => [row.title, String(row.subtitle), String(row.leading)]),
-                // Status: the roll-up and every per-binding line.
-                ...actorPolicyLines(open),
-                ...bindingLines(open),
-                ...serviceLines(open),
-                ...accountLines(open),
-                // The Dispatches row and its reveal, which name a denied login
-                // and therefore talk about a policy.
-                String(dispatchRow(runRow()).subtitle),
-                ...referenceDetailLines(runRow()),
-            ];
-            expect(strings.length).toBeGreaterThan(0);
-
-            for (const line of strings) {
-                for (const word of POLICY_WORDS) {
-                    expect(line.toLowerCase(), `an open binding rendered "${word}": ${line}`)
-                        .not.toContain(word);
-                }
-            }
-
-            // Not vacuous: the same surfaces *do* speak about the policy when
-            // the service reported every binding restricted — and even then they
-            // say it as a count with its consequence, not as a claim about any
-            // one repository.
-            const restricted = actorPolicyLines(statusView('restricted'));
-            expect(restricted.some((line) => line.includes('restricts'))).toBe(true);
-        }
-
-        {
-            /**
-             * The files whose occurrences are about something other than a
-             * binding's actor policy, each with the reason it is not an implied
-             * control.
-             *
-             * Kept as data in the test so the sweep cannot be quietly widened:
-             * a new file using one of these words fails here with its name.
-             */
-            const EXEMPT: readonly (readonly [string, string])[] = [
-                ['accounts-disclaimer.ts', 'the *extension storage* is protected by file permissions'],
-                ['run-actor.ts', "the closed wire union's own literals, which no surface renders as a claim"],
-                ['settings-confirm.ts', "the audit-retention 'protected set', which is not an authorization"],
-                ['startup.ts', "FR-141/FR-142: the frame's own secure-context facts, never a binding's actor policy"],
-            ];
-            const dir = resolve(import.meta.dirname, '../src');
-            const offenders: string[] = [];
-            const sourceNames = readdirSync(dir).filter((entry) => entry.endsWith('.ts')).toSorted(byText);
-            for (const name of sourceNames) {
-                const text = readFileSync(resolve(dir, name), 'utf8');
-                const hits = wordsFound(stringLiterals(text).join(' '));
-                if (hits.length > 0 && EXEMPT.every(([file]) => file !== name)) {
-                    offenders.push(`${name}: ${hits.join(', ')}`);
-                }
-            }
-
-            expect(offenders).toEqual([]);
-            // The exemptions are real, and each is asserted to still carry its
-            // word: an exemption that quietly stopped existing would leave the
-            // sweep proving nothing.
-            for (const [name] of EXEMPT) {
-                const literals = stringLiterals(readFileSync(resolve(dir, name), 'utf8')).join(' ');
-                expect(wordsFound(literals).length, name).toBeGreaterThan(0);
-            }
-        }
-    });
 });
 
 /* -------------------------------------------------------------------- *

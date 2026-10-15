@@ -6,8 +6,8 @@
  * (the SDK's `box-shadow` ring included), reach at rail widths, and state as text. The fallback
  * frame is *measured*, never photographed — `shot.js` refuses it by name because its strip
  * read-back has no fill to sample — and its lost aliases are asserted absent before any reading.
- * This tool computes no contrast ratio; `tests/panel-theme-contrast.test.ts` owns that, so the
- * two reports stay independent measurements of one panel.
+ * This tool computes no contrast ratio: it records roles, names, focus and reach, and draws no
+ * conclusion of its own about colour.
  * Usage: `node tools/visual/panel-a11y.js [--out DIR] [--width PX] [--session NAME] [--help]`
  */
 import { mkdir, writeFile } from 'node:fs/promises';

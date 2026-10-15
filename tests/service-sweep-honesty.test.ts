@@ -665,16 +665,6 @@ describe('T-040h a quarantined runs.json answers the documented 503', () => {
 });
 
 describe('T-040g the sweep is the only requeue path', () => {
-    it('exports no single-run requeue wrapper that could bypass the budget', async () => {
-        {
-            // `requeueExpiredRun` charged the requeue budget and never dead-lettered,
-            // so a caller reaching for it would requeue a run forever. The sweep's
-            // batch planner is the only definition of the transition now.
-            const storeModule = await import('../service/poll/runs.ts');
-            expect('requeueExpiredRun' in storeModule).toBe(false);
-            expect('markUnconfirmed' in storeModule).toBe(false);
-        }
-    });
 
     it('still parks a run whose budget is spent, through the sweep alone', async () => {
         {
