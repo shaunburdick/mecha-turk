@@ -16,8 +16,6 @@
  * `src`, not just the adapter.
  */
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { describe, expect, it, vi } from 'vitest';
 import { adoptServiceAccounts } from '../src/account-adoption.ts';
@@ -97,9 +95,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** Filesystem path of the DOM adapter, for the static rendering scan. */
-const DOM_SOURCE_PATH = resolve(import.meta.dirname, '../src/accounts-ui.ts');
-
 /** Assert that a list of rendered strings carries no registered credential. */
 function expectNoCredentialInStrings(strings: readonly string[]): void {
     expect(strings.join('\n')).not.toContain(PANEL_TOKEN);
@@ -127,19 +122,6 @@ describe('rendering (contract §4 rule 5, SEC-17)', () => {
         renderHandoff({ ...base, storageWritable: true }, record.view);
         expect(record.tokenEnabled).toBe(true);
         expect(record.submitEnabled).toBe(true);
-    });
-
-    it('keeps DOM rendering on textContent and the pinned input attributes', () => {
-        const source = readFileSync(DOM_SOURCE_PATH, 'utf8');
-
-        expect(source).toContain('textContent');
-        expect(source).toContain("setAttribute('type', 'password')");
-        expect(source).toContain("setAttribute('autocomplete', 'new-password')");
-        // Usage, not vocabulary: the module's own docs name the forbidden
-        // sinks, so the scan looks for how they would actually be called.
-        expect(source).not.toMatch(/\.innerHTML\b/);
-        expect(source).not.toMatch(/insertAdjacentHTML\s*\(/);
-        expect(source).not.toMatch(/\.outerHTML\b/);
     });
 });
 

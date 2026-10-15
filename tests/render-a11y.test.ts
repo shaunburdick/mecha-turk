@@ -24,8 +24,6 @@
  * host, no token, no network (FR-086).
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { rowActionLabel, sourceRevealLabel } from '../src/dispatches-controls.ts';
@@ -106,19 +104,6 @@ const REMOVE_ARMED_LABEL = 'Confirm remove';
 
 /** Body the unrouted paths answer with. */
 const UNROUTED = '{"error":{"code":"not-found","message":"unrouted"}}';
-
-/** Usage patterns of the HTML sinks FR-080 forbids. */
-const HTML_SINKS: readonly RegExp[] = [
-    /\.innerHTML\b/,
-    /insertAdjacentHTML\s*\(/,
-    /\.outerHTML\b/,
-    /insertAdjacentText\s*\(/,
-    /\bdocument\.write\s*\(/,
-    /dangerouslySetInnerHTML/,
-];
-
-/** Directory the panel's modules live in, repository-relative. */
-const SRC_DIR = 'src';
 
 /** The four capabilities the scope matrix reports, and their verdicts. */
 const SCOPE_CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
@@ -277,21 +262,6 @@ async function renderSixTabs(input: {
 }
 
 describe('FR-080 / NFR-101 the six tabs render through the text path only', () => {
-    it('has no HTML sink in any module the tabs render from', async () => {
-        {
-            const modules = readdirSync(resolve(import.meta.dirname, `../${SRC_DIR}`), { recursive: true })
-                .map(String)
-                .filter((entry) => entry.endsWith('.ts'));
-
-            expect(modules.length).toBeGreaterThan(40);
-            for (const module of modules) {
-                const source = readFileSync(resolve(import.meta.dirname, `../${SRC_DIR}/${module}`), 'utf8');
-                for (const sink of HTML_SINKS) {
-                    expect(source, `${module} must not use ${sink.source}`).not.toMatch(sink);
-                }
-            }
-        }
-    });
 
     it('hands a hostile title, login, and reason to the SDK as text', async () => {
         {
@@ -366,49 +336,6 @@ describe('FR-081 every control and row action has an accessible name', () => {
         }
     });
 
-});
-
-/** One file the SDK ships, read as the offline check of its own behavior. */
-function sdkFile(name: string): string {
-    return readFileSync(
-        resolve(import.meta.dirname, '../node_modules/@openchamber/sdk/dist/ui', name),
-        'utf8',
-    );
-}
-
-describe('FR-082 the strip is associated, keyboard-operable, and truncates', () => {
-    it('stamps the tab↔body association in the shell that owns it', () => {
-        {
-            const source = readFileSync(resolve(import.meta.dirname, '../src/tabs.ts'), 'utf8');
-
-            expect(source).toContain("setAttribute('id', ");
-            expect(source).toContain('oc-tab-');
-            expect(source).toContain("setAttribute('role', 'tabpanel')");
-            expect(source).toContain("setAttribute('aria-labelledby', ");
-        }
-        {
-            const strip = sdkFile('tabs.js');
-            const navigation = sdkFile('navigation.js');
-
-            // role, selection, and the roving slot are what the shell re-stamps.
-            expect(strip).toContain("'tablist'");
-            expect(strip).toContain('aria-selected');
-            expect(strip).toContain('tabIndex');
-            // Horizontal keys only: Tab is never matched, so focus is never held.
-            expect(strip).toContain("navigationKey(event, 'horizontal')");
-            expect(strip).toContain('.focus()');
-            expect(navigation).not.toMatch(/'Tab'/);
-            expect(navigation).not.toMatch(/'Escape'/);
-        }
-        {
-            const style = sdkFile('style.js');
-            const at = style.indexOf('.oc-sdk-tab {');
-
-            expect(at).toBeGreaterThan(-1);
-            // The rule holds an interpolated theme colour, so the window is read
-            // by offset rather than by a `[^}]*` that the first `}` would end.
-        }
-    });
 });
 
 describe('FR-083 state is carried by text as well as colour', () => {

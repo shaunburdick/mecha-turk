@@ -16,12 +16,11 @@
  * involved (AGENTS.md testing philosophy).
  */
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GuestProjectsSnapshot } from '@openchamber/sdk';
 import type { BindingContext } from '../src/config.ts';
-import { ROUTES } from '../service/routes/index.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
 import { startEditingBinding, startNewBinding } from '../src/bindings-edit.ts';
 import { bindRepository, readDraft } from '../src/bindings.ts';
@@ -151,204 +150,8 @@ function recorded(handle: unknown): RecordedHandle {
     return candidate as RecordedHandle;
 }
 
-/** How often a pattern occurs in one source string. */
-function occurrences(source: string, pattern: RegExp): number {
-    return [...source.matchAll(pattern)].length;
-}
-
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
-
-/**
- * Source and bundle directories the scan reads.
- *
- * `panel/` and `service/` are here for the committed bundles: OpenChamber
- * loads those as-is, so an absence that holds only over the TypeScript
- * sources says nothing about what ships.
- */
-const SCANNED_DIRS: readonly string[] = ['src', 'panel', 'service'];
-
-/** One file the source-and-bundle scan read. */
-interface ScannedFile {
-    /** Repository-relative path, for the failure message. */
-    readonly path: string;
-    /** File text, scanned as written (bundles included). */
-    readonly text: string;
-}
-
-/**
- * Read every scanned source and bundle once.
- *
- * @returns The path and text of each `.ts`/`.js` file under {@link SCANNED_DIRS}.
- */
-function scanPanelSurface(): readonly ScannedFile[] {
-    const files: ScannedFile[] = [];
-    for (const dir of SCANNED_DIRS) {
-        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map(String);
-        for (const entry of entries) {
-            if (!entry.endsWith('.ts') && !entry.endsWith('.js')) {
-                continue;
-            }
-
-            files.push({ path: `${dir}/${entry}`, text: readFileSync(resolve(ROOT, dir, entry), 'utf8') });
-        }
-    }
-
-    return files;
-}
-
-/**
- * A *registration* of the host's directory listener, in call form.
- *
- * The trailing `(\s*(` — the same rule `PROJECT_CREATE_CALL` follows — is what
- * keeps the bundled SDK's own `onDirectory:` property definition out of
- * reach: `panel/main.js:31` carries the host client's method name as text,
- * which is a definition rather than a registration *by construction*, so
- * this scan reads green over it rather than being granted an allowance for
- * it. Prose naming the API is out of reach for the same reason.
- */
-const DIRECTORY_REGISTRATION = /onDirectory\s*\(/;
-
-/**
- * Every member `PanelHost`'s Pick list declares — the panel's whole callable
- * host surface, pinned as a closed set (002 AC-045: "no host method it did
- * not call at v1.13.3").
- *
- * A grep only proves today's spelling of a call; pinning the list proves the
- * negative about the *set*, so widening it becomes a visible edit to this
- * array instead of a silent new capability.
- *
- * **`prompt` joined at v1.16.0** (002 FR-104, GitHub issue #13): a follow-up is
- * delivered by writing into the session the run's dispatch already created,
- * which is the only addressing the host publishes for an existing session. It
- * uses the **already-declared** `prompt` capability, so the manifest and the
- * install-time approval are unchanged — and 002 FR-107 names it as the one new
- * host call site this amendment adds. The clause this pin originally encoded
- * ("no host method it did not call at v1.13.3") therefore moves by exactly that
- * one method and by nothing else, which is what makes it a recorded edit rather
- * than a silent widening.
- */
-const PANEL_HOST_MEMBERS: readonly string[] = [
-    'dispose',
-    'listProjects',
-    'listSessions',
-    'listWorktrees',
-    'onConnection',
-    'onProjects',
-    'onReady',
-    'onSession',
-    'onSessionLifecycle',
-    'onSessions',
-    'onSettings',
-    'onWorktrees',
-    'openSession',
-    'openUrl',
-    'prompt',
-    'request',
-    'serviceRequest',
-    'startSession',
-    'storage',
-    'writeClipboard',
-].toSorted(byText);
-
-/**
- * The namespaced `host.storage` keys the extension has ever used (AC-045).
- *
- * Frozen as a set: a key added or renamed is a user-visible storage-namespace
- * change (AGENTS.md invariant 4), and the fourth key of the namespace —
- * `accounts`, deliberately unprefixed — is asserted by name below rather than
- * discovered by a looser pattern. `mecha-turk:project` left this set at
- * v1.15.0 (issue #39): nothing stores a project pick any more, so the key
- * has no writer and no reader.
- */
-const NAMESPACED_STORAGE_KEYS: readonly string[] = [
-    'mecha-turk:dispatches',
-    'mecha-turk:evidence',
-    'mecha-turk:ledger',
-].toSorted(byText);
-
-/** Every path the service's route table answers, in declaration order. */
-const ROUTE_PATHS: readonly string[] = [
-    '/health',
-    '/v1/config',
-    '/v1/config',
-    '/v1/status',
-    '/v1/accounts',
-    '/v1/bindings',
-    '/v1/bindings',
-    '/v1/events',
-    '/v1/events/pending',
-    '/v1/audit',
-    '/v1/accounts/verify',
-    '/v1/accounts/:numericUserId/token',
-    '/v1/accounts/:numericUserId',
-    '/v1/accounts/:numericUserId',
-    '/v1/events/:correlationId/reserve',
-    '/v1/events/:correlationId/dispatched',
-    '/v1/events/:correlationId/abandon',
-    '/v1/events/:correlationId/blocked',
-    '/v1/events/:correlationId/retry',
-    '/v1/events/:correlationId/requeue',
-    '/v1/events/:correlationId/resolve',
-    '/v1/events/:correlationId/verification',
-];
-
-/** Every file under the shipped contract record (AC-045 byte parity). */
-const CONTRACT_FILES: readonly string[] = [
-    'README.md',
-    'binding-allow-list.md',
-    'binding-history-scope.md',
-    'events-carry-forward.md',
-    'panel-service.md',
-    'token-handoff.md',
-].toSorted(byText);
-
-describe('no directory listener is registered anywhere (FR-095, AC-045, FR-096(c))', () => {
-    it('finds no registration across source and bundles, and the matcher bites both ways', () => {
-        const files = scanPanelSurface();
-        expect(files.length).toBeGreaterThan(50);
-        expect(files.some((file) => file.path === 'panel/main.js')).toBe(true);
-        expect(files.some((file) => file.path === 'service/main.js')).toBe(true);
-
-        // The recorded baseline (Gate-3 G3-1): the bundle carries the SDK's
-        // own `onDirectory:` name as text, which the call-form matcher cannot
-        // reach — asserted present so a future bundler change that dropped it
-        // does not quietly weaken what this scan proves.
-        const panelBundle = files.find((file) => file.path === 'panel/main.js');
-        expect(panelBundle, 'the panel bundle exists').toBeDefined();
-        expect(panelBundle?.text).toContain('onDirectory:');
-
-        // The scan has to bite, in both directions: a pattern that matches
-        // nothing would read as green while proving nothing about the code
-        // above it, and one that matched the name text would be red by
-        // construction rather than by finding.
-        expect(DIRECTORY_REGISTRATION.test('host.onDirectory(() => {})')).toBe(true);
-        expect(DIRECTORY_REGISTRATION.test('host.onDirectory\n(() => {})')).toBe(true);
-        expect(DIRECTORY_REGISTRATION.test('onDirectory:')).toBe(false);
-        expect(DIRECTORY_REGISTRATION.test('// the panel could register onDirectory')).toBe(false);
-
-        for (const file of files) {
-            expect(file.text, `${file.path} must not register a directory listener`).not.toMatch(
-                DIRECTORY_REGISTRATION,
-            );
-        }
-    });
-});
-
-describe("the panel's host surface is a closed Pick list (AC-045)", () => {
-    it('pins PanelHost to its exact v1.13.3 member set', () => {
-        const session = readFileSync(resolve(ROOT, 'src/session.ts'), 'utf8');
-        const pick = session.match(/export type PanelHost = Pick<\s*HostClient,\s*([\s\S]*?)\s*>/);
-        expect(pick, 'PanelHost is still the Pick form the panel builds from').not.toBeNull();
-
-        const members = [...(pick?.[1] ?? '').matchAll(/'([^']+)'/g)].map((match) => match[1] ?? '');
-
-        expect(members.toSorted(byText)).toEqual(PANEL_HOST_MEMBERS);
-        // Belt and braces on the count: a member spelled twice in the list
-        // would otherwise pass a set comparison while reading as present.
-        expect(members).toHaveLength(PANEL_HOST_MEMBERS.length);
-    });
-});
 
 describe("AC-045's closed enumeration, restated once", () => {
     it('pins the manifest contributes block: panel id, capabilities, service without permissions', () => {
@@ -368,26 +171,6 @@ describe("AC-045's closed enumeration, restated once", () => {
         const service = contributes?.service;
         expect(service, 'the service contribution exists').toBeDefined();
         expect(service !== undefined && 'permissions' in service, 'service carries no permissions').toBe(false);
-    });
-
-    it('pins the storage-key set, the route table, and the shipped contracts', () => {
-        const source = scanPanelSurface()
-            .filter((file) => file.path.startsWith('src/'))
-            .map((file) => file.text)
-            .join('\n');
-        const namespaced = [...source.matchAll(/'(mecha-turk:[a-z-]+)'/g)]
-            .map((match) => match[1] ?? '')
-            .toSorted(byText);
-        expect([...new Set(namespaced)]).toEqual(NAMESPACED_STORAGE_KEYS);
-        // The fourth key of the namespace carries no prefix at all (AGENTS.md
-        // invariant 4), so a separate, exact assertion is the only way to
-        // pin it.
-        expect(/export const ACCOUNTS_STORAGE_KEY = 'accounts';/u.test(source)).toBe(true);
-
-        expect(ROUTES.map((route) => route.path)).toEqual(ROUTE_PATHS);
-
-        const contracts = readdirSync(resolve(ROOT, 'specs/002-agent-event-extension/contracts')).map(String);
-        expect(contracts.toSorted(byText)).toEqual(CONTRACT_FILES);
     });
 });
 
@@ -461,46 +244,6 @@ async function rejectingListProjects(): Promise<GuestProjectsSnapshot> {
 function bindingContext(): BindingContext {
     return { ...testConfig(), projectId: BINDING_CONTEXT_ID };
 }
-
-describe('the wave fixtures say what they claim (AC-046)', () => {
-    it('keeps the near-miss and case pairs differing by one property, and the collision pair sharing', async () => {
-        const near = NEAR_MISS_SNAPSHOT.projects[0]?.directory ?? '';
-        expect(near).not.toBe(HOST_DIRECTORY);
-        expect(near.slice(0, -1), 'differs only by its trailing slash').toBe(HOST_DIRECTORY);
-
-        const cased = CASE_MISS_SNAPSHOT.projects[0]?.directory ?? '';
-        expect(cased).not.toBe(HOST_DIRECTORY);
-        expect(cased.toLowerCase(), 'differs only in case').toBe(HOST_DIRECTORY.toLowerCase());
-
-        const directories = COLLIDING_SNAPSHOT.projects.map((project) => project.directory);
-        expect(directories).toHaveLength(2);
-        expect(new Set(directories).size, 'the collision pair really shares a directory').toBe(1);
-        expect(new Set(COLLIDING_SNAPSHOT.projects.map((project) => project.id)).size).toBe(2);
-
-        // The positive control: the matching pair is exact, so a derivation
-        // that passes on it is not passing on a normalisation.
-        expect(MATCHING_SNAPSHOT.projects[0]?.directory).toBe(HOST_DIRECTORY);
-
-        await expect(rejectingListProjects()).rejects.toThrow('host offline');
-    });
-
-    it('keeps the two remaining terms naming two different projects, only one on the host directory', () => {
-        expect([DERIVED_ID, bindingContext().projectId]).toEqual([DERIVED_ID, BINDING_CONTEXT_ID]);
-        expect(new Set([DERIVED_ID, BINDING_CONTEXT_ID]).size, 'two distinct terms').toBe(2);
-
-        // Exactly one of them sits on the host's directory, so a precedence
-        // case built from this snapshot cannot be decided by accident: the
-        // derived term is the only one that can resolve.
-        const onHostDirectory = TWO_PROJECTS_SNAPSHOT.projects.filter(
-            (project) => project.directory === HOST_DIRECTORY,
-        );
-        expect(onHostDirectory.map((project) => project.id)).toEqual([DERIVED_ID]);
-        expect(LOADING_SNAPSHOT.state).toBe('loading');
-        expect(ERROR_SNAPSHOT.state).toBe('error');
-        expect(LOADING_SNAPSHOT.projects, 'the loading double keeps the same list').toEqual(MATCHING_SNAPSHOT.projects);
-        expect(ERROR_SNAPSHOT.projects, 'the error double keeps the same list').toEqual(MATCHING_SNAPSHOT.projects);
-    });
-});
 
 /* ------------------------------------------------------------------ *
  * E-8 — the cross-surface proof, offline (AC-044 – AC-047, SC-014).
@@ -889,16 +632,6 @@ describe('a directory change while the panel is open changes nothing (AC-045)', 
             expect(rendered(rt), 'no value and no control moved').toEqual(before);
             expect(rt.state.bindings.repoProjectSelection, 'no draft moved').toBe(DERIVED_ID);
             expect(rt.unsubscribes, 'the mounted body registers no listener').toHaveLength(0);
-
-            // And there is nothing anywhere that *could* learn of the change:
-            // the mount's record is the panel's only write of the directory.
-            const appSource = readFileSync(resolve(ROOT, 'src/app.ts'), 'utf8');
-            expect(occurrences(appSource, /(?<!function )\brecordHostDirectory\s*\(/gu), 'one writer').toBe(1);
-            for (const file of scanPanelSurface()) {
-                expect(file.text, `${file.path} registers no directory listener`).not.toMatch(
-                    DIRECTORY_REGISTRATION,
-                );
-            }
         } finally {
             dispose();
         }

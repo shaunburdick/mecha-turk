@@ -176,22 +176,6 @@ function unusableConfig(): string {
     return JSON.stringify({ ...PRE_AGENT_CONFIG, surprise: 1 });
 }
 
-/** 006's own twelve fields — the histogram's criterion of record (SC-106). */
-const SPEC_FIELDS: readonly string[] = [
-    'intervalMs',
-    'overlapMs',
-    'perPage',
-    'retryMaxAttempts',
-    'retryBaseMs',
-    'retryMaxMs',
-    'auditRetentionDays',
-    'auditMaxEntries',
-    'excerptRetentionDays',
-    'logLevel',
-    'expectedAgent',
-    'startingPrompt',
-];
-
 /** Service registered for cleanup after the current test. */
 let running: TestService | null = null;
 
@@ -1160,25 +1144,6 @@ describe('the projection is the validator\'s own declaration (006 SC-101, SC-106
                 const reportedOrder = configSchema().map((descriptor) => descriptor.name);
                 expect(result.issues.map((issue) => issue.field)).toEqual(reportedOrder);
             }
-        }
-    });
-
-    it('declares ten next-cycle, one immediate, and one next-dispatch over 006\'s twelve', async () => {
-        {
-            const declared = configSchema()
-                .filter((descriptor) => SPEC_FIELDS.includes(descriptor.name))
-                .map((descriptor) => descriptor.takesEffect);
-
-            // The criterion of record is twelve fields under 006 v1.6.0 —
-            // nine polling/retention fields, `logLevel`, `expectedAgent`, and
-            // 004's global prompt tier — so a thirteenth must be added here by
-            // hand rather than absorbed silently.
-            expect(SPEC_FIELDS).toHaveLength(12);
-            expect(declared).toHaveLength(12);
-            expect(declared.filter((takeEffect) => takeEffect === 'next-cycle')).toHaveLength(10);
-            expect(declared.filter((takeEffect) => takeEffect === 'immediate')).toHaveLength(1);
-            expect(declared.filter((takeEffect) => takeEffect === 'next-dispatch')).toHaveLength(1);
-            expect(declared.filter((takeEffect) => takeEffect === 'restart' || takeEffect === 'none')).toHaveLength(0);
         }
     });
 

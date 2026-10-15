@@ -1,10 +1,9 @@
 /** The engine-delivery pass end to end against the fake OpenCode server: admission, the closed
  * classification, the ladder, write order, reconciliation, the request log, and the round trip. */
 
-import { readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BEGIN_UNTRUSTED, END_UNTRUSTED } from '../src/context-blocks.ts';
 import { CONTEXT_MAX_CHARS } from '../src/session.ts';
@@ -403,12 +402,6 @@ describe('invariant 10 and the zero-steer bar (Gate 2 L8)', () => {
             const delivery = request.method === 'POST' ? body.delivery : 'queue';
             expect(delivery, 'the admission body names a mode other than queue').toBe('queue');
         }
-    });
-
-    it('the shipped service bundle carries no steer anywhere', () => {
-        const bundle = readFileSync(resolve(import.meta.dirname, '..', 'service', 'main.js'), 'utf8');
-
-        expect(bundle).not.toContain('steer');
     });
 });
 

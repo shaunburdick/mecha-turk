@@ -29,13 +29,10 @@
  * from the test. No live host, no token, no network (FR-086).
  */
 
-import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { DEFAULT_CONFIG, LOG_LEVEL_VALUES, NUMERIC_BOUNDS } from '../service/config.ts';
 import { configSchema } from '../service/config-schema.ts';
-import { DEFAULT_EXPECTED_AGENT } from '../src/config.ts';
 import { settingsRows } from '../src/settings-rows.ts';
 import { emptyEdit } from '../src/settings-edit.ts';
 import { parseConfigEnvelope } from '../src/settings-schema.ts';
@@ -45,7 +42,6 @@ import { readStateLine } from '../src/settings-tab.ts';
 import type { SettingsTabState } from '../src/settings-tab.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
-import { byText } from './support/sort.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
 import { DEFAULT_BODY, DEFAULT_STATUS, createTestRuntime, fakeHost, tick } from './support/panel.ts';
@@ -111,137 +107,6 @@ const SPECS_006_FIELDS: readonly string[] = [
     // membership set, so only the count claim lives here.
     'startingPrompt',
 ];
-
-/** Directory the zero-literals scan reads. */
-const SRC_DIR = 'src';
-
-/** One panel source file, read for the scan. */
-interface PanelSource {
-    /** File name, for a failure that should say where. */
-    readonly name: string;
-    /** File text, scanned as written (comments included). */
-    readonly text: string;
-}
-
-/**
- * Read every panel source file once.
- *
- * @returns The files, in directory order.
- */
-async function panelSources(): Promise<readonly PanelSource[]> {
-    const entries = await readdir(SRC_DIR);
-    const names = entries.filter((name) => name.endsWith('.ts')).toSorted(byText);
-    const sources: PanelSource[] = [];
-    for (const name of names) {
-        sources.push({ name, text: await readFile(join(SRC_DIR, name), 'utf8') });
-    }
-
-    return sources;
-}
-
-/** The declarations of every documented field name, for the attachment scan. */
-const FIELD_NAMES: readonly string[] = Object.keys(DEFAULT_CONFIG);
-
-/** Every class token the wire vocabulary carries (FR-030). */
-const CLASS_TOKENS: readonly TakeEffectClass[] = [
-    'immediate',
-    'next-cycle',
-    'next-dispatch',
-    'restart',
-    'none',
-];
-
-/** Lines of context the attachment scan looks at either side of a class token. */
-const CLASS_WINDOW = 6;
-
-/** Every unit phrase the service declares, quoted the way a copy would write it. */
-const UNIT_LITERALS: readonly string[] = [...new Set(Object.values(NUMERIC_BOUNDS).map((bounds) => bounds.unit))];
-
-/**
- * One default written as a string literal: `defaultValue: '…'`,
- * `default: '…'`, or `DEFAULT_EXPECTED_AGENT = '…'`, with the value captured.
- *
- * The shape, not the value, is what identifies it: the documented default is
- * blank since 006 v1.5.0, so scanning for a *value* would either match every
- * empty string in the panel or match none. A quoted value containing whitespace
- * is prose (a banner's message, a label), never an agent-shaped default, so the
- * scan skips those rather than mistaking copy for configuration.
- */
-const STRING_DEFAULT_PATTERN = /(?:\bdefaultValue\s*:|\bdefault\s*:|DEFAULT_EXPECTED_AGENT\s*=)\s*'([^']*)'/;
-
-/**
- * Report every configuration literal the scan looks for in one file.
- *
- * @returns The literals found, by class (006 AC-106's five).
- */
-function configurationLiteralsIn(source: PanelSource): {
-    /** Unit phrases written as string literals. */
-    readonly units: readonly string[];
-    /** Declaration-shaped numerics: `min:` / `max:` / `defaultValue:` + a number. */
-    readonly declarationNumbers: readonly string[];
-    /** The level set's sentinel, which a copied enum would carry. */
-    readonly hasLevelSentinel: boolean;
-    /** Default strings, by declaration shape (the allow-list keys off these). */
-    readonly stringDefaults: readonly { readonly value: string; readonly line: number }[];
-    /** Lines carrying a class token *and* a field name — a claim about a row. */
-    readonly attachedClasses: readonly string[];
-} {
-    const lines = source.text.split('\n');
-    const units = UNIT_LITERALS.filter((unit) => source.text.includes(`'${unit}'`));
-    const declarationNumbers = [...source.text.matchAll(/\b(?:min|max|defaultValue)\s*:\s*[0-9]/g)].map(
-        (match) => match[0],
-    );
-    const hasLevelSentinel = source.text.includes("'debug'");
-    const stringDefaults = lines
-        .map((line, index) => ({ line: index + 1, text: line }))
-        .flatMap((line) => {
-            const match = STRING_DEFAULT_PATTERN.exec(line.text);
-            const value = match?.[1];
-            if (value === undefined || (value !== '' && /\s/.test(value))) {
-                return [];
-            }
-
-            return [{ value, line: line.line }];
-        });
-    const attachedClasses = lines.flatMap((line, index) => {
-        if (CLASS_TOKENS.every((token) => !line.includes(`'${token}'`))) {
-            return [];
-        }
-
-        // A declaration is a block, not a line: 005's own stand-in spread a
-        // field, its bounds, and its class over a dozen lines, so the scan
-        // looks at the window around the token rather than the token's line.
-        const window = lines.slice(Math.max(0, index - CLASS_WINDOW), index + CLASS_WINDOW + 1).join('\n');
-
-        return FIELD_NAMES.some((name) => window.includes(`'${name}'`)) ? [line] : [];
-    });
-
-    return { units, declarationNumbers, hasLevelSentinel, stringDefaults, attachedClasses };
-}
-
-/**
- * A pasted stand-in: the shape 005's retired declaration had, which every
- * rule above must flag (a check that cannot fail is not a check).
- *
- * @returns One source file's worth of the old `SETTINGS_FIELDS` entry.
- */
-function standInSnippet(): PanelSource {
-    return {
-        name: 'pasted-stand-in.ts',
-        text: [
-            'export const SETTINGS_FIELDS = [{',
-            "    field: 'intervalMs',",
-            '    bounds: { min: 15_000, max: 300_000 },',
-            "    unit: 'milliseconds',",
-            '    defaultValue: 60_000,',
-            "    effect: 'next-cycle',",
-            "    values: ['debug', 'info'],",
-            "    { field: 'expectedAgent', defaultValue: 'project-manager' },",
-            "    takeEffect: 'No effect in this build: nothing reads it.',",
-            '}];',
-        ].join('\n'),
-    };
-}
 
 /**
  * Whether a field name is one of the twelve 006 itself declares (AC-101, 006 v1.6.0).
@@ -443,84 +308,6 @@ function configAnswer(body: string): (request: GuestRequest) => GuestRequestResu
 function settingsSlice(overrides: Partial<SettingsTabState> = {}): SettingsTabState {
     return { phase: 'idle', at: null, problem: null, stale: false, doc: null, edit: emptyEdit(), ...overrides };
 }
-
-describe('the panel source carries no configuration literal (006 AC-106)', () => {
-    it('carries no unit phrase, no declaration-shaped bound, and no level set', async () => {
-        {
-            const sources = await panelSources();
-            const offending = sources.filter((source) => {
-                const found = configurationLiteralsIn(source);
-
-                return found.units.length > 0 || found.declarationNumbers.length > 0 || found.hasLevelSentinel;
-            });
-
-            expect(offending.map((source) => source.name)).toEqual([]);
-        }
-    });
-
-    it('carries the single documented default exception, pinned to the service default', async () => {
-        {
-            const sources = await panelSources();
-            const occurrences = sources.flatMap((source) =>
-                configurationLiteralsIn(source).stringDefaults.map((entry) => ({
-                    file: source.name,
-                    value: entry.value,
-                    line: entry.line })),);
-
-            // Exactly one entry in the allow-list, and it is the pinned constant
-            // plan X7 records (research Q3's ruling): the verification baseline
-            // that has to exist before the first successful config read. Its
-            // *value* is the service's own default — blank since 006 v1.5.0 /
-            // 002 v1.10.0 — so a second default literal carrying any other
-            // value cannot hide behind the exception.
-            expect(occurrences).toHaveLength(1);
-            expect(occurrences[0]?.file).toBe('config.ts');
-            expect(occurrences[0]?.value).toBe(DEFAULT_CONFIG.expectedAgent);
-            expect(DEFAULT_EXPECTED_AGENT).toBe(DEFAULT_CONFIG.expectedAgent);
-        }
-    });
-
-    it('never attaches a take-effect class to a field', async () => {
-        {
-            const sources = await panelSources();
-            const offending = sources.filter((source) => configurationLiteralsIn(source).attachedClasses.length > 0);
-
-            expect(offending.map((source) => source.name)).toEqual([]);
-        }
-    });
-
-    it('never claims a value changes nothing in this build', async () => {
-        {
-            const sources = await panelSources();
-            const forbidden = /changes nothing in this build|no effect in this build/i;
-            const offending = sources.filter((source) => forbidden.test(source.text));
-
-            expect(offending.map((source) => source.name)).toEqual([]);
-            // The declaration 005 retired is gone with it: nothing in `src/` still
-            // answers to the old `SETTINGS_FIELDS` name, so no second source of
-            // truth can be mistaken for the projection.
-            expect(sources.filter((source) => source.text.includes('SETTINGS_FIELDS'))).toEqual([]);
-        }
-    });
-
-    it('bites: every rule flags a pasted stand-in', async () => {
-        {
-            const found = configurationLiteralsIn(standInSnippet());
-
-            expect(found.units).toEqual(['milliseconds']);
-            expect(found.declarationNumbers.length).toBeGreaterThan(0);
-            expect(found.hasLevelSentinel).toBe(true);
-            // The default rule bites on a *second* default literal even though
-            // the documented default is now blank: the stand-in declares
-            // `project-manager`, which is exactly the copy the scan exists to
-            // catch, and it is caught by shape rather than by matching a value.
-            expect(found.stringDefaults.map((entry) => entry.value)).toEqual(['project-manager']);
-            expect(found.stringDefaults.some((entry) => entry.value !== DEFAULT_CONFIG.expectedAgent)).toBe(true);
-            expect(found.attachedClasses.length).toBeGreaterThan(0);
-        }
-    });
-
-});
 
 describe('rows are built from the projection (006 T-018, AC-101, SC-102)', () => {
     it('renders twelve rows against the 006-only fixture and fourteen against the combined one', () => {

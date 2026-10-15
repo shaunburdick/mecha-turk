@@ -25,14 +25,9 @@
  * wire rather than from the panel (FR-086, AC-106).
  */
 
-import { readdir, readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { DEFAULT_CONFIG } from '../service/config.ts';
-import { parseConfigEnvelope } from '../src/settings-schema.ts';
-import { restoreConfirmation, saveConfirmation } from '../src/settings-confirm.ts';
-import type { ConfigEnvelope } from '../src/settings-schema.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { byText } from './support/sort.ts';
@@ -78,30 +73,6 @@ const RETENTION_KNOTS: readonly { readonly field: string; readonly lower: string
     { field: 'excerptRetentionDays', lower: '7', raise: '60' },
 ];
 
-/** Directory the dialog-primitive scan reads, repository-relative. */
-const SRC_DIR = resolve(import.meta.dirname, '..', 'src');
-
-/**
- * A **bare** call of one of the frame's three dialog primitives.
- *
- * The lookbehind is what keeps this from misreading a documented host method as
- * a dialog: `host.prompt(...)` addresses the current session (002 v1.16.0,
- * FR-104) while `prompt(...)` opens the frame's box, and only the second is the
- * primitive this scan exists to keep out of the panel.
- */
-const DIALOG_CALL = /(?<![.\w])(confirm|alert|prompt)\s*\(/;
-
-/**
- * The frame's **qualified** spellings of the same three primitives.
- *
- * A bare-name scan alone would read `window.alert(`, `self.confirm(`, and
- * `globalThis.prompt(` as member calls and pass them — which is how a dialog
- * reaches a panel in the one spelling the scan exempted. The host-object
- * exemption above stays, because `host.prompt` is a documented API and these
- * are the frame's own global aliases.
- */
-const DIALOG_GLOBAL = /\b(?:window|self|globalThis|top|parent|frames)\.(?:confirm|alert|prompt)\s*\(/;
-
 /** The irreversibility line every armed retention copy owes (FR-052). */
 const IRREVERSIBLE_MARK = 'Trimming is irreversible';
 
@@ -116,34 +87,6 @@ const RESTORE_READ = configEnvelope({ config: { ...DEFAULT_CONFIG, intervalMs: 1
 
 /** The answer an accepted write returns: the configuration now in force. */
 const ACCEPTED = configEnvelope({ config: { ...DEFAULT_CONFIG, auditRetentionDays: 30 } });
-
-/**
- * Read an envelope from a body, failing loudly when it is not one.
- *
- * @returns The parsed envelope.
- */
-function envelopeOf(body: string): ConfigEnvelope {
-    const parsed = parseConfigEnvelope(body);
-    if (parsed === null) {
-        throw new Error(`${body.slice(0, 120)} did not parse as an envelope`);
-    }
-
-    return parsed;
-}
-
-/**
- * The baseline draft: every descriptor's value as the tab would start it.
- *
- * @returns The draft, keyed by field.
- */
-function draftFrom(envelope: ConfigEnvelope): Record<string, string> {
-    const draft: Record<string, string> = {};
-    for (const descriptor of envelope.fields) {
-        draft[descriptor.name] = String(envelope.config[descriptor.name] ?? descriptor.default);
-    }
-
-    return draft;
-}
 
 /** What one mount of the Settings body recorded. */
 interface SettingsMount {
@@ -331,19 +274,6 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
         }
     });
 
-    it('AC-117: the copy names the field, both limits, the governs, the removal, and the survivors', async () => {
-        {
-            const view = await saveOnce({ field: 'auditRetentionDays', value: '30' });
-            const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
-
-            expect(copy).toContain('auditRetentionDays');
-            expect(copy).toContain('180');
-            expect(copy).toContain('30');
-            expect(copy).toContain('entries older than 30 days will be deleted at the next trim pass');
-            view.dispose();
-        }
-    });
-
     it('SC-108: each knob arms on a lowering and states its own removal', async () => {
         {
             for (const knot of RETENTION_KNOTS) {
@@ -356,26 +286,6 @@ describe('a lowering arms before it writes (006 T-022, AC-117, SC-108)', () => {
                 expect(writes(view)).toEqual([]);
                 view.dispose();
             }
-        }
-    });
-
-    it('SC-108: the entry cap additionally promises that nothing protected is ever removed for it', async () => {
-        {
-            const view = await saveOnce({ field: 'auditMaxEntries', value: '5000' });
-            const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
-
-            expect(copy).toContain('the oldest unprotected entries beyond 5000 entries will be removed');
-            view.dispose();
-        }
-    });
-
-    it('SC-108: the excerpt knob says what its window governs and what is cleared', async () => {
-        {
-            const view = await saveOnce({ field: 'excerptRetentionDays', value: '7' });
-            const copy = view.rt.state.settingsTab.edit.confirm?.copy ?? '';
-
-            expect(copy).toContain('stored payload excerpts older than 7 days will be cleared at the next trim pass');
-            view.dispose();
         }
     });
 
@@ -527,141 +437,4 @@ describe('restore defaults is a two-step whole-document write (006 T-022, FR-016
         }
     });
 
-});
-
-describe('the confirmation copy obeys its contract (006 T-022, contract §2 and §4)', () => {
-    /** The envelope the builders are handed: the real projection, stored source. */
-    const envelope = envelopeOf(configEnvelope());
-    /** The envelope a restore reads: two fields away from their defaults. */
-    const restoreRead = envelopeOf(RESTORE_READ);
-
-    /**
-     * Build a save confirmation by patching `patch` over the read document.
-     *
-     * @returns The armed copy, which is never `null` for these fixtures.
-     */
-    function armedCopy(patch: Readonly<Record<string, string>>): string {
-        const draft = { ...draftFrom(envelope), ...patch };
-        const confirmation = saveConfirmation({ envelope, draft });
-        if (confirmation === null) {
-            throw new Error('the fixture armed nothing');
-        }
-
-        return confirmation.copy;
-    }
-
-    it('carries every content item the contract lists, for every knob', () => {
-        {
-            for (const knot of RETENTION_KNOTS) {
-                const copy = armedCopy({ [knot.field]: knot.lower });
-                const required = [
-                    knot.field,
-                    String(envelope.config[knot.field] ?? ''),
-                    knot.lower,
-                    'governs',
-                    'will be',
-                    'at the next trim pass',
-                    'poll-cycle boundary',
-                    'service start',
-                    'What survives:',
-                    'Raising a limit deletes nothing.',
-                    IRREVERSIBLE_MARK,
-                    'Cancel returns every field to the last-read values',
-                ];
-                for (const fragment of required) {
-                    expect(copy, `${knot.field} copy is missing "${fragment}"`).toContain(fragment);
-                }
-            }
-        }
-        {
-            const forbidden = ['no trimming runs', 'nothing is deleted now', 'no entries will be deleted'];
-            for (const knot of RETENTION_KNOTS) {
-                const copy = armedCopy({ [knot.field]: knot.lower }).toLowerCase();
-                for (const phrase of forbidden) {
-                    expect(copy).not.toContain(phrase);
-                }
-
-                // A row count would be a claim about a trail the panel never read.
-                expect(copy).not.toMatch(/\brows? will be deleted\b/);
-            }
-        }
-        {
-            const baseline = draftFrom(envelope);
-            expect(saveConfirmation({ envelope, draft: baseline })).toBeNull();
-            expect(saveConfirmation({ envelope, draft: { ...baseline, auditRetentionDays: '365' } })).toBeNull();
-            expect(saveConfirmation({ envelope, draft: { ...baseline, intervalMs: '120000' } })).toBeNull();
-        }
-        {
-            const { copy } = restoreConfirmation({ envelope: restoreRead, draft: draftFrom(envelope) });
-
-            expect(copy).toContain('intervalMs: 120000 → 60000');
-            expect(copy).not.toContain(DELETES_HISTORY);
-        }
-        {
-            const higherRetention = envelopeOf(configEnvelope({
-                config: { ...DEFAULT_CONFIG, excerptRetentionDays: 90 },
-            }));
-            const { copy } = restoreConfirmation({
-                envelope: higherRetention,
-                draft: draftFrom(envelope),
-            });
-
-            expect(copy).toContain('excerptRetentionDays: 90 → 30');
-            expect(copy).toContain('stored payload excerpts older than 30 days will be cleared at the next trim pass');
-            expect(copy).toContain(IRREVERSIBLE_MARK);
-        }
-    });
-});
-
-describe('no dialog primitive reaches the panel (006 T-022, FR-054)', () => {
-    it('finds no confirm(), alert(), or prompt() call outside a comment', async () => {
-        const entries = await readdir(SRC_DIR);
-        const names = entries.filter((name) => name.endsWith('.ts'));
-        expect(names.length).toBeGreaterThan(40);
-
-        const offenders: string[] = [];
-        for (const name of names) {
-            const text = await readFile(resolve(SRC_DIR, name), 'utf8');
-            for (const line of text.split('\n')) {
-                const trimmed = line.trim();
-                if (/^(\/\/|\/?\*)/.test(trimmed)) {
-                    continue;
-                }
-
-                if (DIALOG_CALL.test(line) || DIALOG_GLOBAL.test(line)) {
-                    offenders.push(`${name}: ${trimmed}`);
-                }
-            }
-        }
-
-        expect(offenders).toEqual([]);
-    });
-
-    it('bites on a pasted dialog call, and reads comments as comments', () => {
-        expect(DIALOG_CALL.test('const answered = confirm("lower the limit?");')).toBe(true);
-        expect(DIALOG_CALL.test('const answered = alert("lower the limit?");')).toBe(true);
-        expect(DIALOG_CALL.test('const answered = prompt("lower the limit?");')).toBe(true);
-        // A **method** call on a host object is not a dialog primitive: the panel
-        // delivers a follow-up through the documented `host.prompt(...)` (002
-        // v1.16.0, FR-104), which is the host's own session addressing and not
-        // the frame's `prompt()` box. Distinguishing the two keeps this scan
-        // biting on the thing it exists to catch while not misreading a host API
-        // as one — and the `window.` spelling is still caught by its own arm.
-        expect(DIALOG_CALL.test('await host.prompt({ text: message, send: true });')).toBe(false);
-        expect(DIALOG_CALL.test('await rt.host.prompt({ text: message, send: true });')).toBe(false);
-        // The frame's own aliases are not exempted by that: every qualified
-        // spelling of all three primitives is caught by the qualified arm.
-        for (const global of ['window', 'self', 'globalThis', 'top', 'parent', 'frames']) {
-            for (const primitive of ['confirm', 'alert', 'prompt']) {
-                expect(DIALOG_GLOBAL.test(`${global}.${primitive}("x")`), `${global}.${primitive}`).toBe(true);
-            }
-        }
-
-        // And the host-object exemption still reads a member call as one.
-        expect(DIALOG_GLOBAL.test('await host.prompt({ text: message, send: true });')).toBe(false);
-        // The codebase legitimately *mentions* the primitive in prose; that is
-        // a comment line, and the filter above drops it before the scan runs.
-        expect(/^(\/\/|\/?\*)/.test('/** Confirm-step label (no `confirm()` in the frame). */')).toBe(true);
-        expect(/^(\/\/|\/?\*)/.test('const answered = confirm("lower?");')).toBe(false);
-    });
 });

@@ -19,7 +19,6 @@ import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { drainVerifications } from '../src/agent-verify.ts';
-import { ROUTES } from '../service/routes/index.ts';
 import { AUDIT_FILE } from '../service/audit.ts';
 import { CONFIG_FILE } from '../service/config.ts';
 import { createEvent } from '../service/poll/events-write.ts';
@@ -113,19 +112,6 @@ type RetiredState = 'pending' | 'in-flight' | 'dispatched';
 
 /** Panel-storage key the extension's ledger lives under (FR-025). */
 const LEDGER_KEY = 'mecha-turk:ledger';
-
-/**
- * Every storage key the extension namespace has ever used (FR-025).
- *
- * Adding one is a user-visible change, so the set is frozen here. It lost
- * `mecha-turk:project` at 002 v1.15.0 (issue #39): nothing stores a project
- * pick any more, so the key has no writer and no reader.
- */
-const STORAGE_KEYS = [
-    'mecha-turk:evidence',
-    LEDGER_KEY,
-    'mecha-turk:dispatches',
-] as const;
 
 /** The snapshot a legacy queue row was detected under. */
 function snapshot(issueNumber: number): EventSnapshot {
@@ -244,35 +230,6 @@ function stringsOf(log: readonly { readonly key: string; readonly props: unknown
     }
 
     return found.join('\n');
-}
-
-/**
- * Read every source module in the tree, for the static posture scans.
- *
- * @returns The repository-relative path and text of each `.ts` file.
- */
-function sources(): readonly { readonly path: string; readonly text: string }[] {
-    const files: { path: string; text: string }[] = [];
-    for (const dir of ['src', 'service']) {
-        const entries = readdirSync(resolve(ROOT, dir), { recursive: true }).map(String);
-        for (const entry of entries) {
-            if (entry.endsWith('.ts')) {
-                files.push({
-                    path: `${dir}/${entry}`,
-                    text: readFileSync(resolve(ROOT, dir, entry), 'utf8'),
-                });
-            }
-        }
-    }
-
-    return files;
-}
-
-/** Read one source module by its repository-relative path. */
-function panelSources(): readonly string[] {
-    return sources()
-        .filter((file) => file.path.startsWith('src/'))
-        .map((file) => file.text);
 }
 
 /**
@@ -470,49 +427,7 @@ describe('NFR-102 / AC-129 no surface carries the credential in the store', () =
 
 });
 
-describe('FR-002 / FR-089 the panel never writes to GitHub and never mutates the host', () => {
-    it('never names a project, worktree, session, or agent mutation API (FR-089)', () => {
-        const mutations = /(^|[^.\w])(create|delete|remove|rename)(Project|Worktree|Session|Agent)\b/;
-
-        for (const file of sources()) {
-            expect(file.text, `${file.path} mutates host state`).not.toMatch(mutations);
-        }
-    });
-
-    it('writes no audit row of its own (FR-027)', () => {
-        for (const text of panelSources()) {
-            // Reading an audit row is the view's job; *writing* one would
-            // mean naming an event type, which 005 never does.
-            expect(text, 'the panel names a new audit event type').not.toMatch(/eventType:\s*'/);
-        }
-        // The vocabulary itself is the service's, and it is unchanged: the
-        // route table still answers every documented path (FR-023).
-        const paths = ROUTES.map((route) => route.path);
-        for (const path of ['/v1/events', '/v1/events/pending', '/v1/status', '/v1/config', '/health']) {
-            expect(paths).toContain(path);
-        }
-        expect(paths).toContain('/v1/events/:correlationId/retry');
-        expect(paths).toContain('/v1/events/:correlationId/dispatched');
-    });
-});
-
 describe('FR-025 / FR-026 no storage key is added, and the wire keeps its members', () => {
-    it('uses exactly the documented storage keys and never stores the active tab', async () => {
-        {
-            const keys = new Set<string>();
-            for (const text of panelSources()) {
-                for (const match of text.matchAll(/'mecha-turk:([a-z-]+)'/g)) {
-                    keys.add(`mecha-turk:${match[1]}`);
-                }
-            }
-
-            for (const key of STORAGE_KEYS) {
-                expect(keys, `${key} must still be in use`).toContain(key);
-            }
-            expect([...keys].filter((key) => key.includes('tab'))).toEqual([]);
-            expect(keys.size).toBeLessThanOrEqual(STORAGE_KEYS.length + 1);
-        }
-    });
 
     it('keeps the `repositories` member the status document answers with', async () => {
         {

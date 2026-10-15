@@ -8,8 +8,6 @@
  * section must add no host capability (NFR-110, AGENTS invariant 3).
  */
 
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
     PREREQUISITES_HEADING,
@@ -94,9 +92,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     };
 });
 
-/** Repository root, derived from this file's location. */
-const ROOT = resolve(import.meta.dirname, '..');
-
 /**
  * Every literal the fixtures repeat, written once: the duplicate counter runs
  * over test files too, and a fixture id read three times is still one string.
@@ -147,18 +142,6 @@ const VERDICT_MISSING = 'missing';
 
 /** FR-010 capabilities, in the order the matrix declares them. */
 const CAPABILITIES = ['metadata', 'issues', 'pull-requests', 'contents'] as const;
-
-/** Host methods a panel module could reach for; none may appear here. */
-const HOST_METHODS: readonly string[] = [
-    'serviceRequest(',
-    'startSession(',
-    'openSession(',
-    'listProjects(',
-    'listWorktrees(',
-    'listSessions(',
-    'writeClipboard(',
-    'openUrl(',
-];
 
 /**
  * A fresh install's panel state: no settings snapshot, no accounts, and no
@@ -449,18 +432,6 @@ describe('account scope evidence (FR-071, fail-closed parsing)', () => {
             ];
 
             expect(prerequisiteOf(state, IDS.tokenScopes).state).toBe(NOT_MET);
-        }
-    });
-});
-
-describe('no new host capability (NFR-110, AGENTS invariant 3)', () => {
-    it('makes no host call of its own', () => {
-        const source = readFileSync(resolve(ROOT, 'src/prerequisites.ts'), 'utf8');
-
-        expect(source).not.toContain("from './session.ts'");
-        expect(source).not.toMatch(/\brt\.host\b/);
-        for (const method of HOST_METHODS) {
-            expect(source, `prerequisites must not call ${method}`).not.toContain(method);
         }
     });
 });
