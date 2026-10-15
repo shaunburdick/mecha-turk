@@ -8487,7 +8487,7 @@ var putBindingsRoute = {
 };
 
 // service/routes/health.ts
-var SERVICE_VERSION = "0.2.1";
+var SERVICE_VERSION = "0.3.0";
 function healthResponse(context) {
   return {
     status: STATUS.ok,

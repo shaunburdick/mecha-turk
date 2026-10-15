@@ -405,7 +405,7 @@ const TSC_BIN = resolve(ROOT, 'node_modules/.bin/tsc');
  * else in the root manifest, so the digest is re-derived deliberately rather
  * than carried.
  */
-const ROOT_MANIFEST_SHA256 = '0e8ea067b5c3c2b0d9fd89dc3e2453138d5a21d59c9e3e4013625cc32c13a860';
+const ROOT_MANIFEST_SHA256 = '7c19977028d95c59b60cac4ddd943ed779641ec2dbf72ab0ec3631d1a6a8df70';
 
 /**
  * `.github/workflows/verify.yml`'s sha256, for the same reason and the same
