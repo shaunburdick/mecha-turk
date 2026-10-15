@@ -26,6 +26,7 @@ and review must state alignment with it.
 ├── site/                 # the documentation site (Astro) — its own manifest, lockfile,
 │                          # Node floor and gate; the root verify does NOT reach it
 ├── specs/002-agent-event-extension/      # production spec (the product's source of truth)
+├── CHANGELOG.md          # release history — a section becomes that release's body
 ├── README.md             # identity, and a link to the published documentation
 ├── .specify/             # constitution + spec-kit scripts/templates
 └── .opencode/commands/   # speckit slash commands
@@ -116,9 +117,14 @@ exiting non-zero on any finding.
    in the same commit.
 2. **One document, two roles.** `package.json` is the npm package *and* the
    installable manifest. `version` gates git-URL update notifications:
-   bump + rebuild + push, then push tag `v<version>` —
-   `.github/workflows/release.yml` refuses a tag the manifest disagrees
-   with or one `main` has not taken, then publishes the GitHub Release.
+   bump + rebuild + push, the bump carrying that version's `## [x.y.z]`
+   section in `CHANGELOG.md`. Merging it cuts the tag:
+   `.github/workflows/auto-tag.yml` derives `v<version>` from the manifest —
+   refusing a version the changelog does not describe — and dispatches
+   `.github/workflows/release.yml`, which refuses a tag the manifest
+   disagrees with or one `main` has not taken, then publishes the GitHub
+   Release from that changelog section with generated notes beneath it. A
+   hand-cut tag reaches the same gate.
    Its CI proof is `main`'s own rule: the `Main` ruleset must require
    `verify (node 24)`, `verify (node 24.15.0)` and `build` before
    anything lands — drop those and the gate proves only reachability.
