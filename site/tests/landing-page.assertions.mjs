@@ -8,7 +8,7 @@
  * the links the page writes, and the product facts it names, each read out of
  * the shipped declaration rather than out of a second copy here.
  *
- * Those facts are read from the product, never restated: the seven tab labels come
+ * Those facts are read from the product, never restated: the tab labels come
  * from `src/tab-bodies.ts`, the tab order from `src/panel-state.ts`, the store
  * path from the service's own `service/store/dir.ts`, the storage namespace from
  * the manifest's panel id, and the scope words out of the panel's own
@@ -98,7 +98,7 @@ function template() {
 }
 
 /**
- * The seven tab labels, in the order the panel's strip shows them.
+ * The tab labels, in the order the panel's strip shows them.
  *
  * Read out of `src/tab-bodies.ts` rather than `TAB_IDS`, because the ids and the
  * labels are written in two places and this page prints the labels an operator
@@ -111,7 +111,7 @@ function shippedTabLabels() {
 }
 
 /**
- * The seven tab ids, in strip order, read out of `src/panel-state.ts`'s text.
+ * The tab ids, in strip order, read out of `src/panel-state.ts`'s text.
  *
  * **Read rather than imported, because that module cannot be imported here.**
  * `src/panel-state.ts` re-exports the state constructor of most of the panel, and
@@ -138,7 +138,7 @@ function shippedTabIds() {
  *
  * The second half of the same declaration, and what makes the read above worth
  * trusting: a text parse that matched an empty array would compare equal to
- * another empty array and pass, whereas the union says the seven ids are a closed
+ * another empty array and pass, whereas the union says the ids are a closed
  * set — so a parse that lost the list, and an array and a union that have parted
  * company, both fail here instead of agreeing with each other about nothing.
  *
@@ -254,7 +254,7 @@ describe('every internal link resolves under the base path', () => {
 });
 
 describe('the facts the page names are the facts the product ships', () => {
-    test('the seven tabs are named in shipped order, one line each', () => {
+    test('all tabs are named in shipped order, one line each', () => {
         const labels = shippedTabLabels();
         const ids = shippedTabIds();
 

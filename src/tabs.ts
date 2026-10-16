@@ -1,5 +1,5 @@
 /**
- * The seven-tab shell (FR-010–FR-019): SDK `mountTabs` over seven bodies,
+ * The tab shell (FR-010–FR-019): SDK `mountTabs` over all bodies,
  * mount on first activation, idempotent but the cadence tabs.
  */
 
@@ -108,7 +108,7 @@ function associate(input: {
 }): void {
     const { root, specs, bodies } = input;
     for (const spec of specs) {
-        // eslint-disable-next-line unicorn/require-css-escape -- `TabId` is seven literals; escape is the identity.
+        // eslint-disable-next-line unicorn/require-css-escape -- `TabId` is fixed literals; escape is the identity.
         const tab = root.querySelector(`[role="tab"][data-id="${spec.id}"]`);
         tab?.setAttribute('id', `oc-tab-${spec.id}`);
 
@@ -192,7 +192,7 @@ function createActivation(input: {
 
         if (id === rt.activeTab) {
             // Re-activating the tab that already shows stays a no-op on the
-            // five tabs that own no cadence, and reads on a cadence tab — the
+            // tabs that own no cadence, and reads on a cadence tab — the
             // exception FR-014's re-cut made, because a look causes only a
             // read (FR-100). Each cadence read refuses to stack behind an
             // in-flight one, so pressing the tab repeatedly cannot pile
@@ -250,7 +250,7 @@ function disposeShell(input: {
 }
 
 /**
- * Mount the seven-tab strip and its body region under the panel root.
+ * Mount the tab strip and its body region under the panel root.
  */
 export function mountTabShell(input: {
     readonly rt: PanelRuntime;

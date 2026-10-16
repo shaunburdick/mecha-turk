@@ -142,7 +142,7 @@ function refusing(status: number, body: string): Answer {
 }
 
 /**
- * Mount the real seven-tab shell over a driven clock and a scripted service.
+ * Mount the real tab shell over a driven clock and a scripted service.
  *
  * The tabs are the production `tabSpecs`, so the Logs body's own mount and
  * disposer are the ones under test — a suite that hand-built a Logs body
@@ -661,7 +661,7 @@ describe('AC-010 a burst moves the stream, not the panel', () => {
             ]);
             expect(pages.every((size) => size <= PAGE), 'every answer is a bounded page').toBe(true);
 
-            // Six pages of 200 against 3 000 produced lines: the hold mirrors
+            // Pages of 200 against 3 000 produced lines: the hold mirrors
             // the ring at its own 1 000-line cap, drop-oldest, while the rest
             // of the burst is simply not fetched yet — the tab trails and
             // claims nothing about completeness.

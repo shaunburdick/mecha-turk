@@ -1,5 +1,5 @@
 /**
- * Panel runtime state under the seven-tab shell (005 T-007; FR-012, FR-015,
+ * Panel runtime state under the tab shell (005 T-007; FR-012, FR-015,
  * FR-042, FR-043).
  *
  * The restructure this file pins down is the one a later wave could quietly

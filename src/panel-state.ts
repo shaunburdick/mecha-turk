@@ -54,7 +54,7 @@ import { initialDispatchFilters, initialDispatchListPage } from './dispatch-page
 import type { DispatchFilters, DispatchListPage } from './dispatch-page.ts';
 
 /**
- * The seven top-level surfaces, in strip order.
+ * The top-level surfaces, in strip order.
  *
  * A closed union: the shell constructs every value that reaches it, so an
  * unknown id can never arrive and there is no passthrough branch.
@@ -220,7 +220,7 @@ export interface PanelRuntime {
     ui: PanelUi | null;
     handoffView: HandoffView | null;
     /**
-     * The seven-tab shell the panel root owns.
+     * The tab shell the panel root owns.
      *
      * `null` before `mountTabShell` runs and after teardown, so a headless
      * runtime (orchestration tests) never has to know about tabs.

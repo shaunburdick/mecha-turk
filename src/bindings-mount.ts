@@ -191,7 +191,7 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
 
 /**
  * Mount the Bindings tab body into the container the shell created: the
- * seven-tab shell owns the strip and decides when this body first appears, while
+ * tab shell owns the strip and decides when this body first appears, while
  * everything here is the body itself — status line, list, add form — and the
  * runtime handle the repaint path reads. It repaints once at mount, as Status
  * and Accounts do: the list mounts empty, so without this call the first frame

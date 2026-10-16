@@ -18,7 +18,7 @@ import { startServer } from './serve.js';
 import { DARK, FALLBACK, FIXTURES, LIGHT } from './theme-fixtures.js';
 import { percent, verifyDelivered, verifyProbe } from './verify.js';
 
-/** The seven tabs, in the strip's own order (FR-010). */
+/** The tabs, in the strip's own order (FR-010). */
 const TABS = [
     { id: 'status', label: 'Status' },
     { id: 'dispatches', label: 'Dispatches' },
@@ -125,7 +125,7 @@ const DEFAULT_OUT_DIR = join(import.meta.dirname, '..', '..', 'screenshots');
 /** Usage the `--help` flag prints. */
 const USAGE = [
     'usage: node tools/visual/shot.js [tab …] [--out DIR] [--width PX] [--max-height PX]',
-    `       tabs: ${TABS.map((entry) => entry.id).join(', ')} (default: all seven)`,
+    `       tabs: ${TABS.map((entry) => entry.id).join(', ')} (default: all tabs)`,
     `       scenes: ${Object.keys(SCENES).join(', ') || 'none'} (--scene NAME; default: the base fixture)`,
     `       fixtures: ${PHOTOGRAPHABLE.join(', ')} (--fixture NAME; default: ${DEFAULT_FIXTURE})`,
     `                 ${FALLBACK} is measured through the harness, never photographed: its selected`,
@@ -413,7 +413,7 @@ async function captureTab(input) {
 
 /**
  * Capture the whole panel at its full scroll height, strip included. The tab is selected first:
- * the seven tab captures leave the last one active, so measuring any other body would measure a box
+ * the tab captures leave the last one active, so measuring any other body would measure a box
  * that is not there.
  */
 async function captureFull(input) {

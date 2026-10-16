@@ -1,6 +1,6 @@
 /**
  * Wiring tests for the Bindings tab mount (MVP blocker, 2026-09-27; re-cut
- * for the seven-tab shell by 005 T-009).
+ * for the tab shell by 005 T-009).
  *
  * The blocker was that nothing called the pane's mount: the handlers and the
  * repaint existed with no call site. These tests drive the handler table

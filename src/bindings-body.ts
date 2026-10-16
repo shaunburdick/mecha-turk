@@ -441,7 +441,7 @@ function createBlocks(pane: HTMLElement): {
     readonly editorBox: HTMLElement;
     readonly editorBlock: Block;
 } {
-    // Two blocks, and the first carries the tab title: one rule across the seven
+    // Two blocks, and the first carries the tab title: one rule across all
     // tabs — the tab title is the first block's heading, controls live in it.
     const listBlock = createBlock(pane, { heading: LIST_HEADING, title: true });
     const editorBox = pane.ownerDocument.createElement('div');
@@ -496,7 +496,7 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
 /**
  * Mount the Bindings tab body: the list first, the editor behind it.
  *
- * The seven-tab shell owns the strip, so this mounts no tabs of
+ * The tab shell owns the strip, so this mounts no tabs of
  * its own and no dispatches board — those live in their own bodies, which is
  * what makes each capability reachable through exactly one tab.
  */

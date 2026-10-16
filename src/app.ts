@@ -149,7 +149,7 @@ export function teardown(rt: PanelRuntime): void {
     }
 
     if (rt.shell !== null) {
-        // One path for all seven bodies: each disposer it registered runs in
+        // One path for all bodies: each disposer it registered runs in
         // strip order, then the strip itself removes.
         rt.shell.dispose();
     }

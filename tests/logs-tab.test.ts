@@ -126,7 +126,7 @@ interface Run {
     answer(next: Answer): void;
 }
 
-/** Mount the real seven-tab shell; the tab mounts on activation, like every other. */
+/** Mount the real tab shell; the tab mounts on activation, like every other. */
 async function mountLogsTab(answer: Answer): Promise<Run> {
     mounts.log.length = 0;
     const requests: string[] = [];

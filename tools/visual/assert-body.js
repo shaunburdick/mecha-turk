@@ -1,7 +1,7 @@
 /**
  * The capture's fifth freshness check: which tab body the layout shows. The strip's pill sits
  * outside the scroller, so a run could validate the right pill over the wrong body whenever all
- * seven bodies shared the layout — which is how a Settings-labelled frame shipped over the
+ * bodies shared the layout — which is how a Settings-labelled frame shipped over the
  * Dispatches board. This reads `getComputedStyle` for every body, insists the hidden ones are out
  * of the layout, proves the one body with a box is the selected tab's, and asks the same of every
  * *other* `[hidden]` element so a stray control the cascade still paints fails the run too.

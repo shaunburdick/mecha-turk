@@ -4,7 +4,7 @@
  *
  * One fixture module rather than three copies of the same strings: the gate
  * seeds a **global**, an **account**, and a **binding** prompt with exactly
- * these values, renders all seven tabs, and requires each to be carried by
+ * these values, renders all tabs, and requires each to be carried by
  * exactly one element — and the per-surface suites (Settings, Accounts) seed
  * the very value the gate counts, so a "once" proved per surface and a
  * "once" proved panel-wide cannot drift into different texts.

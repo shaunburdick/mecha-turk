@@ -2,7 +2,7 @@
  * The panel's rendered accessibility evidence, across all three host fixtures — the re-runnable
  * part of review 005 M-003. It boots the offline harness `npm run shot` uses, puts the panel into
  * host light, host dark and the alias-unavailable frame at each width the review covers, walks the
- * seven tabs with the keyboard, and records roles and names, tab/body association, visible focus
+ * tabs with the keyboard, and records roles and names, tab/body association, visible focus
  * (the SDK's `box-shadow` ring included), reach at rail widths, and state as text. The fallback
  * frame is *measured*, never photographed — `shot.js` refuses it by name because its strip
  * read-back has no fill to sample — and its lost aliases are asserted absent before any reading.
@@ -34,7 +34,7 @@ const WIDTHS = [
     { name: 'narrowest', width: 320, height: 900 },
 ];
 
-/** The seven tabs, in the strip's own order: the id a body is named for, and the label a reader reads. */
+/** The tabs, in the strip's own order: the id a body is named for, and the label a reader reads. */
 const TABS = [
     { id: 'status', label: 'Status' },
     { id: 'dispatches', label: 'Dispatches' },

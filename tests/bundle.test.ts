@@ -150,7 +150,7 @@ describe('built panel bundle', () => {
             const bundle = readFileSync(BUNDLE, UTF8);
 
             // FR-011: the spike surface is deleted, not hidden — so what ships
-            // carries none of its controls, and the seven labels FR-010 names do.
+            // carries none of its controls, and the labels FR-010 names do.
             for (const retired of ['Start session', 'Record phase', 'Observed phase', 'Verify host state']) {
                 expect(bundle).not.toContain(retired);
             }
@@ -793,7 +793,7 @@ describe('004 full-cycle containment (AC-133, AC-143, AC-151, FR-053, NFR-121)',
  * (004 FR-089; 005 FR-051, SC-105, AC-123)
  *
  * The runtime half of the gate lives in `tests/bindings-prompt.test.ts`,
- * which renders all seven tabs and counts the elements carrying each tier's
+ * which renders all tabs and counts the elements carrying each tier's
  * sentinel. This is the static half: the three sites FR-089 permits are the
  * sites that exist — no fourth hand-authored field, and the projected row's
  * guidance with exactly one author so it can render exactly once.

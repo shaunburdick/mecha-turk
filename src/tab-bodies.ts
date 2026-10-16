@@ -1,5 +1,5 @@
 /**
- * The seven tab bodies, in 005 FR-010's order: the shell owns *when* a body
+ * The tab bodies, in 005 FR-010's order: the shell owns *when* a body
  * appears, this module owns *what* appears in each one — every mount maps an
  * existing surface onto a container, each body mounts once and stays mounted
  * (FR-013), and each owns its own read and its own disposer.
@@ -117,7 +117,7 @@ function mountLogsBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 }
 
 /**
- * The seven tab bodies order.
+ * The tab bodies order.
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function tabSpecs(rt: PanelRuntime): readonly TabSpec[] {

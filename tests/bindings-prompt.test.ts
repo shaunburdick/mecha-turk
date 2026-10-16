@@ -5,7 +5,7 @@
  *
  * Four promises are asserted here:
  *
- * 1. **T-032 / SC-105 / AC-123** — mounting all seven tab bodies over a seeded
+ * 1. **T-032 / SC-105 / AC-123** — mounting all tab bodies over a seeded
  *    **global**, **account**, and **binding** prompt (three distinct
  *    sentinels) and counting every element whose current props carry each one
  *    answers **one** for each — the count that fails at zero (the site
@@ -53,7 +53,7 @@ import { fixtureBindingRow } from './support/binding-fixture.ts';
 import { propsOf } from './support/ui-stubs.ts';
 
 /**
- * Every SDK mount the seven tab bodies performed, and the props it carried.
+ * Every SDK mount the tab bodies performed, and the props it carried.
  *
  * Hoisted so the `vi.mock` factory below can write to it while the module
  * graph is still being evaluated — the same reason `tests/app.test.ts`
@@ -419,7 +419,7 @@ function elementsCarrying(sentinel: string): readonly { readonly key: string }[]
     return carrying;
 }
 
-describe('T-032 / SC-105 / AC-123 one rendering per tier value across all seven tabs', () => {
+describe('T-032 / SC-105 / AC-123 one rendering per tier value across all tabs', () => {
     it('counts exactly one element carrying each tier sentinel', async () => {
         // Each tier is opened the way an operator opens it: the binding row
         // click loads that binding's text into the editor, the account row
@@ -454,7 +454,7 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all seven 
             // its read the same way).
             await tick();
 
-            // Not vacuous: the seven bodies really mounted, and a text field is
+            // Not vacuous: all bodies really mounted, and a text field is
             // among them rather than an empty journal agreeing with itself.
             expect(mounts.log.length).toBeGreaterThan(TAB_IDS.length);
             expect(mounts.log.some((entry) => entry.key === TEXT_FIELD)).toBe(true);

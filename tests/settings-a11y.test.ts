@@ -12,7 +12,7 @@
  *   a label carrying the field's name, its unit or its explicit absence, and
  *   the take-effect boundary; a handler on every one of them.
  * - **Exactly one editable rendering** of the configuration exists across all
- *   seven tabs (SC-113, AC-141) — asserted by counting, so it fails at zero as
+ *   tabs (SC-113, AC-141) — asserted by counting, so it fails at zero as
  *   well as at two.
  * - **No other tab grows a configuration control, a token input, or a
  *   credential** (AC-142, FR-017, FR-082).
@@ -20,7 +20,7 @@
  *
  * AC-143 — one relay loop and one dispatch across a Settings detour — is
  * asserted where that loop lives, in `lifecycle-proof.test.ts` (its
- * `AC-136 / SC-108` case drives the same mid-flight switch through all seven
+ * `AC-136 / SC-108` case drives the same mid-flight switch through all
  * tabs, Settings included, and counts the dispatches), as is NFR-104's
  * "reading changes nothing" (its `FR-014` case).
  *
@@ -65,7 +65,7 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** The seven tab ids, in the shell's order (005 FR-010). */
+/** The tab ids, in the shell's order (005 FR-010). */
 const TAB_IDS: readonly string[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'];
 
 /** What one tab's mounts recorded. */
@@ -198,7 +198,7 @@ describe('the configuration is editable in exactly one tab (006 AC-141, SC-113, 
             // Status owns the *effective* value and Settings the *configured* one
             // (005 FR-039) — its own line is asserted in tests/status-tab.test.ts;
             // what is asserted here is the half this suite can see: Settings says
-            // it and the five tabs that own neither value say nothing about it.
+            // it and the tabs that own neither value say nothing about it.
             const settings = renders.find((render) => render.id === 'settings');
             expect(settings?.strings.join('\n')).toContain('intervalMs');
 
