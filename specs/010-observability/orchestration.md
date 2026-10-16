@@ -1,6 +1,6 @@
 # Orchestration: 010-observability (lifecycle service-log viewer, issue #53)
 
-- **Current Wave**: implementation COMPLETE — W1 `7abb0ba` · W2 `db0bd28` · W3 `f661f68` · W4 `a40e8fc` · Gate 3 remediation `c91c07c` · spec Status approved `2e4fa60` · **PR #57 open** (https://github.com/shaunburdick/mecha-turk/pull/57, linked to session; CI green: verify node 24, verify node 24.15.0, build) · issue #53 commented with the PR link · **status: awaiting product-owner merge (human decision)**
+- **Current Wave**: owner review round on PR #57 (2026-10-16: "pull the counts from the comments") — policy encoded as spec v1.1.0 (FR-008 re-cut + new `changelog.md`); sweeps `8cc8487` + `cc533d6` de-counted comments, titles, identifiers, docs prose (221-line inventory + class grep: 8 tab-count sites incl. 2 stale-at-seven HTML lines); assertions/requirements/fixtures kept as the lock; verify 1 579 tests + site 200 green · next: commit spec, push, CI, report
 - **Branch**: `010-observability` (from origin/main @ cc19102) · Repo: shaunburdick/mecha-turk
 - **Tasks**: `tasks.md` is the canonical record — 33 tasks (T001–T033; T033 added from the orchestrator's pre-W4 grep), 15 `[P]`.
   - W1 (service: ring + `GET /v1/logs`): T001–T007 — **done**, commit `7abb0ba`, verify 1 560 tests
