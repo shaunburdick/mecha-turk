@@ -200,9 +200,9 @@ describe('the configuration is editable in exactly one tab (006 AC-141, SC-113, 
             const settings = renders.find((render) => render.id === 'settings');
             expect(settings?.strings.join('\n')).toContain('intervalMs');
 
-            for (const id of ['bindings', 'dispatches', 'accounts', 'about', 'logs']) {
-                const render = renders.find((entry) => entry.id === id);
-                expect(render?.strings.join('\n'), `${id} renders the poll interval`).not.toContain('intervalMs');
+            const otherTabs = renders.filter((entry) => entry.id !== 'status' && entry.id !== 'settings');
+            for (const render of otherTabs) {
+                expect(render.strings.join('\n'), `${render.id} renders the poll interval`).not.toContain('intervalMs');
             }
         }
     });

@@ -34,6 +34,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
+import { LOGS_TAB, STATUS_TAB, TAB_IDS } from '../src/panel-state.ts';
 import type { PanelRuntime, TabId } from '../src/panel-state.ts';
 import { parseStatusView } from '../src/status-document.ts';
 import type { StatusView } from '../src/status-document.ts';
@@ -71,7 +72,7 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 });
 
 /** The tabs FR-100 gives no cadence, in strip order. */
-const OTHER_TABS: readonly TabId[] = ['dispatches', 'bindings', 'accounts', 'settings', 'about'];
+const OTHER_TABS: readonly TabId[] = TAB_IDS.filter((id) => id !== STATUS_TAB && id !== LOGS_TAB);
 
 /** The period every fixture reports — the service's own default. */
 const PERIOD_MS = 60_000;
