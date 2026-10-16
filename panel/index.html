@@ -156,10 +156,10 @@
             }
 
             /*
-             * Exactly one body is in the layout; the other five are out of it.
+             * Exactly one body is in the layout; the others are out of it.
              *
              * `src/tabs.ts` paints the shell by writing the `hidden` attribute
-             * onto the five bodies that are not active — but the UA sheet's
+             * onto the bodies that are not active — but the UA sheet's
              * `[hidden] { display: none }` is origin-weak, so the author rule
              * above (0,1,0) beats it outright and every body stayed `flex`.
              * The region's `scrollHeight` then summed them all, a tab click

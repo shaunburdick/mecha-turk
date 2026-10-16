@@ -65,7 +65,7 @@ export type TabId = 'status' | 'dispatches' | 'bindings' | 'accounts' | 'setting
 export const TAB_IDS: readonly TabId[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'];
 
 /**
- * A cadence tab (005 FR-100): one of the two that own a repeating read,
+ * A cadence tab (005 FR-100): a tab that owns a repeating read,
  * named rather than spelled at each comparison because two modules have to
  * agree on it — `status-tab.ts` arms the refresh tick only while this tab is
  * active, and a panel that armed for a hidden tab would repaint a background

@@ -13,7 +13,7 @@
  * - **(a)** one read at activation and exactly one more per reported period,
  *   asserted at 59 s, 60 s, and 180 s — the boundary is the whole claim;
  * - **(b)** the tabs that own no cadence issue **zero** reads while Status ticks;
- * - **(c)** activation is the only read those five get, asserted per tab;
+ * - **(c)** activation is the only read those tabs get, asserted per tab;
  * - **(d)** after teardown the clock moves three more periods, the read count
  *   does not, and the timer count is back to its pre-mount value — from Status
  *   and from another tab, because NFR-108 counts both;
@@ -70,7 +70,7 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** The five tabs FR-100 gives no cadence, in strip order. */
+/** The tabs FR-100 gives no cadence, in strip order. */
 const OTHER_TABS: readonly TabId[] = ['dispatches', 'bindings', 'accounts', 'settings', 'about'];
 
 /** The period every fixture reports — the service's own default. */
@@ -490,13 +490,13 @@ describe('SC-114 (b, c) the tabs that own no cadence read on activation and neve
         }
     });
 
-    it('re-activating the already-active tab reads on Status and on the other four', async () => {
+    it('re-activating the already-active tab reads on Status and not on the tabs that own no cadence', async () => {
         vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
 
         try {
             const run = await mountDriven(answering(PERIOD_MS));
             const { rt } = run;
-            // Non-vacuity: the loop below claims each of the five reads nothing
+            // Non-vacuity: the loop below claims each of those tabs reads nothing
             // on re-activation, which is only a claim if activation reads at
             // least once for some tab. Settings reads its configuration
             // document at mount (the one body that does), so start there.
