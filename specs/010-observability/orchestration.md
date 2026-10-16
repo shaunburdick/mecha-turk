@@ -1,6 +1,6 @@
 # Orchestration: 010-observability (lifecycle service-log viewer, issue #53)
 
-- **Current Wave**: owner review round on PR #57 (2026-10-16: "pull the counts from the comments") — policy encoded as spec v1.1.0 (FR-008 re-cut + new `changelog.md`); sweeps `8cc8487` + `cc533d6` de-counted comments, titles, identifiers, docs prose (221-line inventory + class grep: 8 tab-count sites incl. 2 stale-at-seven HTML lines); assertions/requirements/fixtures kept as the lock; verify 1 579 tests + site 200 green · next: commit spec, push, CI, report
+- **Current Wave**: owner review rounds on PR #57 — (1) counts out of comments: spec v1.1.0 FR-008 re-cut + sweeps `8cc8487`/`cc533d6`; (2) tab-list consolidation: `cb3e63d` (drivers import product `TAB_IDS`, one independent oracle `tests/support/tab-contract.ts` for expectations, `tools/visual/tabs.js` derived from product source with an exact-id guard) + challenge cuts `0482db5` + residual copies `8e3b8c1`; spec accuracy v1.1.1 (FR-008(a)/AC-004) · verify 1 579 tests green throughout, bundles byte-identical, harness + a11y re-run clean · next: push spec commit, CI, report
 - **Branch**: `010-observability` (from origin/main @ cc19102) · Repo: shaunburdick/mecha-turk
 - **Tasks**: `tasks.md` is the canonical record — 33 tasks (T001–T033; T033 added from the orchestrator's pre-W4 grep), 15 `[P]`.
   - W1 (service: ring + `GET /v1/logs`): T001–T007 — **done**, commit `7abb0ba`, verify 1 560 tests
