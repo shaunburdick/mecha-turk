@@ -13,6 +13,17 @@ matching section below plus GitHub's generated notes.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-16
+
+### Added
+
+- **A seventh Logs tab** (#57, #53). The local service's own log stream, in the
+  panel instead of hunted down in stdout: the last 1 000 lines the service has
+  emitted — post-redaction, byte-identical to what it printed — stay in memory
+  behind `GET /v1/logs`, and the tab tails them when it opens and refreshes on
+  its own cadence. It says so plainly when the service restarts, and a failed
+  read names its cause with a retry rather than a blank list.
+
 ## [0.3.1] - 2026-10-15
 
 ### Added
@@ -103,8 +114,9 @@ The first published release: the extension installable from this repository.
   control over whether a new binding sees its backlog.
 - **A documentation site**, published to GitHub Pages.
 
-[Unreleased]: https://github.com/shaunburdick/mecha-turk/compare/v0.3.1...HEAD
-[0.3.1]: https://github.com/shaunburdick/mecha-turk/compare/v0.3.0...v0.3.1
+[Unreleased]: https://github.com/shaunburdick/mecha-turk/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/shaunburdick/mecha-turk/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/shaunburdick/mecha-turk/compare/6fabb18...v0.3.1
 [0.3.0]: https://github.com/shaunburdick/mecha-turk/compare/f4d6de0...6fabb18
 [0.2.1]: https://github.com/shaunburdick/mecha-turk/compare/6149804...f4d6de0
 [0.2.0]: https://github.com/shaunburdick/mecha-turk/compare/v0.1.2...6149804
