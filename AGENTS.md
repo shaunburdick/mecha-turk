@@ -217,7 +217,7 @@ changing it. The shape:
 - `src/` — panel modules, one responsibility each. `app.ts` wires mount,
   subscribe and teardown; `tabs.ts` and `tab-bodies.ts` own the seven-tab
   shell; `status-tab.ts` owns the Status projection's read **and** the refresh
-  tick armed from the interval that document reports — Status is the only tab
+  tick armed from the interval that document reports — Status is one of two tabs
   with a cadence, and the panel holds no default for it; `relay*.ts` claim a
   run and hand off one `host.startSession()`; `*-service.ts` files are the
   fail-closed readers of a service answer, and `*-rows.ts` / `*-detail.ts`

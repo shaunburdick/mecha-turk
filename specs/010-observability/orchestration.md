@@ -1,12 +1,12 @@
 # Orchestration: 010-observability (lifecycle service-log viewer, issue #53)
 
-- **Current Wave**: not started — Wave 1 ready to dispatch (see Next Action)
+- **Current Wave**: all four waves done — W1 (`7abb0ba`) · W2 (`db0bd28`) · W3 (`f661f68`) · W4 done (docs/audit close, verify 1 577 tests, closing audit clean; SHA recorded on commit) · next: Gate 3 (spec-challenger diff challenge)
 - **Branch**: `010-observability` (from origin/main @ cc19102) · Repo: shaunburdick/mecha-turk
-- **Tasks**: `tasks.md` is the canonical record — 32 tasks, 15 `[P]`.
-  - W1 (service: ring + `GET /v1/logs`): T001–T007 — pending
-  - W2 (panel: 7th tab, reader, cadence): T008–T018 + T021 (T021 moved in at Gate 2 — render-a11y would close red) — pending
-  - W3 (seven-tab sweep: tests, tools, site, docs, visual evidence): T019, T020, T022–T030 — pending
-  - W4 (contract row + closing audit): T031–T032 — pending
+- **Tasks**: `tasks.md` is the canonical record — 33 tasks (T001–T033; T033 added from the orchestrator's pre-W4 grep), 15 `[P]`.
+  - W1 (service: ring + `GET /v1/logs`): T001–T007 — **done**, commit `7abb0ba`, verify 1 560 tests
+  - W2 (panel: 7th tab, reader, cadence): T008–T018 + T021 (T021 moved in at Gate 2 — render-a11y would close red) — **done**, commit `db0bd28`, verify 1 577 tests, Status suite byte-unedited
+  - W3 (seven-tab sweep: tests, tools, site, docs, visual evidence): T019, T020, T022–T030 — **done**, commit `f661f68`, verify + site gate (200 tests) green, 15 captures sentinel-verified, a11y 0 findings, strip fit via padding lever (270px of 290px)
+  - W4 (contract row + cadence-clause fix + closing audit): T031, T033, T032 — **done** (docs-only: contract §2.5 row + dated note, AGENTS.md cadence clause re-cut, audit green — no `src/`/`service/` source moved, bundles byte-identical)
 - **Decisions**:
   - 2026-10-15 Full lane per issue #53's recorded product-owner decisions; approval basis = operator automation instruction + issue decisions; human gate = PR review.
   - 2026-10-15 Gate 1 PASS after 3 challenger passes (spec v1.0.0; 005 amended 44 lines + changelog v1.22.0; 002 FR-042 phrase fix + v1.19.1).
