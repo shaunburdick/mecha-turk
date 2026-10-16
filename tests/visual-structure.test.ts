@@ -27,6 +27,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
+import { TAB_IDS } from '../src/panel-state.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import { loadStatus } from '../src/status-tab.ts';
@@ -75,9 +76,6 @@ interface MountRecord {
     /** Whatever it was handed. */
     readonly props: unknown;
 }
-
-/** The tabs FR-010 puts in the strip, in strip order. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'] as const;
 
 /** Stamp the fixture document's next poll points at. */
 const FUTURE_STAMP = '2099-01-01T00:00:00.000Z';

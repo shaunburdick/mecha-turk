@@ -15,19 +15,9 @@ import { createBrowser } from './browser.js';
 import { align, assertLayout, bodyView, fitViewport, measure, MIN_VIEWPORT_HEIGHT, ROOT_PAD } from './layout.js';
 import { selfTest } from './png-selftest.js';
 import { startServer } from './serve.js';
+import { tabs as TABS } from './tabs.js';
 import { DARK, FALLBACK, FIXTURES, LIGHT } from './theme-fixtures.js';
 import { percent, verifyDelivered, verifyProbe } from './verify.js';
-
-/** The tabs, in the strip's own order (FR-010). */
-const TABS = [
-    { id: 'status', label: 'Status' },
-    { id: 'dispatches', label: 'Dispatches' },
-    { id: 'bindings', label: 'Bindings' },
-    { id: 'accounts', label: 'Accounts' },
-    { id: 'settings', label: 'Settings' },
-    { id: 'about', label: 'About' },
-    { id: 'logs', label: 'Logs' },
-];
 
 /**
  * Sentinel colours: 0 proves the capture path, 1–7 a default-width tab, 8–14 the same tab at the

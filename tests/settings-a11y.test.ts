@@ -31,6 +31,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CONFIG } from '../service/config.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
+import { TAB_IDS } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
@@ -64,9 +65,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/** The tab ids, in the shell's order (005 FR-010). */
-const TAB_IDS: readonly string[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'];
 
 /** What one tab's mounts recorded. */
 interface TabRender {

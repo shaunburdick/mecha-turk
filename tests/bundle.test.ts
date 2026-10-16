@@ -36,6 +36,7 @@ import { startFakeOpenCode, writeManagedRegistry } from './support/opencode-engi
 import type { DispatchLoop } from './support/dispatch-loop.ts';
 import type { FakeOpenCode } from './support/opencode-engine.ts';
 import { jsonHeaders } from './support/service-routes.ts';
+import { TAB_CONTRACT_LABELS } from './support/tab-contract.ts';
 
 /** Repository root, derived from this file's location. */
 const ROOT = resolve(import.meta.dirname, '..');
@@ -155,7 +156,7 @@ describe('built panel bundle', () => {
                 expect(bundle).not.toContain(retired);
             }
 
-            for (const label of ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About', 'Logs']) {
+            for (const label of TAB_CONTRACT_LABELS) {
                 expect(bundle).toContain(`"${label}"`);
             }
         }

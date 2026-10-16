@@ -35,10 +35,12 @@ import { persistLedger } from '../src/panel-actions.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import type { AccountScopeMatrix, PanelAccount, PanelBinding } from '../src/bindings-service.ts';
+import { TAB_IDS } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { RunRow } from '../src/dispatches-service.ts';
 import { fakeDom } from './support/dom.ts';
 import { createStorageDouble, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { TAB_CONTRACT_LABELS } from './support/tab-contract.ts';
 import { stringsIn } from './support/ui-stubs.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
@@ -69,24 +71,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/** The tabs FR-010 puts in the strip, in strip order. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'] as const;
-
-/** The FR-010 label each tab id carries in the strip. */
-function labelOf(id: (typeof TAB_IDS)[number]): string {
-    const labels: Record<(typeof TAB_IDS)[number], string> = {
-        status: 'Status',
-        dispatches: 'Dispatches',
-        bindings: 'Bindings',
-        accounts: 'Accounts',
-        settings: 'Settings',
-        about: 'About',
-        logs: 'Logs',
-    };
-
-    return labels[id];
-}
 
 /** What the tabs are being hostile-loaded with (FR-080). */
 const HOSTILE = '<img src=x onerror="alert(1)">';
@@ -325,7 +309,7 @@ describe('FR-081 every control and row action has an accessible name', () => {
 
             const listMounts = rendered.log.filter((candidate) => candidate.key === 'mountList');
 
-            expect(items.map((item) => item.label)).toEqual([...TAB_IDS].map((id) => labelOf(id)));
+            expect(items.map((item) => item.label)).toEqual(TAB_CONTRACT_LABELS);
 
             for (const entry of listMounts) {
                 const props = entry.props as {

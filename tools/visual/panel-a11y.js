@@ -17,6 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { activateTab, openHarness, waitForBoot } from './boot.js';
 import { createBrowser } from './browser.js';
 import { startServer } from './serve.js';
+import { tabs as TABS } from './tabs.js';
 import { DARK, FALLBACK, LIGHT } from './theme-fixtures.js';
 
 /** Repository root, derived from this file's location. */
@@ -32,17 +33,6 @@ const DEFAULT_SESSION = 'mt-panel-a11y';
 const WIDTHS = [
     { name: 'narrow', width: 560, height: 900 },
     { name: 'narrowest', width: 320, height: 900 },
-];
-
-/** The tabs, in the strip's own order: the id a body is named for, and the label a reader reads. */
-const TABS = [
-    { id: 'status', label: 'Status' },
-    { id: 'dispatches', label: 'Dispatches' },
-    { id: 'bindings', label: 'Bindings' },
-    { id: 'accounts', label: 'Accounts' },
-    { id: 'settings', label: 'Settings' },
-    { id: 'about', label: 'About' },
-    { id: 'logs', label: 'Logs' },
 ];
 
 /** Keystrokes one tab's focus order may contain before the walk calls it exhausted. */

@@ -42,6 +42,7 @@ import { bindingRows } from '../src/bindings-rows.ts';
 import { PROMPT_GUIDANCE, PROMPT_NOT_SET, STARTING_PROMPT_LABEL } from '../src/bindings-prompt.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
+import { TAB_IDS } from '../src/panel-state.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import type { PanelBinding } from '../src/bindings-service.ts';
@@ -152,9 +153,6 @@ const OTHER_ID = 'bnd-other';
 
 /** Body the unrouted paths answer with. */
 const UNROUTED = '{"error":{"code":"not-found","message":"unrouted"}}';
-
-/** Tabs FR-010 puts in the strip, so SC-105 really is cross-tab. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'] as const;
 
 /** The service's field-level refusal, exactly as the prompt route answers it. */
 const REFUSAL = JSON.stringify({

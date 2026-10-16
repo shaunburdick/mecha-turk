@@ -29,6 +29,7 @@ import { loadVersion } from '../src/about-tab.ts';
 import { pollRelay, startRelayPolling, stopRelayPolling } from '../src/relay.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
+import { TAB_IDS } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import { createTestRuntime, fakeHost, tick } from './support/panel.ts';
@@ -66,9 +67,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/** The tabs FR-010 puts in the strip, in strip order. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'] as const;
 
 /** Body the unrouted paths answer with. */
 const UNROUTED = '{"error":{"code":"not-found","message":"unrouted"}}';

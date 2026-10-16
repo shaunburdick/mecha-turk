@@ -23,6 +23,7 @@ import type { TabSpec } from '../src/tabs.ts';
 import { createTestRuntime, fakeHost } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
+import { TAB_CONTRACT_LABELS } from './support/tab-contract.ts';
 
 /** What the strip double recorded; hoisted so the mock can write to it. */
 const strip = vi.hoisted(() => ({
@@ -94,9 +95,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     };
 });
 
-/** The FR-010 labels, in the order the shell must mount them. */
-const LABELS = ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About', 'Logs'];
-
 /** One read stamp the read-state assertions use. */
 const STAMP = '2026-09-28T12:00:00.000Z';
 
@@ -123,7 +121,7 @@ function countedSpecs(): { readonly specs: readonly TabSpec[]; readonly counts: 
             disposals: 0,
             spec: {
                 id,
-                label: LABELS[TAB_IDS.indexOf(id)] ?? id,
+                label: TAB_CONTRACT_LABELS[TAB_IDS.indexOf(id)] ?? id,
                 mount: () => {
                     record.mounts += 1;
 
@@ -197,7 +195,7 @@ describe('mountTabShell (the tab shell, 005 FR-010)', () => {
         {
             const { rt, root, counts } = mountShell();
 
-            expect(strip.labels).toEqual(LABELS);
+            expect(strip.labels).toEqual(TAB_CONTRACT_LABELS);
             expect(strip.buttons).toHaveLength(7);
             expect(rt.activeTab).toBe('status');
             const idleIds = TAB_IDS.filter((tab) => tab !== 'status');

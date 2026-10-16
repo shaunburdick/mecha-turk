@@ -57,7 +57,7 @@ import {
 import { createBindingsHandlers, mountBindingsTabBody } from '../src/bindings-mount.ts';
 import { bindingRows } from '../src/bindings-rows.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
-import { initialBindings } from '../src/panel-state.ts';
+import { TAB_IDS, initialBindings } from '../src/panel-state.ts';
 import { parseStatusView } from '../src/status-document.ts';
 import { actorPolicyLines } from '../src/status-lines.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
@@ -198,9 +198,6 @@ const REFUSAL = JSON.stringify({
 
 /** The clause a row carries when its binding has no allow-list (FR-092). */
 const OPEN_ROW = 'open to anyone';
-
-/** The tabs FR-010 puts in the strip, so SC-113 really is cross-tab. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'] as const;
 
 /**
  * The three words no surface may use about a binding the service has not
