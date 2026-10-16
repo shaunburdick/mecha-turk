@@ -2,7 +2,7 @@
 
 - Spec: `specs/010-observability/spec.md` (v1.0.0, **Gate 1 PASS** after 3 passes) · Plan: `specs/010-observability/plan.md` · Tasks: `specs/010-observability/tasks.md` (32 tasks, 4 waves, **Gate 2 PASS WITH CUTS** after 2 passes) · Constitution: `.specify/memory/constitution.md` v1.3.0 (no amendment) · Orchestration state: `specs/010-observability/orchestration.md`
 - Branch: `010-observability` (from `origin/main` @ cc19102) · Repo: shaunburdick/mecha-turk · Issue: https://github.com/shaunburdick/mecha-turk/issues/53 (linked to this session)
-- Phase: **Phase 6 (implement)** · Completed: Phase 2 spec, Gate 1, Phases 4–5 plan+tasks, Gate 2 · In progress: Wave 1 dispatch prep · Blocked: none
+- Phase: **Implementation complete, pre-PR** · Completed: Phase 2 spec + Gate 1 (3 passes) · Phases 4–5 + Gate 2 (2 passes) · Phase 6 all four waves (`7abb0ba`, `db0bd28`, `f661f68`, `a40e8fc`, 33/33 tasks) · Gate 3 PASS WITH CUTS + quality APPROVE WITH COMMENTS, remediation `c91c07c` (verify 1 579 tests) · spec Status flipped to approved · In progress: push + PR · Blocked: none
 - Decisions:
   - Full lane per issue #53's recorded product-owner decisions (2026-10-15); precondition (#36 → PR #55/#56) met; approval basis = operator automation instruction + issue decisions; human gate = PR review.
   - 005 amended in place (44 changed lines + changelog `### v1.22.0`, SC-103 six→seven); 002 FR-042 phrase-level fix + `### v1.19.1`; 006/007 left as dated records (rationale in spec `## Amending 005`).
