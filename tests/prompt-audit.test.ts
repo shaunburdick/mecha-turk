@@ -94,6 +94,7 @@ function capturingLogger(): CapturedLogger {
         warn: (_message: string, fields?: Record<string, unknown>) => {
             warnings.push(fields ?? {});
         },
+        retained: () => [],
     };
 }
 

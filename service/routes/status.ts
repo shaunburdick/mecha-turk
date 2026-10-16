@@ -342,9 +342,9 @@ async function runDerivedProjection(
 }
 
 /**
- * Read the configuration the status reports the polling interval from.
+ * Read the configuration both cadence routes report the polling interval from.
  */
-async function readConfig(context: RouteContext): Promise<ServiceConfig> {
+export async function readConfig(context: RouteContext): Promise<ServiceConfig> {
     if (context.store === null) {
         return DEFAULT_CONFIG;
     }

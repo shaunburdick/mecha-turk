@@ -441,7 +441,7 @@ export function mountAboutTab(input: {
     const pane = body.ownerDocument.createElement('div');
     body.append(pane);
 
-    // The identity block carries the tab title (one rule across the six
+    // The identity block carries the tab title (one rule across all
     // tabs); Diagnostics is its own block, behind the disclosure.
     const about = createBlock(pane, { heading: ABOUT_HEADING, title: true });
     const header = mountHeader({ rt, pane: about.body });

@@ -1383,3 +1383,13 @@ product owner on **2026-10-13**, GitHub issue #48, and are recorded in
 - a settled ambiguous outcome records `cause: 'outcome'`, and the failure class (`timeout`, `server-failure`, …) stays on the audit row;
 - intent-before-send is re-stamped per attempt — the pass re-stamps the intent the row carries rather than treating a present member as settled;
 - restart reconciliation (`reconcileEngineIntents`) is sited in `startService`, before `listen`, so no read can race it.
+
+### v1.19.1 — 2026-10-15 (one phrase in FR-042 caught up to the seventh tab; feature 010, GitHub issue #53)
+
+**Why**: FR-042 is a live requirement, and its object list named *"the six-tab panel and its vocabulary (005 FR-010, FR-020 …)"*. Feature 010 adds a seventh top-level tab (**Logs**) and re-cuts 005 FR-010's closed order at 005 v1.22.0, so the phrase would have pointed documentation synchronization at a tab count the product no longer has — the same defect class this repository's amendment discipline exists to prevent (a requirement whose text contradicts the surface it binds). It is neither dated prose nor a decision record: it is the list of things the docs must agree with.
+
+**What changed**: exactly one phrase in `FR-042` — *"the six-tab panel and its vocabulary"* → *"the panel's tab set and its vocabulary"* — so the count lives where it belongs, in 005 FR-010, and the next tab amendment needs no edit here. **No requirement was added, removed, or renumbered**, no other line of this document moves, and every other `six` in this document counts something that still has six (`ctx.settings`'s legacy ids, the reason-word union, the attribution table's rows). This document's own convention is kept: a phrase-level re-cut with one dated note, the v1.13.1 shape.
+
+**Migration impact**: none. Documentation synchronization only — no route, member, status code, store field, capability, manifest field, or contract text changes; `specs/002-agent-event-extension/contracts/` is untouched (010's new `GET /v1/logs` row rides that contract's §2.5 and is 010's own dated note, not a 002 version change).
+
+**Approval status**: submitted with feature 010's Gate 1, 2026-10-15. The seventh tab itself is the product owner's recorded decision (issue #53, 2026-10-15), and 005's amended FR-010 is the authority this phrase now defers to. No clarification marker remains in the document.

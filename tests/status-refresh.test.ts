@@ -12,8 +12,8 @@
  *
  * - **(a)** one read at activation and exactly one more per reported period,
  *   asserted at 59 s, 60 s, and 180 s — the boundary is the whole claim;
- * - **(b)** the other five tabs issue **zero** reads while Status ticks;
- * - **(c)** activation is the only read those five get, asserted per tab;
+ * - **(b)** the tabs that own no cadence issue **zero** reads while Status ticks;
+ * - **(c)** activation is the only read those tabs get, asserted per tab;
  * - **(d)** after teardown the clock moves three more periods, the read count
  *   does not, and the timer count is back to its pre-mount value — from Status
  *   and from another tab, because NFR-108 counts both;
@@ -34,6 +34,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
+import { LOGS_TAB, STATUS_TAB, TAB_IDS } from '../src/panel-state.ts';
 import type { PanelRuntime, TabId } from '../src/panel-state.ts';
 import { parseStatusView } from '../src/status-document.ts';
 import type { StatusView } from '../src/status-document.ts';
@@ -70,8 +71,8 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** The five tabs FR-100 gives no cadence, in strip order. */
-const OTHER_TABS: readonly TabId[] = ['dispatches', 'bindings', 'accounts', 'settings', 'about'];
+/** The tabs FR-100 gives no cadence, in strip order. */
+const OTHER_TABS: readonly TabId[] = TAB_IDS.filter((id) => id !== STATUS_TAB && id !== LOGS_TAB);
 
 /** The period every fixture reports — the service's own default. */
 const PERIOD_MS = 60_000;
@@ -222,7 +223,7 @@ function parsedView(document: string): StatusView {
 }
 
 /**
- * Mount the real six-tab shell over a driven clock and a scripted service.
+ * Mount the real tab shell over a driven clock and a scripted service.
  *
  * The tabs are the production `tabSpecs`, so the Status body's own mount and
  * disposer are the ones under test — a suite that hand-built a Status body
@@ -347,7 +348,7 @@ function renderedStrings(): readonly string[] {
 /**
  * The Status tab's on-demand refresh control, as the SDK was handed it.
  *
- * Located by label rather than by position because three of the six tabs mount
+ * Located by label rather than by position because all tabs mount
  * buttons and only this one is the read the cadence falls back to (FR-101).
  *
  * @returns The props carrying the press handler, or `undefined` when absent.
@@ -458,7 +459,7 @@ describe('SC-114 (a) the tab re-reads on the reported period, and only on it', (
     });
 });
 
-describe('SC-114 (b, c) the other five tabs read on activation and never again', () => {
+describe('SC-114 (b, c) the tabs that own no cadence read on activation and never again', () => {
     it('issues no reads at all while Status ticks', async () => {
         vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
 
@@ -490,13 +491,13 @@ describe('SC-114 (b, c) the other five tabs read on activation and never again',
         }
     });
 
-    it('re-activating the already-active tab reads on Status and on the other four', async () => {
+    it('re-activating the already-active tab reads on Status and not on the tabs that own no cadence', async () => {
         vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
 
         try {
             const run = await mountDriven(answering(PERIOD_MS));
             const { rt } = run;
-            // Non-vacuity: the loop below claims each of the five reads nothing
+            // Non-vacuity: the loop below claims each of those tabs reads nothing
             // on re-activation, which is only a claim if activation reads at
             // least once for some tab. Settings reads its configuration
             // document at mount (the one body that does), so start there.

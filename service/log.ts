@@ -3,6 +3,8 @@
  */
 
 import { redact } from '../src/redaction.ts';
+import { createLogRing } from './log-ring.ts';
+import type { LogRingEntry } from './log-ring.ts';
 
 /** Log verbosity, ordered from most to least chatty. */
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
@@ -20,7 +22,7 @@ interface PendingEntry {
     readonly fields: LogFields;
 }
 
-/** The service's logger surface; every method takes a static message. */
+/** The service's logger surface: the four log methods, a movable threshold, the retained stream. */
 export interface ServiceLogger extends LoggerControl {
     /** Log a diagnostic entry at `debug`. */
     debug(message: string, fields?: LogFields): void;
@@ -30,6 +32,8 @@ export interface ServiceLogger extends LoggerControl {
     warn(message: string, fields?: LogFields): void;
     /** Log a failure entry at `error`. */
     error(message: string, fields?: LogFields): void;
+    /** The lines this logger handed its sink, as serialized and redacted — what `GET /v1/logs` answers. */
+    retained(): readonly LogRingEntry[];
 }
 
 /**
@@ -96,18 +100,22 @@ export function createLogger(options: LoggerOptions): ServiceLogger {
             process.stdout.write(line);
         });
     let threshold = SEVERITY[options.level];
+    const ring = createLogRing();
     const emit = (entry: PendingEntry): void => {
         if (SEVERITY[entry.level] < threshold) {
             return;
         }
 
-        sink(serialize(entry));
+        const line = serialize(entry);
+        ring.append(line);
+        sink(line);
     };
 
     return {
         setLevel: (level: LogLevel): void => {
             threshold = SEVERITY[level];
         },
+        retained: () => ring.entries(),
         debug: (message, fields = {}) => emit({ level: 'debug', message, fields }),
         info: (message, fields = {}) => emit({ level: 'info', message, fields }),
         warn: (message, fields = {}) => emit({ level: 'warn', message, fields }),

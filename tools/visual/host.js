@@ -44,7 +44,7 @@ const SELECTED_TAB = '[role="tab"][aria-selected="true"]';
 const VERSION_KEY = 'v';
 
 /**
- * The body container the shell made for one tab. `name` is a tab id — six lowercase literals
+ * The body container the shell made for one tab. `name` is a tab id — a lowercase literal
  * from `TAB_IDS` — so nothing needs escaping, and `CSS` is absent from this harness anyway, so
  * `unicorn/require-css-escape` cannot be satisfied here at all.
  */
@@ -340,7 +340,7 @@ function paintedHidden(panel) {
 /**
  * Every tab body as the cascade paints it, plus the strip's own answer. The DOM alone cannot say
  * a body is out of the layout — `hidden` is an *intent* and an author `display` rule outranks the
- * UA sheet, which is how six stacked bodies slipped through every DOM-based test — so "visible"
+ * UA sheet, which is how stacked bodies slipped through every DOM-based test — so "visible"
  * here means "has a box". Each body is paired with the tab its `aria-labelledby` points at, so a
  * caller can prove the body on screen belongs to the tab that was asked for; `painted` asks the
  * same question of every other `[hidden]` element in the document.

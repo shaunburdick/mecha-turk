@@ -67,6 +67,24 @@ function redact(text) {
   return result;
 }
 
+// service/log-ring.ts
+var LOG_RING_CAPACITY = 1000;
+function createLogRing() {
+  const held = [];
+  let nextSeq = 0;
+  return {
+    append: (line) => {
+      const seq = nextSeq;
+      nextSeq += 1;
+      held.push({ seq, line });
+      if (held.length > LOG_RING_CAPACITY) {
+        held.shift();
+      }
+    },
+    entries: () => held
+  };
+}
+
 // service/log.ts
 var SEVERITY = { debug: 10, info: 20, warn: 30, error: 40 };
 function describeError(error) {
@@ -87,16 +105,20 @@ function createLogger(options) {
     process.stdout.write(line);
   });
   let threshold = SEVERITY[options.level];
+  const ring = createLogRing();
   const emit = (entry) => {
     if (SEVERITY[entry.level] < threshold) {
       return;
     }
-    sink(serialize(entry));
+    const line = serialize(entry);
+    ring.append(line);
+    sink(line);
   };
   return {
     setLevel: (level) => {
       threshold = SEVERITY[level];
     },
+    retained: () => ring.entries(),
     debug: (message, fields = {}) => emit({ level: "debug", message, fields }),
     info: (message, fields = {}) => emit({ level: "info", message, fields }),
     warn: (message, fields = {}) => emit({ level: "warn", message, fields }),
@@ -8538,6 +8560,257 @@ var healthRoute = {
   handler: (context) => healthResponse(context)
 };
 
+// service/poll/view.ts
+function createPollingView() {
+  let loop = null;
+  let isStopping = false;
+  const isRunning = () => !isStopping && loop !== null && !loop.state().stopped;
+  const view = {
+    isRunning: () => isRunning(),
+    nextPollAtMs: () => isRunning() ? loop?.state().nextPollAtMs ?? null : null,
+    isStopping: () => isStopping
+  };
+  return {
+    view,
+    observe: (next) => {
+      loop = next;
+    },
+    beginShutdown: () => {
+      isStopping = true;
+    }
+  };
+}
+function nextPollAtOf(view, intervalMs) {
+  if (!view.isRunning()) {
+    return null;
+  }
+  const armed = view.nextPollAtMs();
+  return new Date(armed ?? Date.now() + intervalMs).toISOString();
+}
+function pausedReasonOf(input) {
+  if (!input.storeUsable) {
+    return "store-unavailable";
+  }
+  if (input.stopping) {
+    return "stopping";
+  }
+  if (input.running) {
+    return "";
+  }
+  return input.activeBindings > 0 ? "config-incomplete" : "no-active-bindings";
+}
+
+// service/routes/status.ts
+var STATUS_PATH = "/v1/status";
+function statusAccountRow(account) {
+  return {
+    numericUserId: account.numericUserId,
+    login: account.login,
+    connectionState: account.connectionState,
+    rate: {
+      remaining: null,
+      limit: null,
+      resetAt: null,
+      usedLastHour: 0,
+      secondaryBlockedUntil: null,
+      conditionalSupport: "unknown",
+      updatedAt: account.updatedAt
+    },
+    streams: []
+  };
+}
+async function statusAccounts(context) {
+  if (context.store === null) {
+    return [];
+  }
+  try {
+    const accounts = await listAccounts(context.store, context.log);
+    return accounts.map((account) => statusAccountRow(account));
+  } catch (error) {
+    context.log.warn("accounts could not be listed for status", {
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+    return [];
+  }
+}
+async function storedBindings(context) {
+  if (context.store === null) {
+    return [];
+  }
+  try {
+    return await readBindings({ store: context.store, log: context.log });
+  } catch (error) {
+    context.log.warn("bindings could not be listed for status", {
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+    return [];
+  }
+}
+function unreadableRepositoryRow(binding) {
+  return {
+    bindingId: binding.bindingId,
+    repository: binding.repository,
+    projectId: binding.projectId,
+    accountLogin: binding.accountLogin,
+    active: binding.state === "active",
+    lastScanAt: null,
+    lastError: null,
+    pendingCount: 0,
+    readable: false,
+    actorPolicy: binding.allowedUsers === undefined ? "open" : "restricted"
+  };
+}
+function mostRecentVerification(runs) {
+  let freshest = null;
+  for (const run of runs) {
+    const { verification } = run;
+    if (verification === null) {
+      continue;
+    }
+    if (freshest === null || Date.parse(verification.at) >= Date.parse(freshest.at)) {
+      freshest = verification;
+    }
+  }
+  if (freshest === null) {
+    return null;
+  }
+  return {
+    observedAgent: freshest.observedAgent,
+    expectedAgent: freshest.expectedAgent,
+    ok: freshest.ok,
+    at: freshest.at
+  };
+}
+function notAvailableVerification() {
+  return { available: false, reason: "no-service-mirror" };
+}
+async function runDerivedProjection(context, bindings, overlapMs) {
+  const { store } = context;
+  if (store === null) {
+    return { repositories: [], verification: notAvailableVerification() };
+  }
+  try {
+    const rows = await readStatusRows({ store, log: context.log, bindings, overlapMs });
+    const document = await previewRunsDocument({ store, log: context.log });
+    return {
+      repositories: rows.map((row) => ({ ...row, readable: true })),
+      verification: mostRecentVerification(document.runs)
+    };
+  } catch (error) {
+    context.log.warn("run projection could not be read for status", {
+      errorKind: error instanceof Error ? error.name : typeof error
+    });
+    return {
+      repositories: bindings.map((binding) => unreadableRepositoryRow(binding)),
+      verification: notAvailableVerification()
+    };
+  }
+}
+async function readConfig(context) {
+  if (context.store === null) {
+    return DEFAULT_CONFIG;
+  }
+  const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
+  return configFromStore(result, context.log).config;
+}
+async function buildStatusBody(context) {
+  const config = await readConfig(context);
+  const { store, polling } = context;
+  const hasStore = store !== null;
+  const accounts = await statusAccounts(context);
+  const bindings = await storedBindings(context);
+  const { repositories, verification } = await runDerivedProjection(context, bindings, config.overlapMs);
+  const isRunning = hasStore && polling.isRunning();
+  const activeBindings = bindings.filter((binding) => binding.state === "active").length;
+  const pausedReason = pausedReasonOf({
+    storeUsable: hasStore,
+    running: isRunning,
+    stopping: polling.isStopping(),
+    activeBindings
+  });
+  return {
+    service: {
+      status: hasStore ? "ok" : "degraded",
+      uptimeMs: Date.now() - context.startedAt,
+      dataDir: context.dataDir,
+      schemaVersion: store?.schemaVersion ?? null,
+      storage: { writable: hasStore }
+    },
+    accounts,
+    repositories,
+    agentPin: { expectedAgent: null, lastVerification: verification },
+    polling: {
+      intervalMs: config.intervalMs,
+      nextPollAt: nextPollAtOf(polling, config.intervalMs),
+      paused: !isRunning,
+      pausedReason
+    },
+    surface: { supported: true }
+  };
+}
+async function handleGetStatus(context) {
+  const body = await buildStatusBody(context);
+  return { status: STATUS.ok, body };
+}
+var statusRoute = {
+  method: "GET",
+  path: STATUS_PATH,
+  handler: (context) => handleGetStatus(context)
+};
+
+// service/routes/logs.ts
+var LOGS_PATH = "/v1/logs";
+var DEFAULT_LOG_LIMIT = 200;
+function logsLimitOf(raw) {
+  if (raw === null || raw.trim() === "") {
+    return DEFAULT_LOG_LIMIT;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_LOG_LIMIT;
+  }
+  return Math.min(Math.max(Math.trunc(parsed), 1), LOG_RING_CAPACITY);
+}
+function logsCursorOf(raw) {
+  if (raw === null || raw.trim() === "") {
+    return "tail";
+  }
+  if (!/^[0-9]{1,15}$/.test(raw.trim())) {
+    return null;
+  }
+  return Number(raw.trim());
+}
+function cursorIssue2() {
+  const issues = [{
+    field: "cursor",
+    remediation: "send a seq an earlier answer carried, or omit it to read the newest entries"
+  }];
+  return validationResponse(issues);
+}
+async function handleLogsRead(context, request) {
+  const cursor = logsCursorOf(request.url.searchParams.get("cursor"));
+  if (cursor === null) {
+    return cursorIssue2();
+  }
+  const limit = logsLimitOf(request.url.searchParams.get("limit"));
+  const config = await readConfig(context);
+  const retained = context.log.retained();
+  const page = cursor === "tail" ? retained.slice(-limit) : retained.filter((entry) => entry.seq > cursor).slice(0, limit);
+  return {
+    status: STATUS.ok,
+    body: {
+      entries: page,
+      startedAt: context.startedAt,
+      intervalMs: config.intervalMs
+    }
+  };
+}
+var logsRoute = {
+  method: "GET",
+  path: LOGS_PATH,
+  handler: (context, request) => handleLogsRead(context, request)
+};
+
 // service/poll/run-corroborate.ts
 var CAUSE_NOT_CLEARED = "cause-not-cleared";
 var CORROBORATED_BINDING_REASON = "binding-missing";
@@ -9043,204 +9316,6 @@ var verificationRoute = {
   handler: (context, request) => handleVerification(context, request)
 };
 
-// service/poll/view.ts
-function createPollingView() {
-  let loop = null;
-  let isStopping = false;
-  const isRunning = () => !isStopping && loop !== null && !loop.state().stopped;
-  const view = {
-    isRunning: () => isRunning(),
-    nextPollAtMs: () => isRunning() ? loop?.state().nextPollAtMs ?? null : null,
-    isStopping: () => isStopping
-  };
-  return {
-    view,
-    observe: (next) => {
-      loop = next;
-    },
-    beginShutdown: () => {
-      isStopping = true;
-    }
-  };
-}
-function nextPollAtOf(view, intervalMs) {
-  if (!view.isRunning()) {
-    return null;
-  }
-  const armed = view.nextPollAtMs();
-  return new Date(armed ?? Date.now() + intervalMs).toISOString();
-}
-function pausedReasonOf(input) {
-  if (!input.storeUsable) {
-    return "store-unavailable";
-  }
-  if (input.stopping) {
-    return "stopping";
-  }
-  if (input.running) {
-    return "";
-  }
-  return input.activeBindings > 0 ? "config-incomplete" : "no-active-bindings";
-}
-
-// service/routes/status.ts
-var STATUS_PATH = "/v1/status";
-function statusAccountRow(account) {
-  return {
-    numericUserId: account.numericUserId,
-    login: account.login,
-    connectionState: account.connectionState,
-    rate: {
-      remaining: null,
-      limit: null,
-      resetAt: null,
-      usedLastHour: 0,
-      secondaryBlockedUntil: null,
-      conditionalSupport: "unknown",
-      updatedAt: account.updatedAt
-    },
-    streams: []
-  };
-}
-async function statusAccounts(context) {
-  if (context.store === null) {
-    return [];
-  }
-  try {
-    const accounts = await listAccounts(context.store, context.log);
-    return accounts.map((account) => statusAccountRow(account));
-  } catch (error) {
-    context.log.warn("accounts could not be listed for status", {
-      errorKind: error instanceof Error ? error.name : typeof error
-    });
-    return [];
-  }
-}
-async function storedBindings(context) {
-  if (context.store === null) {
-    return [];
-  }
-  try {
-    return await readBindings({ store: context.store, log: context.log });
-  } catch (error) {
-    context.log.warn("bindings could not be listed for status", {
-      errorKind: error instanceof Error ? error.name : typeof error
-    });
-    return [];
-  }
-}
-function unreadableRepositoryRow(binding) {
-  return {
-    bindingId: binding.bindingId,
-    repository: binding.repository,
-    projectId: binding.projectId,
-    accountLogin: binding.accountLogin,
-    active: binding.state === "active",
-    lastScanAt: null,
-    lastError: null,
-    pendingCount: 0,
-    readable: false,
-    actorPolicy: binding.allowedUsers === undefined ? "open" : "restricted"
-  };
-}
-function mostRecentVerification(runs) {
-  let freshest = null;
-  for (const run of runs) {
-    const { verification } = run;
-    if (verification === null) {
-      continue;
-    }
-    if (freshest === null || Date.parse(verification.at) >= Date.parse(freshest.at)) {
-      freshest = verification;
-    }
-  }
-  if (freshest === null) {
-    return null;
-  }
-  return {
-    observedAgent: freshest.observedAgent,
-    expectedAgent: freshest.expectedAgent,
-    ok: freshest.ok,
-    at: freshest.at
-  };
-}
-function notAvailableVerification() {
-  return { available: false, reason: "no-service-mirror" };
-}
-async function runDerivedProjection(context, bindings, overlapMs) {
-  const { store } = context;
-  if (store === null) {
-    return { repositories: [], verification: notAvailableVerification() };
-  }
-  try {
-    const rows = await readStatusRows({ store, log: context.log, bindings, overlapMs });
-    const document = await previewRunsDocument({ store, log: context.log });
-    return {
-      repositories: rows.map((row) => ({ ...row, readable: true })),
-      verification: mostRecentVerification(document.runs)
-    };
-  } catch (error) {
-    context.log.warn("run projection could not be read for status", {
-      errorKind: error instanceof Error ? error.name : typeof error
-    });
-    return {
-      repositories: bindings.map((binding) => unreadableRepositoryRow(binding)),
-      verification: notAvailableVerification()
-    };
-  }
-}
-async function readConfig(context) {
-  if (context.store === null) {
-    return DEFAULT_CONFIG;
-  }
-  const result = await context.store.readJson(CONFIG_FILE, parseStoredConfig);
-  return configFromStore(result, context.log).config;
-}
-async function buildStatusBody(context) {
-  const config = await readConfig(context);
-  const { store, polling } = context;
-  const hasStore = store !== null;
-  const accounts = await statusAccounts(context);
-  const bindings = await storedBindings(context);
-  const { repositories, verification } = await runDerivedProjection(context, bindings, config.overlapMs);
-  const isRunning = hasStore && polling.isRunning();
-  const activeBindings = bindings.filter((binding) => binding.state === "active").length;
-  const pausedReason = pausedReasonOf({
-    storeUsable: hasStore,
-    running: isRunning,
-    stopping: polling.isStopping(),
-    activeBindings
-  });
-  return {
-    service: {
-      status: hasStore ? "ok" : "degraded",
-      uptimeMs: Date.now() - context.startedAt,
-      dataDir: context.dataDir,
-      schemaVersion: store?.schemaVersion ?? null,
-      storage: { writable: hasStore }
-    },
-    accounts,
-    repositories,
-    agentPin: { expectedAgent: null, lastVerification: verification },
-    polling: {
-      intervalMs: config.intervalMs,
-      nextPollAt: nextPollAtOf(polling, config.intervalMs),
-      paused: !isRunning,
-      pausedReason
-    },
-    surface: { supported: true }
-  };
-}
-async function handleGetStatus(context) {
-  const body = await buildStatusBody(context);
-  return { status: STATUS.ok, body };
-}
-var statusRoute = {
-  method: "GET",
-  path: STATUS_PATH,
-  handler: (context) => handleGetStatus(context)
-};
-
 // service/routes/verify.ts
 var VERIFY_PATH = "/v1/accounts/verify";
 var LOGIN_MISMATCH_MESSAGE = "the token belongs to a different GitHub login than the expected one";
@@ -9400,6 +9475,7 @@ var ROUTES = [
   configRoute,
   putConfigRoute,
   statusRoute,
+  logsRoute,
   listAccountsRoute,
   bindingsRoute,
   putBindingsRoute,

@@ -1,11 +1,13 @@
 /**
- * The six-tab shell (FR-010–FR-019): SDK `mountTabs` over six bodies, mount on first activation, idempotent but Status.
+ * The tab shell (FR-010–FR-019): SDK `mountTabs` over all bodies,
+ * mount on first activation, idempotent but the cadence tabs.
  */
 
 import { mountTabs } from '@openchamber/sdk/ui';
 import type { TabsHandle } from '@openchamber/sdk/ui';
-import { STATUS_TAB, TAB_IDS } from './panel-state.ts';
+import { LOGS_TAB, STATUS_TAB, TAB_IDS } from './panel-state.ts';
 import type { PanelRuntime, TabId } from './panel-state.ts';
+import { loadLogs, stopLogsRefresh } from './logs-tab.ts';
 import { loadStatus, stopStatusRefresh } from './status-tab.ts';
 
 export type TabDisposer = () => void;
@@ -34,6 +36,25 @@ export interface TabShell {
     associate(): void;
     dispose(): void;
 }
+
+/**
+ * One cadence tab's shell duties: stop the tick it armed, issue its read.
+ */
+interface CadenceTab {
+    readonly stop: (rt: PanelRuntime) => void;
+    readonly read: (rt: PanelRuntime) => Promise<void>;
+}
+
+/**
+ * The tabs that own a repeating read (FR-014 as amended, FR-100): each reads
+ * on activation and on re-activation, and its own tick is stopped the moment
+ * another tab takes over. One table rather than a special case per cadence
+ * tab, so the rule is spelled once as the tab set grows (010 FR-005).
+ */
+const CADENCE_TABS: ReadonlyMap<TabId, CadenceTab> = new Map<TabId, CadenceTab>([
+    [STATUS_TAB, { stop: stopStatusRefresh, read: loadStatus }],
+    [LOGS_TAB, { stop: stopLogsRefresh, read: loadLogs }],
+]);
 
 /**
  * Create the body region: one container per tab, in strip order. The region
@@ -87,7 +108,7 @@ function associate(input: {
 }): void {
     const { root, specs, bodies } = input;
     for (const spec of specs) {
-        // eslint-disable-next-line unicorn/require-css-escape -- `TabId` is six literals; escape is the identity.
+        // eslint-disable-next-line unicorn/require-css-escape -- `TabId` is fixed literals; escape is the identity.
         const tab = root.querySelector(`[role="tab"][data-id="${spec.id}"]`);
         tab?.setAttribute('id', `oc-tab-${spec.id}`);
 
@@ -162,22 +183,21 @@ function createActivation(input: {
             return;
         }
 
-        // Leaving Status disarms the tick **before** anything else runs, so the
-        // window between the click and the next repaint is one in which a
-        // backgrounded tab can still issue a read (FR-100).
-        if (id !== STATUS_TAB && rt.activeTab === STATUS_TAB) {
-            stopStatusRefresh(rt);
+        // Leaving a cadence tab disarms its tick **before** anything else
+        // runs, so the window between the click and the next repaint is one
+        // in which a backgrounded tab can still issue a read (FR-100).
+        if (id !== rt.activeTab) {
+            CADENCE_TABS.get(rt.activeTab)?.stop(rt);
         }
 
         if (id === rt.activeTab) {
-            // Re-activating the tab that already shows stays a no-op on the five
-            // tabs that own no cadence, and reads on Status — the exception
-            // FR-014's re-cut made, because a look causes only a read (FR-100).
-            // `loadStatus` refuses to stack behind an in-flight read, so
-            // pressing the tab repeatedly cannot pile requests up.
-            if (id === STATUS_TAB) {
-                void loadStatus(rt);
-            }
+            // Re-activating the tab that already shows stays a no-op on the
+            // tabs that own no cadence, and reads on a cadence tab — the
+            // exception FR-014's re-cut made, because a look causes only a
+            // read (FR-100). Each cadence read refuses to stack behind an
+            // in-flight one, so pressing the tab repeatedly cannot pile
+            // requests up.
+            void CADENCE_TABS.get(id)?.read(rt);
 
             return;
         }
@@ -187,12 +207,11 @@ function createActivation(input: {
         mountOnce(mountInput, id);
         paint();
 
-        // Switching *to* Status reads immediately, for the same reason: the tab
-        // the operator just asked for answers from a fresh read rather than
-        // from whatever was on screen when they left it (FR-100).
-        if (id === STATUS_TAB) {
-            void loadStatus(rt);
-        }
+        // Switching *to* a cadence tab reads immediately, for the same
+        // reason: the tab the operator just asked for answers from a fresh
+        // read rather than from whatever was on screen when they left it
+        // (FR-100).
+        void CADENCE_TABS.get(id)?.read(rt);
     };
 
     const mountActive = (): void => mountOnce(mountInput, rt.activeTab);
@@ -231,7 +250,7 @@ function disposeShell(input: {
 }
 
 /**
- * Mount the six-tab strip and its body region under the panel root.
+ * Mount the tab strip and its body region under the panel root.
  */
 export function mountTabShell(input: {
     readonly rt: PanelRuntime;

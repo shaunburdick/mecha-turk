@@ -88,8 +88,8 @@ site hex appears anywhere in the panel stylesheet.
 
 ## How each surface expresses it
 
-**Panel** — the six-tab shell (Status, Dispatches, Bindings, Accounts,
-Settings, About) keeps its structure, copy, state cues, and controls: grouped
+**Panel** — the tab shell (Status, Dispatches, Bindings, Accounts,
+Settings, About, Logs) keeps its structure, copy, state cues, and controls: grouped
 blocks with monospace field-label headings, corner ticks in the accent, a fixed
 drafting grid behind the content, hairline rules, and state chips that always
 pair colour with a label. `src/style.ts` still supplies the reusable
@@ -111,7 +111,7 @@ own horizontal scroller.
   page-level horizontal scroll, the title stays inside the frame (it clamps
   below ~409px so the longest word fits), and wide tables scroll only inside
   themselves. Breakpoints are `46rem` and `30rem`.
-- **Panel**: all six tabs captured at 720px and 560px, and keyboard-reviewed at
+- **Panel**: all tabs captured at 720px and 560px, and keyboard-reviewed at
   560px and 320px in host light, host dark, and the alias-unavailable fixture —
   no sideways body scroll, no clipped text, no obscured control.
 

@@ -44,7 +44,7 @@ const FOLLOW_UPS_HEADING = 'Follow-ups';
 /**
  * The tab title: the heading of the block every Status control lives in.
  *
- * One rule across the six tabs (product-owner review 2026-10-01) — the tab
+ * One rule across all tabs (product-owner review 2026-10-01) — the tab
  * title is the first block's heading, and the controls sit inside that block
  * rather than floating in the body above it.
  */
@@ -420,7 +420,7 @@ export function mountStatusTab(input: {
     readonly parent: HTMLElement;
 }): StatusTabUi {
     const { rt, parent } = input;
-    // One rule across the six tabs: the tab title is the
+    // One rule across all tabs: the tab title is the
     // first block's heading, and the tab's controls live inside that block.
     // The two blocking notices go in with them own order — the
     // blocking facts still come before anything that could read as healthy.

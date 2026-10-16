@@ -1,14 +1,14 @@
 /**
- * The six-tab shell (005 T-008; FR-010–FR-017, FR-082).
+ * The tab shell (005 T-008; FR-010–FR-017, FR-082).
  *
  * The suite drives `mountTabShell` against the panel's own DOM double and a
- * strip double that honours the SDK contract `mountTabs` publishes — six
+ * strip double that honours the SDK contract `mountTabs` publishes —
  * `role="tab"` buttons with `data-id`, `aria-selected`, a roving `tabIndex`,
  * and an `update()` that repaints them. Selection *semantics* (the arrow-key
  * walk, the roving focus) are the SDK's own; what this file proves is that the
- * shell hands the SDK the right six items in the right order, repaints after
+ * shell hands the SDK the right items in the right order, repaints after
  * every activation, re-stamps the tab↔body association the SDK does not emit,
- * mounts each body exactly once, and releases all six on teardown.
+ * mounts each body exactly once, and releases every body on teardown.
  *
  * The strip is replaced through `vi.mock` rather than through a seam in the
  * production API: the shell's own signature stays exactly what the app calls.
@@ -23,6 +23,7 @@ import type { TabSpec } from '../src/tabs.ts';
 import { createTestRuntime, fakeHost } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
 import type { FakeElement } from './support/dom.ts';
+import { TAB_CONTRACT_LABELS } from './support/tab-contract.ts';
 
 /** What the strip double recorded; hoisted so the mock can write to it. */
 const strip = vi.hoisted(() => ({
@@ -94,9 +95,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     };
 });
 
-/** The FR-010 labels, in the order the shell must mount them. */
-const LABELS = ['Status', 'Dispatches', 'Bindings', 'Accounts', 'Settings', 'About'];
-
 /** One read stamp the read-state assertions use. */
 const STAMP = '2026-09-28T12:00:00.000Z';
 
@@ -111,7 +109,7 @@ interface CountedSpec {
 }
 
 /**
- * Build the six specs with counting mounters.
+ * Build all specs with counting mounters.
  *
  * @returns The specs in strip order, plus the counters the tests read.
  */
@@ -123,7 +121,7 @@ function countedSpecs(): { readonly specs: readonly TabSpec[]; readonly counts: 
             disposals: 0,
             spec: {
                 id,
-                label: LABELS[TAB_IDS.indexOf(id)] ?? id,
+                label: TAB_CONTRACT_LABELS[TAB_IDS.indexOf(id)] ?? id,
                 mount: () => {
                     record.mounts += 1;
 
@@ -192,13 +190,13 @@ function regionOf(root: FakeElement): FakeElement | undefined {
     return root.children.find((node) => node.attribute('data-body-region') === 'true');
 }
 
-describe('mountTabShell (the six-tab shell, 005 FR-010)', () => {
-    it('mounts six tabs in FR-010 order with Status active', () => {
+describe('mountTabShell (the tab shell, 005 FR-010)', () => {
+    it('mounts all tabs in FR-010 order with Status active', () => {
         {
             const { rt, root, counts } = mountShell();
 
-            expect(strip.labels).toEqual(LABELS);
-            expect(strip.buttons).toHaveLength(6);
+            expect(strip.labels).toEqual(TAB_CONTRACT_LABELS);
+            expect(strip.buttons).toHaveLength(7);
             expect(rt.activeTab).toBe('status');
             const idleIds = TAB_IDS.filter((tab) => tab !== 'status');
             expect(bodyOf(root, 'status')?.hidden).toBe(false);
@@ -298,7 +296,7 @@ describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
                 rt.shell?.activate(id);
             }
 
-            expect(rt.tabMounted.size).toBe(6);
+            expect(rt.tabMounted.size).toBe(7);
             for (const id of TAB_IDS) {
                 expect(counts.get(id)?.mounts).toBe(1);
             }
@@ -310,7 +308,7 @@ describe('mountTabShell activation (005 FR-013, FR-014, FR-016)', () => {
             rt.shell?.activate('accounts');
 
             for (const id of TAB_IDS) {
-                // eslint-disable-next-line unicorn/require-css-escape -- `id` comes from `TAB_IDS`, six literals.
+                // eslint-disable-next-line unicorn/require-css-escape -- `id` comes from `TAB_IDS`, fixed literals.
                 const tab = root.querySelector(`[role="tab"][data-id="${id}"]`);
                 const body = bodyOf(root, id);
                 expect(tab?.attribute('id')).toBe(`oc-tab-${id}`);

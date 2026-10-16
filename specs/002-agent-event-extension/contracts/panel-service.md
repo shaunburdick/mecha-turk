@@ -100,12 +100,15 @@ Panel-side mapping of host transport errors: `NO_SERVICE` → "service not appro
 
 ### 2.5 Queries for the panel
 
+> **Added 2026-10-16 (010-observability, issue #53) — one new read row below, and no other operation.** The row reads memory rather than the store, inherits §1's bearer authentication and 256 000-char response guard unchanged (an over-large answer is `500 response-too-large`, never truncated), and answers §4's `422 validation` on a malformed `cursor` with the received value never echoed; it is attributed to 010, not to a 002 version bump, and no existing route, member, status code, or error code changes meaning.
+
 | Method | Path | Response |
 | --- | --- | --- |
 | `GET` | `/v1/runs?state=&limit=&cursor=` | Paginated runs (default limit 25, max 50) with source link, policy decision, state, correlation id (SC-006) |
 | `GET` | `/v1/runs/:runKeyHash` | One run incl. SessionRef + attempts |
 | `GET` | `/v1/audit?correlationId=&entity=&limit=&cursor=` | Paginated AuditEntry rows (default 100, max 200) — **read-only**; append-only on disk |
 | `GET` | `/v1/deliveries?bindingId=&state=&limit=` | Diagnostics for the Runs/Health views (bounded, redacted content only) |
+| `GET` | `/v1/logs?cursor=&limit=` | `{ entries: [{ seq, line }], startedAt, intervalMs }` — absent/blank `cursor` answers the newest `limit` entries (default 200, clamped 1–1 000), present answers `seq > cursor` ascending; **read-only**, a read of memory not the store (010 FR-002) |
 
 ## 3. Invariants asserted by contract tests
 

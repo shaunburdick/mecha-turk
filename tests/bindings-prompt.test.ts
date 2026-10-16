@@ -5,7 +5,7 @@
  *
  * Four promises are asserted here:
  *
- * 1. **T-032 / SC-105 / AC-123** — mounting all six tab bodies over a seeded
+ * 1. **T-032 / SC-105 / AC-123** — mounting all tab bodies over a seeded
  *    **global**, **account**, and **binding** prompt (three distinct
  *    sentinels) and counting every element whose current props carry each one
  *    answers **one** for each — the count that fails at zero (the site
@@ -42,6 +42,7 @@ import { bindingRows } from '../src/bindings-rows.ts';
 import { PROMPT_GUIDANCE, PROMPT_NOT_SET, STARTING_PROMPT_LABEL } from '../src/bindings-prompt.ts';
 import { stopRelayPolling } from '../src/relay.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
+import { TAB_IDS } from '../src/panel-state.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import type { PanelBinding } from '../src/bindings-service.ts';
@@ -53,7 +54,7 @@ import { fixtureBindingRow } from './support/binding-fixture.ts';
 import { propsOf } from './support/ui-stubs.ts';
 
 /**
- * Every SDK mount the six tab bodies performed, and the props it carried.
+ * Every SDK mount the tab bodies performed, and the props it carried.
  *
  * Hoisted so the `vi.mock` factory below can write to it while the module
  * graph is still being evaluated — the same reason `tests/app.test.ts`
@@ -152,9 +153,6 @@ const OTHER_ID = 'bnd-other';
 
 /** Body the unrouted paths answer with. */
 const UNROUTED = '{"error":{"code":"not-found","message":"unrouted"}}';
-
-/** Tabs FR-010 puts in the strip, so SC-105 really is cross-tab. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
 
 /** The service's field-level refusal, exactly as the prompt route answers it. */
 const REFUSAL = JSON.stringify({
@@ -419,7 +417,7 @@ function elementsCarrying(sentinel: string): readonly { readonly key: string }[]
     return carrying;
 }
 
-describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six tabs', () => {
+describe('T-032 / SC-105 / AC-123 one rendering per tier value across all tabs', () => {
     it('counts exactly one element carrying each tier sentinel', async () => {
         // Each tier is opened the way an operator opens it: the binding row
         // click loads that binding's text into the editor, the account row
@@ -454,7 +452,7 @@ describe('T-032 / SC-105 / AC-123 one rendering per tier value across all six ta
             // its read the same way).
             await tick();
 
-            // Not vacuous: the six bodies really mounted, and a text field is
+            // Not vacuous: all bodies really mounted, and a text field is
             // among them rather than an empty journal agreeing with itself.
             expect(mounts.log.length).toBeGreaterThan(TAB_IDS.length);
             expect(mounts.log.some((entry) => entry.key === TEXT_FIELD)).toBe(true);

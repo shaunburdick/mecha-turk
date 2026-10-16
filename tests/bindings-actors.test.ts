@@ -13,7 +13,7 @@
  *    manufactured, and a value the service would refuse passes through
  *    untouched.
  * 2. **Count only on a row, and exactly-once panel-wide** (AC-143). Twelve
- *    permitted logins on one binding, all six tabs mounted: each of the twelve
+ *    permitted logins on one binding, all tabs mounted: each of the twelve
  *    strings is carried by **exactly one** element — the editor field — and the
  *    row reads *12 users*. The count is taken from the mounts, not from a source
  *    scan, because a string can sit in the source and never reach the DOM.
@@ -57,7 +57,7 @@ import {
 import { createBindingsHandlers, mountBindingsTabBody } from '../src/bindings-mount.ts';
 import { bindingRows } from '../src/bindings-rows.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
-import { initialBindings } from '../src/panel-state.ts';
+import { TAB_IDS, initialBindings } from '../src/panel-state.ts';
 import { parseStatusView } from '../src/status-document.ts';
 import { actorPolicyLines } from '../src/status-lines.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
@@ -73,7 +73,7 @@ import { FIXTURE_TIMESTAMP, createTestRuntime, fakeHost, tick } from './support/
 import { propsOf } from './support/ui-stubs.ts';
 
 /**
- * Every SDK mount the six tab bodies performed, and the props it carried.
+ * Every SDK mount the tab bodies performed, and the props it carried.
  *
  * Hoisted so the `vi.mock` factory can write to it while the module graph is
  * still being evaluated, and recorded per **primitive and per mount** so a
@@ -198,9 +198,6 @@ const REFUSAL = JSON.stringify({
 
 /** The clause a row carries when its binding has no allow-list (FR-092). */
 const OPEN_ROW = 'open to anyone';
-
-/** The tabs FR-010 puts in the strip, so SC-113 really is cross-tab. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
 
 /**
  * The three words no surface may use about a binding the service has not
@@ -706,7 +703,7 @@ describe('AC-143 twelve permitted logins render exactly once, and the row reads 
             }
             await tick();
 
-            // Not vacuous: the six bodies really mounted, and a text field is
+            // Not vacuous: all bodies really mounted, and a text field is
             // among them rather than an empty journal agreeing with itself.
             expect(mounts.log.length).toBeGreaterThan(TAB_IDS.length);
             expect(mounts.log.some((entry) => entry.key === TEXT_FIELD)).toBe(true);

@@ -141,8 +141,8 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
 vi.mock('../src/tab-bodies.ts', async (importOriginal) => {
     const actual = await importOriginal<typeof tabBodies>();
-    // Local to the factory: module bindings are not initialized yet when it runs.
-    const ids: readonly TabId[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'];
+    // Imported here, not at the top: a mock factory runs before module bindings initialize.
+    const { TAB_IDS: ids } = await import('../src/panel-state.ts');
 
     return {
         ...actual,

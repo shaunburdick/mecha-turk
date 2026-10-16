@@ -1,10 +1,10 @@
 /**
- * Rendering, accessibility, and containment for the six tabs (005 T-030;
+ * Rendering, accessibility, and containment for the tabs (005 T-030;
  * FR-080–FR-085, NFR-101, NFR-107).
  *
  * This is the cross-cutting half of 005's proof: where a tab's own suite
  * proves that tab's copy, this file proves the rules that only mean anything
- * **across all six** at once:
+ * **across all tabs** at once:
  *
  * - **FR-080** no HTML sink anywhere, and a hostile `<img onerror>` title,
  *   login, or reason arrives at the SDK as the string it is;
@@ -35,10 +35,12 @@ import { persistLedger } from '../src/panel-actions.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import type { AccountScopeMatrix, PanelAccount, PanelBinding } from '../src/bindings-service.ts';
+import { TAB_IDS } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { RunRow } from '../src/dispatches-service.ts';
 import { fakeDom } from './support/dom.ts';
 import { createStorageDouble, createTestRuntime, fakeHost, tick } from './support/panel.ts';
+import { TAB_CONTRACT_LABELS } from './support/tab-contract.ts';
 import { stringsIn } from './support/ui-stubs.ts';
 
 /** Props every SDK mount received, so "what rendered" can be asserted. */
@@ -70,28 +72,23 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** The six tabs FR-010 puts in the strip, in strip order. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
-
-/** The FR-010 label each tab id carries in the strip. */
-function labelOf(id: (typeof TAB_IDS)[number]): string {
-    const labels: Record<(typeof TAB_IDS)[number], string> = {
-        status: 'Status',
-        dispatches: 'Dispatches',
-        bindings: 'Bindings',
-        accounts: 'Accounts',
-        settings: 'Settings',
-        about: 'About',
-    };
-
-    return labels[id];
-}
-
-/** What the six tabs are being hostile-loaded with (FR-080). */
+/** What the tabs are being hostile-loaded with (FR-080). */
 const HOSTILE = '<img src=x onerror="alert(1)">';
 
 /** Stamp every hostile fixture carries. */
 const FIXTURE_STAMP = '2026-09-28T00:00:00.000Z';
+
+/** The hostile `GET /v1/logs` answer: hostile message and field, plus a line that is not JSON at all. */
+const HOSTILE_LOGS = JSON.stringify({
+    entries: [
+        {
+            seq: 1,
+            line: `${JSON.stringify({ ts: FIXTURE_STAMP, level: 'info', message: HOSTILE, repo: HOSTILE })}\n`,
+        },
+        { seq: 2, line: 'plainly not a JSON line\n' },
+    ],
+    startedAt: 1_700_000_000_000,
+});
 
 /** Correlation id of the hostile dispatch row. */
 const RUN_ID = 'mt-run-hostile';
@@ -205,8 +202,8 @@ function hostileRun(): RunRow {
     };
 }
 
-/** What one six-tab render recorded. */
-interface SixTabs {
+/** What one all-tabs render recorded. */
+interface AllTabs {
     /** The runtime the tabs mounted against. */
     readonly rt: PanelRuntime;
     /** Every string the SDK mounts were handed, in order. */
@@ -218,25 +215,29 @@ interface SixTabs {
 }
 
 /**
- * Mount all six tabs against hostile fixtures and collect everything.
+ * Mount all tabs against hostile fixtures and collect everything.
  *
  * @returns The strings, the requests, and the mount records.
  */
-async function renderSixTabs(input: {
-    /** Answers for `host.serviceRequest`; defaults to the neutral 404. */
+async function renderAllTabs(input: {
+    /** Answers for `host.serviceRequest`; defaults to the hostile logs answer over the neutral 404. */
     readonly answer?: (request: GuestRequest) => GuestRequestResult | Promise<GuestRequestResult>;
     /** State to arrange before the tabs mount. */
     readonly setup?: (rt: PanelRuntime) => void;
-} = {}): Promise<SixTabs> {
+} = {}): Promise<AllTabs> {
     mounts.log.length = 0;
     const requests: GuestRequest[] = [];
     const host = fakeHost({
         serviceRequest: async (request) => {
             requests.push(request);
 
-            return input.answer === undefined
-                ? { status: 404, body: UNROUTED }
-                : await input.answer(request);
+            if (input.answer !== undefined) {
+                return await input.answer(request);
+            }
+
+            return request.path.startsWith('/v1/logs')
+                ? { status: 200, body: HOSTILE_LOGS }
+                : { status: 404, body: UNROUTED };
         },
     });
     const rt = createTestRuntime(host);
@@ -261,11 +262,11 @@ async function renderSixTabs(input: {
     return { rt, strings, requests, log };
 }
 
-describe('FR-080 / NFR-101 the six tabs render through the text path only', () => {
+describe('FR-080 / NFR-101 the tabs render through the text path only', () => {
 
     it('hands a hostile title, login, and reason to the SDK as text', async () => {
         {
-            const rendered = await renderSixTabs();
+            const rendered = await renderAllTabs();
             const text = rendered.strings.join('\n');
 
             // The fixtures really were hostile, and they arrived verbatim as
@@ -283,7 +284,7 @@ describe('FR-080 / NFR-101 the six tabs render through the text path only', () =
 describe('FR-081 every control and row action has an accessible name', () => {
     it('gives every button, field, select, banner, and list a name', async () => {
         {
-            const rendered = await renderSixTabs();
+            const rendered = await renderAllTabs();
             const namedKinds = new Set(['mountButton', 'mountTextField', 'mountSelect', 'mountBanner', 'mountList']);
             const named = rendered.log.filter((entry) =>
                 entry.key.startsWith('mount') && !entry.key.includes(':') && namedKinds.has(entry.key));
@@ -302,13 +303,13 @@ describe('FR-081 every control and row action has an accessible name', () => {
 
     it('names every tab in the strip and every row in a list', async () => {
         {
-            const rendered = await renderSixTabs();
+            const rendered = await renderAllTabs();
             const strip = rendered.log.find((entry) => entry.key === 'mountTabs');
             const items = (strip?.props as { readonly items?: readonly { readonly label?: string }[] }).items ?? [];
 
             const listMounts = rendered.log.filter((candidate) => candidate.key === 'mountList');
 
-            expect(items.map((item) => item.label)).toEqual([...TAB_IDS].map((id) => labelOf(id)));
+            expect(items.map((item) => item.label)).toEqual(TAB_CONTRACT_LABELS);
 
             for (const entry of listMounts) {
                 const props = entry.props as {
@@ -341,7 +342,7 @@ describe('FR-081 every control and row action has an accessible name', () => {
 describe('FR-083 state is carried by text as well as colour', () => {
     it('gives every banner a title, and every state banner a body too', async () => {
         {
-            const rendered = await renderSixTabs();
+            const rendered = await renderAllTabs();
             const banners = rendered.log.filter((entry) => entry.key === 'mountBanner');
 
             expect(banners.length).toBeGreaterThan(0);
@@ -363,7 +364,7 @@ describe('FR-083 state is carried by text as well as colour', () => {
 
     it('says the state in words the operator can read', async () => {
         {
-            const rendered = await renderSixTabs();
+            const rendered = await renderAllTabs();
             const text = rendered.strings.join('\n');
 
             // At least one state word is on screen in the default mount, so the
@@ -425,7 +426,7 @@ describe('FR-084 irreversible actions arm first, and confirm() does not exist', 
 
     it('states the cascade in words on the row itself', async () => {
         {
-            const rendered = await renderSixTabs({
+            const rendered = await renderAllTabs({
                 setup: (rt) => {
                     armAccountRemoval(rt, '77331');
                     rt.state.accounts.selected = '77331';
@@ -444,7 +445,7 @@ describe('FR-085 a refusal names its cause and never echoes the value', () => {
     it('keeps a refused credential-shaped display name out of the render', async () => {
         {
             const token = `ghp_${'refusald'.repeat(3)}`;
-            const rendered = await renderSixTabs({
+            const rendered = await renderAllTabs({
                 answer: () => ({ status: 422, body: JSON.stringify({
                     error: { code: 'validation', message: 'displayName: this value looks like a credential' },
                 }) }),

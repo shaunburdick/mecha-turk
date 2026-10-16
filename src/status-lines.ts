@@ -432,20 +432,22 @@ export interface CadenceLineInput {
      * armed from unarmed would have no honest value to return.
      */
     readonly refreshMs: number | null;
+    /** The label of this tab's manual-read control, which the interval-less sentence names. */
+    readonly refreshLabel?: string;
 }
 
 /**
  * Render the tab's own refresh cadence in words (005 FR-101): one statement,
  * the same whatever caused the read, because a page whose values move with no
  * stated reason is a page an operator cannot trust to be current (NFR-111).
- * With no tick armed it says *not refreshing itself* and names
- * `Refresh status` — never a plausible period the panel holds no default for
- * (NFR-112) — rendered as text rather than colour (FR-083).
+ * With no tick armed it says *not refreshing itself* and names the caller's
+ * manual-read control — never a plausible period the panel holds no default
+ * for (NFR-112) — rendered as text rather than colour (FR-083).
  */
 export function cadenceLine(input: CadenceLineInput): string {
     if (input.refreshMs === null) {
         return 'This tab is not refreshing itself — no interval has been read, so it '
-            + 'refreshes only when you ask. Use Refresh status.';
+            + `refreshes only when you ask. Use ${input.refreshLabel ?? 'Refresh status'}.`;
     }
 
     return `This tab re-reads itself every ${periodText(input.refreshMs)}.`;

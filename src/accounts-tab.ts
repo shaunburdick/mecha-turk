@@ -240,7 +240,7 @@ export function mountAccountsBody(input: {
 
     // Three blocks: how an account arrives, which ones are here, and what the
     // open row's own controls do to it. The first carries the tab title (one
-    // rule across the six tabs, 2026-10-01). The third block *is* the detail
+    // rule across all tabs, 2026-10-01). The third block *is* the detail
     // wrapper, so hiding it hides its heading too — a heading over an empty
     // region would be worse than no region at all.
     const connectBlock = createBlock(pane, { heading: CONNECT_HEADING, title: true });

@@ -19,6 +19,7 @@ import { createLogger } from '../../service/log.ts';
 import { startService } from '../../service/server.ts';
 import type { GitHubVerifier } from '../../service/github.ts';
 import type { GitHubIssuePoller } from '../../service/poll/poller-github.ts';
+import type { ServiceLogger } from '../../service/log.ts';
 import type { ServiceHandle } from '../../service/server.ts';
 import { offlinePoller, offlineVerifier } from './github.ts';
 import { removeTempTree } from './temp-tree.ts';
@@ -73,6 +74,8 @@ export interface TestService {
     readonly dataDir: string;
     /** Lines the capturing logger has received, in order. */
     readonly logLines: readonly string[];
+    /** The running instance's own logger: its `retained()` ring is the process's emissions. */
+    readonly log: ServiceLogger;
     /** Handle to the running instance (port, store, shutdown). */
     readonly handle: ServiceHandle;
     /** `fetch` with the bearer token already attached. */
@@ -128,6 +131,7 @@ export async function startTestService(options: StartTestServiceOptions = {}): P
         token,
         dataDir,
         logLines,
+        log,
         handle,
         call: async (path, init = {}) =>
             await fetch(`${baseUrl}${path}`, {

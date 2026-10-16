@@ -1,5 +1,5 @@
 /**
- * Containment, upgrade, and posture proof for the six tabs (005 T-032;
+ * Containment, upgrade, and posture proof for the tabs (005 T-032;
  * FR-002, FR-004, FR-005, FR-023, FR-025, FR-026, FR-027, FR-079, FR-086,
  * AC-129, AC-138, NFR-102, NFR-103).
  *
@@ -37,6 +37,7 @@ import { loadLedger } from '../src/app.ts';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
+import { TAB_IDS } from '../src/panel-state.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { fakeDom } from './support/dom.ts';
 import { tick } from './support/panel.ts';
@@ -73,9 +74,6 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 
     return stubbed;
 });
-
-/** The six tabs FR-010 puts in the strip, in strip order. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
 
 /** Stamp the legacy rows carry. */
 const STAMP = '2026-09-20T12:00:00.000Z';

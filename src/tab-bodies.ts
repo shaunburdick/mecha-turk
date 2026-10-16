@@ -1,5 +1,5 @@
 /**
- * The six tab bodies, in 005 FR-010's order: the shell owns *when* a body
+ * The tab bodies, in 005 FR-010's order: the shell owns *when* a body
  * appears, this module owns *what* appears in each one — every mount maps an
  * existing surface onto a container, each body mounts once and stays mounted
  * (FR-013), and each owns its own read and its own disposer.
@@ -9,6 +9,7 @@ import { createAccountsHandlers, mountAccountsBody as mountAccountsTab } from '.
 import { disposeAboutTab, mountAboutTab } from './about-tab.ts';
 import { createBindingsHandlers, mountBindingsTabBody } from './bindings-mount.ts';
 import { disposeDispatchesBoard, mountDispatchesBoard } from './dispatches-ui.ts';
+import { disposeLogsTab, mountLogsTab } from './logs-tab.ts';
 import type { PanelRuntime } from './panel-state.ts';
 import { mountPrerequisitesSection } from './prerequisites.ts';
 import { disposeSettingsTab, mountSettingsTab } from './settings-tab.ts';
@@ -107,7 +108,16 @@ function mountAboutBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
 }
 
 /**
- * The six tab bodies order.
+ * The Logs body: the retained stream and its cadence controls.
+ */
+function mountLogsBody(rt: PanelRuntime, body: HTMLElement): TabDisposer {
+    mountLogsTab({ rt, parent: body });
+
+    return () => disposeLogsTab(rt);
+}
+
+/**
+ * The tab bodies order.
  */
 // eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export function tabSpecs(rt: PanelRuntime): readonly TabSpec[] {
@@ -118,5 +128,6 @@ export function tabSpecs(rt: PanelRuntime): readonly TabSpec[] {
         { id: 'accounts', label: 'Accounts', mount: (body) => mountAccountsBody(rt, body) },
         { id: 'settings', label: 'Settings', mount: (body) => settingsSpec(rt, body) },
         { id: 'about', label: 'About', mount: (body) => mountAboutBody(rt, body) },
+        { id: 'logs', label: 'Logs', mount: (body) => mountLogsBody(rt, body) },
     ];
 }

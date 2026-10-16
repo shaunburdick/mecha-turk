@@ -15,22 +15,13 @@ import { createBrowser } from './browser.js';
 import { align, assertLayout, bodyView, fitViewport, measure, MIN_VIEWPORT_HEIGHT, ROOT_PAD } from './layout.js';
 import { selfTest } from './png-selftest.js';
 import { startServer } from './serve.js';
+import { tabs as TABS } from './tabs.js';
 import { DARK, FALLBACK, FIXTURES, LIGHT } from './theme-fixtures.js';
 import { percent, verifyDelivered, verifyProbe } from './verify.js';
 
-/** The six tabs, in the strip's own order (FR-010). */
-const TABS = [
-    { id: 'status', label: 'Status' },
-    { id: 'dispatches', label: 'Dispatches' },
-    { id: 'bindings', label: 'Bindings' },
-    { id: 'accounts', label: 'Accounts' },
-    { id: 'settings', label: 'Settings' },
-    { id: 'about', label: 'About' },
-];
-
 /**
- * Sentinel colours: 0 proves the capture path, 1–6 a default-width tab, 7–12 the same tab at the
- * narrow width, 13 the full page — one per capture so a probe from an earlier step cannot
+ * Sentinel colours: 0 proves the capture path, 1–7 a default-width tab, 8–14 the same tab at the
+ * narrow width, 15 the full page — one per capture so a probe from an earlier step cannot
  * masquerade as the frame just asked for, and `verifyDelivered` refuses a delivered image
  * carrying *any* of them.
  */
@@ -49,16 +40,18 @@ const PROBE_COLORS = [
     '#00ffc8',
     '#ff0095',
     '#4d7aff',
+    '#b8860b',
+    '#9400d3',
 ];
 
-/** Sentinel colour for a tab's default-width frame (1–6). */
+/** Sentinel colour for a tab's default-width frame (1–7). */
 const WIDE_COLOR = 1;
 
 /** Sentinel colour for a tab's narrow frame, `WIDE_COLOR + tabs` apart. */
-const NARROW_COLOR = 7;
+const NARROW_COLOR = WIDE_COLOR + TABS.length;
 
-/** Sentinel colour for the full-height frame. */
-const FULL_COLOR = 13;
+/** Sentinel colour for the full-height frame, past both tab bands. */
+const FULL_COLOR = WIDE_COLOR + 2 * TABS.length;
 
 /**
  * The harness fixture document, read once for the scene table. A scene's **delta** lives in
@@ -122,7 +115,7 @@ const DEFAULT_OUT_DIR = join(import.meta.dirname, '..', '..', 'screenshots');
 /** Usage the `--help` flag prints. */
 const USAGE = [
     'usage: node tools/visual/shot.js [tab …] [--out DIR] [--width PX] [--max-height PX]',
-    `       tabs: ${TABS.map((entry) => entry.id).join(', ')} (default: all six)`,
+    `       tabs: ${TABS.map((entry) => entry.id).join(', ')} (default: all tabs)`,
     `       scenes: ${Object.keys(SCENES).join(', ') || 'none'} (--scene NAME; default: the base fixture)`,
     `       fixtures: ${PHOTOGRAPHABLE.join(', ')} (--fixture NAME; default: ${DEFAULT_FIXTURE})`,
     `                 ${FALLBACK} is measured through the harness, never photographed: its selected`,
@@ -410,7 +403,7 @@ async function captureTab(input) {
 
 /**
  * Capture the whole panel at its full scroll height, strip included. The tab is selected first:
- * the six tab captures leave the last one active, so measuring any other body would measure a box
+ * the tab captures leave the last one active, so measuring any other body would measure a box
  * that is not there.
  */
 async function captureFull(input) {

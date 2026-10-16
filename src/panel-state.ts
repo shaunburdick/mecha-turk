@@ -31,6 +31,8 @@ import { initialSettingsTab } from './settings-tab.ts';
 import type { SettingsTabState, SettingsTabUi } from './settings-tab.ts';
 import { initialAboutTab } from './about-tab.ts';
 import type { AboutTabState, AboutTabUi } from './about-tab.ts';
+import { initialLogs } from './logs-tab.ts';
+import type { LogsTabState, LogsTabUi } from './logs-tab.ts';
 import type { TabShell } from './tabs.ts';
 import type { PanelUi } from './panel-ui.ts';
 
@@ -52,23 +54,27 @@ import { initialDispatchFilters, initialDispatchListPage } from './dispatch-page
 import type { DispatchFilters, DispatchListPage } from './dispatch-page.ts';
 
 /**
- * The six top-level surfaces, in strip order.
+ * The top-level surfaces, in strip order.
  *
  * A closed union: the shell constructs every value that reaches it, so an
  * unknown id can never arrive and there is no passthrough branch.
  */
-export type TabId = 'status' | 'dispatches' | 'bindings' | 'accounts' | 'settings' | 'about';
+export type TabId = 'status' | 'dispatches' | 'bindings' | 'accounts' | 'settings' | 'about' | 'logs';
 
 /** Every {@link TabId}, in strip order — the strip's declaration (FR-010). */
-export const TAB_IDS: readonly TabId[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'];
+export const TAB_IDS: readonly TabId[] = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'];
 
 /**
- * The tab that owns a repeating read, and the only one (005 FR-100): named
- * rather than spelled at each comparison because two modules have to agree on
- * it — `status-tab.ts` arms the refresh tick only while this tab is active,
- * and a panel that armed for a hidden tab would repaint a background body.
+ * A cadence tab (005 FR-100): a tab that owns a repeating read,
+ * named rather than spelled at each comparison because two modules have to
+ * agree on it — `status-tab.ts` arms the refresh tick only while this tab is
+ * active, and a panel that armed for a hidden tab would repaint a background
+ * body.
  */
 export const STATUS_TAB: TabId = 'status';
+
+/** The Logs cadence tab (010 FR-005): named so `tabs.ts` and `logs-tab.ts` agree on it the same way. */
+export const LOGS_TAB: TabId = 'logs';
 
 export interface PanelStatus {
     readonly tone: BannerTone;
@@ -156,6 +162,8 @@ export interface PanelState {
     settingsTab: SettingsTabState;
     /** The About tab's version read (FR-074, FR-078). */
     aboutTab: AboutTabState;
+    /** The Logs tab's held stream, read state, and restart note (010 FR-004, FR-006). */
+    logsTab: LogsTabState;
     /** Event-relay loop state (M4). */
     relay: Relay;
 }
@@ -212,7 +220,7 @@ export interface PanelRuntime {
     ui: PanelUi | null;
     handoffView: HandoffView | null;
     /**
-     * The six-tab shell the panel root owns.
+     * The tab shell the panel root owns.
      *
      * `null` before `mountTabShell` runs and after teardown, so a headless
      * runtime (orchestration tests) never has to know about tabs.
@@ -224,6 +232,7 @@ export interface PanelRuntime {
     statusUi: StatusTabUi | null;
     settingsUi: SettingsTabUi | null;
     aboutUi: AboutTabUi | null;
+    logsUi: LogsTabUi | null;
     disposed: boolean;
     started: boolean;
     /**
@@ -249,6 +258,14 @@ export interface PanelRuntime {
      * last landed status document carried — or `null` while nothing is armed.
      */
     statusRefreshMs: number | null;
+    /**
+     * The Logs tab's refresh tick: its handle, or `null` while nothing is
+     * armed — the same two-slots-for-one-fact rule as `statusRefreshTimer`
+     * (010 FR-005, NFR-112).
+     */
+    logsRefreshTimer: ReturnType<typeof setInterval> | null;
+    /** The period that tick runs on — the `intervalMs` the last landed logs answer carried, or `null`. */
+    logsRefreshMs: number | null;
     relayArmed: boolean;
     /**
      * Whether mount-time reconciliation has settled for this runtime: `true`
@@ -351,6 +368,7 @@ function initialState(createdAt: string): PanelState {
         statusTab: initialStatusTab(),
         settingsTab: initialSettingsTab(),
         aboutTab: initialAboutTab(),
+        logsTab: initialLogs(),
         relay: initialRelay(),
     };
 }
@@ -379,6 +397,7 @@ export function createPanelRuntime(
         statusUi: null,
         settingsUi: null,
         aboutUi: null,
+        logsUi: null,
         disposed: false,
         started: false,
         activeTab: STATUS_TAB,
@@ -387,6 +406,8 @@ export function createPanelRuntime(
         pagehideListener: null,
         statusRefreshTimer: null,
         statusRefreshMs: null,
+        logsRefreshTimer: null,
+        logsRefreshMs: null,
         relayArmed: false,
         reconcileSettled: true,
         relayArmPending: false,

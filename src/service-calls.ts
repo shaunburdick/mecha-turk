@@ -61,6 +61,9 @@ export const EVENTS_PATH = '/v1/events';
 
 export const AUDIT_PATH = '/v1/audit';
 
+/** Path of the service's retained log stream (010 FR-002). */
+export const LOGS_PATH = '/v1/logs';
+
 /**
  * Path pattern every run-scoped operation shares.
  *
