@@ -46,7 +46,7 @@ npm run verify    # build -> lint -> typecheck -> test — THE gate, run before 
 npm run build     # bundles panel/main.js (IIFE) + service/main.js (ESM)
 npm test          # vitest, offline
 npm run format    # eslint --fix
-npm run shot      # screenshot all six panel tabs at 720px and 560px into screenshots/
+npm run shot      # screenshot all seven panel tabs at 720px and 560px into screenshots/
 ```
 
 `engines.node` is the *toolchain* floor, not a support statement: the host
@@ -215,7 +215,7 @@ Each module's own header comment says what it is for; read that before
 changing it. The shape:
 
 - `src/` — panel modules, one responsibility each. `app.ts` wires mount,
-  subscribe and teardown; `tabs.ts` and `tab-bodies.ts` own the six-tab
+  subscribe and teardown; `tabs.ts` and `tab-bodies.ts` own the seven-tab
   shell; `status-tab.ts` owns the Status projection's read **and** the refresh
   tick armed from the interval that document reports — Status is the only tab
   with a cadence, and the panel holds no default for it; `relay*.ts` claim a

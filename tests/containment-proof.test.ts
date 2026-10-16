@@ -1,5 +1,5 @@
 /**
- * Containment, upgrade, and posture proof for the six tabs (005 T-032;
+ * Containment, upgrade, and posture proof for the seven tabs (005 T-032;
  * FR-002, FR-004, FR-005, FR-023, FR-025, FR-026, FR-027, FR-079, FR-086,
  * AC-129, AC-138, NFR-102, NFR-103).
  *
@@ -74,8 +74,8 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** The six tabs FR-010 puts in the strip, in strip order. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
+/** The seven tabs FR-010 puts in the strip, in strip order. */
+const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'] as const;
 
 /** Stamp the legacy rows carry. */
 const STAMP = '2026-09-20T12:00:00.000Z';

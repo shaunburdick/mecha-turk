@@ -76,8 +76,8 @@ interface MountRecord {
     readonly props: unknown;
 }
 
-/** The six tabs FR-010 puts in the strip, in strip order. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
+/** The seven tabs FR-010 puts in the strip, in strip order. */
+const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'] as const;
 
 /** Stamp the fixture document's next poll points at. */
 const FUTURE_STAMP = '2099-01-01T00:00:00.000Z';
@@ -141,7 +141,7 @@ const STATUS_BODY = JSON.stringify({
     surface: { supported: true },
 });
 
-/** Section headings every tab mounts, across all six. */
+/** Section headings every tab mounts, across all seven. */
 const SECTION_HEADINGS: readonly string[] = [
     'Service',
     'Polling',
@@ -155,6 +155,7 @@ const SECTION_HEADINGS: readonly string[] = [
     'Configuration',
     'Save',
     'Diagnostics (read-only)',
+    'Stream',
 ];
 
 /** The modifier class naming each list surface's header row. */
@@ -222,11 +223,11 @@ async function answer(request: GuestRequest): Promise<GuestRequestResult> {
 }
 
 /**
- * Mount all six tabs once and collect everything the render produced.
+ * Mount all seven tabs once and collect everything the render produced.
  *
  * @returns The created elements and the recorded SDK mounts.
  */
-async function renderSixTabs(): Promise<{ readonly dom: FakeDom; readonly log: readonly MountRecord[] }> {
+async function renderSevenTabs(): Promise<{ readonly dom: FakeDom; readonly log: readonly MountRecord[] }> {
     mounts.log.length = 0;
     const host = fakeHost({ serviceRequest: answer });
     const rt = createTestRuntime(host);
@@ -249,7 +250,7 @@ async function renderSixTabs(): Promise<{ readonly dom: FakeDom; readonly log: r
 describe('every tab is a stack of blocks with a real heading', () => {
     it('mounts at least one heading per section, and never skips a level', async () => {
         {
-            const { dom } = await renderSixTabs();
+            const { dom } = await renderSevenTabs();
             const levels = dom.created
                 .filter((node) => /^h[1-6]$/.test(node.tagName))
                 .map((node) => Number(node.tagName.slice(1)));
@@ -262,7 +263,7 @@ describe('every tab is a stack of blocks with a real heading', () => {
 
     it('hands each section heading to the SDK text path, so the scans still see it', async () => {
         {
-            const { log } = await renderSixTabs();
+            const { log } = await renderSevenTabs();
             const strings = log.flatMap((entry) => stringsIn(entry.props));
 
             for (const heading of SECTION_HEADINGS) {
@@ -274,7 +275,7 @@ describe('every tab is a stack of blocks with a real heading', () => {
 
 describe('the list surfaces carry the header rows their columns hang from', () => {
     it('mounts a labelled header for each of the four grids', async () => {
-        const { dom } = await renderSixTabs();
+        const { dom } = await renderSevenTabs();
         const heads = dom.created.filter((node) => node.className.startsWith('mt-head mt-head--'));
         const cellsOf = (modifier: string): readonly string[] => {
             const head = heads.find((node) => node.className.includes(modifier));
@@ -381,7 +382,7 @@ describe('the Settings header is hidden over the single-column rail', () => {
 describe('the Status tab renders structure instead of loose lines', () => {
     it('renders definition rows and one card per prerequisite', async () => {
         {
-            const { dom } = await renderSixTabs();
+            const { dom } = await renderSevenTabs();
             const rows = dom.created.filter(
                 (node) => node.className === 'mt-def' || node.className === 'mt-def mt-def--note',
             );
@@ -394,7 +395,7 @@ describe('the Status tab renders structure instead of loose lines', () => {
 
     it('paints the three prerequisite states as toned chips carrying the state', async () => {
         {
-            const { log } = await renderSixTabs();
+            const { log } = await renderSevenTabs();
             const badges = log.filter((entry) => entry.key === 'mountBadge').map(
                 (entry) => entry.props as { readonly label?: string; readonly tone?: string },
             );
@@ -411,7 +412,7 @@ describe('the Status tab renders structure instead of loose lines', () => {
  * The shell paints with the `hidden` attribute; only the cascade can take a
  * body out of the layout. The defect the screenshot harness caught was here:
  * the author rule `[data-body] { display: flex }` outranks the UA sheet's
- * `[hidden]`, so all six bodies stayed in the region, its `scrollHeight` summed
+ * `[hidden]`, so all seven bodies stayed in the region, its `scrollHeight` summed
  * them, and a tab click moved only the pill. The fake DOM this suite mounts
  * into computes no styles, so these assertions read the shipped stylesheet and
  * resolve it instead — and the last case proves the fence is not vacuous.
@@ -419,7 +420,7 @@ describe('the Status tab renders structure instead of loose lines', () => {
 describe('exactly one tab body is in the layout', () => {
     const rules = PANEL_RULES;
 
-    /** The region the six bodies hang from, as `src/tabs.ts` builds it. */
+    /** The region the seven bodies hang from, as `src/tabs.ts` builds it. */
     const region: ProbeElement = {
         tag: 'div',
         attributes: Object.fromEntries([['data-body-region', 'true']]),

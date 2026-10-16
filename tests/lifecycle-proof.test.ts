@@ -1,9 +1,9 @@
 /**
- * Lifecycle proof for the six-tab shell (005 T-031; FR-014, FR-017,
+ * Lifecycle proof for the seven-tab shell (005 T-031; FR-014, FR-017,
  * FR-018, FR-019, AC-136, AC-137, SC-108, NFR-104, NFR-108, NFR-111).
  *
  * The shell's promises are only true *as a whole*, so this suite measures
- * them across all six tabs rather than one at a time:
+ * them across all seven tabs rather than one at a time:
  *
  * - **AC-137** a teardown after visiting every tab returns nodes, timers,
  *   and disposers to their pre-mount values;
@@ -67,8 +67,8 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
     return stubbed;
 });
 
-/** The six tabs FR-010 puts in the strip, in strip order. */
-const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about'] as const;
+/** The seven tabs FR-010 puts in the strip, in strip order. */
+const TAB_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'] as const;
 
 /** Body the unrouted paths answer with. */
 const UNROUTED = '{"error":{"code":"not-found","message":"unrouted"}}';
@@ -97,7 +97,7 @@ interface LifecycleRun {
 }
 
 /**
- * Mount the shell and visit all six tabs against a scripted service.
+ * Mount the shell and visit all seven tabs against a scripted service.
  *
  * @returns The runtime, the root, the requests, and a switch that makes
  *   every later service call fail.
@@ -145,14 +145,14 @@ async function visitAllTabs(): Promise<LifecycleRun> {
 }
 
 describe('AC-137 a teardown returns the panel to its pre-mount counts', () => {
-    it('removes every node, timer, and registry entry after visiting all six', async () => {
+    it('removes every node, timer, and registry entry after visiting all seven', async () => {
         {
             const run = await visitAllTabs();
             const { rt, root } = run;
 
-            // Six bodies mounted, nothing armed: the tabs own no loop and no
+            // Seven bodies mounted, nothing armed: the tabs own no loop and no
             // timer of their own (FR-018 — the relay lives at the root).
-            expect(rt.tabMounted.size).toBe(6);
+            expect(rt.tabMounted.size).toBe(7);
             expect(root.children.length).toBeGreaterThan(0);
             expect(rt.state.relay.timer).toBeNull();
             expect(rt.relayArmed).toBe(false);

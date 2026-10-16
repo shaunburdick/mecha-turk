@@ -35,7 +35,7 @@
              *
              * `#root` is a column flex container, and by default every child
              * of one shrinks as content pushes back — which is exactly how a
-             * tall tab body squeezed the six-tab strip between the banner
+             * tall tab body squeezed the seven-tab strip between the banner
              * block and the content until the tabs stopped being clickable.
              * So: no child of `#root` may give up height except the body
              * region the shell marks (`src/tabs.ts` sets `flex: 1 1 auto`,
@@ -146,7 +146,7 @@
             }
 
             /* ---------------------------------------------------------------- *
-             * Shell: the six tab bodies are stacks of blocks.
+             * Shell: the seven tab bodies are stacks of blocks.
              * ---------------------------------------------------------------- */
 
             [data-body] {
@@ -162,7 +162,7 @@
              * onto the five bodies that are not active — but the UA sheet's
              * `[hidden] { display: none }` is origin-weak, so the author rule
              * above (0,1,0) beats it outright and every body stayed `flex`.
-             * The region's `scrollHeight` then summed all six, a tab click
+             * The region's `scrollHeight` then summed all seven, a tab click
              * moved only the pill, and `npm run shot` photographed a scroll
              * position rather than a selection.
              *
@@ -937,16 +937,16 @@
             }
 
             /*
-             * The six tabs fit at 320px, the narrowest frame the host gives an extension panel.
+             * The seven tabs fit at 320px, the narrowest frame the host gives an extension panel.
              *
-             * Measured: the strip is a horizontal scroller whose six labels, laid out at the SDK's
-             * 11.4px on 10px padding, take 413px of a 314px strip — so the last two tabs were only
-             * reachable by scrolling the strip sideways, and they did not truncate on the way, since
-             * the SDK leaves text-overflow at clip with no max-width. 005 FR-082 asks that no primary
-             * action require horizontal scrolling and that tab labels truncate rather than wrap, so
-             * the labels are given room instead of a scrollbar: below 380px the strip's type and
-             * padding come down together and the six fit. Nothing above 380px moves, so the 560px and
-             * 720px captures are unaffected.
+             * Measured: the strip is a horizontal scroller, and its seven labels at the tighter
+             * 0.25rem padding took 310px of the 290px strip — so the Logs tab was only reachable
+             * by scrolling the strip sideways, and the labels did not truncate on the way, since
+             * the SDK leaves text-overflow at clip with no max-width. 005 FR-082 asks that no
+             * primary action require horizontal scrolling and that tab labels truncate rather than
+             * wrap, so the labels are given room instead of a scrollbar: below 380px padding comes
+             * down to 0.125rem a side, and the seven laid-out labels take 270px of the 290px strip.
+             * Nothing above 380px moves, so the 560px and 720px captures are unaffected.
              *
              * The selector is rooted at #root because it has to out-specify the SDK's own
              * `.oc-sdk-tab { padding: 0 10px; font-size: 0.8125rem }` — measured, not assumed: at
@@ -955,7 +955,7 @@
              */
             @media (max-width: 380px) {
                 #root .oc-sdk-tab {
-                    padding-inline: 0.25rem;
+                    padding-inline: 0.125rem;
                     font-size: 0.625rem;
                     letter-spacing: -0.01em;
                 }

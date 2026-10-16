@@ -885,6 +885,36 @@
         "status": "ok",
         "version": "0.3.1"
     },
+    "logs": {
+        "entries": [
+            {
+                "seq": 11,
+                "line": "{\"ts\":\"2026-10-16T09:58:02.114Z\",\"level\":\"info\",\"message\":\"scan started\",\"repository\":\"shaunburdick/mecha-turk\"}\n"
+            },
+            {
+                "seq": 12,
+                "line": "{\"ts\":\"2026-10-16T09:58:04.870Z\",\"level\":\"info\",\"message\":\"assignment trigger queued\",\"issue\":53}\n"
+            },
+            {
+                "seq": 13,
+                "line": "{\"ts\":\"2026-10-16T09:58:09.326Z\",\"level\":\"warn\",\"message\":\"rate limit low\",\"remaining\":42,\"resetAt\":\"2026-10-16T10:58:00Z\"}\n"
+            },
+            {
+                "seq": 14,
+                "line": "{\"ts\":\"2026-10-16T09:58:11.402Z\",\"level\":\"info\",\"message\":\"credential read\",\"token\":\"[redacted:github-token-classic]\"}\n"
+            },
+            {
+                "seq": 15,
+                "line": "{\"ts\":\"2026-10-16T09:58:12.998Z\",\"level\":\"error\",\"message\":\"run rejected\",\"code\":\"validation\"}\n"
+            },
+            {
+                "seq": 16,
+                "line": "poll tick deferred: no config yet, using defaults"
+            }
+        ],
+        "startedAt": 1792108800000,
+        "intervalMs": 60000
+    },
     "pending": {
         "events": []
     },

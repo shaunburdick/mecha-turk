@@ -83,7 +83,7 @@ import Layout from '../layout.astro';
     <section>
         <h2>The panel</h2>
         <p>
-            Mecha Turk adds one panel to the OpenChamber rail, with six tabs in
+            Mecha Turk adds one panel to the OpenChamber rail, with seven tabs in
             this order.
         </p>
         <dl>
@@ -118,6 +118,12 @@ import Layout from '../layout.astro';
             <dd>
                 The name, the version the service reports, where the source
                 lives, and read-only diagnostics behind a disclosure.
+            </dd>
+            <dt>Logs</dt>
+            <dd>
+                The service's own log stream, newest first: each line's
+                timestamp, level, message, and fields, refreshed on the period
+                the service reports, with a restart stated in words.
             </dd>
         </dl>
     </section>

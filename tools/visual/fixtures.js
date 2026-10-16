@@ -37,6 +37,7 @@ function buildRoutes(data) {
         ['GET /v1/events', answer(data.events)],
         ['GET /v1/events/pending', answer(data.pending)],
         ['GET /v1/audit', answer(data.audit)],
+        ['GET /v1/logs', answer(data.logs)],
         ['GET /health', health],
     ]);
 }

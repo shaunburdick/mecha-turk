@@ -182,7 +182,7 @@ export function readFailureBody(problem: string): string {
  * Where the Settings tab stands, and what it last rendered.
  *
  * Same shape as the Status tab's slice on purpose: a failed read behaves the
- * same way on every tab, so an operator learns one rule instead of six.
+ * same way on every tab, so an operator learns one rule instead of seven.
  */
 export interface SettingsTabState {
     phase: 'idle' | 'loading' | 'loaded' | 'failed';

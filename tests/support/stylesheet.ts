@@ -2,7 +2,7 @@
  * A CSS reader: a stylesheet's text in, its rules out.
  *
  * The panel's DOM tests run against a fake double that computes no styles, so
- * a rule that *loses* the cascade looks exactly like a rule that wins — six
+ * a rule that *loses* the cascade looks exactly like a rule that wins — seven
  * stacked tab bodies passed every DOM assertion in the suite while
  * `getComputedStyle` answered `flex` for all of them. This is the half of the
  * answer that reads the shipped `<style>` honestly; `./cascade.ts` is the half

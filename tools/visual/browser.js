@@ -102,7 +102,7 @@ export function createBrowser(options = {}) {
         return run(['set', 'viewport', String(size.width), String(size.height)]);
     }
 
-    /** Ref with the panel's six tab buttons, keyed by their visible label. */
+    /** Ref with the panel's seven tab buttons, keyed by their visible label. */
     async function snapshotTabs() {
         const data = await run(['snapshot', '-i']);
         const { refs = {} } = data;

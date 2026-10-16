@@ -12,7 +12,7 @@
  *
  * - **(a)** one read at activation and exactly one more per reported period,
  *   asserted at 59 s, 60 s, and 180 s — the boundary is the whole claim;
- * - **(b)** the other five tabs issue **zero** reads while Status ticks;
+ * - **(b)** the five tabs that own no cadence issue **zero** reads while Status ticks;
  * - **(c)** activation is the only read those five get, asserted per tab;
  * - **(d)** after teardown the clock moves three more periods, the read count
  *   does not, and the timer count is back to its pre-mount value — from Status
@@ -222,7 +222,7 @@ function parsedView(document: string): StatusView {
 }
 
 /**
- * Mount the real six-tab shell over a driven clock and a scripted service.
+ * Mount the real seven-tab shell over a driven clock and a scripted service.
  *
  * The tabs are the production `tabSpecs`, so the Status body's own mount and
  * disposer are the ones under test — a suite that hand-built a Status body
@@ -347,7 +347,7 @@ function renderedStrings(): readonly string[] {
 /**
  * The Status tab's on-demand refresh control, as the SDK was handed it.
  *
- * Located by label rather than by position because three of the six tabs mount
+ * Located by label rather than by position because four of the seven tabs mount
  * buttons and only this one is the read the cadence falls back to (FR-101).
  *
  * @returns The props carrying the press handler, or `undefined` when absent.
@@ -458,7 +458,7 @@ describe('SC-114 (a) the tab re-reads on the reported period, and only on it', (
     });
 });
 
-describe('SC-114 (b, c) the other five tabs read on activation and never again', () => {
+describe('SC-114 (b, c) the five tabs that own no cadence read on activation and never again', () => {
     it('issues no reads at all while Status ticks', async () => {
         vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] });
 
