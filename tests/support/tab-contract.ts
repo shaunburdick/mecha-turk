@@ -1,12 +1,11 @@
 /**
- * The strip's pinned ids and labels, in strip order — the tests' independent expectation.
+ * The strip's pinned labels, in strip order — the tests' independent expectation.
  *
  * Nothing here may import from `src/`: these literals are the right-answer side of the
  * assertions that pin the strip's order and labels, so an import would compare the
  * product with itself and stop those assertions catching a wrong reorder or rename.
  */
-export const TAB_CONTRACT_IDS = ['status', 'dispatches', 'bindings', 'accounts', 'settings', 'about', 'logs'] as const;
-
+// eslint-disable-next-line llm-core/filename-match-export -- named for the job, not the single export name.
 export const TAB_CONTRACT_LABELS = [
     'Status',
     'Dispatches',

@@ -17,11 +17,14 @@ export const tabs = [...productFile('src/tab-bodies.ts').matchAll(/\{ id: '([^']
 );
 
 const declared = /export const TAB_IDS[^=]*=\s*\[([^\]]*)\]/u.exec(productFile('src/panel-state.ts'))?.[1] ?? '';
-const declaredCount = [...declared.matchAll(/'([^']+)'/gu)].length;
+const declaredIds = [...declared.matchAll(/'([^']+)'/gu)].map((match) => match[1]);
+const parsedIds = tabs.map((tab) => tab.id);
+const idsMatch =
+    parsedIds.length === declaredIds.length && parsedIds.every((id, index) => id === declaredIds[index]);
 
-if (declaredCount === 0 || tabs.length < declaredCount) {
+if (!idsMatch || declaredIds.length === 0) {
     throw new Error(
-        `parsed ${tabs.length} tabs from src/tab-bodies.ts against ${declaredCount} declared in ` +
-            'src/panel-state.ts — refusing to capture from a tab list that came back short',
+        `parsed [${parsedIds.join(', ')}] from src/tab-bodies.ts against [${declaredIds.join(', ')}] declared in ` +
+            'src/panel-state.ts — refusing to capture from a tab list that does not match the declared one',
     );
 }
