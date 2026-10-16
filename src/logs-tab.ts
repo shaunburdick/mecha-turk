@@ -77,9 +77,6 @@ export interface LogsTabUi {
 
 /**
  * Whether the runtime was torn down mid-read.
- *
- * A function call rather than a bare `rt.disposed` read, so the analyzer
- * cannot narrow the check away.
  */
 function tornDown(rt: PanelRuntime): boolean {
     return rt.disposed;
@@ -250,10 +247,11 @@ export async function loadLogs(rt: PanelRuntime): Promise<void> {
         return;
     }
 
-    // One loop turn per read: a landed answer whose `startedAt` changed has
-    // shown a restart, and that answer's page is pre-restart history, so the
-    // stream is re-read from the tail exactly once — by construction, since
-    // the restart turn drops the held set the cursor is derived from.
+    // One loop turn per read: an answer whose `startedAt` changed has shown a
+    // restart and its page is pre-restart history, so the stream is re-read
+    // from the tail — once per call (FR-006). The bound, not the responder,
+    // is what makes the loop settle: a second restart is applied as landed.
+    let hasReRead = false;
     for (;;) {
         const outcome = await readPage(rt, slice.lines.at(-1)?.seq ?? null);
         if (outcome.kind === 'gone') {
@@ -269,9 +267,10 @@ export async function loadLogs(rt: PanelRuntime): Promise<void> {
             return;
         }
 
-        if (outcome.kind === 'restart') {
+        if (!hasReRead && outcome.kind === 'restart') {
             // One act: the restart drops the held lines and, with them, the
             // cursor (plan pin 9) — and the note says so in words (FR-006).
+            hasReRead = true;
             slice.lines = [];
             slice.startedAt = outcome.view.startedAt;
             slice.restarted = true;

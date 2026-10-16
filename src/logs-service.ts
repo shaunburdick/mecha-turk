@@ -30,7 +30,9 @@ function asEntry(value: unknown): LogsEntry | null {
     const row = value as Record<string, unknown>;
     const seq = asFiniteNumber(row.seq);
     const { line } = row;
-    if (seq === null || typeof line !== 'string' || seq < 0) {
+    // A fractional `seq` would become the derived cursor the route refuses on
+    // every later read — fail the whole answer instead (inv. 8).
+    if (seq === null || typeof line !== 'string' || !Number.isSafeInteger(seq) || seq < 0) {
         return null;
     }
 

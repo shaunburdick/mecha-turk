@@ -347,7 +347,7 @@ function renderedStrings(): readonly string[] {
 /**
  * The Status tab's on-demand refresh control, as the SDK was handed it.
  *
- * Located by label rather than by position because four of the seven tabs mount
+ * Located by label rather than by position because all seven tabs mount
  * buttons and only this one is the read the cadence falls back to (FR-101).
  *
  * @returns The props carrying the press handler, or `undefined` when absent.

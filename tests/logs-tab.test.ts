@@ -29,6 +29,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { LOGS_REFRESH_LABEL, LOGS_RESTART_LINE } from '../src/logs-rows.ts';
+import { parseLogsAnswer } from '../src/logs-service.ts';
 import { tabSpecs } from '../src/tab-bodies.ts';
 import { mountTabShell } from '../src/tabs.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
@@ -376,6 +377,49 @@ describe('AC-007 a restart is stated, never silently absorbed', () => {
         rt.shell?.dispose();
         rt.disposed = true;
     });
+
+    it('settles after at most one tail re-read even when every answer reports a new startedAt', async () => {
+        const run = await mountLogsTab(async () => ({
+            status: 200,
+            body: logsBody({ entries: [logLine({ seq: 1, message: 'the first stream' })] }),
+        }));
+        const { rt } = run;
+        expect(rt.state.logsTab.phase).toBe('loaded');
+
+        // The responder never settles by itself — every answer carries a new
+        // process stamp, so only FR-006's one re-read per call can end the
+        // loop; a third changed stamp is refused, not requested forever.
+        let stamp = NEW_STARTED_AT;
+        let reads = 0;
+        run.answer(async () => {
+            reads += 1;
+            if (reads > 2) {
+                return { status: 503, body: 'the service stopped' };
+            }
+
+            stamp += 1_000;
+
+            return {
+                status: 200,
+                body: logsBody({
+                    entries: [logLine({ seq: 1, message: `stream ${stamp}` })],
+                    startedAt: stamp,
+                }),
+            };
+        });
+        rt.shell?.activate('logs');
+        await tick();
+
+        expect(reads).toBeLessThanOrEqual(2);
+        expect(rt.state.logsTab.phase).toBe('loaded');
+        expect(rt.state.logsTab.restarted).toBe(true);
+        expect(rt.state.logsTab.lines).toHaveLength(1);
+        expect(rt.state.logsTab.lines.at(-1)?.line, 'the hold is the last answered stream')
+            .toContain(String(stamp));
+
+        rt.shell?.dispose();
+        rt.disposed = true;
+    });
 });
 
 describe('AC-008 a refused read degrades honestly and the retry restores', () => {
@@ -508,5 +552,11 @@ describe('AC-010 / FR-004 the hold never exceeds its cap', () => {
 
         rt.shell?.dispose();
         rt.disposed = true;
+    });
+});
+
+describe('parseLogsAnswer refuses a member the wire could not carry (inv. 8)', () => {
+    it('refuses a fractional seq rather than deriving a cursor the route would 422', () => {
+        expect(parseLogsAnswer('{"entries":[{"seq":1.5,"line":"x"}],"startedAt":1}')).toBeNull();
     });
 });

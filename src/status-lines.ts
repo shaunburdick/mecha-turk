@@ -432,13 +432,7 @@ export interface CadenceLineInput {
      * armed from unarmed would have no honest value to return.
      */
     readonly refreshMs: number | null;
-    /**
-     * The manual-read control the interval-less sentence names.
-     *
-     * Each cadence tab names **its own** button, so the sentence stays true
-     * of the tab it renders on; Status's shipped copy is the default and its
-     * bytes never move.
-     */
+    /** The label of this tab's manual-read control, which the interval-less sentence names. */
     readonly refreshLabel?: string;
 }
 

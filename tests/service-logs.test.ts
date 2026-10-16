@@ -93,8 +93,6 @@ afterEach(async (): Promise<void> => {
 
 /**
  * Start a service and keep it for teardown.
- *
- * @returns The running instance.
  */
 async function start(options: Parameters<typeof startTestService>[0] = {}): Promise<TestService> {
     const service = await startTestService(options);
@@ -122,8 +120,6 @@ function beatMarker(index: number): string {
 
 /**
  * Read the logs route raw, so a refusal can be inspected as sent.
- *
- * @returns The status and the response text.
  */
 async function getLogs(service: TestService, query = ''): Promise<{ readonly status: number; readonly text: string }> {
     const response = await service.call(`${LOGS_PATH}${query}`);
@@ -156,8 +152,6 @@ async function putConfig(service: TestService, config: ServiceConfig): Promise<v
 
 /**
  * Read the health model the status route reports.
- *
- * @returns The parsed status document.
  */
 async function readStatus(service: TestService): Promise<ServiceStatusBody> {
     const response = await service.call(STATUS_PATH);
