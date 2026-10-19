@@ -96,6 +96,7 @@ const GOLDEN_FRAME =
 Correlation: mt-run-0123456789abcdef01234567
 Repository: acme/widget
 Issue #7: Fix the flaky test
+Before starting work, rename this session to "Issue #7: Fix the flaky test"; if its name already equals it, do nothing.
 URL: https://github.com/acme/widget/issues/7
 Machine account: octocat-mt
 Rule: configured-match — open issue assigned to the authenticated machine account.
@@ -176,6 +177,25 @@ describe('T-010 composeFirstMessage: fenced first, or byte-identical (FR-030–F
             expect(composed.endsWith(GOLDEN_FRAME)).toBe(true);
             expect(composed.endsWith('--- END UNTRUSTED ISSUE TEXT ---')).toBe(true);
         }
+    });
+
+    it('carries the session-rename line in the frame, idempotently (FR-030, AC-152)', () => {
+        expect(goldenContext()).toContain(
+            'Before starting work, rename this session to "Issue #7: Fix the flaky test";'
+                + ' if its name already equals it, do nothing.',
+        );
+
+        const pullRequest = buildBoundedContext({
+            repository: GOLDEN_REPOSITORY,
+            issue: { ...goldenIssue(), isPullRequest: true },
+            authenticatedLogin: GOLDEN_LOGIN,
+            correlationId: CORRELATION,
+        });
+
+        expect(pullRequest).toContain(
+            'Before starting work, rename this session to "PR #7: Fix the flaky test";'
+                + ' if its name already equals it, do nothing.',
+        );
     });
 });
 
@@ -595,6 +615,7 @@ Mecha Turk dispatch (automated — started by the Mecha Turk extension from a de
 Correlation: mt-run-0123456789abcdef01234567
 Repository: acme/widget
 Issue #7: Fix the flaky test
+Before starting work, rename this session to "Issue #7: Fix the flaky test"; if its name already equals it, do nothing.
 URL: https://github.com/acme/widget/issues/7
 Machine account: octocat-mt
 Rule: configured-match — open issue assigned to the authenticated machine account.
@@ -625,6 +646,7 @@ Mecha Turk dispatch (automated — started by the Mecha Turk extension from a de
 Correlation: mt-run-0123456789abcdef01234567
 Repository: acme/widget
 Issue #7: Fix the flaky test
+Before starting work, rename this session to "Issue #7: Fix the flaky test"; if its name already equals it, do nothing.
 URL: https://github.com/acme/widget/issues/7
 Machine account: octocat-mt
 Rule: configured-match — open issue assigned to the authenticated machine account.
@@ -651,6 +673,7 @@ Mecha Turk dispatch (automated — started by the Mecha Turk extension from a de
 Correlation: mt-run-0123456789abcdef01234567
 Repository: acme/widget
 Issue #7: Fix the flaky test
+Before starting work, rename this session to "Issue #7: Fix the flaky test"; if its name already equals it, do nothing.
 URL: https://github.com/acme/widget/issues/7
 Machine account: octocat-mt
 Rule: configured-match — open issue assigned to the authenticated machine account.
@@ -688,6 +711,8 @@ const GOLDEN_VERBATIM_TIER = [
     'Correlation: mt-run-0123456789abcdef01234567',
     'Repository: acme/widget',
     'Issue #7: Fix the flaky test',
+    'Before starting work, rename this session to "Issue #7: Fix the flaky test";'
+        + ' if its name already equals it, do nothing.',
     'URL: https://github.com/acme/widget/issues/7',
     'Machine account: octocat-mt',
     'Rule: configured-match — open issue assigned to the authenticated machine account.',

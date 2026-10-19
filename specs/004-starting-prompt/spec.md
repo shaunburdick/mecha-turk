@@ -6,11 +6,11 @@
 
 **Created**: 2026-09-28
 
-**Last Updated**: 2026-10-02 — see [changelog.md](changelog.md) for what changed and why
+**Last Updated**: 2026-10-19 — see [changelog.md](changelog.md) for what changed and why
 
-**Version**: 1.4.2
+**Version**: 1.5.0
 
-**Status**: Implemented, current at v1.4.2; the requirement history is in [changelog.md](changelog.md)
+**Status**: Implemented, current at v1.5.0; the requirement history is in [changelog.md](changelog.md)
 
 **Dependencies**: Feature 002 `002-agent-event-extension` (v1.2.0 → **amended to v1.3.0 by this specification** → **v1.4.0 by 005**) and feature 003 `003-dispatch-integrity` (v1.0.0 → **amended to v1.1.0 by this specification** → **v1.2.0 by 005**). Credentials, custody, the binding model, the trigger set, polling, the dispatch mechanism, the agent pin, the run/delivery model, the dispatch-lifecycle audit vocabulary, the read-only-to-GitHub posture, and the dispatch state model all carry forward unchanged. This specification **extends** 002's dispatch payload and 003's audit row and run projection; it supersedes nothing. It is a **prerequisite of 005** (panel IA), which renders this field exactly once and specifies that rule as 005 FR-051. **Extended by** `005-panel-ia` v1.0.0 (see changelog.md), which supersedes nothing here. **As of this document's v1.3.0 the independence from 005 and 006 is no longer total**: this specification now **amends** 005 (v1.8.0 → **v1.9.0**, FR-051 / SC-105 / AC-123 — the single-rendering rule widens from one prompt field to exactly one rendering *per tier value*) and 006 (v1.5.0 → **v1.6.0**, FR-071 / FR-081 / FR-084 and the documented-field counts — the global tier becomes the twelfth configuration field, rendered through the Settings descriptor table, and its `config.changed` row is value-free for this field). Both amendment entries live in those documents' changelog.md; 004 remains authoritative for the prompt domain in all three. **At this document's v1.4.0 the 005 amendment is widened by one row**: FR-066's write path and 005's `## Wire Surface Delta` **Accounts** row move onto the account profile `PUT /v1/accounts/:numericUserId`, taking 005 v1.9.0 → **v1.10.0**; **006 is not amended and stays v1.6.0** (audited for both the retired `/display-name` route and any per-field account prompt endpoint — it references neither).
 
@@ -274,7 +274,7 @@ As an operator running several bindings across a couple of accounts, I write who
 
 #### D. Composition of the dispatch message
 
-- **FR-030**: **Order: trusted operator intent first.** The composed dispatch message MUST place the operator's starting prompt **first**, verbatim (trimmed, normalised, bounded), as trusted operator instruction, and the auto-built framing beneath it. The automatic framing consists of what 002 FR-028 already requires — the resolved project, the source attachment (source id, title, url, kind, text, data), the configured worktree option, the correlation id, and the bounded untrusted excerpt with explicit delimiters — widened to every source reference on the run by 003 FR-014, all of which stays exactly as it is today.
+- **FR-030**: **Order: trusted operator intent first.** The composed dispatch message MUST place the operator's starting prompt **first**, verbatim (trimmed, normalised, bounded), as trusted operator instruction, and the auto-built framing beneath it. The automatic framing consists of what 002 FR-028 already requires — the resolved project, the source attachment (source id, title, url, kind, text, data), the configured worktree option, the correlation id, and the bounded untrusted excerpt with explicit delimiters — widened to every source reference on the run by 003 FR-014, and since v1.5.0 carrying one further trusted frame line directly beneath the issue line: the session's decided name — `Issue #<n>: <title>`, or `PR #<n>: <title>` when the source is a pull request — built from the same defused title the issue line renders, with the instruction to rename this session to exactly that name before starting work, worded so that a session whose name already equals it does nothing (OpenChamber titles guest sessions `<attach id> <attach title>`, which is unfindable in the sidebar). Everything else in the automatic framing stays exactly as it is today.
 - **FR-031**: **The prompt block is the only trusted section, and it is fenced.** Everything else the composition adds is machine-built. The prompt block MUST be fenced by a fixed opening and closing marker pair that identifies it as operator-supplied starting instruction, so a reader — human or model — can see where the operator's intent ends and the machine's frame begins. The fence is emitted by the composition; it is never part of the operator's stored text.
 - **FR-032**: **Unset means no block.** When the prompt is unset, the composition MUST contain no prompt block, no empty fence, no placeholder, and no explanatory line about the absence of a prompt. The message MUST be byte-identical to the pre-feature composition.
 - **FR-033**: **Markers are structural, never searched for.** Every delimiter, fence, frame line, and truncation marker MUST be emitted by the composition. No part of the composed message may be produced by searching, splitting, re-parsing, or otherwise deriving structure from the operator's text or from the source excerpt. The operator's text MUST be carried through byte for byte inside its fence — no escaping, rewriting, reflowing, re-indenting, or quote-stripping.
@@ -355,6 +355,7 @@ Mecha Turk dispatch (automated — started by the Mecha Turk extension from a de
 Correlation: <the run's correlation id>
 Repository: <owner/name>
 Issue #<number>: <title>
+Before starting work, rename this session to "Issue #<number>: <title>"; if its name already equals it, do nothing.
 URL: <canonical source url>
 Machine account: <login>
 Rule: <the shipped rule line>
@@ -464,6 +465,7 @@ Only the entities this feature adds or changes are listed; everything else is de
 - [ ] **AC-149**: `DELETE /v1/accounts/:id?force=1` removes the account record and its tier together, disables the referencing bindings as today, and writes `account.deleted`; queued runs keep their snapshot, fingerprint, and sources; a re-added account — same numeric id — reads as unset; rotation and login rename leave the tier byte-identical.
 - [ ] **AC-150**: The same credential-shaped value is refused at all three save paths with identical shape labels and zero characters of the value in any refusal, message, or log; a refusal at one tier leaves the other two tiers' stored values byte-identical; and no save path applies any part of a submission that contains a problem.
 - [ ] **AC-151**: The claim reader refuses an entry whose `promptSources` carries an unknown tier, a wrong order, a duplicate, or disagrees with `promptPresent` — one refusal refuses the answer; and the global field's `config.changed` `from`/`to` values are `mtp-` fingerprints or `null`, proven by a sentinel scan of `audit.ndjson`. No legacy-projection case exists to test: the feature has never been released (row 32).
+- [ ] **AC-152**: Every composed dispatch frame carries the session-rename line in the trusted header directly beneath the issue line, naming the session exactly `Issue #<n>: <title>` — or `PR #<n>: <title>` when the source is a pull request — from the same defused title the issue line renders, and instructing the agent to rename this session to exactly that name before starting work, doing nothing when the name already equals it; the line sits above the untrusted delimiters and is pinned byte for byte by the golden literals.
 
 ## Out of Scope
 

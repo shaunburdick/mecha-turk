@@ -136,3 +136,14 @@ evidence), the `// case:` label follows the `it` in *italics*.
 3. **No acceptance criterion was reopened by v1.4.2.** AC-147 and SC-132 keep their text; the
    correction is to what the prose claims about *how* the floor is reached, not to what any AC
    demands.
+
+
+## Acceptance status — the session-rename line, 2026-10-19 (spec v1.5.0)
+
+**Spec**: v1.5.0 · **Scope**: exactly the one criterion this amendment added, `AC-152`.
+Each row names the `describe`/`it` that proves it; the suite is offline (pure functions
+over fixed fixtures, no host, no service, no clock).
+
+| AC | Status | Test(s) that prove it | Caveat |
+| --- | --- | --- | --- |
+| **004 AC-152** — the session-rename line sits in the trusted header directly beneath the issue line, in the decided format for both an issue and a pull request, built from the same defused title, with the idempotent no-op wording, pinned byte for byte by the golden literals | **Met** | `tests/prompt-composition.test.ts` / `it('carries the session-rename line in the frame, idempotently (FR-030, AC-152)')` (issue and PR name formats, idempotent phrasing) plus `GOLDEN_FRAME` and the three tier oracles, which pin the line byte for byte; `tests/service-migration.test.ts` and `tests/prompt-upgrade.test.ts` re-spelled golden messages carry the line on adopted and seeded runs | Trusted placement above `--- BEGIN UNTRUSTED` is structural in every pinned literal: the line renders before the delimiter and the untrusted region is unchanged |

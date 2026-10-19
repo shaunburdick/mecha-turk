@@ -217,11 +217,17 @@ export interface BoundedContextInput {
  * and before any truncation, so a cut never eats the closing delimiter. No token material.
  */
 export function buildBoundedContext(input: BoundedContextInput): string {
+    // OpenChamber titles guest sessions `<attach id> <attach title>`, which is
+    // unfindable in the sidebar; the agent inside the session is the only one
+    // who can rename it, so the frame asks once, idempotently.
+    const title = defuseDelimiters(input.issue.title);
+    const sessionName = `${input.issue.isPullRequest ? 'PR' : 'Issue'} #${input.issue.issueNumber}: ${title}`;
     const header = [
         'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
         `Correlation: ${input.correlationId}`,
         `Repository: ${input.repository}`,
-        `Issue #${input.issue.issueNumber}: ${defuseDelimiters(input.issue.title)}`,
+        `Issue #${input.issue.issueNumber}: ${title}`,
+        `Before starting work, rename this session to "${sessionName}"; if its name already equals it, do nothing.`,
         `URL: ${defuseDelimiters(input.issue.url)}`,
         `Machine account: ${input.authenticatedLogin}`,
         'Rule: configured-match — open issue assigned to the authenticated machine account.',

@@ -347,6 +347,8 @@ function goldenMessage(correlationId: string): string {
         `Correlation: ${correlationId}`,
         'Repository: acme/widget',
         `Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}`,
+        `Before starting work, rename this session to "Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}";`
+            + ' if its name already equals it, do nothing.',
         `URL: ${ISSUE_URL}`,
         `Machine account: ${LOGIN}`,
         'Rule: configured-match — open issue assigned to the authenticated machine account.',

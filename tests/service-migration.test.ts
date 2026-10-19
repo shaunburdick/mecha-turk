@@ -733,6 +733,7 @@ function legacyGoldenMessage(correlationId: string): string {
         `Correlation: ${correlationId}`,
         'Repository: acme/widget',
         'Issue #1: Issue 1',
+        'Before starting work, rename this session to "Issue #1: Issue 1"; if its name already equals it, do nothing.',
         `URL: ${LEGACY_ISSUE_URL}`,
         `Machine account: ${SHIPPED_LOGIN}`,
         'Rule: configured-match — open issue assigned to the authenticated machine account.',
