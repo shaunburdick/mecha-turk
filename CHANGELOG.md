@@ -13,6 +13,16 @@ matching section below plus GitHub's generated notes.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-19
+
+### Fixed
+
+- **Dispatched sessions arrive with a readable sidebar name** (#59). The dispatch
+  frame carries one idempotent rule line asking the session's agent to name it
+  `Issue #n: <subject>` (`PR #n: <subject>` for pull requests), instead of the
+  session listing as `mt-run-<24hex> …`; the label is composed by the agent,
+  since no machine-facing consumer reads it.
+
 ## [0.4.0] - 2026-10-16
 
 ### Added
@@ -114,7 +124,8 @@ The first published release: the extension installable from this repository.
   control over whether a new binding sees its backlog.
 - **A documentation site**, published to GitHub Pages.
 
-[Unreleased]: https://github.com/shaunburdick/mecha-turk/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/shaunburdick/mecha-turk/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/shaunburdick/mecha-turk/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/shaunburdick/mecha-turk/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/shaunburdick/mecha-turk/compare/6fabb18...v0.3.1
 [0.3.0]: https://github.com/shaunburdick/mecha-turk/compare/f4d6de0...6fabb18
