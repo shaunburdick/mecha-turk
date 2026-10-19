@@ -217,11 +217,15 @@ export interface BoundedContextInput {
  * and before any truncation, so a cut never eats the closing delimiter. No token material.
  */
 export function buildBoundedContext(input: BoundedContextInput): string {
+    const title = defuseDelimiters(input.issue.title);
     const header = [
         'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
         `Correlation: ${input.correlationId}`,
         `Repository: ${input.repository}`,
-        `Issue #${input.issue.issueNumber}: ${defuseDelimiters(input.issue.title)}`,
+        `Issue #${input.issue.issueNumber}: ${title}`,
+        // Host titles are unfindable; only the in-session agent can rename — asked once, by rule, idempotently.
+        'Rule: name this session "Issue #n: <subject>" (PRs: "PR #n: <subject>"), ~60 chars;'
+            + ' if its name already fits, leave it.',
         `URL: ${defuseDelimiters(input.issue.url)}`,
         `Machine account: ${input.authenticatedLogin}`,
         'Rule: configured-match — open issue assigned to the authenticated machine account.',

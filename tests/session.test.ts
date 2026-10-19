@@ -32,7 +32,7 @@ const CONTEXT_CORRELATION = 'abc-123';
 const CONTEXT_TEXT = 'bounded context';
 
 /** Context budget small enough to force the untrusted excerpt to be trimmed. */
-const TIGHT_CONTEXT_CHARS = 500;
+const TIGHT_CONTEXT_CHARS = 600;
 
 /** The fixture issue body, quoted by the context tests in both source shapes. */
 const ISSUE_BODY_TEXT = 'It fails once in ten runs.';
