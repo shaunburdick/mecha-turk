@@ -327,7 +327,13 @@ describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
         {
             const service = await startWithAccount();
             const binding = bindingFixture();
-            binding.triggers = { assignment: true, mention: false, reviewRequest: false };
+            binding.triggers = {
+                assignment: true,
+                mention: false,
+                reviewRequest: false,
+                reviewSubmitted: false,
+                checks: false,
+            };
 
             const answer = await grantBindings(service, [binding]);
             const stored = answer.bindings as Record<string, unknown>[];

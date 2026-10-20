@@ -222,6 +222,8 @@ describe('loading the selected binding into the editor (FR-053)', () => {
                 assignment: true,
                 mention: false,
                 reviewRequest: true,
+                reviewSubmitted: false,
+                checks: false,
             });
         }
     });
@@ -291,6 +293,8 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
                 assignment: true,
                 mention: true,
                 reviewRequest: true,
+                reviewSubmitted: false,
+                checks: false,
             });
             // The untouched prompt survived the write that carried no prompt.
             expect(saved?.startingPrompt).toBe(STORED_PROMPT);
@@ -300,6 +304,31 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
             expect(rt.state.bindings.bindings[0]?.repository).toBe(NEXT_REPOSITORY);
             expect(rt.state.bindings.editing).toBe(false);
             expect(rt.state.bindings.note).toBe(`Saved ${NEXT_REPOSITORY}.`);
+        }
+    });
+
+    it('loads and saves the two wave-2 switches', async () => {
+        {
+            const service = await startWithAccount();
+            const base = panelRow();
+            await seedRow(service, {
+                ...base,
+                triggers: { ...base.triggers, reviewSubmitted: true, checks: true },
+            });
+            const rt = await editorRuntime(service);
+            const handlers = createBindingsHandlers(rt);
+
+            handlers.selectBinding(BINDING_ID);
+            expect(rt.state.bindings.triggerReviewSubmitted).toBe(true);
+            expect(rt.state.bindings.triggerChecks).toBe(true);
+
+            handlers.setReviewSubmitted(false);
+            handlers.setChecks(false);
+            await saveEditedBinding(rt);
+            stopRelayPolling(rt);
+
+            const [saved] = await storedBindings(service);
+            expect(saved?.triggers).toMatchObject({ reviewSubmitted: false, checks: false });
         }
     });
 
@@ -329,6 +358,8 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
                 assignment: true,
                 mention: false,
                 reviewRequest: true,
+                reviewSubmitted: false,
+                checks: false,
             });
 
             // The refusal lands on the field it belongs to (FR-052) rather than

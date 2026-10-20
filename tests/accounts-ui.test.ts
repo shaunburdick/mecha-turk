@@ -401,7 +401,7 @@ describe('T-024 the Accounts tab renders every FR-062 member as text', () => {
             repository: 'acme/other',
             projectId: 'prj_7',
             worktreeOption: 'none',
-            triggers: { assignment: false, mention: true, reviewRequest: false },
+            triggers: { assignment: false, mention: true, reviewRequest: false, reviewSubmitted: false, checks: false },
             state: 'active',
             createdAt: GIVEN_AT,
             updatedAt: GIVEN_AT,

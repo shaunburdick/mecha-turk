@@ -25,6 +25,16 @@ matching section below plus GitHub's generated notes.
   mention links to its run as a `review-comment:<id>` source reference.
   Detection adds one `since`-windowed read per mention-enabled binding, and the
   cycle keeps its conversation-feed findings when that read fails.
+- **Submitted reviews and failing checks reach the session** (#61). A
+  changes-requested review on the account's own open pull request opens one
+  dispatch with the reviewer as its actor, and on a pull the agent is already
+  working becomes a follow-up only when it is strictly newer than the request
+  that started the run. A failing check on a tracked pull's new head produces
+  one aggregated `CI failed: <names>` follow-up riding the run's recorded
+  actor, never a session. Both are binding switches. Detection costs one
+  bounded reviews read per own pull in the window and one check-runs walk per
+  moved head; a truncated read records the truncation and produces no row, so
+  silence is not read as a passing build.
 
 ## [0.4.1] - 2026-10-19
 

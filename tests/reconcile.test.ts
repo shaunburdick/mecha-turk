@@ -157,7 +157,7 @@ function harness(routes: RouteTable = okRoutes(), options: { readonly failAcknow
             repository: 'acme/widget',
             projectId: PROJECT_ID,
             worktreeOption: 'generated',
-            triggers: { assignment: true, mention: false, reviewRequest: false },
+            triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
             state: 'active',
             createdAt: FIXTURE_TIMESTAMP,
             updatedAt: FIXTURE_TIMESTAMP,

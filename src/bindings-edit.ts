@@ -83,6 +83,8 @@ export function startEditingBinding(rt: PanelRuntime): void {
     bindings.triggerAssignment = binding.triggers.assignment;
     bindings.triggerMention = binding.triggers.mention;
     bindings.triggerReviewRequest = binding.triggers.reviewRequest;
+    bindings.triggerReviewSubmitted = binding.triggers.reviewSubmitted;
+    bindings.triggerChecks = binding.triggers.checks;
     bindings.worktreeSelection = binding.worktreeOption === 'generated' ? 'generated' : 'none';
     bindings.startingPromptInput = storedPromptFor(bindings, binding.bindingId);
     bindings.startingPromptDirty = false;

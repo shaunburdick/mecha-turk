@@ -47,7 +47,13 @@ import {
 } from './bindings-editor.ts';
 import type { BindingActions } from './bindings-editor.ts';
 import { notListedGuidance, pickerNote } from './project-picker.ts';
-import { mountDetailChips, TRIGGER_ASSIGNMENT, TRIGGER_MENTION, TRIGGER_REVIEW } from './bindings-chips.ts';
+import {
+    mountDetailChips,
+    TRIGGER_ASSIGNMENT,
+    TRIGGER_MENTION,
+    TRIGGER_REVIEW,
+    TRIGGER_REVIEW_SUBMITTED,
+} from './bindings-chips.ts';
 import type { DetailChips } from './bindings-chips.ts';
 import { createBlock, mountColumnHead, mountStyledText } from './style.ts';
 import type { Block } from './style.ts';
@@ -59,6 +65,14 @@ export const MENTION_SCAN_NOTE = 'Issue bodies and comments that @mention the bo
 
 /** Note under the review-request checkbox (M7). */
 export const REVIEW_SCAN_NOTE = 'Pull requests that ask the account to review open a dispatch.';
+
+/** Note under the review-submitted checkbox (FR-125). */
+export const REVIEW_SUBMITTED_SCAN_NOTE =
+    'Reviews that request changes on the account\'s own pull requests open a dispatch.';
+
+/** Note under the checks checkbox (FR-129): a follow-up switch, never a session starter. */
+export const CHECKS_SCAN_NOTE =
+    'Failing checks on a pull request the agent is already working continue that session.';
 
 /**
  * How the history-scope guidance reaches the operator (002 FR-090): mounted
@@ -134,6 +148,8 @@ interface Form {
     readonly assignment: CheckboxHandle;
     readonly mention: CheckboxHandle;
     readonly reviewRequest: CheckboxHandle;
+    readonly reviewSubmitted: CheckboxHandle;
+    readonly checks: CheckboxHandle;
     readonly worktree: SelectHandle;
     readonly actors: BindingActorControls;
     /** The history-scope control and the derived window line beneath it. */
@@ -262,6 +278,8 @@ function mountTriggerChecks(input: MountInputs): {
     readonly assignment: CheckboxHandle;
     readonly mention: CheckboxHandle;
     readonly reviewRequest: CheckboxHandle;
+    readonly reviewSubmitted: CheckboxHandle;
+    readonly checks: CheckboxHandle;
 } {
     const assignment = mountCheckbox(input.pane, {
         label: TRIGGER_ASSIGNMENT,
@@ -280,8 +298,20 @@ function mountTriggerChecks(input: MountInputs): {
         checked: input.rt.state.bindings.triggerReviewRequest,
         onChange: (checked) => input.handlers.setReviewRequest(checked),
     });
+    const reviewSubmitted = mountCheckbox(input.pane, {
+        label: TRIGGER_REVIEW_SUBMITTED,
+        description: REVIEW_SUBMITTED_SCAN_NOTE,
+        checked: input.rt.state.bindings.triggerReviewSubmitted,
+        onChange: (checked) => input.handlers.setReviewSubmitted(checked),
+    });
+    const checks = mountCheckbox(input.pane, {
+        label: 'Checks',
+        description: CHECKS_SCAN_NOTE,
+        checked: input.rt.state.bindings.triggerChecks,
+        onChange: (isChecked) => input.handlers.setChecks(isChecked),
+    });
 
-    return { assignment, mention, reviewRequest };
+    return { assignment, mention, reviewRequest, reviewSubmitted, checks };
 }
 /**
  * The status row for the binding the editor is open on.
@@ -365,6 +395,8 @@ function mountAddForm(input: MountInputs): Form {
         assignment: checks.assignment,
         mention: checks.mention,
         reviewRequest: checks.reviewRequest,
+        reviewSubmitted: checks.reviewSubmitted,
+        checks: checks.checks,
         worktree,
     };
 }
@@ -407,6 +439,8 @@ function disposeBindingsBody(input: BodyParts): void {
         form.assignment,
         form.mention,
         form.reviewRequest,
+        form.reviewSubmitted,
+        form.checks,
         form.worktree,
         ...Object.values(actions),
     ];
@@ -482,6 +516,8 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
         assignmentCheck: form.assignment,
         mentionCheck: form.mention,
         reviewRequestCheck: form.reviewRequest,
+        reviewSubmittedCheck: form.reviewSubmitted,
+        checksCheck: form.checks,
         worktreeSelect: form.worktree,
         addBinding: actions.add,
         cancelEdit: actions.cancel,

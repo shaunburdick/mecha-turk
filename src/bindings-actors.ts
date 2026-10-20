@@ -40,6 +40,7 @@ const TRIGGER_PHRASES: readonly (readonly [keyof PanelTriggers, string])[] = [
     ['assignment', 'assign an issue to the account'],
     ['mention', 'mention the account in an issue or comment'],
     ['reviewRequest', 'request a review from the account on a pull request'],
+    ['reviewSubmitted', 'submit a review on the account\'s own pull request'],
 ];
 
 /** Enabled · absent · none on: nothing can start a session, why, and the field that would change it. */
@@ -51,6 +52,17 @@ const NOTHING_TRIGGERED_OPEN =
 const NOTHING_TRIGGERED_OFF_OPEN =
     'nothing can start a session from this repository — it is off, and no trigger is switched on; '
     + 'name the logins who may in allowedUsers';
+
+/** The checks-only state: watching, but no session-starting switch is on. */
+const CHECKS_ONLY_OPEN =
+    'CI checks are the only switch on — they continue a session already open and nothing here can start '
+    + 'one; name the logins who may in allowedUsers to change that';
+
+/** The checks-only state with a permitted-login list. */
+function checksOnlyListed(count: number): string {
+    return `${count} permitted ${count === 1 ? 'login' : 'logins'}, though CI checks are the only switch on `
+        + '— they continue a session already open and nothing here can start one';
+}
 
 /**
  * Join the switched-on phrases into one list.
@@ -106,13 +118,40 @@ export interface PolicyFacts {
     readonly count: number | null;
 }
 
-function watchesAnything(triggers: PanelTriggers): boolean {
+/** Whether any **session-starting** switch is on: `checks` is watching, not starting. */
+function startsAnything(triggers: PanelTriggers): boolean {
     return TRIGGER_PHRASES.some(([key]) => triggers[key]);
+}
+
+function watchesAnything(triggers: PanelTriggers): boolean {
+    return startsAnything(triggers) || triggers.checks;
 }
 
 /** Enabled · list · triggers on: the plain count. */
 export function allowedUsersSummary(count: number): string {
     return `${count} ${count === 1 ? 'user' : 'users'} may trigger`;
+}
+
+/** The checks-only clause for the state and list it is rendered under. */
+function checksOnlyClause(facts: PolicyFacts, count: string | null): string {
+    if (facts.state === 'disabled') {
+        return 'nothing can start a session while this binding is off; when you enable it, CI checks are '
+            + 'the only switch on — they continue a session already open and nothing here can start one';
+    }
+
+    return count === null ? CHECKS_ONLY_OPEN : checksOnlyListed(facts.count ?? 0);
+}
+
+/** The clause a disabled binding renders, with or without a session-starting switch. */
+function disabledClause(facts: PolicyFacts, count: string | null, derived: string | null): string {
+    if (derived === null) {
+        return checksOnlyClause(facts, count);
+    }
+
+    return count === null
+        ? 'nothing can start a session while this binding is off; when you enable it, '
+            + `${derived}; name the logins who may in allowedUsers to change that`
+        : `${count} once this binding is enabled`;
 }
 
 /**
@@ -150,10 +189,13 @@ export function policyClause(facts: PolicyFacts): string {
     // ── A disabled binding states the policy it *would* carry, as an
     //    explicit counterfactual preceded by what cannot happen (rows 5, 6).
     if (facts.state === 'disabled') {
-        return count === null
-            ? 'nothing can start a session while this binding is off; when you enable it, '
-                + `${derived}; name the logins who may in allowedUsers to change that`
-            : `${count} once this binding is enabled`;
+        return disabledClause(facts, count, derived);
+    }
+
+    // ── Checks only: polling and delivering follow-ups, with nothing that can
+    //    start a session. The count is a login count, never a trigger verb.
+    if (derived === null) {
+        return checksOnlyClause(facts, count);
     }
 
     // ── Enabled, isWatching something: the count, or the open-policy warning
@@ -185,9 +227,14 @@ export function actorsSummary(binding: PanelBinding): string {
  */
 export function allowedUsersGuidance(triggers: PanelTriggers): string {
     const derived = derivedTriggerClause(triggers);
-    const first = derived === null
-        ? 'With no list and no trigger switched on, nothing can start a session'
-        : `With no list, ${derived}`;
+    let first: string;
+    if (derived !== null) {
+        first = `With no list, ${derived}`;
+    } else if (triggers.checks) {
+        first = 'With no list, CI checks are the only switch on and nothing can start a session';
+    } else {
+        first = 'With no list and no trigger switched on, nothing can start a session';
+    }
 
     return `${first}; with a list, only those logins may. `
         + 'An empty list is refused rather than read as "nobody" — to stop every trigger, disable the binding '
@@ -202,6 +249,10 @@ export function allowedUsersGuidance(triggers: PanelTriggers): string {
  * capability claim sitting in a disabled binding's value slot.
  */
 export function allowedUsersNotSetPlaceholder(facts: Omit<PolicyFacts, 'count'>): string {
+    if (facts.state === 'active' && facts.triggers.checks && !startsAnything(facts.triggers)) {
+        return 'not set — CI checks are the only switch on, so nothing can start a session';
+    }
+
     if (!watchesAnything(facts.triggers)) {
         return facts.state === 'active'
             ? 'not set — no trigger is switched on, so nothing can start a session'
@@ -313,6 +364,8 @@ export function editorPolicyFacts(bindings: BindingsTabState): Omit<PolicyFacts,
             assignment: bindings.triggerAssignment,
             mention: bindings.triggerMention,
             reviewRequest: bindings.triggerReviewRequest,
+            reviewSubmitted: bindings.triggerReviewSubmitted,
+            checks: bindings.triggerChecks,
         },
     };
 }

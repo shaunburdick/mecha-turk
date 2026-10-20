@@ -18,6 +18,9 @@ export const TRIGGER_MENTION = 'Mention';
 /** Review-request trigger, shared with the form's checkbox. */
 export const TRIGGER_REVIEW = 'Review request';
 
+/** Review-submitted trigger, shared with the form's checkbox. */
+export const TRIGGER_REVIEW_SUBMITTED = 'Review submitted';
+
 /** The two states a binding row can be in, as its chip prints them. */
 export const STATE_ON = 'enabled';
 
@@ -65,6 +68,7 @@ export function mountDetailChips(detailBox: HTMLElement): DetailChips {
             [row.triggers.assignment, TRIGGER_ASSIGNMENT],
             [row.triggers.mention, TRIGGER_MENTION],
             [row.triggers.reviewRequest, TRIGGER_REVIEW],
+            [row.triggers.reviewSubmitted, TRIGGER_REVIEW_SUBMITTED],
         ] as const;
         for (const [enabled, label] of triggers) {
             if (enabled) {

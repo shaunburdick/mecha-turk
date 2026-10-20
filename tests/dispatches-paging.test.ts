@@ -484,7 +484,7 @@ const FILTER_BINDING: PanelBinding = {
     repository: 'acme/one',
     projectId: 'prj_42',
     worktreeOption: 'none',
-    triggers: { assignment: true, mention: false, reviewRequest: false },
+    triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
     state: 'active',
     createdAt: FIXTURE_TIMESTAMP,
     updatedAt: FIXTURE_TIMESTAMP,
