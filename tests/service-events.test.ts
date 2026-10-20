@@ -310,6 +310,8 @@ function recordingPoller(issues: readonly PollIssue[]): RecordedPoller {
         readPullState: async () => {
             throw new Error('the terminal read is F-9-only; this fixture binds no session');
         },
+        listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
+        listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
     };
 
     return { poller, seenSince, seenEvents };
@@ -1641,6 +1643,8 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
                 readPullState: async () => {
                     throw new Error('the terminal read is F-9-only; this fixture binds no session');
                 },
+                listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
+                listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
             };
             await runScanCycle({ store, log, poller });
 

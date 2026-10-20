@@ -34,10 +34,12 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+    readCheckRunEntry,
     readCommentEntry,
     readIssueEntry,
     readPullEntry,
     readReviewCommentEntry,
+    readReviewEntry,
 } from '../service/poll/poller-entries.ts';
 import { isBotAuthor, isAttributableAuthor } from '../service/poll/attribution.ts';
 import { readItemEventEntry } from '../service/poll/poller-events.ts';
@@ -256,23 +258,79 @@ describe('the three list feeds keep their authorship convention (002 FR-045)', (
         expect(isBotAuthor(suffixed?.authorLogin ?? '', suffixed?.authorType ?? '')).toBe(true);
     });
 
-    it('reads a pull request with no author member at all (002 FR-045 as re-cut at v1.12.0)', () => {
-        // FR-045's sentence requiring `PollPull`'s author members is **struck**:
-        // the review kind's actor comes from the naming `review_requested`
-        // event's `review_requester`, so the proxy those fields existed for is
-        // gone and they are gone with it. A hand-edited entry that still carries
-        // a `user` is simply not read — an unknown member is ignored, not
-        // honoured, and never widens the row.
+    it('reads a pull request\'s author as a fact of authorship (FR-120)', () => {
+        // The author is the own-pull candidate set's fact of authorship, not
+        // the attribution proxy research §R8 retired for review requests: the
+        // requester still comes from the naming event alone.
         const pull = readPullEntry(pullEntry());
 
         expect(pull).toMatchObject({
             pullNumber: 3,
+            authorLogin: HUMAN_LOGIN,
+            authorType: HUMAN_TYPE,
             requestedReviewers: ['octocat-mt'],
             headSha: 'deadbeef',
             baseRef: 'main',
         });
-        expect(Object.keys(pull ?? {})).not.toContain('authorLogin');
-        expect(Object.keys(pull ?? {})).not.toContain('authorType');
+    });
+
+    it('answers an absent pull author with the shared empty convention', () => {
+        const pull = readPullEntry(withoutUser(pullEntry()));
+
+        expect(pull).toMatchObject({ authorLogin: '', authorType: '' });
+    });
+});
+
+/** One review as the reviews endpoint answers it. */
+function reviewEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+        id: 7_001,
+        state: 'CHANGES_REQUESTED',
+        submitted_at: '2026-10-20T00:05:00.000Z',
+        user: { login: HUMAN_LOGIN, type: HUMAN_TYPE },
+        ...overrides,
+    };
+}
+
+describe('the review reader (FR-120, FR-122)', () => {
+    it('reads the id, state, stamp and reviewer', () => {
+        expect(readReviewEntry(reviewEntry())).toEqual({
+            reviewId: 7_001,
+            state: 'CHANGES_REQUESTED',
+            submittedAt: '2026-10-20T00:05:00.000Z',
+            authorLogin: HUMAN_LOGIN,
+            authorType: HUMAN_TYPE,
+        });
+    });
+
+    it('keeps a PENDING row undated and an unnamed author empty, and refuses an unusable id or state', () => {
+        expect(readReviewEntry(reviewEntry({ submitted_at: null, user: undefined })))
+            .toEqual({
+                reviewId: 7_001,
+                state: 'CHANGES_REQUESTED',
+                submittedAt: null,
+                authorLogin: '',
+                authorType: '',
+            });
+        expect(readReviewEntry(reviewEntry({ id: 0 }))).toBeNull();
+        expect(readReviewEntry(reviewEntry({ id: '7001' }))).toBeNull();
+        expect(readReviewEntry(reviewEntry({ state: undefined }))).toBeNull();
+    });
+});
+
+describe('the check-run reader (FR-126)', () => {
+    it('reads a name and a conclusion, keeping an unconcluded run null', () => {
+        expect(readCheckRunEntry({ name: 'build', conclusion: 'failure' }))
+            .toEqual({ name: 'build', conclusion: 'failure' });
+        expect(readCheckRunEntry({ name: 'build', conclusion: null }))
+            .toEqual({ name: 'build', conclusion: null });
+    });
+
+    it('refuses a row with no readable name and keeps an unreadable conclusion null', () => {
+        expect(readCheckRunEntry({ name: '', conclusion: 'failure' })).toBeNull();
+        expect(readCheckRunEntry({ conclusion: 'failure' })).toBeNull();
+        expect(readCheckRunEntry({ name: 'build', conclusion: 7 }))
+            .toEqual({ name: 'build', conclusion: null });
     });
 });
 

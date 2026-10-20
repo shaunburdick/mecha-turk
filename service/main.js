@@ -12008,6 +12008,34 @@ function parseListPage(input) {
     return item === null ? [] : [item];
   });
 }
+function lastPageOf(link) {
+  if (link === null) {
+    return null;
+  }
+  for (const part of link.split(",")) {
+    if (!/\brel="last"/.test(part)) {
+      continue;
+    }
+    const match = /[?&]page=(\d+)/.exec(part);
+    const page = match === null ? NaN : Number(match[1]);
+    return Number.isSafeInteger(page) && page > 0 ? page : null;
+  }
+  return null;
+}
+function parseEnvelopePage(input) {
+  const parsed = parseJsonText(input.text);
+  if (!parsed.ok || !isRecord(parsed.value)) {
+    throw new TypeError(input.message);
+  }
+  const entries = parsed.value[input.envelope];
+  if (!Array.isArray(entries)) {
+    throw new TypeError(input.message);
+  }
+  return entries.flatMap((entry) => {
+    const item = input.read(entry);
+    return item === null ? [] : [item];
+  });
+}
 async function classifyOutcome(response) {
   if (response.status === STATUS_UNAUTHORIZED2 || response.status === STATUS_NOT_FOUND2) {
     return { kind: "auth-failed" };
@@ -12085,7 +12113,33 @@ async function readOnePage(input) {
         text: await attempt.response.text(),
         message: input.message,
         read: input.read
-      })
+      }),
+      lastPage: lastPageOf(attempt.response.headers.get("link"))
+    };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
+async function readEnvelopePage(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    return {
+      kind: "ok",
+      items: parseEnvelopePage({
+        text: await attempt.response.text(),
+        envelope: input.envelope,
+        message: input.message,
+        read: input.read
+      }),
+      lastPage: lastPageOf(attempt.response.headers.get("link"))
     };
   } catch {
     return { kind: "unavailable", detail: "upstream" };
@@ -12255,11 +12309,14 @@ function readPullEntry(value) {
   }
   const head = asRecord(record.head);
   const base = asRecord(record.base);
+  const user = asRecord(record.user);
   return {
     pullNumber,
     title,
     url,
     state,
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user),
     requestedReviewers,
     headSha: head === null ? null : textOf(head, "sha"),
     baseRef: base === null ? null : textOf(base, "ref"),
@@ -12268,6 +12325,36 @@ function readPullEntry(value) {
     updatedAt: textOf(record, "updated_at")
   };
 }
+function readReviewEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const reviewId = positiveIntOf2(record.id);
+  const state = textOf(record, "state");
+  if (reviewId === null || state === null) {
+    return null;
+  }
+  const user = asRecord(record.user);
+  return {
+    reviewId,
+    state,
+    submittedAt: textOf(record, "submitted_at"),
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user)
+  };
+}
+function readCheckRunEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const name = textOf(record, "name");
+  if (name === null || name === "") {
+    return null;
+  }
+  return { name, conclusion: textOf(record, "conclusion") };
+}
 function readIssueObject(value) {
   const issue2 = readIssueEntry(value);
   return issue2 !== null && (issue2.state === "open" || issue2.state === "closed") ? issue2 : null;
@@ -12275,6 +12362,132 @@ function readIssueObject(value) {
 function readPullObject(value) {
   const pull = readPullEntry(value);
   return pull !== null && (pull.state === "open" || pull.state === "closed") ? pull : null;
+}
+
+// service/poll/poller-checks.ts
+var FAILING_CONCLUSIONS = [
+  "action_required",
+  "failure",
+  "timed_out",
+  "cancelled"
+];
+var MAX_CHECK_NAMES = 10;
+var MAX_CHECK_PAGES = 2;
+function failingOf(value) {
+  return FAILING_CONCLUSIONS.find((conclusion) => conclusion === value) ?? null;
+}
+function failingConclusionOf(runs) {
+  for (const conclusion of FAILING_CONCLUSIONS) {
+    if (runs.some((run) => run.conclusion === conclusion)) {
+      return conclusion;
+    }
+  }
+  return null;
+}
+function failingNamesOf(runs) {
+  return runs.filter((run) => failingOf(run.conclusion) !== null).map((run) => run.name).slice(0, MAX_CHECK_NAMES);
+}
+async function readHeadChecks(runtime, query) {
+  const url = new URL(`${API_ORIGIN}/repos/${query.owner}/${query.name}/commits/${query.headSha}/check-runs`);
+  url.searchParams.set("filter", "latest");
+  const runs = [];
+  for (let page = 1;page <= MAX_CHECK_PAGES; page += 1) {
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("per_page", String(query.pace.perPage));
+    const parsed = await readEnvelopePage({
+      runtime,
+      token: query.token,
+      url,
+      pace: query.pace,
+      envelope: "check_runs",
+      message: "check-runs response was not an envelope",
+      read: readCheckRunEntry
+    });
+    if (parsed.kind !== "ok") {
+      return parsed;
+    }
+    runs.push(...parsed.items);
+    if (page === MAX_CHECK_PAGES && parsed.items.length >= query.pace.perPage) {
+      return { kind: "ok", conclusion: null, names: [], truncated: true };
+    }
+    if (parsed.items.length < query.pace.perPage) {
+      break;
+    }
+  }
+  return {
+    kind: "ok",
+    conclusion: failingConclusionOf(runs),
+    names: failingNamesOf(runs),
+    truncated: false
+  };
+}
+
+// service/poll/poller-reviews.ts
+var MAX_REVIEW_CONTENT_PAGES = 2;
+function entirelyInWindow(reviews, windowStart) {
+  const start = Date.parse(windowStart);
+  return reviews.every((review) => {
+    if (review.submittedAt === null) {
+      return true;
+    }
+    const submitted = Date.parse(review.submittedAt);
+    return !Number.isFinite(submitted) || submitted >= start;
+  });
+}
+async function readPage(input) {
+  input.url.searchParams.set("page", String(input.page));
+  input.url.searchParams.set("per_page", String(input.query.pace.perPage));
+  return await readOnePage({
+    runtime: input.runtime,
+    token: input.query.token,
+    url: input.url,
+    pace: input.query.pace,
+    message: "review list response was not an array",
+    read: readReviewEntry
+  });
+}
+async function walkBackward(input) {
+  let pageNumber = input.lastPage;
+  let page = input.lastPage === 1 ? { kind: "ok", items: input.discoveryItems, lastPage: input.lastPage } : await readPage({ runtime: input.runtime, query: input.query, url: input.url, page: pageNumber });
+  if (page.kind !== "ok") {
+    return page;
+  }
+  const reviews = [...page.items];
+  let contentPages = 1;
+  while (pageNumber !== 1 && contentPages < MAX_REVIEW_CONTENT_PAGES && entirelyInWindow(page.items, input.query.windowStart)) {
+    pageNumber -= 1;
+    page = await readPage({ runtime: input.runtime, query: input.query, url: input.url, page: pageNumber });
+    if (page.kind !== "ok") {
+      return page;
+    }
+    reviews.unshift(...page.items);
+    contentPages += 1;
+  }
+  const isTruncated = pageNumber !== 1 && contentPages === MAX_REVIEW_CONTENT_PAGES && entirelyInWindow(page.items, input.query.windowStart);
+  return { kind: "ok", reviews: isTruncated ? [] : reviews, truncated: isTruncated };
+}
+async function readPullReviews(runtime, query) {
+  const url = listUrl({
+    owner: query.owner,
+    name: query.name,
+    path: `pulls/${query.pullNumber}/reviews`,
+    query: {},
+    since: null
+  });
+  const discovery = await readPage({ runtime, query, url, page: 1 });
+  if (discovery.kind !== "ok") {
+    return discovery;
+  }
+  if (discovery.lastPage === null) {
+    return discovery.items.length < query.pace.perPage ? { kind: "ok", reviews: discovery.items, truncated: false } : { kind: "ok", reviews: [], truncated: true };
+  }
+  return await walkBackward({
+    runtime,
+    query,
+    url,
+    lastPage: discovery.lastPage,
+    discoveryItems: discovery.items
+  });
 }
 
 // service/poll/poller-github.ts
@@ -12408,6 +12621,8 @@ function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fet
     listIssueComments: (query) => commentsList(runtime, query),
     listReviewComments: (query) => reviewCommentsList(runtime, query),
     listOpenPulls: (query) => pullsList(runtime, query),
+    listPullReviews: (query) => readPullReviews(runtime, query),
+    listHeadChecks: (query) => readHeadChecks(runtime, query),
     listIssueEvents: (query) => itemEventsList(runtime, query),
     readIssueState: (query) => issueStateObject(runtime, query),
     readPullState: (query) => pullStateObject(runtime, query)

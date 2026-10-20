@@ -1,7 +1,7 @@
 /**
- * Entry normalization for the poller's three list feeds (Slice 2, split
- * out of `poller-github.ts` so each module stays inside the file-length
- * gate).
+ * Entry normalization for the poller's list feeds, reviews and check runs,
+ * split out of `poller-github.ts` so each module stays inside the file-length
+ * gate.
  */
 
 import { isRecord } from '../json.ts';
@@ -101,12 +101,12 @@ export interface PollReviewComment {
 
 /**
  * Minimal pull-request shape the poller normalizes (M7): who is asked to
- * review, and the head/base coordinates the event carries. **Deliberately no
- * author member** — the two builds that carried `authorLogin` / `authorType`
- * rested on the false premise that GitHub records no requester, and with the
- * proxy retired they are gone rather than a second, unread answer to *who
- * asked* (research §R8, rewritten). `PollIssue` and `PollComment` keep
- * theirs: their authors are facts, not stand-ins.
+ * review, who authored it, and the head/base coordinates the event carries.
+ *
+ * The author is read here as a **fact of authorship** for the own-pull
+ * candidate set (FR-120), not as the attribution proxy research §R8 retired
+ * for review requests — the two questions are different, and the requester is
+ * still read from the naming event alone.
  */
 export interface PollPull {
     /** Pull-request number within the repository. */
@@ -116,6 +116,10 @@ export interface PollPull {
     readonly url: string;
     /** PR state (`open`/`closed`). */
     readonly state: string;
+    /** Login of the pull request's author, or `''` when GitHub sent no `user`. */
+    readonly authorLogin: string;
+    /** Author type (`User`, `Bot`, `Organization`, …); `''` when absent. */
+    readonly authorType: string;
     /** Logins of the accounts currently requested to review. */
     readonly requestedReviewers: readonly string[];
     /** Head commit SHA, or `null` when GitHub sent none. */
@@ -135,6 +139,28 @@ export interface PollPull {
     readonly mergedAt?: string | null;
     /** RFC 3339 `updated_at` stamp, or `null` when GitHub sent none. */
     readonly updatedAt: string | null;
+}
+
+/** Minimal pull-request review shape the poller normalizes (FR-120 – FR-124). */
+export interface PollReview {
+    /** Review id; stable across scans, so it keys the deduplicating event id. */
+    readonly reviewId: number;
+    /** GitHub's review state word; only `CHANGES_REQUESTED` produces a row. */
+    readonly state: string;
+    /** `submitted_at`, or `null` for a `PENDING` review GitHub has not dated. */
+    readonly submittedAt: string | null;
+    /** Login of the reviewer, or `''` when GitHub sent no `user`. */
+    readonly authorLogin: string;
+    /** Reviewer type (`User`, `Bot`, …); `''` when absent. */
+    readonly authorType: string;
+}
+
+/** Minimal check-run shape the poller normalizes (FR-126 – FR-127). */
+export interface PollCheckRun {
+    /** Check name; required, because it is what the follow-up names. */
+    readonly name: string;
+    /** GitHub's conclusion word, or `null` while the run has not concluded. */
+    readonly conclusion: string | null;
 }
 
 /**
@@ -338,12 +364,15 @@ export function readPullEntry(value: unknown): PollPull | null {
 
     const head = asRecord(record.head);
     const base = asRecord(record.base);
+    const user = asRecord(record.user);
 
     return {
         pullNumber,
         title,
         url,
         state,
+        authorLogin: authorLoginOf(user),
+        authorType: authorTypeOf(user),
         requestedReviewers,
         headSha: head === null ? null : textOf(head, 'sha'),
         baseRef: base === null ? null : textOf(base, 'ref'),
@@ -351,6 +380,56 @@ export function readPullEntry(value: unknown): PollPull | null {
         mergedAt: textOf(record, 'merged_at'),
         updatedAt: textOf(record, 'updated_at'),
     };
+}
+
+/**
+ * Parse one pull-request review entry, failing soft per entry.
+ *
+ * The author may be absent and still parses: attribution is the caller's
+ * judgement, and a review GitHub will not name is refused there rather than
+ * dropped here.
+ */
+export function readReviewEntry(value: unknown): PollReview | null {
+    const record = asRecord(value);
+    if (record === null) {
+        return null;
+    }
+
+    const reviewId = positiveIntOf(record.id);
+    const state = textOf(record, 'state');
+    if (reviewId === null || state === null) {
+        return null;
+    }
+
+    const user = asRecord(record.user);
+
+    return {
+        reviewId,
+        state,
+        submittedAt: textOf(record, 'submitted_at'),
+        authorLogin: authorLoginOf(user),
+        authorType: authorTypeOf(user),
+    };
+}
+
+/**
+ * Parse one check-run entry, failing soft per entry.
+ *
+ * A check with no readable name cannot be named in the follow-up, so it is
+ * dropped; an unreadable conclusion is no conclusion, which is not a failure.
+ */
+export function readCheckRunEntry(value: unknown): PollCheckRun | null {
+    const record = asRecord(value);
+    if (record === null) {
+        return null;
+    }
+
+    const name = textOf(record, 'name');
+    if (name === null || name === '') {
+        return null;
+    }
+
+    return { name, conclusion: textOf(record, 'conclusion') };
 }
 
 /**

@@ -229,6 +229,8 @@ function idlePoller(): GitHubIssuePoller {
         readPullState: async () => {
             throw new Error('the terminal read is F-9-only; the retention fixtures bind no session');
         },
+        listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
+        listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
     };
 }
 

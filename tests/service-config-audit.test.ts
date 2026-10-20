@@ -241,6 +241,8 @@ function idlePoller(): GitHubIssuePoller {
         listIssueEvents: refuseFeed,
         readIssueState: refuseFeed,
         readPullState: refuseFeed,
+        listPullReviews: refuseFeed,
+        listHeadChecks: refuseFeed,
     };
 }
 

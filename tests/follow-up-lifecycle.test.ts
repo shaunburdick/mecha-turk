@@ -260,6 +260,8 @@ function fixturePull(overrides: Partial<PollPull> = {}): PollPull {
         title: 'Change 3',
         url: PULL_URL,
         state: 'open',
+        authorLogin: '',
+        authorType: '',
         requestedReviewers: [],
         headSha: SEED_SHA,
         baseRef: 'main',
@@ -390,6 +392,8 @@ function recordingPoller(feeds: {
                     ? { kind: 'ok', pull: fixturePull({ pullNumber: query.itemNumber }) }
                     : feeds.pullState(query.itemNumber);
             },
+            listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
+            listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
         },
     };
 }

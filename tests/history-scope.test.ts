@@ -467,6 +467,8 @@ function recordingPoller(issues: readonly PollIssue[]): {
         readPullState: async () => {
             throw new Error('the terminal read is F-9-only; this fixture binds no session');
         },
+        listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
+        listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
     };
 
     return { poller, seen: () => ({ offered: [...offered], windows: [...windows] }) };
@@ -492,6 +494,8 @@ function failingPoller(): GitHubIssuePoller {
         listIssueEvents: async () => failure,
         readIssueState: async () => failure,
         readPullState: async () => failure,
+        listPullReviews: async () => failure,
+        listHeadChecks: async () => failure,
     };
 }
 
