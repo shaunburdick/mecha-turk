@@ -107,6 +107,12 @@ function followUpReasonOf(kind: FollowUpKind): string {
         case 'review-comment': {
             return 'a tracked pull request gained a review comment';
         }
+        case 'review-submitted': {
+            return 'a tracked pull request gained a changes-requested review after its run started';
+        }
+        case 'checks': {
+            return 'a tracked pull request\'s head gained failing checks';
+        }
         case 'comment': {
             return 'a tracked issue or pull request gained a comment';
         }

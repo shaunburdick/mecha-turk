@@ -116,7 +116,13 @@ async function quarantined(): Promise<string[]> {
 }
 
 /** Trigger set the fixture binding carries: assignment polling only. */
-const ASSIGNMENT_ONLY: BindingTriggers = { assignment: true, mention: false, reviewRequest: false };
+const ASSIGNMENT_ONLY: BindingTriggers = {
+    assignment: true,
+    mention: false,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: false,
+};
 
 /** The one binding the window calculation reads. */
 const FIXTURE_BINDING = fixtureBindingRow(BINDING_ID, {

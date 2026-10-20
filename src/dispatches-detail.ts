@@ -61,9 +61,9 @@ export interface RunVerification {
     readonly note: string | null;
 }
 
-export type FollowUpKind = 'comment' | 'head' | 'review' | 'review-comment';
+export type FollowUpKind = 'comment' | 'head' | 'review' | 'review-comment' | 'review-submitted' | 'checks';
 
-const FOLLOW_UP_KINDS = ['comment', 'head', 'review', 'review-comment'] as const;
+const FOLLOW_UP_KINDS = ['comment', 'head', 'review', 'review-comment', 'review-submitted', 'checks'] as const;
 
 /** Absentable on read; `cause` splits a fresh intent the engine pass owns from a spent, re-offer-eligible one. */
 export type RunFollowUpEngine =

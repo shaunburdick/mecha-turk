@@ -386,13 +386,19 @@ export async function readFollowUpRows(rt: PanelRuntime): Promise<void> {
 }
 
 /** The movement line one follow-up kind contributes to the composed message. */
-function followUpMovement(kind: RunFollowUp['kind'], from: string, to: string): string {
+function followUpMovement(kind: RunFollowUp['kind'], from: string, to: string, excerpt: string): string {
     switch (kind) {
         case 'head': {
             return `Head moved from ${from} to ${to}`;
         }
         case 'review': {
             return 'Review requested on this pull request';
+        }
+        case 'review-submitted': {
+            return 'Review requested changes on this pull request';
+        }
+        case 'checks': {
+            return `CI failed: ${defuseDelimiters(excerpt)}`;
         }
         case 'review-comment': {
             return 'New review comment';
@@ -404,7 +410,13 @@ function followUpMovement(kind: RunFollowUp['kind'], from: string, to: string): 
 }
 
 /** The kinds whose movement is a comment on a pull request rather than an issue. */
-const PULL_SHAPED_KINDS: ReadonlySet<RunFollowUp['kind']> = new Set(['head', 'review', 'review-comment']);
+const PULL_SHAPED_KINDS: ReadonlySet<RunFollowUp['kind']> = new Set([
+    'head',
+    'review',
+    'review-comment',
+    'review-submitted',
+    'checks',
+]);
 
 /** Whether a follow-up kind names a movement on a pull request. */
 function isPullShapedFollowUp(kind: RunFollowUp['kind']): boolean {
@@ -432,7 +444,7 @@ export function followUpMessage(input: {
     // constraints.
     const from = defuseDelimiters(fromHeadSha ?? 'an unrecorded head');
     const to = defuseDelimiters(headSha ?? 'an unrecorded head');
-    const movement = followUpMovement(kind, from, to);
+    const movement = followUpMovement(kind, from, to, excerpt);
     const isPullShaped = isPullShapedFollowUp(kind);
     const observedAt = defuseDelimiters(detectedAt);
     const correlationId = defuseDelimiters(row.correlationId);

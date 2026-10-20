@@ -4,13 +4,12 @@
 
 import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
 import { createEvent } from './events.ts';
-import { headFollowUps, reviewFollowUp } from './follow-up.ts';
+import { reviewFollowUp } from './follow-up.ts';
 import { resolveCandidateActor } from './poller-events.ts';
-import { trackedPullEnds, withoutEnded } from './tracking.ts';
-import type { TrackedSubject } from './tracking.ts';
 import { stampInWindow } from './window.ts';
 import type { QueuedEvent } from './events.ts';
 import type { PollPull } from './poller-entries.ts';
+import type { TrackedSubject } from './tracking.ts';
 import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
 
 /**
@@ -99,31 +98,22 @@ function reviewEvent(input: {
 }
 
 /**
- * List the review-request feed and collect the events its matches produce
- * (M7). The same pulls list answers a second question — which tracked pull's
- * **head moved** since the run's seed was recorded (002 FR-102(b)) — riding
- * the identical read, so at most one head follow-up per subject per cycle,
- * and reporting every head it observed so a run with no seed can record one
- * (FR-103(b)). The list failure ends the branch and is handed up as the
- * cycle's skip, exactly as the assignment branch's is; the per-item reads
- * report their outcomes through {@link resolveCandidateActor}, whose two
- * no-event answers are recorded rather than silent.
+ * Collect the review-request rows from the cycle's one pulls read.
+ *
+ * The list is handed in rather than read here, so the same read serves the
+ * review-submitted, head and checks branches and no cycle lists pulls twice.
+ * A failed per-item events read ends the branch and is handed up as the cycle's
+ * skip, exactly as the assignment branch's read is; its two no-event answers
+ * are recorded through {@link resolveCandidateActor} rather than silent.
  */
-export async function reviewRequestEvents(input: TriggerScanInput): Promise<TriggerEvents> {
-    const { binding, poller, token, login, windowStart, detectedAt, pace } = input;
+export async function reviewRequestEvents(
+    input: TriggerScanInput & { readonly pulls: readonly PollPull[] },
+): Promise<TriggerEvents> {
+    const { binding, poller, token, login, windowStart, detectedAt, pace, pulls } = input;
     const repository = repositoryRefOf(binding.repository);
-    const listed = await poller.listOpenPulls({
-        token,
-        owner: repository.owner,
-        name: repository.name,
-        pace,
-    });
-    if (listed.kind !== 'ok') {
-        return { ok: false, failure: listed };
-    }
-
     const events: QueuedEvent[] = [];
-    for (const pull of listed.pulls) {
+
+    for (const pull of pulls) {
         if (!stampInWindow(pull.updatedAt, windowStart) || !isReviewRequestPull(pull, login)) {
             continue;
         }
@@ -167,20 +157,5 @@ export async function reviewRequestEvents(input: TriggerScanInput): Promise<Trig
         events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
     }
 
-    const pullEnds = trackedPullEnds({ binding, pulls: listed.pulls, tracked: input.tracked });
-    const heads = headFollowUps({
-        binding,
-        pulls: listed.pulls,
-        tracked: withoutEnded(input.tracked, pullEnds),
-        windowStart,
-        detectedAt,
-    });
-
-    return {
-        ok: true,
-        events: [...events, ...heads.rows],
-        observedHeads: new Map(heads.observations.flatMap((observation) =>
-            observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
-        ...(pullEnds.length > 0 && { ends: pullEnds }),
-    };
+    return { ok: true, events };
 }

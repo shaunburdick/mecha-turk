@@ -185,7 +185,7 @@ const bindingRow = (input: {
     accountLogin: LOGIN,
     repository: input.repository,
     worktreeOption: 'generated',
-    triggers: { assignment: true, mention: false, reviewRequest: false },
+    triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
     stamp: FIXTURE_TIMESTAMP,
     startingPrompt: input.startingPrompt,
 });

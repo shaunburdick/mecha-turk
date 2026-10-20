@@ -50,7 +50,7 @@ const UNROUTED_BODY = '{"error":{"code":"not-found","message":"unrouted"}}';
 const activeBinding = (): PanelBinding => fixtureBindingRow('bnd-arm-1', {
     accountLogin: LOGIN,
     worktreeOption: 'generated',
-    triggers: { assignment: true, mention: false, reviewRequest: false },
+    triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
     stamp: FIXTURE_TIMESTAMP,
 });
 

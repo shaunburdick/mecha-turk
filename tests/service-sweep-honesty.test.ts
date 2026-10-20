@@ -116,7 +116,7 @@ async function seed(...snapshots: readonly EventSnapshot[]): Promise<void> {
 
 /** One stored binding record for the status-row reader. */
 const binding = (bindingId: string): BindingRecord => fixtureBindingRow(bindingId, {
-    triggers: { assignment: true, mention: true, reviewRequest: true },
+    triggers: { assignment: true, mention: true, reviewRequest: true, reviewSubmitted: false, checks: false },
     stamp: DETECTED_AT,
 });
 

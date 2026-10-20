@@ -232,7 +232,7 @@ const QUIET: ServiceLogger = createLogger({
  */
 const binding = (bindingId: string, scope?: HistoryScope): BindingRecord => fixtureBindingRow(bindingId, {
     accountLogin: ACCOUNT_LOGIN,
-    triggers: { assignment: true, mention: false, reviewRequest: false },
+    triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
     stamp: CREATED_AT,
     historyScope: scope,
 });

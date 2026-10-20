@@ -1899,28 +1899,50 @@ var DECIMAL_SEGMENT = /^[0-9]+$/;
 var HEAD_TAIL = /^head~[0-9a-f]+$/;
 var REVIEW_TAIL = /^review~[0-9]+$/;
 var REVIEW_COMMENT_TAIL = /^review-comment~[0-9]+$/;
+var REVIEW_SUBMITTED_TAIL = /^review-submitted~[0-9]+$/;
+var CHECKS_TAIL = /^checks~[0-9a-f]+~(action_required|failure|timed_out|cancelled)$/;
+var NUMERIC_TAILS = [
+  { pattern: DECIMAL_SEGMENT, prefix: "", role: "comment" },
+  { pattern: REVIEW_TAIL, prefix: "review~", role: "review" },
+  { pattern: REVIEW_COMMENT_TAIL, prefix: "review-comment~", role: "review-comment" },
+  { pattern: REVIEW_SUBMITTED_TAIL, prefix: "review-submitted~", role: "review-submitted" }
+];
+function numericRoleOf(role, id) {
+  switch (role) {
+    case "comment": {
+      return { role, commentId: id };
+    }
+    case "review": {
+      return { role, eventId: id };
+    }
+    case "review-comment": {
+      return { role, commentId: id };
+    }
+    case "review-submitted": {
+      return { role, reviewId: id };
+    }
+  }
+}
+function tailDiscriminatorOf(tail) {
+  const numeric = NUMERIC_TAILS.find((entry) => entry.pattern.test(tail));
+  if (numeric !== undefined) {
+    const id = Number(tail.slice(numeric.prefix.length));
+    return id > 0 ? numericRoleOf(numeric.role, id) : { role: "malformed" };
+  }
+  if (HEAD_TAIL.test(tail)) {
+    return { role: "head", headSha: tail.slice("head~".length) };
+  }
+  if (CHECKS_TAIL.test(tail)) {
+    return { role: "checks" };
+  }
+  return { role: "malformed" };
+}
 function discriminatorOfId(id) {
   const segments = id.split("~");
   if (segments.length <= ID_BASE_SEGMENTS + 1 || segments[ID_BASE_SEGMENTS] !== FOLLOW_UP_SEGMENT) {
     return { role: "trigger" };
   }
-  const tail = segments.slice(ID_BASE_SEGMENTS + 1).join("~");
-  if (DECIMAL_SEGMENT.test(tail)) {
-    const commentId = Number(tail);
-    return commentId > 0 ? { role: "comment", commentId } : { role: "malformed" };
-  }
-  if (HEAD_TAIL.test(tail)) {
-    return { role: "head", headSha: tail.slice("head~".length) };
-  }
-  if (REVIEW_TAIL.test(tail)) {
-    const eventId = Number(tail.slice("review~".length));
-    return eventId > 0 ? { role: "review", eventId } : { role: "malformed" };
-  }
-  if (REVIEW_COMMENT_TAIL.test(tail)) {
-    const commentId = Number(tail.slice("review-comment~".length));
-    return commentId > 0 ? { role: "review-comment", commentId } : { role: "malformed" };
-  }
-  return { role: "malformed" };
+  return tailDiscriminatorOf(segments.slice(ID_BASE_SEGMENTS + 1).join("~"));
 }
 function followUpKindOf(id) {
   const { role } = discriminatorOfId(id);
@@ -2192,6 +2214,12 @@ function followUpReasonOf(kind) {
     }
     case "review-comment": {
       return "a tracked pull request gained a review comment";
+    }
+    case "review-submitted": {
+      return "a tracked pull request gained a changes-requested review after its run started";
+    }
+    case "checks": {
+      return "a tracked pull request's head gained failing checks";
     }
     case "comment": {
       return "a tracked issue or pull request gained a comment";
@@ -3866,15 +3894,34 @@ function buildEventId(input) {
   const base = `evt-${repository.owner}~${repository.name}~${input.issueNumber}~${input.accountNumericUserId}`;
   return input.discriminator === undefined ? base : `${base}${input.discriminator}`;
 }
-function discriminatorOf(snapshot) {
-  if ("followUp" in snapshot) {
-    if (snapshot.followUp === "head") {
+function followUpDiscriminatorOf(snapshot) {
+  switch (snapshot.followUp) {
+    case "head": {
       return `~followup~head~${snapshot.headSha}`;
     }
-    if (snapshot.followUp === "review") {
+    case "review": {
       return `~followup~review~${snapshot.eventId}`;
     }
-    return snapshot.followUp === "review-comment" ? `~followup~review-comment~${snapshot.commentId}` : `~followup~${snapshot.commentId}`;
+    case "review-submitted": {
+      return `~followup~review-submitted~${snapshot.reviewId}`;
+    }
+    case "checks": {
+      return `~followup~checks~${snapshot.headSha}~${snapshot.conclusion}`;
+    }
+    case "review-comment": {
+      return `~followup~review-comment~${snapshot.commentId}`;
+    }
+    case "comment": {
+      return `~followup~${snapshot.commentId}`;
+    }
+  }
+}
+function discriminatorOf(snapshot) {
+  if ("followUp" in snapshot) {
+    return followUpDiscriminatorOf(snapshot);
+  }
+  if ("reviewId" in snapshot) {
+    return `~review~submitted~${snapshot.reviewId}`;
   }
   if (snapshot.kind === "mention") {
     if (snapshot.origin === "body") {
@@ -5801,14 +5848,22 @@ function triggersFieldOf(value) {
     return null;
   }
   const record = value;
-  const { assignment, mention, reviewRequest } = record;
+  const { assignment, mention, reviewRequest, reviewSubmitted, checks } = record;
   if (typeof assignment !== "boolean" || typeof mention !== "boolean") {
     return null;
   }
-  if (reviewRequest !== undefined && typeof reviewRequest !== "boolean") {
-    return null;
+  for (const flag of [reviewRequest, reviewSubmitted, checks]) {
+    if (flag !== undefined && typeof flag !== "boolean") {
+      return null;
+    }
   }
-  return { assignment, mention, reviewRequest: reviewRequest === true };
+  return {
+    assignment,
+    mention,
+    reviewRequest: reviewRequest === true,
+    reviewSubmitted: reviewSubmitted === true,
+    checks: checks === true
+  };
 }
 function stateFieldOf(value) {
   if (value === undefined) {
@@ -5904,7 +5959,7 @@ function bindingModeOf(raw) {
   if (triggers === null) {
     return issue({
       field: "triggers",
-      remediation: "triggers must be an object with assignment, mention, and reviewRequest boolean flags"
+      remediation: "triggers must be an object with assignment, mention, reviewRequest, " + "reviewSubmitted, and checks boolean flags"
     });
   }
   const state = stateFieldOf(raw.state);
@@ -10361,15 +10416,21 @@ function renderBoundedContext(input) {
 }
 
 // service/poll/engine-compose.ts
-var PULL_SHAPED_KINDS = new Set(["head", "review", "review-comment"]);
+var PULL_SHAPED_KINDS = new Set([
+  "head",
+  "review",
+  "review-comment",
+  "review-submitted",
+  "checks"
+]);
 var UNRECORDED_HEAD = "an unrecorded head";
-function movementOf(kind, heads) {
+function plainMovementOf(kind, excerpt) {
   switch (kind) {
-    case "head": {
-      return `Head moved from ${defuseDelimiters(heads?.from ?? UNRECORDED_HEAD)} to ${defuseDelimiters(heads?.to ?? UNRECORDED_HEAD)}`;
-    }
     case "review": {
       return "Review requested on this pull request";
+    }
+    case "review-submitted": {
+      return "Review requested changes on this pull request";
     }
     case "review-comment": {
       return "New review comment";
@@ -10377,7 +10438,20 @@ function movementOf(kind, heads) {
     case "comment": {
       return "New comment";
     }
+    case "checks":
+    case "head": {
+      return excerpt;
+    }
   }
+}
+function movementOf(kind, heads, excerpt) {
+  if (kind === "checks") {
+    return `CI failed: ${defuseDelimiters(excerpt)}`;
+  }
+  if (kind === "head") {
+    return `Head moved from ${defuseDelimiters(heads?.from ?? UNRECORDED_HEAD)} to ${defuseDelimiters(heads?.to ?? UNRECORDED_HEAD)}`;
+  }
+  return plainMovementOf(kind, excerpt);
 }
 function headPairOf(input) {
   if (followUpKindOf(input.row.id) !== "head") {
@@ -10404,7 +10478,7 @@ function composeEngineFollowUp(input) {
   }
   const { row } = input;
   const heads = headPairOf({ run: input.run, row, runRows: input.runRows });
-  const movement = movementOf(kind, heads);
+  const movement = movementOf(kind, heads, row.issueBodyExcerpt);
   const isPullShaped = PULL_SHAPED_KINDS.has(kind);
   const header = [
     "Mecha Turk follow-up (automated — continuing a work item Mecha Turk already started).",
@@ -10722,6 +10796,7 @@ function bodyExcerptOf(body) {
 }
 
 // service/poll/follow-up.ts
+var IN_PROGRESS = "on a work item already in progress";
 function commentNote(commenter, issueNumber) {
   return `Comment by ${commenter} on issue #${issueNumber}, on a work item already in progress`;
 }
@@ -10809,9 +10884,70 @@ function reviewFollowUp(input) {
     },
     actorLogin,
     actorAttribution: "direct",
-    triggerNote: `Review requested from the bound account on pull request #${pull.pullNumber}, ` + "on a work item already in progress",
+    triggerNote: `Review requested from the bound account on pull request #${pull.pullNumber}, ${IN_PROGRESS}`,
     detectedAt,
     subjectType: tracked.subjectType
+  });
+}
+function reviewSubmittedFollowUp(input) {
+  const { binding, pull, tracked, review, detectedAt } = input;
+  const reviewer = actorLoginOf(review.authorLogin);
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    followUp: "review-submitted",
+    reviewId: review.reviewId,
+    headSha: pull.headSha,
+    baseRef: pull.baseRef,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: ""
+    },
+    actorLogin: reviewer,
+    actorAttribution: "direct",
+    triggerNote: `Review changes requested by ${reviewer} on pull request #${pull.pullNumber}, ${IN_PROGRESS}`,
+    detectedAt,
+    subjectType: tracked.subjectType
+  });
+}
+function checksFollowUp(input) {
+  const { binding, pull, tracked, conclusion, names, detectedAt } = input;
+  const actor = tracked.actorLogin;
+  const attribution = tracked.actorAttribution;
+  if (actor === null || attribution !== "direct") {
+    return null;
+  }
+  const joined = names.join(", ");
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    followUp: "checks",
+    headSha: pull.headSha ?? "",
+    baseRef: null,
+    conclusion,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: joined
+    },
+    actorLogin: actor,
+    actorAttribution: attribution,
+    triggerNote: `CI failed: ${joined}`,
+    detectedAt,
+    subjectType: "pull_request"
   });
 }
 function reviewCommentFollowUp(input) {
@@ -10837,7 +10973,7 @@ function reviewCommentFollowUp(input) {
     },
     actorLogin: commenter,
     actorAttribution: "direct",
-    triggerNote: `Review comment by ${commenter} on pull request #${comment.pullNumber}, ` + "on a work item already in progress",
+    triggerNote: `Review comment by ${commenter} on pull request #${comment.pullNumber}, ${IN_PROGRESS}`,
     detectedAt,
     subjectType: tracked.subjectType
   });
@@ -10880,6 +11016,7 @@ function headFollowUps(input) {
   const { binding, pulls, tracked, windowStart, detectedAt } = input;
   const rows = [];
   const observations = [];
+  const movements = [];
   for (const pull of pulls) {
     if (!stampInWindow(pull.updatedAt, windowStart)) {
       continue;
@@ -10893,12 +11030,13 @@ function headFollowUps(input) {
     if (seed === null || seed === pull.headSha) {
       continue;
     }
+    movements.push({ pullNumber: pull.pullNumber, fromHeadSha: seed, headSha: pull.headSha });
     const row = headFollowUp({ binding, pull, tracked: subject, fromHeadSha: seed, detectedAt });
     if (row !== null) {
       rows.push(row);
     }
   }
-  return { rows, observations };
+  return { rows, observations, movements };
 }
 function followUpSubjects(events) {
   const issues = [];
@@ -11274,6 +11412,54 @@ async function assignmentEvents(input) {
   return { ok: true, events };
 }
 
+// service/poll/triggers-checks.ts
+async function triggersChecks(input) {
+  const { binding, poller, token, pace, tracked, detectedAt, movements, pulls } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const byNumber = new Map(pulls.map((pull) => [pull.pullNumber, pull]));
+  const reads = new Map;
+  const events = [];
+  for (const movement of movements) {
+    let listed = reads.get(movement.headSha);
+    if (listed === undefined) {
+      listed = await poller.listHeadChecks({
+        token,
+        owner: repository.owner,
+        name: repository.name,
+        headSha: movement.headSha,
+        pace
+      });
+      reads.set(movement.headSha, listed);
+    }
+    if (listed.kind !== "ok") {
+      return { ok: false, failure: listed };
+    }
+    if (listed.truncated) {
+      input.log.warn("check-runs walk truncated; this head produces nothing this cycle", {
+        headSha: movement.headSha
+      });
+      continue;
+    }
+    const pull = byNumber.get(movement.pullNumber);
+    const subject = tracked.get(movement.pullNumber);
+    if (pull === undefined || subject === undefined || listed.conclusion === null) {
+      continue;
+    }
+    const row = checksFollowUp({
+      binding,
+      pull,
+      tracked: subject,
+      conclusion: listed.conclusion,
+      names: listed.names,
+      detectedAt
+    });
+    if (row !== null) {
+      events.push(row);
+    }
+  }
+  return { ok: true, events };
+}
+
 // service/poll/review-comment-mention-events.ts
 function issueFieldsOf(comment, repository) {
   return {
@@ -11362,19 +11548,10 @@ function reviewEvent(input) {
   });
 }
 async function reviewRequestEvents(input) {
-  const { binding, poller, token, login, windowStart, detectedAt, pace } = input;
+  const { binding, poller, token, login, windowStart, detectedAt, pace, pulls } = input;
   const repository = repositoryRefOf(binding.repository);
-  const listed = await poller.listOpenPulls({
-    token,
-    owner: repository.owner,
-    name: repository.name,
-    pace
-  });
-  if (listed.kind !== "ok") {
-    return { ok: false, failure: listed };
-  }
   const events = [];
-  for (const pull of listed.pulls) {
+  for (const pull of pulls) {
     if (!stampInWindow(pull.updatedAt, windowStart) || !isReviewRequestPull(pull, login)) {
       continue;
     }
@@ -11410,20 +11587,103 @@ async function reviewRequestEvents(input) {
     }
     events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
   }
-  const pullEnds = trackedPullEnds({ binding, pulls: listed.pulls, tracked: input.tracked });
-  const heads = headFollowUps({
-    binding,
-    pulls: listed.pulls,
-    tracked: withoutEnded(input.tracked, pullEnds),
-    windowStart,
-    detectedAt
+  return { ok: true, events };
+}
+
+// service/poll/triggers-review-submitted.ts
+function isOwnPullCandidate(pull, bindingLogin) {
+  if (bindingLogin === "" || pull.authorLogin === "") {
+    return false;
+  }
+  return pull.authorLogin.toLowerCase() === bindingLogin.toLowerCase();
+}
+function isSubmittedReview(review, bindingLogin, windowStart) {
+  if (review.state !== "CHANGES_REQUESTED" || review.submittedAt === null) {
+    return false;
+  }
+  const submitted = Date.parse(review.submittedAt);
+  const start = Date.parse(windowStart);
+  if (!Number.isFinite(submitted) || !Number.isFinite(start) || submitted < start || !isAttributableAuthor(review.authorLogin, review.authorType)) {
+    return false;
+  }
+  return review.authorLogin.toLowerCase() !== bindingLogin.toLowerCase();
+}
+function newerTrackedPull(input) {
+  const subject = input.tracked;
+  if (subject?.subjectType !== "pull_request" || input.submittedAt === null) {
+    return null;
+  }
+  const submitted = Date.parse(input.submittedAt);
+  const established = Date.parse(subject.establishedAt ?? "");
+  if (!Number.isFinite(submitted) || !Number.isFinite(established) || submitted <= established) {
+    return null;
+  }
+  return subject;
+}
+function submittedTrigger(input) {
+  const { binding, pull, review, detectedAt } = input;
+  const reviewer = actorLoginOf(review.authorLogin);
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    reviewId: review.reviewId,
+    headSha: pull.headSha,
+    baseRef: pull.baseRef,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: ""
+    },
+    actorLogin: reviewer,
+    actorAttribution: "direct",
+    triggerNote: `Review changes requested by ${reviewer} on pull request #${pull.pullNumber}`,
+    detectedAt,
+    subjectType: "pull_request"
   });
-  return {
-    ok: true,
-    events: [...events, ...heads.rows],
-    observedHeads: new Map(heads.observations.flatMap((observation) => observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
-    ...pullEnds.length > 0 && { ends: pullEnds }
-  };
+}
+async function reviewSubmittedEvents(input) {
+  const { binding, poller, token, login, windowStart, detectedAt, pace, pulls } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const events = [];
+  for (const pull of pulls) {
+    if (!stampInWindow(pull.updatedAt, windowStart) || !isOwnPullCandidate(pull, login)) {
+      continue;
+    }
+    const listed = await poller.listPullReviews({
+      token,
+      owner: repository.owner,
+      name: repository.name,
+      pullNumber: pull.pullNumber,
+      windowStart,
+      pace
+    });
+    if (listed.kind !== "ok") {
+      return { ok: false, failure: listed };
+    }
+    if (listed.truncated) {
+      input.log.warn("review feed truncated; this pull request produces nothing this cycle", {
+        pullNumber: pull.pullNumber
+      });
+      continue;
+    }
+    for (const review of listed.reviews) {
+      if (!isSubmittedReview(review, login, windowStart)) {
+        continue;
+      }
+      const tracked = newerTrackedPull({
+        tracked: input.tracked.get(pull.pullNumber),
+        submittedAt: review.submittedAt
+      });
+      events.push(tracked === null ? submittedTrigger({ binding, pull, review, detectedAt }) : reviewSubmittedFollowUp({ binding, pull, tracked, review, detectedAt }));
+    }
+  }
+  return { ok: true, events };
 }
 
 // service/poll/triggers.ts
@@ -11584,8 +11844,67 @@ async function listedIssues(input) {
     pace
   });
 }
+function pullsNeeded(binding) {
+  return binding.triggers.reviewRequest || binding.triggers.reviewSubmitted || binding.triggers.checks;
+}
+async function listedPulls(input) {
+  const { poller, token, repository, pace, binding } = input;
+  if (!pullsNeeded(binding)) {
+    return { kind: "ok", pulls: [] };
+  }
+  return await poller.listOpenPulls({
+    token,
+    owner: repository.owner,
+    name: repository.name,
+    pace
+  });
+}
+async function pullEventsOf(input) {
+  const { scan, pulls } = input;
+  const { binding } = scan;
+  const events = [];
+  const pullEnds = trackedPullEnds({ binding, pulls, tracked: scan.tracked });
+  const tracked = withoutEnded(scan.tracked, pullEnds);
+  const heads = headFollowUps({
+    binding,
+    pulls,
+    tracked,
+    windowStart: scan.windowStart,
+    detectedAt: scan.detectedAt
+  });
+  if (binding.triggers.reviewRequest) {
+    const requests = await reviewRequestEvents({ ...scan, tracked, pulls });
+    if (!requests.ok) {
+      return requests;
+    }
+    events.push(...requests.events);
+  }
+  if (binding.triggers.reviewSubmitted) {
+    const submitted = await reviewSubmittedEvents({ ...scan, tracked, pulls });
+    if (!submitted.ok) {
+      return submitted;
+    }
+    events.push(...submitted.events);
+  }
+  if (binding.triggers.reviewRequest) {
+    events.push(...heads.rows);
+  }
+  if (binding.triggers.checks) {
+    const checks = await triggersChecks({ ...scan, tracked, pulls, movements: heads.movements });
+    if (!checks.ok) {
+      return checks;
+    }
+    events.push(...checks.events);
+  }
+  return {
+    ok: true,
+    events,
+    observedHeads: new Map(heads.observations.flatMap((observation) => observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
+    ...pullEnds.length > 0 && { ends: pullEnds }
+  };
+}
 async function triggerBranches(input) {
-  const { scan, issues } = input;
+  const { scan, issues, pulls } = input;
   const branches = [];
   if (scan.binding.triggers.assignment) {
     branches.push(await assignmentEvents({ ...scan, issues }));
@@ -11593,8 +11912,8 @@ async function triggerBranches(input) {
   if (scan.binding.triggers.mention) {
     branches.push(await mentionEventsOf({ ...scan, issues }));
   }
-  if (scan.binding.triggers.reviewRequest) {
-    branches.push(await reviewRequestEvents(scan));
+  if (pullsNeeded(scan.binding)) {
+    branches.push(await pullEventsOf({ scan, pulls }));
   }
   return branches;
 }
@@ -11605,6 +11924,10 @@ async function collectTriggerEvents(input) {
   if (issues.kind !== "ok") {
     return { ok: false, failure: issues };
   }
+  const pulls = await listedPulls({ poller, token, repository, pace, binding });
+  if (pulls.kind !== "ok") {
+    return { ok: false, failure: pulls };
+  }
   const ends = [...trackedIssueEnds({
     binding,
     issues: issues.issues,
@@ -11613,7 +11936,7 @@ async function collectTriggerEvents(input) {
   const tracked = withoutEnded(input.tracked, ends);
   const events = [];
   let observedHeads;
-  const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues });
+  const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues, pulls: pulls.pulls });
   for (const branch of branches) {
     if (!branch.ok) {
       return branch;
@@ -11634,8 +11957,8 @@ async function collectTriggerEvents(input) {
 
 // service/poll/loop.ts
 function watchesAnything(binding) {
-  const { assignment, mention, reviewRequest } = binding.triggers;
-  return assignment || mention || reviewRequest;
+  const { assignment, mention, reviewRequest, reviewSubmitted, checks } = binding.triggers;
+  return assignment || mention || reviewRequest || reviewSubmitted || checks;
 }
 function skipOf(outcome) {
   if (outcome.kind === "auth-failed") {

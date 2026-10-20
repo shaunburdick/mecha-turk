@@ -194,7 +194,13 @@ const fixtureSnapshot = (issueNumber: number, excerpt: string): EventSnapshot =>
 });
 
 /** Trigger set every fixture binding carries: assignment polling only. */
-const ASSIGNMENT_ONLY: BindingTriggers = { assignment: true, mention: false, reviewRequest: false };
+const ASSIGNMENT_ONLY: BindingTriggers = {
+    assignment: true,
+    mention: false,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: false,
+};
 
 /**
  * One active, assignment-only binding under this suite's fixture stamp.
@@ -671,6 +677,73 @@ describe('widened event detection ids (FR-112, FR-113)', () => {
 
         expect(row.id).toBe(`evt-acme~widget~3~${ACCOUNT_ID}~review`);
         expect(followUpKindOf(row.id)).toBeNull();
+    });
+
+    it('mints a submitted-review trigger from the review id and round-trips it', () => {
+        const row = createEvent({
+            ...fixtureSnapshot(3, ''),
+            kind: 'review',
+            reviewId: 9_001,
+            headSha: 'deadbeefcafe000000000000000000000000beef',
+            baseRef: 'main',
+            subjectType: 'pull_request',
+        });
+
+        expect(row.id).toBe(`evt-acme~widget~3~${ACCOUNT_ID}~review~submitted~9001`);
+        expect(followUpKindOf(row.id)).toBeNull();
+        expect(parseStoredEvent(structuredClone(row))).toEqual(row);
+    });
+
+    it('mints the two new follow-up tails and round-trips them', () => {
+        const submitted = createEvent({
+            ...fixtureSnapshot(3, ''),
+            kind: 'review',
+            followUp: 'review-submitted',
+            reviewId: 9_001,
+            headSha: 'deadbeefcafe000000000000000000000000beef',
+            baseRef: 'main',
+            subjectType: 'pull_request',
+        });
+        const checks = createEvent({
+            ...fixtureSnapshot(3, ''),
+            kind: 'review',
+            followUp: 'checks',
+            headSha: 'deadbeefcafe000000000000000000000000beef',
+            baseRef: null,
+            conclusion: 'failure',
+            subjectType: 'pull_request',
+        });
+
+        expect(submitted.id).toBe(`evt-acme~widget~3~${ACCOUNT_ID}~followup~review-submitted~9001`);
+        expect(followUpKindOf(submitted.id)).toBe('review-submitted');
+        expect(checks.id).toBe(
+            `evt-acme~widget~3~${ACCOUNT_ID}~followup~checks~deadbeefcafe000000000000000000000000beef~failure`,
+        );
+        expect(followUpKindOf(checks.id)).toBe('checks');
+        expect(parseStoredEvent(structuredClone(submitted))).toEqual(submitted);
+        expect(parseStoredEvent(structuredClone(checks))).toEqual(checks);
+    });
+
+    it('refuses a malformed new tail and a conclusion outside the four words', () => {
+        const valid = createEvent({
+            ...fixtureSnapshot(3, ''),
+            kind: 'review',
+            reviewId: 9_001,
+            headSha: null,
+            baseRef: null,
+            subjectType: 'pull_request',
+        });
+        const base = `evt-acme~widget~3~${ACCOUNT_ID}`;
+
+        for (const tail of [
+            '~followup~review-submitted~0',
+            '~followup~review-submitted~abc',
+            '~followup~checks~deadbeef~success',
+            '~followup~checks~deadbeef~failure~extra',
+            '~followup~checks~not-a-sha~failure',
+        ]) {
+            expect(parseStoredEvent({ ...valid, id: `${base}${tail}` })).toBeNull();
+        }
     });
 });
 
@@ -1610,7 +1683,13 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
         };
         const observed = async (input: { readonly users?: readonly string[] }): Promise<readonly QueuedEvent[]> => {
             await writeAccount(store, fixtureAccount({ stamp: CREATED_AT }));
-            const switches = { assignment: false, mention: true, reviewRequest: true };
+            const switches = {
+                assignment: false,
+                mention: true,
+                reviewRequest: true,
+                reviewSubmitted: false,
+                checks: false,
+            };
             const binding = { ...policyBinding(input), triggers: switches };
             await writeBindings({ store, bindings: [binding] });
             // The issue the comment and the pull request sit on, assigned to

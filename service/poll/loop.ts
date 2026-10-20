@@ -133,9 +133,9 @@ export interface PollLoop {
  * scan state stays honest (and no rate budget is spent on a silent binding).
  */
 function watchesAnything(binding: BindingRecord): boolean {
-    const { assignment, mention, reviewRequest } = binding.triggers;
+    const { assignment, mention, reviewRequest, reviewSubmitted, checks } = binding.triggers;
 
-    return assignment || mention || reviewRequest;
+    return assignment || mention || reviewRequest || reviewSubmitted || checks;
 }
 
 /**

@@ -25,7 +25,14 @@ import {
 import type { PollComment, PollIssue, PollPull, PollReviewComment } from './poller-entries.ts';
 
 /** Entry shapes re-exported so callers keep one import path for the poller. */
-export type { PollComment, PollIssue, PollPull, PollReviewComment } from './poller-entries.ts';
+export type {
+    PollCheckRun,
+    PollComment,
+    PollIssue,
+    PollPull,
+    PollReview,
+    PollReviewComment,
+} from './poller-entries.ts';
 export type { PullReviewsOutcome, PullReviewsQuery } from './poller-reviews.ts';
 export type { CheckConclusion, HeadChecksOutcome, HeadChecksQuery } from './poller-checks.ts';
 

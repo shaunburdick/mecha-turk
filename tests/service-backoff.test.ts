@@ -113,7 +113,13 @@ afterEach(async (): Promise<void> => {
 });
 
 /** Trigger set every fixture binding carries: assignment polling only. */
-const ASSIGNMENT_ONLY: BindingTriggers = { assignment: true, mention: false, reviewRequest: false };
+const ASSIGNMENT_ONLY: BindingTriggers = {
+    assignment: true,
+    mention: false,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: false,
+};
 
 /** The one active binding the backoff fixtures poll under. */
 const FIXTURE_BINDING = fixtureBindingRow(BINDING_A, {

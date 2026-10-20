@@ -160,7 +160,7 @@ function freshState(): PanelState {
 const bindingWith = (projectId: string): PanelBinding => fixtureBindingRow('bnd-1', {
     accountLogin: ACCOUNT_LOGIN,
     projectId,
-    triggers: { assignment: true, mention: false, reviewRequest: true },
+    triggers: { assignment: true, mention: false, reviewRequest: true, reviewSubmitted: false, checks: false },
     stamp: FIXTURE_STAMP,
 });
 

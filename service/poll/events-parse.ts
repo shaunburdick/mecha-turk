@@ -168,7 +168,7 @@ const SUBJECT_TYPES: ReadonlySet<string> = new Set(['issue', 'pull_request']);
  * (`'mention'` for the comment feeds, `'review'` for the pulls list) and this
  * names the **movement** the row records. Neither widens the other.
  */
-export type FollowUpKind = 'comment' | 'head' | 'review' | 'review-comment';
+export type FollowUpKind = 'comment' | 'head' | 'review' | 'review-comment' | 'review-submitted' | 'checks';
 
 /**
  * How many `~`-separated segments the id's **base** carries.
@@ -195,6 +195,12 @@ const REVIEW_TAIL = /^review~[0-9]+$/;
 /** An inline review comment's tail: `review-comment~<commentId>` (FR-113). */
 const REVIEW_COMMENT_TAIL = /^review-comment~[0-9]+$/;
 
+/** A submitted review's tail: `review-submitted~<reviewId>` (FR-124). */
+const REVIEW_SUBMITTED_TAIL = /^review-submitted~[0-9]+$/;
+
+/** A check verdict's tail: `checks~<sha>~<conclusion>`, the four words local here. */
+const CHECKS_TAIL = /^checks~[0-9a-f]+~(action_required|failure|timed_out|cancelled)$/;
+
 /** What one id's discriminator segment says about the row's role (FR-101). */
 type IdDiscriminator =
     /** Not a follow-up: a bare base, or one of the trigger discriminators. */
@@ -203,8 +209,58 @@ type IdDiscriminator =
     | { readonly role: 'head'; readonly headSha: string }
     | { readonly role: 'review'; readonly eventId: number }
     | { readonly role: 'review-comment'; readonly commentId: number }
+    | { readonly role: 'review-submitted'; readonly reviewId: number }
+    | { readonly role: 'checks' }
     /** Carries the `followup` segment with a tail outside the family. */
     | { readonly role: 'malformed' };
+
+/** A numeric id tail and the role its prefix names. */
+const NUMERIC_TAILS: readonly {
+    readonly pattern: RegExp;
+    readonly prefix: string;
+    readonly role: 'comment' | 'review' | 'review-comment' | 'review-submitted';
+}[] = [
+    { pattern: DECIMAL_SEGMENT, prefix: '', role: 'comment' },
+    { pattern: REVIEW_TAIL, prefix: 'review~', role: 'review' },
+    { pattern: REVIEW_COMMENT_TAIL, prefix: 'review-comment~', role: 'review-comment' },
+    { pattern: REVIEW_SUBMITTED_TAIL, prefix: 'review-submitted~', role: 'review-submitted' },
+];
+
+function numericRoleOf(role: (typeof NUMERIC_TAILS)[number]['role'], id: number): IdDiscriminator {
+    switch (role) {
+        case 'comment': {
+            return { role, commentId: id };
+        }
+        case 'review': {
+            return { role, eventId: id };
+        }
+        case 'review-comment': {
+            return { role, commentId: id };
+        }
+        case 'review-submitted': {
+            return { role, reviewId: id };
+        }
+    }
+}
+
+function tailDiscriminatorOf(tail: string): IdDiscriminator {
+    const numeric = NUMERIC_TAILS.find((entry) => entry.pattern.test(tail));
+    if (numeric !== undefined) {
+        const id = Number(tail.slice(numeric.prefix.length));
+
+        return id > 0 ? numericRoleOf(numeric.role, id) : { role: 'malformed' };
+    }
+
+    if (HEAD_TAIL.test(tail)) {
+        return { role: 'head', headSha: tail.slice('head~'.length) };
+    }
+
+    if (CHECKS_TAIL.test(tail)) {
+        return { role: 'checks' };
+    }
+
+    return { role: 'malformed' };
+}
 
 function discriminatorOfId(id: string): IdDiscriminator {
     const segments = id.split('~');
@@ -212,30 +268,7 @@ function discriminatorOfId(id: string): IdDiscriminator {
         return { role: 'trigger' };
     }
 
-    const tail = segments.slice(ID_BASE_SEGMENTS + 1).join('~');
-    if (DECIMAL_SEGMENT.test(tail)) {
-        const commentId = Number(tail);
-
-        return commentId > 0 ? { role: 'comment', commentId } : { role: 'malformed' };
-    }
-
-    if (HEAD_TAIL.test(tail)) {
-        return { role: 'head', headSha: tail.slice('head~'.length) };
-    }
-
-    if (REVIEW_TAIL.test(tail)) {
-        const eventId = Number(tail.slice('review~'.length));
-
-        return eventId > 0 ? { role: 'review', eventId } : { role: 'malformed' };
-    }
-
-    if (REVIEW_COMMENT_TAIL.test(tail)) {
-        const commentId = Number(tail.slice('review-comment~'.length));
-
-        return commentId > 0 ? { role: 'review-comment', commentId } : { role: 'malformed' };
-    }
-
-    return { role: 'malformed' };
+    return tailDiscriminatorOf(segments.slice(ID_BASE_SEGMENTS + 1).join('~'));
 }
 
 /**
@@ -259,7 +292,7 @@ export function followUpKindOf(id: string): FollowUpKind | null {
  * family (002 FR-101, FR-024; FR-108, FR-113).
  *
  * @returns `false` only for a stored id whose `followup` tail is outside the
- *   four forms the writer mints.
+ *   six forms the writer mints.
  */
 export function followUpDiscriminatorHolds(id: string): boolean {
     return discriminatorOfId(id).role !== 'malformed';
@@ -428,7 +461,7 @@ function fieldsHold(record: Record<string, unknown>): boolean {
         && markersAndEngineHold(record)
         && readActorAttributionField(record) !== null
         && readActorLoginField(record) !== null
-        // A follow-up id's discriminator is validated against the two-form
+        // A follow-up id's discriminator is validated against the six-form
         // family the writer mints (FR-101). Only a row whose id carries the
         // `followup` segment at all can fail it, so every existing row is
         // unaffected — and a hand-written one outside the family is refused

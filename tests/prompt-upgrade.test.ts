@@ -145,7 +145,7 @@ function pre004Binding(): Record<string, unknown> {
         repository: 'acme/widget',
         projectId: 'prj_42',
         worktreeOption: 'none',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
+        triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
         state: 'disabled',
         createdAt: STAMP,
         updatedAt: STAMP,

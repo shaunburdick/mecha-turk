@@ -139,7 +139,7 @@ async function startWithAccount(): Promise<TestService> {
 const bindingRow = (overrides: Record<string, unknown> = {}): Record<string, unknown> => ({
     ...fixtureBindingRow(BINDING_ID, {
         accountLogin: ACCOUNT_LOGIN,
-        triggers: { assignment: true, mention: true, reviewRequest: true },
+        triggers: { assignment: true, mention: true, reviewRequest: true, reviewSubmitted: false, checks: false },
         stamp: STAMP,
     }),
     ...overrides,

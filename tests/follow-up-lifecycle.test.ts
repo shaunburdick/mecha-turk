@@ -45,17 +45,21 @@ import { readIssueObject, readPullObject } from '../service/poll/poller-entries.
 import { MAX_PROJECTED_FOLLOW_UPS, projectRunHistory } from '../service/poll/run-history-project.ts';
 import { EVENTS_PATH } from '../service/routes/events.ts';
 import { readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
+import { composeEngineFollowUp } from '../service/poll/engine-compose.ts';
+import { BEGIN_UNTRUSTED } from '../src/context-blocks.ts';
 import { writeScanState } from '../service/poll/scan.ts';
 import { buildEventId } from '../service/poll/events-write.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { BindingRecord, BindingTriggers } from '../service/bindings.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
 import type {
+    CheckConclusion,
     GitHubIssuePoller,
     IssueStateOutcome,
     PollComment,
     PollIssue,
     PollPull,
+    PollReview,
     PollReviewComment,
     PullStateOutcome,
 } from '../service/poll/poller-github.ts';
@@ -84,6 +88,7 @@ import type { FollowUpRetryPolicy } from '../src/follow-up.ts';
 import type { PanelHost } from '../src/session.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { RunFollowUp, RunRow } from '../src/dispatches-service.ts';
+import { byText } from './support/sort.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 import { startTestService } from './support/service.ts';
 import type { TestService } from './support/service.ts';
@@ -270,6 +275,23 @@ function fixturePull(overrides: Partial<PollPull> = {}): PollPull {
     };
 }
 
+/** Build one open pull request authored by the bound account. */
+function fixtureOwnPull(overrides: Partial<PollPull> = {}): PollPull {
+    return fixturePull({ authorLogin: ACCOUNT_LOGIN, authorType: 'User', ...overrides });
+}
+
+/** Build one submitted review on the fixture pull. */
+function fixtureReview(overrides: Partial<PollReview> = {}): PollReview {
+    return {
+        reviewId: 9_001,
+        state: 'CHANGES_REQUESTED',
+        submittedAt: STAMP,
+        authorLogin: HUMAN_LOGIN,
+        authorType: HUMAN_TYPE,
+        ...overrides,
+    };
+}
+
 /** Build one inline review comment on the fixture pull request. */
 function fixtureReviewComment(input: {
     readonly commentId: number;
@@ -344,6 +366,17 @@ function recordingPoller(feeds: {
     readonly issueState?: (itemNumber: number) => IssueStateOutcome;
     /** The answer `readPullState(n)` gives; the default is an open pull. */
     readonly pullState?: (itemNumber: number) => PullStateOutcome;
+    /** The reviews each own pull answers, keyed by pull number. */
+    readonly reviews?: Readonly<Record<number, readonly PollReview[]>>;
+    /** Pull numbers whose reviews read answers truncation. */
+    readonly reviewsTruncated?: readonly number[];
+    /** The check verdict each head answers, keyed by SHA. */
+    readonly checks?: Readonly<Record<string, {
+        readonly conclusion: CheckConclusion | null;
+        readonly names: readonly string[];
+    }>>;
+    /** SHAs whose check-runs walk answers truncation. */
+    readonly checksTruncated?: readonly string[];
 }): RecordedPoller {
     const calls: string[] = [];
 
@@ -392,8 +425,27 @@ function recordingPoller(feeds: {
                     ? { kind: 'ok', pull: fixturePull({ pullNumber: query.itemNumber }) }
                     : feeds.pullState(query.itemNumber);
             },
-            listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
-            listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
+            listPullReviews: async (query) => {
+                calls.push(`reviews:${query.pullNumber}`);
+
+                return {
+                    kind: 'ok',
+                    reviews: feeds.reviews?.[query.pullNumber] ?? [],
+                    truncated: feeds.reviewsTruncated?.includes(query.pullNumber) === true,
+                };
+            },
+            listHeadChecks: async (query) => {
+                calls.push(`checks:${query.headSha}`);
+                const verdict = feeds.checks?.[query.headSha];
+                const isTruncated = feeds.checksTruncated?.includes(query.headSha) === true;
+
+                return {
+                    kind: 'ok',
+                    conclusion: isTruncated ? null : (verdict?.conclusion ?? null),
+                    names: isTruncated ? [] : (verdict?.names ?? []),
+                    truncated: isTruncated,
+                };
+            },
         },
     };
 }
@@ -427,10 +479,10 @@ function subjectSnapshot(input: {
     };
 }
 
-/** Build one review-request snapshot for the fixture pull request. */
-function reviewSnapshot(headSha: string | null): EventSnapshot {
+/** Build one review-request snapshot for a pull request (the fixture pull by default). */
+function reviewSnapshot(headSha: string | null, pullNumber: number = PULL_NUMBER): EventSnapshot {
     return {
-        ...subjectSnapshot({ issueNumber: PULL_NUMBER, subjectType: 'pull_request', headSha }),
+        ...subjectSnapshot({ issueNumber: pullNumber, subjectType: 'pull_request', headSha }),
         kind: 'review',
         headSha,
         baseRef: 'main',
@@ -537,6 +589,22 @@ async function plantDispatchedRun(input: {
     await writeRunsDocument({ store, log, document: { ...document, runs: [next] } });
 
     return next;
+}
+
+/**
+ * Plant several dispatched runs through one enqueue pass.
+ */
+async function plantDispatchedRuns(deliveries: readonly EventSnapshot[]): Promise<readonly Run[]> {
+    await enqueueEvents({ store, log, incoming: deliveries.map((snapshot) => createEvent(snapshot)) });
+    const document = await readRunsDocument({ store, log });
+    if (document.runs.length !== deliveries.length) {
+        throw new Error('the enqueue pass did not create one run per delivery');
+    }
+
+    const runs = document.runs.map((run, index) => dispatchedRun(run, `${SESSION_ID}-${index}`));
+    await writeRunsDocument({ store, log, document: { ...document, runs } });
+
+    return runs;
 }
 
 /**
@@ -739,7 +807,13 @@ describe('FR-100 the join predicate (AC-048)', () => {
             });
 
             const queue = await runCycle(
-                fixtureBinding({ assignment: true, mention: true, reviewRequest: false }),
+                fixtureBinding({
+                    assignment: true,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recordingPoller({
                     issues: [fixtureIssue()],
                     comments: [fixtureComment({ commentId: COMMENT_ID })],
@@ -780,7 +854,13 @@ describe('FR-100 the join predicate (AC-048)', () => {
             });
 
             const queue = await runCycle(
-                fixtureBinding({ assignment: true, mention: true, reviewRequest: false }),
+                fixtureBinding({
+                    assignment: true,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recordingPoller({
                     issues: [fixtureIssue()],
                     comments: [fixtureComment({ commentId: COMMENT_ID })],
@@ -815,7 +895,13 @@ describe('FR-100 the join predicate (AC-048)', () => {
             // A **mention** is the trigger that reaches the queue: a bare comment
             // is neither a trigger nor a follow-up once the session is gone.
             const queue = await runCycle(
-                fixtureBinding({ assignment: true, mention: true, reviewRequest: false }),
+                fixtureBinding({
+                    assignment: true,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recordingPoller({
                     issues: [fixtureIssue()],
                     comments: [fixtureComment({ commentId: MENTION_COMMENT_ID, body: MENTION_BODY })],
@@ -845,7 +931,13 @@ describe('FR-100 the join predicate (AC-048)', () => {
                 issues: [fixtureIssue()],
                 comments: [fixtureComment({ commentId: COMMENT_ID })],
             });
-            const binding = fixtureBinding({ assignment: true, mention: true, reviewRequest: false });
+            const binding = fixtureBinding({
+                assignment: true,
+                mention: true,
+                reviewRequest: false,
+                reviewSubmitted: false,
+                checks: false,
+            });
             await writeBindings({ store, bindings: [binding] });
             await writeAccount(store, fixtureAccount({ stamp: STAMP }));
 
@@ -949,7 +1041,13 @@ describe('FR-101 the two id forms (AC-048)', () => {
             });
 
             const queue = await runCycle(
-                fixtureBinding({ assignment: false, mention: true, reviewRequest: false }),
+                fixtureBinding({
+                    assignment: false,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recordingPoller({
                     issues: [fixtureIssue({ isPullRequest: true, url: PULL_URL })],
                     comments: [fixtureComment({ commentId: COMMENT_ID })],
@@ -1005,10 +1103,41 @@ describe('FR-101 the two id forms (AC-048)', () => {
  * ------------------------------------------------------------------ */
 
 /** The binding whose mention switch reads the issue and comment feeds. */
-const MENTION_ONLY = { assignment: false, mention: true, reviewRequest: false } as const;
+const MENTION_ONLY = {
+    assignment: false,
+    mention: true,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: false,
+} as const;
 
 /** The binding whose review switch reads the pulls feed. */
-const REVIEW_ONLY = { assignment: false, mention: false, reviewRequest: true } as const;
+const REVIEW_ONLY = {
+    assignment: false,
+    mention: false,
+    reviewRequest: true,
+    reviewSubmitted: false,
+    checks: false,
+} as const;
+
+/** The binding whose review-submitted switch reads own pulls and their reviews. */
+const SUBMITTED_ONLY = {
+    assignment: false, mention: false, reviewRequest: false, reviewSubmitted: true, checks: false,
+} as const;
+
+/** The binding whose checks switch observes a tracked head's new SHA. */
+const CHECKS_ONLY = {
+    assignment: false,
+    mention: false,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: true,
+} as const;
+
+/** Both pull-dependent switches a double delivery needs. */
+const REVIEW_AND_CHECKS = {
+    assignment: false, mention: false, reviewRequest: true, reviewSubmitted: false, checks: true,
+} as const;
 
 describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => {
     it('detects a comment follow-up from the comment feed the mention scan already reads', async () => {
@@ -1382,6 +1511,254 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
 /* ------------------------------------------------------------------ *
  * FR-103 — the head-SHA seed, in both arms.
  * ------------------------------------------------------------------ */
+
+/** The `~followup~review-submitted~<id>` id for the fixture account. */
+function reviewSubmittedId(reviewId: number): string {
+    return `evt-acme~widget~7~${ACCOUNT_ID}~followup~review-submitted~${reviewId}`;
+}
+
+/** The `~review~submitted~<id>` trigger id for the fixture account. */
+function submittedTriggerId(reviewId: number): string {
+    return `evt-acme~widget~7~${ACCOUNT_ID}~review~submitted~${reviewId}`;
+}
+
+/** The `~followup~checks~<sha>~<conclusion>` id for the fixture account. */
+function checksId(headSha: string, conclusion: string): string {
+    return `evt-acme~widget~7~${ACCOUNT_ID}~followup~checks~${headSha}~${conclusion}`;
+}
+
+describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
+    it('does not re-deliver the review that established the run, and follows up a newer one', async () => {
+        {
+            const pulls = [fixtureOwnPull()];
+            const review = fixtureReview();
+
+            const first = await runCycle(fixtureBinding(SUBMITTED_ONLY), recordingPoller({
+                pulls,
+                reviews: { [PULL_NUMBER]: [review] },
+            }));
+            expect(first.map((row) => row.id)).toEqual([submittedTriggerId(review.reviewId)]);
+
+            const document = await readRunsDocument({ store, log });
+            const established = document.runs[0];
+            if (established === undefined) {
+                throw new Error('the trigger cycle created no run');
+            }
+
+            await writeRunsDocument({
+                store,
+                log,
+                document: { ...document, runs: [dispatchedRun(established, SESSION_ID)] },
+            });
+
+            const again = await runCycle(fixtureBinding(SUBMITTED_ONLY), recordingPoller({
+                pulls,
+                reviews: { [PULL_NUMBER]: [review] },
+            }));
+            expect(followUpRowsOf(again)).toEqual([]);
+            expect(again.map((row) => row.id)).toEqual([submittedTriggerId(review.reviewId)]);
+
+            const establishedAt = Date.parse(established.sourceReferences[0]?.detectedAt ?? STAMP);
+            const newer = {
+                ...review,
+                reviewId: 9_002,
+                submittedAt: new Date(establishedAt + 1_000).toISOString(),
+            };
+            const later = await runCycle(fixtureBinding(SUBMITTED_ONLY), recordingPoller({
+                pulls,
+                reviews: { [PULL_NUMBER]: [review, newer] },
+            }));
+
+            expect(followUpRowsOf(later).map((row) => row.id)).toEqual([reviewSubmittedId(newer.reviewId)]);
+            expect(later.find((row) => row.id === reviewSubmittedId(newer.reviewId)))
+                .toMatchObject({ kind: 'review', subjectType: 'pull_request' });
+        }
+    });
+
+    it('keeps a review out of an issue run at the same number', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: PULL_NUMBER })] });
+
+            const review = fixtureReview();
+            const queue = await runCycle(fixtureBinding(SUBMITTED_ONLY), recordingPoller({
+                pulls: [fixtureOwnPull()],
+                reviews: { [PULL_NUMBER]: [review] },
+            }));
+
+            expect(queue.map((row) => row.id)).toContain(submittedTriggerId(review.reviewId));
+            expect(followUpRowsOf(queue)).toEqual([]);
+        }
+    });
+
+    it('produces one checks row for a moved tracked head, riding the run actor and a defused movement', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const names = ['build', 'lint', BEGIN_UNTRUSTED];
+            const recorded = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: { conclusion: 'failure', names } },
+            });
+
+            const queue = await runCycle(fixtureBinding(REVIEW_AND_CHECKS), recorded);
+            const followUps = followUpRowsOf(queue);
+            const row = followUps.find((candidate) => candidate.id === checksId(MOVED_SHA, 'failure'));
+
+            expect(recorded.calls).toEqual(['pulls', `checks:${  MOVED_SHA}`, 'pullState:7']);
+            expect(followUps.map((followUp) => followUp.id).toSorted(byText)).toEqual([
+                `evt-acme~widget~7~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`,
+                checksId(MOVED_SHA, 'failure'),
+            ].toSorted(byText));
+            expect(row).toMatchObject({
+                kind: 'review',
+                subjectType: 'pull_request',
+                actorLogin: 'ray',
+                actorAttribution: 'direct',
+                headSha: MOVED_SHA,
+                issueBodyExcerpt: names.join(', '),
+                triggerNote: `CI failed: ${names.join(', ')}`,
+            });
+
+            const document = await readRunsDocument({ store, log });
+            const run = document.runs[0];
+            if (row === undefined || run === undefined) {
+                throw new Error('the checks follow-up or its run is missing');
+            }
+
+            const composed = composeEngineFollowUp({ run, row, sessionId: SESSION_ID, runRows: queue });
+            expect(composed.ok).toBe(true);
+            if (composed.ok) {
+                const movement = composed.text.split('\n').find((line) => line.startsWith('Movement:'));
+                expect(movement).toContain('Movement: CI failed: build, lint');
+                expect(movement).not.toContain(BEGIN_UNTRUSTED);
+            }
+        }
+    });
+
+    it('dedupes a replayed SHA and mints a new row when the aggregate conclusion changes', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const pulls = [fixturePull({ headSha: MOVED_SHA })];
+
+            await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls,
+                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
+            }));
+            const replay = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls,
+                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
+            }));
+            expect(followUpRowsOf(replay).map((row) => row.id)).toEqual([checksId(MOVED_SHA, 'failure')]);
+
+            const changed = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls,
+                checks: { [MOVED_SHA]: { conclusion: 'timed_out', names: ['build'] } },
+            }));
+            expect(followUpRowsOf(changed).map((row) => row.id).toSorted(byText)).toEqual([
+                checksId(MOVED_SHA, 'failure'),
+                checksId(MOVED_SHA, 'timed_out'),
+            ].toSorted(byText));
+        }
+    });
+
+    it('is silent for an all-green head and for a run without direct attribution', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: { conclusion: null, names: [] } },
+            }));
+            expect(followUpRowsOf(queue)).toEqual([]);
+        }
+
+        {
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const document = await readRunsDocument({ store, log });
+            const run = document.runs[0];
+            if (run === undefined) {
+                throw new Error('the run fixture is missing');
+            }
+
+            const references = run.sourceReferences.map((reference) => ({
+                ...reference,
+                actorAttribution: 'subject-author' as const,
+            }));
+            await writeRunsDocument({
+                store,
+                log,
+                document: { ...document, runs: [{ ...run, sourceReferences: references }] },
+            });
+
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
+            }));
+            expect(followUpRowsOf(queue)).toEqual([]);
+        }
+    });
+
+    it('emits two follow-ups for one movement with both switches on', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const both = await runCycle(fixtureBinding(REVIEW_AND_CHECKS), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
+            }));
+            expect(followUpRowsOf(both)).toHaveLength(2);
+        }
+    });
+
+    it('emits only the check row without reviewRequest', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const checksOnly = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
+            });
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), checksOnly);
+
+            expect(checksOnly.calls).toContain(`checks:${  MOVED_SHA}`);
+            expect(followUpRowsOf(queue).map((row) => row.id)).toEqual([checksId(MOVED_SHA, 'failure')]);
+        }
+    });
+
+    it('emits only the head row with checks off', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const reviewOnly = recordingPoller({ pulls: [fixturePull({ headSha: MOVED_SHA })] });
+            const queue = await runCycle(fixtureBinding(REVIEW_ONLY), reviewOnly);
+
+            expect(reviewOnly.calls.some((call) => call.startsWith('checks:'))).toBe(false);
+            expect(followUpRowsOf(queue).map((row) => row.id))
+                .toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`]);
+        }
+    });
+
+    it('reads one SHA once for two tracked pulls and emits one row each', async () => {
+        {
+            await plantDispatchedRuns([
+                reviewSnapshot(SEED_SHA),
+                reviewSnapshot(SEED_SHA, 8),
+            ]);
+            const recorded = recordingPoller({
+                pulls: [
+                    fixturePull({ pullNumber: 7, headSha: MOVED_SHA }),
+                    fixturePull({ pullNumber: 8, headSha: MOVED_SHA }),
+                ],
+                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
+            });
+
+            const queue = await runCycle(fixtureBinding(REVIEW_AND_CHECKS), recorded);
+
+            expect(recorded.calls.filter((call) => call === `checks:${MOVED_SHA}`)).toHaveLength(1);
+            expect(followUpRowsOf(queue).map((row) => row.id).toSorted(byText)).toEqual([
+                `evt-acme~widget~7~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`,
+                `evt-acme~widget~7~${ACCOUNT_ID}~followup~checks~${MOVED_SHA}~failure`,
+                `evt-acme~widget~8~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`,
+                `evt-acme~widget~8~${ACCOUNT_ID}~followup~checks~${MOVED_SHA}~failure`,
+            ].toSorted(byText));
+        }
+    });
+});
 
 describe('FR-103 the head-SHA seed (AC-049)', () => {
     it('seeds from a review-origin row, so the establishing cycle emits nothing', async () => {

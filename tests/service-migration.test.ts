@@ -361,7 +361,7 @@ function shippedBinding(): Record<string, unknown> {
         repository: 'acme/widget',
         projectId: 'prj_42',
         worktreeOption: 'none',
-        triggers: { assignment: true, mention: true, reviewRequest: false },
+        triggers: { assignment: true, mention: true, reviewRequest: false, reviewSubmitted: false, checks: false },
         state: 'disabled',
         createdAt: STAMP,
         updatedAt: STAMP,

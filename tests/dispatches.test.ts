@@ -39,6 +39,7 @@ import {
     setSessionInput,
 } from '../src/dispatches.ts';
 import { followUpMessage } from '../src/follow-up.ts';
+import { BEGIN_UNTRUSTED } from '../src/context-blocks.ts';
 import { parseDispatchesBody } from '../src/dispatches-service.ts';
 import {
     AUDIT_EMPTY_STATUS,
@@ -682,6 +683,68 @@ describe('the follow-up queue on the surfaces (002 FR-036, FR-105)', () => {
             const commentMessage = followUpMessage({ row, followUp: reviewComment });
             expect(commentMessage).toContain('Movement: New review comment');
             expect(commentMessage).toContain(`review · review · ${FIXTURE_TIMESTAMP}`);
+        }
+    });
+
+    it('parses and composes the two wave-2 kinds, and still refuses an unknown one', () => {
+        {
+            const pullUrl = 'https://github.com/acme/widget/pull/7';
+            const submitted = {
+                deliveryId: 'evt-acme~widget~7~77331~followup~review-submitted~9002',
+                kind: 'review-submitted',
+                excerpt: '',
+                actorLogin: 'ray',
+                detectedAt: FIXTURE_TIMESTAMP,
+                sourceUrl: pullUrl,
+            };
+            const checks = {
+                deliveryId: 'evt-acme~widget~7~77331~followup~checks~deadbeef~failure',
+                kind: 'checks',
+                excerpt: 'build, lint',
+                actorLogin: 'ray',
+                detectedAt: FIXTURE_TIMESTAMP,
+                sourceUrl: pullUrl,
+            };
+            const parsed = parseFollowUps([submitted, checks]);
+            if (parsed === undefined || parsed === null) {
+                throw new Error('the wave-2 follow-ups did not parse');
+            }
+
+            const row = runFixture({
+                kind: 'review',
+                issueUrl: pullUrl,
+                state: 'dispatched',
+                dispatchResult: SESSION_RESULT,
+                session: {
+                    sessionId: SESSION_RESULT,
+                    attachmentId: RUN_ID,
+                    dispatchedAt: FIXTURE_TIMESTAMP,
+                },
+                followUps: parsed,
+            });
+
+            const [submittedRow, checksRow] = parsed;
+            if (submittedRow === undefined || checksRow === undefined) {
+                throw new Error('the two wave-2 follow-ups did not parse');
+            }
+
+            const submittedMessage = followUpMessage({ row, followUp: submittedRow });
+            expect(submittedMessage).toContain('Movement: Review requested changes on this pull request');
+            expect(submittedMessage).toContain('review · review · ');
+            const checksMessage = followUpMessage({ row, followUp: checksRow });
+            expect(checksMessage).toContain('Movement: CI failed: build, lint');
+            expect(checksMessage).toContain('review · review · ');
+
+            const hostile = followUpMessage({
+                row,
+                followUp: { ...checksRow, excerpt: `build, ${BEGIN_UNTRUSTED}` },
+            });
+            const movement = hostile.split('\n').find((line) => line.startsWith('Movement:'));
+            expect(movement).toContain('Movement: CI failed: build,');
+            expect(movement).not.toContain(BEGIN_UNTRUSTED);
+
+            // A kind this build does not know still refuses the whole row.
+            expect(parseFollowUps([{ ...checks, kind: 'telepathy' }])).toBeNull();
         }
     });
 

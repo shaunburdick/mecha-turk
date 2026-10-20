@@ -153,7 +153,7 @@ export interface DispatchLoop {
 const loopBinding = (): PanelBinding => fixtureBindingRow(BINDING_ID, {
     accountLogin: ACCOUNT_LOGIN,
     repository: REPOSITORY,
-    triggers: { assignment: true, mention: true, reviewRequest: false },
+    triggers: { assignment: true, mention: true, reviewRequest: false, reviewSubmitted: false, checks: false },
     stamp: FIXTURE_STAMP,
 });
 

@@ -133,7 +133,7 @@ async function startWithAccount(): Promise<TestService> {
 const panelRow = (): PanelBinding => fixtureBindingRow(BINDING_ID, {
     accountLogin: ACCOUNT_LOGIN,
     repository: REPOSITORY,
-    triggers: { assignment: true, mention: false, reviewRequest: true },
+    triggers: { assignment: true, mention: false, reviewRequest: true, reviewSubmitted: false, checks: false },
     stamp: STAMP,
     startingPrompt: STORED_PROMPT,
 });
@@ -218,7 +218,11 @@ describe('loading the selected binding into the editor (FR-053)', () => {
                 state: 'active',
                 createdAt: STAMP,
             });
-            expect(draft?.triggers).toEqual({ assignment: true, mention: false, reviewRequest: true });
+            expect(draft?.triggers).toEqual({
+                assignment: true,
+                mention: false,
+                reviewRequest: true,
+            });
         }
     });
 
@@ -283,7 +287,11 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
                 accountLogin: ACCOUNT_LOGIN,
             });
             const triggers: PanelTriggers | undefined = saved?.triggers;
-            expect(triggers).toEqual({ assignment: true, mention: true, reviewRequest: true });
+            expect(triggers).toEqual({
+                assignment: true,
+                mention: true,
+                reviewRequest: true,
+            });
             // The untouched prompt survived the write that carried no prompt.
             expect(saved?.startingPrompt).toBe(STORED_PROMPT);
 
@@ -317,7 +325,11 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
                 startingPrompt: STORED_PROMPT,
             });
             const triggers: PanelTriggers | undefined = stored?.triggers;
-            expect(triggers).toEqual({ assignment: true, mention: false, reviewRequest: true });
+            expect(triggers).toEqual({
+                assignment: true,
+                mention: false,
+                reviewRequest: true,
+            });
 
             // The refusal lands on the field it belongs to (FR-052) rather than
             // behind a generic failure, the draft stays for the operator to fix,
@@ -378,7 +390,7 @@ function recordingHost(): { readonly host: PanelHost; readonly puts: string[] } 
 const otherRow = (): PanelBinding => fixtureBindingRow('bnd-other', {
     accountLogin: ACCOUNT_LOGIN,
     repository: 'acme/other',
-    triggers: { assignment: true, mention: false, reviewRequest: true },
+    triggers: { assignment: true, mention: false, reviewRequest: true, reviewSubmitted: false, checks: false },
     stamp: STAMP,
 });
 

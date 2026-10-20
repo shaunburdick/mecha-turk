@@ -118,7 +118,13 @@ afterEach(async (): Promise<void> => {
 });
 
 /** Trigger set every fixture binding carries: assignment polling only. */
-const ASSIGNMENT_ONLY: BindingTriggers = { assignment: true, mention: false, reviewRequest: false };
+const ASSIGNMENT_ONLY: BindingTriggers = {
+    assignment: true,
+    mention: false,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: false,
+};
 
 /** One active, assignment-only binding under this suite's fixture stamp. */
 const fixtureBinding = (bindingId: string): BindingRecord => fixtureBindingRow(bindingId, {

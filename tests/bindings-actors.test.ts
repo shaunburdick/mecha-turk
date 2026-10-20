@@ -240,7 +240,7 @@ const bindingRow = (input: {
     accountLogin: LOGIN,
     repository: input.repository,
     worktreeOption: 'generated',
-    triggers: input.triggers ?? ASSIGNMENT_ONLY,
+    triggers: { ...(input.triggers ?? ASSIGNMENT_ONLY), reviewSubmitted: false, checks: false },
     state: input.state,
     stamp: FIXTURE_TIMESTAMP,
     allowedUsers: input.allowedUsers ?? null,
@@ -1215,7 +1215,13 @@ describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability a
         // binding is enabled` and **never** the bare count — the count sentence
         // is where the defect was found.
         {
-            for (const triggers of [ASSIGNMENT_ONLY, { assignment: true, mention: true, reviewRequest: false }]) {
+            for (const triggers of [ASSIGNMENT_ONLY, {
+                assignment: true,
+                mention: true,
+                reviewRequest: false,
+                reviewSubmitted: false,
+                checks: false,
+            }]) {
                 const clause = policyClause({ state: 'disabled', triggers, count: TWELVE.length });
 
                 expect(clause).toBe(TWELVE_ONCE_ENABLED);
