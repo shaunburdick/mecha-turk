@@ -125,12 +125,16 @@ exiting non-zero on any finding.
    disagrees with or one `main` has not taken, then publishes the GitHub
    Release from that changelog section with generated notes beneath it. A
    hand-cut tag reaches the same gate.
+   Changelog rides with the change: feature and fix PRs add their bullet under
+   `## [Unreleased]` as they land, and the bump PR relocates those bullets under
+   the new `## [x.y.z]` heading — auto-tag refuses a bump whose section is
+   missing, so a forgotten bullet shows up at bump time, not release time.
    Its CI proof is `main`'s own rule: the `Main` ruleset must require
    `verify (node 24)`, `verify (node 24.15.0)` and `build` before
    anything lands — drop those and the gate proves only reachability.
    Do not reintroduce npm `workspaces`.
    **Release policy: stay pre-1.0.0 until the public 1.0.0 release** —
-   current version `0.4.0`, increment per release; jumping to `1.0.0` is a
+   current version `0.4.1`, increment per release; jumping to `1.0.0` is a
    product-owner call, never incidental.
 3. **Capabilities: `sessions` and `prompt` only.** `service` is implied by
    `contributes.service` — listing an implied capability in `capabilities[]`
