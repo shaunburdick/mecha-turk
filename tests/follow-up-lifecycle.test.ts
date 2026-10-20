@@ -116,6 +116,9 @@ const PROJECT_ID = 'prj_42';
  */
 const STAMP = new Date().toISOString();
 
+/** A review request newer than every planted run's establishing reference. */
+const RE_REQUESTED_STAMP = new Date(Date.now() + 60_000).toISOString();
+
 /** The binding's creation stamp, one minute before {@link STAMP}. */
 const CREATED_AT = new Date(Date.now() - 60_000).toISOString();
 
@@ -271,7 +274,6 @@ function fixtureReviewComment(input: {
         commentId: input.commentId,
         pullNumber: PULL_NUMBER,
         body: input.body ?? 'the drift is back',
-        url: `https://github.com/acme/widget/pull/7#discussion_r${input.commentId}`,
         authorLogin: input.authorLogin ?? HUMAN_LOGIN,
         authorType: input.authorType ?? HUMAN_TYPE,
         updatedAt: STAMP,
@@ -284,16 +286,16 @@ function eventActor(login: string): { login: string; type: string } {
 }
 
 /** The naming `review_requested` row a tracked pull's actor read answers. */
-function reviewRequestedEvent(eventId: number): PollItemEvent {
+function reviewRequestedEvent(eventId: number | null, createdAt = RE_REQUESTED_STAMP): PollItemEvent {
     return {
-        id: eventId,
+        ...(eventId !== null && { id: eventId }),
         event: 'review_requested',
         assignee: eventActor(''),
         assigner: eventActor(''),
         requestedReviewer: eventActor(ACCOUNT_LOGIN),
         reviewRequester: eventActor('ray'),
         issueNumber: PULL_NUMBER,
-        createdAt: STAMP,
+        createdAt,
     };
 }
 
@@ -1038,6 +1040,76 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
         }
     });
 
+    it('does not mint a follow-up for the request that established the run', async () => {
+        {
+            const pulls = [fixturePull({ requestedReviewers: [ACCOUNT_LOGIN] })];
+            const request = reviewRequestedEvent(7, STAMP);
+
+            // The trigger cycle: the request is not yet tracked and mints the
+            // deduped `~review` trigger, which establishes the run.
+            const first = await runCycle(fixtureBinding(REVIEW_ONLY), recordingPoller({
+                pulls,
+                events: { [PULL_NUMBER]: [request] },
+            }));
+            expect(first.map((row) => row.id)).toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~review`]);
+
+            const document = await readRunsDocument({ store, log });
+            const established = document.runs[0];
+            if (established === undefined) {
+                throw new Error('the trigger cycle created no run');
+            }
+
+            await writeRunsDocument({
+                store,
+                log,
+                document: { ...document, runs: [dispatchedRun(established, SESSION_ID)] },
+            });
+
+            // The next cycle re-reads the same row, now tracked. It is not
+            // strictly newer than the run-establishing reference, so it stays
+            // the trigger the queue already holds: no second prompt.
+            const queue = await runCycle(fixtureBinding(REVIEW_ONLY), recordingPoller({
+                pulls,
+                events: { [PULL_NUMBER]: [request] },
+            }));
+
+            expect(followUpRowsOf(queue)).toEqual([]);
+            expect(queue.map((row) => row.id)).toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~review`]);
+
+            // Control: the run is tracked, so a genuinely newer request on the
+            // same pull does mint a follow-up. The test above is not passing
+            // because tracking was lost.
+            const later = await runCycle(fixtureBinding(REVIEW_ONLY), recordingPoller({
+                pulls,
+                events: { [PULL_NUMBER]: [request, reviewRequestedEvent(8)] },
+            }));
+            expect(followUpRowsOf(later).map((row) => row.id))
+                .toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~followup~review~8`]);
+            expect(rowsOfType(await auditRows(), 'follow_up.observed').map((row) => row.reason))
+                .toEqual(['a tracked pull request gained a review request after its run started']);
+        }
+    });
+
+    it('keeps the ~review trigger when the naming row has no readable id', async () => {
+        {
+            await plantDispatchedRun({
+                deliveries: [subjectSnapshot({
+                    issueNumber: PULL_NUMBER,
+                    subjectType: 'pull_request',
+                    headSha: SEED_SHA,
+                })],
+            });
+
+            const queue = await runCycle(fixtureBinding(REVIEW_ONLY), recordingPoller({
+                pulls: [fixturePull({ requestedReviewers: [ACCOUNT_LOGIN] })],
+                events: { [PULL_NUMBER]: [reviewRequestedEvent(null)] },
+            }));
+
+            expect(queue.map((row) => row.id)).toContain(`evt-acme~widget~7~${ACCOUNT_ID}~review`);
+            expect(followUpRowsOf(queue)).toEqual([]);
+        }
+    });
+
     it('keeps the ~review trigger id for a review request on an untracked pull', async () => {
         {
             const recorded = recordingPoller({
@@ -1092,6 +1164,43 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
             expect(followUps.map((row) => row.id)).toEqual([followUpReviewCommentId(COMMENT_ID)]);
             // The feed family rides `kind`; the role is in the id alone.
             expect(followUps[0]).toMatchObject({ kind: 'mention', subjectType: 'pull_request' });
+        }
+    });
+
+    it('folds an untracked review-comment mention into a run with its own origin', async () => {
+        {
+            const recorded = recordingPoller({
+                reviewComments: [fixtureReviewComment({ commentId: 901, body: MENTION_BODY })],
+            });
+            const queue = await runCycle(fixtureBinding(MENTION_ONLY), recorded);
+            const document = await readRunsDocument({ store, log });
+
+            expect(queue.map((row) => row.id))
+                .toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~mention~review~901`]);
+            expect(document.runs).toHaveLength(1);
+            expect(document.runs[0]?.sourceReferences[0]?.origin).toBe('review-comment:901');
+        }
+    });
+
+    it('folds a tracked review-comment mention into the existing run as a source reference', async () => {
+        {
+            await plantDispatchedRun({
+                deliveries: [subjectSnapshot({ issueNumber: PULL_NUMBER, subjectType: 'pull_request' })],
+            });
+
+            const recorded = recordingPoller({
+                reviewComments: [fixtureReviewComment({ commentId: 902, body: MENTION_BODY })],
+            });
+            const queue = await runCycle(fixtureBinding(MENTION_ONLY), recorded);
+            const document = await readRunsDocument({ store, log });
+
+            expect(document.runs).toHaveLength(1);
+            expect(document.runs[0]?.sourceReferences.map((reference) => reference.origin))
+                .toContain('review-comment:902');
+            // The same comment also moves the tracked pull, so its follow-up
+            // rides beside the mention rather than replacing it.
+            expect(followUpRowsOf(queue).map((row) => row.id))
+                .toEqual([followUpReviewCommentId(902)]);
         }
     });
 

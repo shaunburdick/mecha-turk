@@ -115,9 +115,6 @@ function commentEntry(user: unknown = HUMAN_USER): Record<string, unknown> {
     }`) as Record<string, unknown>;
 }
 
-/** The canonical URL a review comment reports. */
-const REVIEW_COMMENT_URL = 'https://github.com/acme/widget/pull/3#discussion_r901';
-
 /**
  * One review-comments-list entry with every field the reader requires.
  *
@@ -129,7 +126,6 @@ function reviewCommentEntry(user: unknown = HUMAN_USER): Record<string, unknown>
         "id": 901,
         "pull_request_url": "https://api.github.com/repos/acme/widget/pulls/3",
         "body": "nit: rename this",
-        "html_url": "${REVIEW_COMMENT_URL}",
         "updated_at": "2026-09-27T00:35:00.000Z",
         "user": ${JSON.stringify(user)}
     }`) as Record<string, unknown>;
@@ -286,14 +282,13 @@ describe('the review-comments reader (011 FR-006)', () => {
             commentId: 901,
             pullNumber: 3,
             body: 'nit: rename this',
-            url: 'https://github.com/acme/widget/pull/3#discussion_r901',
             authorLogin: HUMAN_LOGIN,
             authorType: HUMAN_TYPE,
             updatedAt: '2026-09-27T00:35:00.000Z',
         });
     });
 
-    it('refuses a row whose id, pull number, body, URL, or author is unusable', () => {
+    it('refuses a row whose id, pull number, body, or author is unusable', () => {
         const healthy = reviewCommentEntry();
 
         expect(readReviewCommentEntry({ ...healthy, id: 0 })).toBeNull();
@@ -301,7 +296,6 @@ describe('the review-comments reader (011 FR-006)', () => {
         expect(readReviewCommentEntry({ ...healthy, pull_request_url: 'not-a-url' })).toBeNull();
         expect(readReviewCommentEntry({ ...healthy, pull_request_url: undefined })).toBeNull();
         expect(readReviewCommentEntry({ ...healthy, body: null })).toBeNull();
-        expect(readReviewCommentEntry({ ...healthy, html_url: null })).toBeNull();
         expect(readReviewCommentEntry(withoutUser(healthy))).toBeNull();
     });
 });

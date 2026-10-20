@@ -44,9 +44,9 @@ function subjectShapeOf(delivery: QueuedEvent): SubjectShape | null {
 /**
  * Read where one delivery matched (FR-013's `origin`). The queue does not
  * store an origin — the deterministic delivery id carries it
- * (`~mention~body`, `~mention~<commentId>`, `~review`), which is also how an
- * adopted legacy row gets one without being rewritten. **A follow-up id
- * carries no origin and answers `null` on purpose**: a follow-up is not a
+ * (`~mention~body`, `~mention~<commentId>`, `~mention~review~<commentId>`,
+ * `~review`), which is also how an adopted legacy row gets one without being
+ * rewritten. **A follow-up id carries no origin and answers `null` on purpose**: a follow-up is not a
  * source reference on the run (003's actor gate classifies from
  * `sourceReferences` exclusively), so it still joins the run and is still
  * linked to it, but leaves the reference list alone.
@@ -72,8 +72,20 @@ function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
     }
 
     const commentId = Number(suffix);
+    if (commentId > 0 && String(commentId) === suffix) {
+        return `comment:${commentId}`;
+    }
 
-    return commentId > 0 && String(commentId) === suffix ? `comment:${commentId}` : null;
+    const reviewMarker = 'review~';
+    if (!suffix.startsWith(reviewMarker)) {
+        return null;
+    }
+
+    const reviewCommentId = Number(suffix.slice(reviewMarker.length));
+
+    return reviewCommentId > 0 && String(reviewCommentId) === suffix.slice(reviewMarker.length)
+        ? `review-comment:${reviewCommentId}`
+        : null;
 }
 
 /** Which of the follow-up kinds one delivery is, from its deterministic id. */

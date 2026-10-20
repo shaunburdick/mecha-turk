@@ -242,7 +242,7 @@ export function buildEventId(input: {
  * different members rather than from one overloaded value.
  */
 function discriminatorOf(snapshot: EventSnapshot): string | undefined {
-    // `followUp` is declared on the two follow-up snapshots alone, so its
+    // `followUp` is declared on the follow-up snapshots alone, so its
     // presence is what narrows the union — and the trigger snapshots carry no
     // role member at all, which is why no existing snapshot changed shape.
     if ('followUp' in snapshot) {

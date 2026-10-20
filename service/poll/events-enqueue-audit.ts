@@ -102,7 +102,7 @@ function followUpReasonOf(kind: FollowUpKind): string {
             return 'a tracked pull request head moved';
         }
         case 'review': {
-            return 'a tracked pull request asked for the account\'s review again';
+            return 'a tracked pull request gained a review request after its run started';
         }
         case 'review-comment': {
             return 'a tracked pull request gained a review comment';

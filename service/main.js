@@ -2188,7 +2188,7 @@ function followUpReasonOf(kind) {
       return "a tracked pull request head moved";
     }
     case "review": {
-      return "a tracked pull request asked for the account's review again";
+      return "a tracked pull request gained a review request after its run started";
     }
     case "review-comment": {
       return "a tracked pull request gained a review comment";
@@ -2443,7 +2443,7 @@ function isEventKind(value) {
   return typeof value === "string" && EVENT_KINDS.has(value);
 }
 function isValidOrigin(origin) {
-  return origin === "assignment" || origin === "body" || origin === "review" || /^comment:[1-9][0-9]*$/.test(origin);
+  return origin === "assignment" || origin === "body" || origin === "review" || /^comment:[1-9][0-9]*$/.test(origin) || /^review-comment:[1-9][0-9]*$/.test(origin);
 }
 function isOutcome(value) {
   return value === null || typeof value === "string" && ATTEMPT_OUTCOMES.has(value);
@@ -3526,7 +3526,15 @@ function originOf(delivery) {
     return "body";
   }
   const commentId = Number(suffix);
-  return commentId > 0 && String(commentId) === suffix ? `comment:${commentId}` : null;
+  if (commentId > 0 && String(commentId) === suffix) {
+    return `comment:${commentId}`;
+  }
+  const reviewMarker = "review~";
+  if (!suffix.startsWith(reviewMarker)) {
+    return null;
+  }
+  const reviewCommentId = Number(suffix.slice(reviewMarker.length));
+  return reviewCommentId > 0 && String(reviewCommentId) === suffix.slice(reviewMarker.length) ? `review-comment:${reviewCommentId}` : null;
 }
 function followUpKindOfDelivery(delivery) {
   return followUpKindOf(delivery.id);
@@ -10967,7 +10975,8 @@ function trackedOf(run) {
       subjectType: run.subjectType,
       lastHeadSha: run.lastHeadSha ?? null,
       actorLogin: first?.actorLogin ?? null,
-      actorAttribution: first?.actorAttribution ?? null
+      actorAttribution: first?.actorAttribution ?? null,
+      establishedAt: first?.detectedAt ?? null
     }
   };
 }
@@ -11199,7 +11208,7 @@ async function resolveCandidateActor(request) {
     recordNoEvent({ request, reason: actor.reason });
     return { kind: "refused", reason: actor.reason };
   }
-  return { kind: "actor", login: actor.login, eventId: event.id ?? null };
+  return { kind: "actor", login: actor.login, eventId: event.id ?? null, eventAt: event.createdAt };
 }
 
 // service/poll/triggers-assignment.ts
@@ -11309,6 +11318,17 @@ function reviewCommentMentionEvents(input) {
 }
 
 // service/poll/triggers-review.ts
+function reRequestOf(input) {
+  if (input.tracked === undefined || input.eventId === null) {
+    return null;
+  }
+  const requestedAt = Date.parse(input.eventAt);
+  const establishedAt = Date.parse(input.tracked.establishedAt ?? "");
+  if (!Number.isFinite(requestedAt) || !Number.isFinite(establishedAt) || requestedAt <= establishedAt) {
+    return null;
+  }
+  return { tracked: input.tracked, eventId: input.eventId };
+}
 function isReviewRequestPull(pull, bindingLogin) {
   if (bindingLogin === "") {
     return false;
@@ -11376,12 +11396,13 @@ async function reviewRequestEvents(input) {
       continue;
     }
     const tracked = input.tracked.get(pull.pullNumber);
-    if (tracked !== undefined && actor.eventId !== null) {
+    const reRequest = reRequestOf({ tracked, eventId: actor.eventId, eventAt: actor.eventAt });
+    if (reRequest !== null) {
       events.push(reviewFollowUp({
         binding,
         pull,
-        tracked,
-        eventId: actor.eventId,
+        tracked: reRequest.tracked,
+        eventId: reRequest.eventId,
         actorLogin: actor.login,
         detectedAt
       }));
@@ -12205,17 +12226,15 @@ function readReviewCommentEntry(value) {
   const commentId = positiveIntOf2(record.id);
   const pullNumber = issueNumberOf2(record.pull_request_url);
   const body = textOf(record, "body");
-  const url = textOf(record, "html_url");
   const user = asRecord(record.user);
   const authorLogin = authorLoginOf(user);
-  if (commentId === null || pullNumber === null || body === null || url === null || authorLogin === "") {
+  if (commentId === null || pullNumber === null || body === null || authorLogin === "") {
     return null;
   }
   return {
     commentId,
     pullNumber,
     body,
-    url,
     authorLogin,
     authorType: authorTypeOf(user),
     updatedAt: textOf(record, "updated_at")

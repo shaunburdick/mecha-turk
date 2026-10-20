@@ -91,8 +91,6 @@ export interface PollReviewComment {
     readonly pullNumber: number;
     /** Comment body; untrusted source text. */
     readonly body: string;
-    /** Canonical comment URL. */
-    readonly url: string;
     /** Login of the comment's author. */
     readonly authorLogin: string;
     /** Author type (`User`, `Bot`, `Organization`, …); `''` when absent. */
@@ -298,10 +296,9 @@ export function readReviewCommentEntry(value: unknown): PollReviewComment | null
     const commentId = positiveIntOf(record.id);
     const pullNumber = issueNumberOf(record.pull_request_url);
     const body = textOf(record, 'body');
-    const url = textOf(record, 'html_url');
     const user = asRecord(record.user);
     const authorLogin = authorLoginOf(user);
-    if (commentId === null || pullNumber === null || body === null || url === null || authorLogin === '') {
+    if (commentId === null || pullNumber === null || body === null || authorLogin === '') {
         return null;
     }
 
@@ -309,7 +306,6 @@ export function readReviewCommentEntry(value: unknown): PollReviewComment | null
         commentId,
         pullNumber,
         body,
-        url,
         authorLogin,
         authorType: authorTypeOf(user),
         updatedAt: textOf(record, 'updated_at'),

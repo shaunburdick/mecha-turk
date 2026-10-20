@@ -7,10 +7,33 @@ import { createEvent } from './events.ts';
 import { headFollowUps, reviewFollowUp } from './follow-up.ts';
 import { resolveCandidateActor } from './poller-events.ts';
 import { trackedPullEnds, withoutEnded } from './tracking.ts';
+import type { TrackedSubject } from './tracking.ts';
 import { stampInWindow } from './window.ts';
 import type { QueuedEvent } from './events.ts';
 import type { PollPull } from './poller-entries.ts';
 import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
+
+/**
+ * The tracked subject and event id when the request is strictly newer than the
+ * run-establishing reference; `null` when untracked, id-less, or not newer.
+ */
+function reRequestOf(input: {
+    readonly tracked: TrackedSubject | undefined;
+    readonly eventId: number | null;
+    readonly eventAt: string;
+}): { readonly tracked: TrackedSubject; readonly eventId: number } | null {
+    if (input.tracked === undefined || input.eventId === null) {
+        return null;
+    }
+
+    const requestedAt = Date.parse(input.eventAt);
+    const establishedAt = Date.parse(input.tracked.establishedAt ?? '');
+    if (!Number.isFinite(requestedAt) || !Number.isFinite(establishedAt) || requestedAt <= establishedAt) {
+        return null;
+    }
+
+    return { tracked: input.tracked, eventId: input.eventId };
+}
 
 /**
  * Decide whether one pull request asked the bound account to review it.
@@ -124,18 +147,17 @@ export async function reviewRequestEvents(input: TriggerScanInput): Promise<Trig
             continue;
         }
 
-        // A review request on a pull request whose run already carries a
-        // recorded session is a **follow-up**, not a trigger: the session is
-        // already working this pull, and a trigger would only add a source
-        // reference while never reaching the agent (011 FR-005). The naming
-        // event's own id keys the row, so a re-request is a new observation.
+        // A tracked pull's request is a follow-up only when strictly newer than
+        // the run-establishing reference; the overlap window's re-read of the
+        // starting request stays the deduped `~review` trigger (011 FR-001).
         const tracked = input.tracked.get(pull.pullNumber);
-        if (tracked !== undefined && actor.eventId !== null) {
+        const reRequest = reRequestOf({ tracked, eventId: actor.eventId, eventAt: actor.eventAt });
+        if (reRequest !== null) {
             events.push(reviewFollowUp({
                 binding,
                 pull,
-                tracked,
-                eventId: actor.eventId,
+                tracked: reRequest.tracked,
+                eventId: reRequest.eventId,
                 actorLogin: actor.login,
                 detectedAt,
             }));

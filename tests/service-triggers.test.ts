@@ -236,7 +236,6 @@ function fixtureReviewComment(input: {
         commentId: input.commentId,
         pullNumber: 7,
         body: input.body,
-        url: `https://github.com/acme/widget/pull/7#discussion_r${input.commentId}`,
         authorLogin: input.authorLogin ?? HUMAN_AUTHOR_LOGIN,
         authorType: input.authorType ?? HUMAN_AUTHOR_TYPE,
         updatedAt: STAMP,
@@ -559,6 +558,30 @@ describe('mention detection (M6)', () => {
             expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments']);
             expect(events.map((event) => event.id))
                 .toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~mention~${FIRST_COMMENT_ID}`]);
+
+            const warning = logLines
+                .map((line) => JSON.parse(line) as Record<string, unknown>)
+                .find((line) => line.message === 'review-comment feed could not be listed; this cycle detects none');
+            expect(warning).toMatchObject({ level: 'warn', failure: 'unavailable' });
+        }
+    });
+
+    it('lists the review-comment feed exactly once, and never with the mention switch off', async () => {
+        {
+            const mentioned = recordingPoller({ reviewComments: [] });
+            await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                mentioned,
+            );
+
+            const quiet = recordingPoller({});
+            await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: false }),
+                quiet,
+            );
+
+            expect(mentioned.calls.filter((name) => name === 'review-comments')).toHaveLength(1);
+            expect(quiet.calls.filter((name) => name === 'review-comments')).toEqual([]);
         }
     });
 

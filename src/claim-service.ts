@@ -37,7 +37,7 @@ export interface ClaimedReference {
     /** The joining delivery's unchanged id (FR-012). */
     readonly deliveryId: string;
     readonly kind: EventKind;
-    /** Where it matched: `assignment`, `body`, `comment:<id>`, or `review`. */
+    /** Where it matched: `assignment`, `body`, `comment:<id>`, `review-comment:<id>`, or `review`. */
     readonly origin: string;
     readonly sourceUrl: string;
     /** RFC 3339 detection stamp. */

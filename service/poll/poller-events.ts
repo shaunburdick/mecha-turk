@@ -116,12 +116,16 @@ export type CandidateActor =
     /**
      * A readable, non-bot actor the naming event records.
      *
-     * `eventId` is the naming row's own integer id when it carried one, and
-     * `null` when it did not. It rides the actor answer because the same read
-     * produced both, and a review request on a tracked pull needs the id to
-     * key its follow-up; a missing id is not a second read.
+     * `eventId` is the row's own integer id when it carried one; `eventAt` is
+     * its `created_at`, the fact that tells a re-request from the overlap
+     * window's re-read of the request that established the run.
      */
-    | { readonly kind: 'actor'; readonly login: string; readonly eventId: number | null }
+    | {
+        readonly kind: 'actor';
+        readonly login: string;
+        readonly eventId: number | null;
+        readonly eventAt: string;
+    }
     /** No event this cycle, and the reason, which is recorded (constitution IV). */
     | { readonly kind: 'refused'; readonly reason: ActorRefusal }
     /** No event this cycle: the page bound was reached with nothing qualifying. */
@@ -403,5 +407,5 @@ export async function resolveCandidateActor(request: CandidateRequest): Promise<
         return { kind: 'refused', reason: actor.reason };
     }
 
-    return { kind: 'actor', login: actor.login, eventId: event.id ?? null };
+    return { kind: 'actor', login: actor.login, eventId: event.id ?? null, eventAt: event.createdAt };
 }

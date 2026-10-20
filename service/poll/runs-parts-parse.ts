@@ -38,7 +38,8 @@ function isEventKind(value: unknown): value is EventKind {
  */
 function isValidOrigin(origin: string): origin is ReferenceOrigin {
     return origin === 'assignment' || origin === 'body' || origin === 'review'
-        || /^comment:[1-9][0-9]*$/.test(origin);
+        || /^comment:[1-9][0-9]*$/.test(origin)
+        || /^review-comment:[1-9][0-9]*$/.test(origin);
 }
 
 /**
