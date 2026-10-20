@@ -25,8 +25,6 @@ interface HeadObservation {
 export interface HeadMovement {
     /** The pull request whose head moved. */
     readonly pullNumber: number;
-    /** The SHA the run's seed held. */
-    readonly fromHeadSha: string;
     /** The SHA this cycle observed. */
     readonly headSha: string;
 }
@@ -309,7 +307,7 @@ export function checksFollowUp(input: {
             issueNumber: pull.pullNumber,
             issueTitle: pull.title,
             issueUrl: pull.url,
-            issueBodyExcerpt: joined,
+            issueBodyExcerpt: bodyExcerptOf(joined),
         },
         actorLogin: actor,
         actorAttribution: attribution,
@@ -491,7 +489,7 @@ export function headFollowUps(input: {
             continue;
         }
 
-        movements.push({ pullNumber: pull.pullNumber, fromHeadSha: seed, headSha: pull.headSha });
+        movements.push({ pullNumber: pull.pullNumber, headSha: pull.headSha });
 
         const row = headFollowUp({ binding, pull, tracked: subject, fromHeadSha: seed, detectedAt });
         if (row !== null) {

@@ -1696,6 +1696,21 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
         }
     });
 
+    it('bounds the stored check excerpt to the shared excerpt bound', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const names = Array.from({ length: 10 }, (_, index) => `check-${index}-${'x'.repeat(80)}`);
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: { conclusion: 'failure', names } },
+            }));
+
+            const row = followUpRowsOf(queue)[0];
+            expect(row?.issueBodyExcerpt.length).toBe(600);
+            expect(row?.issueBodyExcerpt.endsWith('…')).toBe(true);
+        }
+    });
+
     it('emits two follow-ups for one movement with both switches on', async () => {
         {
             await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });

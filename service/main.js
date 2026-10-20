@@ -10941,7 +10941,7 @@ function checksFollowUp(input) {
       issueNumber: pull.pullNumber,
       issueTitle: pull.title,
       issueUrl: pull.url,
-      issueBodyExcerpt: joined
+      issueBodyExcerpt: bodyExcerptOf(joined)
     },
     actorLogin: actor,
     actorAttribution: attribution,
@@ -11030,7 +11030,7 @@ function headFollowUps(input) {
     if (seed === null || seed === pull.headSha) {
       continue;
     }
-    movements.push({ pullNumber: pull.pullNumber, fromHeadSha: seed, headSha: pull.headSha });
+    movements.push({ pullNumber: pull.pullNumber, headSha: pull.headSha });
     const row = headFollowUp({ binding, pull, tracked: subject, fromHeadSha: seed, detectedAt });
     if (row !== null) {
       rows.push(row);
@@ -12461,8 +12461,7 @@ async function readEnvelopePage(input) {
         envelope: input.envelope,
         message: input.message,
         read: input.read
-      }),
-      lastPage: lastPageOf(attempt.response.headers.get("link"))
+      })
     };
   } catch {
     return { kind: "unavailable", detail: "upstream" };

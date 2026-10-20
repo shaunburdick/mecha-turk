@@ -369,7 +369,8 @@ export async function readOnePage<T>(input: {
 /**
  * Read one page whose array is a member of an object (`{ check_runs: [...] }`),
  * under the same request, retry, classification and abort path as
- * {@link readOnePage}. `lastPage` is surfaced for the same reason.
+ * {@link readOnePage}. It answers the items alone: the envelope walk has no
+ * backward direction, so it promises no last page.
  */
 export async function readEnvelopePage<T>(input: {
     readonly runtime: PollerRuntime;
@@ -381,7 +382,7 @@ export async function readEnvelopePage<T>(input: {
     readonly envelope: string;
     readonly message: string;
     readonly read: (value: unknown) => T | null;
-}): Promise<PageRead<T>> {
+}): Promise<PagedList<T>> {
     const attempt = await requestPage({
         runtime: input.runtime,
         token: input.token,
@@ -401,7 +402,6 @@ export async function readEnvelopePage<T>(input: {
                 message: input.message,
                 read: input.read,
             }),
-            lastPage: lastPageOf(attempt.response.headers.get('link')),
         };
     } catch {
         return { kind: 'unavailable', detail: 'upstream' };

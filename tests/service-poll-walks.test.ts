@@ -271,6 +271,20 @@ describe('the check-runs walk (FR-126, FR-127)', () => {
         }
     });
 
+    it('ignores a Link header on an envelope page: the check walk has no backward direction', async () => {
+        {
+            const { poller, urls } = driver([{
+                body: JSON.stringify({ check_runs: [checkRun('build', 'success')] }),
+                link: lastLink(5),
+            }]);
+
+            const result = await poller.listHeadChecks(checksQuery);
+
+            expect(result).toEqual({ kind: 'ok', conclusion: null, names: [], truncated: false });
+            expect(urls).toHaveLength(1);
+        }
+    });
+
     it('produces no verdict for an all-green head or an unreadable conclusion', async () => {
         {
             const { poller } = driver([{
