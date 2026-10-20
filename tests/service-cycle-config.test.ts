@@ -183,6 +183,7 @@ function recordingPoller(issues: readonly PollIssue[]): {
         // The M6/M7 feeds stay empty: every fixture binding keeps both
         // switches off, so the cycle never asks for them.
         listIssueComments: async () => ({ kind: 'ok', comments: [] }),
+        listReviewComments: async () => ({ kind: 'ok', comments: [] }),
         listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
         // The per-item actor read (002 FR-049) answers the naming event for
         // whichever fixture issue the cycle asks about, with its own stamp so

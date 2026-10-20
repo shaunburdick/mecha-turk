@@ -236,6 +236,7 @@ function idlePoller(): GitHubIssuePoller {
     return {
         listOpenIssues: refuseFeed,
         listIssueComments: refuseFeed,
+        listReviewComments: refuseFeed,
         listOpenPulls: refuseFeed,
         listIssueEvents: refuseFeed,
         readIssueState: refuseFeed,

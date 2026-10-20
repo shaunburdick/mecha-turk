@@ -5,10 +5,10 @@
 import type { PromptSnapshot } from '../prompt.ts';
 import { actorFieldsOf } from './attribution.ts';
 import { followUpKindOf, subjectTypeOf } from './events-parse.ts';
+import type { FollowUpKind, QueuedEvent, SubjectType } from './events-parse.ts';
 import { isTerminalRun } from './runs-document.ts';
 import { buildAttachmentId, buildCorrelationId, buildRunKey, buildSubjectKey } from './run-key.ts';
 import { MAX_SOURCE_REFERENCES, RUNS_SCHEMA_VERSION } from './runs-parse.ts';
-import type { QueuedEvent, SubjectType } from './events-parse.ts';
 import type { ReferenceOrigin, Run, RunAuditIntent, RunsDocument, SourceReference } from './runs-types.ts';
 
 /** The subject coordinates one delivery resolves to, when it resolves at all. */
@@ -76,8 +76,8 @@ function originOf(delivery: QueuedEvent): ReferenceOrigin | null {
     return commentId > 0 && String(commentId) === suffix ? `comment:${commentId}` : null;
 }
 
-/** Which of the two follow-up kinds one delivery is, from its deterministic id. */
-function followUpKindOfDelivery(delivery: QueuedEvent): 'comment' | 'head' | null {
+/** Which of the follow-up kinds one delivery is, from its deterministic id. */
+function followUpKindOfDelivery(delivery: QueuedEvent): FollowUpKind | null {
     return followUpKindOf(delivery.id);
 }
 
@@ -296,7 +296,7 @@ export interface FollowUpJoin {
     readonly run: Run;
     /** The joining delivery's unchanged id. */
     readonly deliveryId: string;
-    readonly kind: 'comment' | 'head';
+    readonly kind: FollowUpKind;
 }
 
 export interface EnqueueJoin {

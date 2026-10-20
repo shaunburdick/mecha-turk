@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { appendAudit } from '../audit.ts';
 import type { ServiceLogger } from '../log.ts';
 import type { ServiceStore } from '../store/index.ts';
-import type { QueuedEvent } from './events-parse.ts';
+import type { FollowUpKind, QueuedEvent } from './events-parse.ts';
 import type { EnqueueOutcome } from './runs-join.ts';
 
 /** Context shared by all audit writers for one enqueue. */
@@ -95,6 +95,24 @@ async function recordDetectedDeliveries(input: EnqueueAuditInput): Promise<void>
     }
 }
 
+/** Why one follow-up was observed, in the operator's words. */
+function followUpReasonOf(kind: FollowUpKind): string {
+    switch (kind) {
+        case 'head': {
+            return 'a tracked pull request head moved';
+        }
+        case 'review': {
+            return 'a tracked pull request asked for the account\'s review again';
+        }
+        case 'review-comment': {
+            return 'a tracked pull request gained a review comment';
+        }
+        case 'comment': {
+            return 'a tracked issue or pull request gained a comment';
+        }
+    }
+}
+
 /**
  * Record one observed follow-up for every follow-up the pass folded.
  *
@@ -114,9 +132,7 @@ async function recordFollowUps(input: EnqueueAuditInput): Promise<void> {
             entity: { kind: 'delivery', id: joined.deliveryId },
             correlationId: joined.run.correlationId,
             decision: null,
-            reason: joined.kind === 'head'
-                ? 'a tracked pull request head moved'
-                : 'a tracked issue or pull request gained a comment',
+            reason: followUpReasonOf(joined.kind),
             details: {
                 deliveryId: joined.deliveryId,
                 excerptFingerprint: followUpFingerprint(excerpt),

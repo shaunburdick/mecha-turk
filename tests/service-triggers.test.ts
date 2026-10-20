@@ -55,6 +55,7 @@ import type {
     PollFailure,
     PollIssue,
     PollPull,
+    PollReviewComment,
 } from '../service/poll/poller-github.ts';
 import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
@@ -214,6 +215,28 @@ function fixtureComment(input: {
         issueNumber: 7,
         body: input.body,
         url: `https://github.com/acme/widget/issues/7#issuecomment-${input.commentId}`,
+        authorLogin: input.authorLogin ?? HUMAN_AUTHOR_LOGIN,
+        authorType: input.authorType ?? HUMAN_AUTHOR_TYPE,
+        updatedAt: STAMP,
+    };
+}
+
+/**
+ * Build one inline review comment.
+ *
+ * @returns The normalized review comment.
+ */
+function fixtureReviewComment(input: {
+    readonly commentId: number;
+    readonly body: string;
+    readonly authorLogin?: string;
+    readonly authorType?: string;
+}): PollReviewComment {
+    return {
+        commentId: input.commentId,
+        pullNumber: 7,
+        body: input.body,
+        url: `https://github.com/acme/widget/pull/7#discussion_r${input.commentId}`,
         authorLogin: input.authorLogin ?? HUMAN_AUTHOR_LOGIN,
         authorType: input.authorType ?? HUMAN_AUTHOR_TYPE,
         updatedAt: STAMP,
@@ -390,6 +413,9 @@ function reviewRequestedEvent(input: {
 function recordingPoller(feeds: {
     readonly issues?: readonly PollIssue[];
     readonly comments?: readonly PollComment[];
+    readonly reviewComments?: readonly PollReviewComment[];
+    /** The failure the review-comment list answers instead of an empty list. */
+    readonly reviewCommentsFailure?: PollFailure;
     readonly pulls?: readonly PollPull[];
     readonly events?: Readonly<Record<number, readonly PollItemEvent[]>>;
     readonly eventsFailure?: PollFailure;
@@ -405,6 +431,14 @@ function recordingPoller(feeds: {
             calls.push('comments');
 
             return { kind: 'ok', comments: feeds.comments ?? [] };
+        },
+        listReviewComments: async () => {
+            calls.push('review-comments');
+            if (feeds.reviewCommentsFailure !== undefined) {
+                return feeds.reviewCommentsFailure;
+            }
+
+            return { kind: 'ok', comments: feeds.reviewComments ?? [] };
         },
         listOpenPulls: async () => {
             calls.push('pulls');
@@ -461,7 +495,7 @@ describe('mention detection (M6)', () => {
                 recorded,
             );
 
-            expect(recorded.calls).toEqual(['issues', 'comments']);
+            expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments']);
             expect(events).toHaveLength(2);
             expect(events.map((event) => event.kind)).toEqual(['mention', 'mention']);
             // The comment id is in the event id: two comments on one issue are two events.
@@ -482,6 +516,49 @@ describe('mention detection (M6)', () => {
             // The trigger note names the commenter, not just the account.
             expect(events[0]?.triggerNote).toContain(HUMAN_AUTHOR_LOGIN);
             expect(events[0]?.issueBodyExcerpt).toBe('cc @OCTOCAT-MT — drift again');
+        }
+    });
+
+    it('queues an inline review-comment mention under its own review discriminator', async () => {
+        {
+            const recorded = recordingPoller({
+                reviewComments: [fixtureReviewComment({ commentId: 901, body: 'please check @octocat-mt' })],
+            });
+
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                recorded,
+            );
+
+            expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments']);
+            expect(events).toHaveLength(1);
+            expect(events[0]).toMatchObject({
+                kind: 'mention',
+                id: `evt-acme~widget~7~${ACCOUNT_ID}~mention~review~901`,
+                issueNumber: 7,
+                actorLogin: HUMAN_AUTHOR_LOGIN,
+                subjectType: 'pull_request',
+            });
+        }
+    });
+
+    it('keeps the conversation-feed detection when the review-comment list fails', async () => {
+        {
+            const recorded = recordingPoller({
+                comments: [fixtureComment({ commentId: FIRST_COMMENT_ID, body: `cc ${MENTION_TOKEN}` })],
+                reviewCommentsFailure: { kind: 'unavailable', detail: 'offline' },
+            });
+
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                recorded,
+            );
+
+            // The added feed is additive: its failure is logged and skipped,
+            // never a reason to drop what the conversation feed already found.
+            expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments']);
+            expect(events.map((event) => event.id))
+                .toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~mention~${FIRST_COMMENT_ID}`]);
         }
     });
 
@@ -551,7 +628,7 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             );
 
             // The body path rides the issue list; only the comment feed is extra.
-            expect(recorded.calls).toEqual(['issues', 'comments']);
+            expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments']);
             expect(events).toHaveLength(1);
             expect(events[0]).toMatchObject({
                 kind: 'mention',

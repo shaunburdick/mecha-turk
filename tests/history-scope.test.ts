@@ -440,6 +440,7 @@ function recordingPoller(issues: readonly PollIssue[]): {
             return { kind: 'ok', issues };
         },
         listIssueComments: async () => ({ kind: 'ok', comments: [] }),
+        listReviewComments: async () => ({ kind: 'ok', comments: [] }),
         listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
         listIssueEvents: async (input) => {
             const candidate = issues.find((entry) => entry.issueNumber === input.issueNumber);
@@ -486,6 +487,7 @@ function failingPoller(): GitHubIssuePoller {
     return {
         listOpenIssues: async () => failure,
         listIssueComments: async () => failure,
+        listReviewComments: async () => failure,
         listOpenPulls: async () => failure,
         listIssueEvents: async () => failure,
         readIssueState: async () => failure,

@@ -161,14 +161,14 @@ const KNOWN_KINDS = new Set<string>(['assignment', 'mention', 'review']);
 const SUBJECT_TYPES: ReadonlySet<string> = new Set(['issue', 'pull_request']);
 
 /**
- * Which of the two follow-up kinds one row is (002 FR-102).
+ * Which follow-up kind one row is (002 FR-102; 011 FR-005, FR-006).
  *
- * A closed two-value union beside the row's own `EventKind`, because the two
- * answer different questions: the kind names the **feed** the detection rode
- * (`'mention'` for the comment list, `'review'` for the pulls list) and this
+ * A closed union beside the row's own `EventKind`, because the two answer
+ * different questions: the kind names the **feed** the detection rode
+ * (`'mention'` for the comment feeds, `'review'` for the pulls list) and this
  * names the **movement** the row records. Neither widens the other.
  */
-export type FollowUpKind = 'comment' | 'head';
+export type FollowUpKind = 'comment' | 'head' | 'review' | 'review-comment';
 
 /**
  * How many `~`-separated segments the id's **base** carries.
@@ -189,12 +189,20 @@ const DECIMAL_SEGMENT = /^[0-9]+$/;
 /** A head-SHA change's tail: `head~<sha>`, hexadecimal (FR-101). */
 const HEAD_TAIL = /^head~[0-9a-f]+$/;
 
+/** A re-requested review's tail: `review~<eventId>` (011 FR-005). */
+const REVIEW_TAIL = /^review~[0-9]+$/;
+
+/** An inline review comment's tail: `review-comment~<commentId>` (011 FR-006). */
+const REVIEW_COMMENT_TAIL = /^review-comment~[0-9]+$/;
+
 /** What one id's discriminator segment says about the row's role (FR-101). */
 type IdDiscriminator =
     /** Not a follow-up: a bare base, or one of the trigger discriminators. */
     | { readonly role: 'trigger' }
     | { readonly role: 'comment'; readonly commentId: number }
     | { readonly role: 'head'; readonly headSha: string }
+    | { readonly role: 'review'; readonly eventId: number }
+    | { readonly role: 'review-comment'; readonly commentId: number }
     /** Carries the `followup` segment with a tail outside the family. */
     | { readonly role: 'malformed' };
 
@@ -211,7 +219,23 @@ function discriminatorOfId(id: string): IdDiscriminator {
         return commentId > 0 ? { role: 'comment', commentId } : { role: 'malformed' };
     }
 
-    return HEAD_TAIL.test(tail) ? { role: 'head', headSha: tail.slice('head~'.length) } : { role: 'malformed' };
+    if (HEAD_TAIL.test(tail)) {
+        return { role: 'head', headSha: tail.slice('head~'.length) };
+    }
+
+    if (REVIEW_TAIL.test(tail)) {
+        const eventId = Number(tail.slice('review~'.length));
+
+        return eventId > 0 ? { role: 'review', eventId } : { role: 'malformed' };
+    }
+
+    if (REVIEW_COMMENT_TAIL.test(tail)) {
+        const commentId = Number(tail.slice('review-comment~'.length));
+
+        return commentId > 0 ? { role: 'review-comment', commentId } : { role: 'malformed' };
+    }
+
+    return { role: 'malformed' };
 }
 
 /**
@@ -222,17 +246,20 @@ function discriminatorOfId(id: string): IdDiscriminator {
  * adds no stored member at all.
  */
 export function followUpKindOf(id: string): FollowUpKind | null {
-    const read = discriminatorOfId(id);
+    const { role } = discriminatorOfId(id);
+    if (role === 'trigger' || role === 'malformed') {
+        return null;
+    }
 
-    return read.role === 'comment' || read.role === 'head' ? read.role : null;
+    return role;
 }
 
 /**
  * Whether one id's follow-up discriminator, when it carries one, is inside the
- * family (002 FR-101, FR-024).
+ * family (002 FR-101, FR-024; 011 FR-005, FR-006).
  *
- * @returns `false` only for a stored id whose `followup` tail is neither a
- *   positive decimal comment id nor `head~<hex sha>`.
+ * @returns `false` only for a stored id whose `followup` tail is outside the
+ *   four forms the writer mints.
  */
 export function followUpDiscriminatorHolds(id: string): boolean {
     return discriminatorOfId(id).role !== 'malformed';

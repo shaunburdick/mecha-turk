@@ -48,6 +48,16 @@ export interface ItemEventActor {
  */
 export interface PollItemEvent {
     /**
+     * The row's own integer id, when GitHub sent a readable one.
+     *
+     * Read for **one** purpose: a review request on an already-tracked pull is
+     * a follow-up keyed by the request event's own id (011 FR-005), and that
+     * id is the only value that distinguishes a re-request from the first
+     * request. Absent when the wire row carried none, so a fixture or a
+     * hand-written row cannot manufacture a follow-up key from nothing.
+     */
+    readonly id?: number;
+    /**
      * The kind word (`assigned`, `review_requested`, `unassigned`, `closed`, …).
      *
      * The wire schema carries **no enum** here, so an unrecognized word is
@@ -103,8 +113,15 @@ export type ActorRefusal =
     | 'self-actor';
 
 export type CandidateActor =
-    /** A readable, non-bot actor the naming event records. */
-    | { readonly kind: 'actor'; readonly login: string }
+    /**
+     * A readable, non-bot actor the naming event records.
+     *
+     * `eventId` is the naming row's own integer id when it carried one, and
+     * `null` when it did not. It rides the actor answer because the same read
+     * produced both, and a review request on a tracked pull needs the id to
+     * key its follow-up; a missing id is not a second read.
+     */
+    | { readonly kind: 'actor'; readonly login: string; readonly eventId: number | null }
     /** No event this cycle, and the reason, which is recorded (constitution IV). */
     | { readonly kind: 'refused'; readonly reason: ActorRefusal }
     /** No event this cycle: the page bound was reached with nothing qualifying. */
@@ -157,6 +174,11 @@ function createdAtOf(value: unknown): string | null {
     return Number.isNaN(Date.parse(value)) ? null : value;
 }
 
+/** A positive integer event id, or `undefined` when the wire sent none. */
+function idOf(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
+
 /**
  * Parse one row of an item's event list, failing soft per row. A row is
  * skipped — not the page — when it carries no kind word or no readable
@@ -175,7 +197,10 @@ export function readItemEventEntry(value: unknown): PollItemEvent | null {
         return null;
     }
 
+    const id = idOf(value.id);
+
     return {
+        ...(id !== undefined && { id }),
         event: value.event,
         assignee: actorOf(value.assignee),
         assigner: actorOf(value.assigner),
@@ -378,5 +403,5 @@ export async function resolveCandidateActor(request: CandidateRequest): Promise<
         return { kind: 'refused', reason: actor.reason };
     }
 
-    return { kind: 'actor', login: actor.login };
+    return { kind: 'actor', login: actor.login, eventId: event.id ?? null };
 }

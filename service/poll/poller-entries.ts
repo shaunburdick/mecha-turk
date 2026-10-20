@@ -76,6 +76,32 @@ export interface PollComment {
 }
 
 /**
+ * Minimal pull-request **review-comment** shape the poller normalizes (011).
+ *
+ * A review comment is GitHub's inline, code-anchored comment on a pull
+ * request, served by `GET /repos/{owner}/{repo}/pulls/comments` — a different
+ * feed from the conversation comments `issues/comments` answers. It carries
+ * the pull request's number on `pull_request_url`, the same way an issue
+ * comment carries its item on `issue_url`.
+ */
+export interface PollReviewComment {
+    /** Comment id; stable across scans, so it keys a deduplicating event id. */
+    readonly commentId: number;
+    /** Pull-request number, read from the comment's `pull_request_url`. */
+    readonly pullNumber: number;
+    /** Comment body; untrusted source text. */
+    readonly body: string;
+    /** Canonical comment URL. */
+    readonly url: string;
+    /** Login of the comment's author. */
+    readonly authorLogin: string;
+    /** Author type (`User`, `Bot`, `Organization`, …); `''` when absent. */
+    readonly authorType: string;
+    /** RFC 3339 `updated_at` stamp, or `null` when GitHub sent none. */
+    readonly updatedAt: string | null;
+}
+
+/**
  * Minimal pull-request shape the poller normalizes (M7): who is asked to
  * review, and the head/base coordinates the event carries. **Deliberately no
  * author member** — the two builds that carried `authorLogin` / `authorType`
@@ -247,6 +273,41 @@ export function readCommentEntry(value: unknown): PollComment | null {
     return {
         commentId,
         issueNumber,
+        body,
+        url,
+        authorLogin,
+        authorType: authorTypeOf(user),
+        updatedAt: textOf(record, 'updated_at'),
+    };
+}
+
+/**
+ * Parse one pull-request review-comments-list entry, failing soft per entry.
+ *
+ * The authorship rule is the comment reader's, not the issue reader's: a
+ * review comment **is** the action, so an entry with no readable author is
+ * dropped rather than carried as an unknown author (the mention path could
+ * never attribute it, and the follow-up path must not invent one).
+ */
+export function readReviewCommentEntry(value: unknown): PollReviewComment | null {
+    const record = asRecord(value);
+    if (record === null) {
+        return null;
+    }
+
+    const commentId = positiveIntOf(record.id);
+    const pullNumber = issueNumberOf(record.pull_request_url);
+    const body = textOf(record, 'body');
+    const url = textOf(record, 'html_url');
+    const user = asRecord(record.user);
+    const authorLogin = authorLoginOf(user);
+    if (commentId === null || pullNumber === null || body === null || url === null || authorLogin === '') {
+        return null;
+    }
+
+    return {
+        commentId,
+        pullNumber,
         body,
         url,
         authorLogin,

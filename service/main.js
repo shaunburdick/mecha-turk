@@ -1897,6 +1897,8 @@ var ID_BASE_SEGMENTS = 4;
 var FOLLOW_UP_SEGMENT = "followup";
 var DECIMAL_SEGMENT = /^[0-9]+$/;
 var HEAD_TAIL = /^head~[0-9a-f]+$/;
+var REVIEW_TAIL = /^review~[0-9]+$/;
+var REVIEW_COMMENT_TAIL = /^review-comment~[0-9]+$/;
 function discriminatorOfId(id) {
   const segments = id.split("~");
   if (segments.length <= ID_BASE_SEGMENTS + 1 || segments[ID_BASE_SEGMENTS] !== FOLLOW_UP_SEGMENT) {
@@ -1907,11 +1909,25 @@ function discriminatorOfId(id) {
     const commentId = Number(tail);
     return commentId > 0 ? { role: "comment", commentId } : { role: "malformed" };
   }
-  return HEAD_TAIL.test(tail) ? { role: "head", headSha: tail.slice("head~".length) } : { role: "malformed" };
+  if (HEAD_TAIL.test(tail)) {
+    return { role: "head", headSha: tail.slice("head~".length) };
+  }
+  if (REVIEW_TAIL.test(tail)) {
+    const eventId = Number(tail.slice("review~".length));
+    return eventId > 0 ? { role: "review", eventId } : { role: "malformed" };
+  }
+  if (REVIEW_COMMENT_TAIL.test(tail)) {
+    const commentId = Number(tail.slice("review-comment~".length));
+    return commentId > 0 ? { role: "review-comment", commentId } : { role: "malformed" };
+  }
+  return { role: "malformed" };
 }
 function followUpKindOf(id) {
-  const read = discriminatorOfId(id);
-  return read.role === "comment" || read.role === "head" ? read.role : null;
+  const { role } = discriminatorOfId(id);
+  if (role === "trigger" || role === "malformed") {
+    return null;
+  }
+  return role;
 }
 function followUpDiscriminatorHolds(id) {
   return discriminatorOfId(id).role !== "malformed";
@@ -2166,6 +2182,22 @@ async function recordDetectedDeliveries(input) {
     });
   }
 }
+function followUpReasonOf(kind) {
+  switch (kind) {
+    case "head": {
+      return "a tracked pull request head moved";
+    }
+    case "review": {
+      return "a tracked pull request asked for the account's review again";
+    }
+    case "review-comment": {
+      return "a tracked pull request gained a review comment";
+    }
+    case "comment": {
+      return "a tracked issue or pull request gained a comment";
+    }
+  }
+}
 async function recordFollowUps(input) {
   const rows = new Map(input.appended.map((event) => [event.id, event]));
   for (const joined of input.outcome.followUps) {
@@ -2177,7 +2209,7 @@ async function recordFollowUps(input) {
       entity: { kind: "delivery", id: joined.deliveryId },
       correlationId: joined.run.correlationId,
       decision: null,
-      reason: joined.kind === "head" ? "a tracked pull request head moved" : "a tracked issue or pull request gained a comment",
+      reason: followUpReasonOf(joined.kind),
       details: {
         deliveryId: joined.deliveryId,
         excerptFingerprint: followUpFingerprint(excerpt),
@@ -3828,10 +3860,19 @@ function buildEventId(input) {
 }
 function discriminatorOf(snapshot) {
   if ("followUp" in snapshot) {
-    return snapshot.followUp === "head" ? `~followup~head~${snapshot.headSha}` : `~followup~${snapshot.commentId}`;
+    if (snapshot.followUp === "head") {
+      return `~followup~head~${snapshot.headSha}`;
+    }
+    if (snapshot.followUp === "review") {
+      return `~followup~review~${snapshot.eventId}`;
+    }
+    return snapshot.followUp === "review-comment" ? `~followup~review-comment~${snapshot.commentId}` : `~followup~${snapshot.commentId}`;
   }
   if (snapshot.kind === "mention") {
-    return snapshot.origin === "body" ? "~mention~body" : `~mention~${snapshot.commentId}`;
+    if (snapshot.origin === "body") {
+      return "~mention~body";
+    }
+    return snapshot.origin === "review-comment" ? `~mention~review~${snapshot.commentId}` : `~mention~${snapshot.commentId}`;
   }
   return snapshot.kind === "review" ? "~review" : undefined;
 }
@@ -10312,11 +10353,29 @@ function renderBoundedContext(input) {
 }
 
 // service/poll/engine-compose.ts
+var PULL_SHAPED_KINDS = new Set(["head", "review", "review-comment"]);
+var UNRECORDED_HEAD = "an unrecorded head";
+function movementOf(kind, heads) {
+  switch (kind) {
+    case "head": {
+      return `Head moved from ${defuseDelimiters(heads?.from ?? UNRECORDED_HEAD)} to ${defuseDelimiters(heads?.to ?? UNRECORDED_HEAD)}`;
+    }
+    case "review": {
+      return "Review requested on this pull request";
+    }
+    case "review-comment": {
+      return "New review comment";
+    }
+    case "comment": {
+      return "New comment";
+    }
+  }
+}
 function headPairOf(input) {
   if (followUpKindOf(input.row.id) !== "head") {
     return null;
   }
-  let previous = input.run.lastHeadSha ?? "an unrecorded head";
+  let previous = input.run.lastHeadSha ?? UNRECORDED_HEAD;
   for (const candidate of input.runRows) {
     if (candidate.id === input.row.id) {
       break;
@@ -10327,7 +10386,7 @@ function headPairOf(input) {
   }
   return {
     from: previous,
-    to: input.row.headSha !== null && input.row.headSha !== "" ? input.row.headSha : "an unrecorded head"
+    to: input.row.headSha !== null && input.row.headSha !== "" ? input.row.headSha : UNRECORDED_HEAD
   };
 }
 function composeEngineFollowUp(input) {
@@ -10337,7 +10396,8 @@ function composeEngineFollowUp(input) {
   }
   const { row } = input;
   const heads = headPairOf({ run: input.run, row, runRows: input.runRows });
-  const movement = heads === null ? "New comment" : `Head moved from ${defuseDelimiters(heads.from)} to ${defuseDelimiters(heads.to)}`;
+  const movement = movementOf(kind, heads);
+  const isPullShaped = PULL_SHAPED_KINDS.has(kind);
   const header = [
     "Mecha Turk follow-up (automated — continuing a work item Mecha Turk already started).",
     `Correlation: ${defuseDelimiters(input.run.correlationId)}`,
@@ -10350,7 +10410,7 @@ function composeEngineFollowUp(input) {
     "Rule: this is the same work item the session was started for; reply inside this session."
   ];
   const sources = [{
-    origin: kind === "head" ? "review" : "comment",
+    origin: isPullShaped ? "review" : "comment",
     kind: row.kind,
     detectedAt: row.detectedAt,
     url: row.issueUrl,
@@ -10365,7 +10425,7 @@ function composeEngineFollowUp(input) {
       state: "open",
       body: null,
       assignees: [],
-      isPullRequest: kind === "head"
+      isPullRequest: isPullShaped
     },
     sources
   });
@@ -10719,6 +10779,73 @@ function headFollowUp(input) {
     subjectType: "pull_request"
   });
 }
+function reviewFollowUp(input) {
+  const { binding, pull, tracked, eventId, actorLogin, detectedAt } = input;
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    followUp: "review",
+    eventId,
+    headSha: pull.headSha,
+    baseRef: pull.baseRef,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: ""
+    },
+    actorLogin,
+    actorAttribution: "direct",
+    triggerNote: `Review requested from the bound account on pull request #${pull.pullNumber}, ` + "on a work item already in progress",
+    detectedAt,
+    subjectType: tracked.subjectType
+  });
+}
+function reviewCommentFollowUp(input) {
+  const { binding, comment, tracked, detectedAt } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const commenter = actorLoginOf(comment.authorLogin);
+  const url = `https://github.com/${repository.owner}/${repository.name}/pull/${comment.pullNumber}`;
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repository),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "mention",
+    followUp: "review-comment",
+    commentId: comment.commentId,
+    issue: {
+      issueNumber: comment.pullNumber,
+      issueTitle: `Pull request #${comment.pullNumber}`,
+      issueUrl: url,
+      issueBodyExcerpt: bodyExcerptOf(comment.body)
+    },
+    actorLogin: commenter,
+    actorAttribution: "direct",
+    triggerNote: `Review comment by ${commenter} on pull request #${comment.pullNumber}, ` + "on a work item already in progress",
+    detectedAt,
+    subjectType: tracked.subjectType
+  });
+}
+function reviewCommentFollowUps(input) {
+  const { binding, comments, tracked, windowStart, detectedAt } = input;
+  const rows = [];
+  for (const comment of comments) {
+    const subject = tracked.get(comment.pullNumber);
+    if (subject === undefined || !stampInWindow(comment.updatedAt, windowStart) || !isAttributableAuthor(comment.authorLogin, comment.authorType)) {
+      continue;
+    }
+    rows.push(reviewCommentFollowUp({ binding, comment, tracked: subject, detectedAt }));
+  }
+  return rows;
+}
 function commentFollowUps(input) {
   const { binding, comments, issues, tracked, windowStart, detectedAt } = input;
   const known = new Map(issues.map((issue2) => [issue2.issueNumber, issue2]));
@@ -10784,6 +10911,28 @@ function withoutEndedFollowUps(events, endedNumbers) {
     return events;
   }
   return events.filter((event) => followUpKindOf(event.id) === null || !endedNumbers.has(event.issueNumber));
+}
+
+// service/poll/mentions-login.ts
+function isLoginCharacter(character) {
+  return /^[A-Za-z0-9_-]$/.test(character);
+}
+function mentionsLogin(body, login) {
+  if (login === "") {
+    return false;
+  }
+  const haystack = body.toLowerCase();
+  const token = `@${login.toLowerCase()}`;
+  let from = haystack.indexOf(token);
+  while (from !== -1) {
+    const before = from === 0 ? "" : haystack.charAt(from - 1);
+    const after = haystack.charAt(from + token.length);
+    if (!isLoginCharacter(before) && !isLoginCharacter(after)) {
+      return true;
+    }
+    from = haystack.indexOf(token, from + 1);
+  }
+  return false;
 }
 
 // service/poll/tracking.ts
@@ -10951,6 +11100,9 @@ function createdAtOf(value) {
   }
   return Number.isNaN(Date.parse(value)) ? null : value;
 }
+function idOf(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
 function readItemEventEntry(value) {
   if (!isRecord(value)) {
     return null;
@@ -10959,7 +11111,9 @@ function readItemEventEntry(value) {
   if (createdAt === null || typeof value.event !== "string" || value.event === "") {
     return null;
   }
+  const id = idOf(value.id);
   return {
+    ...id !== undefined && { id },
     event: value.event,
     assignee: actorOf(value.assignee),
     assigner: actorOf(value.assigner),
@@ -11045,7 +11199,7 @@ async function resolveCandidateActor(request) {
     recordNoEvent({ request, reason: actor.reason });
     return { kind: "refused", reason: actor.reason };
   }
-  return { kind: "actor", login: actor.login };
+  return { kind: "actor", login: actor.login, eventId: event.id ?? null };
 }
 
 // service/poll/triggers-assignment.ts
@@ -11109,6 +11263,49 @@ async function assignmentEvents(input) {
     }
   }
   return { ok: true, events };
+}
+
+// service/poll/review-comment-mention-events.ts
+function issueFieldsOf(comment, repository) {
+  return {
+    issueNumber: comment.pullNumber,
+    issueTitle: `Pull request #${comment.pullNumber}`,
+    issueUrl: `https://github.com/${repository.owner}/${repository.name}/pull/${comment.pullNumber}`,
+    issueBodyExcerpt: bodyExcerptOf(comment.body)
+  };
+}
+function reviewCommentMentionEvent(input) {
+  const { binding, comment, detectedAt } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const commenter = actorLoginOf(comment.authorLogin);
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repository),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "mention",
+    origin: "review-comment",
+    commentId: comment.commentId,
+    issue: issueFieldsOf(comment, repository),
+    actorLogin: commenter,
+    actorAttribution: "direct",
+    triggerNote: `Review comment by ${commenter} on pull request #${comment.pullNumber} ` + "mentioned the bound account",
+    detectedAt,
+    subjectType: "pull_request"
+  });
+}
+function reviewCommentMentionEvents(input) {
+  const { binding, login, comments, windowStart, detectedAt } = input;
+  const events = [];
+  for (const comment of comments) {
+    if (!stampInWindow(comment.updatedAt, windowStart) || !isAttributableAuthor(comment.authorLogin, comment.authorType) || !mentionsLogin(comment.body, login)) {
+      continue;
+    }
+    events.push(reviewCommentMentionEvent({ binding, comment, detectedAt }));
+  }
+  return events;
 }
 
 // service/poll/triggers-review.ts
@@ -11175,9 +11372,22 @@ async function reviewRequestEvents(input) {
     if (actor.kind === "failed") {
       return { ok: false, failure: actor.failure };
     }
-    if (actor.kind === "actor") {
-      events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
+    if (actor.kind !== "actor") {
+      continue;
     }
+    const tracked = input.tracked.get(pull.pullNumber);
+    if (tracked !== undefined && actor.eventId !== null) {
+      events.push(reviewFollowUp({
+        binding,
+        pull,
+        tracked,
+        eventId: actor.eventId,
+        actorLogin: actor.login,
+        detectedAt
+      }));
+      continue;
+    }
+    events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
   }
   const pullEnds = trackedPullEnds({ binding, pulls: listed.pulls, tracked: input.tracked });
   const heads = headFollowUps({
@@ -11196,26 +11406,6 @@ async function reviewRequestEvents(input) {
 }
 
 // service/poll/triggers.ts
-function isLoginCharacter(character) {
-  return /^[A-Za-z0-9_-]$/.test(character);
-}
-function mentionsLogin(body, login) {
-  if (login === "") {
-    return false;
-  }
-  const haystack = body.toLowerCase();
-  const token = `@${login.toLowerCase()}`;
-  let from = haystack.indexOf(token);
-  while (from !== -1) {
-    const before = from === 0 ? "" : haystack.charAt(from - 1);
-    const after = haystack.charAt(from + token.length);
-    if (!isLoginCharacter(before) && !isLoginCharacter(after)) {
-      return true;
-    }
-    from = haystack.indexOf(token, from + 1);
-  }
-  return false;
-}
 function isMentionComment(comment, bindingLogin) {
   if (!isAttributableAuthor(comment.authorLogin, comment.authorType)) {
     return false;
@@ -11319,13 +11509,40 @@ async function mentionEventsOf(input) {
   if (listed.kind !== "ok") {
     return { ok: false, failure: listed };
   }
+  const reviewed = await poller.listReviewComments({
+    token,
+    owner: repository.owner,
+    name: repository.name,
+    since: windowStart,
+    pace
+  });
+  if (reviewed.kind !== "ok") {
+    input.log.warn("review-comment feed could not be listed; this cycle detects none", {
+      failure: reviewed.kind
+    });
+  }
+  const reviewComments = reviewed.kind === "ok" ? reviewed.comments : [];
   const events = [
     ...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }),
     ...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }),
+    ...reviewCommentMentionEvents({
+      binding,
+      login,
+      comments: reviewComments,
+      windowStart,
+      detectedAt
+    }),
     ...commentFollowUps({
       binding,
       comments: listed.comments,
       issues,
+      tracked: input.tracked,
+      windowStart,
+      detectedAt
+    }),
+    ...reviewCommentFollowUps({
+      binding,
+      comments: reviewComments,
       tracked: input.tracked,
       windowStart,
       detectedAt
@@ -11980,6 +12197,30 @@ function readCommentEntry(value) {
     updatedAt: textOf(record, "updated_at")
   };
 }
+function readReviewCommentEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const commentId = positiveIntOf2(record.id);
+  const pullNumber = issueNumberOf2(record.pull_request_url);
+  const body = textOf(record, "body");
+  const url = textOf(record, "html_url");
+  const user = asRecord(record.user);
+  const authorLogin = authorLoginOf(user);
+  if (commentId === null || pullNumber === null || body === null || url === null || authorLogin === "") {
+    return null;
+  }
+  return {
+    commentId,
+    pullNumber,
+    body,
+    url,
+    authorLogin,
+    authorType: authorTypeOf(user),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
 function readPullEntry(value) {
   const record = asRecord(value);
   if (record === null) {
@@ -12050,6 +12291,23 @@ async function commentsList(runtime, query) {
     }),
     message: "issue comment list response was not an array",
     read: readCommentEntry
+  });
+  return result.kind === "ok" ? { kind: "ok", comments: result.items } : result;
+}
+async function reviewCommentsList(runtime, query) {
+  const result = await listPages({
+    runtime,
+    pace: query.pace,
+    token: query.token,
+    url: listUrl({
+      owner: query.owner,
+      name: query.name,
+      path: "pulls/comments",
+      query: { ...NEWEST_UPDATED_FIRST },
+      since: query.since
+    }),
+    message: "review comment list response was not an array",
+    read: readReviewCommentEntry
   });
   return result.kind === "ok" ? { kind: "ok", comments: result.items } : result;
 }
@@ -12129,6 +12387,7 @@ function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fet
   return {
     listOpenIssues: (query) => issuesList(runtime, query),
     listIssueComments: (query) => commentsList(runtime, query),
+    listReviewComments: (query) => reviewCommentsList(runtime, query),
     listOpenPulls: (query) => pullsList(runtime, query),
     listIssueEvents: (query) => itemEventsList(runtime, query),
     readIssueState: (query) => issueStateObject(runtime, query),

@@ -13,6 +13,17 @@ matching section below plus GitHub's generated notes.
 
 ## [Unreleased]
 
+### Added
+
+- **Wider event detection** (#61). A review requested again on a pull request
+  the agent is already working now reaches that session as a follow-up keyed by
+  the request event's own id, instead of a trigger the queue would dedupe away.
+  Inline review comments — a feed separate from conversation comments — now
+  produce mentions and follow-ups when they name the bound account or move a
+  tracked pull. Detection adds one `since`-windowed read per mention-enabled
+  binding, and the cycle keeps its conversation-feed findings when that read
+  fails.
+
 ## [0.4.1] - 2026-10-19
 
 ### Fixed

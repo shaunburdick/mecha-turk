@@ -1393,3 +1393,11 @@ product owner on **2026-10-13**, GitHub issue #48, and are recorded in
 **Migration impact**: none. Documentation synchronization only — no route, member, status code, store field, capability, manifest field, or contract text changes; `specs/002-agent-event-extension/contracts/` is untouched (010's new `GET /v1/logs` row rides that contract's §2.5 and is 010's own dated note, not a 002 version change).
 
 **Approval status**: submitted with feature 010's Gate 1, 2026-10-15. The seventh tab itself is the product owner's recorded decision (issue #53, 2026-10-15), and 005's amended FR-010 is the authority this phrase now defers to. No clarification marker remains in the document.
+
+### v1.19.2 — 2026-10-19 (feature 011 amendment note; no 002 requirement text edited)
+
+**Why**: feature `011-event-detection` (GitHub issue #61) widens event detection in two additive ways that 002's live text does not describe: a re-requested review on a tracked pull is now a follow-up keyed by `~followup~review~<eventId>`, and inline review comments are read from one repository-wide `pulls/comments` call per mention-enabled binding to detect mentions (`~mention~review~<commentId>`) and follow-ups (`~followup~review-comment~<commentId>`). This note records the extension and points at its authority; 002's requirement body is left byte-identical, following the repo convention that later spec directories amend it.
+
+**What is affected**: `FR-101`'s closed follow-up id family gains the two tails above, and `FR-102`'s "neither kind adds a request" claim gains the one review-comment read (which fails open within the cycle). No requirement is added, removed, or renumbered; no existing id, wire operation, store file, capability, manifest field or configuration field moves.
+
+**Authority and migration**: `specs/011-event-detection/spec.md` states the behaviour, and its `plan.md` maps it to modules. Migration impact is none: a row without the new tails parses exactly as before, and a binding whose mention trigger is off makes no added request.

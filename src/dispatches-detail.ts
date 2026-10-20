@@ -61,7 +61,9 @@ export interface RunVerification {
     readonly note: string | null;
 }
 
-export type FollowUpKind = 'comment' | 'head';
+export type FollowUpKind = 'comment' | 'head' | 'review' | 'review-comment';
+
+const FOLLOW_UP_KINDS = ['comment', 'head', 'review', 'review-comment'] as const;
 
 /** Absentable on read; `cause` splits a fresh intent the engine pass owns from a spent, re-offer-eligible one. */
 export type RunFollowUpEngine =
@@ -217,11 +219,11 @@ export function parseVerification(value: unknown): RunVerification | null | unde
     return { observedAgent, expectedAgent: baseline, ok: record.ok, note };
 }
 
-/**
- * Which of the two movement kinds a follow-up row may name, and nothing else.
- */
+/** Which movement kind a follow-up row may name, and nothing else. */
 function followUpKindOfValue(value: unknown): FollowUpKind | null {
-    return value === 'comment' || value === 'head' ? value : null;
+    return typeof value === 'string' && (FOLLOW_UP_KINDS as readonly string[]).includes(value)
+        ? (value as FollowUpKind)
+        : null;
 }
 
 function optionalText(record: Record<string, unknown>, field: string): string | undefined | null {

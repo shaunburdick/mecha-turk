@@ -8,12 +8,14 @@ import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import { actorLoginOf, isAttributableAuthor } from './attribution.ts';
 import { createEvent } from './events.ts';
-import { commentFollowUps } from './follow-up.ts';
+import { commentFollowUps, reviewCommentFollowUps } from './follow-up.ts';
+import { mentionsLogin } from './mentions-login.ts';
 import { trackedIssueEnds, withoutEnded } from './tracking.ts';
 import type { TrackingEnd } from './tracking.ts';
 import { stampInWindow } from './window.ts';
 import { bodyExcerptOf } from './trigger-scan.ts';
 import { assignmentEvents } from './triggers-assignment.ts';
+import { reviewCommentMentionEvents } from './review-comment-mention-events.ts';
 import { reviewRequestEvents } from './triggers-review.ts';
 import type { QueuedEvent, SubjectType } from './events.ts';
 import type { PollComment, PollIssue } from './poller-entries.ts';
@@ -21,41 +23,10 @@ import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
 import type { IssueListOutcome } from './poller-github.ts';
 
 /**
- * Decide whether one character belongs to GitHub's username alphabet.
+ * Re-exported: the token match is shared with the review-comment feed, and
+ * this module stays the one import path its tests already use.
  */
-function isLoginCharacter(character: string): boolean {
-    return /^[A-Za-z0-9_-]$/.test(character);
-}
-
-/**
- * Decide whether a body of text carries the bound account's mention token.
- *
- * The token is `@<login>`, matched case-insensitively and bounded on both
- * sides by GitHub's username alphabet (`A-Za-z0-9_-`), so `@octocat-mt`
- * neither matches inside `@octocat-mt2` nor inside `x@octocat-mt`. The scan
- * is written out rather than compiled from the login, so no untrusted string
- * ever reaches a regular-expression engine.
- */
-export function mentionsLogin(body: string, login: string): boolean {
-    if (login === '') {
-        return false;
-    }
-
-    const haystack = body.toLowerCase();
-    const token = `@${login.toLowerCase()}`;
-    let from = haystack.indexOf(token);
-    while (from !== -1) {
-        const before = from === 0 ? '' : haystack.charAt(from - 1);
-        const after = haystack.charAt(from + token.length);
-        if (!isLoginCharacter(before) && !isLoginCharacter(after)) {
-            return true;
-        }
-
-        from = haystack.indexOf(token, from + 1);
-    }
-
-    return false;
-}
+export { mentionsLogin } from './mentions-login.ts';
 
 /**
  * Decide whether one comment is a mention the binding should react to.
@@ -270,15 +241,51 @@ async function mentionEventsOf(input: TriggerScanInput & {
         return { ok: false, failure: listed };
     }
 
+    // The inline review comments are a **second** comment feed: GitHub serves
+    // them from `pulls/comments`, not from `issues/comments`, so a mention or a
+    // movement there is invisible to the read above. One repository-wide,
+    // `since`-windowed call per mention-enabled binding is the whole added rate
+    // cost (011 FR-006, NFR-003). Its failure is tolerated: the feed is
+    // additive, and failing the cycle would suppress the detection the operator
+    // already paid for on the conversation feed.
+    const reviewed = await poller.listReviewComments({
+        token,
+        owner: repository.owner,
+        name: repository.name,
+        since: windowStart,
+        pace,
+    });
+    if (reviewed.kind !== 'ok') {
+        input.log.warn('review-comment feed could not be listed; this cycle detects none', {
+            failure: reviewed.kind,
+        });
+    }
+
+    const reviewComments = reviewed.kind === 'ok' ? reviewed.comments : [];
+
     const events = [
         // The issue-body path needs no feed of its own: the cycle lists issues
         // whenever the assignment *or* the mention switch is on.
         ...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }),
         ...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }),
+        ...reviewCommentMentionEvents({
+            binding,
+            login,
+            comments: reviewComments,
+            windowStart,
+            detectedAt,
+        }),
         ...commentFollowUps({
             binding,
             comments: listed.comments,
             issues,
+            tracked: input.tracked,
+            windowStart,
+            detectedAt,
+        }),
+        ...reviewCommentFollowUps({
+            binding,
+            comments: reviewComments,
             tracked: input.tracked,
             windowStart,
             detectedAt,

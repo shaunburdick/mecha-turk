@@ -33,7 +33,12 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { readCommentEntry, readIssueEntry, readPullEntry } from '../service/poll/poller-entries.ts';
+import {
+    readCommentEntry,
+    readIssueEntry,
+    readPullEntry,
+    readReviewCommentEntry,
+} from '../service/poll/poller-entries.ts';
 import { isBotAuthor, isAttributableAuthor } from '../service/poll/attribution.ts';
 import { readItemEventEntry } from '../service/poll/poller-events.ts';
 
@@ -105,6 +110,26 @@ function commentEntry(user: unknown = HUMAN_USER): Record<string, unknown> {
         "issue_url": "https://api.github.com/repos/acme/widget/issues/7",
         "body": "cc @octocat-mt",
         "html_url": "https://github.com/acme/widget/issues/7#issuecomment-501",
+        "updated_at": "2026-09-27T00:35:00.000Z",
+        "user": ${JSON.stringify(user)}
+    }`) as Record<string, unknown>;
+}
+
+/** The canonical URL a review comment reports. */
+const REVIEW_COMMENT_URL = 'https://github.com/acme/widget/pull/3#discussion_r901';
+
+/**
+ * One review-comments-list entry with every field the reader requires.
+ *
+ * @param user - The `user` object as the wire carries it, or a value to test.
+ * @returns The raw element, parsed as GitHub's endpoint answers it.
+ */
+function reviewCommentEntry(user: unknown = HUMAN_USER): Record<string, unknown> {
+    return JSON.parse(`{
+        "id": 901,
+        "pull_request_url": "https://api.github.com/repos/acme/widget/pulls/3",
+        "body": "nit: rename this",
+        "html_url": "${REVIEW_COMMENT_URL}",
         "updated_at": "2026-09-27T00:35:00.000Z",
         "user": ${JSON.stringify(user)}
     }`) as Record<string, unknown>;
@@ -255,6 +280,32 @@ describe('the three list feeds keep their authorship convention (002 FR-045)', (
     });
 });
 
+describe('the review-comments reader (011 FR-006)', () => {
+    it('maps pull_request_url to the pull number and reads the comment', () => {
+        expect(readReviewCommentEntry(reviewCommentEntry())).toEqual({
+            commentId: 901,
+            pullNumber: 3,
+            body: 'nit: rename this',
+            url: 'https://github.com/acme/widget/pull/3#discussion_r901',
+            authorLogin: HUMAN_LOGIN,
+            authorType: HUMAN_TYPE,
+            updatedAt: '2026-09-27T00:35:00.000Z',
+        });
+    });
+
+    it('refuses a row whose id, pull number, body, URL, or author is unusable', () => {
+        const healthy = reviewCommentEntry();
+
+        expect(readReviewCommentEntry({ ...healthy, id: 0 })).toBeNull();
+        expect(readReviewCommentEntry({ ...healthy, id: '901' })).toBeNull();
+        expect(readReviewCommentEntry({ ...healthy, pull_request_url: 'not-a-url' })).toBeNull();
+        expect(readReviewCommentEntry({ ...healthy, pull_request_url: undefined })).toBeNull();
+        expect(readReviewCommentEntry({ ...healthy, body: null })).toBeNull();
+        expect(readReviewCommentEntry({ ...healthy, html_url: null })).toBeNull();
+        expect(readReviewCommentEntry(withoutUser(healthy))).toBeNull();
+    });
+});
+
 describe('the per-item events reader (002 FR-049, FR-051)', () => {
     it('reads exactly the named members, and no `actor`', () => {
         const event = readItemEventEntry(assignedRow());
@@ -300,6 +351,15 @@ describe('the per-item events reader (002 FR-049, FR-051)', () => {
         // ignored, not treated as one this build knows.
         expect(readItemEventEntry(wireEventRow({ kind: 'head_ref_deleted' })))
             .toMatchObject({ event: 'head_ref_deleted' });
+    });
+
+    it('carries the row id only when it is a positive integer (011 FR-005)', () => {
+        const row = { ...assignedRow(), id: 7 };
+
+        expect(readItemEventEntry(row)?.id).toBe(7);
+        for (const id of [0, -1, 1.5, '7', null]) {
+            expect(readItemEventEntry({ ...row, id })?.id).toBeUndefined();
+        }
     });
 
     it('judges a bot actor with the one existing predicate (FR-045(a))', () => {

@@ -4,7 +4,7 @@
 
 import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
 import { createEvent } from './events.ts';
-import { headFollowUps } from './follow-up.ts';
+import { headFollowUps, reviewFollowUp } from './follow-up.ts';
 import { resolveCandidateActor } from './poller-events.ts';
 import { trackedPullEnds, withoutEnded } from './tracking.ts';
 import { stampInWindow } from './window.ts';
@@ -120,9 +120,29 @@ export async function reviewRequestEvents(input: TriggerScanInput): Promise<Trig
             return { ok: false, failure: actor.failure };
         }
 
-        if (actor.kind === 'actor') {
-            events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
+        if (actor.kind !== 'actor') {
+            continue;
         }
+
+        // A review request on a pull request whose run already carries a
+        // recorded session is a **follow-up**, not a trigger: the session is
+        // already working this pull, and a trigger would only add a source
+        // reference while never reaching the agent (011 FR-005). The naming
+        // event's own id keys the row, so a re-request is a new observation.
+        const tracked = input.tracked.get(pull.pullNumber);
+        if (tracked !== undefined && actor.eventId !== null) {
+            events.push(reviewFollowUp({
+                binding,
+                pull,
+                tracked,
+                eventId: actor.eventId,
+                actorLogin: actor.login,
+                detectedAt,
+            }));
+            continue;
+        }
+
+        events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
     }
 
     const pullEnds = trackedPullEnds({ binding, pulls: listed.pulls, tracked: input.tracked });

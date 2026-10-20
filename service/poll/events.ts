@@ -49,9 +49,12 @@ export type {
     EventSnapshot,
     FollowUpCommentSnapshot,
     FollowUpHeadSnapshot,
+    FollowUpReviewCommentSnapshot,
+    FollowUpReviewSnapshot,
     MentionBodyEventSnapshot,
     MentionEventSnapshot,
     MentionOrigin,
+    MentionReviewCommentSnapshot,
     ReviewEventSnapshot,
 } from './events-write.ts';
 

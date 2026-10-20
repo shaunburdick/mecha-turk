@@ -45,6 +45,7 @@ import { readIssueObject, readPullObject } from '../service/poll/poller-entries.
 import { MAX_PROJECTED_FOLLOW_UPS, projectRunHistory } from '../service/poll/run-history-project.ts';
 import { EVENTS_PATH } from '../service/routes/events.ts';
 import { readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
+import { writeScanState } from '../service/poll/scan.ts';
 import { buildEventId } from '../service/poll/events-write.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { BindingRecord, BindingTriggers } from '../service/bindings.ts';
@@ -55,10 +56,12 @@ import type {
     PollComment,
     PollIssue,
     PollPull,
+    PollReviewComment,
     PullStateOutcome,
 } from '../service/poll/poller-github.ts';
 import type { Run } from '../service/poll/runs-types.ts';
 import type { RunHistoryRow } from '../service/poll/run-history-project.ts';
+import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import {
     classifyHostError,
@@ -257,6 +260,43 @@ function fixturePull(overrides: Partial<PollPull> = {}): PollPull {
     };
 }
 
+/** Build one inline review comment on the fixture pull request. */
+function fixtureReviewComment(input: {
+    readonly commentId: number;
+    readonly body?: string;
+    readonly authorLogin?: string;
+    readonly authorType?: string;
+}): PollReviewComment {
+    return {
+        commentId: input.commentId,
+        pullNumber: PULL_NUMBER,
+        body: input.body ?? 'the drift is back',
+        url: `https://github.com/acme/widget/pull/7#discussion_r${input.commentId}`,
+        authorLogin: input.authorLogin ?? HUMAN_LOGIN,
+        authorType: input.authorType ?? HUMAN_TYPE,
+        updatedAt: STAMP,
+    };
+}
+
+/** The `simple-user` member an events fixture names for one login. */
+function eventActor(login: string): { login: string; type: string } {
+    return { login, type: HUMAN_TYPE };
+}
+
+/** The naming `review_requested` row a tracked pull's actor read answers. */
+function reviewRequestedEvent(eventId: number): PollItemEvent {
+    return {
+        id: eventId,
+        event: 'review_requested',
+        assignee: eventActor(''),
+        assigner: eventActor(''),
+        requestedReviewer: eventActor(ACCOUNT_LOGIN),
+        reviewRequester: eventActor('ray'),
+        issueNumber: PULL_NUMBER,
+        createdAt: STAMP,
+    };
+}
+
 /** A stub poller plus the feed names each call requested, in order. */
 interface RecordedPoller {
     /** The poller the cycle is given. */
@@ -287,7 +327,10 @@ interface RecordedPoller {
 function recordingPoller(feeds: {
     readonly issues?: readonly PollIssue[];
     readonly comments?: readonly PollComment[];
+    readonly reviewComments?: readonly PollReviewComment[];
     readonly pulls?: readonly PollPull[];
+    /** Per-item event rows the review-request actor read answers, by item number. */
+    readonly events?: Readonly<Record<number, readonly PollItemEvent[]>>;
     /** The answer `readIssueState(n)` gives; the default is an open issue. */
     readonly issueState?: (itemNumber: number) => IssueStateOutcome;
     /** The answer `readPullState(n)` gives; the default is an open pull. */
@@ -308,15 +351,23 @@ function recordingPoller(feeds: {
 
                 return { kind: 'ok', comments: feeds.comments ?? [] };
             },
+            listReviewComments: async () => {
+                calls.push('review-comments');
+
+                return { kind: 'ok', comments: feeds.reviewComments ?? [] };
+            },
             listOpenPulls: async () => {
                 calls.push('pulls');
 
                 return { kind: 'ok', pulls: feeds.pulls ?? [] };
             },
-            listIssueEvents: async (query): Promise<never> => {
+            listIssueEvents: async (query) => {
                 calls.push(`events:${query.issueNumber}`);
+                if (feeds.events === undefined) {
+                    throw new Error('the follow-up detectors must never read a per-item event list');
+                }
 
-                throw new Error('the follow-up detectors must never read a per-item event list');
+                return { kind: 'ok', events: feeds.events[query.issueNumber] ?? [], exhausted: false };
             },
             readIssueState: async (query): Promise<IssueStateOutcome> => {
                 calls.push(`issueState:${query.itemNumber}`);
@@ -618,6 +669,26 @@ function followUpHeadId(headSha: string): string {
         issueNumber: PULL_NUMBER,
         accountNumericUserId: ACCOUNT_ID,
         discriminator: `~followup~head~${headSha}`,
+    });
+}
+
+/** The deterministic id of one review-request follow-up row. */
+function followUpReviewId(eventId: number): string {
+    return buildEventId({
+        repository: { owner: 'acme', name: 'widget' },
+        issueNumber: PULL_NUMBER,
+        accountNumericUserId: ACCOUNT_ID,
+        discriminator: `~followup~review~${eventId}`,
+    });
+}
+
+/** The deterministic id of one review-comment follow-up row. */
+function followUpReviewCommentId(commentId: number): string {
+    return buildEventId({
+        repository: { owner: 'acme', name: 'widget' },
+        issueNumber: PULL_NUMBER,
+        accountNumericUserId: ACCOUNT_ID,
+        discriminator: `~followup~review-comment~${commentId}`,
     });
 }
 
@@ -943,9 +1014,84 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
             // pays for, plus FR-106's one terminal read for the subject the
             // follow-up named — nothing else: no per-item comments read, no
             // repository-wide read of a follow-up surface, no actor read.
-            expect(recorded.calls).toEqual(['issues', 'comments', 'issueState:7']);
+            expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments', 'issueState:7']);
             expect(followUps).toHaveLength(1);
             expect(followUps[0]?.id).toBe(followUpCommentId(COMMENT_ID));
+        }
+    });
+
+    it('turns a re-requested review on a tracked pull into a follow-up keyed by the event id', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+
+            const recorded = recordingPoller({
+                pulls: [fixturePull({ requestedReviewers: [ACCOUNT_LOGIN] })],
+                events: { [PULL_NUMBER]: [reviewRequestedEvent(7)] },
+            });
+            const followUps = followUpRowsOf(await runCycle(fixtureBinding(REVIEW_ONLY), recorded));
+
+            // The pulls list and the one actor read the trigger already pays
+            // for, plus FR-106's terminal read for the pull the follow-up named.
+            expect(recorded.calls).toEqual(['pulls', 'events:7', 'pullState:7']);
+            expect(followUps.map((row) => row.id)).toEqual([followUpReviewId(7)]);
+            expect(followUps[0]).toMatchObject({ kind: 'review', subjectType: 'pull_request' });
+        }
+    });
+
+    it('keeps the ~review trigger id for a review request on an untracked pull', async () => {
+        {
+            const recorded = recordingPoller({
+                pulls: [fixturePull({ requestedReviewers: [ACCOUNT_LOGIN] })],
+                events: { [PULL_NUMBER]: [reviewRequestedEvent(7)] },
+            });
+            const queue = await runCycle(fixtureBinding(REVIEW_ONLY), recorded);
+
+            expect(recorded.calls).toEqual(['pulls', 'events:7']);
+            expect(queue.map((row) => row.id)).toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~review`]);
+            expect(followUpRowsOf(queue)).toEqual([]);
+        }
+    });
+
+    it('treats two review-request event ids as two distinct follow-ups', async () => {
+        {
+            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+
+            const first = recordingPoller({
+                pulls: [fixturePull({ requestedReviewers: [ACCOUNT_LOGIN] })],
+                events: { [PULL_NUMBER]: [reviewRequestedEvent(7)] },
+            });
+            await runCycle(fixtureBinding(REVIEW_ONLY), first);
+
+            // Replay the window, as a restart or a cleared checkpoint does, so
+            // the second request is inside it and only its id differs.
+            await writeScanState({ store, state: { bindings: {} } });
+            const second = recordingPoller({
+                pulls: [fixturePull({ requestedReviewers: [ACCOUNT_LOGIN] })],
+                events: { [PULL_NUMBER]: [reviewRequestedEvent(8)] },
+            });
+            const queue = await runCycle(fixtureBinding(REVIEW_ONLY), second);
+
+            expect(followUpRowsOf(queue).map((row) => row.id))
+                .toEqual([followUpReviewId(7), followUpReviewId(8)]);
+        }
+    });
+
+    it('detects a review comment on a tracked pull as its own follow-up', async () => {
+        {
+            await plantDispatchedRun({
+                deliveries: [subjectSnapshot({ issueNumber: PULL_NUMBER, subjectType: 'pull_request' })],
+            });
+
+            const recorded = recordingPoller({
+                issues: [fixtureIssue({ isPullRequest: true, url: PULL_URL })],
+                reviewComments: [fixtureReviewComment({ commentId: COMMENT_ID })],
+            });
+            const followUps = followUpRowsOf(await runCycle(fixtureBinding(MENTION_ONLY), recorded));
+
+            expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments', 'pullState:7']);
+            expect(followUps.map((row) => row.id)).toEqual([followUpReviewCommentId(COMMENT_ID)]);
+            // The feed family rides `kind`; the role is in the id alone.
+            expect(followUps[0]).toMatchObject({ kind: 'mention', subjectType: 'pull_request' });
         }
     });
 
@@ -982,8 +1128,8 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
             // Detection still rides exactly the feeds the mention scan already
             // lists — the same feeds, in the same order, as the no-followup
             // baseline — and the per-item **actor** read is never reached.
-            expect(withFollowUp.calls.filter((name) => name === 'issues' || name === 'comments'))
-                .toEqual(baseline.calls);
+            const detectionFeeds = new Set(['issues', 'comments', 'review-comments']);
+            expect(withFollowUp.calls.filter((name) => detectionFeeds.has(name))).toEqual(baseline.calls);
             expect(withFollowUp.calls.filter((name) => name.startsWith('events:'))).toEqual([]);
             // The one read FR-106 adds is measured, not argued: exactly one
             // single-item read for the one subject that produced a follow-up,
