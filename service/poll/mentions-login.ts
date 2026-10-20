@@ -1,6 +1,6 @@
 /**
  * The bounded mention-token match every comment and body feed shares
- * (002 FR-016; 011 FR-006).
+ * (002 FR-016; 011 FR-005, FR-007).
  */
 
 /** Decide whether one character belongs to GitHub's username alphabet. */

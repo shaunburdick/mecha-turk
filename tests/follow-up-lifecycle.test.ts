@@ -116,8 +116,13 @@ const PROJECT_ID = 'prj_42';
  */
 const STAMP = new Date().toISOString();
 
-/** A review request newer than every planted run's establishing reference. */
-const RE_REQUESTED_STAMP = new Date(Date.now() + 60_000).toISOString();
+/**
+ * A review request newer than every planted run's establishing reference.
+ *
+ * Fixed rather than `now + 60 s`: the window has only a lower bound, so a
+ * far-future stamp stays in-window however slow the suite is.
+ */
+const RE_REQUESTED_STAMP = '2099-01-01T00:00:00.000Z';
 
 /** The binding's creation stamp, one minute before {@link STAMP}. */
 const CREATED_AT = new Date(Date.now() - 60_000).toISOString();
@@ -1201,6 +1206,8 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
             // rides beside the mention rather than replacing it.
             expect(followUpRowsOf(queue).map((row) => row.id))
                 .toEqual([followUpReviewCommentId(902)]);
+            expect(rowsOfType(await auditRows(), 'follow_up.observed').map((row) => row.reason))
+                .toEqual(['a tracked pull request gained a review comment']);
         }
     });
 

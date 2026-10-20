@@ -90,10 +90,11 @@ panel/main.js, service/main.js            # rebuilt bundles
 
 ## Verification
 
-`npm run verify` green on 2026-10-19: build, lint, `tsc --noEmit`, and 120 vitest files / 1 597 tests. No test requires a live instance or network.
+`npm run verify` green on 2026-10-20: build, lint, `tsc --noEmit`, and 120 vitest files / 1 598 tests. No test requires a live instance or network.
 
 ## Risks
 
 - **Fail-open masks a persistent outage.** Mitigated by the warn line carrying the failure class; the cycle's other detections still run, and the audit/scan discipline is unchanged elsewhere.
 - **Two events for one review comment** when it both mentions the account and moves a tracked pull. This mirrors the shipped conversation-comment behaviour; the ids keep them distinct and the queue dedupes each independently.
 - **Review-request event id absence** (fixture or older wire shape) falls back to `~review`, preserving pre-011 behaviour rather than losing the observation.
+- **Cross-clock comparison (FR-001, accepted residual).** The strict-newer test compares GitHub's `created_at` against the service's `detectedAt`. If the service clock trails GitHub's by more than the gap between the row's creation and the scan that established the run, the establishing row can be judged newer once on the next cycle and mint exactly one duplicate follow-up; if the service clock leads, a genuine re-request created inside the skew is coalesced as the deduped `~review` and does not prompt. The error is bounded to one duplicate, or to one missed re-request surfaced as the existing trigger, and a key immune to it would need stored request state (FR-011 forbids a new persisted member).

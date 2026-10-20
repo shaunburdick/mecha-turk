@@ -148,7 +148,7 @@ function headFollowUp(input: {
 
 /**
  * Build the follow-up discriminator for a review request on a tracked pull
- * (011 FR-005).
+ * (011 FR-001).
  *
  * The row reuses the closed `EventKind` union (`'review'`, the feed it rode)
  * and records its role in the id, exactly as the comment and head follow-ups

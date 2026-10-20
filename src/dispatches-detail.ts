@@ -18,7 +18,7 @@ export interface RunReference {
     /** The joining delivery's unchanged id (FR-012). */
     readonly deliveryId: string;
     readonly kind: RunKind;
-    /** Where it matched: `assignment`, `body`, `comment:<id>`, `review-comment:<id>`, or `review`. */
+    /** Where it matched (FR-013). */
     readonly origin: string;
     readonly sourceUrl: string;
     /** RFC 3339 detection stamp. */

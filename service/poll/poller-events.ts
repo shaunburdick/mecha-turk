@@ -51,7 +51,7 @@ export interface PollItemEvent {
      * The row's own integer id, when GitHub sent a readable one.
      *
      * Read for **one** purpose: a review request on an already-tracked pull is
-     * a follow-up keyed by the request event's own id (011 FR-005), and that
+     * a follow-up keyed by the request event's own id (011 FR-001), and that
      * id is the only value that distinguishes a re-request from the first
      * request. Absent when the wire row carried none, so a fixture or a
      * hand-written row cannot manufacture a follow-up key from nothing.

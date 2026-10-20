@@ -1,5 +1,5 @@
 /**
- * Inline review-comment detection (011 FR-006): mentions and tracked-subject
+ * Inline review-comment detection (011 FR-005, FR-007): mentions and tracked-subject
  * movements on the pull-request review-comment feed.
  */
 

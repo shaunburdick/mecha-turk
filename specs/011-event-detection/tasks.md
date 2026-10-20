@@ -29,15 +29,7 @@
 - [x] T011 Tests — `tests/follow-up-lifecycle.test.ts` (review requests incl. the establishing-row case, inline mentions untracked and tracked), `tests/service-triggers.test.ts` (inline mention, fail-open log and class, feed-count switch), `tests/service-poll-entries.test.ts` (reader and id), `tests/service-events.test.ts` (id minting/round-trip) (AC-001–AC-010, AC-013, AC-014)
 - [x] T012 **Wave close** — `npm run verify`; rebuild `panel/main.js` and `service/main.js`; commit source and bundles together (AC-012)
 
-## Gate 3 fixes
-
-- [x] G001 `runs-types.ts` / `runs-parts-parse.ts` / `runs-join.ts` — parse `~mention~review~<commentId>` to the `review-comment:<commentId>` source-reference origin; lifecycle tests cover untracked (run created) and tracked (reference folded) (AC-013)
-- [x] G002 `poller-events.ts` / `tracking.ts` / `triggers-review.ts` — compare the naming row's `created_at` against the run-establishing `detectedAt`; no follow-up for the request that started the run, and the audit wording no longer claims a re-request (AC-014)
-- [x] G003 002 FR-101, FR-102, FR-107, NFR-002, NFR-003, AC-049 and the review-comment out-of-scope row amended in place; changelog records why
-- [x] G004 Proof for AC-003, AC-007 and AC-010 added; `PollReviewComment.url` and FR-012's `html_url` requirement removed
-- [x] G005 Plan/task file lists corrected; `events-write.ts` comment no longer says "two" follow-up snapshots
-
 ## Verification record
 
-- `npm run verify` — 2026-10-19: build, lint, typecheck, **120 files / 1 597 tests** green (1 592 at the initial Wave 1 commit; the Gate 3 fixes add five).
+- `npm run verify` — 2026-10-20: build, lint, typecheck, **120 files / 1 598 tests** green (1 592 at the initial Wave 1 commit).
 - Bundle rebuild included in the same commit, per `AGENTS.md` invariant 1.

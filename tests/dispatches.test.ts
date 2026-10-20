@@ -25,7 +25,7 @@ import {
     selectedRun,
     stateLabel,
 } from '../src/dispatches-rows.ts';
-import { referenceDetailLines, followUpRowView, waitingFollowUps } from '../src/dispatches-detail.ts';
+import { referenceDetailLines, followUpRowView, parseFollowUps, waitingFollowUps } from '../src/dispatches-detail.ts';
 import { SUBJECT_AUTHOR_BASIS } from '../src/run-actor.ts';
 import type { RunAffordance } from '../src/dispatches-rows.ts';
 import {
@@ -38,6 +38,7 @@ import {
     selectDispatch,
     setSessionInput,
 } from '../src/dispatches.ts';
+import { followUpMessage } from '../src/follow-up.ts';
 import { parseDispatchesBody } from '../src/dispatches-service.ts';
 import {
     AUDIT_EMPTY_STATUS,
@@ -620,6 +621,67 @@ describe('the follow-up queue on the surfaces (002 FR-036, FR-105)', () => {
                 'acme/widget · waiting for a panel · not dispatched yet · prompt not set',
             );
             expect(waitingFollowUps([runFixture()], [])).toBe(0);
+        }
+    });
+
+    it('parses, counts and composes the two review follow-up kinds the service mints', () => {
+        {
+            const pullUrl = 'https://github.com/acme/widget/pull/7';
+            const parsed = parseFollowUps([
+                {
+                    deliveryId: 'evt-acme~widget~7~77331~followup~review~7',
+                    kind: 'review',
+                    // A review request carries no source text of its own.
+                    excerpt: '',
+                    actorLogin: 'ray',
+                    detectedAt: FIXTURE_TIMESTAMP,
+                    sourceUrl: pullUrl,
+                },
+                {
+                    deliveryId: 'evt-acme~widget~7~77331~followup~review-comment~901',
+                    kind: 'review-comment',
+                    excerpt: 'the drift is back',
+                    actorLogin: 'alice',
+                    detectedAt: FIXTURE_TIMESTAMP,
+                    sourceUrl: pullUrl,
+                },
+            ]);
+            if (parsed === undefined || parsed === null) {
+                throw new Error('the review follow-ups did not parse');
+            }
+
+            expect(parsed.map((followUp) => followUp.kind)).toEqual(['review', 'review-comment']);
+
+            const row = runFixture({
+                kind: 'review',
+                issueUrl: pullUrl,
+                state: 'dispatched',
+                dispatchResult: SESSION_RESULT,
+                session: {
+                    sessionId: SESSION_RESULT,
+                    attachmentId: RUN_ID,
+                    dispatchedAt: FIXTURE_TIMESTAMP,
+                },
+                followUps: parsed,
+            });
+
+            expect(followUpRowView(row, [])?.waiting).toBe(2);
+            const [rendered] = dispatchRows(runsState({ rows: [row], status: 'ready' }));
+            expect(rendered?.subtitle).toContain('follow-ups: 2 waiting');
+
+            const [review, reviewComment] = parsed;
+            if (review === undefined || reviewComment === undefined) {
+                throw new Error('the two review follow-ups did not parse');
+            }
+
+            // The movement line and the pull-shaped source block (`review`, never
+            // `comment`) are what the composed prompt must carry for each kind.
+            const reviewMessage = followUpMessage({ row, followUp: review });
+            expect(reviewMessage).toContain('Movement: Review requested on this pull request');
+            expect(reviewMessage).toContain(`review · review · ${FIXTURE_TIMESTAMP}`);
+            const commentMessage = followUpMessage({ row, followUp: reviewComment });
+            expect(commentMessage).toContain('Movement: New review comment');
+            expect(commentMessage).toContain(`review · review · ${FIXTURE_TIMESTAMP}`);
         }
     });
 

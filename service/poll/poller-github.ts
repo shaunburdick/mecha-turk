@@ -97,7 +97,7 @@ export interface GitHubIssuePoller {
 
     /**
      * List the pull-request **review comments** of one repository, newest
-     * updated first (011 FR-006). Inline review comments live on this feed,
+     * updated first (011 FR-004). Inline review comments live on this feed,
      * not on `issues/comments`: a mention or a movement in one is invisible
      * to the conversation-comment read. One repository-wide, `since`-windowed
      * call per cycle, issued only for a binding whose mention switch is on.
@@ -197,7 +197,7 @@ async function commentsList(runtime: PollerRuntime, query: WindowedListQuery): P
 
 /**
  * Run the pull-request review-comments list and answer it under its promised
- * field (011 FR-006).
+ * field (011 FR-004).
  *
  * @returns The classified outcome; upstream detail never escapes as text.
  */
