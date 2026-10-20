@@ -245,7 +245,7 @@ async function mentionEventsOf(input: TriggerScanInput & {
     // them from `pulls/comments`, not from `issues/comments`, so a mention or a
     // movement there is invisible to the read above. One repository-wide,
     // `since`-windowed call per mention-enabled binding is the whole added rate
-    // cost (011 FR-004, NFR-003). Its failure is tolerated: the feed is
+    // cost (FR-111, NFR-003). Its failure is tolerated: the feed is
     // additive, and failing the cycle would suppress the detection the operator
     // already paid for on the conversation feed.
     const reviewed = await poller.listReviewComments({

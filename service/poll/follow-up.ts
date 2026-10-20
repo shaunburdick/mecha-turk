@@ -148,7 +148,7 @@ function headFollowUp(input: {
 
 /**
  * Build the follow-up discriminator for a review request on a tracked pull
- * (011 FR-001).
+ * (FR-108).
  *
  * The row reuses the closed `EventKind` union (`'review'`, the feed it rode)
  * and records its role in the id, exactly as the comment and head follow-ups
@@ -198,7 +198,7 @@ export function reviewFollowUp(input: {
 }
 
 /**
- * Build one review-comment follow-up row (011 FR-006).
+ * Build one review-comment follow-up row (FR-113).
  *
  * The row's `kind` is `'mention'` — the feed family the detection rides — and
  * its role rides the `~followup~review-comment~…` discriminator, so it never

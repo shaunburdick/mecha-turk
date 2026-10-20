@@ -276,7 +276,7 @@ describe('the three list feeds keep their authorship convention (002 FR-045)', (
     });
 });
 
-describe('the review-comments reader (011 FR-006)', () => {
+describe('the review-comments reader (FR-113)', () => {
     it('maps pull_request_url to the pull number and reads the comment', () => {
         expect(readReviewCommentEntry(reviewCommentEntry())).toEqual({
             commentId: 901,
@@ -347,7 +347,7 @@ describe('the per-item events reader (002 FR-049, FR-051)', () => {
             .toMatchObject({ event: 'head_ref_deleted' });
     });
 
-    it('carries the row id only when it is a positive integer (011 FR-005)', () => {
+    it('carries the row id only when it is a positive integer (FR-112)', () => {
         const row = { ...assignedRow(), id: 7 };
 
         expect(readItemEventEntry(row)?.id).toBe(7);

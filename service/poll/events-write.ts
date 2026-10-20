@@ -78,7 +78,7 @@ export interface MentionEventSnapshot extends MentionEventSnapshotBase {
 }
 
 /**
- * An inline review comment that mentioned the bound account (011 FR-005).
+ * An inline review comment that mentioned the bound account (FR-112).
  *
  * Its own origin, and therefore its own discriminator, because GitHub numbers
  * review comments on a feed separate from conversation comments: the same
@@ -138,7 +138,7 @@ export interface FollowUpCommentSnapshot extends BaseEventSnapshot {
 
 /**
  * A **follow-up**: a review request on a pull request whose run already
- * carries a session (011 FR-001).
+ * carries a session (FR-108).
  *
  * `'review'` is the feed the detection rides, exactly as the comment
  * follow-up carries `'mention'`; the `~followup~review~<eventId>` id records
@@ -163,7 +163,7 @@ export interface FollowUpReviewSnapshot extends BaseEventSnapshot {
 
 /**
  * A **follow-up**: an inline review comment on a tracked pull request
- * (011 FR-006).
+ * (FR-113).
  *
  * `'mention'` names the feed family the detection rides — a review comment is
  * a comment — while `'review-comment'` records the role, so a review comment

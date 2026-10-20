@@ -617,7 +617,7 @@ describe('delivery row shapes (003 run layer, T-004)', () => {
     });
 });
 
-describe('widened event detection ids (011 FR-005, FR-006)', () => {
+describe('widened event detection ids (FR-112, FR-113)', () => {
     it('mints a review follow-up id from the naming event id and round-trips it', () => {
         const row = createEvent({
             ...fixtureSnapshot(3, ''),

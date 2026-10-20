@@ -161,7 +161,7 @@ const KNOWN_KINDS = new Set<string>(['assignment', 'mention', 'review']);
 const SUBJECT_TYPES: ReadonlySet<string> = new Set(['issue', 'pull_request']);
 
 /**
- * Which follow-up kind one row is (002 FR-102; 011 FR-001, FR-006).
+ * Which follow-up kind one row is (002 FR-102; FR-108, FR-113).
  *
  * A closed union beside the row's own `EventKind`, because the two answer
  * different questions: the kind names the **feed** the detection rode
@@ -189,10 +189,10 @@ const DECIMAL_SEGMENT = /^[0-9]+$/;
 /** A head-SHA change's tail: `head~<sha>`, hexadecimal (FR-101). */
 const HEAD_TAIL = /^head~[0-9a-f]+$/;
 
-/** A re-requested review's tail: `review~<eventId>` (011 FR-001). */
+/** A re-requested review's tail: `review~<eventId>` (FR-108). */
 const REVIEW_TAIL = /^review~[0-9]+$/;
 
-/** An inline review comment's tail: `review-comment~<commentId>` (011 FR-006). */
+/** An inline review comment's tail: `review-comment~<commentId>` (FR-113). */
 const REVIEW_COMMENT_TAIL = /^review-comment~[0-9]+$/;
 
 /** What one id's discriminator segment says about the row's role (FR-101). */
@@ -256,7 +256,7 @@ export function followUpKindOf(id: string): FollowUpKind | null {
 
 /**
  * Whether one id's follow-up discriminator, when it carries one, is inside the
- * family (002 FR-101, FR-024; 011 FR-001, FR-006).
+ * family (002 FR-101, FR-024; FR-108, FR-113).
  *
  * @returns `false` only for a stored id whose `followup` tail is outside the
  *   four forms the writer mints.

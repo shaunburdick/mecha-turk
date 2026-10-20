@@ -149,7 +149,7 @@ export async function reviewRequestEvents(input: TriggerScanInput): Promise<Trig
 
         // A tracked pull's request is a follow-up only when strictly newer than
         // the run-establishing reference; the overlap window's re-read of the
-        // starting request stays the deduped `~review` trigger (011 FR-001).
+        // starting request stays the deduped `~review` trigger (FR-108).
         const tracked = input.tracked.get(pull.pullNumber);
         const reRequest = reRequestOf({ tracked, eventId: actor.eventId, eventAt: actor.eventAt });
         if (reRequest !== null) {
