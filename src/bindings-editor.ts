@@ -299,25 +299,40 @@ export function accountFieldView(bindings: BindingsTabState): AccountFieldView {
     };
 }
 
-/** Worktree options the add form offers (MVP: `new:` comes later). */
+/** Worktree options the add form offers. */
 const WORKTREE_OPTIONS = [
     { id: 'none', label: 'none — project default directory' },
     { id: 'generated', label: 'generated — OpenChamber creates a worktree' },
+    { id: 'new', label: 'new: named branch (issue-{number} substituted)' },
 ] as const;
+
+/**
+ * The option kind a select id names, and the kind a parsed `new:<name>` option
+ * already carries. Both are the same closed set, so one function owns the
+ * mapping and the editor and the draft cannot disagree about what `new` means.
+ *
+ * @returns The chosen option kind.
+ */
+export function worktreeChoice(id: string): 'none' | 'generated' | 'new' {
+    if (id === 'generated') {
+        return 'generated';
+    }
+
+    return id === 'new' ? 'new' : 'none';
+}
 
 /**
  * The worktree option field's props (005 FR-053).
  *
- * The two choices are the MVP's own (`new:<branch>` arrives with its own
- * feature); the handler is narrowed to them so a future third option has to
+ * The handler is narrowed to the three option kinds so a future option has to
  * widen this signature rather than slip through a string.
  */
 export function worktreeFieldView(
     bindings: BindingsTabState,
-    setWorktree: (id: 'none' | 'generated') => void,
+    setWorktree: (id: 'none' | 'generated' | 'new') => void,
 ): {
     readonly label: string;
-    readonly value: 'none' | 'generated';
+    readonly value: 'none' | 'generated' | 'new';
     readonly options: { readonly id: string; readonly label: string }[];
     readonly onChange: (id: string) => void;
 } {
@@ -325,7 +340,27 @@ export function worktreeFieldView(
         label: 'Worktree option',
         value: bindings.worktreeSelection,
         options: WORKTREE_OPTIONS.map((option) => ({ id: option.id, label: option.label })),
-        onChange: (id: string) => setWorktree(id === 'generated' ? 'generated' : 'none'),
+        onChange: (id: string) => setWorktree(worktreeChoice(id)),
+    };
+}
+
+/**
+ * The branch-name input's props: active only when the `new` option is chosen,
+ * holding the draft name an operator typed.
+ */
+export function worktreeNameFieldView(bindings: BindingsTabState, setName: (value: string) => void): {
+    readonly label: string;
+    readonly value: string;
+    readonly disabled: boolean;
+    readonly placeholder: string;
+    readonly onChange: (value: string) => void;
+} {
+    return {
+        label: 'New branch name',
+        value: bindings.worktreeNameInput,
+        disabled: bindings.worktreeSelection !== 'new',
+        placeholder: 'issue-{number}',
+        onChange: setName,
     };
 }
 

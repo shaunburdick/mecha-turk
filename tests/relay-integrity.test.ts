@@ -42,6 +42,7 @@ import {
     judgeActorPolicy,
 } from '../service/poll/dispatch-actor-gate.ts';
 import { dispatchClaimedRun, handledKey, pollRelay } from '../src/relay.ts';
+import { worktreeNameProblem } from '../src/relay-attempt.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
 import { BEGIN_UNTRUSTED, END_UNTRUSTED, EXCERPT_TRUNCATION_MARKER } from '../src/context-blocks.ts';
@@ -1470,6 +1471,57 @@ describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132
         }
     });
 
+});
+
+/* 002 FR-028's `{number}` placeholder: the binding stores it verbatim and the relay substitutes it
+ * with the run's issue number at dispatch time, re-validating the result fail-closed. */
+
+describe('002 FR-028 the `{number}` placeholder is substituted at dispatch time', () => {
+    it('hands host.startSession() the branch name with the issue number substituted in', async () => {
+        {
+            const relay = harness();
+
+            await dispatchClaimedRun(relay.rt, claimedRun({
+                worktreeOption: 'new:issue-{number}',
+                issueNumber: 61,
+            }));
+
+            const request = JSON.parse(relay.sessionRequest()) as { readonly worktree?: unknown };
+            expect(request.worktree).toEqual({ kind: 'new', name: 'issue-61' });
+        }
+    });
+
+    it('a literal name without the placeholder reaches the host unchanged', async () => {
+        {
+            const relay = harness();
+
+            await dispatchClaimedRun(relay.rt, claimedRun({
+                worktreeOption: 'new:feature-spike',
+                issueNumber: 61,
+            }));
+
+            const request = JSON.parse(relay.sessionRequest()) as { readonly worktree?: unknown };
+            expect(request.worktree).toEqual({ kind: 'new', name: 'feature-spike' });
+        }
+    });
+});
+
+describe('the worktree-name floor refuses a name that cannot survive substitution', () => {
+    it('refuses before the host call, in the budget floor\'s own shape', () => {
+        // A selection only a hand-built object can hold: the parser refuses a path
+        // separator, so no stored row reaches this — the floor is the panel's
+        // independent half of the fail-closed pair (constitution II).
+        const problem = worktreeNameProblem({ kind: 'new', name: 'issue-{number}/x' }, 61);
+        expect(problem).not.toBeNull();
+        expect(problem).toContain('no session was started');
+    });
+
+    it('stays silent for the substitutable and the placeholder-free cases', () => {
+        expect(worktreeNameProblem({ kind: 'new', name: 'issue-{number}' }, 61)).toBeNull();
+        expect(worktreeNameProblem({ kind: 'new', name: 'feature-spike' }, 61)).toBeNull();
+        expect(worktreeNameProblem({ kind: 'generated' }, 61)).toBeNull();
+        expect(worktreeNameProblem({ kind: 'none' }, 61)).toBeNull();
+    });
 });
 
 /* ------------------------------------------------------------------------- *

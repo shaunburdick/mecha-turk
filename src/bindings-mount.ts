@@ -168,6 +168,7 @@ export function createBindingsHandlers(rt: PanelRuntime): BindingsPaneHandlers {
         setReviewSubmitted: (isChecked) => editBindings(rt, { triggerReviewSubmitted: isChecked }),
         setChecks: (isChecked) => editBindings(rt, { triggerChecks: isChecked }),
         setWorktree: (id) => editBindings(rt, { worktreeSelection: id }),
+        setWorktreeName: (value) => editBindings(rt, { worktreeNameInput: value }),
         ...promptHandlers(rt),
         refreshProjects: () => void loadProjects(rt),
         refreshDispatches: () => void loadDispatches(rt),

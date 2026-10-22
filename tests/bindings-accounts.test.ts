@@ -127,6 +127,12 @@ vi.mock('@openchamber/sdk/ui', async (importOriginal) => {
 /** Label the toolbar's *New binding* control carries. */
 const NEW_BINDING_LABEL = 'New binding';
 
+/** Placeholder the branch-name input mounts with, so its props can be found. */
+const WORKTREE_NAME_PLACEHOLDER = 'issue-{number}';
+
+/** Label the worktree select mounts with. */
+const WORKTREE_SELECT_LABEL = 'Worktree option';
+
 /** Label the account picker mounts with, so its props can be found. */
 const ACCOUNT_PICKER_LABEL = 'Poll as account';
 
@@ -1136,6 +1142,49 @@ describe('K-5 and K-6 the mount, the repaint, and the gate (AC-154, AC-156)', ()
             expect(untouchedStates(UNTOUCHED_CONTROLS), label).toEqual(expected);
             release(mounted);
         }
+    });
+});
+
+/** Props of the branch-name input, the only `mountTextField` carrying this placeholder. */
+function worktreeNameProps(): Record<string, unknown> {
+    return matchedProps(
+        'mountTextField',
+        (props) => props.placeholder === WORKTREE_NAME_PLACEHOLDER,
+    );
+}
+
+/** Props of the worktree select, found by its own label. */
+function worktreeSelectProps(): Record<string, unknown> {
+    return matchedProps('mountSelect', (props) => props.label === WORKTREE_SELECT_LABEL);
+}
+
+describe('the worktree option offers `new`, with a branch-name input that follows it', () => {
+    it('offers the third option at mount, with the name input disabled under the default `none`', () => {
+        const mounted = mountedBindings({
+            state: bindingsState({ status: 'ready', accounts: [accountFixture()] }),
+        });
+
+        const select = worktreeSelectProps();
+        expect(select.value).toBe('none');
+        expect((select.options as readonly { id: string }[]).map((option) => option.id))
+            .toEqual(['none', 'generated', 'new']);
+        expect(worktreeNameProps().disabled).toBe(true);
+        release(mounted);
+    });
+
+    it('the name input follows the select on the repaint path: enabled and valued under `new`', () => {
+        const mounted = mountedBindings({
+            state: bindingsState({ status: 'ready', accounts: [accountFixture()] }),
+        });
+        // The state a handler patch leaves behind, painted the way every field repaints.
+        mounted.rt.state.bindings.worktreeSelection = 'new';
+        mounted.rt.state.bindings.worktreeNameInput = 'issue-{number}';
+        refresh(mounted.rt);
+
+        expect(worktreeSelectProps().value).toBe('new');
+        expect(worktreeNameProps().disabled).toBe(false);
+        expect(worktreeNameProps().value).toBe('issue-{number}');
+        release(mounted);
     });
 });
 

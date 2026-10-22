@@ -72,7 +72,17 @@ export interface BindingsTabState {
     /** Draft checks trigger (failing checks on a tracked pull's new head). */
     triggerChecks: boolean;
     /** Draft worktree option. */
-    worktreeSelection: 'none' | 'generated';
+    worktreeSelection: 'none' | 'generated' | 'new';
+    /**
+     * Draft branch name for the `new` worktree option.
+     *
+     * Read only when {@link worktreeSelection} is `'new'`, so an operator who
+     * never picks a named worktree cannot leave a name behind that a later
+     * save would write. It may carry the literal `{number}` placeholder (002
+     * FR-028), which the relay substitutes with the source issue number at
+     * dispatch time.
+     */
+    worktreeNameInput: string;
     /** The row the operator last clicked, for the enable/disable toggle. */
     selectedBinding: string | null;
     /** Last relay status rows rendered per binding. */
@@ -163,6 +173,7 @@ export function initialBindings(): BindingsTabState {
         triggerReviewSubmitted: false,
         triggerChecks: false,
         worktreeSelection: 'none',
+        worktreeNameInput: '',
         selectedBinding: null,
         statusRows: [],
         editorOpen: false,

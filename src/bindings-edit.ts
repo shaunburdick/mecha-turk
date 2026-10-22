@@ -5,6 +5,8 @@
 import { actorsRefusal, allowedUsersPatch, storedActorsFor } from './bindings-actors.ts';
 import { storedHistoryScopeFor } from './bindings-history.ts';
 import { promptRefusal, storedPromptFor } from './bindings-prompt.ts';
+import { worktreeChoice } from './bindings-editor.ts';
+import { parseWorktreeOption } from './config.ts';
 import { grantBindings } from './bindings-grant.ts';
 import { readDraft, resetDraft, SELECT_TO_EDIT_NOTE } from './bindings.ts';
 import { refresh } from './panel-ui.ts';
@@ -42,12 +44,13 @@ export function startNewBinding(rt: PanelRuntime): void {
 
 /**
  * Load the selected binding into the editor and enter edit mode: every field comes from the stored
- * row — including FR-051's prompt fed from the stored text — so what the form shows is what a save
- * would write. Two refusals are deliberate: no selection, and a worktree option this editor cannot
- * render (`new:<branch>`), where loading would display *none* and silently rewrite it on save — the
- * edit is refused with the reason (FR-003: a displayed value and a saved value are the same value,
- * or the edit does not open), and the editor **closes with a clean draft**, because a form left
- * open on one row's values while another is selected is how a save writes one binding into another.
+ * row — including FR-051's prompt fed from the stored text, and the `new:<branch>` worktree option
+ * fed into the select and the branch-name input — so what the form shows is what a save would
+ * write. One refusal is deliberate: no selection. A worktree option that is not one of the three
+ * (`none`, `generated`, `new:<name>`) loads as `none` and stays put, because the editor cannot
+ * render a value outside its own vocabulary and inventing one would violate FR-003; every option
+ * the service accepts is one the editor now offers, so nothing a save writes differs from what it
+ * displayed.
  */
 export function startEditingBinding(rt: PanelRuntime): void {
     const { bindings } = rt.state;
@@ -65,18 +68,11 @@ export function startEditingBinding(rt: PanelRuntime): void {
         return;
     }
 
-    if (binding.worktreeOption !== 'none' && binding.worktreeOption !== 'generated') {
-        bindings.note =
-            `This binding's worktree option (${binding.worktreeOption}) is not one the editor offers, ` +
-            'so editing it here would change it — leave it as it is.';
-        bindings.editorOpen = false;
-        bindings.editing = false;
-        resetDraft(bindings, currentProjectDefault(rt.state));
-        refresh(rt);
-
-        return;
-    }
-
+    // The worktree option loads into the select and, for `new:<branch>`, the
+    // name input — so the form displays exactly what a save would write (FR-003).
+    const worktree = parseWorktreeOption(binding.worktreeOption);
+    bindings.worktreeSelection = worktreeChoice(worktree?.kind ?? 'none');
+    bindings.worktreeNameInput = worktree?.kind === 'new' ? worktree.name : '';
     bindings.repoInput = binding.repository;
     bindings.accountSelection = binding.accountNumericUserId;
     bindings.repoProjectSelection = binding.projectId === '' ? null : binding.projectId;
@@ -85,7 +81,6 @@ export function startEditingBinding(rt: PanelRuntime): void {
     bindings.triggerReviewRequest = binding.triggers.reviewRequest;
     bindings.triggerReviewSubmitted = binding.triggers.reviewSubmitted;
     bindings.triggerChecks = binding.triggers.checks;
-    bindings.worktreeSelection = binding.worktreeOption === 'generated' ? 'generated' : 'none';
     bindings.startingPromptInput = storedPromptFor(bindings, binding.bindingId);
     bindings.startingPromptDirty = false;
     bindings.startingPromptError = null;

@@ -1043,3 +1043,30 @@ describe('002 FR-024 the allow-list refusals: one rule set, every issue at once'
     });
 
 });
+
+describe('002 FR-028 the worktree option: `{number}` travels verbatim, other braces are refused', () => {
+    it('accepts a `new:` name carrying the literal placeholder and stores it unchanged', async () => {
+        const service = await startWithAccount();
+
+        const answer = await grantBindings(service, [panelRow({ worktreeOption: 'new:issue-{number}' })]);
+        const stored = answer.bindings as Record<string, unknown>[];
+        expect(stored[0]?.worktreeOption).toBe('new:issue-{number}');
+    });
+
+    it('still refuses a brace that is not the exact `{number}` literal, naming the field', async () => {
+        const service = await startWithAccount();
+        const refused: readonly string[] = [
+            'new:issue-{issue}',
+            'new:{ NUMBER }',
+            'new:{number',
+            'new:issue-{number}x}',
+        ];
+
+        for (const worktreeOption of refused) {
+            const answer = await putBindings(service, [panelRow({ worktreeOption })]);
+            expect(answer.status, `${worktreeOption} must be refused`).toBe(422);
+            const issues = await refusalIssues(answer.text);
+            expect(issues.map((issue) => issue.field)).toContain('worktreeOption');
+        }
+    });
+});

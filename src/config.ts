@@ -58,13 +58,27 @@ export const DEFAULT_EXPECTED_AGENT = '';
 const REPOSITORY_PART_PATTERN = /^[A-Za-z0-9_.-]+$/;
 
 /**
- * Characters the panel accepts in a new worktree/branch name.
+ * Characters the panel accepts in a real new worktree/branch name.
  *
  * Path separators are excluded on purpose: OpenChamber turns the name into a
  * worktree directory under the project, so a name shaped like a path could
- * address somewhere other than the project's own worktrees.
+ * address somewhere other than the project's own worktrees. Braces are out
+ * too: a real branch name never carries them, which is what makes this the
+ * pattern a *substituted* name must satisfy (002 FR-028).
  */
 const BRANCH_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * The wider shape a config-stored name may have: the real-name characters plus
+ * braces, so the literal {@link BRANCH_PLACEHOLDER} can travel verbatim. Every
+ * brace must belong to that exact literal, which the parser checks by stripping
+ * the placeholder; the relay substitutes before dispatch and the result goes
+ * back through {@link BRANCH_NAME_PATTERN}.
+ */
+const BRANCH_NAME_PATTERN_WITH_PLACEHOLDER = /^[A-Za-z0-9._{}-]+$/;
+
+/** The single literal placeholder a branch name may carry (002 FR-028). */
+export const BRANCH_PLACEHOLDER = '{number}';
 
 /** Substring no new-branch name may contain, because it addresses a parent path. */
 const PARENT_PATH_REFERENCE = '..';
@@ -115,7 +129,11 @@ export function parseRepository(value: string): RepositoryRef | null {
  *
  * Accepted values are `none` (and the empty string), `generated`, and
  * `new:<branch-name>`. A new-branch name must be a plain branch name: no path
- * separators and no `..`, because the host derives a directory from it.
+ * separators and no `..`, because the host derives a directory from it. A name
+ * may carry the literal {@link BRANCH_PLACEHOLDER} — the one templating this
+ * product supports, substituted with the source issue/PR number at dispatch
+ * time (002 FR-028) — but a brace that is not that exact literal is refused,
+ * so a malformed `{number`-shaped name never reaches the host.
  *
  * @returns The worktree selection, or `null` when the value is not understood.
  */
@@ -134,11 +152,40 @@ export function parseWorktreeOption(value: string): WorktreeSelection | null {
     }
 
     const name = trimmed.slice('new:'.length).trim();
-    if (name === '' || name.includes(PARENT_PATH_REFERENCE) || !BRANCH_NAME_PATTERN.test(name)) {
+    if (name === '' || name.includes(PARENT_PATH_REFERENCE) || !BRANCH_NAME_PATTERN_WITH_PLACEHOLDER.test(name)) {
+        return null;
+    }
+
+    // Every brace must belong to the one literal placeholder, so a stray `{` or a partial
+    // `{number` never reaches the host.
+    const bracesStripped = name.replaceAll(BRANCH_PLACEHOLDER, '');
+    if (bracesStripped.includes('{') || bracesStripped.includes('}')) {
         return null;
     }
 
     return { kind: 'new', name };
+}
+
+/**
+ * Substitute a `new:` branch name's literal {@link BRANCH_PLACEHOLDER} with the source issue/PR
+ * number (002 FR-028) and re-validate the result against the same fail-closed rule the parser uses.
+ *
+ * The relay calls this at dispatch time, never the config writer: a binding stores the placeholder
+ * verbatim, and only the panel relay knows the issue number a run is about. The substituted name is
+ * checked against the brace-free {@link BRANCH_NAME_PATTERN} — the shape of a real branch — so a
+ * leftover brace, a `..`, or a path separator can never reach the host.
+ *
+ * @returns The substituted branch name, or `null` when the result is not a usable branch name.
+ */
+export function substituteBranchNumber(name: string, issueNumber: number): string | null {
+    // `split` rather than `replaceAll` (which the lint forbids for a non-literal replacement): the
+    // placeholder is never empty, so every piece between the separators is a real occurrence.
+    const substituted = name.split(BRANCH_PLACEHOLDER).join(String(issueNumber)).trim();
+    if (substituted === '' || substituted.includes(PARENT_PATH_REFERENCE) || !BRANCH_NAME_PATTERN.test(substituted)) {
+        return null;
+    }
+
+    return substituted;
 }
 
 /**

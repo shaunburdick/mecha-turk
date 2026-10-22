@@ -87,6 +87,8 @@ export interface BindingsPane {
     readonly checksCheck: CheckboxHandle;
     /** Worktree option select. */
     readonly worktreeSelect: SelectHandle;
+    /** The branch-name input for the `new` worktree option. */
+    readonly worktreeNameField: TextFieldHandle;
     /** Add-binding button (the same control saves the loaded row in edit mode). */
     readonly addBinding: ButtonHandle;
     /** Closes the open editor without writing it. */
@@ -135,7 +137,9 @@ export interface BindingsPaneHandlers
     /** Operators set the failing-checks trigger checkbox. */
     readonly setChecks: (isChecked: boolean) => void;
     /** Operators picked a worktree option. */
-    readonly setWorktree: (id: 'none' | 'generated') => void;
+    readonly setWorktree: (id: 'none' | 'generated' | 'new') => void;
+    /** Operators typed a branch name for the `new` worktree option. */
+    readonly setWorktreeName: (value: string) => void;
     /** Operators clicked a binding row — which loads it into the editor. */
     readonly selectBinding: (id: string) => void;
     /** Operators reloaded the project list behind the picker. */
@@ -220,6 +224,12 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     view.reviewSubmittedCheck.update({ checked: bindings.triggerReviewSubmitted });
     view.checksCheck.update({ checked: bindings.triggerChecks });
     view.worktreeSelect.update({ value: bindings.worktreeSelection });
+    // The branch-name input enables only while `new` is chosen, and repaints the loaded draft name
+    // so an edit that opened on a `new:<branch>` row displays exactly what a save would write.
+    view.worktreeNameField.update({
+        value: bindings.worktreeNameInput,
+        disabled: bindings.worktreeSelection !== 'new',
+    });
     repaintBindingActions({
         bindings,
         actions: {

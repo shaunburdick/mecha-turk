@@ -4,7 +4,13 @@
 
 import type { GuestProject, StartSessionRequest, StartSessionResult } from '@openchamber/sdk';
 import { verifyAgentAfterDispatch } from './agent-verify.ts';
-import { parseWorktreeOption, repositoryLabel } from './config.ts';
+import {
+    BRANCH_PLACEHOLDER,
+    formatWorktreeOption,
+    parseWorktreeOption,
+    repositoryLabel,
+    substituteBranchNumber,
+} from './config.ts';
 import type { WorktreeSelection } from './config.ts';
 import { acknowledgeDispatch, recordDispatchOutcome } from './dispatch-record.ts';
 import type { RecordedOutcome } from './dispatch-record.ts';
@@ -121,6 +127,33 @@ export function budgetFloorProblem(input: {
 }
 
 /**
+ * The fail-closed worktree-name floor (002 FR-028): a `new:` branch name may carry the single
+ * literal `{number}` placeholder, which the relay substitutes with the source issue number at
+ * dispatch time. Substitution is not silent — the substituted name is re-validated through the same
+ * branch-name rule the parser and the service use, and a name that does not survive it is refused
+ * **before** `host.startSession()`, the same way {@link budgetFloorProblem} refuses an over-budget
+ * message. A stored name without the placeholder (e.g. `new:feature-spike`) is unchanged and never
+ * reaches this floor. Reported as a failed attempt through `problem`, no new state or vocabulary.
+ *
+ * @returns The problem, or `null` when the parsed selection needs no substitution.
+ */
+export function worktreeNameProblem(
+    selection: WorktreeSelection,
+    issueNumber: number,
+): string | null {
+    if (selection.kind !== 'new' || !selection.name.includes(BRANCH_PLACEHOLDER)
+        || substituteBranchNumber(selection.name, issueNumber) !== null) {
+        return null;
+    }
+
+    return boundedText(
+        `Dispatch refused before start: the worktree option ${formatWorktreeOption(selection)} is not a branch name `
+        + `the panel can use after substituting ${BRANCH_PLACEHOLDER} with the issue number ${issueNumber}. `
+        + 'Fix the binding\'s worktree option, then retry — nothing was sent and no session was started.',
+    );
+}
+
+/**
  * Build the spike-shaped evidence record one offered run maps into. MVP-DEBT:
  * the relay borrows the spike's evidence schema, so the trigger literal stays
  * the spike's and the relay's own framing lives in the PM context line and the
@@ -150,14 +183,24 @@ function evidenceFor(input: { readonly rt: PanelRuntime; readonly run: ClaimedRu
  * FR-032, SC-121). Composition does not decide whether the message may be sent
  * — {@link budgetFloorProblem} measures what comes back against
  * {@link CONTEXT_MAX_CHARS} immediately before the host call.
+ *
+ * @returns The request, and the worktree-name problem when one exists — a `new:` name that fails
+ *   `{number}` substitution (002 FR-028). Callers must check `problem` before the host call and
+ *   refuse the dispatch rather than send `request`.
  */
 export function runRequestOf(input: {
     readonly rt: PanelRuntime;
     readonly run: ClaimedRun;
     readonly project: GuestProject;
-}): StartSessionRequest {
+}): { readonly request: StartSessionRequest; readonly problem: string | null } {
     const { run } = input;
-    const worktree: WorktreeSelection = parseWorktreeOption(run.worktreeOption) ?? { kind: 'none' };
+    // 002 FR-028: a `new:` name carrying `{number}` is substituted with this run's issue number and
+    // re-validated fail-closed. A name that fails re-validation is refused before the host call.
+    const parsed = parseWorktreeOption(run.worktreeOption) ?? { kind: 'none' };
+    const problem = worktreeNameProblem(parsed, run.issueNumber);
+    const worktree: WorktreeSelection = parsed.kind === 'new'
+        ? { kind: 'new', name: substituteBranchNumber(parsed.name, run.issueNumber) ?? parsed.name }
+        : parsed;
     const issue = issueOf(run);
     // The snapshot arrives on the claim answer and nowhere else; an unset run
     // composes exactly what it composed before this feature existed — no
@@ -175,36 +218,41 @@ export function runRequestOf(input: {
     });
     const context = composeFirstMessage({ prompt, frame });
 
-    return buildStartSessionRequest({
-        config: {
-            repository: splitRepository(run.repository),
-            expectedLogin: run.accountLogin,
-            projectId: run.projectId,
-            worktree,
-            pollIntervalMs: RELAY_POLL_INTERVAL_MS,
-        },
-        evidence: evidenceFor(input),
-        issue,
-        context,
-        // The reference only: the text is already inside `context`, and 004
-        // FR-037 forbids a second copy of it anywhere in the envelope.
-        prompt: {
-            promptPresent: run.promptPresent,
-            promptFingerprint: run.promptFingerprint,
-            promptLength: run.promptLength,
-            promptSources: run.promptSources,
-        },
-    });
+    return {
+        request: buildStartSessionRequest({
+            config: {
+                repository: splitRepository(run.repository),
+                expectedLogin: run.accountLogin,
+                projectId: run.projectId,
+                worktree,
+                pollIntervalMs: RELAY_POLL_INTERVAL_MS,
+            },
+            evidence: evidenceFor(input),
+            issue,
+            context,
+            // The reference only: the text is already inside `context`, and 004
+            // FR-037 forbids a second copy of it anywhere in the envelope.
+            prompt: {
+                promptPresent: run.promptPresent,
+                promptFingerprint: run.promptFingerprint,
+                promptLength: run.promptLength,
+                promptSources: run.promptSources,
+            },
+        }),
+        problem,
+    };
 }
 
 /**
  * Make the one authorized host call; never throws. **The floor sits here**: the message is
  * composed, then measured — an over-budget composition is refused **before** `host.startSession()`,
- * so no session starts and nothing is truncated, and the refusal takes the shape a rejected start
- * does (`sessionId: null`, `sent: 'skipped'`, the remediation as its `failure`) so it reaches the
- * run row through the existing failed-attempt `problem` path. A rejected `host.startSession()` is
- * recorded as a failure with the transport problem as its reason — an outcome either way, which is
- * what FR-024 requires the panel to hold before it reports anything.
+ * and a `new:` worktree name that fails `{number}` substitution is refused the same way (002
+ * FR-028) — so no session starts and nothing is truncated or guessed, and the refusal takes the
+ * shape a rejected start does (`sessionId: null`, `sent: 'skipped'`, the remediation as its
+ * `failure`) so it reaches the run row through the existing failed-attempt `problem` path. A
+ * rejected `host.startSession()` is recorded as a failure with the transport problem as its reason
+ * — an outcome either way, which is what FR-024 requires the panel to hold before it reports
+ * anything.
  */
 export async function startRunSession(input: {
     readonly rt: PanelRuntime;
@@ -215,17 +263,20 @@ export async function startRunSession(input: {
     let summary: LedgerDetail;
     let directory: string | null = null;
     try {
-        const request = runRequestOf(input);
+        const { request, problem } = runRequestOf(input);
         const overBudget = budgetFloorProblem({
             composed: request.text ?? '',
             sources: run.promptSources,
         });
-        if (overBudget === null) {
+        // The worktree floor sits beside the budget floor: both refuse before the host call, in
+        // the same refusal shape.
+        const refusal = problem ?? overBudget;
+        if (refusal === null) {
             const result = await rt.host.startSession(request);
             summary = summarizeStartSessionResult(result);
             directory = reportedDirectoryOf(result);
         } else {
-            summary = { sessionId: null, sent: 'skipped', failure: overBudget };
+            summary = { sessionId: null, sent: 'skipped', failure: refusal };
         }
     } catch (cause) {
         summary = { sessionId: null, sent: 'skipped', failure: describeError(cause) };
