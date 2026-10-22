@@ -385,6 +385,44 @@ export async function readFollowUpRows(rt: PanelRuntime): Promise<void> {
     rt.state.relay.lastError = '';
 }
 
+/** The movement line one follow-up kind contributes to the composed message. */
+function followUpMovement(kind: RunFollowUp['kind'], from: string, to: string, excerpt: string): string {
+    switch (kind) {
+        case 'head': {
+            return `Head moved from ${from} to ${to}`;
+        }
+        case 'review': {
+            return 'Review requested on this pull request';
+        }
+        case 'review-submitted': {
+            return 'Review requested changes on this pull request';
+        }
+        case 'checks': {
+            return `CI failed: ${defuseDelimiters(excerpt)}`;
+        }
+        case 'review-comment': {
+            return 'New review comment';
+        }
+        case 'comment': {
+            return 'New comment';
+        }
+    }
+}
+
+/** The kinds whose movement is a comment on a pull request rather than an issue. */
+const PULL_SHAPED_KINDS: ReadonlySet<RunFollowUp['kind']> = new Set([
+    'head',
+    'review',
+    'review-comment',
+    'review-submitted',
+    'checks',
+]);
+
+/** Whether a follow-up kind names a movement on a pull request. */
+function isPullShapedFollowUp(kind: RunFollowUp['kind']): boolean {
+    return PULL_SHAPED_KINDS.has(kind);
+}
+
 /**
  * Compose the bounded, delimited message one follow-up delivers: the dispatch's
  * own frame builder — same untrusted-source markers, same running budget, single
@@ -406,7 +444,8 @@ export function followUpMessage(input: {
     // constraints.
     const from = defuseDelimiters(fromHeadSha ?? 'an unrecorded head');
     const to = defuseDelimiters(headSha ?? 'an unrecorded head');
-    const movement = kind === 'head' ? `Head moved from ${from} to ${to}` : 'New comment';
+    const movement = followUpMovement(kind, from, to, excerpt);
+    const isPullShaped = isPullShapedFollowUp(kind);
     const observedAt = defuseDelimiters(detectedAt);
     const correlationId = defuseDelimiters(row.correlationId);
     const repository = defuseDelimiters(row.repository);
@@ -423,7 +462,7 @@ export function followUpMessage(input: {
         'Rule: this is the same work item the session was started for; reply inside this session.',
     ];
     const sources: readonly ContextSource[] = [{
-        origin: kind === 'head' ? 'review' : 'comment',
+        origin: isPullShaped ? 'review' : 'comment',
         kind: row.kind,
         detectedAt,
         url: sourceUrl,
@@ -443,7 +482,7 @@ export function followUpMessage(input: {
             state: 'open',
             body: null,
             assignees: [],
-            isPullRequest: row.kind === 'review',
+            isPullRequest: isPullShaped,
         },
         sources,
     });

@@ -9,7 +9,8 @@ import { createEvent, followUpKindOf, subjectTypeOf } from './events.ts';
 import { bodyExcerptOf } from './trigger-scan.ts';
 import { stampInWindow } from './window.ts';
 import type { QueuedEvent } from './events.ts';
-import type { PollComment, PollIssue, PollPull } from './poller-entries.ts';
+import type { CheckConclusion } from './poller-checks.ts';
+import type { PollComment, PollIssue, PollPull, PollReview, PollReviewComment } from './poller-entries.ts';
 import type { TrackedSubject } from './tracking.ts';
 
 /** Which of the two head-SHA facts one observed pull reports. */
@@ -20,16 +21,33 @@ interface HeadObservation {
     readonly headSha: string | null;
 }
 
+/** One observed head movement: the SHA the run held and the SHA now seen. */
+export interface HeadMovement {
+    /** The pull request whose head moved. */
+    readonly pullNumber: number;
+    /** The SHA this cycle observed. */
+    readonly headSha: string;
+}
+
 /** What the comment detector produced: its rows, and nothing else. */
 export type FollowUpRows = readonly QueuedEvent[];
 
-/** What the head detector produced: its rows, plus every head it observed. */
+/** What the head detector produced: its rows, every head it observed, and its movements. */
 export interface HeadFollowUpResult {
     /** The head follow-up rows, in pull order. */
     readonly rows: readonly QueuedEvent[];
     /** Every tracked pull observed with a SHA, for FR-103(b)'s seed write. */
     readonly observations: readonly HeadObservation[];
+    /**
+     * Every tracked pull whose head moved this cycle, computed **before** the
+     * actor gate: a checks-only binding still observes the movement it needs to
+     * read the new SHA, even when no head row can be delivered.
+     */
+    readonly movements: readonly HeadMovement[];
 }
+
+/** The tail every tracked-subject follow-up note shares. */
+const IN_PROGRESS = 'on a work item already in progress';
 
 /** The note a comment follow-up carries; names the commenter and the work item. */
 function commentNote(commenter: string, issueNumber: number): string {
@@ -147,6 +165,237 @@ function headFollowUp(input: {
 }
 
 /**
+ * Build the follow-up discriminator for a review request on a tracked pull
+ * (FR-108).
+ *
+ * The row reuses the closed `EventKind` union (`'review'`, the feed it rode)
+ * and records its role in the id, exactly as the comment and head follow-ups
+ * do. The naming event's own integer id is the tail, so a re-request after a
+ * submitted review is a new observation rather than a duplicate of the first.
+ */
+export function reviewFollowUp(input: {
+    readonly binding: BindingRecord;
+    /** The pull request that asked for the account. */
+    readonly pull: PollPull;
+    /** The tracked subject the pull request is. */
+    readonly tracked: TrackedSubject;
+    /** The naming `review_requested` event's own id. */
+    readonly eventId: number;
+    /** The `review_requester.login` the naming event recorded. */
+    readonly actorLogin: string;
+    /** RFC 3339 stamp pinned at cycle start. */
+    readonly detectedAt: string;
+}): QueuedEvent {
+    const { binding, pull, tracked, eventId, actorLogin, detectedAt } = input;
+
+    return createEvent({
+        bindingId: binding.bindingId,
+        repository: repositoryLabel(repositoryRefOf(binding.repository)),
+        accountNumericUserId: binding.accountNumericUserId,
+        accountLogin: binding.accountLogin,
+        projectId: binding.projectId,
+        worktreeOption: binding.worktreeOption,
+        kind: 'review',
+        followUp: 'review',
+        eventId,
+        headSha: pull.headSha,
+        baseRef: pull.baseRef,
+        issue: {
+            issueNumber: pull.pullNumber,
+            issueTitle: pull.title,
+            issueUrl: pull.url,
+            issueBodyExcerpt: '',
+        },
+        actorLogin,
+        actorAttribution: 'direct',
+        triggerNote: `Review requested from the bound account on pull request #${pull.pullNumber}, ${IN_PROGRESS}`,
+        detectedAt,
+        subjectType: tracked.subjectType,
+    });
+}
+
+/**
+ * Build one submitted-review follow-up row (FR-124).
+ *
+ * The review id keys the id's last segment and is a different numbering space
+ * from issue-event ids, which is why the `review-submitted` tail exists rather
+ * than reusing `~followup~review~<id>`.
+ */
+export function reviewSubmittedFollowUp(input: {
+    readonly binding: BindingRecord;
+    /** The pull request the review was submitted on. */
+    readonly pull: PollPull;
+    /** The tracked subject the pull request is. */
+    readonly tracked: TrackedSubject;
+    /** The changes-requested review. */
+    readonly review: PollReview;
+    /** RFC 3339 stamp pinned at cycle start. */
+    readonly detectedAt: string;
+}): QueuedEvent {
+    const { binding, pull, tracked, review, detectedAt } = input;
+    const reviewer = actorLoginOf(review.authorLogin);
+
+    return createEvent({
+        bindingId: binding.bindingId,
+        repository: repositoryLabel(repositoryRefOf(binding.repository)),
+        accountNumericUserId: binding.accountNumericUserId,
+        accountLogin: binding.accountLogin,
+        projectId: binding.projectId,
+        worktreeOption: binding.worktreeOption,
+        kind: 'review',
+        followUp: 'review-submitted',
+        reviewId: review.reviewId,
+        headSha: pull.headSha,
+        baseRef: pull.baseRef,
+        issue: {
+            issueNumber: pull.pullNumber,
+            issueTitle: pull.title,
+            issueUrl: pull.url,
+            issueBodyExcerpt: '',
+        },
+        actorLogin: reviewer,
+        actorAttribution: 'direct',
+        triggerNote: `Review changes requested by ${reviewer} on pull request #${pull.pullNumber}, ${IN_PROGRESS}`,
+        detectedAt,
+        subjectType: tracked.subjectType,
+    });
+}
+
+/**
+ * Build one failing-checks follow-up row (FR-126 – FR-128).
+ *
+ * A check run has no human actor, so the row rides the tracked run's recorded
+ * actor exactly as the head follow-up does, and only when that basis is
+ * `direct`. The excerpt is the failing names alone; the `CI failed:` prefix
+ * lives in the note and in the composed movement line, never in both places.
+ */
+export function checksFollowUp(input: {
+    readonly binding: BindingRecord;
+    /** The tracked pull request whose head moved. */
+    readonly pull: PollPull;
+    /** The tracked subject the pull request is. */
+    readonly tracked: TrackedSubject;
+    /** The most blocking failing conclusion present. */
+    readonly conclusion: CheckConclusion;
+    /** The failing check names, in the order the list returned them. */
+    readonly names: readonly string[];
+    /** RFC 3339 stamp pinned at cycle start. */
+    readonly detectedAt: string;
+}): QueuedEvent | null {
+    const { binding, pull, tracked, conclusion, names, detectedAt } = input;
+    const actor = tracked.actorLogin;
+    const attribution = tracked.actorAttribution;
+    if (actor === null || attribution !== 'direct') {
+        return null;
+    }
+
+    const joined = names.join(', ');
+
+    return createEvent({
+        bindingId: binding.bindingId,
+        repository: repositoryLabel(repositoryRefOf(binding.repository)),
+        accountNumericUserId: binding.accountNumericUserId,
+        accountLogin: binding.accountLogin,
+        projectId: binding.projectId,
+        worktreeOption: binding.worktreeOption,
+        kind: 'review',
+        followUp: 'checks',
+        headSha: pull.headSha ?? '',
+        baseRef: null,
+        conclusion,
+        issue: {
+            issueNumber: pull.pullNumber,
+            issueTitle: pull.title,
+            issueUrl: pull.url,
+            issueBodyExcerpt: bodyExcerptOf(joined),
+        },
+        actorLogin: actor,
+        actorAttribution: attribution,
+        triggerNote: `CI failed: ${joined}`,
+        detectedAt,
+        subjectType: 'pull_request',
+    });
+}
+
+/**
+ * Build one review-comment follow-up row (FR-113).
+ *
+ * The row's `kind` is `'mention'` — the feed family the detection rides — and
+ * its role rides the `~followup~review-comment~…` discriminator, so it never
+ * collides with a conversation comment's id and never claims anyone mentioned
+ * the account.
+ */
+export function reviewCommentFollowUp(input: {
+    readonly binding: BindingRecord;
+    /** The review comment that is a movement on the tracked pull. */
+    readonly comment: PollReviewComment;
+    /** The tracked subject the comment belongs to. */
+    readonly tracked: TrackedSubject;
+    /** RFC 3339 stamp pinned at cycle start. */
+    readonly detectedAt: string;
+}): QueuedEvent {
+    const { binding, comment, tracked, detectedAt } = input;
+    const repository = repositoryRefOf(binding.repository);
+    const commenter = actorLoginOf(comment.authorLogin);
+    const url = `https://github.com/${repository.owner}/${repository.name}/pull/${comment.pullNumber}`;
+
+    return createEvent({
+        bindingId: binding.bindingId,
+        repository: repositoryLabel(repository),
+        accountNumericUserId: binding.accountNumericUserId,
+        accountLogin: binding.accountLogin,
+        projectId: binding.projectId,
+        worktreeOption: binding.worktreeOption,
+        kind: 'mention',
+        followUp: 'review-comment',
+        commentId: comment.commentId,
+        issue: {
+            issueNumber: comment.pullNumber,
+            issueTitle: `Pull request #${comment.pullNumber}`,
+            issueUrl: url,
+            issueBodyExcerpt: bodyExcerptOf(comment.body),
+        },
+        actorLogin: commenter,
+        actorAttribution: 'direct',
+        triggerNote: `Review comment by ${commenter} on pull request #${comment.pullNumber}, ${IN_PROGRESS}`,
+        detectedAt,
+        subjectType: tracked.subjectType,
+    });
+}
+
+/**
+ * Detect the review-comment follow-ups in one cycle's review-comment feed.
+ * The gates are the comment feed's own: the scan window, then the attribution
+ * predicate, then the tracked-subject lookup. A review comment that mentions
+ * nothing is still a movement on a tracked pull.
+ */
+export function reviewCommentFollowUps(input: {
+    readonly binding: BindingRecord;
+    /** Review comments the cycle's own read listed. */
+    readonly comments: readonly PollReviewComment[];
+    readonly tracked: ReadonlyMap<number, TrackedSubject>;
+    readonly windowStart: string;
+    /** RFC 3339 stamp pinned at cycle start. */
+    readonly detectedAt: string;
+}): FollowUpRows {
+    const { binding, comments, tracked, windowStart, detectedAt } = input;
+    const rows: QueuedEvent[] = [];
+
+    for (const comment of comments) {
+        const subject = tracked.get(comment.pullNumber);
+        if (subject === undefined
+            || !stampInWindow(comment.updatedAt, windowStart)
+            || !isAttributableAuthor(comment.authorLogin, comment.authorType)) {
+            continue;
+        }
+
+        rows.push(reviewCommentFollowUp({ binding, comment, tracked: subject, detectedAt }));
+    }
+
+    return rows;
+}
+
+/**
  * Detect the comment follow-ups in one cycle's comment feed. Every gate is
  * one the mention path already applies, in the order it applies them: the
  * scan window, then the attribution predicate, then the tracked-subject
@@ -215,6 +464,7 @@ export function headFollowUps(input: {
     const { binding, pulls, tracked, windowStart, detectedAt } = input;
     const rows: QueuedEvent[] = [];
     const observations: HeadObservation[] = [];
+    const movements: HeadMovement[] = [];
 
     for (const pull of pulls) {
         if (!stampInWindow(pull.updatedAt, windowStart)) {
@@ -239,13 +489,15 @@ export function headFollowUps(input: {
             continue;
         }
 
+        movements.push({ pullNumber: pull.pullNumber, headSha: pull.headSha });
+
         const row = headFollowUp({ binding, pull, tracked: subject, fromHeadSha: seed, detectedAt });
         if (row !== null) {
             rows.push(row);
         }
     }
 
-    return { rows, observations };
+    return { rows, observations, movements };
 }
 
 /** The distinct subjects whose follow-up rows a cycle produced, split by shape. */

@@ -1052,7 +1052,13 @@ describe('FR-052 an unreadable actor yields no event, and substitutes nothing', 
                 }),
             },
         });
-        const { store, log } = await seed({ triggers: { assignment: true, mention: false, reviewRequest: false } });
+        const { store, log } = await seed({ triggers: {
+            assignment: true,
+            mention: false,
+            reviewRequest: false,
+            reviewSubmitted: false,
+            checks: false,
+        } });
 
         const first = await runScanCycle({ store, log, poller: pollerOver(unreadable, log) });
 
@@ -1132,7 +1138,13 @@ describe('AC-028 the read is per item and never repository-wide (FR-049)', () =>
         // a repository where nothing is assigned. The request log is the budget's
         // evidence (AC-028, SC-005).
         const github = fakeGitHub(scanRoutes({ events: wirePage([]), issues: '[]' }));
-        const { store, log } = await seed({ triggers: { assignment: true, mention: false, reviewRequest: false } });
+        const { store, log } = await seed({ triggers: {
+            assignment: true,
+            mention: false,
+            reviewRequest: false,
+            reviewSubmitted: false,
+            checks: false,
+        } });
 
         const cycle = await runScanCycle({ store, log, poller: pollerOver(github, log) });
 
@@ -1149,7 +1161,13 @@ describe('AC-028 the read is per item and never repository-wide (FR-049)', () =>
             events: assignedPage(ASSIGNER),
             issues: issueListBody(),
         }));
-        const { store, log } = await seed({ triggers: { assignment: true, mention: false, reviewRequest: false } });
+        const { store, log } = await seed({ triggers: {
+            assignment: true,
+            mention: false,
+            reviewRequest: false,
+            reviewSubmitted: false,
+            checks: false,
+        } });
 
         const cycle = await runScanCycle({ store, log, poller: pollerOver(github, log) });
 
@@ -1164,7 +1182,13 @@ describe('AC-028 the read is per item and never repository-wide (FR-049)', () =>
             events: requestedPage(REQUESTER, PULL_NUMBER),
             pulls: pullListBody(),
         }));
-        const { store, log } = await seed({ triggers: { assignment: false, mention: false, reviewRequest: true } });
+        const { store, log } = await seed({ triggers: {
+            assignment: false,
+            mention: false,
+            reviewRequest: true,
+            reviewSubmitted: false,
+            checks: false,
+        } });
 
         const cycle = await runScanCycle({ store, log, poller: pollerOver(github, log) });
         const queued = await readEvents({ store, log });
@@ -1205,7 +1229,7 @@ describe('a failed events read takes the scan\'s ordinary skip path (FR-049, 002
         // candidate is asked again.
         const github = fakeGitHub(scanRoutes({ events: '', status: 500 }));
         const { store, log } = await seed({
-            triggers: { assignment: true, mention: false, reviewRequest: false },
+            triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
             lastScanAt: SCANNED_AT,
         });
 
@@ -1233,7 +1257,13 @@ describe('a failed events read takes the scan\'s ordinary skip path (FR-049, 002
 
         for (const { status, expected } of cases) {
             const github = fakeGitHub(scanRoutes({ events: '', status }));
-            const { store, log } = await seed({ triggers: { assignment: true, mention: false, reviewRequest: false } });
+            const { store, log } = await seed({ triggers: {
+                assignment: true,
+                mention: false,
+                reviewRequest: false,
+                reviewSubmitted: false,
+                checks: false,
+            } });
 
             const cycle = await runScanCycle({ store, log, poller: pollerOver(github, log) });
 

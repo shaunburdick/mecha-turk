@@ -3,7 +3,7 @@
  * FR-020, FR-022; 006 FR-058, FR-059).
  */
 
-import { parseJsonText } from '../json.ts';
+import { isRecord, parseJsonText } from '../json.ts';
 import {
     API_ORIGIN,
     GITHUB_TIMEOUT_MS,
@@ -57,6 +57,17 @@ export type PollFailure =
  * payload: the normalized items, or the classified failure.
  */
 export type PagedList<T> = PollFailure | { readonly kind: 'ok'; readonly items: readonly T[] };
+
+/**
+ * One page's items plus the last page the response's `Link` header names.
+ *
+ * The backward reviews walk (FR-121) has to start at the newest page of an
+ * oldest-first endpoint, so the one request path must surface that header
+ * rather than have a second request implementation parse it.
+ */
+export type PageRead<T> =
+    | PollFailure
+    | { readonly kind: 'ok'; readonly items: readonly T[]; readonly lastPage: number | null };
 
 /**
  * The poller's own injectables: where waits are reported, slept, and
@@ -152,6 +163,57 @@ function parseListPage<T>(input: {
     }
 
     return parsed.value.flatMap((entry) => {
+        const item = input.read(entry);
+        return item === null ? [] : [item];
+    });
+}
+
+/**
+ * Read the `page` of the response's `Link: …rel="last"` member.
+ *
+ * A header outside that shape answers `null`: the caller treats an unusable
+ * link as *no link*, which is the fail-closed direction FR-121 states.
+ */
+function lastPageOf(link: string | null): number | null {
+    if (link === null) {
+        return null;
+    }
+
+    for (const part of link.split(',')) {
+        if (!/\brel="last"/.test(part)) {
+            continue;
+        }
+
+        const match = /[?&]page=(\d+)/.exec(part);
+        const page = match === null ? NaN : Number(match[1]);
+
+        return Number.isSafeInteger(page) && page > 0 ? page : null;
+    }
+
+    return null;
+}
+
+/**
+ * Parse an object-bodied page whose array is one member, skipping entries the
+ * shape check refuses (the check-runs envelope, FR-126).
+ */
+function parseEnvelopePage<T>(input: {
+    readonly text: string;
+    readonly envelope: string;
+    readonly message: string;
+    readonly read: (value: unknown) => T | null;
+}): T[] {
+    const parsed = parseJsonText(input.text);
+    if (!parsed.ok || !isRecord(parsed.value)) {
+        throw new TypeError(input.message);
+    }
+
+    const entries = parsed.value[input.envelope];
+    if (!Array.isArray(entries)) {
+        throw new TypeError(input.message);
+    }
+
+    return entries.flatMap((entry) => {
         const item = input.read(entry);
         return item === null ? [] : [item];
     });
@@ -278,7 +340,7 @@ export async function readOnePage<T>(input: {
     readonly pace: ListPace;
     readonly message: string;
     readonly read: (value: unknown) => T | null;
-}): Promise<PagedList<T>> {
+}): Promise<PageRead<T>> {
     const attempt = await requestPage({
         runtime: input.runtime,
         token: input.token,
@@ -294,6 +356,49 @@ export async function readOnePage<T>(input: {
             kind: 'ok',
             items: parseListPage({
                 text: await attempt.response.text(),
+                message: input.message,
+                read: input.read,
+            }),
+            lastPage: lastPageOf(attempt.response.headers.get('link')),
+        };
+    } catch {
+        return { kind: 'unavailable', detail: 'upstream' };
+    }
+}
+
+/**
+ * Read one page whose array is a member of an object (`{ check_runs: [...] }`),
+ * under the same request, retry, classification and abort path as
+ * {@link readOnePage}. It answers the items alone: the envelope walk has no
+ * backward direction, so it promises no last page.
+ */
+export async function readEnvelopePage<T>(input: {
+    readonly runtime: PollerRuntime;
+    readonly token: string;
+    /** Request URL for this page, already carrying `page` and `per_page`. */
+    readonly url: URL;
+    readonly pace: ListPace;
+    /** Member holding the array. */
+    readonly envelope: string;
+    readonly message: string;
+    readonly read: (value: unknown) => T | null;
+}): Promise<PagedList<T>> {
+    const attempt = await requestPage({
+        runtime: input.runtime,
+        token: input.token,
+        url: input.url,
+        pace: input.pace,
+    });
+    if (!('response' in attempt)) {
+        return attempt.failure;
+    }
+
+    try {
+        return {
+            kind: 'ok',
+            items: parseEnvelopePage({
+                text: await attempt.response.text(),
+                envelope: input.envelope,
                 message: input.message,
                 read: input.read,
             }),

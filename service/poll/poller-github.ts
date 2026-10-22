@@ -9,12 +9,32 @@ import type { FetchLike } from '../github.ts';
 import { ITEM_EVENT_MAX_PAGES, pageEndsWalk, readItemEventEntry } from './poller-events.ts';
 import type { ItemEventsOutcome, ItemEventsQuery, PollItemEvent } from './poller-events.ts';
 import { listPages, listUrl, pollerRuntime, readOneObject, readOnePage } from './poller-transport.ts';
-import type { ListPace, PagedList, PollFailure, PollerDeps, PollerRuntime } from './poller-transport.ts';
-import { readCommentEntry, readIssueEntry, readIssueObject, readPullEntry, readPullObject } from './poller-entries.ts';
-import type { PollComment, PollIssue, PollPull } from './poller-entries.ts';
+import type { ListPace, PageRead, PollFailure, PollerDeps, PollerRuntime } from './poller-transport.ts';
+import { readHeadChecks } from './poller-checks.ts';
+import type { HeadChecksOutcome, HeadChecksQuery } from './poller-checks.ts';
+import { readPullReviews } from './poller-reviews.ts';
+import type { PullReviewsOutcome, PullReviewsQuery } from './poller-reviews.ts';
+import {
+    readCommentEntry,
+    readIssueEntry,
+    readIssueObject,
+    readPullEntry,
+    readPullObject,
+    readReviewCommentEntry,
+} from './poller-entries.ts';
+import type { PollComment, PollIssue, PollPull, PollReviewComment } from './poller-entries.ts';
 
 /** Entry shapes re-exported so callers keep one import path for the poller. */
-export type { PollComment, PollIssue, PollPull };
+export type {
+    PollCheckRun,
+    PollComment,
+    PollIssue,
+    PollPull,
+    PollReview,
+    PollReviewComment,
+} from './poller-entries.ts';
+export type { PullReviewsOutcome, PullReviewsQuery } from './poller-reviews.ts';
+export type { CheckConclusion, HeadChecksOutcome, HeadChecksQuery } from './poller-checks.ts';
 
 /** Pace, failure class, and injectables re-exported for one import path. */
 export type { ListPace, PollFailure, PollerDeps };
@@ -26,6 +46,9 @@ const NEWEST_UPDATED_FIRST = { sort: 'updated', direction: 'desc' } as const;
 export type IssueListOutcome = PollFailure | { readonly kind: 'ok'; readonly issues: readonly PollIssue[] };
 
 export type CommentListOutcome = PollFailure | { readonly kind: 'ok'; readonly comments: readonly PollComment[] };
+
+export type ReviewCommentListOutcome =
+    PollFailure | { readonly kind: 'ok'; readonly comments: readonly PollReviewComment[] };
 
 export type PullListOutcome = PollFailure | { readonly kind: 'ok'; readonly pulls: readonly PollPull[] };
 
@@ -86,6 +109,15 @@ export interface GitHubIssuePoller {
     listIssueComments(query: WindowedListQuery): Promise<CommentListOutcome>;
 
     /**
+     * List the pull-request **review comments** of one repository, newest
+     * updated first (FR-111). Inline review comments live on this feed,
+     * not on `issues/comments`: a mention or a movement in one is invisible
+     * to the conversation-comment read. One repository-wide, `since`-windowed
+     * call per cycle, issued only for a binding whose mention switch is on.
+     */
+    listReviewComments(query: WindowedListQuery): Promise<ReviewCommentListOutcome>;
+
+    /**
      * List the open pull requests of one repository, newest-updated first (M7).
      *
      * @returns The classified outcome; upstream detail never escapes as text.
@@ -102,6 +134,25 @@ export interface GitHubIssuePoller {
      * here.
      */
     listIssueEvents(query: ItemEventsQuery): Promise<ItemEventsOutcome>;
+
+    /**
+     * Read **one pull request's** reviews, newest page first (FR-121).
+     *
+     * The endpoint is oldest-first and takes no `since`, so this is the one
+     * caller of the transport's `Link: rel="last"` discovery: one discovery
+     * request plus at most two content pages, with a truncated read producing
+     * no row. Issued at most once per candidate per cycle.
+     */
+    listPullReviews(query: PullReviewsQuery): Promise<PullReviewsOutcome>;
+
+    /**
+     * Read **one head's** check runs with `filter=latest` (FR-126).
+     *
+     * Bounded to two content pages; a second page that fills its cap is
+     * truncation, and the head then produces no row. Issued at most once per
+     * new SHA per cycle and only for a tracked head movement.
+     */
+    listHeadChecks(query: HeadChecksQuery): Promise<HeadChecksOutcome>;
 
     /**
      * Read **one issue's** own object for its terminal state (002 FR-106).
@@ -177,6 +228,31 @@ async function commentsList(runtime: PollerRuntime, query: WindowedListQuery): P
 }
 
 /**
+ * Run the pull-request review-comments list and answer it under its promised
+ * field (FR-111).
+ *
+ * @returns The classified outcome; upstream detail never escapes as text.
+ */
+async function reviewCommentsList(runtime: PollerRuntime, query: WindowedListQuery): Promise<ReviewCommentListOutcome> {
+    const result = await listPages({
+        runtime,
+        pace: query.pace,
+        token: query.token,
+        url: listUrl({
+            owner: query.owner,
+            name: query.name,
+            path: 'pulls/comments',
+            query: { ...NEWEST_UPDATED_FIRST },
+            since: query.since,
+        }),
+        message: 'review comment list response was not an array',
+        read: readReviewCommentEntry,
+    });
+
+    return result.kind === 'ok' ? { kind: 'ok', comments: result.items } : result;
+}
+
+/**
  * Run the M7 pulls list and answer it under its promised field.
  *
  * @returns The classified outcome; upstream detail never escapes as text.
@@ -239,7 +315,7 @@ async function itemEventsList(runtime: PollerRuntime, query: ItemEventsQuery): P
         url.searchParams.set('page', String(page));
         url.searchParams.set('per_page', String(query.pace.perPage));
 
-        const parsed: PagedList<PollItemEvent> = await readOnePage(input);
+        const parsed: PageRead<PollItemEvent> = await readOnePage(input);
         if (parsed.kind !== 'ok') {
             return parsed;
         }
@@ -314,7 +390,10 @@ export function createGitHubIssuePoller(
     return {
         listOpenIssues: (query) => issuesList(runtime, query),
         listIssueComments: (query) => commentsList(runtime, query),
+        listReviewComments: (query) => reviewCommentsList(runtime, query),
         listOpenPulls: (query) => pullsList(runtime, query),
+        listPullReviews: (query) => readPullReviews(runtime, query),
+        listHeadChecks: (query) => readHeadChecks(runtime, query),
         listIssueEvents: (query) => itemEventsList(runtime, query),
         readIssueState: (query) => issueStateObject(runtime, query),
         readPullState: (query) => pullStateObject(runtime, query),

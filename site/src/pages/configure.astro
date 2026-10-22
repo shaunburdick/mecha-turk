@@ -89,8 +89,10 @@ import { withBase } from '../data/site.ts';
         account to <strong>Poll as account</strong>, and the project to dispatch into, picked from the
         existing projects. If your project is not in the list, the <em>Not listed?</em> line under the
         picker tells you to register it in OpenChamber first — the extension will not create one. Then
-        tick the triggers you want: <strong>Assignment</strong>, <strong>Mention</strong>,
-        and <strong>Review request</strong>. The mention token in force is derived from the bound
+        tick the triggers you want: <strong>Assignment</strong>, <strong>Mention</strong>, <strong>Review request</strong>, <strong>Review submitted</strong>, and <strong>Checks</strong>. The first four can
+        start a session; checks only continue a session already working a pull request, so a failing build is
+        delivered without opening a new run.
+        The mention token in force is derived from the bound
         account's login and matches case-insensitively; the allowed-users field beside it restricts which logins
         may trigger dispatches from that repository, and a dispatch from anyone else is refused rather
         than run.

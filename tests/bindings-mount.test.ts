@@ -85,6 +85,10 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
             // A new binding asks for reviews by default; the form can turn that off.
             expect(rt.state.bindings.triggerReviewRequest).toBe(true);
             handlers.setReviewRequest(false);
+            expect(rt.state.bindings.triggerReviewSubmitted).toBe(false);
+            handlers.setReviewSubmitted(true);
+            expect(rt.state.bindings.triggerChecks).toBe(false);
+            handlers.setChecks(true);
             handlers.setWorktree('generated');
 
             const { bindings } = rt.state;
@@ -94,6 +98,8 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
             expect(bindings.triggerAssignment).toBe(false);
             expect(bindings.triggerMention).toBe(true);
             expect(bindings.triggerReviewRequest).toBe(false);
+            expect(bindings.triggerReviewSubmitted).toBe(true);
+            expect(bindings.triggerChecks).toBe(true);
             expect(bindings.worktreeSelection).toBe('generated');
         }
     });
@@ -110,7 +116,13 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
                     repository: REPOSITORY,
                     projectId: 'prj_42',
                     worktreeOption: 'generated',
-                    triggers: { assignment: true, mention: false, reviewRequest: true },
+                    triggers: {
+                        assignment: true,
+                        mention: false,
+                        reviewRequest: true,
+                        reviewSubmitted: false,
+                        checks: false,
+                    },
                     state: 'active',
                     createdAt: FIXTURE_TIMESTAMP,
                     updatedAt: FIXTURE_TIMESTAMP,

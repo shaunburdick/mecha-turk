@@ -118,7 +118,13 @@ afterEach(async (): Promise<void> => {
 });
 
 /** Trigger set every fixture binding carries: assignment polling only. */
-const ASSIGNMENT_ONLY: BindingTriggers = { assignment: true, mention: false, reviewRequest: false };
+const ASSIGNMENT_ONLY: BindingTriggers = {
+    assignment: true,
+    mention: false,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: false,
+};
 
 /** One active, assignment-only binding under this suite's fixture stamp. */
 const fixtureBinding = (bindingId: string): BindingRecord => fixtureBindingRow(bindingId, {
@@ -183,6 +189,7 @@ function recordingPoller(issues: readonly PollIssue[]): {
         // The M6/M7 feeds stay empty: every fixture binding keeps both
         // switches off, so the cycle never asks for them.
         listIssueComments: async () => ({ kind: 'ok', comments: [] }),
+        listReviewComments: async () => ({ kind: 'ok', comments: [] }),
         listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
         // The per-item actor read (002 FR-049) answers the naming event for
         // whichever fixture issue the cycle asks about, with its own stamp so
@@ -213,6 +220,8 @@ function recordingPoller(issues: readonly PollIssue[]): {
         readPullState: async () => {
             throw new Error('the terminal read is F-9-only; this fixture binds no session');
         },
+        listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
+        listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
     };
 
     return { poller, calls };

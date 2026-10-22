@@ -232,7 +232,7 @@ const QUIET: ServiceLogger = createLogger({
  */
 const binding = (bindingId: string, scope?: HistoryScope): BindingRecord => fixtureBindingRow(bindingId, {
     accountLogin: ACCOUNT_LOGIN,
-    triggers: { assignment: true, mention: false, reviewRequest: false },
+    triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
     stamp: CREATED_AT,
     historyScope: scope,
 });
@@ -440,6 +440,7 @@ function recordingPoller(issues: readonly PollIssue[]): {
             return { kind: 'ok', issues };
         },
         listIssueComments: async () => ({ kind: 'ok', comments: [] }),
+        listReviewComments: async () => ({ kind: 'ok', comments: [] }),
         listOpenPulls: async () => ({ kind: 'ok', pulls: [] }),
         listIssueEvents: async (input) => {
             const candidate = issues.find((entry) => entry.issueNumber === input.issueNumber);
@@ -466,6 +467,8 @@ function recordingPoller(issues: readonly PollIssue[]): {
         readPullState: async () => {
             throw new Error('the terminal read is F-9-only; this fixture binds no session');
         },
+        listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
+        listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
     };
 
     return { poller, seen: () => ({ offered: [...offered], windows: [...windows] }) };
@@ -486,10 +489,13 @@ function failingPoller(): GitHubIssuePoller {
     return {
         listOpenIssues: async () => failure,
         listIssueComments: async () => failure,
+        listReviewComments: async () => failure,
         listOpenPulls: async () => failure,
         listIssueEvents: async () => failure,
         readIssueState: async () => failure,
         readPullState: async () => failure,
+        listPullReviews: async () => failure,
+        listHeadChecks: async () => failure,
     };
 }
 

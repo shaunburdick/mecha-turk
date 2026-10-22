@@ -121,6 +121,8 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
         assignmentCheck: stubHandle(),
         mentionCheck: stubHandle(),
         reviewRequestCheck: stubHandle(),
+        reviewSubmittedCheck: stubHandle(),
+        checksCheck: stubHandle(),
         worktreeSelect: stubHandle(),
         addBinding: stubHandle(),
         cancelEdit: stubHandle(),

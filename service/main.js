@@ -1897,21 +1897,59 @@ var ID_BASE_SEGMENTS = 4;
 var FOLLOW_UP_SEGMENT = "followup";
 var DECIMAL_SEGMENT = /^[0-9]+$/;
 var HEAD_TAIL = /^head~[0-9a-f]+$/;
+var REVIEW_TAIL = /^review~[0-9]+$/;
+var REVIEW_COMMENT_TAIL = /^review-comment~[0-9]+$/;
+var REVIEW_SUBMITTED_TAIL = /^review-submitted~[0-9]+$/;
+var CHECKS_TAIL = /^checks~[0-9a-f]+~(action_required|failure|timed_out|cancelled)$/;
+var NUMERIC_TAILS = [
+  { pattern: DECIMAL_SEGMENT, prefix: "", role: "comment" },
+  { pattern: REVIEW_TAIL, prefix: "review~", role: "review" },
+  { pattern: REVIEW_COMMENT_TAIL, prefix: "review-comment~", role: "review-comment" },
+  { pattern: REVIEW_SUBMITTED_TAIL, prefix: "review-submitted~", role: "review-submitted" }
+];
+function numericRoleOf(role, id) {
+  switch (role) {
+    case "comment": {
+      return { role, commentId: id };
+    }
+    case "review": {
+      return { role, eventId: id };
+    }
+    case "review-comment": {
+      return { role, commentId: id };
+    }
+    case "review-submitted": {
+      return { role, reviewId: id };
+    }
+  }
+}
+function tailDiscriminatorOf(tail) {
+  const numeric = NUMERIC_TAILS.find((entry) => entry.pattern.test(tail));
+  if (numeric !== undefined) {
+    const id = Number(tail.slice(numeric.prefix.length));
+    return id > 0 ? numericRoleOf(numeric.role, id) : { role: "malformed" };
+  }
+  if (HEAD_TAIL.test(tail)) {
+    return { role: "head", headSha: tail.slice("head~".length) };
+  }
+  if (CHECKS_TAIL.test(tail)) {
+    return { role: "checks" };
+  }
+  return { role: "malformed" };
+}
 function discriminatorOfId(id) {
   const segments = id.split("~");
   if (segments.length <= ID_BASE_SEGMENTS + 1 || segments[ID_BASE_SEGMENTS] !== FOLLOW_UP_SEGMENT) {
     return { role: "trigger" };
   }
-  const tail = segments.slice(ID_BASE_SEGMENTS + 1).join("~");
-  if (DECIMAL_SEGMENT.test(tail)) {
-    const commentId = Number(tail);
-    return commentId > 0 ? { role: "comment", commentId } : { role: "malformed" };
-  }
-  return HEAD_TAIL.test(tail) ? { role: "head", headSha: tail.slice("head~".length) } : { role: "malformed" };
+  return tailDiscriminatorOf(segments.slice(ID_BASE_SEGMENTS + 1).join("~"));
 }
 function followUpKindOf(id) {
-  const read = discriminatorOfId(id);
-  return read.role === "comment" || read.role === "head" ? read.role : null;
+  const { role } = discriminatorOfId(id);
+  if (role === "trigger" || role === "malformed") {
+    return null;
+  }
+  return role;
 }
 function followUpDiscriminatorHolds(id) {
   return discriminatorOfId(id).role !== "malformed";
@@ -2166,6 +2204,28 @@ async function recordDetectedDeliveries(input) {
     });
   }
 }
+function followUpReasonOf(kind) {
+  switch (kind) {
+    case "head": {
+      return "a tracked pull request head moved";
+    }
+    case "review": {
+      return "a tracked pull request gained a review request after its run started";
+    }
+    case "review-comment": {
+      return "a tracked pull request gained a review comment";
+    }
+    case "review-submitted": {
+      return "a tracked pull request gained a changes-requested review after its run started";
+    }
+    case "checks": {
+      return "a tracked pull request's head gained failing checks";
+    }
+    case "comment": {
+      return "a tracked issue or pull request gained a comment";
+    }
+  }
+}
 async function recordFollowUps(input) {
   const rows = new Map(input.appended.map((event) => [event.id, event]));
   for (const joined of input.outcome.followUps) {
@@ -2177,7 +2237,7 @@ async function recordFollowUps(input) {
       entity: { kind: "delivery", id: joined.deliveryId },
       correlationId: joined.run.correlationId,
       decision: null,
-      reason: joined.kind === "head" ? "a tracked pull request head moved" : "a tracked issue or pull request gained a comment",
+      reason: followUpReasonOf(joined.kind),
       details: {
         deliveryId: joined.deliveryId,
         excerptFingerprint: followUpFingerprint(excerpt),
@@ -2411,7 +2471,7 @@ function isEventKind(value) {
   return typeof value === "string" && EVENT_KINDS.has(value);
 }
 function isValidOrigin(origin) {
-  return origin === "assignment" || origin === "body" || origin === "review" || /^comment:[1-9][0-9]*$/.test(origin);
+  return origin === "assignment" || origin === "body" || origin === "review" || /^comment:[1-9][0-9]*$/.test(origin) || /^review-comment:[1-9][0-9]*$/.test(origin);
 }
 function isOutcome(value) {
   return value === null || typeof value === "string" && ATTEMPT_OUTCOMES.has(value);
@@ -3494,7 +3554,15 @@ function originOf(delivery) {
     return "body";
   }
   const commentId = Number(suffix);
-  return commentId > 0 && String(commentId) === suffix ? `comment:${commentId}` : null;
+  if (commentId > 0 && String(commentId) === suffix) {
+    return `comment:${commentId}`;
+  }
+  const reviewMarker = "review~";
+  if (!suffix.startsWith(reviewMarker)) {
+    return null;
+  }
+  const reviewCommentId = Number(suffix.slice(reviewMarker.length));
+  return reviewCommentId > 0 && String(reviewCommentId) === suffix.slice(reviewMarker.length) ? `review-comment:${reviewCommentId}` : null;
 }
 function followUpKindOfDelivery(delivery) {
   return followUpKindOf(delivery.id);
@@ -3826,12 +3894,40 @@ function buildEventId(input) {
   const base = `evt-${repository.owner}~${repository.name}~${input.issueNumber}~${input.accountNumericUserId}`;
   return input.discriminator === undefined ? base : `${base}${input.discriminator}`;
 }
+function followUpDiscriminatorOf(snapshot) {
+  switch (snapshot.followUp) {
+    case "head": {
+      return `~followup~head~${snapshot.headSha}`;
+    }
+    case "review": {
+      return `~followup~review~${snapshot.eventId}`;
+    }
+    case "review-submitted": {
+      return `~followup~review-submitted~${snapshot.reviewId}`;
+    }
+    case "checks": {
+      return `~followup~checks~${snapshot.headSha}~${snapshot.conclusion}`;
+    }
+    case "review-comment": {
+      return `~followup~review-comment~${snapshot.commentId}`;
+    }
+    case "comment": {
+      return `~followup~${snapshot.commentId}`;
+    }
+  }
+}
 function discriminatorOf(snapshot) {
   if ("followUp" in snapshot) {
-    return snapshot.followUp === "head" ? `~followup~head~${snapshot.headSha}` : `~followup~${snapshot.commentId}`;
+    return followUpDiscriminatorOf(snapshot);
+  }
+  if ("reviewId" in snapshot) {
+    return `~review~submitted~${snapshot.reviewId}`;
   }
   if (snapshot.kind === "mention") {
-    return snapshot.origin === "body" ? "~mention~body" : `~mention~${snapshot.commentId}`;
+    if (snapshot.origin === "body") {
+      return "~mention~body";
+    }
+    return snapshot.origin === "review-comment" ? `~mention~review~${snapshot.commentId}` : `~mention~${snapshot.commentId}`;
   }
   return snapshot.kind === "review" ? "~review" : undefined;
 }
@@ -5752,14 +5848,22 @@ function triggersFieldOf(value) {
     return null;
   }
   const record = value;
-  const { assignment, mention, reviewRequest } = record;
+  const { assignment, mention, reviewRequest, reviewSubmitted, checks } = record;
   if (typeof assignment !== "boolean" || typeof mention !== "boolean") {
     return null;
   }
-  if (reviewRequest !== undefined && typeof reviewRequest !== "boolean") {
-    return null;
+  for (const flag of [reviewRequest, reviewSubmitted, checks]) {
+    if (flag !== undefined && typeof flag !== "boolean") {
+      return null;
+    }
   }
-  return { assignment, mention, reviewRequest: reviewRequest === true };
+  return {
+    assignment,
+    mention,
+    reviewRequest: reviewRequest === true,
+    reviewSubmitted: reviewSubmitted === true,
+    checks: checks === true
+  };
 }
 function stateFieldOf(value) {
   if (value === undefined) {
@@ -5855,7 +5959,7 @@ function bindingModeOf(raw) {
   if (triggers === null) {
     return issue({
       field: "triggers",
-      remediation: "triggers must be an object with assignment, mention, and reviewRequest boolean flags"
+      remediation: "triggers must be an object with assignment, mention, reviewRequest, " + "reviewSubmitted, and checks boolean flags"
     });
   }
   const state = stateFieldOf(raw.state);
@@ -10312,11 +10416,48 @@ function renderBoundedContext(input) {
 }
 
 // service/poll/engine-compose.ts
+var PULL_SHAPED_KINDS = new Set([
+  "head",
+  "review",
+  "review-comment",
+  "review-submitted",
+  "checks"
+]);
+var UNRECORDED_HEAD = "an unrecorded head";
+function plainMovementOf(kind, excerpt) {
+  switch (kind) {
+    case "review": {
+      return "Review requested on this pull request";
+    }
+    case "review-submitted": {
+      return "Review requested changes on this pull request";
+    }
+    case "review-comment": {
+      return "New review comment";
+    }
+    case "comment": {
+      return "New comment";
+    }
+    case "checks":
+    case "head": {
+      return excerpt;
+    }
+  }
+}
+function movementOf(kind, heads, excerpt) {
+  if (kind === "checks") {
+    return `CI failed: ${defuseDelimiters(excerpt)}`;
+  }
+  if (kind === "head") {
+    return `Head moved from ${defuseDelimiters(heads?.from ?? UNRECORDED_HEAD)} to ${defuseDelimiters(heads?.to ?? UNRECORDED_HEAD)}`;
+  }
+  return plainMovementOf(kind, excerpt);
+}
 function headPairOf(input) {
   if (followUpKindOf(input.row.id) !== "head") {
     return null;
   }
-  let previous = input.run.lastHeadSha ?? "an unrecorded head";
+  let previous = input.run.lastHeadSha ?? UNRECORDED_HEAD;
   for (const candidate of input.runRows) {
     if (candidate.id === input.row.id) {
       break;
@@ -10327,7 +10468,7 @@ function headPairOf(input) {
   }
   return {
     from: previous,
-    to: input.row.headSha !== null && input.row.headSha !== "" ? input.row.headSha : "an unrecorded head"
+    to: input.row.headSha !== null && input.row.headSha !== "" ? input.row.headSha : UNRECORDED_HEAD
   };
 }
 function composeEngineFollowUp(input) {
@@ -10337,7 +10478,8 @@ function composeEngineFollowUp(input) {
   }
   const { row } = input;
   const heads = headPairOf({ run: input.run, row, runRows: input.runRows });
-  const movement = heads === null ? "New comment" : `Head moved from ${defuseDelimiters(heads.from)} to ${defuseDelimiters(heads.to)}`;
+  const movement = movementOf(kind, heads, row.issueBodyExcerpt);
+  const isPullShaped = PULL_SHAPED_KINDS.has(kind);
   const header = [
     "Mecha Turk follow-up (automated — continuing a work item Mecha Turk already started).",
     `Correlation: ${defuseDelimiters(input.run.correlationId)}`,
@@ -10350,7 +10492,7 @@ function composeEngineFollowUp(input) {
     "Rule: this is the same work item the session was started for; reply inside this session."
   ];
   const sources = [{
-    origin: kind === "head" ? "review" : "comment",
+    origin: isPullShaped ? "review" : "comment",
     kind: row.kind,
     detectedAt: row.detectedAt,
     url: row.issueUrl,
@@ -10365,7 +10507,7 @@ function composeEngineFollowUp(input) {
       state: "open",
       body: null,
       assignees: [],
-      isPullRequest: kind === "head"
+      isPullRequest: isPullShaped
     },
     sources
   });
@@ -10654,6 +10796,7 @@ function bodyExcerptOf(body) {
 }
 
 // service/poll/follow-up.ts
+var IN_PROGRESS = "on a work item already in progress";
 function commentNote(commenter, issueNumber) {
   return `Comment by ${commenter} on issue #${issueNumber}, on a work item already in progress`;
 }
@@ -10719,6 +10862,134 @@ function headFollowUp(input) {
     subjectType: "pull_request"
   });
 }
+function reviewFollowUp(input) {
+  const { binding, pull, tracked, eventId, actorLogin, detectedAt } = input;
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    followUp: "review",
+    eventId,
+    headSha: pull.headSha,
+    baseRef: pull.baseRef,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: ""
+    },
+    actorLogin,
+    actorAttribution: "direct",
+    triggerNote: `Review requested from the bound account on pull request #${pull.pullNumber}, ${IN_PROGRESS}`,
+    detectedAt,
+    subjectType: tracked.subjectType
+  });
+}
+function reviewSubmittedFollowUp(input) {
+  const { binding, pull, tracked, review, detectedAt } = input;
+  const reviewer = actorLoginOf(review.authorLogin);
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    followUp: "review-submitted",
+    reviewId: review.reviewId,
+    headSha: pull.headSha,
+    baseRef: pull.baseRef,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: ""
+    },
+    actorLogin: reviewer,
+    actorAttribution: "direct",
+    triggerNote: `Review changes requested by ${reviewer} on pull request #${pull.pullNumber}, ${IN_PROGRESS}`,
+    detectedAt,
+    subjectType: tracked.subjectType
+  });
+}
+function checksFollowUp(input) {
+  const { binding, pull, tracked, conclusion, names, detectedAt } = input;
+  const actor = tracked.actorLogin;
+  const attribution = tracked.actorAttribution;
+  if (actor === null || attribution !== "direct") {
+    return null;
+  }
+  const joined = names.join(", ");
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    followUp: "checks",
+    headSha: pull.headSha ?? "",
+    baseRef: null,
+    conclusion,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: bodyExcerptOf(joined)
+    },
+    actorLogin: actor,
+    actorAttribution: attribution,
+    triggerNote: `CI failed: ${joined}`,
+    detectedAt,
+    subjectType: "pull_request"
+  });
+}
+function reviewCommentFollowUp(input) {
+  const { binding, comment, tracked, detectedAt } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const commenter = actorLoginOf(comment.authorLogin);
+  const url = `https://github.com/${repository.owner}/${repository.name}/pull/${comment.pullNumber}`;
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repository),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "mention",
+    followUp: "review-comment",
+    commentId: comment.commentId,
+    issue: {
+      issueNumber: comment.pullNumber,
+      issueTitle: `Pull request #${comment.pullNumber}`,
+      issueUrl: url,
+      issueBodyExcerpt: bodyExcerptOf(comment.body)
+    },
+    actorLogin: commenter,
+    actorAttribution: "direct",
+    triggerNote: `Review comment by ${commenter} on pull request #${comment.pullNumber}, ${IN_PROGRESS}`,
+    detectedAt,
+    subjectType: tracked.subjectType
+  });
+}
+function reviewCommentFollowUps(input) {
+  const { binding, comments, tracked, windowStart, detectedAt } = input;
+  const rows = [];
+  for (const comment of comments) {
+    const subject = tracked.get(comment.pullNumber);
+    if (subject === undefined || !stampInWindow(comment.updatedAt, windowStart) || !isAttributableAuthor(comment.authorLogin, comment.authorType)) {
+      continue;
+    }
+    rows.push(reviewCommentFollowUp({ binding, comment, tracked: subject, detectedAt }));
+  }
+  return rows;
+}
 function commentFollowUps(input) {
   const { binding, comments, issues, tracked, windowStart, detectedAt } = input;
   const known = new Map(issues.map((issue2) => [issue2.issueNumber, issue2]));
@@ -10745,6 +11016,7 @@ function headFollowUps(input) {
   const { binding, pulls, tracked, windowStart, detectedAt } = input;
   const rows = [];
   const observations = [];
+  const movements = [];
   for (const pull of pulls) {
     if (!stampInWindow(pull.updatedAt, windowStart)) {
       continue;
@@ -10758,12 +11030,13 @@ function headFollowUps(input) {
     if (seed === null || seed === pull.headSha) {
       continue;
     }
+    movements.push({ pullNumber: pull.pullNumber, headSha: pull.headSha });
     const row = headFollowUp({ binding, pull, tracked: subject, fromHeadSha: seed, detectedAt });
     if (row !== null) {
       rows.push(row);
     }
   }
-  return { rows, observations };
+  return { rows, observations, movements };
 }
 function followUpSubjects(events) {
   const issues = [];
@@ -10784,6 +11057,28 @@ function withoutEndedFollowUps(events, endedNumbers) {
     return events;
   }
   return events.filter((event) => followUpKindOf(event.id) === null || !endedNumbers.has(event.issueNumber));
+}
+
+// service/poll/mentions-login.ts
+function isLoginCharacter(character) {
+  return /^[A-Za-z0-9_-]$/.test(character);
+}
+function mentionsLogin(body, login) {
+  if (login === "") {
+    return false;
+  }
+  const haystack = body.toLowerCase();
+  const token = `@${login.toLowerCase()}`;
+  let from = haystack.indexOf(token);
+  while (from !== -1) {
+    const before = from === 0 ? "" : haystack.charAt(from - 1);
+    const after = haystack.charAt(from + token.length);
+    if (!isLoginCharacter(before) && !isLoginCharacter(after)) {
+      return true;
+    }
+    from = haystack.indexOf(token, from + 1);
+  }
+  return false;
 }
 
 // service/poll/tracking.ts
@@ -10818,7 +11113,8 @@ function trackedOf(run) {
       subjectType: run.subjectType,
       lastHeadSha: run.lastHeadSha ?? null,
       actorLogin: first?.actorLogin ?? null,
-      actorAttribution: first?.actorAttribution ?? null
+      actorAttribution: first?.actorAttribution ?? null,
+      establishedAt: first?.detectedAt ?? null
     }
   };
 }
@@ -10951,6 +11247,9 @@ function createdAtOf(value) {
   }
   return Number.isNaN(Date.parse(value)) ? null : value;
 }
+function idOf(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+}
 function readItemEventEntry(value) {
   if (!isRecord(value)) {
     return null;
@@ -10959,7 +11258,9 @@ function readItemEventEntry(value) {
   if (createdAt === null || typeof value.event !== "string" || value.event === "") {
     return null;
   }
+  const id = idOf(value.id);
   return {
+    ...id !== undefined && { id },
     event: value.event,
     assignee: actorOf(value.assignee),
     assigner: actorOf(value.assigner),
@@ -11045,7 +11346,7 @@ async function resolveCandidateActor(request) {
     recordNoEvent({ request, reason: actor.reason });
     return { kind: "refused", reason: actor.reason };
   }
-  return { kind: "actor", login: actor.login };
+  return { kind: "actor", login: actor.login, eventId: event.id ?? null, eventAt: event.createdAt };
 }
 
 // service/poll/triggers-assignment.ts
@@ -11111,7 +11412,109 @@ async function assignmentEvents(input) {
   return { ok: true, events };
 }
 
+// service/poll/triggers-checks.ts
+async function triggersChecks(input) {
+  const { binding, poller, token, pace, tracked, detectedAt, movements, pulls } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const byNumber = new Map(pulls.map((pull) => [pull.pullNumber, pull]));
+  const reads = new Map;
+  const events = [];
+  for (const movement of movements) {
+    let listed = reads.get(movement.headSha);
+    if (listed === undefined) {
+      listed = await poller.listHeadChecks({
+        token,
+        owner: repository.owner,
+        name: repository.name,
+        headSha: movement.headSha,
+        pace
+      });
+      reads.set(movement.headSha, listed);
+    }
+    if (listed.kind !== "ok") {
+      return { ok: false, failure: listed };
+    }
+    if (listed.truncated) {
+      input.log.warn("check-runs walk truncated; this head produces nothing this cycle", {
+        headSha: movement.headSha
+      });
+      continue;
+    }
+    const pull = byNumber.get(movement.pullNumber);
+    const subject = tracked.get(movement.pullNumber);
+    if (pull === undefined || subject === undefined || listed.conclusion === null) {
+      continue;
+    }
+    const row = checksFollowUp({
+      binding,
+      pull,
+      tracked: subject,
+      conclusion: listed.conclusion,
+      names: listed.names,
+      detectedAt
+    });
+    if (row !== null) {
+      events.push(row);
+    }
+  }
+  return { ok: true, events };
+}
+
+// service/poll/review-comment-mention-events.ts
+function issueFieldsOf(comment, repository) {
+  return {
+    issueNumber: comment.pullNumber,
+    issueTitle: `Pull request #${comment.pullNumber}`,
+    issueUrl: `https://github.com/${repository.owner}/${repository.name}/pull/${comment.pullNumber}`,
+    issueBodyExcerpt: bodyExcerptOf(comment.body)
+  };
+}
+function reviewCommentMentionEvent(input) {
+  const { binding, comment, detectedAt } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const commenter = actorLoginOf(comment.authorLogin);
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repository),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "mention",
+    origin: "review-comment",
+    commentId: comment.commentId,
+    issue: issueFieldsOf(comment, repository),
+    actorLogin: commenter,
+    actorAttribution: "direct",
+    triggerNote: `Review comment by ${commenter} on pull request #${comment.pullNumber} ` + "mentioned the bound account",
+    detectedAt,
+    subjectType: "pull_request"
+  });
+}
+function reviewCommentMentionEvents(input) {
+  const { binding, login, comments, windowStart, detectedAt } = input;
+  const events = [];
+  for (const comment of comments) {
+    if (!stampInWindow(comment.updatedAt, windowStart) || !isAttributableAuthor(comment.authorLogin, comment.authorType) || !mentionsLogin(comment.body, login)) {
+      continue;
+    }
+    events.push(reviewCommentMentionEvent({ binding, comment, detectedAt }));
+  }
+  return events;
+}
+
 // service/poll/triggers-review.ts
+function reRequestOf(input) {
+  if (input.tracked === undefined || input.eventId === null) {
+    return null;
+  }
+  const requestedAt = Date.parse(input.eventAt);
+  const establishedAt = Date.parse(input.tracked.establishedAt ?? "");
+  if (!Number.isFinite(requestedAt) || !Number.isFinite(establishedAt) || requestedAt <= establishedAt) {
+    return null;
+  }
+  return { tracked: input.tracked, eventId: input.eventId };
+}
 function isReviewRequestPull(pull, bindingLogin) {
   if (bindingLogin === "") {
     return false;
@@ -11145,19 +11548,10 @@ function reviewEvent(input) {
   });
 }
 async function reviewRequestEvents(input) {
-  const { binding, poller, token, login, windowStart, detectedAt, pace } = input;
+  const { binding, poller, token, login, windowStart, detectedAt, pace, pulls } = input;
   const repository = repositoryRefOf(binding.repository);
-  const listed = await poller.listOpenPulls({
-    token,
-    owner: repository.owner,
-    name: repository.name,
-    pace
-  });
-  if (listed.kind !== "ok") {
-    return { ok: false, failure: listed };
-  }
   const events = [];
-  for (const pull of listed.pulls) {
+  for (const pull of pulls) {
     if (!stampInWindow(pull.updatedAt, windowStart) || !isReviewRequestPull(pull, login)) {
       continue;
     }
@@ -11175,47 +11569,124 @@ async function reviewRequestEvents(input) {
     if (actor.kind === "failed") {
       return { ok: false, failure: actor.failure };
     }
-    if (actor.kind === "actor") {
-      events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
+    if (actor.kind !== "actor") {
+      continue;
+    }
+    const tracked = input.tracked.get(pull.pullNumber);
+    const reRequest = reRequestOf({ tracked, eventId: actor.eventId, eventAt: actor.eventAt });
+    if (reRequest !== null) {
+      events.push(reviewFollowUp({
+        binding,
+        pull,
+        tracked: reRequest.tracked,
+        eventId: reRequest.eventId,
+        actorLogin: actor.login,
+        detectedAt
+      }));
+      continue;
+    }
+    events.push(reviewEvent({ binding, pull, actorLogin: actor.login, detectedAt }));
+  }
+  return { ok: true, events };
+}
+
+// service/poll/triggers-review-submitted.ts
+function isOwnPullCandidate(pull, bindingLogin) {
+  if (bindingLogin === "" || pull.authorLogin === "") {
+    return false;
+  }
+  return pull.authorLogin.toLowerCase() === bindingLogin.toLowerCase();
+}
+function isSubmittedReview(review, bindingLogin, windowStart) {
+  if (review.state !== "CHANGES_REQUESTED" || review.submittedAt === null) {
+    return false;
+  }
+  const submitted = Date.parse(review.submittedAt);
+  const start = Date.parse(windowStart);
+  if (!Number.isFinite(submitted) || !Number.isFinite(start) || submitted < start || !isAttributableAuthor(review.authorLogin, review.authorType)) {
+    return false;
+  }
+  return review.authorLogin.toLowerCase() !== bindingLogin.toLowerCase();
+}
+function newerTrackedPull(input) {
+  const subject = input.tracked;
+  if (subject?.subjectType !== "pull_request" || input.submittedAt === null) {
+    return null;
+  }
+  const submitted = Date.parse(input.submittedAt);
+  const established = Date.parse(subject.establishedAt ?? "");
+  if (!Number.isFinite(submitted) || !Number.isFinite(established) || submitted <= established) {
+    return null;
+  }
+  return subject;
+}
+function submittedTrigger(input) {
+  const { binding, pull, review, detectedAt } = input;
+  const reviewer = actorLoginOf(review.authorLogin);
+  return createEvent({
+    bindingId: binding.bindingId,
+    repository: repositoryLabel(repositoryRefOf(binding.repository)),
+    accountNumericUserId: binding.accountNumericUserId,
+    accountLogin: binding.accountLogin,
+    projectId: binding.projectId,
+    worktreeOption: binding.worktreeOption,
+    kind: "review",
+    reviewId: review.reviewId,
+    headSha: pull.headSha,
+    baseRef: pull.baseRef,
+    issue: {
+      issueNumber: pull.pullNumber,
+      issueTitle: pull.title,
+      issueUrl: pull.url,
+      issueBodyExcerpt: ""
+    },
+    actorLogin: reviewer,
+    actorAttribution: "direct",
+    triggerNote: `Review changes requested by ${reviewer} on pull request #${pull.pullNumber}`,
+    detectedAt,
+    subjectType: "pull_request"
+  });
+}
+async function reviewSubmittedEvents(input) {
+  const { binding, poller, token, login, windowStart, detectedAt, pace, pulls } = input;
+  const repository = repositoryRefOf(binding.repository);
+  const events = [];
+  for (const pull of pulls) {
+    if (!stampInWindow(pull.updatedAt, windowStart) || !isOwnPullCandidate(pull, login)) {
+      continue;
+    }
+    const listed = await poller.listPullReviews({
+      token,
+      owner: repository.owner,
+      name: repository.name,
+      pullNumber: pull.pullNumber,
+      windowStart,
+      pace
+    });
+    if (listed.kind !== "ok") {
+      return { ok: false, failure: listed };
+    }
+    if (listed.truncated) {
+      input.log.warn("review feed truncated; this pull request produces nothing this cycle", {
+        pullNumber: pull.pullNumber
+      });
+      continue;
+    }
+    for (const review of listed.reviews) {
+      if (!isSubmittedReview(review, login, windowStart)) {
+        continue;
+      }
+      const tracked = newerTrackedPull({
+        tracked: input.tracked.get(pull.pullNumber),
+        submittedAt: review.submittedAt
+      });
+      events.push(tracked === null ? submittedTrigger({ binding, pull, review, detectedAt }) : reviewSubmittedFollowUp({ binding, pull, tracked, review, detectedAt }));
     }
   }
-  const pullEnds = trackedPullEnds({ binding, pulls: listed.pulls, tracked: input.tracked });
-  const heads = headFollowUps({
-    binding,
-    pulls: listed.pulls,
-    tracked: withoutEnded(input.tracked, pullEnds),
-    windowStart,
-    detectedAt
-  });
-  return {
-    ok: true,
-    events: [...events, ...heads.rows],
-    observedHeads: new Map(heads.observations.flatMap((observation) => observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
-    ...pullEnds.length > 0 && { ends: pullEnds }
-  };
+  return { ok: true, events };
 }
 
 // service/poll/triggers.ts
-function isLoginCharacter(character) {
-  return /^[A-Za-z0-9_-]$/.test(character);
-}
-function mentionsLogin(body, login) {
-  if (login === "") {
-    return false;
-  }
-  const haystack = body.toLowerCase();
-  const token = `@${login.toLowerCase()}`;
-  let from = haystack.indexOf(token);
-  while (from !== -1) {
-    const before = from === 0 ? "" : haystack.charAt(from - 1);
-    const after = haystack.charAt(from + token.length);
-    if (!isLoginCharacter(before) && !isLoginCharacter(after)) {
-      return true;
-    }
-    from = haystack.indexOf(token, from + 1);
-  }
-  return false;
-}
 function isMentionComment(comment, bindingLogin) {
   if (!isAttributableAuthor(comment.authorLogin, comment.authorType)) {
     return false;
@@ -11319,13 +11790,40 @@ async function mentionEventsOf(input) {
   if (listed.kind !== "ok") {
     return { ok: false, failure: listed };
   }
+  const reviewed = await poller.listReviewComments({
+    token,
+    owner: repository.owner,
+    name: repository.name,
+    since: windowStart,
+    pace
+  });
+  if (reviewed.kind !== "ok") {
+    input.log.warn("review-comment feed could not be listed; this cycle detects none", {
+      failure: reviewed.kind
+    });
+  }
+  const reviewComments = reviewed.kind === "ok" ? reviewed.comments : [];
   const events = [
     ...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }),
     ...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }),
+    ...reviewCommentMentionEvents({
+      binding,
+      login,
+      comments: reviewComments,
+      windowStart,
+      detectedAt
+    }),
     ...commentFollowUps({
       binding,
       comments: listed.comments,
       issues,
+      tracked: input.tracked,
+      windowStart,
+      detectedAt
+    }),
+    ...reviewCommentFollowUps({
+      binding,
+      comments: reviewComments,
       tracked: input.tracked,
       windowStart,
       detectedAt
@@ -11346,8 +11844,67 @@ async function listedIssues(input) {
     pace
   });
 }
+function pullsNeeded(binding) {
+  return binding.triggers.reviewRequest || binding.triggers.reviewSubmitted || binding.triggers.checks;
+}
+async function listedPulls(input) {
+  const { poller, token, repository, pace, binding } = input;
+  if (!pullsNeeded(binding)) {
+    return { kind: "ok", pulls: [] };
+  }
+  return await poller.listOpenPulls({
+    token,
+    owner: repository.owner,
+    name: repository.name,
+    pace
+  });
+}
+async function pullEventsOf(input) {
+  const { scan, pulls } = input;
+  const { binding } = scan;
+  const events = [];
+  const pullEnds = trackedPullEnds({ binding, pulls, tracked: scan.tracked });
+  const tracked = withoutEnded(scan.tracked, pullEnds);
+  const heads = headFollowUps({
+    binding,
+    pulls,
+    tracked,
+    windowStart: scan.windowStart,
+    detectedAt: scan.detectedAt
+  });
+  if (binding.triggers.reviewRequest) {
+    const requests = await reviewRequestEvents({ ...scan, tracked, pulls });
+    if (!requests.ok) {
+      return requests;
+    }
+    events.push(...requests.events);
+  }
+  if (binding.triggers.reviewSubmitted) {
+    const submitted = await reviewSubmittedEvents({ ...scan, tracked, pulls });
+    if (!submitted.ok) {
+      return submitted;
+    }
+    events.push(...submitted.events);
+  }
+  if (binding.triggers.reviewRequest) {
+    events.push(...heads.rows);
+  }
+  if (binding.triggers.checks) {
+    const checks = await triggersChecks({ ...scan, tracked, pulls, movements: heads.movements });
+    if (!checks.ok) {
+      return checks;
+    }
+    events.push(...checks.events);
+  }
+  return {
+    ok: true,
+    events,
+    observedHeads: new Map(heads.observations.flatMap((observation) => observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
+    ...pullEnds.length > 0 && { ends: pullEnds }
+  };
+}
 async function triggerBranches(input) {
-  const { scan, issues } = input;
+  const { scan, issues, pulls } = input;
   const branches = [];
   if (scan.binding.triggers.assignment) {
     branches.push(await assignmentEvents({ ...scan, issues }));
@@ -11355,8 +11912,8 @@ async function triggerBranches(input) {
   if (scan.binding.triggers.mention) {
     branches.push(await mentionEventsOf({ ...scan, issues }));
   }
-  if (scan.binding.triggers.reviewRequest) {
-    branches.push(await reviewRequestEvents(scan));
+  if (pullsNeeded(scan.binding)) {
+    branches.push(await pullEventsOf({ scan, pulls }));
   }
   return branches;
 }
@@ -11367,6 +11924,10 @@ async function collectTriggerEvents(input) {
   if (issues.kind !== "ok") {
     return { ok: false, failure: issues };
   }
+  const pulls = await listedPulls({ poller, token, repository, pace, binding });
+  if (pulls.kind !== "ok") {
+    return { ok: false, failure: pulls };
+  }
   const ends = [...trackedIssueEnds({
     binding,
     issues: issues.issues,
@@ -11375,7 +11936,7 @@ async function collectTriggerEvents(input) {
   const tracked = withoutEnded(input.tracked, ends);
   const events = [];
   let observedHeads;
-  const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues });
+  const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues, pulls: pulls.pulls });
   for (const branch of branches) {
     if (!branch.ok) {
       return branch;
@@ -11396,8 +11957,8 @@ async function collectTriggerEvents(input) {
 
 // service/poll/loop.ts
 function watchesAnything(binding) {
-  const { assignment, mention, reviewRequest } = binding.triggers;
-  return assignment || mention || reviewRequest;
+  const { assignment, mention, reviewRequest, reviewSubmitted, checks } = binding.triggers;
+  return assignment || mention || reviewRequest || reviewSubmitted || checks;
 }
 function skipOf(outcome) {
   if (outcome.kind === "auth-failed") {
@@ -11770,6 +12331,34 @@ function parseListPage(input) {
     return item === null ? [] : [item];
   });
 }
+function lastPageOf(link) {
+  if (link === null) {
+    return null;
+  }
+  for (const part of link.split(",")) {
+    if (!/\brel="last"/.test(part)) {
+      continue;
+    }
+    const match = /[?&]page=(\d+)/.exec(part);
+    const page = match === null ? NaN : Number(match[1]);
+    return Number.isSafeInteger(page) && page > 0 ? page : null;
+  }
+  return null;
+}
+function parseEnvelopePage(input) {
+  const parsed = parseJsonText(input.text);
+  if (!parsed.ok || !isRecord(parsed.value)) {
+    throw new TypeError(input.message);
+  }
+  const entries = parsed.value[input.envelope];
+  if (!Array.isArray(entries)) {
+    throw new TypeError(input.message);
+  }
+  return entries.flatMap((entry) => {
+    const item = input.read(entry);
+    return item === null ? [] : [item];
+  });
+}
 async function classifyOutcome(response) {
   if (response.status === STATUS_UNAUTHORIZED2 || response.status === STATUS_NOT_FOUND2) {
     return { kind: "auth-failed" };
@@ -11845,6 +12434,31 @@ async function readOnePage(input) {
       kind: "ok",
       items: parseListPage({
         text: await attempt.response.text(),
+        message: input.message,
+        read: input.read
+      }),
+      lastPage: lastPageOf(attempt.response.headers.get("link"))
+    };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
+async function readEnvelopePage(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    return {
+      kind: "ok",
+      items: parseEnvelopePage({
+        text: await attempt.response.text(),
+        envelope: input.envelope,
         message: input.message,
         read: input.read
       })
@@ -11980,6 +12594,28 @@ function readCommentEntry(value) {
     updatedAt: textOf(record, "updated_at")
   };
 }
+function readReviewCommentEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const commentId = positiveIntOf2(record.id);
+  const pullNumber = issueNumberOf2(record.pull_request_url);
+  const body = textOf(record, "body");
+  const user = asRecord(record.user);
+  const authorLogin = authorLoginOf(user);
+  if (commentId === null || pullNumber === null || body === null || authorLogin === "") {
+    return null;
+  }
+  return {
+    commentId,
+    pullNumber,
+    body,
+    authorLogin,
+    authorType: authorTypeOf(user),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
 function readPullEntry(value) {
   const record = asRecord(value);
   if (record === null) {
@@ -11995,11 +12631,14 @@ function readPullEntry(value) {
   }
   const head = asRecord(record.head);
   const base = asRecord(record.base);
+  const user = asRecord(record.user);
   return {
     pullNumber,
     title,
     url,
     state,
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user),
     requestedReviewers,
     headSha: head === null ? null : textOf(head, "sha"),
     baseRef: base === null ? null : textOf(base, "ref"),
@@ -12008,6 +12647,36 @@ function readPullEntry(value) {
     updatedAt: textOf(record, "updated_at")
   };
 }
+function readReviewEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const reviewId = positiveIntOf2(record.id);
+  const state = textOf(record, "state");
+  if (reviewId === null || state === null) {
+    return null;
+  }
+  const user = asRecord(record.user);
+  return {
+    reviewId,
+    state,
+    submittedAt: textOf(record, "submitted_at"),
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user)
+  };
+}
+function readCheckRunEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const name = textOf(record, "name");
+  if (name === null || name === "") {
+    return null;
+  }
+  return { name, conclusion: textOf(record, "conclusion") };
+}
 function readIssueObject(value) {
   const issue2 = readIssueEntry(value);
   return issue2 !== null && (issue2.state === "open" || issue2.state === "closed") ? issue2 : null;
@@ -12015,6 +12684,132 @@ function readIssueObject(value) {
 function readPullObject(value) {
   const pull = readPullEntry(value);
   return pull !== null && (pull.state === "open" || pull.state === "closed") ? pull : null;
+}
+
+// service/poll/poller-checks.ts
+var FAILING_CONCLUSIONS = [
+  "action_required",
+  "failure",
+  "timed_out",
+  "cancelled"
+];
+var MAX_CHECK_NAMES = 10;
+var MAX_CHECK_PAGES = 2;
+function failingOf(value) {
+  return FAILING_CONCLUSIONS.find((conclusion) => conclusion === value) ?? null;
+}
+function failingConclusionOf(runs) {
+  for (const conclusion of FAILING_CONCLUSIONS) {
+    if (runs.some((run) => run.conclusion === conclusion)) {
+      return conclusion;
+    }
+  }
+  return null;
+}
+function failingNamesOf(runs) {
+  return runs.filter((run) => failingOf(run.conclusion) !== null).map((run) => run.name).slice(0, MAX_CHECK_NAMES);
+}
+async function readHeadChecks(runtime, query) {
+  const url = new URL(`${API_ORIGIN}/repos/${query.owner}/${query.name}/commits/${query.headSha}/check-runs`);
+  url.searchParams.set("filter", "latest");
+  const runs = [];
+  for (let page = 1;page <= MAX_CHECK_PAGES; page += 1) {
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("per_page", String(query.pace.perPage));
+    const parsed = await readEnvelopePage({
+      runtime,
+      token: query.token,
+      url,
+      pace: query.pace,
+      envelope: "check_runs",
+      message: "check-runs response was not an envelope",
+      read: readCheckRunEntry
+    });
+    if (parsed.kind !== "ok") {
+      return parsed;
+    }
+    runs.push(...parsed.items);
+    if (page === MAX_CHECK_PAGES && parsed.items.length >= query.pace.perPage) {
+      return { kind: "ok", conclusion: null, names: [], truncated: true };
+    }
+    if (parsed.items.length < query.pace.perPage) {
+      break;
+    }
+  }
+  return {
+    kind: "ok",
+    conclusion: failingConclusionOf(runs),
+    names: failingNamesOf(runs),
+    truncated: false
+  };
+}
+
+// service/poll/poller-reviews.ts
+var MAX_REVIEW_CONTENT_PAGES = 2;
+function entirelyInWindow(reviews, windowStart) {
+  const start = Date.parse(windowStart);
+  return reviews.every((review) => {
+    if (review.submittedAt === null) {
+      return true;
+    }
+    const submitted = Date.parse(review.submittedAt);
+    return !Number.isFinite(submitted) || submitted >= start;
+  });
+}
+async function readPage(input) {
+  input.url.searchParams.set("page", String(input.page));
+  input.url.searchParams.set("per_page", String(input.query.pace.perPage));
+  return await readOnePage({
+    runtime: input.runtime,
+    token: input.query.token,
+    url: input.url,
+    pace: input.query.pace,
+    message: "review list response was not an array",
+    read: readReviewEntry
+  });
+}
+async function walkBackward(input) {
+  let pageNumber = input.lastPage;
+  let page = input.lastPage === 1 ? { kind: "ok", items: input.discoveryItems, lastPage: input.lastPage } : await readPage({ runtime: input.runtime, query: input.query, url: input.url, page: pageNumber });
+  if (page.kind !== "ok") {
+    return page;
+  }
+  const reviews = [...page.items];
+  let contentPages = 1;
+  while (pageNumber !== 1 && contentPages < MAX_REVIEW_CONTENT_PAGES && entirelyInWindow(page.items, input.query.windowStart)) {
+    pageNumber -= 1;
+    page = await readPage({ runtime: input.runtime, query: input.query, url: input.url, page: pageNumber });
+    if (page.kind !== "ok") {
+      return page;
+    }
+    reviews.unshift(...page.items);
+    contentPages += 1;
+  }
+  const isTruncated = pageNumber !== 1 && contentPages === MAX_REVIEW_CONTENT_PAGES && entirelyInWindow(page.items, input.query.windowStart);
+  return { kind: "ok", reviews: isTruncated ? [] : reviews, truncated: isTruncated };
+}
+async function readPullReviews(runtime, query) {
+  const url = listUrl({
+    owner: query.owner,
+    name: query.name,
+    path: `pulls/${query.pullNumber}/reviews`,
+    query: {},
+    since: null
+  });
+  const discovery = await readPage({ runtime, query, url, page: 1 });
+  if (discovery.kind !== "ok") {
+    return discovery;
+  }
+  if (discovery.lastPage === null) {
+    return discovery.items.length < query.pace.perPage ? { kind: "ok", reviews: discovery.items, truncated: false } : { kind: "ok", reviews: [], truncated: true };
+  }
+  return await walkBackward({
+    runtime,
+    query,
+    url,
+    lastPage: discovery.lastPage,
+    discoveryItems: discovery.items
+  });
 }
 
 // service/poll/poller-github.ts
@@ -12050,6 +12845,23 @@ async function commentsList(runtime, query) {
     }),
     message: "issue comment list response was not an array",
     read: readCommentEntry
+  });
+  return result.kind === "ok" ? { kind: "ok", comments: result.items } : result;
+}
+async function reviewCommentsList(runtime, query) {
+  const result = await listPages({
+    runtime,
+    pace: query.pace,
+    token: query.token,
+    url: listUrl({
+      owner: query.owner,
+      name: query.name,
+      path: "pulls/comments",
+      query: { ...NEWEST_UPDATED_FIRST },
+      since: query.since
+    }),
+    message: "review comment list response was not an array",
+    read: readReviewCommentEntry
   });
   return result.kind === "ok" ? { kind: "ok", comments: result.items } : result;
 }
@@ -12129,7 +12941,10 @@ function createGitHubIssuePoller(deps, fetchImpl = (url, init) => globalThis.fet
   return {
     listOpenIssues: (query) => issuesList(runtime, query),
     listIssueComments: (query) => commentsList(runtime, query),
+    listReviewComments: (query) => reviewCommentsList(runtime, query),
     listOpenPulls: (query) => pullsList(runtime, query),
+    listPullReviews: (query) => readPullReviews(runtime, query),
+    listHeadChecks: (query) => readHeadChecks(runtime, query),
     listIssueEvents: (query) => itemEventsList(runtime, query),
     readIssueState: (query) => issueStateObject(runtime, query),
     readPullState: (query) => pullStateObject(runtime, query)

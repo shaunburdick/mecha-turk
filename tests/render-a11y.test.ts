@@ -141,7 +141,7 @@ function hostileBinding(): PanelBinding {
             repository: 'acme/widget',
             projectId: 'prj_42',
             worktreeOption: 'none',
-            triggers: { assignment: true, mention: false, reviewRequest: false },
+            triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
             state: 'active',
             createdAt: FIXTURE_STAMP,
             updatedAt: FIXTURE_STAMP,

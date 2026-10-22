@@ -630,3 +630,373 @@ Every claim below was re-read in the shipped source on **2026-10-09** with the f
 **7. The reachability check that produced correction 2.** `service/poll/runs-parse.ts:219-221` quarantines any run whose attempts record a dispatched session while `state !== 'dispatched'`, and any run whose `session` is non-null while `state !== 'dispatched'` — and `runs-parse.ts:216-218` refuses an attempt carrying a `sessionId` whose outcome is not `dispatched`. Nothing in FR-100, FR-103 or FR-105 mints a state or a member that could un-join a session-carrying run (FR-103 permits exactly one new run-row member, the seed, and FR-105 explicitly mints none). **So "after the end a new trigger opens the subject's next ordinal" is unreachable by construction**, and the shipped suite already asserts the reachable behaviour rather than the promised one — `tests/follow-up-lifecycle.test.ts:1449-1457` asserts the mention joins the session-carrying run and `ordinary.runs.map((run) => run.ordinal)` is `[0]`. The first draft's reading is corrected in FR-106 rather than left standing beside it.
 
 **8. The green suite does not disprove the gap, and that is the point.** The suite as it stood **before `F-10` rewrote it** asserted the end by injecting `state: 'closed'` into the **list** fixture (`fixtureIssue({ state: 'closed', stateReason: 'completed', closedAt: STAMP })`) at `tests/follow-up-lifecycle.test.ts:1070-1101`, and `:1104-1139` injected `merged: true, state: 'closed'` into the pulls fixture. Both shapes are ones the real endpoints the scan calls **never return**, because both send `state=open`. The suite was green, the capability was unreachable, and a fixture that models a shape the provider does not send is exactly how that happens — which is why the second draft's fix is a *source* change (the object endpoint) and not a fixture change, and why AC-049's request-count proof is now a **measurement** of the added read rather than an argument that none exists. **The delivered proofs read the item's own endpoint instead** (`:1261-1302` for an issue closed as completed, `:1304-1355` for a pull merged and one closed unmerged, `:1502-1524` for the `404` stop), so no shipped assertion rests on a list shape the provider does not send.
+
+
+## Wider event detection research (2026-10-20)
+
+**Status**: research only. Recorded here at v1.20.0 when the delivery directories were consolidated; no requirement lives in this section.
+**Scope**: the deferred detection groups named in `spec.md` `## Out of Scope` — review submission/changes-requested on the account's own PR, the three new trigger kinds (opened, reopened, labeled), and surfaces outside the assignment/review/mention shape.
+**Anchor**: this specification's §K (the tracking lifecycle) and §L (the wider detection).
+
+---
+
+### Summary
+
+| Signal | Endpoint | Added requests per repo-cycle · per hour at 10 repos / 60 s | Shape | New setting? | New id? | Verdict | Effort |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| **2a. Review changes-requested** (own PR) | `GET /repos/{o}/{r}/pulls/{n}/reviews` | 0 quiet; 1 per own PR whose `updated_at` is in the window (read the **last** page first) · ≤ ~50/h. Forces the pulls list only when `reviewRequest` is off · +600/h | Trigger; follow-up when the PR is tracked | `triggers.reviewSubmitted` | `~review~submitted~<reviewId>`; `~followup~review-submitted~<reviewId>` | **build-with-caveat** | M |
+| **2b. Review approved** | same read | 0 extra (same rows) | Trigger or nothing | same toggle, or a second one | same | **defer** | S once 2a exists |
+| **2c. Review commented** | same read | 0 extra | Follow-up on a tracked PR only | none | same follow-up tail | **defer** | S |
+| **2d. Review dismissed** | `GET /repos/{o}/{r}/issues/{n}/events` | 1 per own PR with activity · ≤ ~50/h (a second read per candidate) | Notification; at most a follow-up | none | `~review~dismissed~<eventId>` | **defer** | S–M |
+| **3a. Newly opened** | `GET /repos/{o}/{r}/issues` (already read) | 0 when the issues list is read; +600/h when it is the only reason to read | Trigger | `triggers.opened` + a `labels[]` filter | `~opened` | **build-with-caveat** | M |
+| **3b. Reopened** | `GET /repos/{o}/{r}/issues/{n}/events` | 0 quiet **only** with a `state_reason` prefilter; otherwise 1 per updated open item · up to ~12,000/h | Trigger — but undeliverable today | `triggers.reopened` | `~reopened~<eventId>` | **defer** (run-model decision) | M |
+| **3c. Labeled** | `GET /repos/{o}/{r}/issues/{n}/events` | 0 quiet with the client-side `labels[]` filter; 1 per candidate · ≤ ~50/h with a dedicated label | Trigger, follow-up when tracked | `triggers.labeled` + `labels[]` | `~labeled~<eventId>` | **build-with-caveat** | L |
+| **6a. CI / checks** | `GET /repos/{o}/{r}/commits/{sha}/check-runs` (+ legacy `/status`) | 0 quiet if gated on a head movement; 1 per movement · ≤ ~50/h. Every cycle costs 60 × tracked PRs · ~1,800/h | Follow-up on a tracked PR | `triggers.checks` | `~followup~checks~<sha>~<conclusion>` | **build-with-caveat** | M |
+| **6b. Commit comments** | `GET /repos/{o}/{r}/comments` | 1 repo-wide + pages every cycle · 600+/h; plus 1 per commented commit for a PR lookup | Neither (no issue/PR number) | — | — | **reject** | S to price |
+| **6c. Releases** | `GET /repos/{o}/{r}/releases` | 1 repo-wide per cycle · 600/h | Notification outside the run model | — | — | **reject** | S |
+| **6d. Discussions** | GraphQL `repository.discussions` | 1 query per repo per cycle · 600 queries/h = 600–5,400 points/h | Trigger/follow-up, but needs a third subject type | `triggers.discussion` | `~discussion~<number>~…` | **reject** | L |
+| **6e. Wiki** | none; a separate git repo | Not an HTTP budget: a git clone/fetch | Neither | — | — | **reject** | S |
+
+Effort: **S** ≤ 1 day, **M** 2–3 days, **L** a week or more, by files and surfaces touched.
+
+---
+
+### Cost model (shared by every row)
+
+- **Cycle arithmetic.** 10 repositories at 60 s = **600 binding-cycles per hour**. One added repository-wide list read per binding per cycle is therefore **600 requests/hour** — the entire floor of NFR-003's 600–1,500 design point, before any per-candidate read. Two such reads exceed it.
+- **The baseline is already multi-feed.** With all three current toggles on, a binding already makes four list reads per cycle (issues, issue comments, review comments, pulls) — 2,400 requests/hour at 10 repos. NFR-003's 600–1,500 only holds when not every binding turns every trigger on. The marginal read is what matters, not the absolute.
+- **Conditional requests are not implemented.** `requestHeaders` (`service/github.ts:153`) sends authorization, accept, API version and user-agent only; `service/poll/poller-transport.ts` records no `ETag`/`Last-Modified`. FR-021 *permits* conditional requests but nothing sends `If-None-Match`, so **a quiet cycle still costs a full request** for every feed it lists.
+- **Therefore the only cheap pattern is candidate-gated.** A read issued per candidate costs **zero** when the candidate set is empty. A new repository-wide feed costs 600/h whether or not anything happened. Every recommendation below prefers the former.
+- **Page caps.** 002 FR-020 caps `per_page` at 30. Each list can cost `ceil(items-in-window / 30)` requests; a 10-minute overlap usually fits one page. The per-item reads (`issues/{n}/events`, `pulls/{n}/reviews`) are `per_page`-bounded walks with their own bounds; price one page plus any overflow.
+- **Search has a separate bucket** (30 requests/min authenticated, `/search/*`), but does not replace the per-PR review read and adds an indexing-lag risk; see 2.3.
+- **GraphQL has a separate 5,000-points/hour bucket** and a 2,000-points/min secondary limit; it would need its own accounting beside the REST budget.
+
+---
+
+### 2. Review submitted / changes requested on the account's own PR
+
+#### 2.1 GitHub surface
+
+**Read one PR's reviews — verified**
+
+- `GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews`, `per_page` (max 100, product cap 30), `page`. **No `since`.** Returns in **chronological order** (oldest first), so a window cannot be selected server-side and the newest rows are on the last page.
+- Response (`Pull Request Review`): `id` (int64), `node_id`, `user` (`Simple User` or null — `login`, `type`), `body`, `state` (free string; the API's submitted states are `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`), `html_url`, `pull_request_url`, `submitted_at` (date-time, **absent on a PENDING review** — the docs say pending reviews "do not include the `submitted_at` property"), `commit_id` (string or null), `author_association`.
+- Core REST bucket (5,000/h authenticated). OAuth/PAT classic needs `repo` on a private repository; a fine-grained token needs pull-request read. The docs do not enumerate the fine-grained permission name on this page ("unverified", below).
+- **Does a `DISMISSED` review appear in this list?** The docs do not enumerate `state` values and do not say. GraphQL's `PullRequestReviewState` enum does carry `DISMISSED` ("A review that has been dismissed"), and the dismiss endpoint returns the review object, but the REST list's representation of a dismissed review is **unverified**. Do not build dismissal on this row.
+
+**Read one item's events — verified, and it does not answer "reviewed"**
+
+- `GET /repos/{owner}/{repo}/issues/{issue_number}/events`, `per_page`, `page` only (**no `since`**). Every pull request is an issue, so this path serves PRs too.
+- `review_dismissed` **is** an issue-event type on this endpoint, with `event`, `id`, `actor` (`Simple User`/null), `created_at`, and `dismissed_review.state` (documented values `commented`, `approved`, `changes_requested`), `dismissed_review.review_id`, `dismissed_review.dismissal_message`, `dismissed_review.dismissal_commit_id`.
+- **`reviewed` is timeline-only.** The issue-event-types page marks `reviewed` **not supported** in the REST API for issue events and **supported** in the timeline API. The per-item events response schema has no `Reviewed Issue Event` member at all; the timeline schema has `Timeline Reviewed Event` with `id`, `user`, `body`, `state`, `submitted_at`, `commit_id`, `html_url`, `pull_request_url`.
+- The timeline endpoint (`GET …/issues/{n}/timeline`) accepts `per_page`, `page`, `exclude` only — **no `since`** (matching FR-051's statement), and carries the same `reviewed` row plus `line_commented` / `commit_commented`.
+- **So the claim "issue events returns `reviewed` and `review_dismissed`, and those rows carry the state" is half true**: `review_dismissed` is there and carries the dismissed state; `reviewed` is not. The honest source for a submitted review is the reviews feed (or the timeline, which costs the same one read but returns a much larger, untrusted-text-heavy payload).
+
+**Candidate set — verified fields**
+
+- `GET /repos/{owner}/{repo}/pulls` returns `Pull Request Simple`, which includes `number`, `state`, `title`, `html_url`, `user` (`Simple User`/null), `created_at`, `updated_at`, `closed_at`, `merged_at`, `labels[].name`, `requested_reviewers[].login`, `head.sha`, `head.ref`, `base.ref`, `draft`.
+- `PollPull` (`service/poll/poller-entries.ts:111`) deliberately omits `user`, and `readPullEntry` does not read `created_at`, `draft` or `labels`. Adding `authorLogin`/`authorType` (and `draft`) is **no added request**: the same list row carries them. The M7 comment explaining why the author was removed (research §R8) was about *attribution of a review request*, not about authorship as a fact; this use is a different question, and should say so in the module comment rather than reopen that premise.
+
+#### 2.2 Detection shape
+
+The natural shape is **a trigger, with a follow-up arm**, not one or the other:
+
+- The account's own PR usually has **no run**, because runs today start for assignments and review requests, not for the account's own work. A follow-up-only design would therefore deliver almost nothing and look broken.
+- But if that PR *is* tracked (it was assigned to the account, or a review was requested on it), the run model refuses a second session: `findJoinableRun` (`service/poll/runs-join.ts:377`) returns a run for the subject while `run.session !== null` even after the run is terminal, and a non-follow-up delivery then only appends a source reference (`joinReference`) — no prompt is delivered. A "trigger" on a tracked PR would be silently absorbed. The detector has `input.tracked` at hand, so it can choose the follow-up row exactly as FR-108 does for a re-requested review.
+- Recommended: **trigger when the PR is untracked; follow-up when it is tracked.** That is one detector and two row shapes, not two features.
+- What the operator loses with the other choice: follow-up-only loses nearly every own-PR review (no run to join); trigger-only loses feedback on an own PR that already has a session (the row joins by reference and the agent is never told).
+
+#### 2.3 Candidate set and cost
+
+- **Candidate set:** open PRs whose `user.login` is the bound account (case-insensitive) and whose `updated_at` is inside the window. That is the right set *if* a review submission moves the PR's `updated_at` — assumed, and listed under Unverified; the alternative is every open own PR. The pulls list is already read **only when `reviewRequest` is on**; if this new toggle is on and `reviewRequest` is off, the binding must start reading it — **600/h**, the design-point floor. If both are on, the read is shared and the marginal cost is only the reviews read.
+- **Reviews read cost — and the ordering trap.** One request per candidate PR, but the endpoint returns **oldest-first** and the shared page walk is capped at **two pages** (`MAX_LIST_PAGES = 2`, `service/poll/poller-transport.ts:28`) with no truncation marker. A two-page walk from page 1 therefore sees the **oldest** 60 reviews; on a PR with more than 60 reviews a new review is invisible, and the window filter discards everything it did see. This is a **correctness** problem, not a budget one. The workable read is: take the **last** page first (needs the response's `Link: rel="last"` header, which the transport does not read today — a small addition), then walk backwards until a page is entirely older than the window. That is usually one request, bounded at two. Do **not** raise the global page cap for this endpoint: FR-020's cap is a product bound, not a per-feed choice. Residual bound to declare: a PR whose newest 30 reviews are all inside the window needs a second page, and a PR with more than 60 in-window reviews is truncated — fail closed and record it. Realistic added load: a handful of own PRs moving per hour → **≤ ~50/h** across 10 repos.
+- **The timeline does not solve the ordering trap.** It returns every comment body on the PR, and its ordering is not documented; treating it as a replacement would need the same last-page investigation. Reviews are the smaller source; both need the last-page-first walk.
+- **Quiet cycle:** zero reviews reads (no own PR moved). If the pulls list is newly forced on, the quiet cost is **1 per binding per cycle** (600/h at 10 repos) even when nothing moved.
+- **Is search cheaper?** `GET /search/issues?q=repo:o/r+is:pr+author:<login>+updated:>=<window>` has its own 30/min bucket, and 600/h is 10/min at this scale — but it **does not return reviews**, so the reviews read remains; it only replaces the pulls list, which is free when `reviewRequest` is already on. It also has a 1,000-result cap and an undocumented freshness/indexing lag. **Not cheaper in aggregate; don't.**
+- **Worst realistic total:** +600/h (new pulls read when reviewRequest is off) + ≤50/h (reviews) ≈ 650/h. With reviewRequest already on: ≤50/h.
+
+#### 2.4 Id and dedupe
+
+- Review ids are globally unique positive integers, stable across reads, and one submission is one row. Use the review id, not `submitted_at`, so a re-read of the window cannot mint a second row.
+- Trigger note: `Review <state> by <reviewer> on pull request #<n>` — the state word is the only place the row records *which* review outcome it was, so it must be in the note rather than inferred by a later reader.
+- Proposed:
+  - trigger: `evt-<owner>~<repo>~<number>~<accountNumericUserId>~review~submitted~<reviewId>`
+  - follow-up: `evt-…~followup~review-submitted~<reviewId>`
+- Do **not** reuse `~followup~review~<reviewId>`: `review` event ids (issue events) and review ids are different numbering spaces and could collide, deduping two different movements into one delivery. The extra `submitted` segment exists for that reason.
+- The trigger tail needs no parser change: `discriminatorOfId` treats any id without `followup` at segment 4 as a trigger, so `~review~submitted~<id>` is accepted and `originOf` reads `kind: 'review'` as origin `review`. The follow-up tail **does** need a new regex in `discriminatorOfId` (`service/poll/events-parse.ts:209`); without it `followUpKindOf` returns null and the row is folded as a **source reference** (or, with no joinable run, could mint a run, because `originOf` is non-null for `kind: 'review'`). Writer and parser must land together.
+- Replay idempotency: same review id → same id → queue dedupe. A second review after changes is a new id → a second row, which is the desired behaviour.
+
+#### 2.5 Gates
+
+- **Window:** `submitted_at >= windowStart`, client-side (no `since`). A PENDING review has no `submitted_at` and is skipped — never defaulted.
+- **Attribution:** the reviewer is `review.user`; `isAttributableAuthor(login, type)` applies unchanged. Bot reviews (Copilot and friends) produce nothing.
+- **Self refusal (#65 / FR-052's self-actor clause):** a review by the bound account on the bound account's own PR produces nothing. This is a self-review; no one else's decision is recorded.
+- **Subject ownership (new gate):** `pull.user.login` must equal the bound account, case-insensitively. This is a detection gate, not the dispatch allow-list. It is what distinguishes "feedback on my PR" from "a review somewhere in the repo".
+- **Allow-list:** unchanged and still evaluated **once, at dispatch authorization** (`service/poll/dispatch-actor-gate.ts`). Do not reuse `allowedUsers` as a detection filter: FR-046 says policy is judged once at dispatch, and a second evaluation would make the same field mean two things.
+- **Draft state:** a review on a draft PR is still a review; do not gate on `draft` (adding `draft` to `PollPull` is free if it later proves useful, e.g. for ready-for-review, which remains deferred).
+- **State filter:** only `CHANGES_REQUESTED` for the recommended build. `APPROVED` and `COMMENTED` are separate product decisions (2b, 2c).
+- **Terminal subject:** the pulls list is `state=open`, so a closed/merged PR's review is not delivered — acceptable; the work is over.
+
+#### 2.6 Setting and UI
+
+- `triggers.reviewSubmitted` on `BindingTriggers` (`service/bindings.ts:18`), read parse-tolerantly like `reviewRequest` (a binding stored before it reads `false`). Validation: boolean; absent means false.
+- Panel: a fourth checkbox in the binding editor (`src/bindings-body.ts`, `src/bindings-ui.ts`), the draft/edit plumbing (`src/bindings-draft.ts`, `src/bindings-edit.ts`), a chip (`src/bindings-chips.ts`) and a phrase in the trigger-copy table (`src/bindings-actors.ts:42`). The copy must distinguish *"request a review from the account on a pull request"* (existing) from *"submit a review on the account's own pull request"* (new) — they are inverse directions and a shared phrase would be wrong.
+- No new tab, no new field type, no new service route: the toggle rides the existing whole-file `PUT /v1/bindings`.
+
+#### 2.7 Compatibility
+
+- **No `EventKind` change and no `ReferenceOrigin` change** if the trigger reuses `kind: 'review'` (the feed it rode). The queue parser's `KNOWN_KINDS` already accepts it; `originOf` already returns `review`; the run key already has a pull subject. This is the single largest reason this group is M rather than L.
+- **One `FollowUpKind` addition** (`review-submitted`) in service and panel. The panel's `parseFollowUp` returns `null` for an unknown kind, which refuses the **whole run row** — so a service that writes the new tail before the panel knows it hides an entire dispatch, not just the follow-up. Both bundles ship in one commit; the panel union must be extended in the same change.
+- Old rows keep parsing: unions are additive; no stored member changes shape; no schema version bump.
+- No manifest, capability, storage-key, `SERVICE_VERSION` or package-version change.
+
+#### 2.8 Verdict
+
+**Build now (2a only), with a named caveat:** reuse `kind: 'review'`, add `authorLogin`/`authorType` to `PollPull`, read `pulls/{n}/reviews` **last page first**, emit a trigger for an untracked own PR and a follow-up for a tracked one, gated on `CHANGES_REQUESTED` and a new `reviewSubmitted` toggle. **Caveat:** the endpoint is oldest-first, has no `since`, and the transport caps a walk at two pages, so a PR with more than 60 reviews in the window is truncated (fail closed and record it) and the build must add a `Link: rel="last"` read to `poller-transport.ts`. **Effort: M** — one new poller read plus that small transport addition, one new follow-up kind (service + panel), a trigger flag and its panel copy, tests, two rebuilt bundles.
+
+**2b approved — defer.** Approving is not work; a trigger would page a session on every approval. If later wanted, a separate toggle defaulting off, and preferably a follow-up on a tracked PR ("approved — proceed"), not a trigger.
+
+**2c commented — defer.** A `COMMENTED` review's inline comments are already §L follow-ups on a tracked PR, and a body-only summary is not actionable enough to start work. It becomes interesting only as a follow-up on a tracked PR; that can ride 2a's read later at near-zero cost.
+
+**2d dismissal — defer.** The honest source is `issues/{n}/events` (`review_dismissed`), a **second** read per candidate PR, and the reviews feed's `DISMISSED` representation is unverified. A dismissal usually withdraws a block rather than asking for work; it is at most a follow-up ("the changes-requested review was dismissed"). Do not make it a trigger.
+
+---
+
+### 3. New trigger kinds
+
+The issue's premise — *"detectable from rows the scan already lists"* — survives for **opened** and fails for **reopened** and **labeled**.
+
+#### 3a. Newly opened
+
+**GitHub surface — verified.**
+`GET /repos/{owner}/{repo}/issues` (state `open` today) carries `number`, `state`, `state_reason`, `created_at`, `updated_at`, `closed_at`, `labels[].name`, `user.login`/`type`, `assignees[].login`, and the `pull_request` marker. Query params include `since` (only "last updated after"), `labels` (comma-separated), `sort`, `direction`, `per_page`, `page`. Core REST bucket. `created_at` is **not** in `PollIssue` today; adding it and `labels` costs **zero requests** (`service/poll/poller-entries.ts:214`).
+
+**Detection shape.** A **trigger**. A newly opened item has no run by definition, so a follow-up is meaningless; there is no notification surface to fall back to. It is the only one of the three that is a clean trigger.
+
+**Candidate set and cost.** The candidate set is the problem, not the detection. Every new item in the repository is the naive set — including the account's own issues and every drive-by PR — and that is exactly the noise the product must not page on.
+- *Opened by the account*: `user.login === bound login`. This is a self-act; #65's self refusal should drop it, which makes the filter useless. Do not build it.
+- *Mentions the account*: already the body-mention trigger (`~mention~body`). A second row would duplicate one act. Do not.
+- *Assigned to the account at creation*: already the assignment trigger; the `assigned` event is the later, attributed source. Do not.
+- *Label filter*: the only honest, non-duplicating filter. The issues list accepts `labels=…`, but **do not send it**: the same list feeds assignment and mention-body detection, and a server-side label filter would silently narrow those triggers. Filter **client-side** on the row's `labels` array (add it to `PollIssue`; zero requests), and `created_at` in the window then means "opened with label X". This makes the trigger useful ("new `needs-agent` issue") and quiet cycles cost **zero** *provided the issues list is already read* (assignment or mention on). If `opened` is the only trigger on, the list is read for it: **+600/h**.
+- **No `allowedUsers` filtering at detection.** Reusing the allow-list here would evaluate policy twice (detection and dispatch), contradicting FR-046; a filter that is not the allow-list is needed, and the label is it.
+
+**Id and dedupe.** `evt-…~opened`, fixed per subject. An item is opened once; a replay, a re-read of the overlapping window, or an edit produces the same id. Closed-then-reopened is not a second open (see 3b). The actor never enters the id (FR-046). Trigger note: `Issue #<n> opened by <login> with label <label>` (or `Pull request #<n> opened …`), naming the filter label that matched.
+
+**Gates.** Window on `created_at` (not `updated_at`: a comment must not make an old issue look new). Author attribution — `user.login`/`type` — through `isAttributableAuthor`; a bot/unnamed author produces nothing. Self refusal for an author equal to the bound account. Allow-list unchanged at dispatch. The label filter is a new **detection** gate: the row's own `labels` array must contain one of the configured labels — the same comparison the client-side filter already made, checked here so a mis-filtered row cannot become an event.
+
+**Setting and UI.** `triggers.opened` plus a new `labels: string[]` on the binding (the filter). Validation: non-empty when `opened` or `labeled` is on, absent otherwise (the `allowedUsers` three-state posture, but here empty is a refusal because the trigger would be noise). Panel: one checkbox and a comma-separated labels field; the binding form has no dedicated list input today — the closest precedent is the `allowedUsers` free-text field — so this is new UI, not a checkbox. No new route.
+
+**Compatibility.** A new **`EventKind`** (`opened`) is unavoidable: reusing `mention` gives `originOf` null, and a delivery whose reference is null is dropped by `foldDelivery` — **the trigger would silently do nothing**. The only other kinds with a non-null origin are `assignment` and `review`, and both would mislabel the act in the queue, the run row and the panel. So the change is:
+- service: `EventKind`, `KNOWN_KINDS`, a snapshot in `events-write.ts`, the `~opened` discriminator;
+- `ReferenceOrigin` gains `opened` (`service/poll/runs-types.ts:20`) and its validator (`runs-parts-parse.ts:39`), or the run document refuses the reference;
+- `originOf` maps it (`runs-join.ts:54`);
+- panel: `EventKind` (`src/bindings-service.ts:116`) and `eventKindOf` (`:429`), or a new row renders as `assignment`;
+- panel copy for the run row.
+Old rows parse; the unions are additive. No manifest/capability/storage change.
+
+**Verdict. Build, with the label filter as a precondition.** "Newly opened" without a filter is the noisiest signal in the set: an open binding with no allow-list would page for every issue and PR in the repository. With `labels`, it is the cheapest useful new trigger — zero added requests when the list is already read, no per-item read, and deterministic. **Effort: M** (new kind + origin + panel + filter field and UI + tests + bundles).
+
+#### 3b. Reopened
+
+**GitHub surface — verified.**
+The open issue row **cannot** say it was reopened in this window. It carries `state: 'open'` and `closed_at: null`; `state_reason` may read `reopened` (the enum has `completed`, `reopened`, `not_planned`, `duplicate`, `null`), but it is a *current-state word*, not a dated event: it persists while the issue stays open, and `updated_at` moves for every comment and edit. A comment on an issue reopened months ago would look like a reopen. Using it as evidence is a guess.
+The honest source is `GET /repos/{owner}/{repo}/issues/{issue_number}/events`, which documents `reopened` for both issues and pull requests, with `id`, `event`, `actor.login`/`type`, `created_at`, `commit_id`. Core REST bucket. The per-item timeline also has it. Neither has `since`; the scan window is a client-side comparison on `created_at`, exactly as FR-051 describes.
+So the "zero added requests" claim **does not survive**. Detection needs **one read per candidate item** (or a persisted state, below).
+
+**Detection shape.** A **trigger** is the only shape that makes sense (there is no run on a closed item in the ordinary case). But see the blocker.
+
+**Candidate set and cost.** Without a prefilter, the candidate set is *every open item whose `updated_at` is in the window* — in a busy repository, 20 items × 600 binding-cycles = **12,000 item reads/hour**, an order of magnitude over budget. With a client-side prefilter on `state_reason === 'reopened'` (documented enum, **unverified semantics**), quiet cycles cost **zero** and only genuinely reopened items are read. The prefilter is mandatory; without it, reject on cost alone.
+- Alternative: the repository-wide `GET /repos/{owner}/{repo}/issues/events` (`event`, `label`, `actor`, `created_at`, `issue.number`) with `event === 'reopened'` — one read per binding per cycle, **600/h always**, no fan-out, no persisted state. It has no `since` either, so it needs its own page-walk/truncation concept (which is why FR-049 forbids it for *attribution*; a new trigger is a different use). Cheaper in a busy repo, more expensive in a quiet one.
+
+**Id and dedupe.** `evt-…~reopened~<eventId>`. The event id is unique and stable, so each reopen is one row and a replay of the window dedupes. A fixed `~reopened` would collapse two reopens on one issue into one delivery — wrong. Trigger note: `Issue #<n> reopened by <login>` (or `Pull request #<n> reopened by <login>`).
+
+**Gates.** Window on the event's `created_at`; `actor.login` is the reopener (`actor` is the documented "person who generated the event" for this type — there is no dedicated field, unlike `assigner`); `isAttributableAuthor`; self refusal; allow-list unchanged at dispatch. No label filter is needed (a reopen is inherently a change), but bot reopeners are refused.
+
+**Setting and UI.** `triggers.reopened` boolean, rendered exactly like the other trigger checkboxes. No new field.
+
+**Compatibility.** The same new-kind plumbing as 3a (`EventKind`, `ReferenceOrigin`, `originOf`, panel `EventKind`/`eventKindOf`) **plus** the run-model blocker below.
+
+**The blocker, stated plainly.** A reopened item usually has a **concluded run** from its earlier life. `findJoinableRun` treats any run with `session !== null` as joinable forever, and `foldDelivery` then appends the new trigger as a **source reference** and delivers nothing. A follow-up would join the run but its session is likely gone; the panel's delivery gate parks it (`no-session`). Separately, `trackedIssueEnds` ends tracking when the item closed, so the tracked view no longer carries it. Net: **detection can be built, delivery cannot, until the product decides one of:**
+1. a **new ordinal** for a reopened subject — i.e. amend FR-030's "a run with a session is never dispatched again" to mean *per lifecycle*, with the reopen event as the new lifecycle's establishing trigger;
+2. a **wake** path for a concluded session (new follow-up semantics, new states);
+3. treat reopen as a **notification**, not work (new surface).
+
+**Verdict. Defer** until that decision. Building the detector first would produce rows the operator can see and the agent never receives — the exact false claim FR-036 forbids. **Effort: M** for detection; the delivery decision is the real cost.
+
+#### 3c. Labeled
+
+**GitHub surface — verified.**
+The issue row carries the **current** `labels[].name` set, not the change. A label present now may have been applied months ago; `updated_at` cannot date the application. The honest source is `GET …/issues/{issue_number}/events`, whose `labeled` event carries `label.name` and `label.color` (the response schema has `Labeled Issue Event`), plus `id`, `event`, `actor`, `created_at`. `unlabeled` is the inverse. Core REST bucket. No `since`.
+Two ways to detect:
+1. **Per-item events** for candidates that currently carry the configured label and moved in the window. The issues list is read unfiltered (as today) and the `labels[]` filter is applied **client-side**, because the same list feeds assignment and mention-body detection and a server-side `labels=` parameter would narrow those too. The candidate set is then the operator's chosen label, not the repository: quiet cost **zero**; active cost **1 per candidate**. A `labeled` event outside the window is ignored.
+2. **Persist seen labels per subject** and diff the row. This costs **zero added requests** but adds a new persisted entity (a label ledger), a schema/migration, and a new source of truth for "what did we last see". Constitution III/VI apply; it also has to be pruned with the run. This is real state for a convenience; not recommended.
+
+**Detection shape.** A **trigger** when the subject is untracked, a **follow-up** when it is tracked, for the same reason as 2a: a trigger on a tracked subject is absorbed as a reference and never delivered. The label application is a movement on work in progress when a run exists ("this is now `needs-changes`").
+
+**Candidate set and cost.** With a dedicated label, **0 quiet / ≤ ~50/h active** across 10 repos. With a broad label (`bug`), the candidate set is every updated issue carrying it, and the cost rises toward the reopened worst case. The filter's specificity is the cost control. The list request is unchanged (client-side filtering); the per-candidate events read is the cost.
+
+**Id and dedupe.** **Do not put the label name in the id.** Label names may contain spaces and `/`, which the `[A-Za-z0-9._~]` tail discipline refuses, and the event id already identifies the act. Use `evt-…~labeled~<eventId>`; the label name rides `triggerNote` (bounded, untrusted text). A remove-and-re-add is a new event id → a new row, which is correct; a replay of the same event dedupes. Trigger note: `Label <name> applied to #<n> by <login>`, naming the configured label that matched.
+
+**Gates.** Window on the event's `created_at`; `label.name` must equal one of the binding's configured labels. The comparison rule must be stated in the spec — login-style case folding is a choice here, not a given, and the stored spelling is preserved. `actor.login` through `isAttributableAuthor`; self refusal; allow-list unchanged.
+**The bot-actor problem is real here.** The common case is a triage bot applying the label, and FR-045 refuses every bot actor. Options: (a) accept human-applied labels only and document it (keeps the invariant); (b) add a `system` attribution basis and exempt this kind (schema change, and it weakens "no bot event"); (c) attribute to the issue author (a guess, forbidden). Recommend **(a)**; if the owner needs bot-applied labels, that is a spec amendment, not a detection change.
+
+**Setting and UI.** `triggers.labeled` plus the same `labels: string[]` field 3a needs (shared). Validation: non-empty when on. Panel: one checkbox and the labels field; the field is the substantial UI work.
+
+**Compatibility.** Same new-kind plumbing as 3a (`EventKind`, `ReferenceOrigin`, `originOf`, panel `EventKind`/`eventKindOf`) plus the binding field (same `PUT /v1/bindings`). No new storage key if the events route is used; the persisted-label alternative would add one.
+
+**Verdict. Build with a caveat, after 3a.** The detector is honest and the cost is controllable with a specific label, but it needs the same new-kind plumbing as 3a, the same labels field, and it inherits the bot-actor refusal. The caveat to accept in writing: **a label applied by a bot will not trigger.** **Effort: L** (kind + origin + panel + field/UI + per-item read + tests + bundles).
+
+---
+
+### 6. Surfaces outside the assignment/review/mention shape
+
+#### 6a. CI / checks failures
+
+**GitHub surface — verified.**
+- `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` — `ref` is a SHA, branch or tag; params `check_name`, `status` (`queued`/`in_progress`/`completed`), `filter` (`latest` default, `all`), `per_page`, `page`, `app_id`. Response `total_count` and `check_runs[]` with `id`, `head_sha`, `status` (`queued|in_progress|completed|waiting|requested|pending`), `conclusion` (`success|failure|neutral|cancelled|skipped|timed_out|action_required|null`), `name`, `started_at`, `completed_at`, `output`, `check_suite.id`, `app`, and `pull_requests[]` (`number`, `head`, `base`). Read access is available to OAuth/PAT classic with `repo` on a private repository (write is GitHub-App-only); fine-grained tokens need read access to checks (the exact permission name is not stated on this page — unverified). Core bucket.
+- Legacy `GET /repos/{owner}/{repo}/commits/{ref}/status` — `state` (`failure` if any context is error/failure, `pending` if none/pending, `success` if all latest succeed), `statuses[]` (`id`, `state`, `context`, `description`, `target_url`, `created_at`, `updated_at`, `creator`), `sha`, `total_count`, `repository`. `per_page`/`page`. Core bucket.
+- The check-run's `pull_requests[]` is populated for pushes in the same repository; the docs note that **fork pushes return an empty array**. So a commit→PR mapping from check-runs is not guaranteed.
+
+**Detection shape.** A **follow-up on a tracked PR** — it fits the model (subject number, run, reference list), but **not as a trigger**: a failing check on a non-tracked PR has no run, and starting a session for every red CI run in a repository is the noise failure. The run already seeds `lastHeadSha`, and the pulls list already produces a head follow-up (`headFollowUps`), so the natural trigger is "the head moved; now read checks for the new SHA".
+
+**Candidate set and cost.**
+- **Head-movement-gated:** read `check-runs` only when this cycle produced a head follow-up (or observed a new head). **0 quiet / 1 per movement**, ≤ ~50/h. Misses a check that was `pending` when the head moved and fails later — the common long-CI case. If the product needs that, this gate is insufficient.
+- **Every cycle for tracked PRs:** guarantees the transition but costs **60 × tracked PRs per hour**. Three tracked PRs per repository × 10 = **1,800/h**, over the design point before the existing feeds.
+- **Pending-marker state:** persist "pending at SHA X" and re-read only while pending. Zero quiet once checks conclude; requires a new persisted member (run document or store), a prune rule, and a schema decision. The only option that is both complete and bounded; it is **not** a zero-state change.
+- **Non-tracked PR:** no subject, no run, no panel notification surface. Reject; do not invent a notification for it.
+
+**Id and dedupe.** `evt-…~followup~checks~<headSha>~<conclusion>` — the head SHA plus the aggregate conclusion. A replay of the same SHA+conclusion dedupes; a re-run that changes `success` → `failure` is a new id (correct); a flaky re-run of the same failure does not page again. The row should aggregate the failing check names in its note/excerpt, not emit one row per job. The id tail must be added to `discriminatorOfId`; without it the row folds as a reference, not a follow-up.
+
+**Gates.** The subject is the tracked PR; the head should equal the run's seed/new head. There is **no human actor** in a check run — `app` is a GitHub App. Naming it would trip `isAttributableAuthor`, so the row must ride the run's recorded actor (the head follow-up's existing posture) or a new `system` basis must be introduced. Allow-list is not re-applied (it was judged at dispatch); the follow-up rides the run. No window question: the check belongs to the observed SHA.
+
+**Setting and UI.** `triggers.checks` boolean; one checkbox. No new field. The panel's follow-up copy needs a `checks` movement line (``CI failed: <names>``) and the pull-shaped set.
+
+**Compatibility.** New `FollowUpKind` (`checks`) in service + panel; no `EventKind`, no `ReferenceOrigin` (a follow-up carries no origin). Old rows parse. The row's `kind` should stay `'review'` — the pull feed it rode — so the existing union is unchanged and only the follow-up role is new.
+
+**Verdict. Build with a caveat:** follow-up only, gated on a head movement, with the caveat that a check that fails after the head observation is not seen unless the pending-marker state is added. **Effort: M** (one poller read, one follow-up kind, a toggle, panel copy, tests, bundles); **L** if the pending-marker state is required.
+
+#### 6b. Commit comments
+
+**GitHub surface — verified, and the brief's query is wrong.**
+`GET /repos/{owner}/{repo}/comments` accepts **`per_page` and `page` only — there is no `since`** (the page's parameter list has no such member). Comments are returned **ordered by ascending id**, so new comments are at the end, not the top. Response: `id`, `body`, `commit_id`, `user` (`Simple User`/null), `created_at`, `updated_at`, `html_url`, `path`, `position`, `line`, `author_association`, `reactions`. Core bucket.
+A commit comment names a **commit SHA**, not an issue/PR. Mapping it to a subject needs `GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls` (returns the PRs associated with a commit; a commit can be on none or several), which is **one extra request per commented commit** and can be ambiguous. The PR's timeline also carries `commit_commented`, but only for a PR already being read.
+
+**Detection shape.** **Neither.** With no issue/PR number on the row, a mention there cannot become a mention event without a lookup that may be ambiguous; a commit comment on a commit in no PR has no subject at all. A commit comment is not an issue comment and the run model has nowhere to put it.
+
+**Cost.** One repository-wide read per binding per cycle (600/h) plus an unbounded page walk (the feed has no window), plus the per-commit PR lookup. **Quiet cost is never zero.**
+
+**Id and dedupe.** There is no honest id to propose: `~mention~commit~<commentId>` would need a subject number the row does not have. If a PR lookup succeeded, the id could reuse the PR number, but the same comment could then be discovered through two paths with different ids.
+
+**Gates.** The existing attribution/window gates would apply to the body, but the subject gate cannot be satisfied honestly.
+
+**Setting and UI.** Would need a new toggle and a new "commit comments" concept in the panel; neither exists.
+
+**Compatibility.** No `EventKind` fits (`mention` is issue/PR-bound in the run key). A new subject type or a subjectless event is a model change.
+
+**Verdict. Reject.** The feed has no window, the row has no subject, and the lookup is ambiguous. **Effort to price: S; to build honestly: L**, and it is not worth it.
+
+#### 6c. Releases
+
+**GitHub surface — verified.**
+`GET /repos/{owner}/{repo}/releases`, `per_page`/`page` only (**no `since`**). Response `id`, `tag_name`, `target_commitish`, `name`, `body`, `draft`, `prerelease`, `created_at`, `published_at`, `updated_at`, `author` (`login`/`type`), `html_url`, `assets[]`, `discussion_url`, `mentions_count`. Draft releases are only listed to a token with push access. Core bucket.
+
+**Detection shape.** **A notification, not a trigger or a follow-up.** A release is repository-level: no issue/PR number, no subject key, no run. The product has no notification surface (no panel tab, no read/unread record, no storage for it). Building one is a new product feature, not event detection.
+
+**Cost.** One repository-wide read per binding per cycle = **600/h**, always; the feed has no window. Quiet cost is never zero.
+
+**Id and dedupe.** `release:<id>` would be a new id family with no subject base; the existing `evt-<owner>~<repo>~<number>~<account>` base cannot express it without a fake number.
+
+**Gates.** Attribution is `author.login`; the allow-list is per binding and about work, not releases. None of it fits.
+
+**Compatibility.** A new entity, a new storage key and a new panel surface; the run key cannot hold it.
+
+**Verdict. Reject** for this spec; if wanted, it is a separate notification feature. **Effort: S** to price, **L** to build as a notification surface.
+
+#### 6d. Discussions
+
+**GitHub surface — verified.**
+**GraphQL only.** `POST https://api.github.com/graphql`; there is no `/rest/discussions` page (404). Auth is the same token as a Bearer credential. `Repository.discussions` is a `DiscussionConnection` with `first`/`last`/`after`/`before`, `orderBy` (`DiscussionOrderField`: `CREATED_AT`, `UPDATED_AT`), `states` (`OPEN`/`CLOSED`), `categoryId`, `answered`. A `Discussion` has `number`, `id`, `title`, `body`, `createdAt`, `updatedAt`, `author`, `category`, `comments` (`DiscussionCommentConnection`), `answer`, `stateReason`. A `DiscussionComment` has `id`, `body`, `createdAt`, `updatedAt`, `author`, `replyTo`, `replies`, `isAnswer`. Pagination is cursor-based (`pageInfo.hasNextPage`/`endCursor`).
+Cost: GraphQL points, **5,000 points/hour per user**, separate from REST; secondary limit 2,000 points/min. Point cost is roughly `total nodes / 100`, minimum 1. A query shaped `discussions(first: 30)` + `comments(first: 30)` is ~9 points; at 600 queries/h that is **5,400 points/h**, over the GraphQL budget. `first: 10` on both is ~1 point (600/h), but then a busy repository needs cursor walks.
+
+**Detection shape.** The subject model could hold a discussion (it has a number, title, body, author), but `RunSubjectType` is `issue | pull_request`; adding `discussion` touches the run key, subject key, reference origins, routes, panel copy and run rows. That is a third subject type, not a new trigger.
+
+**Cost and shape summary.** A GraphQL transport in a REST-only, stdlib-only service means: POST bodies, GraphQL error envelopes, cursor pagination, a second rate-limit budget and backoff, partial-data errors, and a different timeout/response shape. The service's `x-ratelimit-*` accounting has no GraphQL arm. The added surface is disproportionate to the signal.
+
+**Id and dedupe.** `evt-…~discussion~<number>~<commentId>` would be a new family; the existing base is issue-number based and discussions share no numbering space with issues.
+
+**Gates.** Author attribution is available (`author.login`); the allow-list would need a discussion-aware reading. None of it is the hard part.
+
+**Compatibility.** Third subject type + GraphQL transport + a second budget: **L**.
+
+**Verdict. Reject** for this wave. A discussion is not an issue, and the transport change is larger than every REST item combined. **Effort: L.**
+
+#### 6e. Wiki
+
+**GitHub surface — verified.**
+There is **no wiki section in the REST API reference**. A wiki is a **separate git repository**: the docs say "Wikis are part of Git repositories" and give `git clone https://github.com/OWNER/REPO.wiki.git`; only changes pushed to its default branch go live. Reading it means running a git client (clone/fetch) with credentials — the service is HTTP-only, stdlib-only, and has no git dependency. Polling it would be a new transport, a new credential use for the wiki remote, and a new diff/event model (page names, not issue numbers).
+
+**Detection shape.** **Neither.** No issue/PR subject, no run key, no number. There is nothing for the queue to carry.
+
+**Cost.** Not an HTTP API budget: a git fetch per repository per interval, plus local diffing. It is outside NFR-003 entirely, which is worse, not better.
+
+**Id and dedupe.** No honest id family.
+
+**Verdict. Reject.** **Effort: S** to confirm; building it is a new integration.
+
+---
+
+### Verified vs unverified
+
+**Verified against docs.github.com (URLs in Sources) and the code read for this report**
+
+- `reviewed` is **timeline-only**; the per-item issue-events endpoint returns `review_dismissed` (with `dismissed_review.state` ∈ `commented|approved|changes_requested`) but not `reviewed`.
+- `pulls/{n}/reviews`: parameters, chronological ordering, the field list, `submitted_at` absent on PENDING.
+- `pulls` list (`Pull Request Simple`) carries `user`, `created_at`, `updated_at`, `draft`, `labels`; `PollPull` omits the author and the timestamps today.
+- `issues` list carries `created_at`, `state_reason`, `closed_at`, `labels`, `user`; `since` means "last updated after"; `labels` is a query filter.
+- Issue events: `reopened`, `labeled` (with `label.name`), `assigned`, `review_dismissed`; no `since` (only `per_page`/`page`); `reviewed` excluded.
+- Check-runs: endpoint, filters, every field named in 6a, `pull_requests[]`; fork pushes return an empty `pull_requests` array.
+- Combined status: fields and the three-state rule.
+- Commit comments: **no `since`**, ascending id.
+- Releases: **no `since`**, repo-level; drafts need push access.
+- Discussions: GraphQL-only (`/rest/discussions` 404), `Repository.discussions` args, `Discussion`/`DiscussionComment` fields, 5,000 points/h, 2,000 points/min, node/point formula.
+- Wiki: separate git repository; no REST endpoint in the reference.
+- The service sends no conditional headers (`requestHeaders`, `poller-transport.ts`), so "quiet" reads are full requests.
+
+**Unverified — treat as risk, not fact**
+
+- Whether `GET pulls/{n}/reviews` returns a dismissed review with `state: "DISMISSED"` (or keeps the pre-dismissal state). The docs leave `state` a free string. This is why 2d uses the issue event instead.
+- Whether `state_reason === "reopened"` persists on an open issue and means "the last transition was a reopen". The enum is documented; the semantics are not. 3b's cost depends on it.
+- Search index freshness/lag; the docs describe timeouts and `incomplete_results`, not a freshness guarantee.
+- Fine-grained permission names for checks/discussions; the pages state read availability but not the exact permission label.
+- Whether a review submission moves the PR's `updated_at`. The 2a candidate bound depends on it; if it does not, the candidate set must be every open own PR, and the cost changes from ~50/h to 60 × open own PRs per hour.
+- Whether `GET pulls/{n}/reviews` sends a `Link: rel="last"` header (GitHub documents `Link` pagination generally, not per endpoint). Without it, the last-page-first read has to discover the page count another way, and the >60-review case is simply unsupported.
+- REST propagation latency for a just-submitted review or a just-applied label (no docs promise a bound). Any "instant" expectation is a risk.
+- Whether a check run completing moves the PR's `updated_at` (needed if a candidate-gated read is ever used for checks instead of the head-movement gate).
+
+---
+
+### Sources
+
+All docs read 2026-10-20. Pages were requested with `apiVersion=2022-11-28` where the URL shows it; the generic header note on the rendered pages names `X-GitHub-Api-Version: 2026-03-10`, so a field that differs between those versions remains a risk (none of the fields named here is version-specific in the page text).
+
+- Issue events: <https://docs.github.com/en/rest/issues/events?apiVersion=2022-11-28>
+- Issue event types (the `reviewed` timeline-only row, `review_dismissed`, `reopened`, `labeled`): <https://docs.github.com/en/rest/using-the-rest-api/issue-event-types>
+- Timeline events: <https://docs.github.com/en/rest/issues/timeline?apiVersion=2022-11-28>
+- Pull request reviews: <https://docs.github.com/en/rest/pulls/reviews?apiVersion=2022-11-28>
+- Pull requests list: <https://docs.github.com/en/rest/pulls/pulls?apiVersion=2022-11-28>
+- Issues list: <https://docs.github.com/en/rest/issues/issues?apiVersion=2022-11-28>
+- Check runs: <https://docs.github.com/en/rest/checks/runs?apiVersion=2022-11-28>
+- Commit statuses: <https://docs.github.com/en/rest/commits/statuses?apiVersion=2022-11-28>
+- Commit comments: <https://docs.github.com/en/rest/commits/comments?apiVersion=2022-11-28>
+- Releases: <https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28>
+- Search (30 requests/min): <https://docs.github.com/en/rest/search/search?apiVersion=2022-11-28>
+- REST rate limits: <https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api>
+- GraphQL rate limits and points: <https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api>
+- GraphQL discussions: <https://docs.github.com/en/graphql/reference/discussions>
+- GraphQL `Repository.discussions`: <https://docs.github.com/en/graphql/reference/repos#discussions>
+- GraphQL `PullRequestReviewState` (the `DISMISSED` enum): <https://docs.github.com/en/graphql/reference/pulls#pullrequestreviewstate>
+- Wikis are git repositories: <https://docs.github.com/en/communities/documenting-your-project-with-wikis/about-wikis>
+- Cloning the wiki: <https://docs.github.com/en/communities/documenting-your-project-with-wikis/adding-or-editing-wiki-pages>
+- No REST discussions page: <https://docs.github.com/en/rest/discussions> (404), and no discussions or wiki section in the REST index: <https://docs.github.com/en/rest>
+
+**Code read for this report** (no file changed): `service/poll/poller-github.ts`, `poller-entries.ts`, `poller-events.ts`, `poller-transport.ts`, `events-write.ts`, `events-parse.ts`, `run-key.ts`, `runs-join.ts`, `runs-types.ts`, `runs-parts-parse.ts`, `triggers.ts`, `triggers-assignment.ts`, `triggers-review.ts`, `follow-up.ts`, `tracking.ts`, `trigger-scan.ts`, `loop.ts`, `attribution.ts`, `dispatch-actor-gate.ts`, `service/bindings.ts`, `service/github.ts`, `service/config.ts`, `src/bindings-service.ts`, `src/bindings-actors.ts`, `src/bindings-chips.ts`, `src/dispatches-detail.ts`, `src/follow-up.ts`, `src/dispatches-rows.ts`, plus §K and §L.

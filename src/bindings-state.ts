@@ -67,6 +67,10 @@ export interface BindingsTabState {
     triggerMention: boolean;
     /** Draft review-request trigger (M7), on by default for a new binding. */
     triggerReviewRequest: boolean;
+    /** Draft review-submitted trigger (a changes-requested review on an own pull). */
+    triggerReviewSubmitted: boolean;
+    /** Draft checks trigger (failing checks on a tracked pull's new head). */
+    triggerChecks: boolean;
     /** Draft worktree option. */
     worktreeSelection: 'none' | 'generated';
     /** The row the operator last clicked, for the enable/disable toggle. */
@@ -156,6 +160,8 @@ export function initialBindings(): BindingsTabState {
         triggerAssignment: true,
         triggerMention: false,
         triggerReviewRequest: true,
+        triggerReviewSubmitted: false,
+        triggerChecks: false,
         worktreeSelection: 'none',
         selectedBinding: null,
         statusRows: [],

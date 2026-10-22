@@ -176,7 +176,7 @@ const bindingRow = (suffix: string, state: 'active' | 'disabled' = 'active'): Re
         // a scanned binding would rewrite its own scan-state slot and race this
         // suite's planted stamps. No scan also means no GitHub call, so the
         // whole file stays offline by construction.
-        triggers: { assignment: false, mention: false, reviewRequest: false },
+        triggers: { assignment: false, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
         accountNumericUserId: ACCOUNT_ID,
         accountLogin: ACCOUNT_LOGIN,
         repository: `acme/${suffix}`,

@@ -8,54 +8,27 @@ import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
 import { actorLoginOf, isAttributableAuthor } from './attribution.ts';
 import { createEvent } from './events.ts';
-import { commentFollowUps } from './follow-up.ts';
-import { trackedIssueEnds, withoutEnded } from './tracking.ts';
+import { commentFollowUps, headFollowUps, reviewCommentFollowUps } from './follow-up.ts';
+import { mentionsLogin } from './mentions-login.ts';
+import { trackedIssueEnds, trackedPullEnds, withoutEnded } from './tracking.ts';
 import type { TrackingEnd } from './tracking.ts';
 import { stampInWindow } from './window.ts';
 import { bodyExcerptOf } from './trigger-scan.ts';
 import { assignmentEvents } from './triggers-assignment.ts';
+import { triggersChecks } from './triggers-checks.ts';
+import { reviewCommentMentionEvents } from './review-comment-mention-events.ts';
 import { reviewRequestEvents } from './triggers-review.ts';
+import { reviewSubmittedEvents } from './triggers-review-submitted.ts';
 import type { QueuedEvent, SubjectType } from './events.ts';
-import type { PollComment, PollIssue } from './poller-entries.ts';
+import type { PollComment, PollIssue, PollPull } from './poller-entries.ts';
 import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
-import type { IssueListOutcome } from './poller-github.ts';
+import type { IssueListOutcome, PullListOutcome } from './poller-github.ts';
 
 /**
- * Decide whether one character belongs to GitHub's username alphabet.
+ * Re-exported: the token match is shared with the review-comment feed, and
+ * this module stays the one import path its tests already use.
  */
-function isLoginCharacter(character: string): boolean {
-    return /^[A-Za-z0-9_-]$/.test(character);
-}
-
-/**
- * Decide whether a body of text carries the bound account's mention token.
- *
- * The token is `@<login>`, matched case-insensitively and bounded on both
- * sides by GitHub's username alphabet (`A-Za-z0-9_-`), so `@octocat-mt`
- * neither matches inside `@octocat-mt2` nor inside `x@octocat-mt`. The scan
- * is written out rather than compiled from the login, so no untrusted string
- * ever reaches a regular-expression engine.
- */
-export function mentionsLogin(body: string, login: string): boolean {
-    if (login === '') {
-        return false;
-    }
-
-    const haystack = body.toLowerCase();
-    const token = `@${login.toLowerCase()}`;
-    let from = haystack.indexOf(token);
-    while (from !== -1) {
-        const before = from === 0 ? '' : haystack.charAt(from - 1);
-        const after = haystack.charAt(from + token.length);
-        if (!isLoginCharacter(before) && !isLoginCharacter(after)) {
-            return true;
-        }
-
-        from = haystack.indexOf(token, from + 1);
-    }
-
-    return false;
-}
+export { mentionsLogin } from './mentions-login.ts';
 
 /**
  * Decide whether one comment is a mention the binding should react to.
@@ -270,15 +243,51 @@ async function mentionEventsOf(input: TriggerScanInput & {
         return { ok: false, failure: listed };
     }
 
+    // The inline review comments are a **second** comment feed: GitHub serves
+    // them from `pulls/comments`, not from `issues/comments`, so a mention or a
+    // movement there is invisible to the read above. One repository-wide,
+    // `since`-windowed call per mention-enabled binding is the whole added rate
+    // cost (FR-111, NFR-003). Its failure is tolerated: the feed is
+    // additive, and failing the cycle would suppress the detection the operator
+    // already paid for on the conversation feed.
+    const reviewed = await poller.listReviewComments({
+        token,
+        owner: repository.owner,
+        name: repository.name,
+        since: windowStart,
+        pace,
+    });
+    if (reviewed.kind !== 'ok') {
+        input.log.warn('review-comment feed could not be listed; this cycle detects none', {
+            failure: reviewed.kind,
+        });
+    }
+
+    const reviewComments = reviewed.kind === 'ok' ? reviewed.comments : [];
+
     const events = [
         // The issue-body path needs no feed of its own: the cycle lists issues
         // whenever the assignment *or* the mention switch is on.
         ...bodyMentionEvents({ binding, login, issues, windowStart, detectedAt }),
         ...mentionEvents({ binding, login, comments: listed.comments, issues, windowStart, detectedAt }),
+        ...reviewCommentMentionEvents({
+            binding,
+            login,
+            comments: reviewComments,
+            windowStart,
+            detectedAt,
+        }),
         ...commentFollowUps({
             binding,
             comments: listed.comments,
             issues,
+            tracked: input.tracked,
+            windowStart,
+            detectedAt,
+        }),
+        ...reviewCommentFollowUps({
+            binding,
+            comments: reviewComments,
             tracked: input.tracked,
             windowStart,
             detectedAt,
@@ -318,17 +327,120 @@ async function listedIssues(input: {
 }
 
 /**
+ * List the open pull requests when any of the three pull-dependent switches is
+ * on; all three off lists nothing.
+ *
+ * One read serves review requests, review submissions and head movements, so a
+ * cycle never lists pulls twice. A `checks`-only binding pays this read
+ * because observing a movement is what its detection requires (FR-130).
+ */
+function pullsNeeded(binding: BindingRecord): boolean {
+    return binding.triggers.reviewRequest || binding.triggers.reviewSubmitted || binding.triggers.checks;
+}
+
+async function listedPulls(input: {
+    readonly poller: TriggerScanInput['poller'];
+    readonly token: string;
+    readonly repository: { readonly owner: string; readonly name: string };
+    readonly pace: TriggerScanInput['pace'];
+    readonly binding: BindingRecord;
+}): Promise<PullListOutcome> {
+    const { poller, token, repository, pace, binding } = input;
+    if (!pullsNeeded(binding)) {
+        return { kind: 'ok', pulls: [] };
+    }
+
+    return await poller.listOpenPulls({
+        token,
+        owner: repository.owner,
+        name: repository.name,
+        pace,
+    });
+}
+
+/**
+ * The pull-dependent branches over the cycle's one pulls read, in fixed order:
+ * review requests, review submissions, head rows, check rows.
+ *
+ * Each arm is skipped when its own switch is off: a `reviewSubmitted`-only
+ * binding runs no review-request arm, so it makes no `issues/{n}/events` read
+ * and emits no `~review` trigger; head rows stay gated on `reviewRequest`, so
+ * the shared read widens what is observed, never what is delivered (FR-130).
+ * `observedHeads` and `ends` are reported whenever the read ran.
+ */
+async function pullEventsOf(input: {
+    readonly scan: TriggerScanInput;
+    readonly pulls: readonly PollPull[];
+}): Promise<TriggerEvents> {
+    const { scan, pulls } = input;
+    const { binding } = scan;
+    const events: QueuedEvent[] = [];
+
+    const pullEnds = trackedPullEnds({ binding, pulls, tracked: scan.tracked });
+    const tracked = withoutEnded(scan.tracked, pullEnds);
+    // Computed once, before any actor gate: a checks-only binding still needs
+    // the movement's new SHA even when no head row can be delivered.
+    const heads = headFollowUps({
+        binding,
+        pulls,
+        tracked,
+        windowStart: scan.windowStart,
+        detectedAt: scan.detectedAt,
+    });
+
+    if (binding.triggers.reviewRequest) {
+        const requests = await reviewRequestEvents({ ...scan, tracked, pulls });
+        if (!requests.ok) {
+            return requests;
+        }
+
+        events.push(...requests.events);
+    }
+
+    if (binding.triggers.reviewSubmitted) {
+        const submitted = await reviewSubmittedEvents({ ...scan, tracked, pulls });
+        if (!submitted.ok) {
+            return submitted;
+        }
+
+        events.push(...submitted.events);
+    }
+
+    if (binding.triggers.reviewRequest) {
+        events.push(...heads.rows);
+    }
+
+    if (binding.triggers.checks) {
+        const checks = await triggersChecks({ ...scan, tracked, pulls, movements: heads.movements });
+        if (!checks.ok) {
+            return checks;
+        }
+
+        events.push(...checks.events);
+    }
+
+    return {
+        ok: true,
+        events,
+        observedHeads: new Map(heads.observations.flatMap((observation) =>
+            observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
+        ...(pullEnds.length > 0 && { ends: pullEnds }),
+    };
+}
+
+/**
  * Run the branches the binding's switches ask for, in the queue's fixed order.
  *
  * Branch order is also the **event** order the queue sees: assignment, then the
- * two mention kinds, then the review request. It is not load-bearing for any
- * rule, and it is fixed rather than incidental so a suite can assert it.
+ * two mention kinds, then the pull-dependent rows. It is not load-bearing for
+ * any rule, and it is fixed rather than incidental so a suite can assert it.
  */
 async function triggerBranches(input: {
     readonly scan: TriggerScanInput;
     readonly issues: readonly PollIssue[];
+    readonly pulls: readonly PollPull[];
 }): Promise<readonly TriggerEvents[]> {
-    const { scan, issues } = input;
+    const { scan, issues, pulls } = input;
     const branches: TriggerEvents[] = [];
 
     if (scan.binding.triggers.assignment) {
@@ -339,8 +451,8 @@ async function triggerBranches(input: {
         branches.push(await mentionEventsOf({ ...scan, issues }));
     }
 
-    if (scan.binding.triggers.reviewRequest) {
-        branches.push(await reviewRequestEvents(scan));
+    if (pullsNeeded(scan.binding)) {
+        branches.push(await pullEventsOf({ scan, pulls }));
     }
 
     return branches;
@@ -364,6 +476,11 @@ export async function collectTriggerEvents(input: TriggerScanInput): Promise<Tri
         return { ok: false, failure: issues };
     }
 
+    const pulls = await listedPulls({ poller, token, repository, pace, binding });
+    if (pulls.kind !== 'ok') {
+        return { ok: false, failure: pulls };
+    }
+
     const ends: TrackingEnd[] = [...trackedIssueEnds({
         binding,
         issues: issues.issues,
@@ -376,7 +493,7 @@ export async function collectTriggerEvents(input: TriggerScanInput): Promise<Tri
     const events: QueuedEvent[] = [];
     let observedHeads: ReadonlyMap<number, string> | undefined;
 
-    const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues });
+    const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues, pulls: pulls.pulls });
     for (const branch of branches) {
         if (!branch.ok) {
             return branch;

@@ -3,6 +3,7 @@
  */
 
 import type { ActorAttribution, QueuedEvent, SubjectType } from './events-parse.ts';
+import type { CheckConclusion } from './poller-checks.ts';
 
 interface BaseEventSnapshot {
     readonly bindingId: string;
@@ -59,8 +60,8 @@ export interface AssignmentEventSnapshot extends BaseEventSnapshot {
     readonly kind: 'assignment';
 }
 
-/** Where a mention token matched: a comment, or the issue body itself. */
-export type MentionOrigin = 'comment' | 'body';
+/** Where a mention token matched: a comment, a review comment, or the issue body itself. */
+export type MentionOrigin = 'comment' | 'review-comment' | 'body';
 
 /** A mention the bound account's login appeared in (M6). */
 interface MentionEventSnapshotBase extends BaseEventSnapshot {
@@ -78,6 +79,19 @@ export interface MentionEventSnapshot extends MentionEventSnapshotBase {
 }
 
 /**
+ * An inline review comment that mentioned the bound account (FR-112).
+ *
+ * Its own origin, and therefore its own discriminator, because GitHub numbers
+ * review comments on a feed separate from conversation comments: the same
+ * integer can name one of each, and only the origin keeps the two apart.
+ */
+export interface MentionReviewCommentSnapshot extends MentionEventSnapshotBase {
+    readonly origin: 'review-comment';
+    /** The review comment's id: two review comments on one pull are two events. */
+    readonly commentId: number;
+}
+
+/**
  * An issue body that mentioned the bound account (M6, operator product
  * decision 2026-09-28: a mention works in the issue body as well as in a
  * comment).
@@ -90,6 +104,25 @@ export interface MentionBodyEventSnapshot extends MentionEventSnapshotBase {
 export interface ReviewEventSnapshot extends BaseEventSnapshot {
     /** The M7 trigger. */
     readonly kind: 'review';
+    /** Head commit SHA at detection time, or `null` when GitHub sent none. */
+    readonly headSha: string | null;
+    /** Base ref name, or `null` when GitHub sent none. */
+    readonly baseRef: string | null;
+}
+
+/**
+ * A changes-requested review submitted on the account's own pull request that
+ * is not (or not provably) a movement on a tracked run (FR-124).
+ *
+ * The trigger reuses `kind: 'review'` and the existing `review` reference
+ * origin; the `submitted` id segment keeps review ids out of the issue-event
+ * numbering space. `reviewId` is also the discriminator: no extra member, and
+ * a future snapshot that happens to carry `origin` cannot join the arm.
+ */
+export interface ReviewSubmittedEventSnapshot extends BaseEventSnapshot {
+    readonly kind: 'review';
+    /** The submitted review's integer id: the id's last segment, and its dedupe key. */
+    readonly reviewId: number;
     /** Head commit SHA at detection time, or `null` when GitHub sent none. */
     readonly headSha: string | null;
     /** Base ref name, or `null` when GitHub sent none. */
@@ -124,6 +157,92 @@ export interface FollowUpCommentSnapshot extends BaseEventSnapshot {
 }
 
 /**
+ * A **follow-up**: a review request on a pull request whose run already
+ * carries a session (FR-108).
+ *
+ * `'review'` is the feed the detection rides, exactly as the comment
+ * follow-up carries `'mention'`; the `~followup~review~<eventId>` id records
+ * the role. The id is the naming `review_requested` event's **own** integer
+ * id, which is what makes a re-request a new observation: the first request's
+ * row is a different event, so nothing dedupes the second into the first.
+ */
+export interface FollowUpReviewSnapshot extends BaseEventSnapshot {
+    /** The feed the detection rides: the pulls list. */
+    readonly kind: 'review';
+    /** Marks this row as a follow-up rather than a trigger, and which kind. */
+    readonly followUp: 'review';
+    /** The naming event's integer id: the id's last segment, and its dedupe key. */
+    readonly eventId: number;
+    /** Head commit SHA at detection time, or `null` when GitHub sent none. */
+    readonly headSha: string | null;
+    /** Base ref name, or `null` when GitHub sent none. */
+    readonly baseRef: string | null;
+    /** The tracked subject's shape, required exactly as on a comment follow-up. */
+    readonly subjectType: SubjectType;
+}
+
+/**
+ * A **follow-up**: an inline review comment on a tracked pull request
+ * (FR-113).
+ *
+ * `'mention'` names the feed family the detection rides — a review comment is
+ * a comment — while `'review-comment'` records the role, so a review comment
+ * never collides with a conversation comment's `~followup~<commentId>` id:
+ * GitHub numbers the two comment feeds independently.
+ */
+export interface FollowUpReviewCommentSnapshot extends BaseEventSnapshot {
+    /** The feed family the detection rides: comments. */
+    readonly kind: 'mention';
+    /** Marks this row as a follow-up rather than a trigger, and which kind. */
+    readonly followUp: 'review-comment';
+    /** The review comment's id: the id's last segment, and its dedupe key. */
+    readonly commentId: number;
+    /** The tracked subject's shape, required exactly as on a comment follow-up. */
+    readonly subjectType: SubjectType;
+}
+
+/**
+ * A **follow-up**: a changes-requested review submitted on a tracked pull
+ * request after its run started (FR-124).
+ *
+ * `'review'` is the feed the detection rides; `review-submitted` records the
+ * role and keeps review ids distinct from issue-event ids.
+ */
+export interface FollowUpReviewSubmittedSnapshot extends BaseEventSnapshot {
+    readonly kind: 'review';
+    readonly followUp: 'review-submitted';
+    /** The submitted review's integer id: the id's last segment, and its dedupe key. */
+    readonly reviewId: number;
+    /** Head commit SHA at detection time, or `null` when GitHub sent none. */
+    readonly headSha: string | null;
+    /** Base ref name, or `null` when GitHub sent none. */
+    readonly baseRef: string | null;
+    /** The tracked subject's shape, required exactly as on a comment follow-up. */
+    readonly subjectType: SubjectType;
+}
+
+/**
+ * A **follow-up**: failing checks on a tracked pull request's new head
+ * (FR-126 – FR-127).
+ *
+ * The id is the head SHA plus the aggregate conclusion, never the names: a
+ * re-run whose failing job set changes but whose most blocking conclusion does
+ * not stays silent, so the same check set always mints the same id.
+ */
+export interface FollowUpChecksSnapshot extends BaseEventSnapshot {
+    readonly kind: 'review';
+    readonly followUp: 'checks';
+    /** The head SHA observed at detection. */
+    readonly headSha: string;
+    /** `null` always: a check verdict restates no base ref. */
+    readonly baseRef: string | null;
+    /** The most blocking failing conclusion present. */
+    readonly conclusion: CheckConclusion;
+    /** The tracked subject's shape, required exactly as on a comment follow-up. */
+    readonly subjectType: SubjectType;
+}
+
+/**
  * A **follow-up**: a head-SHA change on a tracked pull request
  * (002 FR-102(b)).
  *
@@ -147,9 +266,15 @@ export interface FollowUpHeadSnapshot extends BaseEventSnapshot {
 export type EventSnapshot =
     | AssignmentEventSnapshot
     | MentionEventSnapshot
+    | MentionReviewCommentSnapshot
     | MentionBodyEventSnapshot
     | ReviewEventSnapshot
+    | ReviewSubmittedEventSnapshot
     | FollowUpCommentSnapshot
+    | FollowUpReviewSnapshot
+    | FollowUpReviewCommentSnapshot
+    | FollowUpReviewSubmittedSnapshot
+    | FollowUpChecksSnapshot
     | FollowUpHeadSnapshot;
 
 /**
@@ -173,6 +298,32 @@ export function buildEventId(input: {
     return input.discriminator === undefined ? base : `${base}${input.discriminator}`;
 }
 
+/** The follow-up snapshots, narrowed by the member that records their role. */
+type FollowUpSnapshot = Extract<EventSnapshot, { readonly followUp: unknown }>;
+
+function followUpDiscriminatorOf(snapshot: FollowUpSnapshot): string {
+    switch (snapshot.followUp) {
+        case 'head': {
+            return `~followup~head~${snapshot.headSha}`;
+        }
+        case 'review': {
+            return `~followup~review~${snapshot.eventId}`;
+        }
+        case 'review-submitted': {
+            return `~followup~review-submitted~${snapshot.reviewId}`;
+        }
+        case 'checks': {
+            return `~followup~checks~${snapshot.headSha}~${snapshot.conclusion}`;
+        }
+        case 'review-comment': {
+            return `~followup~review-comment~${snapshot.commentId}`;
+        }
+        case 'comment': {
+            return `~followup~${snapshot.commentId}`;
+        }
+    }
+}
+
 /**
  * Read the id discriminator one snapshot contributes.
  *
@@ -181,17 +332,25 @@ export function buildEventId(input: {
  * different members rather than from one overloaded value.
  */
 function discriminatorOf(snapshot: EventSnapshot): string | undefined {
-    // `followUp` is declared on the two follow-up snapshots alone, so its
+    // `followUp` is declared on the follow-up snapshots alone, so its
     // presence is what narrows the union — and the trigger snapshots carry no
     // role member at all, which is why no existing snapshot changed shape.
     if ('followUp' in snapshot) {
-        return snapshot.followUp === 'head'
-            ? `~followup~head~${snapshot.headSha}`
-            : `~followup~${snapshot.commentId}`;
+        return followUpDiscriminatorOf(snapshot);
+    }
+
+    if ('reviewId' in snapshot) {
+        return `~review~submitted~${snapshot.reviewId}`;
     }
 
     if (snapshot.kind === 'mention') {
-        return snapshot.origin === 'body' ? '~mention~body' : `~mention~${snapshot.commentId}`;
+        if (snapshot.origin === 'body') {
+            return '~mention~body';
+        }
+
+        return snapshot.origin === 'review-comment'
+            ? `~mention~review~${snapshot.commentId}`
+            : `~mention~${snapshot.commentId}`;
     }
 
     return snapshot.kind === 'review' ? '~review' : undefined;

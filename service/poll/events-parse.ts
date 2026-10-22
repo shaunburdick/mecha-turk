@@ -161,14 +161,14 @@ const KNOWN_KINDS = new Set<string>(['assignment', 'mention', 'review']);
 const SUBJECT_TYPES: ReadonlySet<string> = new Set(['issue', 'pull_request']);
 
 /**
- * Which of the two follow-up kinds one row is (002 FR-102).
+ * Which follow-up kind one row is (002 FR-102; FR-108, FR-113).
  *
- * A closed two-value union beside the row's own `EventKind`, because the two
- * answer different questions: the kind names the **feed** the detection rode
- * (`'mention'` for the comment list, `'review'` for the pulls list) and this
+ * A closed union beside the row's own `EventKind`, because the two answer
+ * different questions: the kind names the **feed** the detection rode
+ * (`'mention'` for the comment feeds, `'review'` for the pulls list) and this
  * names the **movement** the row records. Neither widens the other.
  */
-export type FollowUpKind = 'comment' | 'head';
+export type FollowUpKind = 'comment' | 'head' | 'review' | 'review-comment' | 'review-submitted' | 'checks';
 
 /**
  * How many `~`-separated segments the id's **base** carries.
@@ -189,14 +189,78 @@ const DECIMAL_SEGMENT = /^[0-9]+$/;
 /** A head-SHA change's tail: `head~<sha>`, hexadecimal (FR-101). */
 const HEAD_TAIL = /^head~[0-9a-f]+$/;
 
+/** A re-requested review's tail: `review~<eventId>` (FR-108). */
+const REVIEW_TAIL = /^review~[0-9]+$/;
+
+/** An inline review comment's tail: `review-comment~<commentId>` (FR-113). */
+const REVIEW_COMMENT_TAIL = /^review-comment~[0-9]+$/;
+
+/** A submitted review's tail: `review-submitted~<reviewId>` (FR-124). */
+const REVIEW_SUBMITTED_TAIL = /^review-submitted~[0-9]+$/;
+
+/** A check verdict's tail: `checks~<sha>~<conclusion>`, the four words local here. */
+const CHECKS_TAIL = /^checks~[0-9a-f]+~(action_required|failure|timed_out|cancelled)$/;
+
 /** What one id's discriminator segment says about the row's role (FR-101). */
 type IdDiscriminator =
     /** Not a follow-up: a bare base, or one of the trigger discriminators. */
     | { readonly role: 'trigger' }
     | { readonly role: 'comment'; readonly commentId: number }
     | { readonly role: 'head'; readonly headSha: string }
+    | { readonly role: 'review'; readonly eventId: number }
+    | { readonly role: 'review-comment'; readonly commentId: number }
+    | { readonly role: 'review-submitted'; readonly reviewId: number }
+    | { readonly role: 'checks' }
     /** Carries the `followup` segment with a tail outside the family. */
     | { readonly role: 'malformed' };
+
+/** A numeric id tail and the role its prefix names. */
+const NUMERIC_TAILS: readonly {
+    readonly pattern: RegExp;
+    readonly prefix: string;
+    readonly role: 'comment' | 'review' | 'review-comment' | 'review-submitted';
+}[] = [
+    { pattern: DECIMAL_SEGMENT, prefix: '', role: 'comment' },
+    { pattern: REVIEW_TAIL, prefix: 'review~', role: 'review' },
+    { pattern: REVIEW_COMMENT_TAIL, prefix: 'review-comment~', role: 'review-comment' },
+    { pattern: REVIEW_SUBMITTED_TAIL, prefix: 'review-submitted~', role: 'review-submitted' },
+];
+
+function numericRoleOf(role: (typeof NUMERIC_TAILS)[number]['role'], id: number): IdDiscriminator {
+    switch (role) {
+        case 'comment': {
+            return { role, commentId: id };
+        }
+        case 'review': {
+            return { role, eventId: id };
+        }
+        case 'review-comment': {
+            return { role, commentId: id };
+        }
+        case 'review-submitted': {
+            return { role, reviewId: id };
+        }
+    }
+}
+
+function tailDiscriminatorOf(tail: string): IdDiscriminator {
+    const numeric = NUMERIC_TAILS.find((entry) => entry.pattern.test(tail));
+    if (numeric !== undefined) {
+        const id = Number(tail.slice(numeric.prefix.length));
+
+        return id > 0 ? numericRoleOf(numeric.role, id) : { role: 'malformed' };
+    }
+
+    if (HEAD_TAIL.test(tail)) {
+        return { role: 'head', headSha: tail.slice('head~'.length) };
+    }
+
+    if (CHECKS_TAIL.test(tail)) {
+        return { role: 'checks' };
+    }
+
+    return { role: 'malformed' };
+}
 
 function discriminatorOfId(id: string): IdDiscriminator {
     const segments = id.split('~');
@@ -204,14 +268,7 @@ function discriminatorOfId(id: string): IdDiscriminator {
         return { role: 'trigger' };
     }
 
-    const tail = segments.slice(ID_BASE_SEGMENTS + 1).join('~');
-    if (DECIMAL_SEGMENT.test(tail)) {
-        const commentId = Number(tail);
-
-        return commentId > 0 ? { role: 'comment', commentId } : { role: 'malformed' };
-    }
-
-    return HEAD_TAIL.test(tail) ? { role: 'head', headSha: tail.slice('head~'.length) } : { role: 'malformed' };
+    return tailDiscriminatorOf(segments.slice(ID_BASE_SEGMENTS + 1).join('~'));
 }
 
 /**
@@ -222,17 +279,20 @@ function discriminatorOfId(id: string): IdDiscriminator {
  * adds no stored member at all.
  */
 export function followUpKindOf(id: string): FollowUpKind | null {
-    const read = discriminatorOfId(id);
+    const { role } = discriminatorOfId(id);
+    if (role === 'trigger' || role === 'malformed') {
+        return null;
+    }
 
-    return read.role === 'comment' || read.role === 'head' ? read.role : null;
+    return role;
 }
 
 /**
  * Whether one id's follow-up discriminator, when it carries one, is inside the
- * family (002 FR-101, FR-024).
+ * family (002 FR-101, FR-024; FR-108, FR-113).
  *
- * @returns `false` only for a stored id whose `followup` tail is neither a
- *   positive decimal comment id nor `head~<hex sha>`.
+ * @returns `false` only for a stored id whose `followup` tail is outside the
+ *   six forms the writer mints.
  */
 export function followUpDiscriminatorHolds(id: string): boolean {
     return discriminatorOfId(id).role !== 'malformed';
@@ -401,7 +461,7 @@ function fieldsHold(record: Record<string, unknown>): boolean {
         && markersAndEngineHold(record)
         && readActorAttributionField(record) !== null
         && readActorLoginField(record) !== null
-        // A follow-up id's discriminator is validated against the two-form
+        // A follow-up id's discriminator is validated against the six-form
         // family the writer mints (FR-101). Only a row whose id carries the
         // `followup` segment at all can fail it, so every existing row is
         // unaffected — and a hand-written one outside the family is refused

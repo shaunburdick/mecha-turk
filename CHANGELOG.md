@@ -13,6 +13,29 @@ matching section below plus GitHub's generated notes.
 
 ## [Unreleased]
 
+### Added
+
+- **Wider event detection** (#61). A review requested again on a pull request
+  the agent is already working now reaches that session as a follow-up keyed by
+  the request event's own id, instead of a trigger the queue would dedupe away.
+  Only a request strictly newer than the run-establishing one counts, so the
+  overlap window cannot prompt twice for the same request. Inline review
+  comments — a feed separate from conversation comments — now produce mentions
+  and follow-ups when they name the bound account or move a tracked pull; a
+  mention links to its run as a `review-comment:<id>` source reference.
+  Detection adds one `since`-windowed read per mention-enabled binding, and the
+  cycle keeps its conversation-feed findings when that read fails.
+- **Submitted reviews and failing checks reach the session** (#61). A
+  changes-requested review on the account's own open pull request opens one
+  dispatch with the reviewer as its actor, and on a pull the agent is already
+  working becomes a follow-up only when it is strictly newer than the request
+  that started the run. A failing check on a tracked pull's new head produces
+  one aggregated `CI failed: <names>` follow-up riding the run's recorded
+  actor, never a session. Both are binding switches. Detection costs one
+  bounded reviews read per own pull in the window and one check-runs walk per
+  moved head; a truncated read records the truncation and produces no row, so
+  silence is not read as a passing build.
+
 ## [0.4.1] - 2026-10-19
 
 ### Fixed

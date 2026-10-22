@@ -254,6 +254,8 @@ export function readDraft(bindings: BindingsTabState, edit?: DraftEditTarget): P
             assignment: bindings.triggerAssignment,
             mention: bindings.triggerMention,
             reviewRequest: bindings.triggerReviewRequest,
+            reviewSubmitted: bindings.triggerReviewSubmitted,
+            checks: bindings.triggerChecks,
         },
         updatedAt: stamp,
         // `undefined` rather than `[]`: omission is how the wire says *unset*,

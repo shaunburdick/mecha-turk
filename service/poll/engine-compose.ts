@@ -4,8 +4,57 @@ import { defuseDelimiters } from '../../src/context-blocks.ts';
 import { CONTEXT_MAX_CHARS, renderBoundedContext } from '../../src/session.ts';
 import type { ContextSource } from '../../src/session.ts';
 import { followUpKindOf } from './events-parse.ts';
-import type { QueuedEvent } from './events-parse.ts';
+import type { FollowUpKind, QueuedEvent } from './events-parse.ts';
 import type { Run } from './runs-types.ts';
+
+/** The kinds whose movement is a comment on a pull request rather than an issue. */
+const PULL_SHAPED_KINDS: ReadonlySet<FollowUpKind> = new Set([
+    'head',
+    'review',
+    'review-comment',
+    'review-submitted',
+    'checks',
+]);
+const UNRECORDED_HEAD = 'an unrecorded head';
+
+function plainMovementOf(kind: FollowUpKind, excerpt: string): string {
+    switch (kind) {
+        case 'review': {
+            return 'Review requested on this pull request';
+        }
+        case 'review-submitted': {
+            return 'Review requested changes on this pull request';
+        }
+        case 'review-comment': {
+            return 'New review comment';
+        }
+        case 'comment': {
+            return 'New comment';
+        }
+        case 'checks':
+        case 'head': {
+            // Handled before this helper; a plain movement never carries them.
+            return excerpt;
+        }
+    }
+}
+
+function movementOf(
+    kind: FollowUpKind,
+    heads: { readonly from: string; readonly to: string } | null,
+    excerpt: string,
+): string {
+    if (kind === 'checks') {
+        return `CI failed: ${defuseDelimiters(excerpt)}`;
+    }
+
+    if (kind === 'head') {
+        return `Head moved from ${defuseDelimiters(heads?.from ?? UNRECORDED_HEAD)} to ${
+            defuseDelimiters(heads?.to ?? UNRECORDED_HEAD)}`;
+    }
+
+    return plainMovementOf(kind, excerpt);
+}
 
 function headPairOf(input: {
     readonly run: Run;
@@ -16,7 +65,7 @@ function headPairOf(input: {
         return null;
     }
 
-    let previous = input.run.lastHeadSha ?? 'an unrecorded head';
+    let previous = input.run.lastHeadSha ?? UNRECORDED_HEAD;
     for (const candidate of input.runRows) {
         if (candidate.id === input.row.id) {
             break;
@@ -29,7 +78,7 @@ function headPairOf(input: {
 
     return {
         from: previous,
-        to: input.row.headSha !== null && input.row.headSha !== '' ? input.row.headSha : 'an unrecorded head',
+        to: input.row.headSha !== null && input.row.headSha !== '' ? input.row.headSha : UNRECORDED_HEAD,
     };
 }
 
@@ -50,9 +99,8 @@ export function composeEngineFollowUp(input: {
 
     const { row } = input;
     const heads = headPairOf({ run: input.run, row, runRows: input.runRows });
-    const movement = heads === null
-        ? 'New comment'
-        : `Head moved from ${defuseDelimiters(heads.from)} to ${defuseDelimiters(heads.to)}`;
+    const movement = movementOf(kind, heads, row.issueBodyExcerpt);
+    const isPullShaped = PULL_SHAPED_KINDS.has(kind);
     const header = [
         'Mecha Turk follow-up (automated — continuing a work item Mecha Turk already started).',
         `Correlation: ${defuseDelimiters(input.run.correlationId)}`,
@@ -65,7 +113,7 @@ export function composeEngineFollowUp(input: {
         'Rule: this is the same work item the session was started for; reply inside this session.',
     ];
     const sources: readonly ContextSource[] = [{
-        origin: kind === 'head' ? 'review' : 'comment',
+        origin: isPullShaped ? 'review' : 'comment',
         kind: row.kind,
         detectedAt: row.detectedAt,
         url: row.issueUrl,
@@ -80,7 +128,7 @@ export function composeEngineFollowUp(input: {
             state: 'open',
             body: null,
             assignees: [],
-            isPullRequest: kind === 'head',
+            isPullRequest: isPullShaped,
         },
         sources,
     });

@@ -33,7 +33,14 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { readCommentEntry, readIssueEntry, readPullEntry } from '../service/poll/poller-entries.ts';
+import {
+    readCheckRunEntry,
+    readCommentEntry,
+    readIssueEntry,
+    readPullEntry,
+    readReviewCommentEntry,
+    readReviewEntry,
+} from '../service/poll/poller-entries.ts';
 import { isBotAuthor, isAttributableAuthor } from '../service/poll/attribution.ts';
 import { readItemEventEntry } from '../service/poll/poller-events.ts';
 
@@ -105,6 +112,22 @@ function commentEntry(user: unknown = HUMAN_USER): Record<string, unknown> {
         "issue_url": "https://api.github.com/repos/acme/widget/issues/7",
         "body": "cc @octocat-mt",
         "html_url": "https://github.com/acme/widget/issues/7#issuecomment-501",
+        "updated_at": "2026-09-27T00:35:00.000Z",
+        "user": ${JSON.stringify(user)}
+    }`) as Record<string, unknown>;
+}
+
+/**
+ * One review-comments-list entry with every field the reader requires.
+ *
+ * @param user - The `user` object as the wire carries it, or a value to test.
+ * @returns The raw element, parsed as GitHub's endpoint answers it.
+ */
+function reviewCommentEntry(user: unknown = HUMAN_USER): Record<string, unknown> {
+    return JSON.parse(`{
+        "id": 901,
+        "pull_request_url": "https://api.github.com/repos/acme/widget/pulls/3",
+        "body": "nit: rename this",
         "updated_at": "2026-09-27T00:35:00.000Z",
         "user": ${JSON.stringify(user)}
     }`) as Record<string, unknown>;
@@ -235,23 +258,103 @@ describe('the three list feeds keep their authorship convention (002 FR-045)', (
         expect(isBotAuthor(suffixed?.authorLogin ?? '', suffixed?.authorType ?? '')).toBe(true);
     });
 
-    it('reads a pull request with no author member at all (002 FR-045 as re-cut at v1.12.0)', () => {
-        // FR-045's sentence requiring `PollPull`'s author members is **struck**:
-        // the review kind's actor comes from the naming `review_requested`
-        // event's `review_requester`, so the proxy those fields existed for is
-        // gone and they are gone with it. A hand-edited entry that still carries
-        // a `user` is simply not read — an unknown member is ignored, not
-        // honoured, and never widens the row.
+    it('reads a pull request\'s author as a fact of authorship (FR-120)', () => {
+        // The author is the own-pull candidate set's fact of authorship, not
+        // the attribution proxy research §R8 retired for review requests: the
+        // requester still comes from the naming event alone.
         const pull = readPullEntry(pullEntry());
 
         expect(pull).toMatchObject({
             pullNumber: 3,
+            authorLogin: HUMAN_LOGIN,
+            authorType: HUMAN_TYPE,
             requestedReviewers: ['octocat-mt'],
             headSha: 'deadbeef',
             baseRef: 'main',
         });
-        expect(Object.keys(pull ?? {})).not.toContain('authorLogin');
-        expect(Object.keys(pull ?? {})).not.toContain('authorType');
+    });
+
+    it('answers an absent pull author with the shared empty convention', () => {
+        const pull = readPullEntry(withoutUser(pullEntry()));
+
+        expect(pull).toMatchObject({ authorLogin: '', authorType: '' });
+    });
+});
+
+/** One review as the reviews endpoint answers it. */
+function reviewEntry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+        id: 7_001,
+        state: 'CHANGES_REQUESTED',
+        submitted_at: '2026-10-20T00:05:00.000Z',
+        user: { login: HUMAN_LOGIN, type: HUMAN_TYPE },
+        ...overrides,
+    };
+}
+
+describe('the review reader (FR-120, FR-122)', () => {
+    it('reads the id, state, stamp and reviewer', () => {
+        expect(readReviewEntry(reviewEntry())).toEqual({
+            reviewId: 7_001,
+            state: 'CHANGES_REQUESTED',
+            submittedAt: '2026-10-20T00:05:00.000Z',
+            authorLogin: HUMAN_LOGIN,
+            authorType: HUMAN_TYPE,
+        });
+    });
+
+    it('keeps a PENDING row undated and an unnamed author empty, and refuses an unusable id or state', () => {
+        expect(readReviewEntry(reviewEntry({ submitted_at: null, user: undefined })))
+            .toEqual({
+                reviewId: 7_001,
+                state: 'CHANGES_REQUESTED',
+                submittedAt: null,
+                authorLogin: '',
+                authorType: '',
+            });
+        expect(readReviewEntry(reviewEntry({ id: 0 }))).toBeNull();
+        expect(readReviewEntry(reviewEntry({ id: '7001' }))).toBeNull();
+        expect(readReviewEntry(reviewEntry({ state: undefined }))).toBeNull();
+    });
+});
+
+describe('the check-run reader (FR-126)', () => {
+    it('reads a name and a conclusion, keeping an unconcluded run null', () => {
+        expect(readCheckRunEntry({ name: 'build', conclusion: 'failure' }))
+            .toEqual({ name: 'build', conclusion: 'failure' });
+        expect(readCheckRunEntry({ name: 'build', conclusion: null }))
+            .toEqual({ name: 'build', conclusion: null });
+    });
+
+    it('refuses a row with no readable name and keeps an unreadable conclusion null', () => {
+        expect(readCheckRunEntry({ name: '', conclusion: 'failure' })).toBeNull();
+        expect(readCheckRunEntry({ conclusion: 'failure' })).toBeNull();
+        expect(readCheckRunEntry({ name: 'build', conclusion: 7 }))
+            .toEqual({ name: 'build', conclusion: null });
+    });
+});
+
+describe('the review-comments reader (FR-113)', () => {
+    it('maps pull_request_url to the pull number and reads the comment', () => {
+        expect(readReviewCommentEntry(reviewCommentEntry())).toEqual({
+            commentId: 901,
+            pullNumber: 3,
+            body: 'nit: rename this',
+            authorLogin: HUMAN_LOGIN,
+            authorType: HUMAN_TYPE,
+            updatedAt: '2026-09-27T00:35:00.000Z',
+        });
+    });
+
+    it('refuses a row whose id, pull number, body, or author is unusable', () => {
+        const healthy = reviewCommentEntry();
+
+        expect(readReviewCommentEntry({ ...healthy, id: 0 })).toBeNull();
+        expect(readReviewCommentEntry({ ...healthy, id: '901' })).toBeNull();
+        expect(readReviewCommentEntry({ ...healthy, pull_request_url: 'not-a-url' })).toBeNull();
+        expect(readReviewCommentEntry({ ...healthy, pull_request_url: undefined })).toBeNull();
+        expect(readReviewCommentEntry({ ...healthy, body: null })).toBeNull();
+        expect(readReviewCommentEntry(withoutUser(healthy))).toBeNull();
     });
 });
 
@@ -300,6 +403,15 @@ describe('the per-item events reader (002 FR-049, FR-051)', () => {
         // ignored, not treated as one this build knows.
         expect(readItemEventEntry(wireEventRow({ kind: 'head_ref_deleted' })))
             .toMatchObject({ event: 'head_ref_deleted' });
+    });
+
+    it('carries the row id only when it is a positive integer (FR-112)', () => {
+        const row = { ...assignedRow(), id: 7 };
+
+        expect(readItemEventEntry(row)?.id).toBe(7);
+        for (const id of [0, -1, 1.5, '7', null]) {
+            expect(readItemEventEntry({ ...row, id })?.id).toBeUndefined();
+        }
     });
 
     it('judges a bot actor with the one existing predicate (FR-045(a))', () => {

@@ -39,7 +39,7 @@ function minutesAgo(minutes: number): string {
  */
 const bindingFixture = (): PanelBinding => fixtureBindingRow(BINDING_ID, {
     accountLogin: ACCOUNT_LOGIN,
-    triggers: { assignment: true, mention: false, reviewRequest: false },
+    triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
     stamp: STAMP,
 });
 

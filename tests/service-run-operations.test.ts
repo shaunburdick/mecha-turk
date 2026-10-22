@@ -142,7 +142,7 @@ const assignment = (issueNumber: number): EventSnapshot => assignmentSnapshot(is
 
 /** One stored binding record. */
 const binding = (bindingId: string): BindingRecord => fixtureBindingRow(bindingId, {
-    triggers: { assignment: true, mention: true, reviewRequest: true },
+    triggers: { assignment: true, mention: true, reviewRequest: true, reviewSubmitted: false, checks: false },
     stamp: STAMP,
 });
 

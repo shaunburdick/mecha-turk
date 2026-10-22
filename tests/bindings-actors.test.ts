@@ -168,16 +168,40 @@ const TWELVE_LOGINS: readonly string[] = [
 const NOT_A_LOGIN = 'two words';
 
 /** The switch set a default fixture row carries, and the add form's contrast. */
-const ASSIGNMENT_ONLY: PanelTriggers = { assignment: true, mention: false, reviewRequest: false };
+const ASSIGNMENT_ONLY: PanelTriggers = {
+    assignment: true,
+    mention: false,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: false,
+};
 
 /** No trigger switched on — the state FR-092's table's last four rows describe. */
-const NOTHING_ON: PanelTriggers = { assignment: false, mention: false, reviewRequest: false };
+const NOTHING_ON: PanelTriggers = {
+    assignment: false,
+    mention: false,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: false,
+};
 
 /** The add form's defaults (`bindings.ts`'s `resetDraft`), as a switch set. */
-const ADD_FORM_SWITCHES: PanelTriggers = { assignment: true, mention: false, reviewRequest: true };
+const ADD_FORM_SWITCHES: PanelTriggers = {
+    assignment: true,
+    mention: false,
+    reviewRequest: true,
+    reviewSubmitted: false,
+    checks: false,
+};
 
 /** Only `mention` — the switch set AC-147's rows 1, 2, 5, and 6 are written for. */
-const MENTION_ONLY: PanelTriggers = { assignment: false, mention: true, reviewRequest: false };
+const MENTION_ONLY: PanelTriggers = {
+    assignment: false,
+    mention: true,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: false,
+};
 
 /** `ASSIGNMENT_ONLY`'s own derived clause, spelled once. */
 const ASSIGNMENT_CLAUSE = 'anyone who can assign an issue to the account can start a session';
@@ -240,7 +264,7 @@ const bindingRow = (input: {
     accountLogin: LOGIN,
     repository: input.repository,
     worktreeOption: 'generated',
-    triggers: input.triggers ?? ASSIGNMENT_ONLY,
+    triggers: { ...(input.triggers ?? ASSIGNMENT_ONLY), reviewSubmitted: false, checks: false },
     state: input.state,
     stamp: FIXTURE_TIMESTAMP,
     allowedUsers: input.allowedUsers ?? null,
@@ -975,43 +999,43 @@ describe('FR-095 a refused allow-list takes the field, changes nothing, and echo
  * fourth subset could dodge.
  */
 const SUBSETS: readonly (readonly [string, PanelTriggers, string | null])[] = [
-    ['none', { assignment: false, mention: false, reviewRequest: false }, null],
+    ['none', { assignment: false, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false }, null],
     [
         'assignment',
-        { assignment: true, mention: false, reviewRequest: false },
+        { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
         'anyone who can assign an issue to the account can start a session',
     ],
     [
         'mention',
-        { assignment: false, mention: true, reviewRequest: false },
+        { assignment: false, mention: true, reviewRequest: false, reviewSubmitted: false, checks: false },
         'anyone who can mention the account in an issue or comment can start a session',
     ],
     [
         'reviewRequest',
-        { assignment: false, mention: false, reviewRequest: true },
+        { assignment: false, mention: false, reviewRequest: true, reviewSubmitted: false, checks: false },
         'anyone who can request a review from the account on a pull request can start a session',
     ],
     [
         'assignment+mention',
-        { assignment: true, mention: true, reviewRequest: false },
+        { assignment: true, mention: true, reviewRequest: false, reviewSubmitted: false, checks: false },
         'anyone who can assign an issue to the account or mention the account in an issue or comment '
             + 'can start a session',
     ],
     [
         'assignment+reviewRequest',
-        { assignment: true, mention: false, reviewRequest: true },
+        { assignment: true, mention: false, reviewRequest: true, reviewSubmitted: false, checks: false },
         'anyone who can assign an issue to the account or request a review from the account on a '
             + 'pull request can start a session',
     ],
     [
         'mention+reviewRequest',
-        { assignment: false, mention: true, reviewRequest: true },
+        { assignment: false, mention: true, reviewRequest: true, reviewSubmitted: false, checks: false },
         'anyone who can mention the account in an issue or comment or request a review from the account '
             + 'on a pull request can start a session',
     ],
     [
         'all three',
-        { assignment: true, mention: true, reviewRequest: true },
+        { assignment: true, mention: true, reviewRequest: true, reviewSubmitted: false, checks: false },
         'anyone who can assign an issue to the account, mention the account in an issue or comment, or '
             + 'request a review from the account on a pull request can start a session',
     ],
@@ -1051,7 +1075,13 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
         }
 
         {
-            const clause = derivedTriggerClause({ assignment: true, mention: true, reviewRequest: true });
+            const clause = derivedTriggerClause({
+                assignment: true,
+                mention: true,
+                reviewRequest: true,
+                reviewSubmitted: false,
+                checks: false,
+            });
 
             expect(clause).not.toBeNull();
             const at = PHRASES.map(([, phrase]) => (clause ?? '').indexOf(phrase));
@@ -1094,7 +1124,13 @@ describe('AC-148 one derivation over all eight subsets of the three switches (00
             const newBindingHelper = String(listFieldProps().helper);
 
             expect(newBindingHelper).toBe(
-                allowedUsersGuidance({ assignment: true, mention: false, reviewRequest: true }),
+                allowedUsersGuidance({
+                    assignment: true,
+                    mention: false,
+                    reviewRequest: true,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
             );
             expect(newBindingHelper).toContain('request a review from the account on a pull request');
             expect(newBindingHelper).not.toContain('mention the account');
@@ -1215,7 +1251,13 @@ describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability a
         // binding is enabled` and **never** the bare count — the count sentence
         // is where the defect was found.
         {
-            for (const triggers of [ASSIGNMENT_ONLY, { assignment: true, mention: true, reviewRequest: false }]) {
+            for (const triggers of [ASSIGNMENT_ONLY, {
+                assignment: true,
+                mention: true,
+                reviewRequest: false,
+                reviewSubmitted: false,
+                checks: false,
+            }]) {
                 const clause = policyClause({ state: 'disabled', triggers, count: TWELVE.length });
 
                 expect(clause).toBe(TWELVE_ONCE_ENABLED);
@@ -1336,5 +1378,82 @@ describe('AC-147 all eight rows of FR-092\'s table, and no unearned capability a
             expect(unearnedClaims(String(openRow?.subtitle))).not.toEqual([]);
             release(open);
         }
+    });
+});
+
+/* -------------------------------------------------------------------- *
+ * AC-078 — the fourth session-starting switch, and checks as watching
+ * -------------------------------------------------------------------- */
+
+/** The binding with only the review-submitted switch on. */
+const SUBMITTED_ONLY: PanelTriggers = {
+    assignment: false,
+    mention: false,
+    reviewRequest: false,
+    reviewSubmitted: true,
+    checks: false,
+};
+
+/** The binding with only the checks switch on: watching, never starting. */
+const CHECKS_ONLY: PanelTriggers = {
+    assignment: false,
+    mention: false,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: true,
+};
+
+describe('AC-078 review-submitted is session-starting and checks are not', () => {
+    it('names the review-submitted act in the derived sentence, never "no trigger"', () => {
+        const clause = derivedTriggerClause(SUBMITTED_ONLY);
+
+        expect(clause).toBe(
+            'anyone who can submit a review on the account\'s own pull request can start a session',
+        );
+        const policy = policyClause({ state: 'active', triggers: SUBMITTED_ONLY, count: null });
+        expect(policy).toContain('submit a review on the account\'s own pull request');
+        expect(policy).not.toContain('no trigger is switched on');
+        expect(allowedUsersGuidance(SUBMITTED_ONLY)).toContain('submit a review');
+        expect(allowedUsersNotSetPlaceholder({ state: 'active', triggers: SUBMITTED_ONLY }))
+            .toBe('not set — anyone may trigger this repository');
+    });
+
+    it('renders all three checks-only sentences without a trigger verb', () => {
+        const checksOnly = 'CI checks are the only switch on';
+
+        expect(derivedTriggerClause(CHECKS_ONLY)).toBeNull();
+        expect(policyClause({ state: 'active', triggers: CHECKS_ONLY, count: null }))
+            .toBe(`${checksOnly} — they continue a session already open and nothing here can start one; `
+                + 'name the logins who may in allowedUsers to change that');
+        expect(policyClause({ state: 'active', triggers: CHECKS_ONLY, count: 12 }))
+            .toBe('12 permitted logins, though CI checks are the only switch on — they continue a session '
+                + 'already open and nothing here can start one');
+        expect(policyClause({ state: 'disabled', triggers: CHECKS_ONLY, count: null }))
+            .toBe('nothing can start a session while this binding is off; when you enable it, '
+                + 'CI checks are the only switch on — they continue a session already open and nothing here '
+                + 'can start one');
+
+        for (const count of [null, 12]) {
+            for (const state of ['active', 'disabled'] as const) {
+                const clause = policyClause({ state, triggers: CHECKS_ONLY, count });
+                expect(clause).not.toContain('may trigger');
+                expect(clause).not.toContain('no trigger is switched on');
+            }
+        }
+
+        expect(allowedUsersGuidance(CHECKS_ONLY)).toContain(
+            'With no list, CI checks are the only switch on and nothing can start a session',
+        );
+        expect(allowedUsersNotSetPlaceholder({ state: 'active', triggers: CHECKS_ONLY }))
+            .toBe('not set — CI checks are the only switch on, so nothing can start a session');
+    });
+
+    it('keeps a reviewSubmitted + checks binding on the derived sentence', () => {
+        const both: PanelTriggers = { ...SUBMITTED_ONLY, checks: true };
+
+        expect(derivedTriggerClause(both)).toContain('submit a review');
+        expect(policyClause({ state: 'active', triggers: both, count: null })).toContain('submit a review');
+        expect(policyClause({ state: 'active', triggers: both, count: null }))
+            .not.toContain('CI checks are the only switch on');
     });
 });

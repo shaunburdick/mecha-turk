@@ -31,6 +31,12 @@ export interface TrackedSubject {
     readonly actorLogin: string | null;
     /** How that attribution was made, or `null` when none was recorded. */
     readonly actorAttribution: ActorAttribution | null;
+    /**
+     * The run-establishing reference's detection stamp, or `null` when the run
+     * carries no reference. A review request must be strictly newer than it to
+     * be a re-request.
+     */
+    readonly establishedAt: string | null;
 }
 
 /**
@@ -114,6 +120,7 @@ function trackedOf(run: Run): { readonly key: string; readonly subject: TrackedS
             lastHeadSha: run.lastHeadSha ?? null,
             actorLogin: first?.actorLogin ?? null,
             actorAttribution: first?.actorAttribution ?? null,
+            establishedAt: first?.detectedAt ?? null,
         },
     };
 }

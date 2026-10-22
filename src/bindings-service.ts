@@ -19,6 +19,10 @@ export interface PanelTriggers {
     readonly mention: boolean;
     /** Review-request polling (open PRs naming the account); M7. */
     readonly reviewRequest: boolean;
+    /** Review-submitted polling: changes requested on the account's own pull. */
+    readonly reviewSubmitted: boolean;
+    /** Failing checks on a tracked pull's new head; a follow-up switch. */
+    readonly checks: boolean;
 }
 
 export interface PanelBinding {
@@ -204,6 +208,8 @@ function readTriggerFlags(value: unknown): PanelTriggers | null {
         assignment: booleanFlagOf(record, 'assignment', true),
         mention: booleanFlagOf(record, 'mention', false),
         reviewRequest: booleanFlagOf(record, 'reviewRequest', false),
+        reviewSubmitted: booleanFlagOf(record, 'reviewSubmitted', false),
+        checks: booleanFlagOf(record, 'checks', false),
     };
 }
 

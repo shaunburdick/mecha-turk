@@ -22,6 +22,16 @@ export interface BindingTriggers {
     readonly mention: boolean;
     /** Review-request polling (open PRs naming the account); implemented for M7. */
     readonly reviewRequest: boolean;
+    /**
+     * Review-submitted polling: a changes-requested review on the account's own
+     * open pull request (FR-125).
+     */
+    readonly reviewSubmitted: boolean;
+    /**
+     * Failing checks on a tracked pull request's new head (FR-129). A
+     * follow-up switch: it can continue a session but never start one.
+     */
+    readonly checks: boolean;
 }
 
 export interface BindingRecord {
@@ -142,10 +152,11 @@ function issue(value: BindingIssue): { readonly issue: BindingIssue } {
 /**
  * Validate the `triggers` field shape.
  *
- * `reviewRequest` is read parse-tolerantly: a binding stored before M7 has
- * no such field and reads as `false` (its operator never asked for it), and
- * a field that is present but is not a boolean refuses the record — a
- * half-read trigger is worse than a missing one.
+ * `reviewRequest`, `reviewSubmitted` and `checks` are read parse-tolerantly: a
+ * binding stored before a switch existed has no such field and reads as
+ * `false` (its operator never asked for it), and a field that is present but is
+ * not a boolean refuses the record — a half-read trigger is worse than a
+ * missing one.
  */
 function triggersFieldOf(value: unknown): BindingTriggers | null {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
@@ -153,16 +164,24 @@ function triggersFieldOf(value: unknown): BindingTriggers | null {
     }
 
     const record = value as Record<string, unknown>;
-    const { assignment, mention, reviewRequest } = record;
+    const { assignment, mention, reviewRequest, reviewSubmitted, checks } = record;
     if (typeof assignment !== 'boolean' || typeof mention !== 'boolean') {
         return null;
     }
 
-    if (reviewRequest !== undefined && typeof reviewRequest !== 'boolean') {
-        return null;
+    for (const flag of [reviewRequest, reviewSubmitted, checks]) {
+        if (flag !== undefined && typeof flag !== 'boolean') {
+            return null;
+        }
     }
 
-    return { assignment, mention, reviewRequest: reviewRequest === true };
+    return {
+        assignment,
+        mention,
+        reviewRequest: reviewRequest === true,
+        reviewSubmitted: reviewSubmitted === true,
+        checks: checks === true,
+    };
 }
 
 /**
@@ -315,7 +334,8 @@ function bindingModeOf(raw: Record<string, unknown>): {
     if (triggers === null) {
         return issue({
             field: 'triggers',
-            remediation: 'triggers must be an object with assignment, mention, and reviewRequest boolean flags',
+            remediation: 'triggers must be an object with assignment, mention, reviewRequest, '
+                + 'reviewSubmitted, and checks boolean flags',
         });
     }
 

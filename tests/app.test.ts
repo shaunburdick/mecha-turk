@@ -51,7 +51,7 @@ function settingsOf(entries: readonly (readonly [string, string])[] = []): Reado
 const activeBinding = (): PanelBinding => fixtureBindingRow('bnd-fixture-1', {
     accountLogin: LOGIN,
     worktreeOption: 'generated',
-    triggers: { assignment: true, mention: false, reviewRequest: false },
+    triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
     stamp: FIXTURE_TIMESTAMP,
 });
 

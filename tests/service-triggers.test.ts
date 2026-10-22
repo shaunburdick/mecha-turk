@@ -50,11 +50,15 @@ import type { ActorAttribution, EventSnapshot, QueuedEvent } from '../service/po
 import type { Run } from '../service/poll/runs-types.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type {
+    CheckConclusion,
     GitHubIssuePoller,
     PollComment,
     PollFailure,
     PollIssue,
     PollPull,
+    PollReview,
+    PollReviewComment,
+    PullStateOutcome,
 } from '../service/poll/poller-github.ts';
 import type { PollItemEvent } from '../service/poll/poller-events.ts';
 import type { ServiceStore } from '../service/store/index.ts';
@@ -221,6 +225,27 @@ function fixtureComment(input: {
 }
 
 /**
+ * Build one inline review comment.
+ *
+ * @returns The normalized review comment.
+ */
+function fixtureReviewComment(input: {
+    readonly commentId: number;
+    readonly body: string;
+    readonly authorLogin?: string;
+    readonly authorType?: string;
+}): PollReviewComment {
+    return {
+        commentId: input.commentId,
+        pullNumber: 7,
+        body: input.body,
+        authorLogin: input.authorLogin ?? HUMAN_AUTHOR_LOGIN,
+        authorType: input.authorType ?? HUMAN_AUTHOR_TYPE,
+        updatedAt: STAMP,
+    };
+}
+
+/**
  * Build one open pull request.
  *
  * There is no author to set: `PollPull` carries no author member since 002
@@ -238,6 +263,8 @@ function fixturePull(input: {
         title: `Change ${input.pullNumber}`,
         url: `https://github.com/acme/widget/pull/${input.pullNumber}`,
         state: 'open',
+        authorLogin: '',
+        authorType: '',
         requestedReviewers: input.requestedReviewers,
         headSha: HEAD_SHA,
         baseRef: BASE_REF,
@@ -249,8 +276,43 @@ function fixturePull(input: {
 interface RecordedPoller {
     /** The poller the cycle is given. */
     readonly poller: GitHubIssuePoller;
-    /** Feed names (`issues`/`comments`/`pulls`/`events:<n>`), in call order. */
+    /** Feed names (`issues`/`comments`/`pulls`/`reviews:<n>`/`checks:<sha>`/`events:<n>`), in call order. */
     readonly calls: string[];
+}
+
+/**
+ * Build one submitted-review row.
+ */
+function fixtureReview(input: {
+    readonly reviewId: number;
+    readonly state?: string;
+    readonly submittedAt?: string | null;
+    readonly authorLogin?: string;
+    readonly authorType?: string;
+}): PollReview {
+    return {
+        reviewId: input.reviewId,
+        state: input.state ?? 'CHANGES_REQUESTED',
+        submittedAt: input.submittedAt === undefined ? STAMP : input.submittedAt,
+        authorLogin: input.authorLogin ?? HUMAN_AUTHOR_LOGIN,
+        authorType: input.authorType ?? HUMAN_AUTHOR_TYPE,
+    };
+}
+
+/**
+ * Build one open pull request authored by the bound account.
+ */
+function fixtureOwnPull(input: {
+    readonly pullNumber: number;
+    readonly authorLogin?: string;
+    readonly updatedAt?: string;
+}): PollPull {
+    return {
+        ...fixturePull({ pullNumber: input.pullNumber, requestedReviewers: [] }),
+        authorLogin: input.authorLogin ?? ACCOUNT_LOGIN,
+        authorType: HUMAN_AUTHOR_TYPE,
+        ...(input.updatedAt !== undefined && { updatedAt: input.updatedAt }),
+    };
 }
 
 /**
@@ -390,9 +452,27 @@ function reviewRequestedEvent(input: {
 function recordingPoller(feeds: {
     readonly issues?: readonly PollIssue[];
     readonly comments?: readonly PollComment[];
+    readonly reviewComments?: readonly PollReviewComment[];
+    /** The failure the review-comment list answers instead of an empty list. */
+    readonly reviewCommentsFailure?: PollFailure;
     readonly pulls?: readonly PollPull[];
     readonly events?: Readonly<Record<number, readonly PollItemEvent[]>>;
     readonly eventsFailure?: PollFailure;
+    /** The reviews each own pull answers, keyed by pull number. */
+    readonly reviews?: Readonly<Record<number, readonly PollReview[]>>;
+    readonly reviewsFailure?: PollFailure;
+    /** Pull numbers whose reviews read answers truncation. */
+    readonly reviewsTruncated?: readonly number[];
+    /** The check verdict each head answers, keyed by SHA. */
+    readonly checks?: Readonly<Record<string, {
+        readonly conclusion: CheckConclusion | null;
+        readonly names: readonly string[];
+    }>>;
+    readonly checksFailure?: PollFailure;
+    /** SHAs whose check-runs walk answers truncation. */
+    readonly checksTruncated?: readonly string[];
+    /** The terminal pull read's answer; an open pull by default. */
+    readonly pullState?: (pullNumber: number) => PullStateOutcome;
 }): RecordedPoller {
     const calls: string[] = [];
     const poller: GitHubIssuePoller = {
@@ -406,10 +486,46 @@ function recordingPoller(feeds: {
 
             return { kind: 'ok', comments: feeds.comments ?? [] };
         },
+        listReviewComments: async () => {
+            calls.push('review-comments');
+            if (feeds.reviewCommentsFailure !== undefined) {
+                return feeds.reviewCommentsFailure;
+            }
+
+            return { kind: 'ok', comments: feeds.reviewComments ?? [] };
+        },
         listOpenPulls: async () => {
             calls.push('pulls');
 
             return { kind: 'ok', pulls: feeds.pulls ?? [] };
+        },
+        listPullReviews: async (query) => {
+            calls.push(`reviews:${query.pullNumber}`);
+            if (feeds.reviewsFailure !== undefined) {
+                return feeds.reviewsFailure;
+            }
+
+            return {
+                kind: 'ok',
+                reviews: feeds.reviews?.[query.pullNumber] ?? [],
+                truncated: feeds.reviewsTruncated?.includes(query.pullNumber) === true,
+            };
+        },
+        listHeadChecks: async (query) => {
+            calls.push(`checks:${query.headSha}`);
+            if (feeds.checksFailure !== undefined) {
+                return feeds.checksFailure;
+            }
+
+            const verdict = feeds.checks?.[query.headSha];
+            const isTruncated = feeds.checksTruncated?.includes(query.headSha) === true;
+
+            return {
+                kind: 'ok',
+                conclusion: isTruncated ? null : (verdict?.conclusion ?? null),
+                names: isTruncated ? [] : (verdict?.names ?? []),
+                truncated: isTruncated,
+            };
         },
         listIssueEvents: async (query) => {
             calls.push(`events:${query.issueNumber}`);
@@ -420,10 +536,14 @@ function recordingPoller(feeds: {
             return { kind: 'ok', events: feeds.events?.[query.issueNumber] ?? [], exhausted: false };
         },
         readIssueState: async () => {
-            throw new Error('the terminal read is F-9-only; this suite detects no follow-up');
+            throw new Error('the terminal read is F-9-only; this suite detects no issue follow-up');
         },
-        readPullState: async () => {
-            throw new Error('the terminal read is F-9-only; this suite detects no follow-up');
+        readPullState: async (query) => {
+            calls.push(`pullState:${query.itemNumber}`);
+
+            return feeds.pullState === undefined
+                ? { kind: 'ok', pull: fixturePull({ pullNumber: query.itemNumber, requestedReviewers: [] }) }
+                : feeds.pullState(query.itemNumber);
         },
     };
 
@@ -457,11 +577,17 @@ describe('mention detection (M6)', () => {
             });
 
             const events = await scan(
-                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: false,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
-            expect(recorded.calls).toEqual(['issues', 'comments']);
+            expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments']);
             expect(events).toHaveLength(2);
             expect(events.map((event) => event.kind)).toEqual(['mention', 'mention']);
             // The comment id is in the event id: two comments on one issue are two events.
@@ -482,6 +608,97 @@ describe('mention detection (M6)', () => {
             // The trigger note names the commenter, not just the account.
             expect(events[0]?.triggerNote).toContain(HUMAN_AUTHOR_LOGIN);
             expect(events[0]?.issueBodyExcerpt).toBe('cc @OCTOCAT-MT — drift again');
+        }
+    });
+
+    it('queues an inline review-comment mention under its own review discriminator', async () => {
+        {
+            const recorded = recordingPoller({
+                reviewComments: [fixtureReviewComment({ commentId: 901, body: 'please check @octocat-mt' })],
+            });
+
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: false,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
+                recorded,
+            );
+
+            expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments']);
+            expect(events).toHaveLength(1);
+            expect(events[0]).toMatchObject({
+                kind: 'mention',
+                id: `evt-acme~widget~7~${ACCOUNT_ID}~mention~review~901`,
+                issueNumber: 7,
+                actorLogin: HUMAN_AUTHOR_LOGIN,
+                subjectType: 'pull_request',
+            });
+        }
+    });
+
+    it('keeps the conversation-feed detection when the review-comment list fails', async () => {
+        {
+            const recorded = recordingPoller({
+                comments: [fixtureComment({ commentId: FIRST_COMMENT_ID, body: `cc ${MENTION_TOKEN}` })],
+                reviewCommentsFailure: { kind: 'unavailable', detail: 'offline' },
+            });
+
+            const events = await scan(
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: false,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
+                recorded,
+            );
+
+            // The added feed is additive: its failure is logged and skipped,
+            // never a reason to drop what the conversation feed already found.
+            expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments']);
+            expect(events.map((event) => event.id))
+                .toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~mention~${FIRST_COMMENT_ID}`]);
+
+            const warning = logLines
+                .map((line) => JSON.parse(line) as Record<string, unknown>)
+                .find((line) => line.message === 'review-comment feed could not be listed; this cycle detects none');
+            expect(warning).toMatchObject({ level: 'warn', failure: 'unavailable' });
+        }
+    });
+
+    it('lists the review-comment feed exactly once, and never with the mention switch off', async () => {
+        {
+            const mentioned = recordingPoller({ reviewComments: [] });
+            await scan(
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: false,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
+                mentioned,
+            );
+
+            const quiet = recordingPoller({});
+            await scan(
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: true,
+                    mention: false,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
+                quiet,
+            );
+
+            expect(mentioned.calls.filter((name) => name === 'review-comments')).toHaveLength(1);
+            expect(quiet.calls.filter((name) => name === 'review-comments')).toEqual([]);
         }
     });
 
@@ -513,7 +730,13 @@ describe('mention detection (M6)', () => {
             });
 
             const events = await scan(
-                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: false,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
@@ -527,7 +750,13 @@ describe('mention detection (M6)', () => {
             const recorded = recordingPoller({ issues: [], comments: [] });
 
             const events = await scan(
-                fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: false }),
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: true,
+                    mention: false,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
@@ -546,12 +775,18 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             const recorded = recordingPoller({ issues: [fixtureIssue({ body })] });
 
             const events = await scan(
-                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: false,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
             // The body path rides the issue list; only the comment feed is extra.
-            expect(recorded.calls).toEqual(['issues', 'comments']);
+            expect(recorded.calls).toEqual(['issues', 'comments', 'review-comments']);
             expect(events).toHaveLength(1);
             expect(events[0]).toMatchObject({
                 kind: 'mention',
@@ -601,7 +836,13 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             });
 
             const events = await scan(
-                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: false,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
@@ -614,7 +855,13 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             const recorded = recordingPoller({ issues: [fixtureIssue({ body: `please look ${MENTION_TOKEN}` })] });
 
             const events = await scan(
-                fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: false }),
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: true,
+                    mention: false,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
@@ -632,7 +879,13 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             });
 
             const events = await scan(
-                fixtureBinding(MENTION_BINDING, { assignment: true, mention: true, reviewRequest: false }),
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: true,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
@@ -673,7 +926,13 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             });
 
             const events = await scan(
-                fixtureBinding(MENTION_BINDING, { assignment: true, mention: false, reviewRequest: true }),
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: true,
+                    mention: false,
+                    reviewRequest: true,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
@@ -694,7 +953,13 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
             });
 
             const events = await scan(
-                fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+                fixtureBinding(MENTION_BINDING, {
+                    assignment: false,
+                    mention: true,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
@@ -714,7 +979,13 @@ describe('issue-body mention detection (M6, operator product decision 2026-09-28
         // assignment trigger obeys, so an edited body only re-detects when
         // GitHub reports the edit after that stamp.
         await scan(
-            fixtureBinding(MENTION_BINDING, { assignment: false, mention: true, reviewRequest: false }),
+            fixtureBinding(MENTION_BINDING, {
+                assignment: false,
+                mention: true,
+                reviewRequest: false,
+                reviewSubmitted: false,
+                checks: false,
+            }),
             recordingPoller({ issues: [fixtureIssue({ body: 'quiet for now' })] }),
         );
 
@@ -797,7 +1068,13 @@ describe('review-request detection (M7)', () => {
             });
 
             const events = await scan(
-                fixtureBinding(REVIEW_BINDING, { assignment: false, mention: false, reviewRequest: true }),
+                fixtureBinding(REVIEW_BINDING, {
+                    assignment: false,
+                    mention: false,
+                    reviewRequest: true,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
@@ -827,7 +1104,13 @@ describe('review-request detection (M7)', () => {
             });
 
             const events = await scan(
-                fixtureBinding(REVIEW_BINDING, { assignment: false, mention: false, reviewRequest: true }),
+                fixtureBinding(REVIEW_BINDING, {
+                    assignment: false,
+                    mention: false,
+                    reviewRequest: true,
+                    reviewSubmitted: false,
+                    checks: false,
+                }),
                 recorded,
             );
 
@@ -835,6 +1118,224 @@ describe('review-request detection (M7)', () => {
         }
     });
 
+});
+
+describe('review-submitted detection (FR-120 – FR-124)', () => {
+    /** A binding with only the review-submitted switch on. */
+    const submittedOnly = fixtureBinding('bnd-submitted', {
+        assignment: false,
+        mention: false,
+        reviewRequest: false,
+        reviewSubmitted: true,
+        checks: false,
+    });
+
+    it('queues one trigger for a changes-requested review on an untracked own pull', async () => {
+        {
+            const recorded = recordingPoller({
+                pulls: [fixtureOwnPull({ pullNumber: 12 })],
+                reviews: { 12: [fixtureReview({ reviewId: 9_001 })] },
+            });
+
+            const events = await scan(submittedOnly, recorded);
+
+            expect(recorded.calls).toEqual(['pulls', 'reviews:12']);
+            expect(events).toHaveLength(1);
+            expect(events[0]).toMatchObject({
+                id: `evt-acme~widget~12~${ACCOUNT_ID}~review~submitted~9001`,
+                kind: 'review',
+                subjectType: 'pull_request',
+                actorLogin: HUMAN_AUTHOR_LOGIN,
+                triggerNote: `Review changes requested by ${HUMAN_AUTHOR_LOGIN} on pull request #12`,
+            });
+        }
+    });
+
+    it('has one pulls read serving both review switches, and no reviews read when the switch is off', async () => {
+        {
+            const both = recordingPoller({
+                pulls: [
+                    fixtureOwnPull({ pullNumber: 12 }),
+                    fixturePull({ pullNumber: 3, requestedReviewers: [ACCOUNT_LOGIN] }),
+                ],
+                reviews: { 12: [fixtureReview({ reviewId: 9_001 })] },
+                events: itemEvents(reviewRequestedEvent({ pullNumber: 3, requester: REQUESTER_LOGIN })),
+            });
+
+            const events = await scan(fixtureBinding('bnd-both', {
+                assignment: false,
+                mention: false,
+                reviewRequest: true,
+                reviewSubmitted: true,
+                checks: false,
+            }), both);
+
+            expect(both.calls.filter((call) => call === 'pulls')).toHaveLength(1);
+            expect(both.calls).toContain('reviews:12');
+            expect(events).toHaveLength(2);
+        }
+
+        {
+            const reviewOnly = recordingPoller({
+                pulls: [fixturePull({ pullNumber: 3, requestedReviewers: [ACCOUNT_LOGIN] })],
+                events: itemEvents(reviewRequestedEvent({ pullNumber: 3, requester: REQUESTER_LOGIN })),
+            });
+
+            await scan(fixtureBinding('bnd-review-only', {
+                assignment: false,
+                mention: false,
+                reviewRequest: true,
+                reviewSubmitted: false,
+                checks: false,
+            }), reviewOnly);
+
+            expect(reviewOnly.calls.some((call) => call.startsWith('reviews:'))).toBe(false);
+        }
+    });
+
+    it('refuses bot, unnamed and self reviews', async () => {
+        {
+            const recorded = recordingPoller({
+                pulls: [
+                    fixtureOwnPull({ pullNumber: 1 }),
+                    fixtureOwnPull({ pullNumber: 2 }),
+                    fixtureOwnPull({ pullNumber: 3 }),
+                ],
+                reviews: {
+                    1: [fixtureReview({ reviewId: 1, authorLogin: BOT_AUTHOR_LOGIN, authorType: BOT_AUTHOR_TYPE })],
+                    2: [fixtureReview({ reviewId: 2, authorLogin: '' })],
+                    3: [fixtureReview({ reviewId: 3, authorLogin: ACCOUNT_LOGIN })],
+                },
+            });
+
+            const events = await scan(submittedOnly, recorded);
+
+            expect(events).toEqual([]);
+        }
+    });
+
+    it('reads no reviews for a pull the account did not author', async () => {
+        {
+            const recorded = recordingPoller({
+                pulls: [fixtureOwnPull({ pullNumber: 12, authorLogin: 'someone-else' })],
+                reviews: { 12: [fixtureReview({ reviewId: 9_001 })] },
+            });
+
+            const events = await scan(submittedOnly, recorded);
+
+            expect(recorded.calls).toEqual(['pulls']);
+            expect(events).toEqual([]);
+        }
+    });
+
+    it('takes only exact CHANGES_REQUESTED reviews that are dated inside the window', async () => {
+        {
+            const before = '2026-09-26T23:55:00.000Z';
+            const recorded = recordingPoller({
+                pulls: [fixtureOwnPull({ pullNumber: 12 })],
+                reviews: {
+                    12: [
+                        fixtureReview({ reviewId: 1, state: 'APPROVED' }),
+                        fixtureReview({ reviewId: 2, state: 'COMMENTED' }),
+                        fixtureReview({ reviewId: 3, submittedAt: null }),
+                        fixtureReview({ reviewId: 4, submittedAt: before }),
+                        fixtureReview({ reviewId: 5 }),
+                    ],
+                },
+            });
+
+            const events = await scan(submittedOnly, recorded);
+
+            expect(events.map((event) => event.id)).toEqual([
+                `evt-acme~widget~12~${ACCOUNT_ID}~review~submitted~5`,
+            ]);
+        }
+    });
+
+    it('makes no reviews request when the pull updated before the window', async () => {
+        {
+            const stale = recordingPoller({
+                pulls: [fixtureOwnPull({ pullNumber: 12, updatedAt: '2026-09-26T00:00:00.000Z' })],
+                reviews: { 12: [fixtureReview({ reviewId: 9_001 })] },
+            });
+            expect(await scan(submittedOnly, stale)).toEqual([]);
+            expect(stale.calls).toEqual(['pulls']);
+        }
+    });
+
+    it('records truncation with the pull number and produces no row', async () => {
+        {
+            const truncated = recordingPoller({
+                pulls: [fixtureOwnPull({ pullNumber: 12 })],
+                reviews: { 12: [fixtureReview({ reviewId: 9_001 })] },
+                reviewsTruncated: [12],
+            });
+            expect(await scan(submittedOnly, truncated)).toEqual([]);
+            expect(truncated.calls).toEqual(['pulls', 'reviews:12']);
+
+            const truncatedMessage = 'review feed truncated; this pull request produces nothing this cycle';
+            const warning = logLines
+                .map((line) => JSON.parse(line) as Record<string, unknown>)
+                .find((line) => line.message === truncatedMessage);
+            expect(warning).toMatchObject({ level: 'warn', pullNumber: 12 });
+        }
+    });
+
+    it('ends the scan with the class of a failed reviews read and enqueues nothing', async () => {
+        {
+            const recorded = recordingPoller({
+                pulls: [fixtureOwnPull({ pullNumber: 12 })],
+                reviewsFailure: { kind: 'rate-limited', retryAfterSeconds: 30 },
+            });
+            await writeBindings({ store, bindings: [submittedOnly] });
+            await writeAccount(store, fixtureAccount({ stamp: STAMP }));
+
+            const cycle = await runScanCycle({ store, log, poller: recorded.poller });
+
+            expect(cycle.bindings[0]?.skipped).toBe('rate-limited');
+            expect(await readEvents({ store, log })).toEqual([]);
+        }
+    });
+
+    it('never reads checks for an untracked pull', async () => {
+        {
+            const checksOnly = recordingPoller({
+                pulls: [fixtureOwnPull({ pullNumber: 12 })],
+                checks: { [HEAD_SHA]: { conclusion: 'failure', names: ['build'] } },
+            });
+            const events = await scan(fixtureBinding('bnd-checks-only', {
+                assignment: false,
+                mention: false,
+                reviewRequest: false,
+                reviewSubmitted: false,
+                checks: true,
+            }), checksOnly);
+
+            expect(checksOnly.calls).toEqual(['pulls']);
+            expect(events).toEqual([]);
+        }
+    });
+
+    it('makes no pulls read with every pull switch off', async () => {
+        {
+            const quiet = recordingPoller({});
+            await writeBindings({
+                store,
+                bindings: [fixtureBinding('bnd-quiet', {
+                    assignment: false,
+                    mention: false,
+                    reviewRequest: false,
+                    reviewSubmitted: false,
+                    checks: false,
+                })],
+            });
+            await writeAccount(store, fixtureAccount({ stamp: STAMP }));
+
+            await runScanCycle({ store, log, poller: quiet.poller });
+
+            expect(quiet.calls).toEqual([]);
+        }
+    });
 });
 
 describe('event kind round-trip (nullable Slice-2 fields)', () => {
@@ -942,7 +1443,13 @@ const ISSUE_AUTHOR_LOGIN = 'issue-author-login';
 const WORK_EVENT_TYPES = ['dispatch.', 'run.'] as const;
 
 /** The binding every kind in this block binds, with all three switches on. */
-const ALL_KINDS = { assignment: true, mention: true, reviewRequest: true } as const;
+const ALL_KINDS = {
+    assignment: true,
+    mention: true,
+    reviewRequest: true,
+    reviewSubmitted: false,
+    checks: false,
+} as const;
 
 /**
  * Run one scan and answer everything a caller needs to judge what it produced.

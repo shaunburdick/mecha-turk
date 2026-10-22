@@ -60,6 +60,8 @@ export function resetDraft(bindings: BindingsTabState, displayed: string | null)
     bindings.triggerAssignment = true;
     bindings.triggerMention = false;
     bindings.triggerReviewRequest = true;
+    bindings.triggerReviewSubmitted = false;
+    bindings.triggerChecks = false;
     bindings.worktreeSelection = 'none';
 }
 function resetCoveredDraft(bindings: BindingsTabState, repository: string, displayed: string | null): void {

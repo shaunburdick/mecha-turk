@@ -17,7 +17,7 @@ export type RunState =
     | 'dead-lettered'
     | `blocked:${string}`;
 
-export type ReferenceOrigin = 'assignment' | 'body' | 'review' | `comment:${number}`;
+export type ReferenceOrigin = 'assignment' | 'body' | 'review' | `comment:${number}` | `review-comment:${number}`;
 
 export interface SourceReference {
     /** The joining delivery's unchanged id. */

@@ -81,6 +81,10 @@ export interface BindingsPane {
     readonly mentionCheck: CheckboxHandle;
     /** Review-request trigger checkbox. */
     readonly reviewRequestCheck: CheckboxHandle;
+    /** Review-submitted trigger checkbox. */
+    readonly reviewSubmittedCheck: CheckboxHandle;
+    /** Failing-checks trigger checkbox. */
+    readonly checksCheck: CheckboxHandle;
     /** Worktree option select. */
     readonly worktreeSelect: SelectHandle;
     /** Add-binding button (the same control saves the loaded row in edit mode). */
@@ -126,6 +130,10 @@ export interface BindingsPaneHandlers
     readonly setMention: (isChecked: boolean) => void;
     /** Operators set the review-request trigger checkbox. */
     readonly setReviewRequest: (isChecked: boolean) => void;
+    /** Operators set the review-submitted trigger checkbox. */
+    readonly setReviewSubmitted: (isChecked: boolean) => void;
+    /** Operators set the failing-checks trigger checkbox. */
+    readonly setChecks: (isChecked: boolean) => void;
     /** Operators picked a worktree option. */
     readonly setWorktree: (id: 'none' | 'generated') => void;
     /** Operators clicked a binding row — which loads it into the editor. */
@@ -209,6 +217,8 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     view.assignmentCheck.update({ checked: bindings.triggerAssignment });
     view.mentionCheck.update({ checked: bindings.triggerMention });
     view.reviewRequestCheck.update({ checked: bindings.triggerReviewRequest });
+    view.reviewSubmittedCheck.update({ checked: bindings.triggerReviewSubmitted });
+    view.checksCheck.update({ checked: bindings.triggerChecks });
     view.worktreeSelect.update({ value: bindings.worktreeSelection });
     repaintBindingActions({
         bindings,

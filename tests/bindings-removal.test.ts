@@ -56,7 +56,7 @@ const bindingFixture = (input: {
     accountNumericUserId: ACCOUNT_ID,
     accountLogin: LOGIN,
     repository: input.repository,
-    triggers: { assignment: true, mention: false, reviewRequest: false },
+    triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
     state: input.state,
     stamp: STAMP,
 });

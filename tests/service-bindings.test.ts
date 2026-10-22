@@ -226,11 +226,23 @@ describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
         {
             const service = await startWithAccount();
             const binding = bindingFixture();
-            binding.triggers = { assignment: true, mention: false, reviewRequest: true };
+            binding.triggers = {
+                assignment: true,
+                mention: false,
+                reviewRequest: true,
+                reviewSubmitted: false,
+                checks: false,
+            };
 
             const answer = await grantBindings(service, [binding]);
             const stored = answer.bindings as Record<string, unknown>[];
-            expect(stored[0]?.triggers).toEqual({ assignment: true, mention: false, reviewRequest: true });
+            expect(stored[0]?.triggers).toEqual({
+                assignment: true,
+                mention: false,
+                reviewRequest: true,
+                reviewSubmitted: false,
+                checks: false,
+            });
 
             // The panel reads its own grant back through the same parser.
             const response = await service.call(BINDINGS_PATH);
@@ -245,7 +257,13 @@ describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
             // The fixture's triggers are the pre-M7 shape: no `reviewRequest` key.
             const answer = await grantBindings(service, [bindingFixture()]);
             const stored = answer.bindings as Record<string, unknown>[];
-            expect(stored[0]?.triggers).toEqual({ assignment: true, mention: false, reviewRequest: false });
+            expect(stored[0]?.triggers).toEqual({
+                assignment: true,
+                mention: false,
+                reviewRequest: false,
+                reviewSubmitted: false,
+                checks: false,
+            });
 
             // The stored file parses in place: no quarantine, no lost binding.
             const entries = await readdir(service.dataDir);
@@ -277,6 +295,69 @@ describe('PUT /v1/bindings (the M7 reviewRequest trigger)', () => {
         }
     });
 
+    it('stores, answers back and defaults the two new switches (FR-125, FR-129)', async () => {
+        {
+            const service = await startWithAccount();
+            const binding = bindingFixture();
+            binding.triggers = {
+                assignment: true,
+                mention: false,
+                reviewRequest: false,
+                reviewSubmitted: true,
+                checks: true,
+            };
+
+            const answer = await grantBindings(service, [binding]);
+            const stored = answer.bindings as Record<string, unknown>[];
+            expect(stored[0]?.triggers).toEqual({
+                assignment: true,
+                mention: false,
+                reviewRequest: false,
+                reviewSubmitted: true,
+                checks: true,
+            });
+
+            const reread = await service.call(BINDINGS_PATH);
+            const parsed = parseBindingsBody(await reread.text());
+            expect(parsed?.bindings).toHaveLength(1);
+        }
+    });
+
+    it('reads a binding stored before the two new switches as `false`', async () => {
+        {
+            const service = await startWithAccount();
+            const binding = bindingFixture();
+            binding.triggers = {
+                assignment: true,
+                mention: false,
+                reviewRequest: false,
+                reviewSubmitted: false,
+                checks: false,
+            };
+
+            const answer = await grantBindings(service, [binding]);
+            const stored = answer.bindings as Record<string, unknown>[];
+            expect(stored[0]?.triggers).toMatchObject({ reviewSubmitted: false, checks: false });
+        }
+    });
+
+    it('refuses a new switch that is not a boolean', async () => {
+        {
+            for (const field of ['reviewSubmitted', 'checks'] as const) {
+                const service = await startWithAccount();
+                const binding = bindingFixture();
+                binding.triggers = { assignment: true, mention: false, reviewRequest: false, [field]: 'yes' };
+
+                const response = await service.call(BINDINGS_PATH, {
+                    method: 'PUT',
+                    headers: jsonHeaders(),
+                    body: JSON.stringify({ bindings: [binding] }),
+                });
+
+                expect(response.status, field).toBe(422);
+            }
+        }
+    });
 });
 
 /** A distinctive prompt this suite stores, changes, and scans for. */

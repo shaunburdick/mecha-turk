@@ -203,7 +203,7 @@ const bindingFixture = (overrides: Partial<PanelBinding> = {}): PanelBinding => 
     ...fixtureBindingRow('bnd-1', {
         accountLogin: LOGIN,
         worktreeOption: 'generated',
-        triggers: { assignment: true, mention: false, reviewRequest: false },
+        triggers: { assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: false },
         stamp: FIXTURE_TIMESTAMP,
     }),
     ...overrides,
@@ -615,5 +615,54 @@ describe('FR-013 the Bindings body paints its stored list on first activation', 
         expect(statusLine).toBe('Bindings: 1 (1 enabled) · Accounts: 0');
         expect(painted).toHaveLength(1);
         expect(painted[0]?.title).toBe('acme/widget → prj_42');
+    });
+});
+
+describe('the two wave-2 switches (FR-125, FR-129)', () => {
+    it('mounts, repaints and chips review-submitted, and renders no checks chip', () => {
+        {
+            const row = bindingFixture({
+                triggers: {
+                    assignment: false,
+                    mention: false,
+                    reviewRequest: false,
+                    reviewSubmitted: true,
+                    checks: true,
+                },
+            });
+            const { rt, dispose } = mountBindingsTab({
+                setup: (runtime) => {
+                    runtime.state.bindings.status = 'ready';
+                    runtime.state.bindings.bindings = [row];
+                    runtime.state.bindings.selectedBinding = row.bindingId;
+                },
+            });
+
+            // Both controls exist; the add draft starts them off.
+            expect(propsOf('mountCheckbox', (props) => props.label === 'Review submitted'))
+                .toMatchObject({ checked: false });
+            expect(propsOf('mountCheckbox', (props) => props.label === 'Checks'))
+                .toMatchObject({ checked: false });
+
+            mounts.log.length = 0;
+            startEditingBinding(rt);
+            expect(rt.state.bindings.triggerReviewSubmitted).toBe(true);
+            expect(rt.state.bindings.triggerChecks).toBe(true);
+
+            // A repaint carries only the patched props, so the two new
+            // switches' `checked: true` updates are counted rather than tied
+            // back to a label the update does not carry.
+            const checkedUpdates = mounts.log.filter((entry) =>
+                entry.key === 'mountCheckbox:update'
+                && (entry.props as { readonly checked?: boolean }).checked === true);
+            expect(checkedUpdates).toHaveLength(2);
+
+            // One chip for the session-starting switch; `checks` gets none.
+            expect(propsLog('mountBadge', (props) => props.label === 'Review submitted')).toHaveLength(1);
+            expect(propsLog('mountBadge', (props) => props.label === 'Checks')).toHaveLength(0);
+
+            stopRelayPolling(rt);
+            dispose();
+        }
     });
 });
