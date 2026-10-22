@@ -38,6 +38,14 @@ matching section below plus GitHub's generated notes.
 
 ### Fixed
 
+- **The session-naming instruction now opens the dispatch frame** (#66). The
+  naming rule moves out of the header metadata into a `SESSION TITLE` block
+  that leads the frame — an imperative, the `"Issue #n: <subject>"` format
+  (pull requests: `"PR #n: <subject>"`), the ~60-character budget, and the
+  default `mt-run-…` title named as not acceptable — so a dispatched agent
+  meets it as a step rather than a skippable rule line. The block is literals
+  only: the issue title stays on the defused `Issue #n:` data line, and
+  follow-ups do not gain it.
 - **The bound account's own comment no longer wakes its own session** (#65).
   Comment, issue-body, and inline-review-comment authorship now refuses the
   binding's own login — compared case-insensitively, per bound account — so a

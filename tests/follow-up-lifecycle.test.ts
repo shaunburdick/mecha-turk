@@ -2793,6 +2793,18 @@ describe('FR-104 the delivery gate (AC-050)', () => {
         }
     });
 
+    it('carries no SESSION TITLE block — the naming instruction is initial-dispatch only', () => {
+        {
+            const message = followUpMessage({
+                row: rowWith({ sessionId: 'ses_follow_up_1' }),
+                followUp: commentFollowUp({ excerpt: 'the drift is back' }),
+            });
+
+            expect(message).not.toContain('SESSION TITLE');
+            expect(message).not.toContain('Set this before your first other action');
+        }
+    });
+
     it('defuses a hostile issue title inside its own frame, not only inside the block', async () => {
         {
             // Untrusted text in the frame itself: a title carrying the closing

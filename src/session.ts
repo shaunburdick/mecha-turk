@@ -219,13 +219,16 @@ export interface BoundedContextInput {
 export function buildBoundedContext(input: BoundedContextInput): string {
     const title = defuseDelimiters(input.issue.title);
     const header = [
+        // Host titles are unfindable; only the in-session agent can rename — asked once, by rule, idempotently.
+        'SESSION TITLE',
+        'Set this before your first other action: name this session "Issue #<n>: <subject>"',
+        '(pull requests: "PR #<n>: <subject>"), ~60 characters.',
+        '<subject> is the issue title on the "Issue #n:" data line below — cut it at a word boundary, never reword.',
+        'The default mt-run-… title is not acceptable, even though it contains the subject.',
         'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
         `Correlation: ${input.correlationId}`,
         `Repository: ${input.repository}`,
         `Issue #${input.issue.issueNumber}: ${title}`,
-        // Host titles are unfindable; only the in-session agent can rename — asked once, by rule, idempotently.
-        'Rule: name this session "Issue #n: <subject>" (PRs: "PR #n: <subject>"), ~60 chars;'
-            + ' if its name already fits, leave it.',
         `URL: ${defuseDelimiters(input.issue.url)}`,
         `Machine account: ${input.authenticatedLogin}`,
         'Rule: configured-match — open issue assigned to the authenticated machine account.',
