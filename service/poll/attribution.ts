@@ -35,6 +35,23 @@ export function isAttributableAuthor(authorLogin: string, authorType: string): b
 }
 
 /**
+ * Whether one comment-shaped author's text may be attributed to a detection
+ * at all: attributable under {@link isAttributableAuthor}, **and** not the
+ * bound account's own word — its own comment, issue body, or review comment
+ * would wake the session that wrote it (002 FR-052; issue #65). The
+ * comparison is case-insensitive like every login comparison here, and an
+ * empty `boundLogin` refuses nobody: it cannot equal a readable author.
+ */
+export function isAttributableCommentAuthor(
+    authorLogin: string,
+    authorType: string,
+    boundLogin: string,
+): boolean {
+    return isAttributableAuthor(authorLogin, authorType)
+        && authorLogin.toLowerCase() !== boundLogin.toLowerCase();
+}
+
+/**
  * Bound one attributed login to the length a row may carry.
  */
 export function actorLoginOf(authorLogin: string): string {

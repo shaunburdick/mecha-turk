@@ -36,6 +36,14 @@ matching section below plus GitHub's generated notes.
   moved head; a truncated read records the truncation and produces no row, so
   silence is not read as a passing build.
 
+### Fixed
+
+- **The bound account's own comment no longer wakes its own session** (#65).
+  Comment, issue-body, and inline-review-comment authorship now refuses the
+  binding's own login — compared case-insensitively, per bound account — so a
+  mention or follow-up is never detected from the text Mecha Turk's own account
+  wrote, which could otherwise sustain its own loop.
+
 ## [0.4.1] - 2026-10-19
 
 ### Fixed

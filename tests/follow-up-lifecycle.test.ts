@@ -1457,6 +1457,36 @@ describe('FR-102 both kinds detect, and neither adds a request (AC-049)', () => 
         }
     });
 
+    it('enqueues nothing on a tracked subject for the bound account\'s own comment (issue #65)', async () => {
+        {
+            await plantDispatchedRun({
+                deliveries: [subjectSnapshot({ issueNumber: PULL_NUMBER, subjectType: 'pull_request' })],
+            });
+
+            const outcome = await driveCycle(
+                fixtureBinding(MENTION_ONLY),
+                recordingPoller({
+                    issues: [fixtureIssue({ isPullRequest: true, url: PULL_URL })],
+                    comments: [fixtureComment({
+                        commentId: COMMENT_ID,
+                        body: MENTION_BODY,
+                        authorLogin: ACCOUNT_LOGIN,
+                    })],
+                    reviewComments: [fixtureReviewComment({
+                        commentId: 901,
+                        body: MENTION_BODY,
+                        authorLogin: ACCOUNT_LOGIN,
+                    })],
+                }),
+            );
+            const queue = await readEvents({ store, log });
+
+            // Only the planted delivery remains: neither self-authored comment is movement anyone else observed.
+            expect(outcome.enqueued).toBe(0);
+            expect(queue.map((row) => row.id)).toEqual([`evt-acme~widget~7~${ACCOUNT_ID}`]);
+        }
+    });
+
     it('detects a comment that does not mention the account, because a follow-up is not a trigger', async () => {
         {
             await plantDispatchedRun({ deliveries: [subjectSnapshot({ issueNumber: 7 })] });
