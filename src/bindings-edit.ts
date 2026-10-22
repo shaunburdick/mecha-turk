@@ -68,8 +68,6 @@ export function startEditingBinding(rt: PanelRuntime): void {
         return;
     }
 
-    // The worktree option loads into the select and, for `new:<branch>`, the
-    // name input — so the form displays exactly what a save would write (FR-003).
     const worktree = parseWorktreeOption(binding.worktreeOption);
     bindings.worktreeSelection = worktreeChoice(worktree?.kind ?? 'none');
     bindings.worktreeNameInput = worktree?.kind === 'new' ? worktree.name : '';

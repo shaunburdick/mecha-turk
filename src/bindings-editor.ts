@@ -306,13 +306,7 @@ const WORKTREE_OPTIONS = [
     { id: 'new', label: 'new: named branch (issue-{number} substituted)' },
 ] as const;
 
-/**
- * The option kind a select id names, and the kind a parsed `new:<name>` option
- * already carries. Both are the same closed set, so one function owns the
- * mapping and the editor and the draft cannot disagree about what `new` means.
- *
- * @returns The chosen option kind.
- */
+/** Map a select id (or a parsed option kind) onto the closed option set. */
 export function worktreeChoice(id: string): 'none' | 'generated' | 'new' {
     if (id === 'generated') {
         return 'generated';
@@ -344,10 +338,7 @@ export function worktreeFieldView(
     };
 }
 
-/**
- * The branch-name input's props: active only when the `new` option is chosen,
- * holding the draft name an operator typed.
- */
+/** The branch-name input's props, active only when `new` is chosen. */
 export function worktreeNameFieldView(bindings: BindingsTabState, setName: (value: string) => void): {
     readonly label: string;
     readonly value: string;
