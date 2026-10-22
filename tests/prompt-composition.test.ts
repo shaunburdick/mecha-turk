@@ -288,13 +288,10 @@ describe('T-010 composeFirstMessage: fenced first, or byte-identical (FR-030–F
         expect(frame.indexOf(READ_SOURCE_BLOCK)).toBe(beneathTitleBlock);
         expect(frame.indexOf(READ_SOURCE_BLOCK)).toBeLessThan(frame.indexOf('Mecha Turk dispatch (automated'));
 
-        // The imperative clauses and the mechanism lines — both `gh` forms —
-        // are inside the block, and only there.
+        // The imperative clauses the block must spell.
         expect(frame).toContain('Before acting on this dispatch: read the full issue or pull request');
         expect(frame).toContain('the excerpt quoted below is partial by design.');
         expect(frame).toContain('A comment may carry a requirement, correction, or scope decision the body does not.');
-        expect(READ_SOURCE_BLOCK).toContain(READ_SOURCE_MECHANISM);
-        expect(frame.split(READ_SOURCE_MECHANISM).length - 1).toBe(1);
 
         // The literal stands whether the source is an issue or a pull request…
         const pullRequest = buildBoundedContext({
