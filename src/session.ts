@@ -225,6 +225,7 @@ export function buildBoundedContext(input: BoundedContextInput): string {
         '(pull requests: "PR #<n>: <subject>"), ~60 characters.',
         '<subject> is the issue title on the "Issue #n:" data line below — cut it at a word boundary, never reword.',
         'The default mt-run-… title is not acceptable, even though it contains the subject.',
+        'Rename via `tools.opencode.session_rename` through `execute`: omit `sessionID` to rename your own session.',
         'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
         `Correlation: ${input.correlationId}`,
         `Repository: ${input.repository}`,
