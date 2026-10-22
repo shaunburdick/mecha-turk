@@ -17,7 +17,7 @@
  * - **the schema marker still says `1`** — there is nothing to compute, which
  *   is the whole point (FR-018: absence is already the correct reading);
  * - **the composed message is the shipped bytes**: a prompt-less run composes
- *   exactly what the previous build composed for that event (SC-121);
+ *   exactly the golden this file pins for that event (SC-121);
  * - **a prompt edited mid-flight changes nothing about a queued run** — the
  *   snapshot it queued with is the snapshot it dispatches with (AC-138).
  *
@@ -339,16 +339,20 @@ async function composedMessageFor(target: TestService): Promise<string> {
  * heading, and the excerpt — is a literal, which is what makes this a golden.
  *
  * @param correlationId - The run's own id, read from the upgraded store.
- * @returns The complete first message the previous build would have sent.
+ * @returns The complete first message this build sends for the seeded event.
  */
 function goldenMessage(correlationId: string): string {
     return [
+        'SESSION TITLE',
+        'Set this before your first other action: name this session "Issue #<n>: <subject>"',
+        '(pull requests: "PR #<n>: <subject>"), ~60 characters.',
+        '<subject> is the issue title on the "Issue #n:" data line below — cut it at a word boundary, never reword.',
+        'The default mt-run-… title is not acceptable, even though it contains the subject.',
+        'Rename via `tools.opencode.session_rename` through `execute`: omit `sessionID` to rename your own session.',
         'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
         `Correlation: ${correlationId}`,
         'Repository: acme/widget',
         `Issue #${ISSUE_NUMBER}: ${ISSUE_TITLE}`,
-        'Rule: name this session "Issue #n: <subject>" (PRs: "PR #n: <subject>"), ~60 chars;'
-            + ' if its name already fits, leave it.',
         `URL: ${ISSUE_URL}`,
         `Machine account: ${LOGIN}`,
         'Rule: configured-match — open issue assigned to the authenticated machine account.',
@@ -406,10 +410,10 @@ describe('T-013 the upgrade runs no migration (FR-018, SC-128, AC-142)', () => {
 
             const composed = await composedMessageFor(service);
             expect(composed).toBe(goldenMessage(seed.correlationId));
-            // No fence, no blank line, no note about the absence — the block the
-            // previous build wrote is the whole of what this one writes.
+            // No fence, no blank line, no note about the absence — the shipped
+            // frame is the whole of what this one writes.
             expect(composed).not.toContain(PROMPT_FENCE_MARKER);
-            expect(composed.startsWith('Mecha Turk dispatch (automated')).toBe(true);
+            expect(composed.startsWith('SESSION TITLE')).toBe(true);
         }
     });
 
@@ -648,12 +652,12 @@ describe('T-036 arrival writes nothing (FR-018, FR-089, SC-128, AC-131, AC-142)'
         expect(SERVICE_SCHEMA_VERSION).toBe(1);
         expect(handle.schemaVersion).toBe(1);
 
-        // The seeded no-tier event composes the pre-004 bytes: the frame the
-        // previous build wrote, with no fence and no placeholder (AC-131).
+        // The seeded no-tier event composes the shipped no-tier golden: the
+        // frame itself, with no fence and no placeholder (AC-131).
         const composed = await composedMessageFor(service);
         expect(composed).toBe(goldenMessage(seed.correlationId));
         expect(composed).not.toContain(PROMPT_FENCE_MARKER);
-        expect(composed.startsWith('Mecha Turk dispatch (automated')).toBe(true);
+        expect(composed.startsWith('SESSION TITLE')).toBe(true);
 
         // The scan window was read, not reset: same bytes, same stamp
         // (SC-128's zero scan-window resets).

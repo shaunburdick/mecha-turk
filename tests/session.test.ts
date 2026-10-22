@@ -31,8 +31,8 @@ const CONTEXT_CORRELATION = 'abc-123';
 /** The bounded context text used when no issue detail matters. */
 const CONTEXT_TEXT = 'bounded context';
 
-/** Context budget small enough to force the untrusted excerpt to be trimmed. */
-const TIGHT_CONTEXT_CHARS = 600;
+/** Context budget that holds the frame — which the budget never shortens — but trims the excerpt. */
+const TIGHT_CONTEXT_CHARS = 1_000;
 
 /** The fixture issue body, quoted by the context tests in both source shapes. */
 const ISSUE_BODY_TEXT = 'It fails once in ten runs.';

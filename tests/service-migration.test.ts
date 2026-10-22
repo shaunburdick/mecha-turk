@@ -725,16 +725,20 @@ async function composedMessageFor(target: TestService, run: Run): Promise<string
  * no-tier oracle, on a run this upgrade adopted rather than queued).
  *
  * @param correlationId - The adopted run's own id, read from the store.
- * @returns The complete first message the previous build would have sent.
+ * @returns The complete first message this build sends for the adopted delivery.
  */
 function legacyGoldenMessage(correlationId: string): string {
     return [
+        'SESSION TITLE',
+        'Set this before your first other action: name this session "Issue #<n>: <subject>"',
+        '(pull requests: "PR #<n>: <subject>"), ~60 characters.',
+        '<subject> is the issue title on the "Issue #n:" data line below — cut it at a word boundary, never reword.',
+        'The default mt-run-… title is not acceptable, even though it contains the subject.',
+        'Rename via `tools.opencode.session_rename` through `execute`: omit `sessionID` to rename your own session.',
         'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
         `Correlation: ${correlationId}`,
         'Repository: acme/widget',
         'Issue #1: Issue 1',
-        'Rule: name this session "Issue #n: <subject>" (PRs: "PR #n: <subject>"), ~60 chars;'
-            + ' if its name already fits, leave it.',
         `URL: ${LEGACY_ISSUE_URL}`,
         `Machine account: ${SHIPPED_LOGIN}`,
         'Rule: configured-match — open issue assigned to the authenticated machine account.',
@@ -815,9 +819,9 @@ describe('T-036 the shipped store predating the prompt member arrives unchanged'
         expect(SERVICE_SCHEMA_VERSION).toBe(1);
         expect(opened.schemaVersion).toBe(1);
 
-        // The first adopted run composes the pre-004 bytes: the frame the
-        // previous build wrote for this delivery, with no fence and no
-        // placeholder (AC-131's no-tier oracle on an adopted run).
+        // The first adopted run composes the shipped no-tier golden: the
+        // frame for this delivery, with no fence and no placeholder
+        // (AC-131's no-tier oracle on an adopted run).
         const [firstRun] = firstRuns.runs;
         if (firstRun === undefined) {
             throw new Error('adoption produced no run');
@@ -826,7 +830,7 @@ describe('T-036 the shipped store predating the prompt member arrives unchanged'
         const composed = await composedMessageFor(service, firstRun);
         expect(composed).toBe(legacyGoldenMessage(firstRun.correlationId));
         expect(composed).not.toContain(PROMPT_FENCE_MARKER);
-        expect(composed.startsWith('Mecha Turk dispatch (automated')).toBe(true);
+        expect(composed.startsWith('SESSION TITLE')).toBe(true);
         const runsBytes = await fileBytes(RUNS_FILE);
 
         // A second arrival is the first one repeated: the same identifiers,

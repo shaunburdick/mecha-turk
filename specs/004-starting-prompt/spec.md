@@ -6,11 +6,11 @@
 
 **Created**: 2026-09-28
 
-**Last Updated**: 2026-10-19 — see [changelog.md](changelog.md) for what changed and why
+**Last Updated**: 2026-10-22 — see [changelog.md](changelog.md) for what changed and why
 
-**Version**: 1.5.0
+**Version**: 1.6.0
 
-**Status**: Implemented, current at v1.5.0; the requirement history is in [changelog.md](changelog.md)
+**Status**: Implemented, current at v1.6.0; the requirement history is in [changelog.md](changelog.md)
 
 **Dependencies**: Feature 002 `002-agent-event-extension` (v1.2.0 → **amended to v1.3.0 by this specification** → **v1.4.0 by 005**) and feature 003 `003-dispatch-integrity` (v1.0.0 → **amended to v1.1.0 by this specification** → **v1.2.0 by 005**). Credentials, custody, the binding model, the trigger set, polling, the dispatch mechanism, the agent pin, the run/delivery model, the dispatch-lifecycle audit vocabulary, the read-only-to-GitHub posture, and the dispatch state model all carry forward unchanged. This specification **extends** 002's dispatch payload and 003's audit row and run projection; it supersedes nothing. It is a **prerequisite of 005** (panel IA), which renders this field exactly once and specifies that rule as 005 FR-051. **Extended by** `005-panel-ia` v1.0.0 (see changelog.md), which supersedes nothing here. **As of this document's v1.3.0 the independence from 005 and 006 is no longer total**: this specification now **amends** 005 (v1.8.0 → **v1.9.0**, FR-051 / SC-105 / AC-123 — the single-rendering rule widens from one prompt field to exactly one rendering *per tier value*) and 006 (v1.5.0 → **v1.6.0**, FR-071 / FR-081 / FR-084 and the documented-field counts — the global tier becomes the twelfth configuration field, rendered through the Settings descriptor table, and its `config.changed` row is value-free for this field). Both amendment entries live in those documents' changelog.md; 004 remains authoritative for the prompt domain in all three. **At this document's v1.4.0 the 005 amendment is widened by one row**: FR-066's write path and 005's `## Wire Surface Delta` **Accounts** row move onto the account profile `PUT /v1/accounts/:numericUserId`, taking 005 v1.9.0 → **v1.10.0**; **006 is not amended and stays v1.6.0** (audited for both the retired `/display-name` route and any per-field account prompt endpoint — it references neither).
 
@@ -274,7 +274,7 @@ As an operator running several bindings across a couple of accounts, I write who
 
 #### D. Composition of the dispatch message
 
-- **FR-030**: **Order: trusted operator intent first.** The composed dispatch message MUST place the operator's starting prompt **first**, verbatim (trimmed, normalised, bounded), as trusted operator instruction, and the auto-built framing beneath it. The automatic framing consists of what 002 FR-028 already requires — the resolved project, the source attachment (source id, title, url, kind, text, data), the configured worktree option, the correlation id, and the bounded untrusted excerpt with explicit delimiters — widened to every source reference on the run by 003 FR-014, and since v1.5.0 carrying one further trusted frame line directly beneath the issue line: a fixed rules line — a pure literal that interpolates no run data at all — instructing the in-session agent to give the session a short, human-findable name anchored on the issue/PR reference the frame already carries (the `#<n>` anchor is what keeps sessions findable; pattern `Issue #n: <subject>`, or `PR #n: <subject>` for a pull request), of ~60 characters, worded so a session whose current name already fits is left alone (OpenChamber titles guest sessions `<attach id> <attach title>`, which is unfindable in the sidebar). The untrusted title never enters the line — it stays data on the issue line above it. Everything else in the automatic framing stays exactly as it is today.
+- **FR-030**: **Order: trusted operator intent first.** The composed dispatch message MUST place the operator's starting prompt **first**, verbatim (trimmed, normalised, bounded), as trusted operator instruction, and the auto-built framing beneath it. The automatic framing consists of what 002 FR-028 already requires — the resolved project, the source attachment (source id, title, url, kind, text, data), the configured worktree option, the correlation id, and the bounded untrusted excerpt with explicit delimiters — widened to every source reference on the run by 003 FR-014, and since v1.6.0 **opening with a `SESSION TITLE` block**: the frame's first lines, ahead of the dispatch line and the correlation metadata, a heading plus an imperative instructing the in-session agent to set the session title **before its first other action** — format `"Issue #<n>: <subject>"` (`"PR #<n>: <subject>"` for a pull request), ~60 characters, `<subject>` read from the `Issue #n:` data line the block names, cut at a word boundary and never reworded, and the default `mt-run-…` title explicitly not acceptable even though it contains the subject (OpenChamber titles guest sessions `<attach id> <attach title>`, which is unfindable in the sidebar), plus a mechanism line naming the call that performs the rename — `tools.opencode.session_rename`, run through `execute`, with `sessionID` omitted so the call renames the calling session's own. The block is built from **literals only** — no issue-authored or run-derived text is interpolated into it, because untrusted text must never enter a trusted instruction area — and the delimiter-defused title stays data on the `Issue #n:` line **below** the block. The block is **initial-dispatch only**: a follow-up message carries no part of it. Everything else in the automatic framing stays exactly as it is today.
 - **FR-031**: **The prompt block is the only trusted section, and it is fenced.** Everything else the composition adds is machine-built. The prompt block MUST be fenced by a fixed opening and closing marker pair that identifies it as operator-supplied starting instruction, so a reader — human or model — can see where the operator's intent ends and the machine's frame begins. The fence is emitted by the composition; it is never part of the operator's stored text.
 - **FR-032**: **Unset means no block.** When the prompt is unset, the composition MUST contain no prompt block, no empty fence, no placeholder, and no explanatory line about the absence of a prompt. The message MUST be byte-identical to the pre-feature composition.
 - **FR-033**: **Markers are structural, never searched for.** Every delimiter, fence, frame line, and truncation marker MUST be emitted by the composition. No part of the composed message may be produced by searching, splitting, re-parsing, or otherwise deriving structure from the operator's text or from the source excerpt. The operator's text MUST be carried through byte for byte inside its fence — no escaping, rewriting, reflowing, re-indenting, or quote-stripping.
@@ -351,11 +351,16 @@ The dispatch is a **request envelope** and a **first message**. This feature cha
  internal whitespace and newlines preserved exactly, nothing escaped or reflowed>
 --- END OPERATOR STARTING PROMPT ---
 <blank line>
+SESSION TITLE
+Set this before your first other action: name this session "Issue #<n>: <subject>"
+(pull requests: "PR #<n>: <subject>"), ~60 characters.
+<subject> is the issue title on the "Issue #n:" data line below — cut it at a word boundary, never reword.
+The default mt-run-… title is not acceptable, even though it contains the subject.
+Rename via `tools.opencode.session_rename` through `execute`: omit `sessionID` to rename your own session.
 Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).
 Correlation: <the run's correlation id>
 Repository: <owner/name>
 Issue #<number>: <title>
-Rule: name this session "Issue #n: <subject>" (PRs: "PR #n: <subject>"), ~60 chars; if its name already fits, leave it.
 URL: <canonical source url>
 Machine account: <login>
 Rule: <the shipped rule line>
@@ -376,12 +381,12 @@ Rule: <the shipped rule line>
 <binding tier text, verbatim>
 --- END OPERATOR STARTING PROMPT ---
 <blank line>
-Mecha Turk dispatch (…unchanged from here down…)
+SESSION TITLE (…unchanged from here down…)
 ```
 
 Exactly one tier set ⇒ the output is byte-identical to the single-tier example above — it *is* the golden string that example pins (and its fingerprint is the golden fingerprint). No tier labels appear: which tiers contributed is carried by `promptSources` on the run and audit surfaces (FR-087), never read back out of the message (FR-084).
 
-**With no tier set**, the message is exactly the block from `Mecha Turk dispatch` downward — byte-identical to the composition the current build produces for the same event. No fence, no blank line in its place, no note about the absence.
+**With no tier set**, the message is exactly the block from `SESSION TITLE` downward — byte-identical to the composition the current build produces for the same event. No fence, no blank line in its place, no note about the absence.
 
 **Rules that hold in all cases**
 
@@ -465,7 +470,7 @@ Only the entities this feature adds or changes are listed; everything else is de
 - [ ] **AC-149**: `DELETE /v1/accounts/:id?force=1` removes the account record and its tier together, disables the referencing bindings as today, and writes `account.deleted`; queued runs keep their snapshot, fingerprint, and sources; a re-added account — same numeric id — reads as unset; rotation and login rename leave the tier byte-identical.
 - [ ] **AC-150**: The same credential-shaped value is refused at all three save paths with identical shape labels and zero characters of the value in any refusal, message, or log; a refusal at one tier leaves the other two tiers' stored values byte-identical; and no save path applies any part of a submission that contains a problem.
 - [ ] **AC-151**: The claim reader refuses an entry whose `promptSources` carries an unknown tier, a wrong order, a duplicate, or disagrees with `promptPresent` — one refusal refuses the answer; and the global field's `config.changed` `from`/`to` values are `mtp-` fingerprints or `null`, proven by a sentinel scan of `audit.ndjson`. No legacy-projection case exists to test: the feature has never been released (row 32).
-- [ ] **AC-152**: Every composed dispatch frame carries the session-rename rule line in the trusted header directly beneath the issue line as a pure literal — byte-identical whatever the issue number, title, or source kind, carrying no interpolated run data — instructing the agent to give the session a short, human-findable name anchored on the issue/PR reference the frame already carries (`Issue #n: <subject>`, or `PR #n: <subject>` for a pull request), ~60 characters, and doing nothing when its current name already fits; the line sits above the untrusted delimiters and is pinned byte for byte by the golden literals.
+- [ ] **AC-152**: Every composed dispatch frame **opens** with the `SESSION TITLE` block — ahead of the dispatch line and the correlation metadata, above the untrusted delimiters — carrying the heading, the imperative to set the title before the first other action, the `"Issue #<n>: <subject>"` pattern (`"PR #<n>: <subject>"` for a pull request) at ~60 characters, word-boundary truncation with no rewording, the `mt-run-…` default named not acceptable, and the mechanism line naming `tools.opencode.session_rename`, its `execute` path, and the omitted `sessionID` that renames the calling session. The block is a pure literal: byte-identical whatever the issue number, title, or source kind, with no interpolated run data — a fixture title carrying newlines, its own `## SESSION TITLE`, and an instruction leaves the block unchanged and stays confined to the `Issue #n:` data line — pinned byte for byte by the golden literals; and no follow-up message carries any part of it.
 
 ## Out of Scope
 

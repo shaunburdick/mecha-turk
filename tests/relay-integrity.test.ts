@@ -1264,10 +1264,10 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
             });
 
             // No fence, no blank line, no note about the absence — the message is
-            // what this build produced before the feature existed.
+            // the frame itself, byte for byte.
             expect(parsed.text).not.toContain('OPERATOR STARTING PROMPT');
             expect(parsed.text).toBe(frame);
-            expect(parsed.text.startsWith('Mecha Turk dispatch (automated')).toBe(true);
+            expect(parsed.text.startsWith('SESSION TITLE')).toBe(true);
             expect(parsed.data).toMatchObject({
                 promptPresent: false,
                 promptFingerprint: null,
