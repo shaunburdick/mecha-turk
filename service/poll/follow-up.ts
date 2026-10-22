@@ -4,7 +4,7 @@
 
 import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
-import { actorLoginOf, isAttributableAuthor } from './attribution.ts';
+import { actorLoginOf, isAttributableCommentAuthor } from './attribution.ts';
 import { createEvent, followUpKindOf, subjectTypeOf } from './events.ts';
 import { bodyExcerptOf } from './trigger-scan.ts';
 import { stampInWindow } from './window.ts';
@@ -385,7 +385,7 @@ export function reviewCommentFollowUps(input: {
         const subject = tracked.get(comment.pullNumber);
         if (subject === undefined
             || !stampInWindow(comment.updatedAt, windowStart)
-            || !isAttributableAuthor(comment.authorLogin, comment.authorType)) {
+            || !isAttributableCommentAuthor(comment.authorLogin, comment.authorType, binding.accountLogin)) {
             continue;
         }
 
@@ -425,7 +425,7 @@ export function commentFollowUps(input: {
         // applies them: the scan window, then the attribution predicate.
         if (subject === undefined
             || !stampInWindow(comment.updatedAt, windowStart)
-            || !isAttributableAuthor(comment.authorLogin, comment.authorType)) {
+            || !isAttributableCommentAuthor(comment.authorLogin, comment.authorType, binding.accountLogin)) {
             continue;
         }
 

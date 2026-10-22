@@ -1846,6 +1846,9 @@ function isBotAuthor(authorLogin, authorType) {
 function isAttributableAuthor(authorLogin, authorType) {
   return authorLogin !== "" && !isBotAuthor(authorLogin, authorType);
 }
+function isAttributableCommentAuthor(authorLogin, authorType, boundLogin) {
+  return isAttributableAuthor(authorLogin, authorType) && authorLogin.toLowerCase() !== boundLogin.toLowerCase();
+}
 function actorLoginOf(authorLogin) {
   return authorLogin.slice(0, AUTHOR_LOGIN_MAX_CHARS);
 }
@@ -10983,7 +10986,7 @@ function reviewCommentFollowUps(input) {
   const rows = [];
   for (const comment of comments) {
     const subject = tracked.get(comment.pullNumber);
-    if (subject === undefined || !stampInWindow(comment.updatedAt, windowStart) || !isAttributableAuthor(comment.authorLogin, comment.authorType)) {
+    if (subject === undefined || !stampInWindow(comment.updatedAt, windowStart) || !isAttributableCommentAuthor(comment.authorLogin, comment.authorType, binding.accountLogin)) {
       continue;
     }
     rows.push(reviewCommentFollowUp({ binding, comment, tracked: subject, detectedAt }));
@@ -10996,7 +10999,7 @@ function commentFollowUps(input) {
   const rows = [];
   for (const comment of comments) {
     const subject = tracked.get(comment.issueNumber);
-    if (subject === undefined || !stampInWindow(comment.updatedAt, windowStart) || !isAttributableAuthor(comment.authorLogin, comment.authorType)) {
+    if (subject === undefined || !stampInWindow(comment.updatedAt, windowStart) || !isAttributableCommentAuthor(comment.authorLogin, comment.authorType, binding.accountLogin)) {
       continue;
     }
     const row = commentFollowUp({
@@ -11495,7 +11498,7 @@ function reviewCommentMentionEvents(input) {
   const { binding, login, comments, windowStart, detectedAt } = input;
   const events = [];
   for (const comment of comments) {
-    if (!stampInWindow(comment.updatedAt, windowStart) || !isAttributableAuthor(comment.authorLogin, comment.authorType) || !mentionsLogin(comment.body, login)) {
+    if (!stampInWindow(comment.updatedAt, windowStart) || !isAttributableCommentAuthor(comment.authorLogin, comment.authorType, login) || !mentionsLogin(comment.body, login)) {
       continue;
     }
     events.push(reviewCommentMentionEvent({ binding, comment, detectedAt }));
@@ -11688,13 +11691,13 @@ async function reviewSubmittedEvents(input) {
 
 // service/poll/triggers.ts
 function isMentionComment(comment, bindingLogin) {
-  if (!isAttributableAuthor(comment.authorLogin, comment.authorType)) {
+  if (!isAttributableCommentAuthor(comment.authorLogin, comment.authorType, bindingLogin)) {
     return false;
   }
   return mentionsLogin(comment.body, bindingLogin);
 }
 function isIssueBodyMention(issue2, bindingLogin) {
-  if (!isAttributableAuthor(issue2.authorLogin, issue2.authorType)) {
+  if (!isAttributableCommentAuthor(issue2.authorLogin, issue2.authorType, bindingLogin)) {
     return false;
   }
   return mentionsLogin(issue2.body ?? "", bindingLogin);

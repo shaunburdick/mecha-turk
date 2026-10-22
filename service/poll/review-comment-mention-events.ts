@@ -5,7 +5,7 @@
 
 import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
-import { actorLoginOf, isAttributableAuthor } from './attribution.ts';
+import { actorLoginOf, isAttributableCommentAuthor } from './attribution.ts';
 import { createEvent } from './events.ts';
 import { bodyExcerptOf } from './trigger-scan.ts';
 import { mentionsLogin } from './mentions-login.ts';
@@ -80,7 +80,7 @@ export function reviewCommentMentionEvents(input: {
 
     for (const comment of comments) {
         if (!stampInWindow(comment.updatedAt, windowStart)
-            || !isAttributableAuthor(comment.authorLogin, comment.authorType)
+            || !isAttributableCommentAuthor(comment.authorLogin, comment.authorType, login)
             || !mentionsLogin(comment.body, login)) {
             continue;
         }

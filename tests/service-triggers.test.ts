@@ -36,7 +36,9 @@ import { createEvent, parseStoredEvent, readEvents } from '../service/poll/event
 import { runScanCycle } from '../service/poll/loop.ts';
 import { readRunsDocument } from '../service/poll/runs.ts';
 import { writeScanState } from '../service/poll/scan.ts';
-import { isAttributableAuthor } from '../service/poll/attribution.ts';
+import { isAttributableAuthor, isAttributableCommentAuthor } from '../service/poll/attribution.ts';
+import { commentFollowUps, reviewCommentFollowUps } from '../service/poll/follow-up.ts';
+import { reviewCommentMentionEvents } from '../service/poll/review-comment-mention-events.ts';
 import {
     isIssueBodyMention,
     isMentionComment,
@@ -48,6 +50,7 @@ import type { AuditEntry } from '../service/audit.ts';
 import type { BindingRecord, BindingTriggers } from '../service/bindings.ts';
 import type { ActorAttribution, EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
 import type { Run } from '../service/poll/runs-types.ts';
+import type { TrackedSubject } from '../service/poll/tracking.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type {
     CheckConclusion,
@@ -72,6 +75,15 @@ const MENTION_BINDING = 'bnd-mention';
 
 /** Binding id the review fixtures bind. */
 const REVIEW_BINDING = 'bnd-review';
+
+/** The trigger set the mention-side tests bind: the mention switch, and nothing else. */
+const MENTION_ONLY_TRIGGERS = {
+    assignment: false,
+    mention: true,
+    reviewRequest: false,
+    reviewSubmitted: false,
+    checks: false,
+} as const;
 
 /** GitHub numeric user id of the fixture account. */
 const ACCOUNT_ID = '77331';
@@ -640,6 +652,81 @@ describe('mention detection (M6)', () => {
         }
     });
 
+    it('queues no mention row for text the bound account wrote itself (issue #65)', async () => {
+        {
+            const recorded = recordingPoller({
+                issues: [fixtureIssue({ body: MENTION_TOKEN, authorLogin: ACCOUNT_LOGIN })],
+                comments: [fixtureComment({
+                    commentId: FIRST_COMMENT_ID,
+                    body: MENTION_TOKEN,
+                    authorLogin: ACCOUNT_LOGIN,
+                })],
+                reviewComments: [fixtureReviewComment({
+                    commentId: 901,
+                    body: MENTION_TOKEN,
+                    authorLogin: ACCOUNT_LOGIN,
+                })],
+            });
+
+            const events = await scan(fixtureBinding(MENTION_BINDING, MENTION_ONLY_TRIGGERS), recorded);
+
+            // The bound account naming itself is no observation: no
+            // `~mention~<commentId>`, no `~mention~body`, no `~mention~review~`.
+            expect(events).toEqual([]);
+        }
+    });
+
+    it('judges the author per bound account, not per repository (issue #65)', async () => {
+        {
+            await writeAccount(store, {
+                ...fixtureAccount({ stamp: STAMP }),
+                numericUserId: '11111',
+                login: 'alice',
+            });
+            await writeAccount(store, {
+                ...fixtureAccount({ stamp: STAMP }),
+                numericUserId: '22222',
+                login: 'bob',
+            });
+            await writeBindings({
+                store,
+                bindings: [
+                    fixtureBindingRow('bnd-owner', {
+                        accountNumericUserId: '11111',
+                        accountLogin: 'alice',
+                        triggers: MENTION_ONLY_TRIGGERS,
+                        stamp: STAMP,
+                    }),
+                    fixtureBindingRow('bnd-peer', {
+                        accountNumericUserId: '22222',
+                        accountLogin: 'bob',
+                        triggers: MENTION_ONLY_TRIGGERS,
+                        stamp: STAMP,
+                    }),
+                ],
+            });
+
+            const recorded = recordingPoller({
+                issues: [fixtureIssue()],
+                comments: [fixtureComment({
+                    commentId: FIRST_COMMENT_ID,
+                    body: 'cc @alice and @bob',
+                    authorLogin: 'alice',
+                })],
+            });
+
+            const cycle = await runScanCycle({ store, log, poller: recorded.poller });
+            const events = await readEvents({ store, log });
+
+            // Both bindings scan the same repository's same feed: alice's own
+            // comment is invisible to her binding and still a mention for bob's.
+            expect(cycle.bindings).toHaveLength(2);
+            expect(cycle.bindings.every((outcome) => outcome.skipped === null)).toBe(true);
+            expect(events.map((event) => event.bindingId)).toEqual(['bnd-peer']);
+            expect(events[0]?.id).toBe(`evt-acme~widget~7~22222~mention~${FIRST_COMMENT_ID}`);
+        }
+    });
+
     it('keeps the conversation-feed detection when the review-comment list fails', async () => {
         {
             const recorded = recordingPoller({
@@ -1057,6 +1144,99 @@ describe('mention and review detectors (unit)', () => {
         }
     });
 
+});
+
+describe('the bound account\'s own text is refused at every comment author gate (issue #65)', () => {
+    const binding = fixtureBinding(MENTION_BINDING, MENTION_ONLY_TRIGGERS);
+    const window = { windowStart: STAMP, detectedAt: STAMP };
+    const trackedIssue = new Map<number, TrackedSubject>([[
+        7,
+        {
+            correlationId: 'run_self_comment',
+            subjectType: 'issue',
+            lastHeadSha: null,
+            actorLogin: null,
+            actorAttribution: null,
+            establishedAt: STAMP,
+        },
+    ]]);
+    const trackedPull = new Map<number, TrackedSubject>([[
+        7,
+        {
+            correlationId: 'run_self_comment',
+            subjectType: 'pull_request',
+            lastHeadSha: null,
+            actorLogin: null,
+            actorAttribution: null,
+            establishedAt: STAMP,
+        },
+    ]]);
+
+    it('refuses a comment and an issue body the bound account authored, case-insensitively', () => {
+        expect(isMentionComment(fixtureComment({
+            commentId: 704,
+            body: MENTION_TOKEN,
+            authorLogin: ACCOUNT_LOGIN,
+        }), ACCOUNT_LOGIN)).toBe(false);
+        expect(isMentionComment(fixtureComment({
+            commentId: 705,
+            body: '@prompt-it-so',
+            authorLogin: 'Prompt-It-So',
+        }), 'prompt-it-so')).toBe(false);
+        expect(isIssueBodyMention(fixtureIssue({
+            body: MENTION_TOKEN,
+            authorLogin: ACCOUNT_LOGIN,
+        }), ACCOUNT_LOGIN)).toBe(false);
+        // Control: identical text from another author still detects, so the
+        // refusals above are the author gate rather than a dead detector.
+        expect(isMentionComment(fixtureComment({ commentId: 706, body: MENTION_TOKEN }), ACCOUNT_LOGIN)).toBe(true);
+        expect(isIssueBodyMention(fixtureIssue({ body: MENTION_TOKEN }), ACCOUNT_LOGIN)).toBe(true);
+    });
+
+    it('refuses a review comment the bound account authored, and admits one from anyone else', () => {
+        const input = { binding, login: ACCOUNT_LOGIN, ...window };
+
+        expect(reviewCommentMentionEvents({
+            ...input,
+            comments: [fixtureReviewComment({ commentId: 901, body: MENTION_TOKEN, authorLogin: ACCOUNT_LOGIN })],
+        })).toEqual([]);
+        expect(reviewCommentMentionEvents({
+            ...input,
+            comments: [fixtureReviewComment({ commentId: 902, body: MENTION_TOKEN })],
+        })).toHaveLength(1);
+    });
+
+    it('refuses a comment follow-up the bound account wrote on its own tracked subject', () => {
+        expect(commentFollowUps({
+            binding,
+            comments: [fixtureComment({ commentId: 707, body: MENTION_TOKEN, authorLogin: ACCOUNT_LOGIN })],
+            issues: [fixtureIssue()],
+            tracked: trackedIssue,
+            ...window,
+        })).toEqual([]);
+        expect(commentFollowUps({
+            binding,
+            comments: [fixtureComment({ commentId: 708, body: MENTION_TOKEN })],
+            issues: [fixtureIssue()],
+            tracked: trackedIssue,
+            ...window,
+        })).toHaveLength(1);
+    });
+
+    it('refuses a review-comment follow-up the bound account wrote on its own tracked pull', () => {
+        expect(reviewCommentFollowUps({
+            binding,
+            comments: [fixtureReviewComment({ commentId: 903, body: MENTION_TOKEN, authorLogin: ACCOUNT_LOGIN })],
+            tracked: trackedPull,
+            ...window,
+        })).toEqual([]);
+        expect(reviewCommentFollowUps({
+            binding,
+            comments: [fixtureReviewComment({ commentId: 904, body: MENTION_TOKEN })],
+            tracked: trackedPull,
+            ...window,
+        })).toHaveLength(1);
+    });
 });
 
 describe('review-request detection (M7)', () => {
@@ -1551,6 +1731,8 @@ describe('002 FR-043–FR-045 attribution at detection (AC-024, AC-025, A-5, A-6
         // An author GitHub would not name is nobody, so it is not attributable.
         expect(isAttributableAuthor('', '')).toBe(false);
         expect(isAttributableAuthor('', HUMAN_AUTHOR_TYPE)).toBe(false);
+        // An empty bound login refuses nobody readable: it cannot equal an author.
+        expect(isAttributableCommentAuthor(HUMAN_AUTHOR_LOGIN, HUMAN_AUTHOR_TYPE, '')).toBe(true);
     });
 
     it('keeps every delivery id byte-identical whatever the actor (FR-046)', () => {

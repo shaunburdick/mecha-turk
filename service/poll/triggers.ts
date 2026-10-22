@@ -6,7 +6,7 @@
 
 import { repositoryLabel, repositoryRefOf } from '../../src/config.ts';
 import type { BindingRecord } from '../bindings.ts';
-import { actorLoginOf, isAttributableAuthor } from './attribution.ts';
+import { actorLoginOf, isAttributableCommentAuthor } from './attribution.ts';
 import { createEvent } from './events.ts';
 import { commentFollowUps, headFollowUps, reviewCommentFollowUps } from './follow-up.ts';
 import { mentionsLogin } from './mentions-login.ts';
@@ -34,7 +34,7 @@ export { mentionsLogin } from './mentions-login.ts';
  * Decide whether one comment is a mention the binding should react to.
  */
 export function isMentionComment(comment: PollComment, bindingLogin: string): boolean {
-    if (!isAttributableAuthor(comment.authorLogin, comment.authorType)) {
+    if (!isAttributableCommentAuthor(comment.authorLogin, comment.authorType, bindingLogin)) {
         return false;
     }
 
@@ -50,7 +50,7 @@ export function isMentionComment(comment: PollComment, bindingLogin: string): bo
  * match is the same bounded, case-insensitive one.
  */
 export function isIssueBodyMention(issue: PollIssue, bindingLogin: string): boolean {
-    if (!isAttributableAuthor(issue.authorLogin, issue.authorType)) {
+    if (!isAttributableCommentAuthor(issue.authorLogin, issue.authorType, bindingLogin)) {
         return false;
     }
 
