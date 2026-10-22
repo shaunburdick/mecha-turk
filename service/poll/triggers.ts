@@ -21,7 +21,8 @@ import { reviewRequestEvents } from './triggers-review.ts';
 import { reviewSubmittedEvents } from './triggers-review-submitted.ts';
 import type { QueuedEvent, SubjectType } from './events.ts';
 import type { PollComment, PollIssue, PollPull } from './poller-entries.ts';
-import type { TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
+import type { ChecksWatch } from './runs-types.ts';
+import type { ChecksAudit, TriggerEvents, TriggerScanInput } from './trigger-scan.ts';
 import type { IssueListOutcome, PullListOutcome } from './poller-github.ts';
 
 /**
@@ -358,6 +359,42 @@ async function listedPulls(input: {
     });
 }
 
+/** The checks operations one branch produced, accumulated across branches. */
+interface ChecksOps {
+    readonly writes: Map<string, ChecksWatch>;
+    readonly drops: string[];
+    readonly audits: ChecksAudit[];
+}
+
+/** An empty accumulator, one per scan. */
+function checksOpsOf(): ChecksOps {
+    return { writes: new Map(), drops: [], audits: [] };
+}
+
+/** Fold one branch's watch operations into the scan's accumulator. */
+function foldChecksOps(target: ChecksOps, branch: Extract<TriggerEvents, { readonly ok: true }>): void {
+    const writes = branch.checksWrites;
+    if (writes !== undefined) {
+        for (const [correlationId, watch] of writes) {
+            target.writes.set(correlationId, watch);
+        }
+    }
+
+    target.drops.push(...(branch.checksDrops ?? []));
+    target.audits.push(...(branch.checksAudits ?? []));
+}
+
+/** Report the accumulator in the optional shape the branch answer uses. */
+function checksOpsFields(
+    ops: ChecksOps,
+): Pick<TriggerEvents & { readonly ok: true }, 'checksWrites' | 'checksDrops' | 'checksAudits'> {
+    return {
+        ...(ops.writes.size > 0 && { checksWrites: ops.writes }),
+        ...(ops.drops.length > 0 && { checksDrops: ops.drops }),
+        ...(ops.audits.length > 0 && { checksAudits: ops.audits }),
+    };
+}
+
 /**
  * The pull-dependent branches over the cycle's one pulls read, in fixed order:
  * review requests, review submissions, head rows, check rows.
@@ -375,11 +412,12 @@ async function pullEventsOf(input: {
     const { scan, pulls } = input;
     const { binding } = scan;
     const events: QueuedEvent[] = [];
+    const checksOps = checksOpsOf();
 
     const pullEnds = trackedPullEnds({ binding, pulls, tracked: scan.tracked });
     const tracked = withoutEnded(scan.tracked, pullEnds);
-    // Computed once, before any actor gate: a checks-only binding still needs
-    // the movement's new SHA even when no head row can be delivered.
+    // Computed once, before any actor gate: the observed heads seed a run that
+    // has none, and the watch reads the same pulls list's current head.
     const heads = headFollowUps({
         binding,
         pulls,
@@ -411,12 +449,13 @@ async function pullEventsOf(input: {
     }
 
     if (binding.triggers.checks) {
-        const checks = await triggersChecks({ ...scan, tracked, pulls, movements: heads.movements });
+        const checks = await triggersChecks({ ...scan, tracked, pulls, ends: pullEnds });
         if (!checks.ok) {
             return checks;
         }
 
         events.push(...checks.events);
+        foldChecksOps(checksOps, checks);
     }
 
     return {
@@ -425,6 +464,7 @@ async function pullEventsOf(input: {
         observedHeads: new Map(heads.observations.flatMap((observation) =>
             observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
         ...(pullEnds.length > 0 && { ends: pullEnds }),
+        ...checksOpsFields(checksOps),
     };
 }
 
@@ -491,6 +531,7 @@ export async function collectTriggerEvents(input: TriggerScanInput): Promise<Tri
     // same cycle as the item's conclusion is not a follow-up (FR-106).
     const tracked = withoutEnded(input.tracked, ends);
     const events: QueuedEvent[] = [];
+    const checksOps = checksOpsOf();
     let observedHeads: ReadonlyMap<number, string> | undefined;
 
     const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues, pulls: pulls.pulls });
@@ -504,6 +545,8 @@ export async function collectTriggerEvents(input: TriggerScanInput): Promise<Tri
         if (branch.ends !== undefined) {
             ends.push(...branch.ends);
         }
+
+        foldChecksOps(checksOps, branch);
     }
 
     return {
@@ -511,5 +554,6 @@ export async function collectTriggerEvents(input: TriggerScanInput): Promise<Tri
         events,
         ...(observedHeads !== undefined && { observedHeads }),
         ...(ends.length > 0 && { ends }),
+        ...checksOpsFields(checksOps),
     };
 }

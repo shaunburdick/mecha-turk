@@ -875,6 +875,15 @@ Two ways to detect:
 
 **Verdict. Build with a caveat:** follow-up only, gated on a head movement, with the caveat that a check that fails after the head observation is not seen unless the pending-marker state is added. **Effort: M** (one poller read, one follow-up kind, a toggle, panel copy, tests, bundles); **L** if the pending-marker state is required.
 
+##### 6a.1 The checks watch — what was verified before the v1.22.0 amendment (GitHub issue #62)
+
+Read and measured 2026-10-22, before the watch was specified. §6a's body above is the 2026-10-20 record and stays as written; this subsection records what changed under it.
+
+- **A fork PR's head resolves on the base repository.** The base repo's `GET /repos/{owner}/{repo}/commits/{forkHeadSha}/check-runs` answers for a fork PR head — checked live against fork PRs on `cli/cli` and `facebook/react` — so the watch is **not** limited to same-repo PRs. (The 2026-10-20 note that *fork pushes return an empty `pull_requests[]` array* is about that relay field on a push, not about the check-runs endpoint's reachability of a head; it does not restrict this read.)
+- **Check-run conclusions and check-suite conclusions are different vocabularies.** A check run's conclusions are `action_required`, `cancelled`, `timed_out`, `failure`, `neutral`, `skipped`, and `success` (and `stale` after 14 days); **`startup_failure` is a check-suite conclusion** and a workflow that fails to start yields no failing check run at all. The watch therefore cannot promise it: alerting on `startup_failure` would need the check-suites endpoint, which is deferred. `cancelled` is deliberately not failing, because a push routinely cancels the previous run.
+- **`filter=latest` can still exceed the two-page bound.** On a busy SHA — many distinct check names, or an app that keeps producing new runs — two pages of the configured page size do not cover the list. Such a head produces **no verdict** (the watch keeps and expires), and silence is never read as a pass. This is why the watch is bounded by reads and time rather than trusting one walk.
+- **A token missing `Checks: read` could not be measured here.** Whether it answers `403` or an empty `200`/`404` was not established, so both classes are **absorbed** as `checks-unavailable`: the watch is kept, the class is logged and audited once per binding, and the binding's scan completes. `rate-limited` remains a scan skip.
+
 #### 6b. Commit comments
 
 **GitHub surface — verified, and the brief's query is wrong.**

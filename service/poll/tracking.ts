@@ -8,7 +8,7 @@ import type { ActorAttribution } from './attribution.ts';
 import type { SubjectType } from './events-parse.ts';
 import type { PollIssue, PollPull } from './poller-entries.ts';
 import { buildSubjectKey } from './run-key.ts';
-import type { Run, RunsDocument } from './runs-types.ts';
+import type { ChecksWatch, Run, RunsDocument } from './runs-types.ts';
 
 /** One subject the scan is following: the run that carries its recorded session. */
 export interface TrackedSubject {
@@ -23,6 +23,8 @@ export interface TrackedSubject {
      * nothing this cycle and records the head it observes (FR-103(b)).
      */
     readonly lastHeadSha: string | null;
+    /** The live check watch the run carries, or `null` when none is armed (FR-126). */
+    readonly checksWatch: ChecksWatch | null;
     /**
      * The login the work item is attributed to, or `null` when the run's first
      * reference recorded none. A head-SHA movement carries no author of its own
@@ -118,6 +120,7 @@ function trackedOf(run: Run): { readonly key: string; readonly subject: TrackedS
             correlationId: run.correlationId,
             subjectType: run.subjectType,
             lastHeadSha: run.lastHeadSha ?? null,
+            checksWatch: run.checksWatch ?? null,
             actorLogin: first?.actorLogin ?? null,
             actorAttribution: first?.actorAttribution ?? null,
             establishedAt: first?.detectedAt ?? null,

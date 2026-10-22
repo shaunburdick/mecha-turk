@@ -319,18 +319,20 @@ describe('the review reader (FR-120, FR-122)', () => {
 });
 
 describe('the check-run reader (FR-126)', () => {
-    it('reads a name and a conclusion, keeping an unconcluded run null', () => {
-        expect(readCheckRunEntry({ name: 'build', conclusion: 'failure' }))
-            .toEqual({ name: 'build', conclusion: 'failure' });
-        expect(readCheckRunEntry({ name: 'build', conclusion: null }))
-            .toEqual({ name: 'build', conclusion: null });
+    it('reads a name, a status and a conclusion, keeping an unconcluded run null', () => {
+        expect(readCheckRunEntry({ name: 'build', status: 'completed', conclusion: 'failure' }))
+            .toEqual({ name: 'build', status: 'completed', conclusion: 'failure' });
+        expect(readCheckRunEntry({ name: 'build', status: 'in_progress', conclusion: null }))
+            .toEqual({ name: 'build', status: 'in_progress', conclusion: null });
     });
 
-    it('refuses a row with no readable name and keeps an unreadable conclusion null', () => {
+    it('refuses a row with no readable name and keeps unreadable fields null', () => {
         expect(readCheckRunEntry({ name: '', conclusion: 'failure' })).toBeNull();
         expect(readCheckRunEntry({ conclusion: 'failure' })).toBeNull();
         expect(readCheckRunEntry({ name: 'build', conclusion: 7 }))
-            .toEqual({ name: 'build', conclusion: null });
+            .toEqual({ name: 'build', status: null, conclusion: null });
+        expect(readCheckRunEntry({ name: 'build', status: 7, conclusion: null }))
+            .toEqual({ name: 'build', status: null, conclusion: null });
     });
 });
 

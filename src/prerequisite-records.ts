@@ -178,8 +178,8 @@ function tokenScopes(accounts: readonly PanelAccount[]): Prerequisite {
             detail: 'No connected account holds a token this panel can vouch for.',
             remediation:
                 'Add an account under Accounts, using a GitHub token with ' +
-                'Metadata, Issues, and Pull requests read (Contents too when repository metadata is used) ' +
-                'and no write scopes.',
+                'Metadata, Issues, and Pull requests read, plus Checks read when a binding has the Checks switch on ' +
+                '(Contents too when repository metadata is used) — and no write scopes.',
         };
     }
 
@@ -191,7 +191,8 @@ function tokenScopes(accounts: readonly PanelAccount[]): Prerequisite {
             detail: 'A connected account is missing a required read scope.',
             remediation:
                 'Rotate the token of the affected account with Metadata, Issues, and Pull requests ' +
-                'read (and Contents), then reconnect it — the token must carry no write scopes.',
+                'read, plus Checks read when the Checks switch is on (and Contents), then reconnect it — ' +
+                'the token must carry no write scopes.',
         };
     }
 
@@ -216,7 +217,8 @@ function tokenScopes(accounts: readonly PanelAccount[]): Prerequisite {
         detail:
             `The recorded scope check reports every required read scope for ${usable.length} ` +
             `connected account${plural}; write scopes are not reported to the panel.`,
-        remediation: 'Keep the token read-only: Metadata, Issues, Pull requests, and Contents — no write scopes.',
+        remediation: 'Keep the token read-only: Metadata, Issues, Pull requests, and Contents, ' +
+            'plus Checks when the Checks switch is on — no write scopes.',
     };
 }
 

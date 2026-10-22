@@ -29,12 +29,21 @@ matching section below plus GitHub's generated notes.
   changes-requested review on the account's own open pull request opens one
   dispatch with the reviewer as its actor, and on a pull the agent is already
   working becomes a follow-up only when it is strictly newer than the request
-  that started the run. A failing check on a tracked pull's new head produces
-  one aggregated `CI failed: <names>` follow-up riding the run's recorded
-  actor, never a session. Both are binding switches. Detection costs one
-  bounded reviews read per own pull in the window and one check-runs walk per
-  moved head; a truncated read records the truncation and produces no row, so
-  silence is not read as a passing build.
+  that started the run. Both are binding switches. Detection costs one
+  bounded reviews read per own pull in the window; a truncated read records
+  the truncation and produces no row. (The CI half of this cut now reads as
+  the watch below, #62.)
+- **CI failures on a tracked head are watched, not guessed** (#62). A tracked
+  pull's check suite is armed silently at the head a cycle observes, then
+  polled at most once per cycle for up to 30 minutes or 30 reads. One
+  `CI failed: <names>` follow-up is raised only when every check run has
+  completed and at least one failed: a pending run is waited for,
+  `success`/`neutral`/`skipped`/`cancelled` is silence, and one head alerts at
+  most once. A missing `Checks: read` scope audits once per binding and never
+  stops assignment, review, or mention polling; an inconclusive watch expires
+  with its own audit row. The failing-check id is now
+  `~followup~checks~<headSha>`, and `Checks: read` joins the token
+  prerequisite when the Checks switch is on.
 
 ### Fixed
 

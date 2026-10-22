@@ -2,10 +2,11 @@
  * Validators for the sub-objects a run row carries (003 data-model §2.3–§2.5).
  */
 
-import { isRecord, readFlag, readPositiveInt, readStamp, readString, readText } from '../json.ts';
+import { isRecord, readCount, readFlag, readPositiveInt, readStamp, readString, readText } from '../json.ts';
 import { actorFieldsOf, readActorAttributionField, readActorLoginField } from './attribution.ts';
 import type { EventKind } from './events-parse.ts';
 import type {
+    ChecksWatch,
     DispatchAttempt,
     ReferenceOrigin,
     RunLease,
@@ -263,6 +264,32 @@ export function parseSession(raw: unknown): SessionRef | null {
             worktree,
             ...directory,
         };
+}
+
+/**
+ * Validate one recorded check watch.
+ *
+ * Absent is *no watch*; a present value that cannot be read refuses the run,
+ * because a watch this build cannot trust must not decide whether a red suite
+ * is still unseen (FR-126, constitution II).
+ */
+export function parseChecksWatch(raw: unknown): ChecksWatch | undefined | null {
+    if (raw === undefined) {
+        return undefined;
+    }
+
+    if (!isRecord(raw)) {
+        return null;
+    }
+
+    const headSha = readText(raw.headSha);
+    const armedAt = readStamp(raw.armedAt);
+    const polls = readCount(raw.polls);
+    if (headSha === null || armedAt === null || polls === null || !/^[0-9a-f]+$/.test(headSha)) {
+        return null;
+    }
+
+    return { headSha, armedAt, polls };
 }
 
 /**

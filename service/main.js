@@ -1903,7 +1903,7 @@ var HEAD_TAIL = /^head~[0-9a-f]+$/;
 var REVIEW_TAIL = /^review~[0-9]+$/;
 var REVIEW_COMMENT_TAIL = /^review-comment~[0-9]+$/;
 var REVIEW_SUBMITTED_TAIL = /^review-submitted~[0-9]+$/;
-var CHECKS_TAIL = /^checks~[0-9a-f]+~(action_required|failure|timed_out|cancelled)$/;
+var CHECKS_TAIL = /^checks~[0-9a-f]+$/;
 var NUMERIC_TAILS = [
   { pattern: DECIMAL_SEGMENT, prefix: "", role: "comment" },
   { pattern: REVIEW_TAIL, prefix: "review~", role: "review" },
@@ -2630,6 +2630,21 @@ function parseSession(raw) {
     ...directory
   };
 }
+function parseChecksWatch(raw) {
+  if (raw === undefined) {
+    return;
+  }
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const headSha = readText(raw.headSha);
+  const armedAt = readStamp(raw.armedAt);
+  const polls = readCount(raw.polls);
+  if (headSha === null || armedAt === null || polls === null || !/^[0-9a-f]+$/.test(headSha)) {
+    return null;
+  }
+  return { headSha, armedAt, polls };
+}
 function parseVerification(raw) {
   if (!isRecord(raw)) {
     return null;
@@ -2832,7 +2847,8 @@ function parseRunParts(raw) {
   const references = parseList(raw.sourceReferences, { parse: parseReference, cap: MAX_SOURCE_REFERENCES });
   const attempts = parseList(raw.attempts, { parse: parseAttempt, cap: MAX_ATTEMPT_RECORDS });
   const prompt = parseStoredPromptSnapshot(raw.prompt);
-  if (scalars === null || objects === null || references === null || attempts === null || prompt === null || !runIdentityMatches(raw, scalars) || !runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
+  const checksWatch = parseChecksWatch(raw.checksWatch);
+  if (scalars === null || objects === null || references === null || attempts === null || prompt === null || checksWatch === null || !runIdentityMatches(raw, scalars) || !runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
     return null;
   }
   return {
@@ -2840,11 +2856,12 @@ function parseRunParts(raw) {
     objects,
     references,
     attempts,
-    prompt: prompt.status === "set" ? prompt.snapshot : null
+    prompt: prompt.status === "set" ? prompt.snapshot : null,
+    checksWatch
   };
 }
 function runFromParts(raw, parts) {
-  const { scalars, objects, references, attempts, prompt } = parts;
+  const { scalars, objects, references, attempts, prompt, checksWatch } = parts;
   return {
     runKey: raw.runKey,
     correlationId: raw.correlationId,
@@ -2873,6 +2890,7 @@ function runFromParts(raw, parts) {
     session: objects.session,
     verification: objects.verification,
     ...scalars.lastHeadSha !== undefined && { lastHeadSha: scalars.lastHeadSha },
+    ...checksWatch !== undefined && { checksWatch },
     createdAt: scalars.createdAt,
     updatedAt: scalars.updatedAt
   };
@@ -3765,6 +3783,19 @@ function foldDelivery(input) {
   runs[index] = { ...open, updatedAt: now };
   followUps.push({ run: runs[index], deliveryId: delivery.id, kind });
 }
+function applyChecksWrites(input) {
+  const drops = new Set(input.drops);
+  for (const [position, run] of input.runs.entries()) {
+    const watch = input.writes?.get(run.correlationId);
+    if (watch !== undefined && run.session !== null) {
+      input.runs[position] = { ...run, checksWatch: watch, updatedAt: input.now };
+      continue;
+    }
+    if (drops.has(run.correlationId) && run.checksWatch !== undefined) {
+      input.runs[position] = { ...run, checksWatch: undefined, updatedAt: input.now };
+    }
+  }
+}
 function applyEnqueue(input) {
   const prompt = input.prompt ?? null;
   const runs = [...input.document.runs];
@@ -3790,6 +3821,12 @@ function applyEnqueue(input) {
   if (input.observedHeads !== undefined) {
     recordHeadSeeds(runs, input.observedHeads);
   }
+  applyChecksWrites({
+    runs,
+    writes: input.checksWrites,
+    drops: input.checksDrops,
+    now: input.now
+  });
   const auditIntents = [
     ...input.document.auditIntents ?? [],
     ...created.map((run) => ({
@@ -3909,7 +3946,7 @@ function followUpDiscriminatorOf(snapshot) {
       return `~followup~review-submitted~${snapshot.reviewId}`;
     }
     case "checks": {
-      return `~followup~checks~${snapshot.headSha}~${snapshot.conclusion}`;
+      return `~followup~checks~${snapshot.headSha}`;
     }
     case "review-comment": {
       return `~followup~review-comment~${snapshot.commentId}`;
@@ -4076,6 +4113,27 @@ async function readEvents(input) {
     return [];
   }
 }
+function hasDurableWork(input) {
+  return !(input.fresh === 0 && input.seeds === 0 && input.writes === 0 && input.drops === 0);
+}
+function enqueueApplyInput(input) {
+  return {
+    document: input.document,
+    deliveries: input.fresh,
+    now: nowIso(),
+    ...input.prompt !== undefined && { prompt: input.prompt },
+    ...input.seeds.size > 0 && { observedHeads: input.seeds },
+    ...input.checksWrites !== undefined && { checksWrites: input.checksWrites },
+    ...input.checksDrops !== undefined && { checksDrops: input.checksDrops }
+  };
+}
+function appendedRowsOf(fresh, outcome, intentAtMs) {
+  return fresh.map((event) => {
+    const runCorrelationId = outcome.links.get(event.id);
+    const linked = runCorrelationId === undefined ? event : { ...event, runCorrelationId };
+    return followUpKindOf(event.id) === null ? linked : { ...linked, engine: { state: "unknown", intentAtMs, cause: "intent" } };
+  });
+}
 async function enqueueWithinChain(input) {
   const existing = await readQueue(input);
   const known = new Set(existing.map((event) => event.id));
@@ -4087,23 +4145,21 @@ async function enqueueWithinChain(input) {
     return true;
   });
   const seeds = input.observedHeads ?? new Map;
-  if (fresh.length === 0 && seeds.size === 0) {
+  const watchWrites = input.checksWrites?.size ?? 0;
+  const watchDrops = input.checksDrops?.length ?? 0;
+  if (!hasDurableWork({ fresh: fresh.length, seeds: seeds.size, writes: watchWrites, drops: watchDrops })) {
     return [];
   }
   const document = await readRunsDocument(input);
-  const outcome = applyEnqueue({
+  const outcome = applyEnqueue(enqueueApplyInput({
     document,
-    deliveries: fresh,
-    now: nowIso(),
-    ...input.prompt !== undefined && { prompt: input.prompt },
-    ...seeds.size > 0 && { observedHeads: seeds }
-  });
-  const intentAtMs = Date.now();
-  const appended = fresh.map((event) => {
-    const runCorrelationId = outcome.links.get(event.id);
-    const linked = runCorrelationId === undefined ? event : { ...event, runCorrelationId };
-    return followUpKindOf(event.id) === null ? linked : { ...linked, engine: { state: "unknown", intentAtMs, cause: "intent" } };
-  });
+    fresh,
+    prompt: input.prompt,
+    seeds,
+    checksWrites: input.checksWrites,
+    checksDrops: input.checksDrops
+  }));
+  const appended = appendedRowsOf(fresh, outcome, Date.now());
   const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
   if (appended.length === 0) {
     await readRunsDocument(input);
@@ -10921,7 +10977,7 @@ function reviewSubmittedFollowUp(input) {
   });
 }
 function checksFollowUp(input) {
-  const { binding, pull, tracked, conclusion, names, detectedAt } = input;
+  const { binding, pull, tracked, headSha, names, detectedAt } = input;
   const actor = tracked.actorLogin;
   const attribution = tracked.actorAttribution;
   if (actor === null || attribution !== "direct") {
@@ -10937,9 +10993,8 @@ function checksFollowUp(input) {
     worktreeOption: binding.worktreeOption,
     kind: "review",
     followUp: "checks",
-    headSha: pull.headSha ?? "",
+    headSha,
     baseRef: null,
-    conclusion,
     issue: {
       issueNumber: pull.pullNumber,
       issueTitle: pull.title,
@@ -11019,7 +11074,6 @@ function headFollowUps(input) {
   const { binding, pulls, tracked, windowStart, detectedAt } = input;
   const rows = [];
   const observations = [];
-  const movements = [];
   for (const pull of pulls) {
     if (!stampInWindow(pull.updatedAt, windowStart)) {
       continue;
@@ -11033,13 +11087,12 @@ function headFollowUps(input) {
     if (seed === null || seed === pull.headSha) {
       continue;
     }
-    movements.push({ pullNumber: pull.pullNumber, headSha: pull.headSha });
     const row = headFollowUp({ binding, pull, tracked: subject, fromHeadSha: seed, detectedAt });
     if (row !== null) {
       rows.push(row);
     }
   }
-  return { rows, observations, movements };
+  return { rows, observations };
 }
 function followUpSubjects(events) {
   const issues = [];
@@ -11115,6 +11168,7 @@ function trackedOf(run) {
       correlationId: run.correlationId,
       subjectType: run.subjectType,
       lastHeadSha: run.lastHeadSha ?? null,
+      checksWatch: run.checksWatch ?? null,
       actorLogin: first?.actorLogin ?? null,
       actorAttribution: first?.actorAttribution ?? null,
       establishedAt: first?.detectedAt ?? null
@@ -11416,51 +11470,250 @@ async function assignmentEvents(input) {
 }
 
 // service/poll/triggers-checks.ts
-async function triggersChecks(input) {
-  const { binding, poller, token, pace, tracked, detectedAt, movements, pulls } = input;
-  const repository = repositoryRefOf(binding.repository);
-  const byNumber = new Map(pulls.map((pull) => [pull.pullNumber, pull]));
-  const reads = new Map;
-  const events = [];
-  for (const movement of movements) {
-    let listed = reads.get(movement.headSha);
-    if (listed === undefined) {
-      listed = await poller.listHeadChecks({
-        token,
-        owner: repository.owner,
-        name: repository.name,
-        headSha: movement.headSha,
-        pace
-      });
-      reads.set(movement.headSha, listed);
+var MAX_WATCH_POLLS = 30;
+var MAX_WATCH_MS = 30 * 60000;
+function checksAuditReason(eventType) {
+  switch (eventType) {
+    case "checks.watched": {
+      return "a check watch was armed for this head";
     }
-    if (listed.kind !== "ok") {
-      return { ok: false, failure: listed };
+    case "checks.observed": {
+      return "the check watch concluded";
     }
-    if (listed.truncated) {
-      input.log.warn("check-runs walk truncated; this head produces nothing this cycle", {
-        headSha: movement.headSha
-      });
-      continue;
+    case "checks.expired": {
+      return "the check watch expired before the suite concluded";
     }
-    const pull = byNumber.get(movement.pullNumber);
-    const subject = tracked.get(movement.pullNumber);
-    if (pull === undefined || subject === undefined || listed.conclusion === null) {
-      continue;
+    case "checks.unavailable": {
+      return "the check-runs read failed; the watch is kept";
     }
+  }
+}
+function expiryReasonOf(watch, detectedAt) {
+  if (watch.polls >= MAX_WATCH_POLLS) {
+    return "polls";
+  }
+  return Date.parse(detectedAt) - Date.parse(watch.armedAt) >= MAX_WATCH_MS ? "elapsed" : null;
+}
+function auditOf(input) {
+  return {
+    eventType: input.eventType,
+    correlationId: input.correlationId,
+    details: {
+      headSha: input.watch.headSha,
+      subjectNumber: input.subjectNumber,
+      polls: input.watch.polls,
+      armedAt: input.watch.armedAt,
+      ...input.extra
+    }
+  };
+}
+function armChange(input) {
+  const watch = { headSha: input.headSha, armedAt: input.detectedAt, polls: 0 };
+  return {
+    write: watch,
+    audit: auditOf({
+      eventType: "checks.watched",
+      correlationId: input.correlationId,
+      subjectNumber: input.subjectNumber,
+      watch
+    })
+  };
+}
+function expiryChange(input) {
+  return {
+    drop: true,
+    audit: auditOf({
+      eventType: "checks.expired",
+      correlationId: input.correlationId,
+      subjectNumber: input.subjectNumber,
+      watch: input.watch,
+      extra: { reason: input.reason }
+    })
+  };
+}
+function concludedChange(input) {
+  const { listed } = input;
+  if (listed.truncated || listed.count > 0 && !listed.completed) {
+    return { write: input.spent };
+  }
+  if (listed.count === 0) {
+    return { drop: true };
+  }
+  return {
+    drop: true,
+    alert: listed.conclusion !== null,
+    audit: auditOf({
+      eventType: "checks.observed",
+      correlationId: input.correlationId,
+      subjectNumber: input.subjectNumber,
+      watch: input.spent,
+      extra: {
+        conclusion: listed.conclusion,
+        completed: true,
+        failing: listed.conclusion !== null
+      }
+    })
+  };
+}
+function failureChange(input) {
+  if (input.failure.kind === "rate-limited") {
+    return { rateLimited: input.failure };
+  }
+  return {
+    change: {
+      write: input.spent,
+      ...!input.claimed && {
+        audit: auditOf({
+          eventType: "checks.unavailable",
+          correlationId: input.correlationId,
+          subjectNumber: input.subjectNumber,
+          watch: input.spent,
+          extra: { failure: input.failure.kind }
+        })
+      }
+    }
+  };
+}
+var unavailableClaims = new WeakMap;
+function checksUnavailableClaimFor(store) {
+  const existing = unavailableClaims.get(store);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const claimed = new Set;
+  unavailableClaims.set(store, claimed);
+  return claimed;
+}
+function applyChange(input) {
+  const { state, correlationId, change } = input;
+  if (change.write !== undefined) {
+    state.writes.set(correlationId, change.write);
+  }
+  if (change.drop === true) {
+    state.drops.push(correlationId);
+  }
+  if (change.audit !== undefined) {
+    state.audits.push(change.audit);
+  }
+}
+function preReadChange(input) {
+  const { watch, headSha, correlationId, subjectNumber, detectedAt } = input;
+  if (watch?.headSha !== headSha) {
+    return armChange({ correlationId, subjectNumber, headSha, detectedAt });
+  }
+  const expired = expiryReasonOf(watch, detectedAt);
+  return expired === null ? null : expiryChange({ correlationId, subjectNumber, watch, reason: expired });
+}
+async function pollWatch(input) {
+  const { pull, subject, subjectNumber, state, detectedAt } = input;
+  const { headSha } = pull;
+  const { correlationId } = subject;
+  if (headSha === null || subject.checksWatch === null) {
+    return null;
+  }
+  let listed = state.reads.get(headSha);
+  if (listed === undefined) {
+    const repository = repositoryRefOf(input.binding.repository);
+    listed = await input.poller.listHeadChecks({
+      token: input.token,
+      owner: repository.owner,
+      name: repository.name,
+      headSha,
+      pace: input.pace
+    });
+    state.reads.set(headSha, listed);
+  }
+  const spent = { ...subject.checksWatch, polls: subject.checksWatch.polls + 1 };
+  if (listed.kind !== "ok") {
+    const failed = failureChange({
+      failure: listed,
+      spent,
+      correlationId,
+      subjectNumber,
+      claimed: input.checksUnavailableClaim.has(input.binding.bindingId)
+    });
+    if (failed.change !== undefined) {
+      applyChange({ state, correlationId, change: failed.change });
+      input.checksUnavailableClaim.add(input.binding.bindingId);
+      input.log.warn("check-runs read failed; the watch is kept", { headSha, failure: listed.kind });
+    }
+    return failed.rateLimited ?? null;
+  }
+  if (listed.truncated) {
+    input.log.warn("check-runs walk truncated; the watch is kept", { headSha });
+  }
+  const change = concludedChange({ correlationId, subjectNumber, spent, listed });
+  applyChange({ state, correlationId, change });
+  if (change.alert === true) {
     const row = checksFollowUp({
-      binding,
+      binding: input.binding,
       pull,
       tracked: subject,
-      conclusion: listed.conclusion,
+      headSha,
       names: listed.names,
       detectedAt
     });
     if (row !== null) {
-      events.push(row);
+      state.events.push(row);
     }
   }
-  return { ok: true, events };
+  return null;
+}
+async function visitTrackedPull(input) {
+  const { pull, subject, subjectNumber, state, detectedAt } = input;
+  if (pull.headSha === null) {
+    return null;
+  }
+  const early = preReadChange({
+    watch: subject.checksWatch,
+    headSha: pull.headSha,
+    correlationId: subject.correlationId,
+    subjectNumber,
+    detectedAt
+  });
+  if (early !== null) {
+    applyChange({ state, correlationId: subject.correlationId, change: early });
+    return null;
+  }
+  return await pollWatch({ ...input, pull, subject, subjectNumber, state, detectedAt });
+}
+function watchDropsForEnds(input) {
+  return input.ends.flatMap((end) => {
+    const subject = input.tracked.get(end.subjectNumber);
+    return subject !== undefined && subject.checksWatch !== null ? [end.correlationId] : [];
+  });
+}
+async function triggersChecks(input) {
+  const { tracked, detectedAt, ends, pulls } = input;
+  const byNumber = new Map(pulls.map((pull) => [pull.pullNumber, pull]));
+  const state = { writes: new Map, drops: [], audits: [], events: [], reads: new Map };
+  for (const end of ends) {
+    state.drops.push(end.correlationId);
+  }
+  for (const [subjectNumber, subject] of tracked) {
+    const pull = byNumber.get(subjectNumber);
+    if (pull === undefined || subject.subjectType !== "pull_request") {
+      continue;
+    }
+    const failure = await visitTrackedPull({
+      ...input,
+      pull,
+      subjectNumber,
+      subject,
+      state,
+      detectedAt
+    });
+    if (failure !== null) {
+      return { ok: false, failure };
+    }
+  }
+  return {
+    ok: true,
+    events: state.events,
+    ...state.writes.size > 0 && { checksWrites: state.writes },
+    ...state.drops.length > 0 && { checksDrops: state.drops },
+    ...state.audits.length > 0 && { checksAudits: state.audits }
+  };
 }
 
 // service/poll/review-comment-mention-events.ts
@@ -11862,10 +12115,31 @@ async function listedPulls(input) {
     pace
   });
 }
+function checksOpsOf() {
+  return { writes: new Map, drops: [], audits: [] };
+}
+function foldChecksOps(target, branch) {
+  const writes = branch.checksWrites;
+  if (writes !== undefined) {
+    for (const [correlationId, watch] of writes) {
+      target.writes.set(correlationId, watch);
+    }
+  }
+  target.drops.push(...branch.checksDrops ?? []);
+  target.audits.push(...branch.checksAudits ?? []);
+}
+function checksOpsFields(ops) {
+  return {
+    ...ops.writes.size > 0 && { checksWrites: ops.writes },
+    ...ops.drops.length > 0 && { checksDrops: ops.drops },
+    ...ops.audits.length > 0 && { checksAudits: ops.audits }
+  };
+}
 async function pullEventsOf(input) {
   const { scan, pulls } = input;
   const { binding } = scan;
   const events = [];
+  const checksOps = checksOpsOf();
   const pullEnds = trackedPullEnds({ binding, pulls, tracked: scan.tracked });
   const tracked = withoutEnded(scan.tracked, pullEnds);
   const heads = headFollowUps({
@@ -11893,17 +12167,19 @@ async function pullEventsOf(input) {
     events.push(...heads.rows);
   }
   if (binding.triggers.checks) {
-    const checks = await triggersChecks({ ...scan, tracked, pulls, movements: heads.movements });
+    const checks = await triggersChecks({ ...scan, tracked, pulls, ends: pullEnds });
     if (!checks.ok) {
       return checks;
     }
     events.push(...checks.events);
+    foldChecksOps(checksOps, checks);
   }
   return {
     ok: true,
     events,
     observedHeads: new Map(heads.observations.flatMap((observation) => observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
-    ...pullEnds.length > 0 && { ends: pullEnds }
+    ...pullEnds.length > 0 && { ends: pullEnds },
+    ...checksOpsFields(checksOps)
   };
 }
 async function triggerBranches(input) {
@@ -11938,6 +12214,7 @@ async function collectTriggerEvents(input) {
   })];
   const tracked = withoutEnded(input.tracked, ends);
   const events = [];
+  const checksOps = checksOpsOf();
   let observedHeads;
   const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues, pulls: pulls.pulls });
   for (const branch of branches) {
@@ -11949,12 +12226,14 @@ async function collectTriggerEvents(input) {
     if (branch.ends !== undefined) {
       ends.push(...branch.ends);
     }
+    foldChecksOps(checksOps, branch);
   }
   return {
     ok: true,
     events,
     ...observedHeads !== undefined && { observedHeads },
-    ...ends.length > 0 && { ends }
+    ...ends.length > 0 && { ends },
+    ...checksOpsFields(checksOps)
   };
 }
 
@@ -12006,6 +12285,26 @@ async function recordTrackingEnds(input) {
     } catch (cause) {
       input.log.warn("tracking end audit row could not be appended", {
         subjectNumber: end.subjectNumber,
+        errorKind: cause instanceof Error ? cause.name : typeof cause
+      });
+    }
+  }
+}
+async function recordChecksAudits(input) {
+  for (const audit of input.audits) {
+    try {
+      await appendAudit(input.store, {
+        eventType: audit.eventType,
+        actorSource: "service",
+        entity: { kind: "run", id: audit.correlationId },
+        correlationId: audit.correlationId,
+        decision: null,
+        reason: checksAuditReason(audit.eventType),
+        details: audit.details
+      });
+    } catch (cause) {
+      input.log.warn("checks audit row could not be appended", {
+        eventType: audit.eventType,
         errorKind: cause instanceof Error ? cause.name : typeof cause
       });
     }
@@ -12074,7 +12373,8 @@ async function collectScanEvents(input) {
     windowStart,
     detectedAt,
     pace: deps.pace,
-    tracked
+    tracked,
+    checksUnavailableClaim: checksUnavailableClaimFor(deps.store)
   });
   if (!collected.ok) {
     return { ok: false, skipped: skipOf(collected.failure) };
@@ -12090,11 +12390,33 @@ async function collectScanEvents(input) {
     return { ok: false, skipped: terminal.skipped };
   }
   const ends = [...collected.ends ?? [], ...terminal.ends];
+  const checksDrops = [...new Set([
+    ...collected.checksDrops ?? [],
+    ...watchDropsForEnds({ tracked, ends: terminal.ends })
+  ])];
   return {
     ok: true,
     events: terminal.events,
     ...collected.observedHeads !== undefined && { observedHeads: collected.observedHeads },
-    ...ends.length > 0 && { ends }
+    ...ends.length > 0 && { ends },
+    ...collected.checksWrites !== undefined && { checksWrites: collected.checksWrites },
+    ...checksDrops.length > 0 && { checksDrops },
+    ...collected.checksAudits !== undefined && { checksAudits: collected.checksAudits }
+  };
+}
+function enqueueScanInput(input) {
+  const { deps, binding, account, listed } = input;
+  const { observedHeads, checksWrites, checksDrops } = listed;
+  return {
+    store: deps.store,
+    log: deps.log,
+    incoming: listed.events,
+    prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
+    ...observedHeads !== undefined && {
+      observedHeads: observedHeadSeeds({ binding, observations: observedHeads })
+    },
+    ...checksWrites !== undefined && { checksWrites },
+    ...checksDrops !== undefined && { checksDrops }
   };
 }
 async function scanBinding(input) {
@@ -12129,15 +12451,8 @@ async function scanBinding(input) {
   if (!listed.ok) {
     return { ...blank, skipped: listed.skipped };
   }
-  const appended = await enqueueEvents({
-    store: deps.store,
-    log: deps.log,
-    incoming: listed.events,
-    prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
-    ...listed.observedHeads !== undefined && {
-      observedHeads: observedHeadSeeds({ binding, observations: listed.observedHeads })
-    }
-  });
+  const appended = await enqueueEvents(enqueueScanInput({ deps, binding, account, listed }));
+  await recordChecksAudits({ store, log, audits: listed.checksAudits ?? [] });
   await recordTrackingEnds({ store, log, binding, ends: listed.ends ?? [] });
   return { ...blank, enqueued: appended.length, windowFrom: detectedAt, openedFrom: verdict.window };
 }
@@ -12678,7 +12993,7 @@ function readCheckRunEntry(value) {
   if (name === null || name === "") {
     return null;
   }
-  return { name, conclusion: textOf(record, "conclusion") };
+  return { name, status: textOf(record, "status"), conclusion: textOf(record, "conclusion") };
 }
 function readIssueObject(value) {
   const issue2 = readIssueEntry(value);
@@ -12690,12 +13005,7 @@ function readPullObject(value) {
 }
 
 // service/poll/poller-checks.ts
-var FAILING_CONCLUSIONS = [
-  "action_required",
-  "failure",
-  "timed_out",
-  "cancelled"
-];
+var FAILING_CONCLUSIONS = ["action_required", "failure", "timed_out"];
 var MAX_CHECK_NAMES = 10;
 var MAX_CHECK_PAGES = 2;
 function failingOf(value) {
@@ -12711,6 +13021,9 @@ function failingConclusionOf(runs) {
 }
 function failingNamesOf(runs) {
   return runs.filter((run) => failingOf(run.conclusion) !== null).map((run) => run.name).slice(0, MAX_CHECK_NAMES);
+}
+function checksCompletedOf(runs) {
+  return runs.every((run) => run.status === "completed");
 }
 async function readHeadChecks(runtime, query) {
   const url = new URL(`${API_ORIGIN}/repos/${query.owner}/${query.name}/commits/${query.headSha}/check-runs`);
@@ -12733,7 +13046,7 @@ async function readHeadChecks(runtime, query) {
     }
     runs.push(...parsed.items);
     if (page === MAX_CHECK_PAGES && parsed.items.length >= query.pace.perPage) {
-      return { kind: "ok", conclusion: null, names: [], truncated: true };
+      return { kind: "ok", count: runs.length, completed: false, conclusion: null, names: [], truncated: true };
     }
     if (parsed.items.length < query.pace.perPage) {
       break;
@@ -12741,6 +13054,8 @@ async function readHeadChecks(runtime, query) {
   }
   return {
     kind: "ok",
+    count: runs.length,
+    completed: checksCompletedOf(runs),
     conclusion: failingConclusionOf(runs),
     names: failingNamesOf(runs),
     truncated: false

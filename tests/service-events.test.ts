@@ -317,7 +317,9 @@ function recordingPoller(issues: readonly PollIssue[]): RecordedPoller {
             throw new Error('the terminal read is F-9-only; this fixture binds no session');
         },
         listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
-        listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
+        listHeadChecks: async () => ({
+            kind: 'ok', count: 0, completed: true, conclusion: null, names: [], truncated: false,
+        }),
     };
 
     return { poller, seenSince, seenEvents };
@@ -710,21 +712,20 @@ describe('widened event detection ids (FR-112, FR-113)', () => {
             followUp: 'checks',
             headSha: 'deadbeefcafe000000000000000000000000beef',
             baseRef: null,
-            conclusion: 'failure',
             subjectType: 'pull_request',
         });
 
         expect(submitted.id).toBe(`evt-acme~widget~3~${ACCOUNT_ID}~followup~review-submitted~9001`);
         expect(followUpKindOf(submitted.id)).toBe('review-submitted');
         expect(checks.id).toBe(
-            `evt-acme~widget~3~${ACCOUNT_ID}~followup~checks~deadbeefcafe000000000000000000000000beef~failure`,
+            `evt-acme~widget~3~${ACCOUNT_ID}~followup~checks~deadbeefcafe000000000000000000000000beef`,
         );
         expect(followUpKindOf(checks.id)).toBe('checks');
         expect(parseStoredEvent(structuredClone(submitted))).toEqual(submitted);
         expect(parseStoredEvent(structuredClone(checks))).toEqual(checks);
     });
 
-    it('refuses a malformed new tail and a conclusion outside the four words', () => {
+    it('refuses a malformed new tail', () => {
         const valid = createEvent({
             ...fixtureSnapshot(3, ''),
             kind: 'review',
@@ -738,9 +739,9 @@ describe('widened event detection ids (FR-112, FR-113)', () => {
         for (const tail of [
             '~followup~review-submitted~0',
             '~followup~review-submitted~abc',
-            '~followup~checks~deadbeef~success',
-            '~followup~checks~deadbeef~failure~extra',
-            '~followup~checks~not-a-sha~failure',
+            '~followup~checks~deadbeef~failure',
+            '~followup~checks~',
+            '~followup~checks~not-a-sha',
         ]) {
             expect(parseStoredEvent({ ...valid, id: `${base}${tail}` })).toBeNull();
         }
@@ -1723,7 +1724,9 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
                     throw new Error('the terminal read is F-9-only; this fixture binds no session');
                 },
                 listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
-                listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
+                listHeadChecks: async () => ({
+                    kind: 'ok', count: 0, completed: true, conclusion: null, names: [], truncated: false,
+                }),
             };
             await runScanCycle({ store, log, poller });
 

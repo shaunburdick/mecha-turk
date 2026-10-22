@@ -159,6 +159,8 @@ export interface PollReview {
 export interface PollCheckRun {
     /** Check name; required, because it is what the follow-up names. */
     readonly name: string;
+    /** GitHub's run status word, or `null` when absent; only `completed` concludes. */
+    readonly status: string | null;
     /** GitHub's conclusion word, or `null` while the run has not concluded. */
     readonly conclusion: string | null;
 }
@@ -416,7 +418,8 @@ export function readReviewEntry(value: unknown): PollReview | null {
  * Parse one check-run entry, failing soft per entry.
  *
  * A check with no readable name cannot be named in the follow-up, so it is
- * dropped; an unreadable conclusion is no conclusion, which is not a failure.
+ * dropped; an unreadable status or conclusion is no status or conclusion,
+ * which reads as *not completed* / *not failing* respectively.
  */
 export function readCheckRunEntry(value: unknown): PollCheckRun | null {
     const record = asRecord(value);
@@ -429,7 +432,7 @@ export function readCheckRunEntry(value: unknown): PollCheckRun | null {
         return null;
     }
 
-    return { name, conclusion: textOf(record, 'conclusion') };
+    return { name, status: textOf(record, 'status'), conclusion: textOf(record, 'conclusion') };
 }
 
 /**

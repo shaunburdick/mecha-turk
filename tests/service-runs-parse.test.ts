@@ -486,6 +486,12 @@ describe('fail-closed document and row validation', () => {
                 ['sourceReferences', [{ ...fixtureReference(), detectedAt: 'never' }]],
                 ['attempts', [{ ...attemptRecord(), attempt: 0 }]],
                 ['attempts', [{ ...attemptRecord(), outcome: 'exploded' }]],
+                ['checksWatch', null],
+                ['checksWatch', { headSha: '', armedAt: STAMP, polls: 0 }],
+                ['checksWatch', { headSha: 'not-a-sha', armedAt: STAMP, polls: 0 }],
+                ['checksWatch', { headSha: 'deadbeef', armedAt: 'never', polls: 0 }],
+                ['checksWatch', { headSha: 'deadbeef', armedAt: STAMP, polls: -1 }],
+                ['checksWatch', { headSha: 'deadbeef', armedAt: STAMP, polls: 1.5 }],
             ];
 
             for (const [field, value] of patches) {
@@ -505,6 +511,18 @@ describe('fail-closed document and row validation', () => {
                 verification: { observedAgent: 'executor', expectedAgent: '', ok: false, note: null, at: STAMP },
             });
             expect(parseRun(blankBaseline)).not.toBeNull();
+        }
+    });
+
+    it('round-trips a live check watch and leaves an absent one absent', async () => {
+        {
+            const watch = { headSha: 'deadbeef', armedAt: STAMP, polls: 2 };
+            const parsed = parseRun(fixtureRun({ checksWatch: watch }));
+
+            expect(parsed?.checksWatch).toEqual(watch);
+            const bare = parseRun(fixtureRun());
+            expect(bare?.checksWatch).toBeUndefined();
+            expect(Object.hasOwn(bare ?? {}, 'checksWatch')).toBe(false);
         }
     });
 

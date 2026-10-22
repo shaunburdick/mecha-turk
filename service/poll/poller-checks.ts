@@ -8,15 +8,10 @@ import { readEnvelopePage } from './poller-transport.ts';
 import type { ListPace, PollFailure, PollerRuntime } from './poller-transport.ts';
 import type { PollCheckRun } from './poller-entries.ts';
 
-/** The four conclusions that make a head red, most blocking first (FR-127). */
-export type CheckConclusion = 'action_required' | 'failure' | 'timed_out' | 'cancelled';
+/** The three conclusions that make a head red, most blocking first (FR-127). */
+export type CheckConclusion = 'action_required' | 'failure' | 'timed_out';
 
-const FAILING_CONCLUSIONS: readonly CheckConclusion[] = [
-    'action_required',
-    'failure',
-    'timed_out',
-    'cancelled',
-];
+const FAILING_CONCLUSIONS: readonly CheckConclusion[] = ['action_required', 'failure', 'timed_out'];
 
 /** How many failing check names one follow-up names (FR-129). */
 const MAX_CHECK_NAMES = 10;
@@ -38,13 +33,18 @@ export type HeadChecksOutcome =
     | PollFailure
     | {
         readonly kind: 'ok';
+        /** How many check runs the walk read; zero is *nothing to wait for*. */
+        readonly count: number;
+        /** Whether every read run has concluded. */
+        readonly completed: boolean;
+        /** The most blocking failing conclusion present, or `null` when none is. */
         readonly conclusion: CheckConclusion | null;
         readonly names: readonly string[];
         readonly truncated: boolean;
     };
 
 /**
- * Read a conclusion as the four-word failing vocabulary.
+ * Read a conclusion as the three-word failing vocabulary.
  */
 function failingOf(value: string | null): CheckConclusion | null {
     return FAILING_CONCLUSIONS.find((conclusion) => conclusion === value) ?? null;
@@ -74,10 +74,17 @@ export function failingNamesOf(runs: readonly PollCheckRun[]): readonly string[]
 }
 
 /**
+ * Whether every read run has concluded; an absent or unknown status has not.
+ */
+export function checksCompletedOf(runs: readonly PollCheckRun[]): boolean {
+    return runs.every((run) => run.status === 'completed');
+}
+
+/**
  * Read one head's check runs, two content pages at most.
  *
  * A second page that fills its cap is truncation: the whole list was not read,
- * so the head produces no row and silence is never read as a passing build.
+ * so the head produces no verdict and silence is never read as a passing build.
  */
 export async function readHeadChecks(
     runtime: PollerRuntime,
@@ -106,7 +113,7 @@ export async function readHeadChecks(
 
         runs.push(...parsed.items);
         if (page === MAX_CHECK_PAGES && parsed.items.length >= query.pace.perPage) {
-            return { kind: 'ok', conclusion: null, names: [], truncated: true };
+            return { kind: 'ok', count: runs.length, completed: false, conclusion: null, names: [], truncated: true };
         }
 
         if (parsed.items.length < query.pace.perPage) {
@@ -116,6 +123,8 @@ export async function readHeadChecks(
 
     return {
         kind: 'ok',
+        count: runs.length,
+        completed: checksCompletedOf(runs),
         conclusion: failingConclusionOf(runs),
         names: failingNamesOf(runs),
         truncated: false,

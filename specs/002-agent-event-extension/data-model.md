@@ -133,6 +133,7 @@ Immutable after write except `state` (append-only payload, FR-035). **Transition
 | `attempts` | number | each attempt audited |
 | `correlationId` | string | shared with deliveries/audit |
 | `lastHeadSha` | string \| **absent** | **added at v1.16.0 (FR-103).** The head SHA the run's establishing cycle observed, so the next cycle can tell a push from the state that already existed at dispatch. **Absentable and validated when present** — the same pattern `SourceReference`'s actor members use — so a run written before this version parses unchanged; **absent means *no seed recorded*, never *the head changed*** |
+| `checksWatch` | `{ headSha: string, armedAt: string, polls: number } \| **absent**` | **added at v1.22.0 (FR-126).** The bounded check watch one tracked pull carries: the head it belongs to, the service-clock arm stamp, and the check-runs reads spent. **Absentable and validated when present** — absent means *no watch armed*, never *the suite passed*; a present value with a non-hex head, an unparseable stamp, or a negative/non-integer count refuses the run row. It is the only new persisted member this cut adds, and it needs no schema version bump |
 | `createdAt`, `updatedAt` | string | |
 
 **States** (spec): `created → dispatching → verifying_agent → dispatched`, plus `waiting_approval`, `blocked:agent-mismatch | blocked:project-missing | blocked:credential | blocked:policy | blocked:source-changed | blocked:dispatch-unknown`, `retrying`, `completed`, `dead_lettered`.

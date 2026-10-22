@@ -198,8 +198,8 @@ const REVIEW_COMMENT_TAIL = /^review-comment~[0-9]+$/;
 /** A submitted review's tail: `review-submitted~<reviewId>` (FR-124). */
 const REVIEW_SUBMITTED_TAIL = /^review-submitted~[0-9]+$/;
 
-/** A check verdict's tail: `checks~<sha>~<conclusion>`, the four words local here. */
-const CHECKS_TAIL = /^checks~[0-9a-f]+~(action_required|failure|timed_out|cancelled)$/;
+/** A check verdict's tail: `checks~<sha>`, hexadecimal (FR-127). */
+const CHECKS_TAIL = /^checks~[0-9a-f]+$/;
 
 /** What one id's discriminator segment says about the row's role (FR-101). */
 type IdDiscriminator =

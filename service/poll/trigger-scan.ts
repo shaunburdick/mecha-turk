@@ -7,6 +7,7 @@ import type { ServiceLogger } from '../log.ts';
 import type { BindingRecord } from '../bindings.ts';
 import type { GitHubIssuePoller, ListPace, PollFailure } from './poller-github.ts';
 import type { QueuedEvent } from './events.ts';
+import type { ChecksWatch, RunAuditDetails } from './runs-types.ts';
 import type { TrackedSubject, TrackingEnd } from './tracking.ts';
 
 /** Longest body excerpt one event carries (bounded untrusted text). */
@@ -46,6 +47,24 @@ export interface TriggerScanInput {
      * and every branch simply produces no follow-ups.
      */
     readonly tracked: ReadonlyMap<number, TrackedSubject>;
+    /**
+     * Bindings whose `checks.unavailable` row this process has already written.
+     *
+     * Per store and per binding: a credential missing the Checks scope fails
+     * every cycle, and a row per cycle would bury the trail it is meant to
+     * explain. The same posture the queue's quarantine recovery takes.
+     */
+    readonly checksUnavailableClaim: Set<string>;
+}
+
+/** The checks audit vocabulary, written best-effort after the run write. */
+export type ChecksAuditEvent = 'checks.watched' | 'checks.observed' | 'checks.expired' | 'checks.unavailable';
+
+/** One checks audit row a cycle asks for, named by the run it explains (NFR-007). */
+export interface ChecksAudit {
+    readonly eventType: ChecksAuditEvent;
+    readonly correlationId: string;
+    readonly details: RunAuditDetails;
 }
 
 /** What one trigger branch produced: its events, or the failure that ended it. */
@@ -69,6 +88,16 @@ export type TriggerEvents =
          * fact and date.
          */
         readonly ends?: readonly TrackingEnd[];
+        /**
+         * Check watches this branch armed or re-counted, keyed by the run's
+         * correlation id. The enqueue pass applies them in the same chain
+         * write that folds deliveries and seeds (FR-126).
+         */
+        readonly checksWrites?: ReadonlyMap<string, ChecksWatch>;
+        /** Check watches this branch dropped, by run correlation id. */
+        readonly checksDrops?: readonly string[];
+        /** Audit rows the cycle writes after the run document lands. */
+        readonly checksAudits?: readonly ChecksAudit[];
     }
     | { readonly ok: false; readonly failure: PollFailure };
 

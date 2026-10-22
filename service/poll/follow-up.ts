@@ -9,7 +9,6 @@ import { createEvent, followUpKindOf, subjectTypeOf } from './events.ts';
 import { bodyExcerptOf } from './trigger-scan.ts';
 import { stampInWindow } from './window.ts';
 import type { QueuedEvent } from './events.ts';
-import type { CheckConclusion } from './poller-checks.ts';
 import type { PollComment, PollIssue, PollPull, PollReview, PollReviewComment } from './poller-entries.ts';
 import type { TrackedSubject } from './tracking.ts';
 
@@ -21,29 +20,15 @@ interface HeadObservation {
     readonly headSha: string | null;
 }
 
-/** One observed head movement: the SHA the run held and the SHA now seen. */
-export interface HeadMovement {
-    /** The pull request whose head moved. */
-    readonly pullNumber: number;
-    /** The SHA this cycle observed. */
-    readonly headSha: string;
-}
-
 /** What the comment detector produced: its rows, and nothing else. */
 export type FollowUpRows = readonly QueuedEvent[];
 
-/** What the head detector produced: its rows, every head it observed, and its movements. */
+/** What the head detector produced: its rows, and every head it observed. */
 export interface HeadFollowUpResult {
     /** The head follow-up rows, in pull order. */
     readonly rows: readonly QueuedEvent[];
     /** Every tracked pull observed with a SHA, for FR-103(b)'s seed write. */
     readonly observations: readonly HeadObservation[];
-    /**
-     * Every tracked pull whose head moved this cycle, computed **before** the
-     * actor gate: a checks-only binding still observes the movement it needs to
-     * read the new SHA, even when no head row can be delivered.
-     */
-    readonly movements: readonly HeadMovement[];
 }
 
 /** The tail every tracked-subject follow-up note shares. */
@@ -271,18 +256,18 @@ export function reviewSubmittedFollowUp(input: {
  */
 export function checksFollowUp(input: {
     readonly binding: BindingRecord;
-    /** The tracked pull request whose head moved. */
+    /** The tracked pull request whose head was watched. */
     readonly pull: PollPull;
     /** The tracked subject the pull request is. */
     readonly tracked: TrackedSubject;
-    /** The most blocking failing conclusion present. */
-    readonly conclusion: CheckConclusion;
+    /** The watched head the suite concluded red on. */
+    readonly headSha: string;
     /** The failing check names, in the order the list returned them. */
     readonly names: readonly string[];
     /** RFC 3339 stamp pinned at cycle start. */
     readonly detectedAt: string;
 }): QueuedEvent | null {
-    const { binding, pull, tracked, conclusion, names, detectedAt } = input;
+    const { binding, pull, tracked, headSha, names, detectedAt } = input;
     const actor = tracked.actorLogin;
     const attribution = tracked.actorAttribution;
     if (actor === null || attribution !== 'direct') {
@@ -300,9 +285,8 @@ export function checksFollowUp(input: {
         worktreeOption: binding.worktreeOption,
         kind: 'review',
         followUp: 'checks',
-        headSha: pull.headSha ?? '',
+        headSha,
         baseRef: null,
-        conclusion,
         issue: {
             issueNumber: pull.pullNumber,
             issueTitle: pull.title,
@@ -464,7 +448,6 @@ export function headFollowUps(input: {
     const { binding, pulls, tracked, windowStart, detectedAt } = input;
     const rows: QueuedEvent[] = [];
     const observations: HeadObservation[] = [];
-    const movements: HeadMovement[] = [];
 
     for (const pull of pulls) {
         if (!stampInWindow(pull.updatedAt, windowStart)) {
@@ -489,15 +472,13 @@ export function headFollowUps(input: {
             continue;
         }
 
-        movements.push({ pullNumber: pull.pullNumber, headSha: pull.headSha });
-
         const row = headFollowUp({ binding, pull, tracked: subject, fromHeadSha: seed, detectedAt });
         if (row !== null) {
             rows.push(row);
         }
     }
 
-    return { rows, observations, movements };
+    return { rows, observations };
 }
 
 /** The distinct subjects whose follow-up rows a cycle produced, split by shape. */

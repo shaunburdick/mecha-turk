@@ -41,22 +41,21 @@ import { followUpKindOf } from '../service/poll/events-parse.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
 import type { BindingScan } from '../service/poll/loop.ts';
 import { createGitHubIssuePoller } from '../service/poll/poller-github.ts';
+import { checksCompletedOf, failingConclusionOf, failingNamesOf } from '../service/poll/poller-checks.ts';
 import { readIssueObject, readPullObject } from '../service/poll/poller-entries.ts';
 import { MAX_PROJECTED_FOLLOW_UPS, projectRunHistory } from '../service/poll/run-history-project.ts';
 import { EVENTS_PATH } from '../service/routes/events.ts';
 import { readRunsDocument, writeRunsDocument } from '../service/poll/runs.ts';
-import { composeEngineFollowUp } from '../service/poll/engine-compose.ts';
-import { BEGIN_UNTRUSTED } from '../src/context-blocks.ts';
 import { writeScanState } from '../service/poll/scan.ts';
 import { buildEventId } from '../service/poll/events-write.ts';
 import type { AuditEntry } from '../service/audit.ts';
 import type { BindingRecord, BindingTriggers } from '../service/bindings.ts';
 import type { EventSnapshot, QueuedEvent } from '../service/poll/events.ts';
 import type {
-    CheckConclusion,
     GitHubIssuePoller,
     IssueStateOutcome,
     PollComment,
+    PollFailure,
     PollIssue,
     PollPull,
     PollReview,
@@ -246,12 +245,15 @@ function fixtureComment(input: {
     readonly body?: string;
     readonly authorLogin?: string;
     readonly authorType?: string;
+    readonly issueNumber?: number;
 }): PollComment {
+    const issueNumber = input.issueNumber ?? 7;
+
     return {
         commentId: input.commentId,
-        issueNumber: 7,
+        issueNumber,
         body: input.body ?? 'the drift is back',
-        url: `https://github.com/acme/widget/issues/7#issuecomment-${input.commentId}`,
+        url: `https://github.com/acme/widget/issues/${issueNumber}#issuecomment-${input.commentId}`,
         authorLogin: input.authorLogin ?? HUMAN_LOGIN,
         authorType: input.authorType ?? HUMAN_TYPE,
         updatedAt: STAMP,
@@ -328,6 +330,14 @@ function reviewRequestedEvent(eventId: number | null, createdAt = RE_REQUESTED_S
     };
 }
 
+/** One check run the fake walk answers, in GitHub's own vocabulary. */
+interface FixtureCheckRun {
+    readonly name: string;
+    /** GitHub's run status; `completed` unless a case is about a pending run. */
+    readonly status?: string;
+    readonly conclusion?: string | null;
+}
+
 /** A stub poller plus the feed names each call requested, in order. */
 interface RecordedPoller {
     /** The poller the cycle is given. */
@@ -370,13 +380,12 @@ function recordingPoller(feeds: {
     readonly reviews?: Readonly<Record<number, readonly PollReview[]>>;
     /** Pull numbers whose reviews read answers truncation. */
     readonly reviewsTruncated?: readonly number[];
-    /** The check verdict each head answers, keyed by SHA. */
-    readonly checks?: Readonly<Record<string, {
-        readonly conclusion: CheckConclusion | null;
-        readonly names: readonly string[];
-    }>>;
+    /** The check runs each head answers, keyed by SHA. */
+    readonly checks?: Readonly<Record<string, readonly FixtureCheckRun[]>>;
     /** SHAs whose check-runs walk answers truncation. */
     readonly checksTruncated?: readonly string[];
+    /** The failure each check-runs read answers instead of a verdict, keyed by SHA. */
+    readonly checksFailure?: (headSha: string) => PollFailure;
 }): RecordedPoller {
     const calls: string[] = [];
 
@@ -436,13 +445,24 @@ function recordingPoller(feeds: {
             },
             listHeadChecks: async (query) => {
                 calls.push(`checks:${query.headSha}`);
-                const verdict = feeds.checks?.[query.headSha];
+                const failure = feeds.checksFailure?.(query.headSha);
+                if (failure !== undefined) {
+                    return failure;
+                }
+
+                const runs = (feeds.checks?.[query.headSha] ?? []).map((run) => ({
+                    name: run.name,
+                    status: run.status ?? 'completed',
+                    conclusion: run.conclusion ?? null,
+                }));
                 const isTruncated = feeds.checksTruncated?.includes(query.headSha) === true;
 
                 return {
                     kind: 'ok',
-                    conclusion: isTruncated ? null : (verdict?.conclusion ?? null),
-                    names: isTruncated ? [] : (verdict?.names ?? []),
+                    count: runs.length,
+                    completed: !isTruncated && checksCompletedOf(runs),
+                    conclusion: isTruncated ? null : failingConclusionOf(runs),
+                    names: isTruncated ? [] : failingNamesOf(runs),
                     truncated: isTruncated,
                 };
             },
@@ -616,14 +636,15 @@ async function plantDispatchedRuns(deliveries: readonly EventSnapshot[]): Promis
 async function runCycle(
     binding: BindingRecord,
     recorded: RecordedPoller,
+    handle: ServiceStore = store,
 ): Promise<readonly QueuedEvent[]> {
-    await writeBindings({ store, bindings: [binding] });
-    await writeAccount(store, fixtureAccount({ stamp: STAMP }));
+    await writeBindings({ store: handle, bindings: [binding] });
+    await writeAccount(handle, fixtureAccount({ stamp: STAMP }));
 
-    const cycle = await runScanCycle({ store, log, poller: recorded.poller });
+    const cycle = await runScanCycle({ store: handle, log, poller: recorded.poller });
     expect(cycle.bindings).toHaveLength(1);
 
-    return await readEvents({ store, log });
+    return await readEvents({ store: handle, log });
 }
 
 /**
@@ -1134,6 +1155,11 @@ const CHECKS_ONLY = {
     checks: true,
 } as const;
 
+/** A binding that must keep detecting comments while its check read is refused. */
+const MENTION_AND_CHECKS = {
+    assignment: false, mention: true, reviewRequest: false, reviewSubmitted: false, checks: true,
+} as const;
+
 /** Both pull-dependent switches a double delivery needs. */
 const REVIEW_AND_CHECKS = {
     assignment: false, mention: false, reviewRequest: true, reviewSubmitted: false, checks: true,
@@ -1552,9 +1578,49 @@ function submittedTriggerId(reviewId: number): string {
     return `evt-acme~widget~7~${ACCOUNT_ID}~review~submitted~${reviewId}`;
 }
 
-/** The `~followup~checks~<sha>~<conclusion>` id for the fixture account. */
-function checksId(headSha: string, conclusion: string): string {
-    return `evt-acme~widget~7~${ACCOUNT_ID}~followup~checks~${headSha}~${conclusion}`;
+/** The `~followup~checks~<sha>` id for the fixture account: the head alone. */
+function checksId(headSha: string): string {
+    return `evt-acme~widget~7~${ACCOUNT_ID}~followup~checks~${headSha}`;
+}
+
+/** The stored check watch of the fixture's tracked pull run, or `null` when none is armed. */
+async function storedWatch(): Promise<{ headSha: string; armedAt: string; polls: number } | null> {
+    const document = await readRunsDocument({ store, log });
+    const run = document.runs.find((candidate) => candidate.subjectType === 'pull_request');
+
+    return run?.checksWatch ?? null;
+}
+
+/** Plant one dispatched pull run and arm its watch silently at `headSha`. */
+async function armWatch(headSha: string): Promise<void> {
+    await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+    const recorded = recordingPoller({ pulls: [fixturePull({ headSha })] });
+    await runCycle(fixtureBinding(CHECKS_ONLY), recorded);
+    expect(recorded.calls).toEqual(['pulls']);
+}
+
+/** Rewrite the planted run's watch, for the two expiry cases. */
+async function rewriteWatch(watch: {
+    readonly headSha: string;
+    readonly armedAt: string;
+    readonly polls: number;
+}): Promise<void> {
+    const document = await readRunsDocument({ store, log });
+    const index = document.runs.findIndex((run) => run.subjectType === 'pull_request');
+    const run = document.runs[index];
+    if (run === undefined) {
+        throw new Error('the watch fixture has no pull run');
+    }
+
+    await writeRunsDocument({
+        store,
+        log,
+        document: {
+            ...document,
+            runs: document.runs.map((candidate, position) =>
+                (position === index ? { ...run, checksWatch: watch } : candidate)),
+        },
+    });
 }
 
 describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
@@ -1620,24 +1686,56 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
         }
     });
 
-    it('produces one checks row for a moved tracked head, riding the run actor and a defused movement', async () => {
+    it('arms silently on the first tracked cycle, and a red suite on that cycle is never read', async () => {
         {
             await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
-            const names = ['build', 'lint', BEGIN_UNTRUSTED];
             const recorded = recordingPoller({
-                pulls: [fixturePull({ headSha: MOVED_SHA })],
-                checks: { [MOVED_SHA]: { conclusion: 'failure', names } },
+                pulls: [fixturePull({ headSha: SEED_SHA })],
+                checks: { [SEED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
             });
 
-            const queue = await runCycle(fixtureBinding(REVIEW_AND_CHECKS), recorded);
-            const followUps = followUpRowsOf(queue);
-            const row = followUps.find((candidate) => candidate.id === checksId(MOVED_SHA, 'failure'));
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recorded);
 
-            expect(recorded.calls).toEqual(['pulls', `checks:${  MOVED_SHA}`, 'pullState:7']);
-            expect(followUps.map((followUp) => followUp.id).toSorted(byText)).toEqual([
-                `evt-acme~widget~7~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`,
-                checksId(MOVED_SHA, 'failure'),
-            ].toSorted(byText));
+            // The arming cycle is silent: no read, no row, and the watch is
+            // written with zero polls spent.
+            expect(recorded.calls).toEqual(['pulls']);
+            expect(followUpRowsOf(queue)).toEqual([]);
+            expect(await storedWatch()).toMatchObject({ headSha: SEED_SHA, polls: 0 });
+            expect(rowsOfType(await auditRows(), 'checks.watched')).toHaveLength(1);
+        }
+    });
+
+    it('is pending-aware, then alerts once when the whole suite concludes red', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            const pending = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: {
+                    [MOVED_SHA]: [
+                        { name: 'lint', status: 'completed', conclusion: 'success' },
+                        { name: 'build', status: 'in_progress', conclusion: null },
+                    ],
+                },
+            });
+
+            const waiting = await runCycle(fixtureBinding(CHECKS_ONLY), pending);
+            expect(followUpRowsOf(waiting)).toEqual([]);
+            expect(await storedWatch()).toMatchObject({ headSha: MOVED_SHA, polls: 1 });
+
+            const names = ['build', 'docs'];
+            const concluded = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: {
+                    [MOVED_SHA]: [
+                        { name: 'lint', status: 'completed', conclusion: 'success' },
+                        { name: 'build', status: 'completed', conclusion: 'failure' },
+                        { name: 'docs', status: 'completed', conclusion: 'timed_out' },
+                    ],
+                },
+            }));
+
+            const row = followUpRowsOf(concluded).find((candidate) => candidate.id === checksId(MOVED_SHA));
+            expect(followUpRowsOf(concluded)).toHaveLength(1);
             expect(row).toMatchObject({
                 kind: 'review',
                 subjectType: 'pull_request',
@@ -1647,61 +1745,352 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                 issueBodyExcerpt: names.join(', '),
                 triggerNote: `CI failed: ${names.join(', ')}`,
             });
+            expect(await storedWatch()).toBeNull();
 
+            const observed = rowsOfType(await auditRows(), 'checks.observed');
+            expect(observed).toHaveLength(1);
             const document = await readRunsDocument({ store, log });
-            const run = document.runs[0];
-            if (row === undefined || run === undefined) {
-                throw new Error('the checks follow-up or its run is missing');
-            }
-
-            const composed = composeEngineFollowUp({ run, row, sessionId: SESSION_ID, runRows: queue });
-            expect(composed.ok).toBe(true);
-            if (composed.ok) {
-                const movement = composed.text.split('\n').find((line) => line.startsWith('Movement:'));
-                expect(movement).toContain('Movement: CI failed: build, lint');
-                expect(movement).not.toContain(BEGIN_UNTRUSTED);
-            }
+            expect(observed[0]?.correlationId).toBe(document.runs[0]?.correlationId);
         }
     });
 
-    it('dedupes a replayed SHA and mints a new row when the aggregate conclusion changes', async () => {
+    it('drops the watch silently for a green suite, and cancelled is not failing', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            const green = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: {
+                    [MOVED_SHA]: [
+                        { name: 'build', status: 'completed', conclusion: 'success' },
+                        { name: 'docs', status: 'completed', conclusion: 'skipped' },
+                    ],
+                },
+            }));
+            expect(followUpRowsOf(green)).toEqual([]);
+            expect(await storedWatch()).toBeNull();
+
+            await armWatch(MOVED_SHA);
+            const cancelled = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: {
+                    [MOVED_SHA]: [
+                        { name: 'old-build', status: 'completed', conclusion: 'cancelled' },
+                        { name: 'lint', status: 'completed', conclusion: 'neutral' },
+                    ],
+                },
+            }));
+            expect(followUpRowsOf(cancelled)).toEqual([]);
+            expect(await storedWatch()).toBeNull();
+        }
+    });
+
+    it('alerts on action_required', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            const blocked = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: [{ name: 'gate', status: 'completed', conclusion: 'action_required' }] },
+            }));
+            expect(followUpRowsOf(blocked).map((row) => row.id)).toEqual([checksId(MOVED_SHA)]);
+        }
+    });
+
+    it('drops the watch for a head with no check runs', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            const empty = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: [] },
+            }));
+            expect(followUpRowsOf(empty)).toEqual([]);
+            expect(await storedWatch()).toBeNull();
+        }
+    });
+
+    it('alerts once per SHA across a replay, a restart, and a later conclusion change', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
+            }));
+
+            const replayed = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'timed_out' }] },
+            }));
+            expect(followUpRowsOf(replayed).map((row) => row.id)).toEqual([checksId(MOVED_SHA)]);
+
+            const restarted = await openStore({ dataDir });
+            await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
+            }), restarted);
+            expect(followUpRowsOf(await readEvents({ store: restarted, log })).map((row) => row.id))
+                .toEqual([checksId(MOVED_SHA)]);
+        }
+    });
+
+    it('replaces the watch on a head move, so a superseded SHA is never read', async () => {
+        {
+            const superseded = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+            await armWatch(superseded);
+
+            const moved = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: {
+                    [superseded]: [{ name: 'build', status: 'completed', conclusion: 'failure' }],
+                },
+            });
+            const movedQueue = await runCycle(fixtureBinding(CHECKS_ONLY), moved);
+
+            expect(moved.calls).toEqual(['pulls']);
+            expect(followUpRowsOf(movedQueue)).toEqual([]);
+            expect(await storedWatch()).toMatchObject({ headSha: MOVED_SHA, polls: 0 });
+
+            const next = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: {
+                    [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }],
+                },
+            });
+            await runCycle(fixtureBinding(CHECKS_ONLY), next);
+            expect(next.calls).toEqual(['pulls', `checks:${MOVED_SHA}`, 'pullState:7']);
+        }
+    });
+
+    it('expires by read count and by elapsed time, each with an audit row and no read', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            await rewriteWatch({ headSha: MOVED_SHA, armedAt: STAMP, polls: 30 });
+            const byPolls = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
+            });
+
+            await runCycle(fixtureBinding(CHECKS_ONLY), byPolls);
+            expect(byPolls.calls).toEqual(['pulls']);
+            expect(await storedWatch()).toBeNull();
+
+            await armWatch(MOVED_SHA);
+            await rewriteWatch({
+                headSha: MOVED_SHA,
+                armedAt: new Date(Date.now() - 31 * 60_000).toISOString(),
+                polls: 0,
+            });
+            const byTime = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
+            });
+
+            await runCycle(fixtureBinding(CHECKS_ONLY), byTime);
+            expect(byTime.calls).toEqual(['pulls']);
+            expect(await storedWatch()).toBeNull();
+
+            const reasons = rowsOfType(await auditRows(), 'checks.expired')
+                .map((row) => row.details.reason);
+            expect(reasons).toEqual(['polls', 'elapsed']);
+        }
+    });
+
+    it('keeps the watch on a truncated walk, so a busy SHA never reports a pass', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            const recorded = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'success' }] },
+                checksTruncated: [MOVED_SHA],
+            });
+
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recorded);
+
+            expect(followUpRowsOf(queue)).toEqual([]);
+            expect(await storedWatch()).toMatchObject({ headSha: MOVED_SHA, polls: 1 });
+        }
+    });
+
+    it('keeps the watch and the scan alive when the check read is refused, once per binding', async () => {
+        {
+            await plantDispatchedRuns([
+                subjectSnapshot({ issueNumber: 11 }),
+                reviewSnapshot(SEED_SHA),
+            ]);
+            const armed = recordingPoller({ pulls: [fixturePull({ headSha: MOVED_SHA })] });
+            await runCycle(fixtureBinding(MENTION_AND_CHECKS), armed);
+
+            const comment = fixtureComment({ commentId: 607, issueNumber: 11 });
+            const refused = recordingPoller({
+                issues: [fixtureIssue({ issueNumber: 11 })],
+                comments: [comment],
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checksFailure: () => ({ kind: 'auth-failed' }),
+            });
+
+            const queue = await runCycle(fixtureBinding(MENTION_AND_CHECKS), refused);
+            const scan = await driveCycle(fixtureBinding(MENTION_AND_CHECKS), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checksFailure: () => ({ kind: 'unavailable', detail: 'upstream' }),
+            }));
+
+            // The comment still reaches the queue and the scan completes: a token
+            // without `Checks: read` cannot cost assignment/review/mention work.
+            expect(queue.map((row) => row.id)).toContain(followUpCommentId(607, 11));
+            expect(scan.skipped).toBeNull();
+            expect(await storedWatch()).toMatchObject({ headSha: MOVED_SHA, polls: 2 });
+            expect(rowsOfType(await auditRows(), 'checks.unavailable')).toHaveLength(1);
+        }
+    });
+
+    it('still fails the scan when the check read is rate-limited', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            const limited = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checksFailure: () => ({ kind: 'rate-limited', retryAfterSeconds: 30 }),
+            });
+
+            const scan = await driveCycle(fixtureBinding(CHECKS_ONLY), limited);
+
+            expect(scan.skipped).toBe('rate-limited');
+            expect(await storedWatch()).toMatchObject({ headSha: MOVED_SHA, polls: 0 });
+        }
+    });
+
+    it('shares one read for two tracked pulls at one SHA, and pays two for two heads', async () => {
+        {
+            await plantDispatchedRuns([reviewSnapshot(SEED_SHA, 7), reviewSnapshot(SEED_SHA, 8)]);
+            const arm = recordingPoller({
+                pulls: [
+                    fixturePull({ pullNumber: 7, headSha: MOVED_SHA }),
+                    fixturePull({ pullNumber: 8, headSha: MOVED_SHA }),
+                ],
+            });
+            await runCycle(fixtureBinding(CHECKS_ONLY), arm);
+            expect(arm.calls).toEqual(['pulls']);
+
+            const shared = recordingPoller({
+                pulls: [
+                    fixturePull({ pullNumber: 7, headSha: MOVED_SHA }),
+                    fixturePull({ pullNumber: 8, headSha: MOVED_SHA }),
+                ],
+                checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
+            });
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), shared);
+            expect(shared.calls.filter((call) => call === `checks:${MOVED_SHA}`)).toHaveLength(1);
+            expect(followUpRowsOf(queue).map((row) => row.id).toSorted(byText)).toEqual([
+                `evt-acme~widget~7~${ACCOUNT_ID}~followup~checks~${MOVED_SHA}`,
+                `evt-acme~widget~8~${ACCOUNT_ID}~followup~checks~${MOVED_SHA}`,
+            ].toSorted(byText));
+        }
+
+        {
+            await plantDispatchedRuns([reviewSnapshot(SEED_SHA, 7), reviewSnapshot(SEED_SHA, 8)]);
+            const other = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+            await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [
+                    fixturePull({ pullNumber: 7, headSha: MOVED_SHA }),
+                    fixturePull({ pullNumber: 8, headSha: other }),
+                ],
+            }));
+
+            const two = recordingPoller({
+                pulls: [
+                    fixturePull({ pullNumber: 7, headSha: MOVED_SHA }),
+                    fixturePull({ pullNumber: 8, headSha: other }),
+                ],
+                checks: {
+                    [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }],
+                    [other]: [{ name: 'build', status: 'completed', conclusion: 'failure' }],
+                },
+            });
+            await runCycle(fixtureBinding(CHECKS_ONLY), two);
+            expect(two.calls.filter((call) => call.startsWith('checks:'))).toHaveLength(2);
+        }
+    });
+
+    it('drops the watch when tracking ends on the subject', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            const closed = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA, state: 'closed', merged: true, mergedAt: STAMP })],
+            });
+
+            await runCycle(fixtureBinding(CHECKS_ONLY), closed);
+
+            expect(closed.calls).toEqual(['pulls']);
+            expect(await storedWatch()).toBeNull();
+        }
+    });
+
+    it('bounds the stored check excerpt to the shared excerpt bound', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            const names = Array.from({ length: 10 }, (_, index) => `check-${index}-${'x'.repeat(80)}`);
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: {
+                    [MOVED_SHA]: names.map((name) => ({ name, status: 'completed', conclusion: 'failure' })),
+                },
+            }));
+
+            const row = followUpRowsOf(queue)[0];
+            expect(row?.issueBodyExcerpt.length).toBe(600);
+            expect(row?.issueBodyExcerpt.endsWith('…')).toBe(true);
+        }
+    });
+
+    it('delivers the movement row at the move and the verdict one cycle later', async () => {
         {
             await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
-            const pulls = [fixturePull({ headSha: MOVED_SHA })];
+            const moved = recordingPoller({ pulls: [fixturePull({ headSha: MOVED_SHA })] });
 
-            await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
-                pulls,
-                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
-            }));
-            const replay = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
-                pulls,
-                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
-            }));
-            expect(followUpRowsOf(replay).map((row) => row.id)).toEqual([checksId(MOVED_SHA, 'failure')]);
+            const first = await runCycle(fixtureBinding(REVIEW_AND_CHECKS), moved);
+            expect(moved.calls).toEqual(['pulls', 'pullState:7']);
+            expect(followUpRowsOf(first).map((row) => row.id)).toEqual([
+                `evt-acme~widget~7~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`,
+            ]);
 
-            const changed = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
-                pulls,
-                checks: { [MOVED_SHA]: { conclusion: 'timed_out', names: ['build'] } },
-            }));
-            expect(followUpRowsOf(changed).map((row) => row.id).toSorted(byText)).toEqual([
-                checksId(MOVED_SHA, 'failure'),
-                checksId(MOVED_SHA, 'timed_out'),
+            const next = recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
+            });
+            const second = await runCycle(fixtureBinding(REVIEW_AND_CHECKS), next);
+            expect(followUpRowsOf(second).map((row) => row.id).toSorted(byText)).toEqual([
+                `evt-acme~widget~7~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`,
+                checksId(MOVED_SHA),
             ].toSorted(byText));
         }
     });
 
-    it('is silent for an all-green head and for a run without direct attribution', async () => {
+    it('emits only the check row without reviewRequest', async () => {
         {
-            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
-            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+            await armWatch(MOVED_SHA);
+            const checksOnly = recordingPoller({
                 pulls: [fixturePull({ headSha: MOVED_SHA })],
-                checks: { [MOVED_SHA]: { conclusion: null, names: [] } },
-            }));
-            expect(followUpRowsOf(queue)).toEqual([]);
-        }
+                checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
+            });
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), checksOnly);
 
+            expect(checksOnly.calls).toContain(`checks:${MOVED_SHA}`);
+            expect(followUpRowsOf(queue).map((row) => row.id)).toEqual([checksId(MOVED_SHA)]);
+        }
+    });
+
+    it('emits only the head row with checks off, and makes no check read', async () => {
         {
             await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
+            const reviewOnly = recordingPoller({ pulls: [fixturePull({ headSha: MOVED_SHA })] });
+            const queue = await runCycle(fixtureBinding(REVIEW_ONLY), reviewOnly);
+
+            expect(reviewOnly.calls.some((call) => call.startsWith('checks:'))).toBe(false);
+            expect(followUpRowsOf(queue).map((row) => row.id))
+                .toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`]);
+        }
+    });
+
+    it('produces no row for a run without direct attribution, while consuming the verdict', async () => {
+        {
+            await armWatch(MOVED_SHA);
             const document = await readRunsDocument({ store, log });
             const run = document.runs[0];
             if (run === undefined) {
@@ -1720,87 +2109,11 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
 
             const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
                 pulls: [fixturePull({ headSha: MOVED_SHA })],
-                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
+                checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
             }));
+
             expect(followUpRowsOf(queue)).toEqual([]);
-        }
-    });
-
-    it('bounds the stored check excerpt to the shared excerpt bound', async () => {
-        {
-            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
-            const names = Array.from({ length: 10 }, (_, index) => `check-${index}-${'x'.repeat(80)}`);
-            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
-                pulls: [fixturePull({ headSha: MOVED_SHA })],
-                checks: { [MOVED_SHA]: { conclusion: 'failure', names } },
-            }));
-
-            const row = followUpRowsOf(queue)[0];
-            expect(row?.issueBodyExcerpt.length).toBe(600);
-            expect(row?.issueBodyExcerpt.endsWith('…')).toBe(true);
-        }
-    });
-
-    it('emits two follow-ups for one movement with both switches on', async () => {
-        {
-            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
-            const both = await runCycle(fixtureBinding(REVIEW_AND_CHECKS), recordingPoller({
-                pulls: [fixturePull({ headSha: MOVED_SHA })],
-                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
-            }));
-            expect(followUpRowsOf(both)).toHaveLength(2);
-        }
-    });
-
-    it('emits only the check row without reviewRequest', async () => {
-        {
-            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
-            const checksOnly = recordingPoller({
-                pulls: [fixturePull({ headSha: MOVED_SHA })],
-                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
-            });
-            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), checksOnly);
-
-            expect(checksOnly.calls).toContain(`checks:${  MOVED_SHA}`);
-            expect(followUpRowsOf(queue).map((row) => row.id)).toEqual([checksId(MOVED_SHA, 'failure')]);
-        }
-    });
-
-    it('emits only the head row with checks off', async () => {
-        {
-            await plantDispatchedRun({ deliveries: [reviewSnapshot(SEED_SHA)] });
-            const reviewOnly = recordingPoller({ pulls: [fixturePull({ headSha: MOVED_SHA })] });
-            const queue = await runCycle(fixtureBinding(REVIEW_ONLY), reviewOnly);
-
-            expect(reviewOnly.calls.some((call) => call.startsWith('checks:'))).toBe(false);
-            expect(followUpRowsOf(queue).map((row) => row.id))
-                .toEqual([`evt-acme~widget~7~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`]);
-        }
-    });
-
-    it('reads one SHA once for two tracked pulls and emits one row each', async () => {
-        {
-            await plantDispatchedRuns([
-                reviewSnapshot(SEED_SHA),
-                reviewSnapshot(SEED_SHA, 8),
-            ]);
-            const recorded = recordingPoller({
-                pulls: [
-                    fixturePull({ pullNumber: 7, headSha: MOVED_SHA }),
-                    fixturePull({ pullNumber: 8, headSha: MOVED_SHA }),
-                ],
-                checks: { [MOVED_SHA]: { conclusion: 'failure', names: ['build'] } },
-            });
-
-            const queue = await runCycle(fixtureBinding(REVIEW_AND_CHECKS), recorded);
-
-            expect(recorded.calls.filter((call) => call === `checks:${MOVED_SHA}`)).toHaveLength(1);
-            expect(followUpRowsOf(queue).map((row) => row.id).toSorted(byText)).toEqual([
-                `evt-acme~widget~7~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`,
-                `evt-acme~widget~7~${ACCOUNT_ID}~followup~checks~${MOVED_SHA}~failure`,
-                `evt-acme~widget~8~${ACCOUNT_ID}~followup~head~${MOVED_SHA}`,
-                `evt-acme~widget~8~${ACCOUNT_ID}~followup~checks~${MOVED_SHA}~failure`,
-            ].toSorted(byText));
+            expect(await storedWatch()).toBeNull();
         }
     });
 });

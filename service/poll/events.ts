@@ -13,9 +13,11 @@ import type { ServiceStore } from '../store/index.ts';
 import { EVENTS_FILE, followUpKindOf, parseStoredEvents } from './events-parse.ts';
 import { recordEnqueueAudits } from './events-enqueue-audit.ts';
 import { applyEnqueue } from './runs-join.ts';
+import type { EnqueueInput, EnqueueOutcome } from './runs-join.ts';
 import { inQueueChain, readRunsDocument, writeRunsDocument } from './runs-document.ts';
 import { readScanState, serializeScan, writeScanState } from './scan.ts';
 import type { QueuedEvent } from './events-parse.ts';
+import type { ChecksWatch } from './runs-types.ts';
 import type { BindingScanState } from './scan.ts';
 
 /** Store file holding the event queue (declared beside the row schema). */
@@ -283,6 +285,52 @@ export async function readEvents(input: {
     }
 }
 
+/** Whether this pass has anything durable to write: a row, a seed, or a watch. */
+function hasDurableWork(input: {
+    readonly fresh: number;
+    readonly seeds: number;
+    readonly writes: number;
+    readonly drops: number;
+}): boolean {
+    return !(input.fresh === 0 && input.seeds === 0 && input.writes === 0 && input.drops === 0);
+}
+
+/** The apply pass's own input, built once so the chain body stays flat. */
+function enqueueApplyInput(input: {
+    readonly document: Parameters<typeof applyEnqueue>[0]['document'];
+    readonly fresh: readonly QueuedEvent[];
+    readonly prompt: PromptSnapshot | null | undefined;
+    readonly seeds: ReadonlyMap<string, string>;
+    readonly checksWrites: ReadonlyMap<string, ChecksWatch> | undefined;
+    readonly checksDrops: readonly string[] | undefined;
+}): EnqueueInput {
+    return {
+        document: input.document,
+        deliveries: input.fresh,
+        now: nowIso(),
+        ...(input.prompt !== undefined && { prompt: input.prompt }),
+        ...(input.seeds.size > 0 && { observedHeads: input.seeds }),
+        ...(input.checksWrites !== undefined && { checksWrites: input.checksWrites }),
+        ...(input.checksDrops !== undefined && { checksDrops: input.checksDrops }),
+    };
+}
+
+/** The fresh rows as they are persisted, linked to their runs and marked due. */
+function appendedRowsOf(
+    fresh: readonly QueuedEvent[],
+    outcome: EnqueueOutcome,
+    intentAtMs: number,
+): readonly QueuedEvent[] {
+    return fresh.map((event) => {
+        const runCorrelationId = outcome.links.get(event.id);
+        const linked = runCorrelationId === undefined ? event : { ...event, runCorrelationId };
+
+        return followUpKindOf(event.id) === null
+            ? linked
+            : { ...linked, engine: { state: 'unknown', intentAtMs, cause: 'intent' } };
+    });
+}
+
 /** Perform one serialized enqueue, preserving run-before-delivery durability. */
 async function enqueueWithinChain(input: {
     readonly store: ServiceStore;
@@ -290,6 +338,8 @@ async function enqueueWithinChain(input: {
     readonly incoming: readonly QueuedEvent[];
     readonly prompt?: PromptSnapshot | null;
     readonly observedHeads?: ReadonlyMap<string, string>;
+    readonly checksWrites?: ReadonlyMap<string, ChecksWatch>;
+    readonly checksDrops?: readonly string[];
 }): Promise<readonly QueuedEvent[]> {
     const existing = await readQueue(input);
     const known = new Set(existing.map((event) => event.id));
@@ -302,34 +352,30 @@ async function enqueueWithinChain(input: {
         return true;
     });
     const seeds = input.observedHeads ?? new Map<string, string>();
-    // A pass whose only effect is recording a seed still owes its write: the
-    // seed is what stops the *next* cycle from emitting a push follow-up for a
-    // head that already existed at dispatch (002 FR-103(b)). The events file is
-    // only rewritten when something actually appended, so a seed-only cycle
-    // cannot reorder a healthy queue for nothing.
-    if (fresh.length === 0 && seeds.size === 0) {
+    const watchWrites = input.checksWrites?.size ?? 0;
+    const watchDrops = input.checksDrops?.length ?? 0;
+    // A pass whose only effect is recording a seed or a watch still owes its
+    // write: the seed stops the next cycle emitting a push for a head that
+    // already existed at dispatch (FR-103(b)), and the watch is the only record
+    // of a bounded read the next cycle will spend (FR-126). The events file is
+    // only rewritten when something actually appended, so such a cycle cannot
+    // reorder a healthy queue for nothing.
+    if (!hasDurableWork({ fresh: fresh.length, seeds: seeds.size, writes: watchWrites, drops: watchDrops })) {
         return [];
     }
 
     const document = await readRunsDocument(input);
-    const outcome = applyEnqueue({
+    const outcome = applyEnqueue(enqueueApplyInput({
         document,
-        deliveries: fresh,
-        now: nowIso(),
-        ...(input.prompt !== undefined && { prompt: input.prompt }),
-        ...(seeds.size > 0 && { observedHeads: seeds }),
-    });
+        fresh,
+        prompt: input.prompt,
+        seeds,
+        checksWrites: input.checksWrites,
+        checksDrops: input.checksDrops,
+    }));
     // The engine member is written here, in the same chain write that appends the row:
     // a fresh row is never observable with the member absent, so no reader can attempt it beside the pass.
-    const intentAtMs = Date.now();
-    const appended: readonly QueuedEvent[] = fresh.map((event) => {
-        const runCorrelationId = outcome.links.get(event.id);
-        const linked = runCorrelationId === undefined ? event : { ...event, runCorrelationId };
-
-        return followUpKindOf(event.id) === null
-            ? linked
-            : { ...linked, engine: { state: 'unknown', intentAtMs, cause: 'intent' } };
-    });
+    const appended = appendedRowsOf(fresh, outcome, Date.now());
     const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
     if (appended.length === 0) {
         // Nothing reached the queue, so the queue file is already correct and
@@ -380,6 +426,10 @@ export async function enqueueEvents(input: {
      * from → to pair a later follow-up has to name.
      */
     readonly observedHeads?: ReadonlyMap<string, string>;
+    /** Check watches this cycle armed or advanced, by run correlation id (FR-126). */
+    readonly checksWrites?: ReadonlyMap<string, ChecksWatch>;
+    /** Check watches this cycle dropped, by run correlation id. */
+    readonly checksDrops?: readonly string[];
 }): Promise<readonly QueuedEvent[]> {
     return await inQueueChain(async () => await enqueueWithinChain(input));
 }

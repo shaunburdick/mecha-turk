@@ -176,6 +176,21 @@ export interface RunVerification {
  */
 export type BaselineProvenance = 'configured' | 'defaulted' | 'unset';
 
+/**
+ * The bounded check watch one tracked pull request's run carries (FR-126).
+ *
+ * It belongs to the run, not to a registry: arming replaces it for a new head,
+ * and dropping it is the only way it ends short of the run's own eviction.
+ */
+export interface ChecksWatch {
+    /** The current head the watch belongs to. */
+    readonly headSha: string;
+    /** RFC 3339 arm stamp, service clock. */
+    readonly armedAt: string;
+    /** Check-runs reads spent on this watch, `0` at arm. */
+    readonly polls: number;
+}
+
 /** One run: the unit of dispatch (FR-010, data-model §2.2). */
 export interface Run {
     /** FR-010 tuple, human-readable by design. */
@@ -253,6 +268,12 @@ export interface Run {
      * produces a head follow-up, so the member is absent on every issue run forever.
      */
     readonly lastHeadSha?: string;
+    /**
+     * The live check watch, or absent when none is armed. **Absentable and
+     * validated when present**: absent means *no watch*, never *the suite
+     * passed* (FR-126).
+     */
+    readonly checksWatch?: ChecksWatch | undefined;
     readonly verification: RunVerification | null;
     /** RFC 3339 creation stamp. */
     readonly createdAt: string;

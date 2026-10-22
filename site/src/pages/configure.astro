@@ -68,6 +68,7 @@ import { withBase } from '../data/site.ts';
         Then paste a <strong>fine-grained, read-only</strong> personal access token into
         the <em>GitHub token</em> field and choose <strong>Connect account</strong>.
         The token needs <em>Metadata: read</em>, <em>Issues: read</em>, and <em>Pull requests: read</em>,
+        plus <em>Checks: read</em> only when a binding has the <em>Checks</em> switch on,
         plus <em>Contents: read</em> only if you pass repository metadata to OpenChamber, and <strong>no write scopes</strong>
         — an organization approval is needed where your organization requires one.
         The token exists only in transit: it is never written to panel state, extension storage, logs, or the
