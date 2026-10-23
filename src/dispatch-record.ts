@@ -42,6 +42,8 @@ export interface DispatchAttemptRecord {
     readonly runKey: string;
     /** Attempt this record is for; pairs with the correlation id as the key. */
     readonly attempt: number;
+    /** The reservation this record belongs to; `null` on a row written before it existed. */
+    readonly leaseId: string | null;
     readonly dispatchToken: string;
     readonly projectId: string | null;
     readonly worktreeOption: string | null;
@@ -133,7 +135,6 @@ function emptyDocument(): DispatchRecordDocument {
     return { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts: [] };
 }
 
-/** The value, or `null` when missing, not a string, or empty. */
 function readText(record: Record<string, JsonValue>, field: string): string | null {
     const value = record[field];
 
@@ -158,7 +159,6 @@ interface AttemptHead {
     readonly recordedAt: string;
 }
 
-/** The members, or `null` when any is missing or malformed. */
 function readAttemptHead(record: Record<string, JsonValue>): AttemptHead | null {
     const correlationId = readText(record, 'correlationId');
     const runKey = readText(record, 'runKey');
@@ -183,7 +183,6 @@ interface AttemptFlags {
     readonly acknowledged: boolean;
 }
 
-/** The members, or `null` when either is malformed. */
 function readAttemptFlags(record: Record<string, JsonValue>): AttemptFlags | null {
     const { attempt, acknowledged } = record;
     if (
@@ -227,39 +226,57 @@ function readAttemptOutcome(record: Record<string, JsonValue>): AttemptOutcome |
 }
 
 interface AttemptContext {
+    readonly leaseId: string | null;
     readonly projectId: string | null;
     readonly worktreeOption: string | null;
     readonly authorizedAt: string | null;
     readonly settledAt: string | null;
 }
 
-/** A v1 row reads the target and both stamps as `null`: it recorded none, and the reader invents none. */
+/** Absent is `null` here: a v2 row written before `leaseId` existed is still a usable row. */
+function readOptionalText(record: Record<string, JsonValue>, field: string): string | null | undefined {
+    const value = record[field];
+    if (value === undefined || value === null) {
+        return null;
+    }
+
+    return typeof value === 'string' && value !== '' ? value : undefined;
+}
+
+type ContextFields = { readonly [K in keyof AttemptContext]: AttemptContext[K] | undefined };
+
+function isCompleteContext(fields: ContextFields): fields is AttemptContext {
+    return Object.values(fields).every((value) => value !== undefined);
+}
+
+function readContextFields(record: Record<string, JsonValue>): AttemptContext | null {
+    const fields: ContextFields = {
+        leaseId: readOptionalText(record, 'leaseId'),
+        projectId: readNullableText(record, 'projectId'),
+        worktreeOption: readNullableText(record, 'worktreeOption'),
+        authorizedAt: readNullableText(record, 'authorizedAt'),
+        settledAt: readNullableText(record, 'settledAt'),
+    };
+
+    return isCompleteContext(fields) ? fields : null;
+}
+
+function isStampOrNull(value: string | null): boolean {
+    return value === null || !Number.isNaN(Date.parse(value));
+}
+
+/** A v1 row reads the target and every stamp as `null`: it recorded none, and the reader invents none. */
 function readAttemptContext(record: Record<string, JsonValue>, origin: DispatchOrigin): AttemptContext | null {
     if (origin === 'v1') {
-        return { projectId: null, worktreeOption: null, authorizedAt: null, settledAt: null };
+        return { leaseId: null, projectId: null, worktreeOption: null, authorizedAt: null, settledAt: null };
     }
 
-    const projectId = readNullableText(record, 'projectId');
-    const worktreeOption = readNullableText(record, 'worktreeOption');
-    const authorizedAt = readNullableText(record, 'authorizedAt');
-    const settledAt = readNullableText(record, 'settledAt');
-    if (
-        projectId === undefined
-        || worktreeOption === undefined
-        || authorizedAt === undefined
-        || settledAt === undefined
-    ) {
+    const fields = readContextFields(record);
+    if (fields === null || !isStampOrNull(fields.authorizedAt) || !isStampOrNull(fields.settledAt)) {
         return null;
     }
 
-    if (
-        (authorizedAt !== null && Number.isNaN(Date.parse(authorizedAt)))
-        || (settledAt !== null && Number.isNaN(Date.parse(settledAt)))
-    ) {
-        return null;
-    }
-
-    return { projectId, worktreeOption, authorizedAt, settledAt };
+    return fields;
 }
 
 function readAttempt(value: JsonValue, origin: DispatchOrigin): DispatchAttemptRecord | null {
@@ -285,7 +302,6 @@ function readAttempt(value: JsonValue, origin: DispatchOrigin): DispatchAttemptR
     return { ...head, ...context, ...flags, ...outcome };
 }
 
-/** The attempts, or `null` when any element is unusable. */
 function readAttempts(value: JsonValue | undefined, origin: DispatchOrigin): DispatchAttemptRecord[] | null {
     if (!Array.isArray(value)) {
         return null;
@@ -365,7 +381,6 @@ function rearmLegacySessionBusy(record: FollowUpDeliveryRecord): FollowUpDeliver
         : record;
 }
 
-/** The record, or `null` when its shape is unusable. */
 function readFollowUp(value: JsonValue): FollowUpDeliveryRecord | null {
     const record = asJsonRecord(value);
     if (record === null) {
@@ -491,6 +506,17 @@ function withAttempts(
     };
 }
 
+function trimToCap(attempts: DispatchAttemptRecord[]): void {
+    while (attempts.length > MAX_RECORDED_ATTEMPTS) {
+        const victim = attempts.findIndex((candidate) => candidate.acknowledged || candidate.settledAt !== null);
+        if (victim === -1) {
+            break;
+        }
+
+        attempts.splice(victim, 1);
+    }
+}
+
 /**
  * Replace the record keyed by correlation id + attempt, never append a second, and
  * evict the oldest acknowledged-or-settled one at the cap; with no such victim the
@@ -509,14 +535,7 @@ export function appendAttempt(
         attempts[index] = record;
     }
 
-    while (attempts.length > MAX_RECORDED_ATTEMPTS) {
-        const victim = attempts.findIndex((candidate) => candidate.acknowledged || candidate.settledAt !== null);
-        if (victim === -1) {
-            break;
-        }
-
-        attempts.splice(victim, 1);
-    }
+    trimToCap(attempts);
 
     return withAttempts(document, attempts);
 }
@@ -544,6 +563,7 @@ function resolvedRecord(input: {
     readonly correlationId: string;
     readonly runKey: string;
     readonly attempt: number;
+    readonly leaseId: string;
     readonly dispatchToken: string;
     readonly outcome: RecordedOutcome;
 }, existing: DispatchAttemptRecord | undefined): DispatchAttemptRecord {
@@ -551,6 +571,7 @@ function resolvedRecord(input: {
         correlationId: input.correlationId,
         runKey: input.runKey,
         attempt: input.attempt,
+        leaseId: input.leaseId,
         dispatchToken: input.dispatchToken,
         projectId: existing?.projectId ?? null,
         worktreeOption: existing?.worktreeOption ?? null,
@@ -573,23 +594,26 @@ function withRecord(
     return appendAttempt(document, record);
 }
 
-/**
- * Flip `acknowledged` on exactly one attempt, keyed by correlation id **and**
- * attempt, so an acknowledgement for an earlier attempt can never mark a later
- * one as seen — the same discipline the handled list uses in the relay.
- */
-export function acknowledgeAttempt(input: {
-    readonly document: DispatchRecordDocument;
-    readonly correlationId: string;
-    readonly attempt: number;
-}): DispatchRecordDocument {
-    const { document, correlationId, attempt } = input;
-    const attempts = document.attempts.map(
-        (candidate) =>
-            candidate.correlationId === correlationId && candidate.attempt === attempt && !candidate.acknowledged
-                ? { ...candidate, acknowledged: true }
-                : candidate,
-    );
+/** Replace this reservation's record, or append it when evicted — never clobber another reservation. */
+function withOutcomeRecord(
+    document: DispatchRecordDocument,
+    record: DispatchAttemptRecord,
+): DispatchRecordDocument | null {
+    if (!isJsonValue(record) || readAttempt(record, 'v2') === null) {
+        return null;
+    }
+
+    const attempts = [...document.attempts];
+    const index = attempts.findIndex((candidate) => candidate.correlationId === record.correlationId
+        && candidate.attempt === record.attempt
+        && candidate.leaseId === record.leaseId);
+    if (index === -1) {
+        attempts.push(record);
+    } else {
+        attempts[index] = record;
+    }
+
+    trimToCap(attempts);
 
     return withAttempts(document, attempts);
 }
@@ -638,7 +662,7 @@ function inRecordChain<T>(task: () => Promise<T>): Promise<T> {
  */
 async function updateDispatchRecord(
     rt: PanelRuntime,
-    transform: (document: DispatchRecordDocument) => DispatchRecordDocument | null,
+    transform: (document: DispatchRecordDocument) => DispatchRecordDocument | 'unchanged' | null,
 ): Promise<boolean> {
     return await inRecordChain(async () => {
         const read = await loadDispatchRecord(rt);
@@ -651,19 +675,20 @@ async function updateDispatchRecord(
             return false;
         }
 
-        return await persist(rt, next);
+        return next === 'unchanged' || await persist(rt, next);
     });
 }
 
 /**
- * Record the authorization as `unknown` after the reservation and before the host
- * call (FR-024); an attempt already recorded is refused, never downgraded.
+ * The reservation identifies the attempt: a matching `(correlationId, attempt, leaseId)`
+ * is a no-op, and a different lease at the same attempt is a new cycle that replaces it.
  */
 export async function recordDispatchIntent(rt: PanelRuntime, input: {
     readonly correlationId: string;
     /** The run tuple, so the record reads alone. */
     readonly runKey: string;
     readonly attempt: number;
+    readonly leaseId: string;
     readonly dispatchToken: string;
     readonly projectId: string;
     readonly worktreeOption: string;
@@ -673,6 +698,7 @@ export async function recordDispatchIntent(rt: PanelRuntime, input: {
         correlationId: input.correlationId,
         runKey: input.runKey,
         attempt: input.attempt,
+        leaseId: input.leaseId,
         dispatchToken: input.dispatchToken,
         projectId: input.projectId,
         worktreeOption: input.worktreeOption,
@@ -686,51 +712,56 @@ export async function recordDispatchIntent(rt: PanelRuntime, input: {
     };
 
     return await updateDispatchRecord(rt, (document) => {
-        const isRecorded = document.attempts.some((candidate) => candidate.correlationId === input.correlationId
+        const existing = document.attempts.find((candidate) => candidate.correlationId === input.correlationId
             && candidate.attempt === input.attempt);
 
-        return isRecorded ? null : withRecord(document, record);
+        return existing?.leaseId === input.leaseId ? 'unchanged' : withRecord(document, record);
     });
 }
 
 /**
- * Replace one attempt's record with its resolved outcome before the result POST, so
- * a report that never lands is still recoverable and re-sendable.
+ * Replace the record carrying this reservation with its resolved outcome before the
+ * result POST, so a report that never lands is still recoverable and re-sendable.
  */
 export async function recordDispatchOutcome(rt: PanelRuntime, input: {
     readonly correlationId: string;
     readonly runKey: string;
     readonly attempt: number;
+    readonly leaseId: string;
     readonly dispatchToken: string;
     readonly outcome: RecordedOutcome;
 }): Promise<boolean> {
     return await updateDispatchRecord(rt, (document) => {
         const existing = document.attempts.find((candidate) => candidate.correlationId === input.correlationId
-            && candidate.attempt === input.attempt);
+            && candidate.attempt === input.attempt
+            && candidate.leaseId === input.leaseId);
 
-        return withRecord(document, resolvedRecord(input, existing));
+        return withOutcomeRecord(document, resolvedRecord(input, existing));
     });
 }
 
 /**
- * Flip `acknowledged`; when the outcome write did not land, carry the resolved
- * outcome into the same write, so no acknowledged record is left `unknown`.
+ * Flip `acknowledged` on the record carrying this reservation; when the outcome
+ * write did not land, carry the resolved outcome into the same write, so no
+ * acknowledged record is left `unknown`.
  */
 export async function acknowledgeDispatch(input: {
     readonly rt: PanelRuntime;
     readonly correlationId: string;
     readonly attempt: number;
+    readonly leaseId: string | null;
     readonly resolved?: {
         readonly runKey: string;
         readonly dispatchToken: string;
         readonly outcome: RecordedOutcome;
     };
 }): Promise<boolean> {
-    const { rt, correlationId, attempt, resolved } = input;
+    const { rt, correlationId, attempt, leaseId, resolved } = input;
 
     return await updateDispatchRecord(rt, (document) => {
         const index = document.attempts.findIndex((candidate) => candidate.correlationId === correlationId
-            && candidate.attempt === attempt);
+            && candidate.attempt === attempt
+            && candidate.leaseId === leaseId);
         const existing = document.attempts[index];
         if (existing === undefined) {
             return null;
@@ -763,10 +794,12 @@ export function settleAttempt(input: {
     readonly document: DispatchRecordDocument;
     readonly correlationId: string;
     readonly attempt: number;
+    readonly leaseId: string | null;
     readonly at: string;
 }): DispatchRecordDocument | null {
     const index = input.document.attempts.findIndex((candidate) => candidate.correlationId === input.correlationId
-        && candidate.attempt === input.attempt);
+        && candidate.attempt === input.attempt
+        && candidate.leaseId === input.leaseId);
     const existing = input.document.attempts[index];
     if (existing?.outcome !== 'unknown' || existing.settledAt !== null) {
         return null;
@@ -782,11 +815,13 @@ export async function settleDispatchAttempt(input: {
     readonly rt: PanelRuntime;
     readonly correlationId: string;
     readonly attempt: number;
+    readonly leaseId: string | null;
 }): Promise<boolean> {
     return await updateDispatchRecord(input.rt, (document) => settleAttempt({
         document,
         correlationId: input.correlationId,
         attempt: input.attempt,
+        leaseId: input.leaseId,
         at: nowIso(),
     }));
 }

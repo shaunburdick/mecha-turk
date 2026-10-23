@@ -334,6 +334,7 @@ export async function reportAndAcknowledge(input: {
             rt,
             correlationId: run.correlationId,
             attempt: run.attempt,
+            leaseId: run.lease.leaseId,
             resolved: { runKey: run.runKey, dispatchToken: token, outcome },
         });
     }
@@ -382,6 +383,7 @@ export async function closeAttempt(input: {
         correlationId: run.correlationId,
         runKey: run.runKey,
         attempt: run.attempt,
+        leaseId: run.lease.leaseId,
         dispatchToken: token,
         outcome: started.outcome,
     });

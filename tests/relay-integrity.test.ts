@@ -34,7 +34,12 @@ import type {
     StartSessionResult,
 } from '@openchamber/sdk';
 import { drainVerifications } from '../src/agent-verify.ts';
-import { actorGateFailure, ACTOR_NOT_ALLOWED as PANEL_ACTOR_NOT_ALLOWED } from '../src/relay-gates.ts';
+import {
+    ACTOR_NOT_ALLOWED as PANEL_ACTOR_NOT_ALLOWED,
+    DISPOSED_ABANDON_REASON,
+    abandonReservation,
+    actorGateFailure,
+} from '../src/relay-gates.ts';
 import type { BlockedReason } from '../src/relay-gates.ts';
 import {
     ACTOR_BLOCKED_REASON as SERVICE_ACTOR_BLOCKED_REASON,
@@ -502,6 +507,7 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
         expect(atHostCall[0]).toMatchObject({
             correlationId: CORRELATION,
             attempt: 1,
+            leaseId: LEASE_ID,
             dispatchToken: TOKEN,
             projectId: PROJECT_ID,
             worktreeOption: 'generated',
@@ -531,6 +537,44 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
         ]);
     });
 
+    it('dispatches a re-authorized attempt 1 instead of abandoning on the prior cycle\'s record', async () => {
+        const relay = harness();
+        relay.storage.values.set(DISPATCH_STORAGE_KEY, parseJsonValue(JSON.stringify({
+            schemaVersion: DISPATCH_SCHEMA_VERSION,
+            attempts: [{
+                correlationId: CORRELATION,
+                runKey: 'github|77331|acme/widget|issue|7|0',
+                attempt: 1,
+                leaseId: 'lse-priorcycle00000000000000',
+                dispatchToken: TOKEN,
+                projectId: PROJECT_ID,
+                worktreeOption: 'generated',
+                outcome: 'unknown',
+                sessionId: null,
+                reason: null,
+                authorizedAt: FIXTURE_TIMESTAMP,
+                recordedAt: FIXTURE_TIMESTAMP,
+                settledAt: null,
+                acknowledged: false,
+            }],
+        })));
+
+        await dispatchClaimedRun(relay.rt, claimedRun());
+
+        expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
+        expect(dispatchTimeline(relay.timeline).slice(0, 6)).toEqual([
+            `POST ${RUN_PATH}/reserve`,
+            'intent',
+            `startSession:${CORRELATION}`,
+            'record',
+            `POST ${RUN_PATH}/dispatched`,
+            'ack',
+        ]);
+        const attempts = storedAttempts(relay.storage);
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0]).toMatchObject({ leaseId: LEASE_ID, outcome: 'dispatched' });
+    });
+
     it('never calls the host when the intent cannot be written, and abandons with the storage refusal', async () => {
         {
             const relay = harness(OK_ROUTES, { refuseDispatchRecord: 'intent' });
@@ -554,6 +598,21 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
             expect(entries[0]?.kind).toBe('session');
             expect(String(entries[0]?.detail.failure)).toContain('storage');
         }
+    });
+
+    it('the disposed path abandons without a ledger entry', async () => {
+        const relay = harness();
+
+        await abandonReservation({
+            rt: relay.rt,
+            run: claimedRun(),
+            token: TOKEN,
+            reason: DISPOSED_ABANDON_REASON,
+        });
+
+        expect(relay.rt.state.ledger.entries.filter((entry) => entry.correlationId === CORRELATION)).toHaveLength(0);
+        const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/abandon`)) as Record<string, unknown>;
+        expect(body.reason).toBe(DISPOSED_ABANDON_REASON);
     });
 
     it('carries the resolved outcome into the acknowledging write when its own write failed', async () => {

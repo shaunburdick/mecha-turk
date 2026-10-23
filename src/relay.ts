@@ -78,8 +78,8 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
     }
 
     const token = reserved.reservation.dispatchToken;
-    const abandon = async (reason: string): Promise<void> => {
-        await abandonReservation({ rt, run, token, reason });
+    const abandon = async (reason: string, requiresLedgerEntry = false): Promise<void> => {
+        await abandonReservation({ rt, run, token, reason, requiresLedgerEntry });
     };
 
     if (!stillRunning(rt)) {
@@ -93,12 +93,13 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
         correlationId: run.correlationId,
         runKey: run.runKey,
         attempt: run.attempt,
+        leaseId: run.lease.leaseId,
         dispatchToken: token,
         projectId: run.projectId,
         worktreeOption: run.worktreeOption,
     });
     if (!isRecorded) {
-        await abandon(RECORD_REFUSED_ABANDON_REASON);
+        await abandon(RECORD_REFUSED_ABANDON_REASON, true);
 
         return;
     }

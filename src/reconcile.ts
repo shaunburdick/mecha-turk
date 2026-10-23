@@ -21,7 +21,7 @@ import type { PanelRuntime } from './panel-state.ts';
 
 export const RECONCILE_BUDGET_MS = 5_000;
 
-const MAX_WARNING_CHARS = 600;
+const MAX_DETAIL_CHARS = 600;
 
 const MS_PER_SECOND = 1_000;
 
@@ -81,10 +81,14 @@ function attemptOf(row: AuditRow): number | null {
     return typeof value === 'number' && Number.isSafeInteger(value) ? value : null;
 }
 
-function reservedSeqOf(rows: readonly AuditRow[], attempt: number): number | null {
+function reservedSeqOf(rows: readonly AuditRow[], attempt: number, leaseId: string | null): number | null {
+    if (leaseId === null) {
+        return null;
+    }
+
     let latest: number | null = null;
     for (const row of rows) {
-        if (row.eventType !== RESERVED_EVENT || attemptOf(row) !== attempt) {
+        if (row.eventType !== RESERVED_EVENT || attemptOf(row) !== attempt || row.details.leaseId !== leaseId) {
             continue;
         }
 
@@ -94,28 +98,29 @@ function reservedSeqOf(rows: readonly AuditRow[], attempt: number): number | nul
     return latest;
 }
 
-type SettleVerdict = 'settled' | 'unconfirmed' | 'no-evidence' | 'unreadable';
+type SettleVerdict = 'settled' | 'unconfirmed' | 'no-evidence' | 'unanchored' | 'unreadable';
 
 /**
- * A `dispatch.resolved` counts only after the `dispatch.reserved` row naming the
- * attempt in the same read (no clock comparison, NFR-112); `dispatch.unconfirmed`
- * and a non-numeric attempt reference settle nothing.
+ * A result or abandonment settles only after the `dispatch.reserved` row carrying
+ * this attempt **and** its lease (the token repeats across cycles); so does a
+ * `dispatch.resolved`. No anchor means no evidence — never a guess (NFR-112).
  */
-function judgeEvidence(rows: readonly AuditRow[], attempt: number): SettleVerdict {
-    const isPast = rows.some((row) => (row.eventType === RESULT_EVENT || row.eventType === ABANDONED_EVENT)
-        && attemptOf(row) === attempt);
-    if (isPast) {
-        return 'settled';
+function judgeEvidence(rows: readonly AuditRow[], attempt: number, leaseId: string | null): SettleVerdict {
+    const anchor = reservedSeqOf(rows, attempt, leaseId);
+    if (anchor !== null) {
+        const isPast = rows.some((row) => (row.eventType === RESULT_EVENT || row.eventType === ABANDONED_EVENT)
+            && attemptOf(row) === attempt
+            && row.seq > anchor);
+        if (isPast || rows.some((row) => row.eventType === RESOLVED_EVENT && row.seq > anchor)) {
+            return 'settled';
+        }
     }
 
-    const anchor = reservedSeqOf(rows, attempt);
-    if (anchor !== null && rows.some((row) => row.eventType === RESOLVED_EVENT && row.seq > anchor)) {
-        return 'settled';
+    if (rows.some((row) => row.eventType === UNCONFIRMED_EVENT && attemptOf(row) === attempt)) {
+        return 'unconfirmed';
     }
 
-    return rows.some((row) => row.eventType === UNCONFIRMED_EVENT && attemptOf(row) === attempt)
-        ? 'unconfirmed'
-        : 'no-evidence';
+    return anchor === null ? 'unanchored' : 'no-evidence';
 }
 
 /** Walk the correlation-filtered read to exhaustion inside the pass budget; any doubt is `unreadable`. */
@@ -152,7 +157,7 @@ async function readSettleVerdict(input: {
         isDone = cursor === null;
     }
 
-    return judgeEvidence(rows, attempt.attempt);
+    return judgeEvidence(rows, attempt.attempt, attempt.leaseId);
 }
 
 export interface ReconcileOutcome {
@@ -209,32 +214,42 @@ function refusalLine(attempt: DispatchAttemptRecord, answer: ServiceRefusal): st
     return `${attempt.correlationId}: ${boundedText(detail)}`;
 }
 
-/**
- * Compose the banner the panel renders when anything is still outstanding.
- *
- * The run names come first, so cutting the body to {@link MAX_WARNING_CHARS}
- * can only ever shorten the *reasons* — the runs an operator has to look at
- * are never the part that gets truncated away.
- */
-function warningBody(input: {
-    readonly outstanding: readonly string[];
-    readonly reasons: readonly string[];
-}): string {
-    const runs = [...new Set(input.outstanding)].join(', ');
-    const body = `Reconciliation needs the operator for ${runs}. ${input.reasons.join(' ')}`;
+interface OutstandingRun {
+    readonly correlationId: string;
+    readonly verdict: string;
+    readonly detail: string;
+}
 
-    return body.length <= MAX_WARNING_CHARS ? body : `${body.slice(0, MAX_WARNING_CHARS - 1)}…`;
+/** Bound one detail line; a cut is visible and points at the row Dispatches shows. */
+function boundDetail(detail: string, correlationId: string): string {
+    const pointer = ` See ${correlationId}'s row in Dispatches for the full detail.`;
+    if (detail.length + pointer.length <= MAX_DETAIL_CHARS) {
+        return detail;
+    }
+
+    return `${detail.slice(0, MAX_DETAIL_CHARS - pointer.length - 1)}…${pointer}`;
+}
+
+/**
+ * Compose the banner: every unsettled run with its verdict comes first and is
+ * never truncated, and each detail line after it is bounded on its own — so a
+ * second unresolved attempt cannot be cut away.
+ */
+function warningBody(runs: readonly OutstandingRun[]): string {
+    const list = runs.map((run) => `${run.correlationId} (${run.verdict})`).join(', ');
+    const details = runs.map((run) => boundDetail(run.detail, run.correlationId)).join(' ');
+
+    return `Reconciliation needs the operator for ${list}. ${details}`;
 }
 
 /**
  * Publish one reconciliation warning: banner first, refusal copy on the note.
  */
 function publishWarning(rt: PanelRuntime, input: {
-    readonly outstanding: readonly string[];
-    readonly reasons: readonly string[];
+    readonly runs: readonly OutstandingRun[];
     readonly refusals: readonly string[];
 }): string {
-    const warning = warningBody(input);
+    const warning = warningBody(input.runs);
     setStatus(rt, { tone: 'warning', title: 'Dispatch reconciliation incomplete', body: warning });
     if (input.refusals.length > 0) {
         rt.state.bindings.note = `The service refused a reconciliation report: ${input.refusals.join(' | ')}`;
@@ -251,8 +266,7 @@ function publishWarning(rt: PanelRuntime, input: {
 interface PassResult {
     attempted: number;
     acknowledged: number;
-    readonly outstanding: string[];
-    readonly reasons: string[];
+    readonly runs: OutstandingRun[];
     readonly refusals: string[];
 }
 
@@ -275,16 +289,19 @@ async function reportOutstanding(input: {
     readonly startedAt: number;
 }): Promise<PassResult> {
     const { rt, clock, startedAt } = input;
-    const outstanding: string[] = [];
-    const reasons: string[] = [];
+    const runs: OutstandingRun[] = [];
     const refusals: string[] = [];
     let attempted = 0;
     let acknowledged = 0;
 
     for (const attempt of resolvedAttempts(input.document)) {
         if (!withinBudget(clock, startedAt)) {
-            reasons.push(`the ${RECONCILE_BUDGET_MS / MS_PER_SECOND}s budget ran out before this run.`);
-            outstanding.push(attempt.correlationId);
+            runs.push({
+                correlationId: attempt.correlationId,
+                verdict: 'not checked before the budget ran out',
+                detail: `${attempt.correlationId}: the ${RECONCILE_BUDGET_MS / MS_PER_SECOND}s budget ran out before `
+                    + 'this run could be re-reported; its row is in Dispatches.',
+            });
 
             continue;
         }
@@ -296,6 +313,7 @@ async function reportOutstanding(input: {
                 rt,
                 correlationId: attempt.correlationId,
                 attempt: attempt.attempt,
+                leaseId: attempt.leaseId,
             });
             if (isFlipped) {
                 acknowledged += 1;
@@ -304,8 +322,12 @@ async function reportOutstanding(input: {
                 // it stays outstanding so the next mount asks again, which the
                 // service answers as a duplicate rather than as new work — one
                 // `dispatch.duplicate-report` row, never a second (AC-111).
-                reasons.push('the acknowledgement could not be written, so it is reported again next mount.');
-                outstanding.push(attempt.correlationId);
+                runs.push({
+                    correlationId: attempt.correlationId,
+                    verdict: 'reported, but not written down',
+                    detail: `${attempt.correlationId}: the acknowledgement could not be written, so it is reported `
+                        + 'again next mount.',
+                });
             }
 
             continue;
@@ -313,16 +335,32 @@ async function reportOutstanding(input: {
 
         const refusal = refusalLine(attempt, answer);
         refusals.push(refusal);
-        reasons.push(refusal);
-        outstanding.push(attempt.correlationId);
+        runs.push({
+            correlationId: attempt.correlationId,
+            verdict: 'the service refused the report',
+            detail: refusal,
+        });
     }
 
-    return { attempted, acknowledged, outstanding, reasons, refusals };
+    return { attempted, acknowledged, runs, refusals };
+}
+
+function verdictLabel(verdict: SettleVerdict): string {
+    if (verdict === 'unconfirmed') {
+        return 'still needs your decision';
+    }
+
+    return verdict === 'no-evidence' ? 'no outcome recorded yet' : 'could not check';
 }
 
 function checkLine(verdict: SettleVerdict): string {
     if (verdict === 'unreadable') {
         return 'the panel could not check the service\'s audit trail for this attempt';
+    }
+
+    if (verdict === 'unanchored') {
+        return 'the panel could not check — the service\'s audit trail holds no reservation carrying this '
+            + 'attempt\'s lease';
     }
 
     if (verdict === 'unconfirmed') {
@@ -336,7 +374,7 @@ function unknownLine(rt: PanelRuntime, attempt: DispatchAttemptRecord, verdict: 
     const hasRow = rt.state.dispatches.rows.some((row) => row.correlationId === attempt.correlationId);
     const row = hasRow
         ? 'the row offers "session created" or "no session created" once the run reads unconfirmed'
-        : 'the loaded Dispatches list does not hold its row, so the row could not be read; once the run reads '
+        : 'its row is not in the list this panel loaded — check the run\'s row in Dispatches; once the run reads '
             + 'unconfirmed that row offers "session created" or "no session created"';
 
     return `${attempt.correlationId}: an authorized dispatch was never recorded as producing a session — `
@@ -357,9 +395,12 @@ async function surfaceUnknown(input: {
 
     for (const attempt of unknownAttempts(document)) {
         if (!withinBudget(clock, startedAt)) {
-            pass.outstanding.push(attempt.correlationId);
-            pass.reasons.push(`${attempt.correlationId}: the panel could not check the service's audit trail — the `
-                + `${RECONCILE_BUDGET_MS / MS_PER_SECOND}s budget ran out.`);
+            pass.runs.push({
+                correlationId: attempt.correlationId,
+                verdict: 'could not check',
+                detail: `${attempt.correlationId}: the panel could not check the service's audit trail — the `
+                    + `${RECONCILE_BUDGET_MS / MS_PER_SECOND}s budget ran out.`,
+            });
 
             continue;
         }
@@ -370,19 +411,26 @@ async function surfaceUnknown(input: {
                 rt,
                 correlationId: attempt.correlationId,
                 attempt: attempt.attempt,
+                leaseId: attempt.leaseId,
             })) {
                 continue;
             }
 
-            pass.outstanding.push(attempt.correlationId);
-            pass.reasons.push(`${attempt.correlationId}: the attempt is past, but the panel could not write the `
-                + 'settlement down, so it is surfaced again next mount.');
+            pass.runs.push({
+                correlationId: attempt.correlationId,
+                verdict: 'past, but not written down',
+                detail: `${attempt.correlationId}: the attempt is past, but the panel could not write the `
+                    + 'settlement down, so it is surfaced again next mount.',
+            });
 
             continue;
         }
 
-        pass.outstanding.push(attempt.correlationId);
-        pass.reasons.push(unknownLine(rt, attempt, verdict));
+        pass.runs.push({
+            correlationId: attempt.correlationId,
+            verdict: verdictLabel(verdict),
+            detail: unknownLine(rt, attempt, verdict),
+        });
     }
 }
 
@@ -401,8 +449,11 @@ export async function reconcileDispatchAttempts(
         // read — so the warning says exactly that instead of implying a clean
         // pass over a document the panel refuses to half-apply.
         const warning = publishWarning(rt, {
-            outstanding: ['an unreadable attempt record'],
-            reasons: ['This panel could not read mecha-turk:dispatches, so nothing was re-reported.'],
+            runs: [{
+                correlationId: 'an unreadable attempt record',
+                verdict: 'could not be read',
+                detail: 'This panel could not read mecha-turk:dispatches, so nothing was re-reported.',
+            }],
             refusals: [],
         });
 
@@ -411,11 +462,12 @@ export async function reconcileDispatchAttempts(
 
     const pass = await reportOutstanding({ rt, document: read.document, clock, startedAt });
     await surfaceUnknown({ rt, document: read.document, clock, startedAt, pass });
-    if (pass.outstanding.length === 0) {
+    const outstanding = pass.runs.map((run) => run.correlationId);
+    if (pass.runs.length === 0) {
         return {
             attempted: pass.attempted,
             acknowledged: pass.acknowledged,
-            outstanding: pass.outstanding,
+            outstanding,
             warning: null,
         };
     }
@@ -423,7 +475,7 @@ export async function reconcileDispatchAttempts(
     return {
         attempted: pass.attempted,
         acknowledged: pass.acknowledged,
-        outstanding: pass.outstanding,
-        warning: publishWarning(rt, { outstanding: pass.outstanding, reasons: pass.reasons, refusals: pass.refusals }),
+        outstanding,
+        warning: publishWarning(rt, { runs: pass.runs, refusals: pass.refusals }),
     };
 }

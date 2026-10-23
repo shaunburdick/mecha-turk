@@ -399,6 +399,7 @@ describe('a teardown between the reservation and the outcome record (AC-134, AC-
             correlationId: otherRun,
             runKey: 'github|77331|acme/widget|issue|41|1',
             attempt: 1,
+            leaseId: 'lse-ffffffffffffffffffffffff',
             dispatchToken: fixtureToken,
             outcome: { kind: 'dispatched', sessionId: SESSION_ID },
         })).toBe(true);
@@ -413,7 +414,7 @@ describe('a teardown between the reservation and the outcome record (AC-134, AC-
         expect(second.state.status.tone).toBe('warning');
         expect(second.state.status.body).toContain(offered.correlationId);
         expect(second.state.status.body).toContain('never recorded as producing a session');
-        expect(second.state.status.body).toContain('could not be read');
+        expect(second.state.status.body).toContain('is not in the list this panel loaded');
         expect(pass).not.toContain(`POST /v1/events/${offered.correlationId}/dispatched`);
         expect(pass).not.toContain(`POST /v1/events/${offered.correlationId}/abandon`);
         expect(pass).toContain(`POST /v1/events/${otherRun}/dispatched`);

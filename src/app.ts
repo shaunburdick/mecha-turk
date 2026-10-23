@@ -218,8 +218,10 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
 
     // The runs history is read on mount too (M8), beside the bindings it
     // sits under: one GET /v1/events that fails here lands on the runs
-    // note line instead of an empty area nobody can explain.
-    void loadDispatches(rt);
+    // note line instead of an empty area nobody can explain. Awaited so
+    // reconciliation's warning is composed against a loaded list, not a read
+    // still in flight.
+    await loadDispatches(rt);
     // The Status tab's projection is read at mount as well, so the tab the
     // panel opens on answers its one question immediately; its own refresh
     // control is the explicit re-read.

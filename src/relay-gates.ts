@@ -315,28 +315,32 @@ export const DISPOSED_ABANDON_REASON = 'panel closed after reserving, before the
 export const RECORD_REFUSED_ABANDON_REASON =
     'host storage refused the dispatch record write, so no session was started';
 
-/** Tell the service a reserved attempt was abandoned before any host call, and record it in the ledger. */
+/** Tell the service a reserved attempt was abandoned before any host call, and record it in the ledger when asked. */
 export async function abandonReservation(input: {
     readonly rt: PanelRuntime;
     readonly run: ClaimedRun;
     readonly token: string;
     /** The cause, in the panel's own words. */
     readonly reason: string;
+    /** Only the refused-intent path owes a ledger entry (FR-046). */
+    readonly requiresLedgerEntry?: boolean;
 }): Promise<void> {
-    const { rt, run, token, reason } = input;
-    appendEntryAndPersist(rt, {
-        at: nowIso(),
-        kind: RELAY_LEDGER_KIND,
-        correlationId: run.correlationId,
-        detail: {
+    const { rt, run, token, reason, requiresLedgerEntry = false } = input;
+    if (requiresLedgerEntry) {
+        appendEntryAndPersist(rt, {
+            at: nowIso(),
+            kind: RELAY_LEDGER_KIND,
             correlationId: run.correlationId,
-            repository: repositoryLabel(splitRepository(run.repository)),
-            issueId: String(run.issueNumber),
-            sessionId: null,
-            sent: 'skipped',
-            failure: boundedText(reason),
-        },
-    });
+            detail: {
+                correlationId: run.correlationId,
+                repository: repositoryLabel(splitRepository(run.repository)),
+                issueId: String(run.issueNumber),
+                sessionId: null,
+                sent: 'skipped',
+                failure: boundedText(reason),
+            },
+        });
+    }
 
     const body = JSON.stringify({
         correlationId: run.correlationId,
