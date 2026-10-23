@@ -13,6 +13,8 @@ matching section below plus GitHub's generated notes.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-23
+
 ### Added
 
 - **Wider event detection** (#61). A review requested again on a pull request
@@ -218,7 +220,8 @@ The first published release: the extension installable from this repository.
   control over whether a new binding sees its backlog.
 - **A documentation site**, published to GitHub Pages.
 
-[Unreleased]: https://github.com/shaunburdick/mecha-turk/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/shaunburdick/mecha-turk/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/shaunburdick/mecha-turk/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/shaunburdick/mecha-turk/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/shaunburdick/mecha-turk/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/shaunburdick/mecha-turk/compare/6fabb18...v0.3.1
