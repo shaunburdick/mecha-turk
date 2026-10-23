@@ -7,6 +7,8 @@ import { parsePendingBody } from './claim-service.ts';
 import type { ClaimAnswer, ClaimedRun } from './claim-service.ts';
 import { EVENTS_PENDING_PATH, serviceGet } from './service-calls.ts';
 import {
+    DISPOSED_ABANDON_REASON,
+    RECORD_REFUSED_ABANDON_REASON,
     RELAY_POLL_INTERVAL_MS,
     abandonReservation,
     guardRun,
@@ -23,7 +25,7 @@ import {
     trackCurrentSession,
     trackSessionLifecycle,
 } from './follow-up.ts';
-import { followUpRecordOf, loadDispatchRecord } from './dispatch-record.ts';
+import { followUpRecordOf, loadDispatchRecord, recordDispatchIntent } from './dispatch-record.ts';
 import type { DispatchRecordDocument, FollowUpDeliveryRecord } from './dispatch-record.ts';
 import { nowIso } from './ids.ts';
 import { waitingFollowUps } from './dispatches-detail.ts';
@@ -75,14 +77,41 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
         return;
     }
 
+    const token = reserved.reservation.dispatchToken;
+    const abandon = async (reason: string): Promise<void> => {
+        await abandonReservation({ rt, run, token, reason });
+    };
+
     if (!stillRunning(rt)) {
-        await abandonReservation({ rt, run, token: reserved.reservation.dispatchToken });
+        await abandon(DISPOSED_ABANDON_REASON);
+
+        return;
+    }
+
+    // Recorded before the act (FR-024); a refusal here stops the host call.
+    const isRecorded = await recordDispatchIntent(rt, {
+        correlationId: run.correlationId,
+        runKey: run.runKey,
+        attempt: run.attempt,
+        dispatchToken: token,
+        projectId: run.projectId,
+        worktreeOption: run.worktreeOption,
+    });
+    if (!isRecorded) {
+        await abandon(RECORD_REFUSED_ABANDON_REASON);
+
+        return;
+    }
+
+    // A second point the mount can die at: a disposed panel must not call the host.
+    if (!stillRunning(rt)) {
+        await abandon(DISPOSED_ABANDON_REASON);
 
         return;
     }
 
     const started = await startRunSession({ rt, run, project: verdict.project });
-    await closeAttempt({ rt, run, token: reserved.reservation.dispatchToken, started });
+    await closeAttempt({ rt, run, token, started });
 }
 
 /**

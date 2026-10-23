@@ -49,7 +49,9 @@ import { BEGIN_UNTRUSTED, END_UNTRUSTED, EXCERPT_TRUNCATION_MARKER } from '../sr
 import { CONTEXT_MAX_CHARS, SOURCE_EXCERPT_MAX_CHARS, buildBoundedContext } from '../src/session.ts';
 import type { ContextSource, PanelHost } from '../src/session.ts';
 import type { PromptSource } from '../src/prompt.ts';
-import { DISPATCH_STORAGE_KEY, MAX_RECORDED_ATTEMPTS } from '../src/dispatch-record.ts';
+import { DISPATCH_SCHEMA_VERSION, DISPATCH_STORAGE_KEY, MAX_RECORDED_ATTEMPTS } from '../src/dispatch-record.ts';
+import { parseJsonValue } from '../src/json.ts';
+import type { FollowUpDeliveryRecord } from '../src/dispatch-record.ts';
 import { MAX_ATTEMPT_RECORDS, MAX_SOURCE_REFERENCES, applyEnqueue } from '../service/poll/runs.ts';
 import { attemptHistory, emptyRunsDocument } from '../service/poll/runs-document.ts';
 import { projectRunHistory } from '../service/poll/run-history-project.ts';
@@ -226,6 +228,10 @@ const OK_ROUTES: RouteTable = {
         status: 200,
         body: JSON.stringify({ correlationId: CORRELATION, attempt: 1, state: 'blocked:binding-missing' }),
     },
+    [`POST ${RUN_PATH}/abandon`]: {
+        status: 200,
+        body: JSON.stringify({ correlationId: CORRELATION, attempt: 1, state: 'failed', auditWritten: true }),
+    },
 };
 
 /** One enabled binding row, exactly as the service stores it. */
@@ -237,24 +243,29 @@ const activeBinding = (): PanelBinding => fixtureBindingRow('bnd-relay-1', {
 });
 
 /**
- * Whether a value written to the dispatch record already carries an
- * acknowledgement, so the timeline can tell the two writes apart.
+ * Which dispatch-record write a stored document is, so the timeline can tell
+ * the intent, the resolved outcome, and the acknowledgement apart.
  *
  * @param value - Value the panel stored.
- * @returns `true` once any stored attempt is acknowledged.
+ * @returns `'ack'`, `'intent'`, or `'record'`.
  */
-function writesAcknowledgement(value: JsonValue): boolean {
+function recordWriteKind(value: JsonValue): 'ack' | 'intent' | 'record' {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-        return false;
+        return 'record';
     }
 
     const { attempts } = value;
     if (!Array.isArray(attempts)) {
-        return false;
+        return 'record';
     }
 
-    return attempts.some((entry) =>
-        typeof entry === 'object' && entry !== null && !Array.isArray(entry) && entry.acknowledged === true);
+    const rows = attempts.filter((entry): entry is Record<string, JsonValue> =>
+        typeof entry === 'object' && entry !== null && !Array.isArray(entry));
+    if (rows.some((entry) => entry.acknowledged === true)) {
+        return 'ack';
+    }
+
+    return rows.some((entry) => entry.outcome === 'unknown') ? 'intent' : 'record';
 }
 
 /** The session snapshot the read-back receives for the fixture session. */
@@ -282,12 +293,18 @@ interface Harness {
  * Build a recorded double for one mounted relay.
  *
  * @param routes - Initial route table; defaults to the co-operative service.
- * @param options - Host overrides: the project list `resolveProject` sees.
+ * @param options - Host overrides: the projects `resolveProject` sees, what runs
+ *   at the host call, and whether the dispatch record refuses the intent write
+ *   or the resolved-outcome write.
  * @returns The runtime, the timeline, and the route-swap control.
  */
 function harness(
     routes: RouteTable = OK_ROUTES,
-    options: { readonly projects?: readonly GuestProject[] } = {},
+    options: {
+        readonly projects?: readonly GuestProject[];
+        readonly onStartSession?: (storage: StorageDouble) => void;
+        readonly refuseDispatchRecord?: 'intent' | 'outcome';
+    } = {},
 ): Harness {
     const timeline: string[] = [];
     const sent: Record<string, string> = {};
@@ -313,6 +330,7 @@ function harness(
             // timeline records exactly what the host was asked to create.
             timeline.push(`startSession:${request.id}`);
             capturedRequest = JSON.stringify(request);
+            options.onStartSession?.(storage);
 
             return SESSION_CREATED;
         },
@@ -333,7 +351,15 @@ function harness(
             ...storage.storage,
             set: async (key, value) => {
                 if (key === DISPATCH_STORAGE_KEY) {
-                    timeline.push(writesAcknowledgement(value) ? 'ack' : 'record');
+                    const kind = recordWriteKind(value);
+                    timeline.push(kind);
+                    if (kind === 'intent' && options.refuseDispatchRecord === 'intent') {
+                        throw new Error('HOST_STORAGE_WRITE_FAILED');
+                    }
+
+                    if (kind === 'record' && options.refuseDispatchRecord === 'outcome') {
+                        throw new Error('HOST_STORAGE_WRITE_FAILED');
+                    }
                 }
 
                 await storage.storage.set(key, value);
@@ -384,6 +410,27 @@ function bodyOf(relay: Harness, key: string): string {
     return body;
 }
 
+/** The stored dispatch record, read without trusting its shape. */
+function storedAttempts(storage: StorageDouble): readonly Record<string, unknown>[] {
+    const raw = storage.values.get(DISPATCH_STORAGE_KEY);
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+        throw new Error('the panel stored no dispatch record');
+    }
+
+    const { attempts } = raw as { attempts?: unknown };
+    if (!Array.isArray(attempts)) {
+        throw new TypeError('the dispatch record carries no attempts');
+    }
+
+    return attempts.map((entry) => {
+        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            throw new Error('the dispatch record held a non-record attempt');
+        }
+
+        return entry as Record<string, unknown>;
+    });
+}
+
 describe('relay dispatch order (FR-024, FR-028)', () => {
     it('reserves, starts, records, reports, acknowledges, then reads the agent back', async () => {
         {
@@ -396,6 +443,7 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
 
             expect(dispatchTimeline(relay.timeline)).toEqual([
                 `POST ${RUN_PATH}/reserve`,
+                'intent',
                 `startSession:${CORRELATION}`,
                 'record',
                 `POST ${RUN_PATH}/dispatched`,
@@ -437,6 +485,125 @@ describe('relay dispatch order (FR-024, FR-028)', () => {
 
             expect(relay.timeline).toEqual([`POST ${RUN_PATH}/reserve`]);
             expect(relay.rt.state.bindings.note).toContain(STALE_LEASE_CODE);
+        }
+    });
+
+    it('writes the attempt as unknown before the host call, then replaces it before the report', async () => {
+        let atHostCall: readonly Record<string, unknown>[] = [];
+        const relay = harness(OK_ROUTES, {
+            onStartSession: (storage) => {
+                atHostCall = storedAttempts(storage);
+            },
+        });
+
+        await dispatchClaimedRun(relay.rt, claimedRun());
+
+        expect(atHostCall).toHaveLength(1);
+        expect(atHostCall[0]).toMatchObject({
+            correlationId: CORRELATION,
+            attempt: 1,
+            dispatchToken: TOKEN,
+            projectId: PROJECT_ID,
+            worktreeOption: 'generated',
+            outcome: 'unknown',
+            sessionId: null,
+            reason: null,
+            settledAt: null,
+            acknowledged: false,
+        });
+        expect(typeof atHostCall[0]?.authorizedAt).toBe('string');
+
+        const attempts = storedAttempts(relay.storage);
+        expect(attempts).toHaveLength(1);
+        expect(attempts[0]).toMatchObject({
+            outcome: 'dispatched',
+            sessionId: SESSION_ID,
+            acknowledged: true,
+        });
+        expect(attempts[0]?.authorizedAt).toBe(atHostCall[0]?.authorizedAt);
+        expect(dispatchTimeline(relay.timeline).slice(0, 6)).toEqual([
+            `POST ${RUN_PATH}/reserve`,
+            'intent',
+            `startSession:${CORRELATION}`,
+            'record',
+            `POST ${RUN_PATH}/dispatched`,
+            'ack',
+        ]);
+    });
+
+    it('never calls the host when the intent cannot be written, and abandons with the storage refusal', async () => {
+        {
+            const relay = harness(OK_ROUTES, { refuseDispatchRecord: 'intent' });
+
+            await dispatchClaimedRun(relay.rt, claimedRun());
+
+            expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+            expect(dispatchTimeline(relay.timeline)).toEqual([
+                `POST ${RUN_PATH}/reserve`,
+                'intent',
+                `POST ${RUN_PATH}/abandon`,
+            ]);
+            const body = JSON.parse(bodyOf(relay, `POST ${RUN_PATH}/abandon`)) as Record<string, unknown>;
+            expect(body).toMatchObject({ correlationId: CORRELATION, attempt: 1, dispatchToken: TOKEN });
+            expect(String(body.reason)).toContain('storage');
+            expect(String(body.reason)).toContain('no session');
+            expect(relay.storage.values.get(DISPATCH_STORAGE_KEY)).toBeUndefined();
+
+            const entries = relay.rt.state.ledger.entries.filter((entry) => entry.correlationId === CORRELATION);
+            expect(entries).toHaveLength(1);
+            expect(entries[0]?.kind).toBe('session');
+            expect(String(entries[0]?.detail.failure)).toContain('storage');
+        }
+    });
+
+    it('carries the resolved outcome into the acknowledging write when its own write failed', async () => {
+        {
+            const relay = harness(OK_ROUTES, { refuseDispatchRecord: 'outcome' });
+
+            await dispatchClaimedRun(relay.rt, claimedRun());
+
+            const attempts = storedAttempts(relay.storage);
+            expect(attempts).toHaveLength(1);
+            expect(attempts[0]).toMatchObject({
+                outcome: 'dispatched',
+                sessionId: SESSION_ID,
+                acknowledged: true,
+                settledAt: null,
+            });
+            expect(attempts[0]?.authorizedAt).not.toBeNull();
+            expect(relay.rt.state.bindings.note).toContain('dispatch record could not be written');
+            expect(relay.timeline.filter((entry) => entry === `POST ${RUN_PATH}/dispatched`)).toHaveLength(1);
+        }
+    });
+
+    it('leaves a follow-up record in the document intact across a whole dispatch', async () => {
+        {
+            const relay = harness();
+            const record: FollowUpDeliveryRecord = {
+                deliveryId: 'dlv-1',
+                correlationId: CORRELATION,
+                sessionId: null,
+                attempt: 1,
+                nextAttemptAtMs: null,
+                delivered: false,
+                reason: null,
+                parked: false,
+                updatedAt: FIXTURE_TIMESTAMP,
+            };
+            await relay.rt.host.storage.set(DISPATCH_STORAGE_KEY, parseJsonValue(JSON.stringify({
+                schemaVersion: DISPATCH_SCHEMA_VERSION,
+                attempts: [],
+                followUps: [record],
+            })));
+
+            await dispatchClaimedRun(relay.rt, claimedRun());
+
+            const raw = relay.storage.values.get(DISPATCH_STORAGE_KEY);
+            const followUps = typeof raw === 'object' && raw !== null && !Array.isArray(raw)
+                ? raw.followUps
+                : undefined;
+            expect(followUps).toEqual([record]);
+            expect(storedAttempts(relay.storage)).toHaveLength(1);
         }
     });
 
@@ -809,27 +976,6 @@ async function guidanceFor(error: Readonly<Record<string, unknown>>): Promise<st
     return typeof report.guidance === 'string' ? report.guidance : '';
 }
 
-/** The stored dispatch record, read without trusting its shape. */
-function storedAttempts(storage: StorageDouble): readonly Record<string, unknown>[] {
-    const raw = storage.values.get(DISPATCH_STORAGE_KEY);
-    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
-        throw new Error('the panel stored no dispatch record');
-    }
-
-    const { attempts } = raw as { attempts?: unknown };
-    if (!Array.isArray(attempts)) {
-        throw new TypeError('the dispatch record carries no attempts');
-    }
-
-    return attempts.map((entry) => {
-        if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
-            throw new Error('the dispatch record held a non-record attempt');
-        }
-
-        return entry as Record<string, unknown>;
-    });
-}
-
 describe('detection-to-session round trips (NFR-101, AC-127, SC-110)', () => {
     it('spends the shipped round trip plus exactly one more: the reserve', async () => {
         const relay = harness();
@@ -839,11 +985,13 @@ describe('detection-to-session round trips (NFR-101, AC-127, SC-110)', () => {
         // and then called the host with nothing in between, so the shipped
         // detection-to-session figure is the claim alone (1). The only call 003
         // inserts before `host.startSession()` is the reservation (NFR-101's
-        // "at most one additional round trip"), and it is named here rather than
-        // counted blind.
+        // "at most one additional round trip"); the intent record is a local
+        // storage write, so the round-trip count is unchanged and both are named
+        // here rather than counted blind.
         const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
-        expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
-        expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+        expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 2);
+        expect(relay.timeline.slice(0, sessionAt).filter((entry) => entry !== 'intent'))
+            .toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
     });
 
     it('adds nothing on the authorized path, and one report on the refused one (003 NFR-114)', async () => {
@@ -856,8 +1004,9 @@ describe('detection-to-session round trips (NFR-101, AC-127, SC-110)', () => {
             await pollRelay(relay.rt);
 
             const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
-            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
-            expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 2);
+            expect(relay.timeline.slice(0, sessionAt).filter((entry) => entry !== 'intent'))
+                .toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
         }
         // The refused path costs exactly the **one** block report every guard
         // already owes — no second call to re-ask, no probe of the list.
@@ -1202,8 +1351,9 @@ describe('004 the prompt reaches the message and nothing else (FR-030, FR-037, F
             await pollRelay(relay.rt);
 
             const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
-            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
-            expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 2);
+            expect(relay.timeline.slice(0, sessionAt).filter((entry) => entry !== 'intent'))
+                .toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
         }
     });
 
@@ -1421,6 +1571,7 @@ describe('T-029 the budget floor refuses before the host (FR-085, AC-147, SC-132
             expect(dispatchTimeline(relay.timeline)).toEqual([
                 PENDING_GET,
                 `POST ${RUN_PATH}/reserve`,
+                'intent',
                 'record',
                 `POST ${RUN_PATH}/dispatched`,
                 'ack',
@@ -1583,6 +1734,7 @@ describe('T-034 the budget suite end-to-end (FR-085, AC-147, AC-145, SC-132, NFR
             expect(dispatchTimeline(relay.timeline)).toEqual([
                 PENDING_GET,
                 `POST ${RUN_PATH}/reserve`,
+                'intent',
                 'record',
                 `POST ${RUN_PATH}/dispatched`,
                 'ack',
@@ -1618,8 +1770,9 @@ describe('T-034 the budget suite end-to-end (FR-085, AC-147, AC-145, SC-132, NFR
             // to the host is still claim, reserve, startSession — and nothing
             // between them.
             const sessionAt = relay.timeline.indexOf(`startSession:${CORRELATION}`);
-            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 1);
-            expect(relay.timeline.slice(0, sessionAt)).toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
+            expect(sessionAt).toBe(SHIPPED_ROUND_TRIPS + 2);
+            expect(relay.timeline.slice(0, sessionAt).filter((entry) => entry !== 'intent'))
+                .toEqual([PENDING_GET, `POST ${RUN_PATH}/reserve`]);
             expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(1);
 
             const request = JSON.parse(relay.sessionRequest()) as { readonly text?: string };

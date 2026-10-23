@@ -11,15 +11,19 @@ import type { PanelRuntime } from './panel-state.ts';
 /** Storage key holding the attempt record (AGENTS invariant 4's prefix). */
 export const DISPATCH_STORAGE_KEY = 'mecha-turk:dispatches';
 
-export const DISPATCH_SCHEMA_VERSION = 'dispatch-attempts-1';
+export const DISPATCH_SCHEMA_VERSION = 'dispatch-attempts-2';
 
-/** Most attempts the record holds; eviction removes the oldest acknowledged first. */
+export const LEGACY_DISPATCH_SCHEMA_VERSION = 'dispatch-attempts-1';
+
+/** Most attempts the record holds; eviction removes the oldest acknowledged or settled first. */
 export const MAX_RECORDED_ATTEMPTS = 50;
 
 /** The single-use token's minted shape — the same rule the service validates. */
 const DISPATCH_TOKEN_PATTERN = /^dtk-[0-9a-f]{32}$/;
 
-export type DispatchOutcomeKind = 'dispatched' | 'failed';
+export type DispatchOutcomeKind = 'unknown' | 'dispatched' | 'failed';
+
+type DispatchOrigin = 'v1' | 'v2';
 
 /**
  * The outcome of one host call, as {@link recordDispatchOutcome} requires it:
@@ -39,13 +43,16 @@ export interface DispatchAttemptRecord {
     /** Attempt this record is for; pairs with the correlation id as the key. */
     readonly attempt: number;
     readonly dispatchToken: string;
+    readonly projectId: string | null;
+    readonly worktreeOption: string | null;
     readonly outcome: DispatchOutcomeKind;
     /** Created session id on a dispatched outcome, else `null`. */
     readonly sessionId: string | null;
     /** Recorded cause on a failed outcome, else `null`. */
     readonly reason: string | null;
-    /** RFC 3339 stamp of the write, i.e. before the result report. */
+    readonly authorizedAt: string | null;
     readonly recordedAt: string;
+    readonly settledAt: string | null;
     /** `true` once a 2xx for this exact attempt has come back. */
     readonly acknowledged: boolean;
 }
@@ -197,15 +204,10 @@ interface AttemptOutcome {
     readonly reason: string | null;
 }
 
-/**
- * `outcome` decides which of `sessionId` / `reason` must be present, mirroring
- * the service's own "report exactly one outcome" rule: a record that carried
- * both, or neither, would be a fact the reconciliation loop could not turn into
- * a single honest report. `null` means a value this build cannot re-send.
- */
+/** `outcome` decides which of `sessionId` / `reason` must be present; `unknown` carries neither. */
 function readAttemptOutcome(record: Record<string, JsonValue>): AttemptOutcome | null {
     const { outcome } = record;
-    if (outcome !== 'dispatched' && outcome !== 'failed') {
+    if (outcome !== 'unknown' && outcome !== 'dispatched' && outcome !== 'failed') {
         return null;
     }
 
@@ -215,16 +217,52 @@ function readAttemptOutcome(record: Record<string, JsonValue>): AttemptOutcome |
         return null;
     }
 
-    const wasDispatched = outcome === 'dispatched';
-    if (wasDispatched !== (sessionId !== null) || wasDispatched === (reason !== null)) {
+    const requiresSession = outcome === 'dispatched';
+    const requiresReason = outcome === 'failed';
+    if (requiresSession !== (sessionId !== null) || requiresReason !== (reason !== null)) {
         return null;
     }
 
     return { outcome, sessionId, reason };
 }
 
-/** The attempt, or `null` when its shape is unusable. */
-function readAttempt(value: JsonValue): DispatchAttemptRecord | null {
+interface AttemptContext {
+    readonly projectId: string | null;
+    readonly worktreeOption: string | null;
+    readonly authorizedAt: string | null;
+    readonly settledAt: string | null;
+}
+
+/** A v1 row reads the target and both stamps as `null`: it recorded none, and the reader invents none. */
+function readAttemptContext(record: Record<string, JsonValue>, origin: DispatchOrigin): AttemptContext | null {
+    if (origin === 'v1') {
+        return { projectId: null, worktreeOption: null, authorizedAt: null, settledAt: null };
+    }
+
+    const projectId = readNullableText(record, 'projectId');
+    const worktreeOption = readNullableText(record, 'worktreeOption');
+    const authorizedAt = readNullableText(record, 'authorizedAt');
+    const settledAt = readNullableText(record, 'settledAt');
+    if (
+        projectId === undefined
+        || worktreeOption === undefined
+        || authorizedAt === undefined
+        || settledAt === undefined
+    ) {
+        return null;
+    }
+
+    if (
+        (authorizedAt !== null && Number.isNaN(Date.parse(authorizedAt)))
+        || (settledAt !== null && Number.isNaN(Date.parse(settledAt)))
+    ) {
+        return null;
+    }
+
+    return { projectId, worktreeOption, authorizedAt, settledAt };
+}
+
+function readAttempt(value: JsonValue, origin: DispatchOrigin): DispatchAttemptRecord | null {
     const record = asJsonRecord(value);
     if (record === null) {
         return null;
@@ -233,22 +271,29 @@ function readAttempt(value: JsonValue): DispatchAttemptRecord | null {
     const head = readAttemptHead(record);
     const flags = readAttemptFlags(record);
     const outcome = readAttemptOutcome(record);
-    if (head === null || flags === null || outcome === null) {
+    const context = readAttemptContext(record, origin);
+    if (
+        head === null
+        || flags === null
+        || outcome === null
+        || context === null
+        || (origin === 'v1' && outcome.outcome === 'unknown')
+    ) {
         return null;
     }
 
-    return { ...head, ...flags, ...outcome };
+    return { ...head, ...context, ...flags, ...outcome };
 }
 
 /** The attempts, or `null` when any element is unusable. */
-function readAttempts(value: JsonValue | undefined): DispatchAttemptRecord[] | null {
+function readAttempts(value: JsonValue | undefined, origin: DispatchOrigin): DispatchAttemptRecord[] | null {
     if (!Array.isArray(value)) {
         return null;
     }
 
     const attempts: DispatchAttemptRecord[] = [];
     for (const raw of value) {
-        const attempt = readAttempt(raw);
+        const attempt = readAttempt(raw, origin);
         if (attempt === null) {
             return null;
         }
@@ -384,6 +429,14 @@ function readFollowUps(value: JsonValue | undefined): readonly FollowUpDeliveryR
     return records;
 }
 
+function originOf(schema: JsonValue | undefined): DispatchOrigin | null {
+    if (schema === DISPATCH_SCHEMA_VERSION) {
+        return 'v2';
+    }
+
+    return schema === LEGACY_DISPATCH_SCHEMA_VERSION ? 'v1' : null;
+}
+
 /** The document for an absent or usable value; `null` for one this build must not half-apply. */
 export function readDispatchRecord(value?: JsonValue): DispatchRecordDocument | null {
     if (value === undefined || value === null) {
@@ -391,11 +444,16 @@ export function readDispatchRecord(value?: JsonValue): DispatchRecordDocument | 
     }
 
     const record = asJsonRecord(value);
-    if (record?.schemaVersion !== DISPATCH_SCHEMA_VERSION) {
+    if (record === null) {
         return null;
     }
 
-    const attempts = readAttempts(record.attempts);
+    const origin = originOf(record.schemaVersion);
+    if (origin === null) {
+        return null;
+    }
+
+    const attempts = readAttempts(record.attempts, origin);
     const followUps = readFollowUps(record.followUps);
 
     return attempts === null || followUps === null
@@ -421,21 +479,38 @@ export async function loadDispatchRecord(rt: PanelRuntime): Promise<DispatchReco
     return document === null ? { ok: false } : { ok: true, document };
 }
 
+/** Every attempts-side write carries the document's follow-ups unchanged (FR-024). */
+function withAttempts(
+    document: DispatchRecordDocument,
+    attempts: readonly DispatchAttemptRecord[],
+): DispatchRecordDocument {
+    return {
+        schemaVersion: DISPATCH_SCHEMA_VERSION,
+        attempts,
+        ...(document.followUps !== undefined && { followUps: document.followUps }),
+    };
+}
+
 /**
- * Append one attempt, evicting to the cap if the write pushes it over: the
- * victim is always the **oldest acknowledged** record — an unacknowledged record
- * is the only evidence that a session may exist — and when nothing is
- * acknowledged the cap gives way to that rule, because losing the
- * reconciliation source to a bookkeeping bound would be the wrong trade.
- * Pure, so the cap and the eviction preference are testable without storage.
+ * Replace the record keyed by correlation id + attempt, never append a second, and
+ * evict the oldest acknowledged-or-settled one at the cap; with no such victim the
+ * cap gives way, because losing the reconciliation source to a bound is the worse trade.
  */
 export function appendAttempt(
     document: DispatchRecordDocument,
     record: DispatchAttemptRecord,
 ): DispatchRecordDocument {
-    const attempts = [...document.attempts, record];
+    const attempts = [...document.attempts];
+    const index = attempts.findIndex((candidate) => candidate.correlationId === record.correlationId
+        && candidate.attempt === record.attempt);
+    if (index === -1) {
+        attempts.push(record);
+    } else {
+        attempts[index] = record;
+    }
+
     while (attempts.length > MAX_RECORDED_ATTEMPTS) {
-        const victim = attempts.findIndex((candidate) => candidate.acknowledged);
+        const victim = attempts.findIndex((candidate) => candidate.acknowledged || candidate.settledAt !== null);
         if (victim === -1) {
             break;
         }
@@ -443,8 +518,61 @@ export function appendAttempt(
         attempts.splice(victim, 1);
     }
 
-    return { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts };
+    return withAttempts(document, attempts);
 }
+
+function outcomeFields(
+    outcome: RecordedOutcome,
+): Pick<DispatchAttemptRecord, 'outcome' | 'sessionId' | 'reason'> {
+    return outcome.kind === 'dispatched'
+        ? { outcome: 'dispatched', sessionId: outcome.sessionId, reason: null }
+        : { outcome: 'failed', sessionId: null, reason: outcome.reason };
+}
+
+function upgradeOf(
+    existing: DispatchAttemptRecord,
+    resolved: RecordedOutcome | undefined,
+): RecordedOutcome | undefined {
+    if (existing.outcome !== 'unknown') {
+        return undefined;
+    }
+
+    return resolved;
+}
+
+function resolvedRecord(input: {
+    readonly correlationId: string;
+    readonly runKey: string;
+    readonly attempt: number;
+    readonly dispatchToken: string;
+    readonly outcome: RecordedOutcome;
+}, existing: DispatchAttemptRecord | undefined): DispatchAttemptRecord {
+    return {
+        correlationId: input.correlationId,
+        runKey: input.runKey,
+        attempt: input.attempt,
+        dispatchToken: input.dispatchToken,
+        projectId: existing?.projectId ?? null,
+        worktreeOption: existing?.worktreeOption ?? null,
+        ...outcomeFields(input.outcome),
+        authorizedAt: existing?.authorizedAt ?? null,
+        recordedAt: nowIso(),
+        settledAt: null,
+        acknowledged: existing?.acknowledged ?? false,
+    };
+}
+
+function withRecord(
+    document: DispatchRecordDocument,
+    record: DispatchAttemptRecord,
+): DispatchRecordDocument | null {
+    if (!isJsonValue(record) || readAttempt(record, 'v2') === null) {
+        return null;
+    }
+
+    return appendAttempt(document, record);
+}
+
 /**
  * Flip `acknowledged` on exactly one attempt, keyed by correlation id **and**
  * attempt, so an acknowledgement for an earlier attempt can never mark a later
@@ -463,7 +591,7 @@ export function acknowledgeAttempt(input: {
                 : candidate,
     );
 
-    return { schemaVersion: DISPATCH_SCHEMA_VERSION, attempts };
+    return withAttempts(document, attempts);
 }
 
 /** Every unacknowledged attempt, oldest first. */
@@ -528,59 +656,139 @@ async function updateDispatchRecord(
 }
 
 /**
- * Record the outcome of one dispatch attempt, durably, before it is reported:
- * the relay calls it after `host.startSession()` returns and before the result
- * POST goes out, so a report that never lands still leaves a record
- * reconciliation can re-send on the next mount.
+ * Record the authorization as `unknown` after the reservation and before the host
+ * call (FR-024); an attempt already recorded is refused, never downgraded.
  */
-export async function recordDispatchOutcome(rt: PanelRuntime, input: {
+export async function recordDispatchIntent(rt: PanelRuntime, input: {
     readonly correlationId: string;
     /** The run tuple, so the record reads alone. */
     readonly runKey: string;
     readonly attempt: number;
     readonly dispatchToken: string;
-    readonly outcome: RecordedOutcome;
+    readonly projectId: string;
+    readonly worktreeOption: string;
 }): Promise<boolean> {
+    const at = nowIso();
     const record: DispatchAttemptRecord = {
         correlationId: input.correlationId,
         runKey: input.runKey,
         attempt: input.attempt,
         dispatchToken: input.dispatchToken,
-        outcome: input.outcome.kind,
-        sessionId: input.outcome.kind === 'dispatched' ? input.outcome.sessionId : null,
-        reason: input.outcome.kind === 'failed' ? input.outcome.reason : null,
-        recordedAt: nowIso(),
+        projectId: input.projectId,
+        worktreeOption: input.worktreeOption,
+        outcome: 'unknown',
+        sessionId: null,
+        reason: null,
+        authorizedAt: at,
+        recordedAt: at,
+        settledAt: null,
         acknowledged: false,
     };
-    // Read back what is about to be written: a record the panel could not parse
-    // on remount must never reach storage in the first place.
-    if (!isJsonValue(record) || readAttempt(record) === null) {
-        return false;
-    }
 
-    return await updateDispatchRecord(rt, (document) => appendAttempt(document, record));
+    return await updateDispatchRecord(rt, (document) => {
+        const isRecorded = document.attempts.some((candidate) => candidate.correlationId === input.correlationId
+            && candidate.attempt === input.attempt);
+
+        return isRecorded ? null : withRecord(document, record);
+    });
 }
 
-/** `true` when the flip landed, `false` when nothing changed or the write would not persist. */
+/**
+ * Replace one attempt's record with its resolved outcome before the result POST, so
+ * a report that never lands is still recoverable and re-sendable.
+ */
+export async function recordDispatchOutcome(rt: PanelRuntime, input: {
+    readonly correlationId: string;
+    readonly runKey: string;
+    readonly attempt: number;
+    readonly dispatchToken: string;
+    readonly outcome: RecordedOutcome;
+}): Promise<boolean> {
+    return await updateDispatchRecord(rt, (document) => {
+        const existing = document.attempts.find((candidate) => candidate.correlationId === input.correlationId
+            && candidate.attempt === input.attempt);
+
+        return withRecord(document, resolvedRecord(input, existing));
+    });
+}
+
+/**
+ * Flip `acknowledged`; when the outcome write did not land, carry the resolved
+ * outcome into the same write, so no acknowledged record is left `unknown`.
+ */
 export async function acknowledgeDispatch(input: {
     readonly rt: PanelRuntime;
     readonly correlationId: string;
     readonly attempt: number;
+    readonly resolved?: {
+        readonly runKey: string;
+        readonly dispatchToken: string;
+        readonly outcome: RecordedOutcome;
+    };
 }): Promise<boolean> {
-    const { rt, correlationId, attempt } = input;
+    const { rt, correlationId, attempt, resolved } = input;
 
     return await updateDispatchRecord(rt, (document) => {
-        const next = acknowledgeAttempt({ document, correlationId, attempt });
-        const wasChanged = next.attempts.some((entry, index) => entry !== document.attempts[index]);
-        if (!wasChanged) {
-            // Nothing changed: writing would only churn the key, and an
-            // acknowledgement for an attempt the panel never recorded is not a
-            // fact worth persisting.
+        const index = document.attempts.findIndex((candidate) => candidate.correlationId === correlationId
+            && candidate.attempt === attempt);
+        const existing = document.attempts[index];
+        if (existing === undefined) {
             return null;
         }
 
-        return next;
+        const upgrade = upgradeOf(existing, resolved?.outcome);
+        if (upgrade === undefined && existing.acknowledged) {
+            return null;
+        }
+
+        const record: DispatchAttemptRecord = upgrade === undefined
+            ? { ...existing, acknowledged: true }
+            : {
+                ...existing,
+                ...outcomeFields(upgrade),
+                recordedAt: nowIso(),
+                settledAt: null,
+                acknowledged: true,
+            };
+
+        return withRecord(document, record);
     });
+}
+
+/**
+ * Mark one `unknown` attempt past, leaving the outcome `unknown`: the panel learned
+ * only that the attempt is past, never what the host returned (FR-045).
+ */
+export function settleAttempt(input: {
+    readonly document: DispatchRecordDocument;
+    readonly correlationId: string;
+    readonly attempt: number;
+    readonly at: string;
+}): DispatchRecordDocument | null {
+    const index = input.document.attempts.findIndex((candidate) => candidate.correlationId === input.correlationId
+        && candidate.attempt === input.attempt);
+    const existing = input.document.attempts[index];
+    if (existing?.outcome !== 'unknown' || existing.settledAt !== null) {
+        return null;
+    }
+
+    const attempts = [...input.document.attempts];
+    attempts[index] = { ...existing, settledAt: input.at };
+
+    return withAttempts(input.document, attempts);
+}
+
+export async function settleDispatchAttempt(input: {
+    readonly rt: PanelRuntime;
+    readonly correlationId: string;
+    readonly attempt: number;
+}): Promise<boolean> {
+    return await updateDispatchRecord(input.rt, (document) => settleAttempt({
+        document,
+        correlationId: input.correlationId,
+        attempt: input.attempt,
+        at: nowIso(),
+    }));
 }
 
 export interface FollowUpSeed {

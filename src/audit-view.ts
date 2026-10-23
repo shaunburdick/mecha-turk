@@ -104,7 +104,7 @@ function detailsText(details: Readonly<Record<string, unknown>>): string {
  *
  * @returns The row, or `null` when its shape is unusable.
  */
-function parseAuditRow(value: unknown): AuditRow | null {
+export function parseAuditRow(value: unknown): AuditRow | null {
     const record = asRecord(value);
     if (record === null) {
         return null;

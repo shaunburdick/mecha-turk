@@ -310,25 +310,39 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
     return { kind: 'reserved', reservation: reserved };
 }
 
-/**
- * Tell the service a reserved attempt was abandoned before any host call.
- *
- * The only way to reach this is the mount closing between the reserve and the
- * start: every guard runs *before* the reserve, so there is no post-reserve
- * guard refusal to report. Reporting it keeps the run out of `unconfirmed`
- * (contract §3).
- */
+export const DISPOSED_ABANDON_REASON = 'panel closed after reserving, before the host call';
+
+export const RECORD_REFUSED_ABANDON_REASON =
+    'host storage refused the dispatch record write, so no session was started';
+
+/** Tell the service a reserved attempt was abandoned before any host call, and record it in the ledger. */
 export async function abandonReservation(input: {
     readonly rt: PanelRuntime;
     readonly run: ClaimedRun;
     readonly token: string;
+    /** The cause, in the panel's own words. */
+    readonly reason: string;
 }): Promise<void> {
-    const { rt, run, token } = input;
+    const { rt, run, token, reason } = input;
+    appendEntryAndPersist(rt, {
+        at: nowIso(),
+        kind: RELAY_LEDGER_KIND,
+        correlationId: run.correlationId,
+        detail: {
+            correlationId: run.correlationId,
+            repository: repositoryLabel(splitRepository(run.repository)),
+            issueId: String(run.issueNumber),
+            sessionId: null,
+            sent: 'skipped',
+            failure: boundedText(reason),
+        },
+    });
+
     const body = JSON.stringify({
         correlationId: run.correlationId,
         attempt: run.attempt,
         dispatchToken: token,
-        reason: 'panel closed after reserving, before the host call',
+        reason: boundedText(reason),
     });
     await servicePost({ serviceRequest: rt.host.serviceRequest, path: abandonPath(run.correlationId), body });
 }

@@ -18,6 +18,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { StartSessionRequest, StartSessionResult } from '@openchamber/sdk';
 import { drainVerifications } from '../src/agent-verify.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import { reconcileDispatchAttempts } from '../src/reconcile.ts';
@@ -25,7 +26,9 @@ import { dispatchClaimedRun, pollRelay } from '../src/relay.ts';
 import { reservePath, servicePost } from '../src/service-calls.ts';
 import { ABANDON_PATH, DISPATCHED_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
 import { REQUEUE_PATH, RESOLVE_PATH, RETRY_PATH } from '../service/routes/run-ops.ts';
-import { DISPATCH_STORAGE_KEY } from '../src/dispatch-record.ts';
+import { AUDIT_FILE } from '../service/audit.ts';
+import { DISPATCH_STORAGE_KEY, recordDispatchOutcome } from '../src/dispatch-record.ts';
+import { parseJsonValue } from '../src/json.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { Run } from '../service/poll/runs-types.ts';
@@ -216,6 +219,22 @@ async function tick(rt: PanelRuntime): Promise<void> {
     await drainVerifications(rt);
 }
 
+/** How many event-loop turns a dead mount gets to reach its host call. */
+const HOST_CALL_TURNS = 100;
+
+/** Wait for one event-driven condition, yielding a macrotask between checks. */
+async function until(isReached: () => boolean): Promise<void> {
+    for (let turn = 0; turn < HOST_CALL_TURNS; turn += 1) {
+        if (isReached()) {
+            return;
+        }
+
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+
+    throw new Error('the panel never reached the host call');
+}
+
 /** AC-110's metric, stated once: no run identifier ever produced two sessions. */
 function expectAtMostOneSessionPerRun(): void {
     for (const [correlationId, count] of sessionsPerRun(loop.sessions)) {
@@ -334,6 +353,125 @@ describe('close permutations (NFR-102, AC-110)', () => {
 
         await tick(second);
         expect(loop.sessions).toEqual([offered.correlationId]);
+        expectAtMostOneSessionPerRun();
+    });
+});
+
+describe('a teardown between the reservation and the outcome record (AC-134, AC-135)', () => {
+    it('leaves the intent, surfaces it on remount, and settles it only on the service\'s evidence', async () => {
+        await loop.enqueue({ issueNumber: ISSUE });
+
+        // The mount dies *inside* the host call: the reservation and the intent
+        // record happened, and no outcome can ever be recorded (#72's case).
+        let dying: PanelRuntime | null = null;
+        const createdSessions: string[] = [];
+        const mount = loop.mount({
+            startSession: async (request: StartSessionRequest): Promise<StartSessionResult> => {
+                createdSessions.push(request.id);
+                if (dying !== null) {
+                    loop.unmount(dying);
+                }
+                return await new Promise<StartSessionResult>(() => { /* the mount is gone */ });
+            },
+        });
+        dying = mount;
+        const [offered] = await offerFor(mount);
+        if (offered === undefined) {
+            throw new Error(NO_OFFER);
+        }
+        void dispatchClaimedRun(mount, offered);
+        await until(() => createdSessions.length > 0);
+
+        // The intent is durable, unknown, and unacknowledged; no outcome exists.
+        expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)).toMatchObject({
+            correlationId: offered.correlationId,
+            attempt: 1,
+            outcome: 'unknown',
+            settledAt: null,
+            acknowledged: false,
+        });
+        expect(createdSessions).toEqual([offered.correlationId]);
+
+        const second = loop.mount();
+        const otherRun = 'mt-run-ffffffffffffffffffffffff';
+        const fixtureToken = `dtk-${'a1b2c3d4'.repeat(4)}`;
+        expect(await recordDispatchOutcome(second, {
+            correlationId: otherRun,
+            runKey: 'github|77331|acme/widget|issue|41|1',
+            attempt: 1,
+            dispatchToken: fixtureToken,
+            outcome: { kind: 'dispatched', sessionId: SESSION_ID },
+        })).toBe(true);
+
+        const mark = loop.timeline.length;
+        const surfaced = await reconcileDispatchAttempts(second);
+        const pass = loop.timeline.slice(mark);
+
+        // Before the first claim: the unknown attempt is surfaced, never
+        // reported, never re-dispatched — while the other attempt is re-reported.
+        expect(surfaced.warning).not.toBeNull();
+        expect(second.state.status.tone).toBe('warning');
+        expect(second.state.status.body).toContain(offered.correlationId);
+        expect(second.state.status.body).toContain('never recorded as producing a session');
+        expect(second.state.status.body).toContain('could not be read');
+        expect(pass).not.toContain(`POST /v1/events/${offered.correlationId}/dispatched`);
+        expect(pass).not.toContain(`POST /v1/events/${offered.correlationId}/abandon`);
+        expect(pass).toContain(`POST /v1/events/${otherRun}/dispatched`);
+
+        await tick(second);
+        expect(createdSessions).toHaveLength(1);
+        expect(loop.sessions).toHaveLength(0);
+
+        // The offending service has no record of the fabricated run: drop it so
+        // the bounded banner's remaining copy is about the lost attempt alone.
+        const remaining = parseJsonValue(JSON.stringify({
+            schemaVersion: 'dispatch-attempts-2',
+            attempts: storedAttempts().filter((entry) => entry.correlationId !== otherRun),
+        }));
+        loop.panelStorage.set(DISPATCH_STORAGE_KEY, remaining);
+
+        // `dispatch.unconfirmed` is not evidence: the warning stays and says the
+        // operator's decision is what the run needs.
+        const reserved = await runOf(ISSUE);
+        const deadline = reserved.reservation?.resultDeadlineAt;
+        if (deadline === undefined) {
+            throw new Error(NO_DEADLINE);
+        }
+        await loop.sweepAt(justPast(deadline));
+        expect(await stateOf(ISSUE)).toBe('unconfirmed');
+
+        const third = loop.mount();
+        const waiting = await reconcileDispatchAttempts(third);
+        expect(waiting.warning).not.toBeNull();
+        expect(third.state.status.body).toContain('still needs your decision');
+        expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)?.settledAt).toBeNull();
+
+        // The service's own `dispatch.resolved` proves the attempt past.
+        const resolve = await post({
+            service: loop.service,
+            path: bound(RESOLVE_PATH, offered.correlationId),
+            body: { correlationId: offered.correlationId, decision: 'no-session', note: 'checked the session list' },
+        });
+        expectStatus({ step: 'resolve', answer: resolve, status: 200 });
+
+        const fourth = loop.mount();
+        const settled = await reconcileDispatchAttempts(fourth);
+        expect(settled.warning).toBeNull();
+        expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)?.settledAt)
+            .not.toBeNull();
+
+        // A trim of the trail cannot resurrect the warning: a settled record is
+        // never read against the audit trail again.
+        await loop.store.writeLines(AUDIT_FILE, []);
+        const markAfterTrim = loop.timeline.length;
+        const fifth = loop.mount();
+        const afterTrim = await reconcileDispatchAttempts(fifth);
+
+        expect(afterTrim.warning).toBeNull();
+        expect(loop.timeline.slice(markAfterTrim).filter((entry) => entry.startsWith('GET /v1/audit'))).toHaveLength(0);
+        expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)?.settledAt)
+            .not.toBeNull();
+        expect(loop.sessions).toHaveLength(0);
         expectAtMostOneSessionPerRun();
     });
 });

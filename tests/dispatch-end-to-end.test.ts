@@ -87,6 +87,7 @@ describe('T-036 one end-to-end dispatch on this branch', () => {
         expect(steps).toEqual([
             'GET /v1/events/pending',
             `POST /v1/events/${run.correlationId}/reserve`,
+            'intent',
             `startSession:${run.correlationId}`,
             'record',
             `POST /v1/events/${run.correlationId}/dispatched`,

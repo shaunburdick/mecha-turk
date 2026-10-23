@@ -330,7 +330,12 @@ export async function reportAndAcknowledge(input: {
         body,
     });
     if (answer.ok) {
-        await acknowledgeDispatch({ rt, correlationId: run.correlationId, attempt: run.attempt });
+        await acknowledgeDispatch({
+            rt,
+            correlationId: run.correlationId,
+            attempt: run.attempt,
+            resolved: { runKey: run.runKey, dispatchToken: token, outcome },
+        });
     }
 
     if (!stillRunning(rt)) {

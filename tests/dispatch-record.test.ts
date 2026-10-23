@@ -4,29 +4,36 @@
  * The record is the only thing a remount has to reconcile from, so these
  * tests hold four promises: an absent key reads as empty rather than as a
  * failure (wipe semantics), a present-but-corrupt key refuses rather than
- * half-applying (fail closed), the cap evicts the oldest *acknowledged*
- * attempt while never taking an unacknowledged one, and a stored
+ * half-applying (fail closed), the cap evicts the oldest *acknowledged or
+ * settled* attempt while never taking a record that is neither, and a stored
  * `dispatchToken` passes the redaction guard byte-identically while a real
  * credential beside it still throws.
  *
  * Everything runs offline against the storage double; no host, no network.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { JsonValue } from '@openchamber/sdk';
 import {
     DISPATCH_SCHEMA_VERSION,
     DISPATCH_STORAGE_KEY,
+    LEGACY_DISPATCH_SCHEMA_VERSION,
     MAX_RECORDED_ATTEMPTS,
     acknowledgeAttempt,
     acknowledgeDispatch,
     appendAttempt,
     loadDispatchRecord,
     readDispatchRecord,
+    recordDispatchIntent,
     recordDispatchOutcome,
+    settleAttempt,
     unacknowledgedAttempts,
 } from '../src/dispatch-record.ts';
-import type { DispatchAttemptRecord, DispatchRecordDocument } from '../src/dispatch-record.ts';
+import type {
+    DispatchAttemptRecord,
+    DispatchRecordDocument,
+    FollowUpDeliveryRecord,
+} from '../src/dispatch-record.ts';
 import { parseJsonValue } from '../src/json.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { RedactionError, assertRedacted } from '../src/redaction.ts';
@@ -58,10 +65,14 @@ function attempt(overrides: Partial<DispatchAttemptRecord> = {}): DispatchAttemp
         runKey: RUN_KEY,
         attempt: 1,
         dispatchToken: TOKEN,
+        projectId: 'prj_42',
+        worktreeOption: 'generated',
         outcome: 'dispatched',
         sessionId: 'ses_1',
         reason: null,
+        authorizedAt: RECORDED_AT,
         recordedAt: RECORDED_AT,
+        settledAt: null,
         acknowledged: false,
         ...overrides,
     };
@@ -116,6 +127,88 @@ function runtimeWith(initial: Readonly<Record<string, JsonValue>> = {}): {
 
     return { rt: createTestRuntime(fakeHost({ storage: storage.storage })), storage };
 }
+
+/** One follow-up delivery record, as the panel stores it. */
+function followUp(): FollowUpDeliveryRecord {
+    return {
+        deliveryId: 'dlv-1',
+        correlationId: CORRELATION,
+        sessionId: null,
+        attempt: 1,
+        nextAttemptAtMs: null,
+        delivered: false,
+        reason: null,
+        parked: false,
+        updatedAt: RECORDED_AT,
+    };
+}
+
+/** The intent writer's input for the fixture attempt. */
+const INTENT_INPUT = {
+    correlationId: CORRELATION,
+    runKey: RUN_KEY,
+    attempt: 1,
+    dispatchToken: TOKEN,
+    projectId: 'prj_42',
+    worktreeOption: 'new:mt-{number}',
+} as const;
+
+describe('v1 → v2 reading (FR-024, AC-134)', () => {
+    it('reads a dispatch-attempts-1 document as v2 with every attempt intact and no invented stamp', async () => {
+        {
+            const legacy = parseJsonValue(JSON.stringify({
+                schemaVersion: LEGACY_DISPATCH_SCHEMA_VERSION,
+                attempts: [
+                    {
+                        correlationId: CORRELATION,
+                        runKey: RUN_KEY,
+                        attempt: 1,
+                        dispatchToken: TOKEN,
+                        outcome: 'failed',
+                        sessionId: null,
+                        reason: 'no-session',
+                        recordedAt: RECORDED_AT,
+                        acknowledged: false,
+                    },
+                    {
+                        correlationId: OTHER_CORRELATION,
+                        runKey: RUN_KEY,
+                        attempt: 2,
+                        dispatchToken: TOKEN,
+                        outcome: 'dispatched',
+                        sessionId: 'ses_9',
+                        reason: null,
+                        recordedAt: RECORDED_AT,
+                        acknowledged: true,
+                    },
+                ],
+            }));
+            const { rt } = runtimeWith({ [DISPATCH_STORAGE_KEY]: legacy });
+
+            const read = await loadDispatchRecord(rt);
+
+            expect(read.ok).toBe(true);
+            if (!read.ok) {
+                return;
+            }
+
+            expect(read.document.schemaVersion).toBe(DISPATCH_SCHEMA_VERSION);
+            expect(read.document.attempts).toHaveLength(2);
+            expect(read.document.attempts.map((row) => row.outcome)).toEqual(['failed', 'dispatched']);
+            for (const row of read.document.attempts) {
+                expect(row.authorizedAt).toBeNull();
+                expect(row.projectId).toBeNull();
+                expect(row.worktreeOption).toBeNull();
+                expect(row.settledAt).toBeNull();
+            }
+
+            // The v1 stamp stays what it was — the outcome write's time — and is
+            // never presented as the authorization time the row never held.
+            expect(read.document.attempts[0]?.recordedAt).toBe(RECORDED_AT);
+            expect(unacknowledgedAttempts(read.document).map((row) => row.attempt)).toEqual([1]);
+        }
+    });
+});
 
 describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
     it('reads a wiped or never-written key as an empty record', async () => {
@@ -338,6 +431,34 @@ describe('cap and eviction (NFR-107, FR-024 durability)', () => {
             expect(capped.attempts.every((entry) => !entry.acknowledged)).toBe(true);
         }
     });
+
+    it('evicts a settled unacknowledged record and never one that is both unacknowledged and unsettled', () => {
+        {
+            const full = document([
+                attempt({ attempt: 1, acknowledged: false, settledAt: RECORDED_AT }),
+                ...Array.from({ length: MAX_RECORDED_ATTEMPTS - 1 }, (_unused, index) =>
+                    attempt({ attempt: index + 2, acknowledged: true })),
+            ]);
+
+            const capped = appendAttempt(full, attempt({ attempt: 99 }));
+
+            expect(capped.attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
+            expect(capped.attempts.some((entry) => entry.attempt === 1)).toBe(false);
+        }
+        {
+            const open = document([
+                attempt({ attempt: 1, acknowledged: false, settledAt: null }),
+                ...Array.from({ length: MAX_RECORDED_ATTEMPTS - 1 }, (_unused, index) =>
+                    attempt({ attempt: index + 2, acknowledged: true })),
+            ]);
+
+            const capped = appendAttempt(open, attempt({ attempt: 99 }));
+
+            expect(capped.attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
+            expect(capped.attempts[0]).toMatchObject({ attempt: 1, settledAt: null });
+            expect(capped.attempts.some((entry) => entry.attempt === 2)).toBe(false);
+        }
+    });
 });
 
 describe('redaction posture (T-019, research §R3)', () => {
@@ -361,11 +482,11 @@ describe('redaction posture (T-019, research §R3)', () => {
     it('refuses to write a document the guard rejects', async () => {
         {
             const { rt, storage } = runtimeWith({
-                // Hand-edited storage carrying a credential: the record still parses
-                // (a reason is a reason), and the redaction guard is what stops it
-                // from being written back out.
+                // Hand-edited storage carrying a credential on another attempt: the
+                // record still parses (a reason is a reason), and the redaction guard
+                // is what stops it from being written back out beside the new one.
                 [DISPATCH_STORAGE_KEY]: storedAttempts(attempt({
-                    outcome: 'failed', sessionId: null, reason: PAT })),
+                    attempt: 2, outcome: 'failed', sessionId: null, reason: PAT })),
             });
 
             expect(await recordDispatchOutcome(rt, {
@@ -379,6 +500,154 @@ describe('redaction posture (T-019, research §R3)', () => {
         }
     });
 
+});
+
+describe('recordDispatchIntent and the outcome that replaces it (FR-024, AC-134)', () => {
+    it('records the authorization as unknown, then replaces it in place, keeping authorizedAt', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(new Date('2026-09-29T10:00:00.000Z'));
+            const { rt } = runtimeWith();
+
+            expect(await recordDispatchIntent(rt, INTENT_INPUT)).toBe(true);
+            const intent = await loadDispatchRecord(rt);
+            expect(intent.ok).toBe(true);
+            if (!intent.ok) {
+                return;
+            }
+
+            expect(intent.document.attempts).toHaveLength(1);
+            expect(intent.document.attempts[0]).toMatchObject({
+                correlationId: CORRELATION,
+                attempt: 1,
+                outcome: 'unknown',
+                sessionId: null,
+                reason: null,
+                projectId: 'prj_42',
+                worktreeOption: 'new:mt-{number}',
+                authorizedAt: '2026-09-29T10:00:00.000Z',
+                recordedAt: '2026-09-29T10:00:00.000Z',
+                settledAt: null,
+                acknowledged: false,
+            });
+
+            vi.setSystemTime(new Date('2026-09-29T10:00:05.000Z'));
+            expect(await recordDispatchOutcome(rt, {
+                correlationId: CORRELATION,
+                runKey: RUN_KEY,
+                attempt: 1,
+                dispatchToken: TOKEN,
+                outcome: { kind: 'dispatched', sessionId: 'ses_1' },
+            })).toBe(true);
+
+            const resolved = await loadDispatchRecord(rt);
+            expect(resolved.ok).toBe(true);
+            if (!resolved.ok) {
+                return;
+            }
+
+            // One attempt is one record, never two: the outcome replaced the intent.
+            expect(resolved.document.attempts).toHaveLength(1);
+            expect(resolved.document.attempts[0]).toMatchObject({
+                outcome: 'dispatched',
+                sessionId: 'ses_1',
+                authorizedAt: '2026-09-29T10:00:00.000Z',
+                recordedAt: '2026-09-29T10:00:05.000Z',
+            });
+
+            // A second intent for a recorded attempt is refused, so the resolved
+            // outcome can never be downgraded to `unknown`.
+            expect(await recordDispatchIntent(rt, INTENT_INPUT)).toBe(false);
+            const reread = await loadDispatchRecord(rt);
+            expect(reread.ok).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('refuses to persist an intent its own parser would reject', async () => {
+        {
+            const { rt, storage } = runtimeWith();
+
+            expect(await recordDispatchIntent(rt, { ...INTENT_INPUT, dispatchToken: 'not-a-token' })).toBe(false);
+            expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
+        }
+    });
+
+});
+
+describe('follow-up preservation (FR-024, AC-134)', () => {
+    it('carries the document\'s follow-ups unchanged through an intent and an outcome write', async () => {
+        const record = followUp();
+        const initial = parseJsonValue(JSON.stringify({
+            schemaVersion: DISPATCH_SCHEMA_VERSION,
+            attempts: [],
+            followUps: [record],
+        }));
+        const { rt, storage } = runtimeWith({ [DISPATCH_STORAGE_KEY]: initial });
+        const before = readDispatchRecord(initial)?.followUps;
+
+        await recordDispatchIntent(rt, INTENT_INPUT);
+        await recordDispatchOutcome(rt, {
+            correlationId: CORRELATION,
+            runKey: RUN_KEY,
+            attempt: 1,
+            dispatchToken: TOKEN,
+            outcome: { kind: 'failed', reason: 'no-session' },
+        });
+
+        const after = readDispatchRecord(storage.values.get(DISPATCH_STORAGE_KEY))?.followUps;
+        expect(after).toEqual([record]);
+        expect(JSON.stringify(after)).toBe(JSON.stringify(before));
+    });
+
+    it('keeps them through the pure writers too', () => {
+        const start: DispatchRecordDocument = {
+            schemaVersion: DISPATCH_SCHEMA_VERSION,
+            attempts: [attempt()],
+            followUps: [followUp()],
+        };
+        const unknown: DispatchRecordDocument = {
+            ...start,
+            attempts: [attempt({ outcome: 'unknown', sessionId: null, reason: null, settledAt: null })],
+        };
+
+        expect(appendAttempt(start, attempt({ attempt: 2 })).followUps).toEqual([followUp()]);
+        expect(acknowledgeAttempt({ document: start, correlationId: CORRELATION, attempt: 1 }).followUps)
+            .toEqual([followUp()]);
+        const settled = settleAttempt({ document: unknown, correlationId: CORRELATION, attempt: 1, at: RECORDED_AT });
+        expect(settled?.followUps).toEqual([followUp()]);
+    });
+});
+
+describe('settleAttempt (FR-045)', () => {
+    it('writes settledAt only onto an unsettled unknown record, leaving its outcome unknown', () => {
+        const unknown = attempt({ outcome: 'unknown', sessionId: null, reason: null, settledAt: null });
+
+        const settled = settleAttempt({
+            document: document([unknown]),
+            correlationId: CORRELATION,
+            attempt: 1,
+            at: RECORDED_AT,
+        });
+
+        const alreadyResolved = settleAttempt({
+            document: document([attempt()]),
+            correlationId: CORRELATION,
+            attempt: 1,
+            at: RECORDED_AT,
+        });
+        const alreadySettled = settleAttempt({
+            document: document([{ ...unknown, settledAt: RECORDED_AT }]),
+            correlationId: CORRELATION,
+            attempt: 1,
+            at: RECORDED_AT,
+        });
+
+        expect(settled?.attempts[0]).toMatchObject({ outcome: 'unknown', settledAt: RECORDED_AT });
+        expect(alreadyResolved).toBeNull();
+        expect(alreadySettled).toBeNull();
+    });
 });
 
 describe('acknowledgeAttempt (pure flip)', () => {

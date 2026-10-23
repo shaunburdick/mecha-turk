@@ -190,24 +190,29 @@ async function forward(input: {
 }
 
 /**
- * Whether a value written to the dispatch record already carries an
- * acknowledgement, so the timeline can tell the record write from the flip.
+ * Which dispatch-record write a stored document is, so the timeline can tell
+ * the intent, the resolved outcome, and the acknowledgement apart.
  *
  * @param value - Value the panel stored.
- * @returns `true` once any stored attempt is acknowledged.
+ * @returns `'ack'`, `'intent'`, or `'record'`.
  */
-function acknowledgesAttempt(value: JsonValue): boolean {
+function recordWrite(value: JsonValue): 'ack' | 'intent' | 'record' {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-        return false;
+        return 'record';
     }
 
     const { attempts } = value;
     if (!Array.isArray(attempts)) {
-        return false;
+        return 'record';
     }
 
-    return attempts.some((entry) =>
-        typeof entry === 'object' && entry !== null && !Array.isArray(entry) && entry.acknowledged === true);
+    const rows = attempts.filter((entry): entry is Record<string, JsonValue> =>
+        typeof entry === 'object' && entry !== null && !Array.isArray(entry));
+    if (rows.some((entry) => entry.acknowledged === true)) {
+        return 'ack';
+    }
+
+    return rows.some((entry) => entry.outcome === 'unknown') ? 'intent' : 'record';
 }
 
 /** Build the host one mount runs on: the loopback bridge plus a counting host. */
@@ -322,7 +327,7 @@ function sharedStorageFor(input: {
         ...input.storage.storage,
         set: async (key, value) => {
             if (key === DISPATCH_STORAGE_KEY) {
-                input.timeline.push(acknowledgesAttempt(value) ? 'ack' : 'record');
+                input.timeline.push(recordWrite(value));
             }
 
             await input.storage.storage.set(key, value);
