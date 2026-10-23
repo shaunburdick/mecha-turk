@@ -98,7 +98,7 @@ function reservedSeqOf(rows: readonly AuditRow[], attempt: number, leaseId: stri
     return latest;
 }
 
-type SettleVerdict = 'settled' | 'unconfirmed' | 'no-evidence' | 'unanchored' | 'unreadable';
+type SettleVerdict = 'settled' | 'unconfirmed' | 'no-evidence' | 'unreadable';
 
 /**
  * A result or abandonment settles only after the `dispatch.reserved` row carrying
@@ -120,7 +120,7 @@ function judgeEvidence(rows: readonly AuditRow[], attempt: number, leaseId: stri
         return 'unconfirmed';
     }
 
-    return anchor === null ? 'unanchored' : 'no-evidence';
+    return 'no-evidence';
 }
 
 /** Walk the correlation-filtered read to exhaustion inside the pass budget; any doubt is `unreadable`. */
@@ -346,11 +346,7 @@ async function reportOutstanding(input: {
 }
 
 function verdictLabel(verdict: SettleVerdict): string {
-    if (verdict === 'unconfirmed') {
-        return 'still needs your decision';
-    }
-
-    return verdict === 'no-evidence' ? 'no outcome recorded yet' : 'could not check';
+    return verdict === 'unconfirmed' ? 'still needs your decision' : 'could not check';
 }
 
 function checkLine(verdict: SettleVerdict): string {
@@ -358,16 +354,11 @@ function checkLine(verdict: SettleVerdict): string {
         return 'the panel could not check the service\'s audit trail for this attempt';
     }
 
-    if (verdict === 'unanchored') {
-        return 'the panel could not check — the service\'s audit trail holds no reservation carrying this '
-            + 'attempt\'s lease';
-    }
-
     if (verdict === 'unconfirmed') {
         return 'the service recorded no result for it, so the run still needs your decision';
     }
 
-    return 'the service\'s audit trail holds no outcome for it yet';
+    return 'the panel could not check the service\'s audit trail for this attempt; no outcome recorded yet';
 }
 
 function unknownLine(rt: PanelRuntime, attempt: DispatchAttemptRecord, verdict: SettleVerdict): string {

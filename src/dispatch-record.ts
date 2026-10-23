@@ -243,22 +243,23 @@ function readOptionalText(record: Record<string, JsonValue>, field: string): str
     return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
-type ContextFields = { readonly [K in keyof AttemptContext]: AttemptContext[K] | undefined };
-
-function isCompleteContext(fields: ContextFields): fields is AttemptContext {
-    return Object.values(fields).every((value) => value !== undefined);
-}
-
 function readContextFields(record: Record<string, JsonValue>): AttemptContext | null {
-    const fields: ContextFields = {
-        leaseId: readOptionalText(record, 'leaseId'),
-        projectId: readNullableText(record, 'projectId'),
-        worktreeOption: readNullableText(record, 'worktreeOption'),
-        authorizedAt: readNullableText(record, 'authorizedAt'),
-        settledAt: readNullableText(record, 'settledAt'),
-    };
+    const leaseId = readOptionalText(record, 'leaseId');
+    const projectId = readNullableText(record, 'projectId');
+    const worktreeOption = readNullableText(record, 'worktreeOption');
+    const authorizedAt = readNullableText(record, 'authorizedAt');
+    const settledAt = readNullableText(record, 'settledAt');
+    if (
+        leaseId === undefined
+        || projectId === undefined
+        || worktreeOption === undefined
+        || authorizedAt === undefined
+        || settledAt === undefined
+    ) {
+        return null;
+    }
 
-    return isCompleteContext(fields) ? fields : null;
+    return { leaseId, projectId, worktreeOption, authorizedAt, settledAt };
 }
 
 function isStampOrNull(value: string | null): boolean {
@@ -594,11 +595,11 @@ function withRecord(
     return appendAttempt(document, record);
 }
 
-/** Replace this reservation's record, or append it when evicted — never clobber another reservation. */
+/** Replace this reservation's record; append only to an empty attempt; another lease's record stands (FR-024). */
 function withOutcomeRecord(
     document: DispatchRecordDocument,
     record: DispatchAttemptRecord,
-): DispatchRecordDocument | null {
+): DispatchRecordDocument | 'unchanged' | null {
     if (!isJsonValue(record) || readAttempt(record, 'v2') === null) {
         return null;
     }
@@ -608,6 +609,12 @@ function withOutcomeRecord(
         && candidate.attempt === record.attempt
         && candidate.leaseId === record.leaseId);
     if (index === -1) {
+        const isOccupied = attempts.some((candidate) => candidate.correlationId === record.correlationId
+            && candidate.attempt === record.attempt);
+        if (isOccupied) {
+            return 'unchanged';
+        }
+
         attempts.push(record);
     } else {
         attempts[index] = record;

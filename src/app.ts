@@ -222,6 +222,10 @@ async function mountPanel(rt: PanelRuntime, context: HostReadyContext): Promise<
     // reconciliation's warning is composed against a loaded list, not a read
     // still in flight.
     await loadDispatches(rt);
+    if (tornDown(rt)) {
+        return;
+    }
+
     // The Status tab's projection is read at mount as well, so the tab the
     // panel opens on answers its one question immediately; its own refresh
     // control is the explicit re-read.

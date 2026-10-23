@@ -313,7 +313,7 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
 });
 
 describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
-    it('stores the outcome with acknowledged false, before any report', async () => {
+    it('appends an outcome when the attempt holds no record', async () => {
         {
             const { rt, storage } = runtimeWith();
 
@@ -339,6 +339,12 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                     sessionId: 'ses_1',
                     reason: null,
                     acknowledged: false,
+                });
+                // Nothing to copy from: the append invents no context.
+                expect(read.document.attempts[0]).toMatchObject({
+                    projectId: null,
+                    worktreeOption: null,
+                    authorizedAt: null,
                 });
             }
         }
@@ -680,9 +686,10 @@ describe('recordDispatchIntent and the outcome that replaces it (FR-024, AC-134)
         }
     });
 
-    it('appends an outcome for an evicted reservation without overwriting a newer cycle', async () => {
-        const { rt } = runtimeWith();
+    it('does not persist a second record at an attempt whose record carries another lease', async () => {
+        const { rt, storage } = runtimeWith();
         await recordDispatchIntent(rt, { ...INTENT_INPUT, leaseId: OTHER_LEASE_ID });
+        const writes = storage.operations.filter((operation) => operation.startsWith('set:')).length;
 
         expect(await recordDispatchOutcome(rt, {
             correlationId: CORRELATION,
@@ -699,14 +706,15 @@ describe('recordDispatchIntent and the outcome that replaces it (FR-024, AC-134)
             return;
         }
 
-        expect(read.document.attempts).toHaveLength(2);
-        expect(read.document.attempts.find((entry) => entry.leaseId === OTHER_LEASE_ID)).toMatchObject({
+        // One attempt is one record: the newer cycle's intent stands intact and
+        // the superseded outcome was reported, never stored beside it.
+        expect(storage.operations.filter((operation) => operation.startsWith('set:'))).toHaveLength(writes);
+        expect(read.document.attempts).toHaveLength(1);
+        expect(read.document.attempts[0]).toMatchObject({
+            attempt: 1,
+            leaseId: OTHER_LEASE_ID,
             outcome: 'unknown',
             sessionId: null,
-        });
-        expect(read.document.attempts.find((entry) => entry.leaseId === LEASE_ID)).toMatchObject({
-            outcome: 'dispatched',
-            sessionId: 'ses_old',
         });
     });
 
