@@ -78,6 +78,13 @@ function clearDraftIfCovered(
     stored: readonly PanelBinding[],
     displayed: string | null,
 ): void {
+    // An edit draft's repository is one the store already holds by definition, so
+    // this rule belongs to the add form alone; applying it would wipe an open edit
+    // on the next read.
+    if (bindings.editing) {
+        return;
+    }
+
     const draft = bindings.repoInput.trim().toLowerCase();
     const isCovered = draft !== '' && stored.some((binding) => binding.repository.toLowerCase() === draft);
     if (!isCovered) {

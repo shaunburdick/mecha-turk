@@ -21,6 +21,12 @@ matching section below plus GitHub's generated notes.
   list, while the button sits at the bottom of a long editor, so pressing it
   looked like nothing happened. The note now renders above the action row while
   the editor is open, and in its old place while it is closed.
+- **Re-reading the bindings no longer wipes an open edit.** A read reset any
+  draft whose repository the store already held — the rule that clears the add
+  form once its repository is bound — and an edit draft always names a stored
+  row, so *Refresh bindings* (or any read landing) silently returned the
+  editor's fields to the add form's defaults. The clearing now applies to the
+  add form only.
 
 ## [0.5.0] - 2026-10-23
 
