@@ -35,6 +35,18 @@ matching section below plus GitHub's generated notes.
   bounded reviews read per own pull in the window and one check-runs walk per
   moved head; a truncated read records the truncation and produces no row, so
   silence is not read as a passing build.
+- **The binding's worktree option offers a named new worktree/branch, and the
+  `{number}` placeholder** (#63). The add/edit form gains a third choice beside
+  `none` and `generated` — `new`, with a branch-name input that activates only
+  when it is selected — so a `new:<branch>` row loads into the editor and an
+  untouched save keeps it byte-identical instead of being refused as unrenderable
+  (FR-003). A name may carry the one literal placeholder `{number}`, which the
+  relay substitutes with the source issue/PR number at dispatch time and
+  re-validates fail-closed against the branch-name rule; a substituted name that
+  is not usable refuses the dispatch before `host.startSession()`, the way the
+  over-budget floor does. Any other brace — `{ NUMBER }`, `{number`, `new:issue-{issue}` —
+  is still refused, so no other templating exists. The service validator and the
+  run rows are unchanged: config stores the placeholder verbatim.
 
 ### Fixed
 

@@ -21,6 +21,7 @@ import {
     parseRepository,
     parseWorktreeOption,
     repositoryLabel,
+    substituteBranchNumber,
 } from '../src/config.ts';
 
 /** Project id the panel picker's stored selection supplies. */
@@ -56,11 +57,37 @@ describe('parseWorktreeOption', () => {
             kind: 'new',
             name: 'feature-spike',
         });
+        expect(parseWorktreeOption('new:issue-{number}'), 'the `{number}` placeholder').toEqual({
+            kind: 'new',
+            name: 'issue-{number}',
+        });
         expect(parseWorktreeOption('new:bad name'), 'unsafe characters').toBeNull();
         expect(parseWorktreeOption('new:feature/spike'), 'a path separator').toBeNull();
         expect(parseWorktreeOption('new:..'), 'a parent reference').toBeNull();
         expect(parseWorktreeOption('new:spike..branch'), 'an embedded parent reference').toBeNull();
         expect(parseWorktreeOption('sometimes'), 'an unknown keyword').toBeNull();
+    });
+
+    it('refuses a new-branch name whose braces are not the exact `{number}` literal', () => {
+        expect(parseWorktreeOption('new:issue-{issue}'), 'a different placeholder token').toBeNull();
+        expect(parseWorktreeOption('new:{ NUMBER }'), 'a spaced, upper-cased token').toBeNull();
+        expect(parseWorktreeOption('new:{number'), 'an unterminated brace').toBeNull();
+        expect(parseWorktreeOption('new:issue-{numbe'), 'a partial placeholder').toBeNull();
+    });
+});
+
+describe('substituteBranchNumber', () => {
+    it('replaces the literal placeholder with the issue number and re-validates', () => {
+        expect(substituteBranchNumber('issue-{number}', 61)).toBe('issue-61');
+        expect(substituteBranchNumber('{number}-{number}', 7)).toBe('7-7');
+        expect(substituteBranchNumber('feature-spike', 61), 'a name with no placeholder').toBe('feature-spike');
+    });
+
+    it('refuses a substituted name that is not a usable branch name', () => {
+        expect(substituteBranchNumber('issue-{number}/x', 61), 'a path separator').toBeNull();
+        expect(substituteBranchNumber('..{number}', 61), 'a parent reference').toBeNull();
+        expect(substituteBranchNumber('{number', 61), 'an unterminated brace').toBeNull();
+        expect(substituteBranchNumber('bad name-{number}', 61), 'unsafe characters').toBeNull();
     });
 });
 

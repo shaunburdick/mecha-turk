@@ -241,7 +241,7 @@ describe('loading the selected binding into the editor (FR-053)', () => {
         }
     });
 
-    it('refuses a row whose worktree option the editor cannot render', async () => {
+    it('loads a `new:` worktree option into the select and name input, keeping an untouched save', async () => {
         {
             const service = await startWithAccount();
             await seedRow(service, { ...panelRow(), worktreeOption: 'new:feature' });
@@ -249,11 +249,31 @@ describe('loading the selected binding into the editor (FR-053)', () => {
 
             startEditingBinding(rt);
 
-            // Loading it would display `none` and silently rewrite `new:feature`
-            // on save, so the edit does not open at all — and says why.
-            expect(rt.state.bindings.editing).toBe(false);
-            expect(rt.state.bindings.note).toContain('new:feature');
-            expect(rt.state.bindings.repoInput).toBe('');
+            // The editor renders the option it is about to save, so the FR-003
+            // guard holds by display rather than by refusal: nothing a save
+            // writes differs from what the form showed.
+            expect(rt.state.bindings.editing).toBe(true);
+            expect(rt.state.bindings.worktreeSelection).toBe('new');
+            expect(rt.state.bindings.worktreeNameInput).toBe('feature');
+
+            // An untouched draft reads back as the stored option, byte-identical.
+            const draft = readDraft(rt.state.bindings, { bindingId: BINDING_ID });
+            expect(draft?.worktreeOption).toBe('new:feature');
+        }
+    });
+
+    it('preserves a `{number}` placeholder through load and an untouched save', async () => {
+        {
+            const service = await startWithAccount();
+            await seedRow(service, { ...panelRow(), worktreeOption: 'new:issue-{number}' });
+            const rt = await editorRuntime(service);
+
+            startEditingBinding(rt);
+
+            expect(rt.state.bindings.worktreeSelection).toBe('new');
+            expect(rt.state.bindings.worktreeNameInput).toBe('issue-{number}');
+            const draft = readDraft(rt.state.bindings, { bindingId: BINDING_ID });
+            expect(draft?.worktreeOption).toBe('new:issue-{number}');
         }
     });
 
@@ -370,6 +390,46 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
             expect(rt.state.bindings.editing).toBe(true);
             expect(rt.state.bindings.note).not.toContain('Saved');
             expect(rt.state.bindings.note).not.toContain(REFUSED_PROMPT);
+        }
+    });
+
+    it('refuses a `new` selection whose branch name is empty or unusable, writing nothing', async () => {
+        {
+            const service = await startWithAccount();
+            await seedRow(service, panelRow());
+            const rt = await editorRuntime(service);
+            const handlers = createBindingsHandlers(rt);
+
+            handlers.selectBinding(BINDING_ID);
+            handlers.setWorktree('new');
+            // The operator picked the option but left the name empty.
+            await saveEditedBinding(rt);
+            stopRelayPolling(rt);
+
+            // Fail-closed: the stored row still holds its old option, the note
+            // says why, and the editor stays open on the draft.
+            const [stored] = await storedBindings(service);
+            expect(stored?.worktreeOption).toBe('none');
+            expect(rt.state.bindings.note).toContain('branch name');
+            expect(rt.state.bindings.editing).toBe(true);
+        }
+    });
+
+    it('saves a `new` selection with a valid branch name, carrying the literal `{number}`', async () => {
+        {
+            const service = await startWithAccount();
+            await seedRow(service, panelRow());
+            const rt = await editorRuntime(service);
+            const handlers = createBindingsHandlers(rt);
+
+            handlers.selectBinding(BINDING_ID);
+            handlers.setWorktree('new');
+            handlers.setWorktreeName('issue-{number}');
+            await saveEditedBinding(rt);
+            stopRelayPolling(rt);
+
+            const [saved] = await storedBindings(service);
+            expect(saved?.worktreeOption).toBe('new:issue-{number}');
         }
     });
 
