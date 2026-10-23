@@ -43,6 +43,7 @@ import {
     editorStateLine,
     mountBindingActions,
     mountBindingMention,
+    worktreeNameFieldView,
     worktreeFieldView,
 } from './bindings-editor.ts';
 import type { BindingActions } from './bindings-editor.ts';
@@ -151,6 +152,8 @@ interface Form {
     readonly reviewSubmitted: CheckboxHandle;
     readonly checks: CheckboxHandle;
     readonly worktree: SelectHandle;
+    /** The branch-name input, active only when the `new` option is chosen. */
+    readonly worktreeName: TextFieldHandle;
     readonly actors: BindingActorControls;
     /** The history-scope control and the derived window line beneath it. */
     readonly historyScope: BindingHistoryScopeControls;
@@ -380,6 +383,10 @@ function mountAddForm(input: MountInputs): Form {
         input.pane,
         worktreeFieldView(input.rt.state.bindings, input.handlers.setWorktree),
     );
+    const worktreeName = mountTextField(
+        input.pane,
+        worktreeNameFieldView(input.rt.state.bindings, input.handlers.setWorktreeName),
+    );
 
     return {
         editorState,
@@ -398,6 +405,7 @@ function mountAddForm(input: MountInputs): Form {
         reviewSubmitted: checks.reviewSubmitted,
         checks: checks.checks,
         worktree,
+        worktreeName,
     };
 }
 
@@ -442,6 +450,7 @@ function disposeBindingsBody(input: BodyParts): void {
         form.reviewSubmitted,
         form.checks,
         form.worktree,
+        form.worktreeName,
         ...Object.values(actions),
     ];
 
@@ -519,6 +528,7 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
         reviewSubmittedCheck: form.reviewSubmitted,
         checksCheck: form.checks,
         worktreeSelect: form.worktree,
+        worktreeNameField: form.worktreeName,
         addBinding: actions.add,
         cancelEdit: actions.cancel,
         detailBox: detail.detailBox,

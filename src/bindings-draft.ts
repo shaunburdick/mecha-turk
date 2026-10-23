@@ -2,7 +2,7 @@
  * The Bindings tab's draft and the reader that turns it into the whole-file grant's row (FR-050, FR-014, FR-047/089).
  */
 
-import { parseRepository, repositoryLabel } from './config.ts';
+import { formatWorktreeOption, parseRepository, parseWorktreeOption, repositoryLabel } from './config.ts';
 import { accountSelectionRefusal } from './bindings-accounts.ts';
 import { newCorrelationId, nowIso } from './ids.ts';
 import { DEFAULT_HISTORY_SCOPE, readHistoryScope } from './bindings-service.ts';
@@ -62,6 +62,11 @@ const DUPLICATE_NOTE = 'That repository is already bound.';
 
 /** Note the draft refuses with when no project is picked. */
 const PROJECT_NOTE = 'Pick the OpenChamber project the dispatch opens in.';
+
+/** Note the draft refuses with when the `new` branch name is unusable. */
+const WORKTREE_NAME_NOTE =
+    'For the `new` worktree option, the branch name must be non-empty, use only letters, digits, `.`, `_`, `-`, '
+    + 'and the literal `{number}` placeholder — no `..` and no path separators.';
 
 /** Where a draft is being read from: a brand-new row, or the loaded one. */
 type DraftOrigin =
@@ -211,6 +216,31 @@ function draftIdentity(
 }
 
 /**
+ * Read the worktree option a saved row writes: **the draft's value in both
+ * modes**, composing `new:<name>` from the select and the name input. A name
+ * is validated fail-closed through the shared {@link parseWorktreeOption} —
+ * the same rule the service validator and the relay run — so a draft that
+ * cannot become a legal option is refused here with a note rather than
+ * silently dropping the `new` choice back to `none` (FR-003).
+ *
+ * @returns The option text, or `null` when the draft's name is unusable.
+ */
+function draftWorktreeOption(bindings: BindingsTabState): string | null {
+    if (bindings.worktreeSelection !== 'new') {
+        return bindings.worktreeSelection;
+    }
+
+    const parsed = parseWorktreeOption(`new:${bindings.worktreeNameInput}`);
+    if (parsed?.kind !== 'new') {
+        bindings.note = WORKTREE_NAME_NOTE;
+
+        return null;
+    }
+
+    return formatWorktreeOption(parsed);
+}
+
+/**
  * Read one form draft, answered as a ready binding or the problems. Called in
  * two modes, and the mode is the whole difference: with no
  * {@link DraftEditTarget} this reads the **add** form and mints a new row;
@@ -241,6 +271,11 @@ export function readDraft(bindings: BindingsTabState, edit?: DraftEditTarget): P
         return null;
     }
 
+    const worktreeOption = draftWorktreeOption(bindings);
+    if (worktreeOption === null) {
+        return null;
+    }
+
     const stamp = nowIso();
 
     return {
@@ -249,7 +284,7 @@ export function readDraft(bindings: BindingsTabState, edit?: DraftEditTarget): P
         accountLogin: account.accountLogin,
         repository: label,
         projectId,
-        worktreeOption: bindings.worktreeSelection,
+        worktreeOption,
         triggers: {
             assignment: bindings.triggerAssignment,
             mention: bindings.triggerMention,

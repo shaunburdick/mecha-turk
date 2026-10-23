@@ -5805,7 +5805,8 @@ function effectiveHistoryScope(historyScope) {
 
 // src/config.ts
 var REPOSITORY_PART_PATTERN = /^[A-Za-z0-9_.-]+$/;
-var BRANCH_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+var BRANCH_NAME_PATTERN_WITH_PLACEHOLDER = /^[A-Za-z0-9._{}-]+$/;
+var BRANCH_PLACEHOLDER = "{number}";
 var PARENT_PATH_REFERENCE = "..";
 var PROJECT_ID_PATTERN = /^[\x20-\x7E]+$/;
 var PROJECT_ID_MAX = 128;
@@ -5833,7 +5834,11 @@ function parseWorktreeOption(value) {
     return null;
   }
   const name = trimmed.slice("new:".length).trim();
-  if (name === "" || name.includes(PARENT_PATH_REFERENCE) || !BRANCH_NAME_PATTERN.test(name)) {
+  if (name === "" || name.includes(PARENT_PATH_REFERENCE) || !BRANCH_NAME_PATTERN_WITH_PLACEHOLDER.test(name)) {
+    return null;
+  }
+  const bracesStripped = name.replaceAll(BRANCH_PLACEHOLDER, "");
+  if (bracesStripped.includes("{") || bracesStripped.includes("}")) {
     return null;
   }
   return { kind: "new", name };

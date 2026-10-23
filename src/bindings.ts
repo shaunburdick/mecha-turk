@@ -63,6 +63,7 @@ export function resetDraft(bindings: BindingsTabState, displayed: string | null)
     bindings.triggerReviewSubmitted = false;
     bindings.triggerChecks = false;
     bindings.worktreeSelection = 'none';
+    bindings.worktreeNameInput = '';
 }
 function resetCoveredDraft(bindings: BindingsTabState, repository: string, displayed: string | null): void {
     const draft = bindings.repoInput.trim().toLowerCase();

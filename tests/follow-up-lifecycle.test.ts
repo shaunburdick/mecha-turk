@@ -3557,6 +3557,18 @@ describe('FR-104 the delivery gate (AC-050)', () => {
         }
     });
 
+    it('carries no READ THE SOURCE OF RECORD block — the source instruction is initial-dispatch only', () => {
+        {
+            const message = followUpMessage({
+                row: rowWith({ sessionId: 'ses_follow_up_1' }),
+                followUp: commentFollowUp({ excerpt: 'the drift is back' }),
+            });
+
+            expect(message).not.toContain('READ THE SOURCE OF RECORD');
+            expect(message).not.toContain('--comments');
+        }
+    });
+
     it('defuses a hostile issue title inside its own frame, not only inside the block', async () => {
         {
             // Untrusted text in the frame itself: a title carrying the closing

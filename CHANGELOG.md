@@ -48,9 +48,32 @@ matching section below plus GitHub's generated notes.
   row. The failing-check id is now
   `~followup~checks~<headSha>`, and `Checks: read` joins the token
   prerequisite when the Checks switch is on.
+- **The binding's worktree option offers a named new worktree/branch, and the
+  `{number}` placeholder** (#63). The add/edit form gains a third choice beside
+  `none` and `generated` — `new`, with a branch-name input that activates only
+  when it is selected — so a `new:<branch>` row loads into the editor and an
+  untouched save keeps it byte-identical instead of being refused as unrenderable
+  (FR-003). A name may carry the one literal placeholder `{number}`, which the
+  relay substitutes with the source issue/PR number at dispatch time and
+  re-validates fail-closed against the branch-name rule; a substituted name that
+  is not usable refuses the dispatch before `host.startSession()`, the way the
+  over-budget floor does. Any other brace — `{ NUMBER }`, `{number`, `new:issue-{issue}` —
+  is still refused, so no other templating exists. The service validator and the
+  run rows are unchanged: config stores the placeholder verbatim.
 
 ### Fixed
 
+- **The dispatch frame now orders the agent to read the source and its
+  comments** (#69). A `READ THE SOURCE OF RECORD` block sits directly beneath
+  the `SESSION TITLE` block — an imperative to read the full issue or pull
+  request and its existing comments before acting (the quoted excerpt is
+  partial by design), the `gh issue view <n> --repo <owner>/<repo>
+  --comments` mechanism (pull requests: `gh pr view <n> --comments`), and the
+  why — a comment may carry a requirement, correction, or scope decision the
+  body does not. Requirements posted as comments were previously invisible to
+  a dispatched session unless the operator pointed at them. The block is
+  literals only, byte-identical under a hostile issue title, and follow-ups
+  do not gain it.
 - **The session-naming instruction now opens the dispatch frame** (#66). The
   naming rule moves out of the header metadata into a `SESSION TITLE` block
   that leads the frame — an imperative, the `"Issue #n: <subject>"` format
