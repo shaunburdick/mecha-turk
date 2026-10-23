@@ -31,7 +31,7 @@ import {
     tick,
 } from './support/panel.ts';
 import { fakeDom } from './support/dom.ts';
-import { stubPaints, stubPanelUi, stubBindingsPane } from './support/ui-stubs.ts';
+import { stubLastProps, stubPaints, stubPanelUi, stubBindingsPane } from './support/ui-stubs.ts';
 
 /** Repository the draft patches and the loaded fixture row both name. */
 const REPOSITORY = 'acme/widget';
@@ -222,6 +222,25 @@ describe('createBindingsHandlers (handler table wired to real actions)', () => {
 });
 
 describe('refresh (the repaint path a mounted Bindings body takes)', () => {
+    it('renders the action note beside the editor while it is open, and above the list while it is closed', () => {
+        const rt = createTestRuntime(fakeHost());
+        const { bindings } = attachStubBody(rt);
+        const refusal = 'repository must be `owner/name`';
+        rt.state.bindings.note = refusal;
+
+        rt.state.bindings.editorOpen = true;
+        refresh(rt);
+
+        expect(stubLastProps(bindings.editorNote)).toEqual({ text: refusal });
+        expect(stubLastProps(bindings.note)).toEqual({ text: '' });
+
+        rt.state.bindings.editorOpen = false;
+        refresh(rt);
+
+        expect(stubLastProps(bindings.note)).toEqual({ text: refusal });
+        expect(stubLastProps(bindings.editorNote)).toEqual({ text: '' });
+    });
+
     it('repaints the pane the shell mounted, project status line included', () => {
         {
             const rt = createTestRuntime(fakeHost());

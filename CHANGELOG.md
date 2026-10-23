@@ -13,6 +13,15 @@ matching section below plus GitHub's generated notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A refused binding save says so beside the Save control.** Every refusal the
+  button can produce — an unusable `new:` branch name, a repository the draft
+  will not read, the service's own `422` — went to the action note above the
+  list, while the button sits at the bottom of a long editor, so pressing it
+  looked like nothing happened. The note now renders above the action row while
+  the editor is open, and in its old place while it is closed.
+
 ## [0.5.0] - 2026-10-23
 
 ### Added

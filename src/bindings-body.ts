@@ -175,6 +175,8 @@ interface BodyParts {
     readonly editorBlock: Block;
     readonly board: Board;
     readonly form: Form;
+    /** The action note beside the editor's Save control. */
+    readonly editorNote: TextHandle;
     /** The editor's and the list's control rows. */
     readonly actions: BindingActions;
     readonly actors: BindingActorControls;
@@ -431,10 +433,11 @@ function mountSelectedDetail(parent: HTMLElement): SelectedDetail {
  * both block headings go with their blocks.
  */
 function disposeBindingsBody(input: BodyParts): void {
-    const { pane, listBlock, editorBlock, board, form, actions, actors, prompt, detail } = input;
+    const { pane, listBlock, editorBlock, board, form, actions, actors, prompt, detail, editorNote } = input;
     const handles = [
         board.status,
         board.note,
+        editorNote,
         board.bindingsList,
         board.refreshBindings,
         form.editorState,
@@ -504,6 +507,7 @@ function assemblePane(input: BodyParts & { readonly editorBox: HTMLElement }): B
         pane: input.pane,
         status: board.status,
         note: board.note,
+        editorNote: input.editorNote,
         bindingsList: board.bindingsList,
         refreshBindings: board.refreshBindings,
         newBindingReason: board.newBindingReason,
@@ -566,6 +570,8 @@ export function mountBindingsBody(input: {
     // button writes all of it (FR-051, 004 FR-014 — untouched still omits; the
     // allow-list above rides the same write, where omission means *unset*).
     const prompt = mountBindingPrompt({ rt, pane: editorBlock.body, handlers });
+    // Before the action row: a refused Save reports beside the control that was pressed.
+    const editorNote = mountText(editorBlock.body, { text: '' });
     const actions = mountBindingActions({
         editor: createToolbar(editorBlock.body),
         row: board.toolbar,
@@ -583,6 +589,7 @@ export function mountBindingsBody(input: {
         actors: form.actors,
         prompt,
         detail,
+        editorNote,
         editorBox,
     });
 }

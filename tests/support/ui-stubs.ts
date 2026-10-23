@@ -97,6 +97,7 @@ export function stubBindingsPane(paneBody: HTMLElement): BindingsPane {
     return {
         status: stubHandle(),
         note: stubHandle(),
+        editorNote: stubHandle(),
         bindingsList: stubHandle(),
         refreshBindings: stubHandle(),
         // The history-scope control and its derived window line (002 FR-089, FR-092).
