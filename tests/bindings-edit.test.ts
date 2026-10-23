@@ -20,10 +20,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { createBindingsHandlers } from '../src/bindings-mount.ts';
 import { saveEditedBinding, startEditingBinding, startNewBinding } from '../src/bindings-edit.ts';
-import { readDraft } from '../src/bindings.ts';
+import { loadBindings, readDraft } from '../src/bindings.ts';
 import { parseBindingsBody } from '../src/bindings-service.ts';
 import { stopRelayPolling } from '../src/relay.ts';
-import { BINDINGS_PATH } from '../src/service-calls.ts';
+import { ACCOUNTS_PATH, BINDINGS_PATH } from '../src/service-calls.ts';
 import type { PanelBinding, PanelTriggers } from '../src/bindings-service.ts';
 import type { PanelHost } from '../src/session.ts';
 import { VERIFY_PATH } from '../service/routes/verify.ts';
@@ -452,6 +452,51 @@ describe('saving an edited binding through the whole-file grant (FR-050)', () =>
         }
     });
 
+});
+
+describe('a re-read leaves an open edit alone', () => {
+    it('keeps every edited field when loadBindings answers while the editor is open', async () => {
+        {
+            const row = panelRow();
+            const rt = createTestRuntime(fakeHost({
+                serviceRequest: async (request) => {
+                    if (request.method === 'GET' && request.path === BINDINGS_PATH) {
+                        return { status: 200, body: JSON.stringify({ bindings: [row], status: [] }) };
+                    }
+
+                    if (request.method === 'GET' && request.path === ACCOUNTS_PATH) {
+                        return {
+                            status: 200,
+                            body: JSON.stringify({
+                                accounts: [{ numericUserId: ACCOUNT_ID, login: ACCOUNT_LOGIN }],
+                            }),
+                        };
+                    }
+
+                    return { status: 404, body: '{"error":{"code":"not-found"}}' };
+                },
+            }));
+            rt.state.bindings.status = 'ready';
+            rt.state.bindings.bindings = [row];
+            const handlers = createBindingsHandlers(rt);
+
+            handlers.selectBinding(BINDING_ID);
+            handlers.setWorktree('new');
+            handlers.setWorktreeName('issue');
+            handlers.setChecks(true);
+            await loadBindings(rt);
+            stopRelayPolling(rt);
+
+            // The read replaces the stored list, never the draft: what the editor
+            // shows is still what its Save would write.
+            expect(rt.state.bindings.editing).toBe(true);
+            expect(rt.state.bindings.repoInput).toBe(REPOSITORY);
+            expect(rt.state.bindings.worktreeSelection).toBe('new');
+            expect(rt.state.bindings.worktreeNameInput).toBe('issue');
+            expect(rt.state.bindings.triggerChecks).toBe(true);
+            expect(readDraft(rt.state.bindings, { bindingId: BINDING_ID })?.worktreeOption).toBe('new:issue');
+        }
+    });
 });
 
 /** A recording service double for the handler-wiring assertions. */

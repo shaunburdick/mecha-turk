@@ -13,6 +13,23 @@ matching section below plus GitHub's generated notes.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-23
+
+### Fixed
+
+- **A refused binding save says so beside the Save control.** Every refusal the
+  button can produce — an unusable `new:` branch name, a repository the draft
+  will not read, the service's own `422` — went to the action note above the
+  list, while the button sits at the bottom of a long editor, so pressing it
+  looked like nothing happened. The note now renders above the action row while
+  the editor is open, and in its old place while it is closed.
+- **Re-reading the bindings no longer wipes an open edit.** A read reset any
+  draft whose repository the store already held — the rule that clears the add
+  form once its repository is bound — and an edit draft always names a stored
+  row, so *Refresh bindings* (or any read landing) silently returned the
+  editor's fields to the add form's defaults. The clearing now applies to the
+  add form only.
+
 ## [0.5.0] - 2026-10-23
 
 ### Added
@@ -220,7 +237,8 @@ The first published release: the extension installable from this repository.
   control over whether a new binding sees its backlog.
 - **A documentation site**, published to GitHub Pages.
 
-[Unreleased]: https://github.com/shaunburdick/mecha-turk/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/shaunburdick/mecha-turk/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/shaunburdick/mecha-turk/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/shaunburdick/mecha-turk/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/shaunburdick/mecha-turk/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/shaunburdick/mecha-turk/compare/v0.3.1...v0.4.0

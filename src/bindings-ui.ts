@@ -34,8 +34,10 @@ export interface BindingsPane {
     /** The window-in-force line under the editor's history-scope control (002 FR-092). */
     readonly windowScopeLine: TextHandle;
     readonly status: TextHandle;
-    /** The tab's note line, under the status: refusals and results (FR-085). */
+    /** The action note while the editor is closed, under the status: refusals and results (FR-085). */
     readonly note: TextHandle;
+    /** The same action note while the editor is open, beside its Save control. */
+    readonly editorNote: TextHandle;
     /** Bindings list with per-binding scan lines. */
     readonly bindingsList: ListHandle;
     readonly refreshBindings: ButtonHandle;
@@ -185,7 +187,9 @@ export function repaintBindingsPane(rt: PanelRuntime, view: BindingsPane): void 
     const { bindings } = rt.state;
 
     view.status.update({ text: composeStatus(bindings) });
-    view.note.update({ text: bindings.note });
+    // The note follows the action it reports: a refusal belongs where the operator acted.
+    view.note.update({ text: bindings.editorOpen ? '' : bindings.note });
+    view.editorNote.update({ text: bindings.editorOpen ? bindings.note : '' });
     view.bindingsList.update({ items: bindingRows(bindings), emptyText: emptyBindingsText(bindings) });
     repaintAccountReason(bindings, view.newBindingReason);
     view.refreshBindings.update({ disabled: bindings.status === 'loading' });
