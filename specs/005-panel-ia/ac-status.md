@@ -120,3 +120,15 @@ audit row, adds no wire operation, and touches no existing member's shape.
 
 **Task ids refer to the consolidated list** at
 [`002-agent-event-extension/tasks.md` §"Issue #9 block (2026-10-03)"](../002-agent-event-extension/tasks.md).
+
+---
+
+## Amendment note — 2026-10-23 (spec v1.23.0: resolve-control arming stays in view; **met**)
+
+The table above remains the record of what proved what when this feature was accepted. **v1.23.0 adds one criterion; it was implemented 2026-10-23** — listed here so this file stays the single place a reader checks. Nothing above changes: the amendment re-cuts FR-042 and FR-044 in place (position now covers the page viewport, and the adjacency clause names a bounded list viewport), adds no `FR-` number, and moves no wire, storage, capability, or audit surface. `SC-104`, `SC-108`, and `SC-114(c)` are untouched — **Dispatches still has activation and `Refresh dispatches` only, with no cadence and no timer** (Action C is not taken up).
+
+| Criterion | Status | Evidence |
+| --- | --- | --- |
+| **005 AC-167** *(resolve-control arming stays in view, and a no-change repaint does not touch the list)* | Met | `tests/dispatches-arming.test.ts` — one activation arms the control and renders its confirm copy with the list handle's `update` **uncalled**; a second activation posts **exactly one** request; `update` **is** called for each of the three paint inputs changed on its own (items, selection, empty text); and the shipped sheet resolves `max-height` to a finite viewport-relative value with `overflow-y: auto` through `tests/support/cascade.ts`, the **Selected dispatch** block following the set block in DOM order — that cascade assertion, not the frames, is what proves the cap. `npm run shot` with the `selected-unconfirmed` scene at 720 px, 560 px, and `--width 320` produced `screenshots/panel-dispatches-selected-unconfirmed.png`, `-narrow.png`, and `screenshots/selected-unconfirmed-320/panel-dispatches-selected-unconfirmed.png`, each showing the armed confirm copy and the Selected block below the list — AC-167(5)'s pull-request evidence. |
+
+**Task ids refer to** [`tasks.md` §"Amendment tasks — v1.23.0 resolve-arming visibility"](./tasks.md).

@@ -706,6 +706,17 @@
                 margin-left: auto;
             }
 
+            /*
+             * A bounded viewport keeps the Selected dispatch block — the
+             * resolutions, their armed copy, and the facts to check — next to
+             * the row rather than below 25 of them (FR-044). `vh`, not a row
+             * count: inside the host's clamp a row's height follows the width.
+             */
+            .mt-list--dispatches {
+                max-height: clamp(9rem, 45vh, 26rem);
+                overflow-y: auto;
+            }
+
             /* ---------------------------------------------------------------- *
              * Shared text treatments.
              * ---------------------------------------------------------------- */

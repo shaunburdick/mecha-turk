@@ -37,6 +37,9 @@ export const ACCOUNTS_PATH = '/v1/accounts';
 
 export const EVENTS_PENDING_PATH = '/v1/events/pending';
 
+/** The panel's claim: one run per relay interval (FR-081). The bare route stays the harness's own read. */
+export const PENDING_CLAIM_PATH = `${EVENTS_PENDING_PATH}?limit=1`;
+
 /**
  * Path of the service configuration document.
  *

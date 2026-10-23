@@ -122,7 +122,7 @@ describe('removeBinding (per-binding purge control)', () => {
         // The PUT carried the filtered list: one row, not the selected one.
         expect(requests.map((request) => `${request.method} ${request.path}`)).toEqual([
             'PUT /v1/bindings',
-            'GET /v1/events/pending',
+            'GET /v1/events/pending?limit=1',
         ]);
         const put = requests[0];
         expect(put?.method).toBe('PUT');

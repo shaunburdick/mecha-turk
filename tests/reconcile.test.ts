@@ -27,6 +27,7 @@ import { RECONCILE_BUDGET_MS, reconcileDispatchAttempts } from '../src/reconcile
 import {
     DISPATCH_SCHEMA_VERSION,
     DISPATCH_STORAGE_KEY,
+    fillDispatchToken,
     loadDispatchRecord,
     recordDispatchIntent,
     recordDispatchOutcome,
@@ -70,8 +71,8 @@ const LEASE_B = 'lse-bbbbbbbbbbbbbbbbbbbbbbbb';
 /** Session id the fixture's dispatched outcome reports. */
 const SESSION_ID = 'ses_1';
 
-/** `GET /v1/events/pending`, the claim the relay ticks on. */
-const PENDING_GET = 'GET /v1/events/pending';
+/** `GET /v1/events/pending?limit=1`, the claim the relay ticks on (FR-081). */
+const PENDING_GET = 'GET /v1/events/pending?limit=1';
 
 /** One answer in the service-double route table. */
 interface RouteAnswer {
@@ -127,14 +128,34 @@ function isAcknowledged(value: JsonValue): boolean {
 }
 
 /**
+ * Whether a value written to the dispatch record is the delete's empty document.
+ *
+ * @param value - Value the panel stored.
+ * @returns `true` when the write removed every attempt and carries no follow-ups.
+ */
+function isDeletedDocument(value: JsonValue): boolean {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return false;
+    }
+
+    const { attempts } = value;
+
+    return Array.isArray(attempts) && attempts.length === 0 && !('followUps' in value);
+}
+
+/**
  * Build a recorded double for one mounted panel.
  *
  * @param options - `failAcknowledge` makes the acknowledgement write throw, so
  *   a landed report still leaves the record unacknowledged (the case that
- *   proves a repeat is byte-identical rather than a fresh report).
+ *   proves a repeat is byte-identical rather than a fresh report);
+ *   `failDelete` makes the delete's write throw.
  * @returns The runtime, the timeline, and the route-swap control.
  */
-function harness(routes: RouteTable = okRoutes(), options: { readonly failAcknowledge?: boolean } = {}): Harness {
+function harness(
+    routes: RouteTable = okRoutes(),
+    options: { readonly failAcknowledge?: boolean; readonly failDelete?: boolean } = {},
+): Harness {
     const timeline: string[] = [];
     const postBodies: string[] = [];
     let table = routes;
@@ -155,6 +176,12 @@ function harness(routes: RouteTable = okRoutes(), options: { readonly failAcknow
             set: async (key, value) => {
                 if (key === DISPATCH_STORAGE_KEY && options.failAcknowledge === true && isAcknowledged(value)) {
                     timeline.push('ack-refused');
+
+                    throw new Error('HOST_STORAGE_WRITE_FAILED');
+                }
+
+                if (key === DISPATCH_STORAGE_KEY && options.failDelete === true && isDeletedDocument(value)) {
+                    timeline.push('delete-refused');
 
                     throw new Error('HOST_STORAGE_WRITE_FAILED');
                 }
@@ -209,7 +236,7 @@ async function record(rt: PanelRuntime, input: {
     expect(isWritten).toBe(true);
 }
 
-/** Record one authorization whose outcome never landed, the way a teardown leaves it. */
+/** Record the placeholder the relay writes before its reservation, the way a teardown leaves it. */
 async function recordUnknown(rt: PanelRuntime, input: {
     readonly correlationId: string;
     readonly runKey: string;
@@ -223,7 +250,6 @@ async function recordUnknown(rt: PanelRuntime, input: {
         runKey: input.runKey,
         attempt: input.attempt ?? 1,
         leaseId: input.leaseId ?? LEASE_A,
-        dispatchToken: TOKEN,
         projectId: input.projectId ?? PROJECT_ID,
         worktreeOption: input.worktreeOption ?? 'generated',
     });
@@ -498,7 +524,7 @@ describe('unknown records are surfaced, never reported (FR-025, AC-135)', () => 
         expect(relay.rt.state.status.tone).toBe('warning');
         expect(relay.postBodies).toHaveLength(0);
         expect(body.indexOf(RUN_A)).toBeLessThan(body.indexOf(`project ${PROJECT_ID}`));
-        expect(body).toContain('never recorded as producing a session');
+        expect(body).toContain('never recorded as having produced a session');
         expect(body).toContain(`project ${PROJECT_ID}`);
         expect(body).toContain('worktree option new:mt-7');
         expect(body).toContain(`attachment ${RUN_A}`);
@@ -898,6 +924,163 @@ describe('the reservation is the settle anchor (FR-045, AC-135)', () => {
         expect(outcome.warning).not.toBeNull();
         expect(relay.rt.state.status.body).toContain('could not check');
         expect(await settledAtOf(relay.rt, RUN_A)).toBeNull();
+    });
+});
+
+describe('a never-authorized placeholder is deleted, not warned about (FR-045, AC-157)', () => {
+    it('deletes a null-token record when the read carries its lease\'s recovery verdict, silently', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.lease-expired',
+                        details: { leaseId: LEASE_A, attemptBefore: 1, attemptAfter: 2 },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).toBeNull();
+        expect(outcome.outstanding).toEqual([]);
+        expect(await storedAttempts(relay.rt)).toEqual([]);
+        expect(relay.postBodies).toHaveLength(0);
+    });
+
+    it('deletes on run.dead_lettered as well', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'run.dead_lettered',
+                        details: { leaseId: LEASE_A },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).toBeNull();
+        expect(await storedAttempts(relay.rt)).toEqual([]);
+    });
+
+    it('deletes nothing on an absent reserved row alone, and says the panel could not check', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: { status: 200, body: auditBody([]) },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).not.toBeNull();
+        expect(relay.rt.state.status.body).toContain('could not check');
+        expect(await storedAttempts(relay.rt)).toHaveLength(1);
+    });
+
+    it('deletes nothing when the verdict row carries a different lease', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.lease-expired',
+                        details: { leaseId: LEASE_B },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).not.toBeNull();
+        expect(relay.rt.state.status.body).toContain('could not check');
+        expect(await storedAttempts(relay.rt)).toHaveLength(1);
+    });
+
+    it('deletes nothing when the audit read fails', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: { status: 503, body: JSON.stringify({ error: { code: 'storage-unavailable' } }) },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).not.toBeNull();
+        expect(await storedAttempts(relay.rt)).toHaveLength(1);
+    });
+
+    it('never deletes a filled record beside the same verdict: it warns instead', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.lease-expired',
+                        details: { leaseId: LEASE_A },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+        await fillDispatchToken(relay.rt, {
+            correlationId: RUN_A,
+            attempt: 1,
+            leaseId: LEASE_A,
+            dispatchToken: TOKEN,
+        });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).not.toBeNull();
+        expect(relay.rt.state.status.body).toContain('could not check');
+        expect(await storedAttempts(relay.rt)).toHaveLength(1);
+    });
+
+    it('keeps the record and warns when the delete itself cannot be written', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.lease-expired',
+                        details: { leaseId: LEASE_A },
+                    }),
+                ]),
+            },
+        }, { failDelete: true });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(relay.timeline).toContain('delete-refused');
+        expect(outcome.warning).not.toBeNull();
+        expect(relay.rt.state.status.body).toContain('could not check');
+        expect(await storedAttempts(relay.rt)).toHaveLength(1);
+        expect(relay.postBodies).toHaveLength(0);
     });
 });
 

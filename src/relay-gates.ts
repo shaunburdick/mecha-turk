@@ -40,12 +40,15 @@ export const ACTOR_NOT_ALLOWED = 'actor-not-allowed';
  * What one reserve call answered: a union rather than `ReserveAnswer | null`
  * because the **actor-policy gate's** refusal has to travel somewhere — the
  * panel owes the run a `blocked:` report for it, which a bare `null` cannot
- * distinguish from a stale-lease refusal the service merely notes. Every other
- * refusal stays as before: one kind, no failure, the run ends.
+ * distinguish from a stale-lease refusal the service merely notes.
+ *
+ * `indeterminate` is not a verdict: the service may still hold a reservation, so
+ * the placeholder stays.
  */
 export type ReserveOutcome =
     | { readonly kind: 'reserved'; readonly reservation: ReserveAnswer }
-    | { readonly kind: 'refused'; readonly failure?: GuardFailure };
+    | { readonly kind: 'refused'; readonly failure?: GuardFailure }
+    | { readonly kind: 'indeterminate' };
 
 /** Why one fail-closed guard refused a dispatch before any host call. */
 export interface GuardFailure {
@@ -245,12 +248,11 @@ export function actorGateFailure(refusal: {
 }
 
 /**
- * Ask the service to authorize this attempt; never throws. Any refusal —
- * stale lease, already reserved, already dispatched, invalid transition — is
- * surfaced on the note line and ends the attempt, which keeps the host call out
- * of reach after any refusal; the **one** refusal that additionally owes a
- * `blocked:` report is the actor-policy gate's, arriving as `failure` for
- * {@link refuseWithBlocked} to post.
+ * Ask the service to authorize this attempt; never throws. A service verdict is
+ * surfaced on the note line and ends the attempt before the host call; the actor
+ * gate's is the one that also owes a `blocked:` report, arriving as `failure`.
+ * An answer carrying no verdict is `indeterminate`, because the service may still
+ * hold a reservation.
  */
 export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<ReserveOutcome> {
     const body = JSON.stringify({
@@ -264,12 +266,20 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
         body,
     });
     if (!stillRunning(rt)) {
-        return { kind: 'refused' };
+        return { kind: 'indeterminate' };
     }
 
     if (!answer.ok) {
+        // No envelope means no verdict: keep the placeholder (fail closed).
+        if (answer.code === null) {
+            rt.state.bindings.note = redact(`Run ${run.correlationId}: the service's authorization could not be`
+                + ` confirmed, so nothing was started: ${answer.problem}.`);
+
+            return { kind: 'indeterminate' };
+        }
+
         rt.state.bindings.note = redact(`Run ${run.correlationId} was not authorized to start: ${answer.problem}`
-            + `${answer.code === null ? '' : ` (${answer.code})`}.`);
+            + ` (${answer.code}).`);
 
         // The actor-policy gate's refusal is the one this panel *reports* rather
         // than merely notes. The service's answer is the authority,
@@ -287,19 +297,19 @@ export async function reserveRun(rt: PanelRuntime, run: ClaimedRun): Promise<Res
         return { kind: 'refused', ...(gate !== null && { failure: gate }) };
     }
 
-    const unreadable = `Run ${run.correlationId}: the service's authorization could not be read, so nothing`
-        + ' was started.';
     const reserved = parseReserveBody(answer.body);
     if (reserved === null) {
-        rt.state.bindings.note = unreadable;
+        rt.state.bindings.note = `Run ${run.correlationId}: the service's authorization could not be confirmed —`
+            + ' its answer could not be read, so nothing was started.';
 
-        return { kind: 'refused' };
+        return { kind: 'indeterminate' };
     }
 
     if (reserved.correlationId !== run.correlationId || reserved.attempt !== run.attempt) {
-        rt.state.bindings.note = unreadable;
+        rt.state.bindings.note = `Run ${run.correlationId}: the service's authorization could not be confirmed —`
+            + ' its answer did not name this run and attempt, so nothing was started.';
 
-        return { kind: 'refused' };
+        return { kind: 'indeterminate' };
     }
 
     if (!reserved.auditWritten) {
@@ -314,6 +324,12 @@ export const DISPOSED_ABANDON_REASON = 'panel closed after reserving, before the
 
 export const RECORD_REFUSED_ABANDON_REASON =
     'host storage refused the dispatch record write, so no session was started';
+
+/** The one storage-refusal sentence the panel has for a dispatch record it could not write (FR-046). */
+export function dispatchRecordRefusedNote(correlationId: string): string {
+    return redact(`Run ${correlationId}: the dispatch record could not be written, so a lost report would not be`
+        + ' recoverable from this panel.');
+}
 
 /** Tell the service a reserved attempt was abandoned before any host call, and record it in the ledger when asked. */
 export async function abandonReservation(input: {

@@ -7,6 +7,7 @@
  * `globalThis.__MT__`, the control surface `shot.js` drives. The frame's `src` is set after the
  * fixtures land, so the guest's `hello` cannot outrun the parent's `message` listener.
  */
+import { drives } from './drives.js';
 import { loadFixtures } from './fixtures.js';
 import {
     DARK,
@@ -412,6 +413,23 @@ async function settle() {
     }
 }
 
+/**
+ * Put the panel into a scene's state by pressing its own controls, so a capture
+ * photographs the state the scene's filename promises. Called once per page
+ * load: a second press of an armed control is the confirmation and would post.
+ */
+async function drive(name) {
+    const action = drives.get(name);
+
+    if (action === undefined) {
+        throw new Error(`unknown drive "${name}" — try: ${[...drives.keys()].join(', ')}`);
+    }
+
+    await action({ panel: panelDoc(), settle });
+
+    return name;
+}
+
 /** Paint (or clear) the freshness sentinel over the whole harness document, and report the
  * colour that is now painted. */
 async function sentinel(color) {
@@ -620,4 +638,5 @@ globalThis.__MT__ = {
     setTheme,
     applyFixture,
     hostThemeReport,
+    drive,
 };

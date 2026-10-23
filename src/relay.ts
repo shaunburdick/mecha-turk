@@ -5,17 +5,19 @@
 import { refresh } from './panel-ui.ts';
 import { parsePendingBody } from './claim-service.ts';
 import type { ClaimAnswer, ClaimedRun } from './claim-service.ts';
-import { EVENTS_PENDING_PATH, serviceGet } from './service-calls.ts';
+import { PENDING_CLAIM_PATH, serviceGet } from './service-calls.ts';
 import {
     DISPOSED_ABANDON_REASON,
     RECORD_REFUSED_ABANDON_REASON,
     RELAY_POLL_INTERVAL_MS,
     abandonReservation,
+    dispatchRecordRefusedNote,
     guardRun,
     refuseWithBlocked,
     reserveRun,
     stillRunning,
 } from './relay-gates.ts';
+import type { GuardFailure } from './relay-gates.ts';
 import { closeAttempt, startRunSession } from './relay-attempt.ts';
 import {
     deliverFollowUp,
@@ -25,7 +27,13 @@ import {
     trackCurrentSession,
     trackSessionLifecycle,
 } from './follow-up.ts';
-import { followUpRecordOf, loadDispatchRecord, recordDispatchIntent } from './dispatch-record.ts';
+import {
+    deleteDispatchIntent,
+    fillDispatchToken,
+    followUpRecordOf,
+    loadDispatchRecord,
+    recordDispatchIntent,
+} from './dispatch-record.ts';
 import type { DispatchRecordDocument, FollowUpDeliveryRecord } from './dispatch-record.ts';
 import { nowIso } from './ids.ts';
 import { waitingFollowUps } from './dispatches-detail.ts';
@@ -43,6 +51,26 @@ export { RELAY_POLL_INTERVAL_MS };
  */
 export function handledKey(run: Pick<ClaimedRun, 'correlationId' | 'attempt'>): string {
     return `${run.correlationId}#${run.attempt}`;
+}
+
+/**
+ * Delete the placeholder a service verdict refused, then post the actor gate's
+ * block report when that is the refusal.
+ */
+async function rejectReserved(input: {
+    readonly rt: PanelRuntime;
+    readonly run: ClaimedRun;
+    readonly failure: GuardFailure | undefined;
+}): Promise<void> {
+    const { rt, run, failure } = input;
+    await deleteDispatchIntent(rt, {
+        correlationId: run.correlationId,
+        attempt: run.attempt,
+        leaseId: run.lease.leaseId,
+    });
+    if (failure !== undefined) {
+        await refuseWithBlocked({ rt, run, failure });
+    }
 }
 
 /**
@@ -65,14 +93,32 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
         return;
     }
 
-    const reserved = await reserveRun(rt, run);
-    if (reserved.kind === 'refused') {
-        // The actor-policy gate's one refusal this panel owes a report for,
-        //  posted through the operation every other guard already uses.
-        // Every other refusal ends the attempt here, having written nothing.
-        if (reserved.failure !== undefined) {
-            await refuseWithBlocked({ rt, run, failure: reserved.failure });
+    // Recorded before the reservation (FR-024): a refusal here stops before a
+    // token exists.
+    const isPlaceholder = await recordDispatchIntent(rt, {
+        correlationId: run.correlationId,
+        runKey: run.runKey,
+        attempt: run.attempt,
+        leaseId: run.lease.leaseId,
+        projectId: run.projectId,
+        worktreeOption: run.worktreeOption,
+    });
+    if (!isPlaceholder) {
+        if (stillRunning(rt)) {
+            rt.state.bindings.note = dispatchRecordRefusedNote(run.correlationId);
         }
+
+        return;
+    }
+
+    const reserved = await reserveRun(rt, run);
+    if (reserved.kind === 'indeterminate') {
+        // The service may hold a reservation: the placeholder stays for FR-045.
+        return;
+    }
+
+    if (reserved.kind === 'refused') {
+        await rejectReserved({ rt, run, failure: reserved.failure });
 
         return;
     }
@@ -82,23 +128,21 @@ async function tryDispatch(input: { readonly rt: PanelRuntime; readonly run: Cla
         await abandonReservation({ rt, run, token, reason, requiresLedgerEntry });
     };
 
+    // A disposed panel leaves the placeholder unfilled; its abandon settles it.
     if (!stillRunning(rt)) {
         await abandon(DISPOSED_ABANDON_REASON);
 
         return;
     }
 
-    // Recorded before the act (FR-024); a refusal here stops the host call.
-    const isRecorded = await recordDispatchIntent(rt, {
+    const isFilled = await fillDispatchToken(rt, {
         correlationId: run.correlationId,
-        runKey: run.runKey,
         attempt: run.attempt,
         leaseId: run.lease.leaseId,
         dispatchToken: token,
-        projectId: run.projectId,
-        worktreeOption: run.worktreeOption,
     });
-    if (!isRecorded) {
+    if (!isFilled) {
+        // No host call without the token; the placeholder stays for FR-025.
         await abandon(RECORD_REFUSED_ABANDON_REASON, true);
 
         return;
@@ -144,18 +188,14 @@ export async function dispatchClaimedRun(rt: PanelRuntime, run: ClaimedRun): Pro
 }
 
 /**
- * Claim one batch of runs from the service.
- *
- * The answer is bounded and paginated (contract `claim-lease.md`): a short
- * answer is not "everything that was waiting", so this reader never concludes
- * anything about work it was not offered — `status.pendingCount` carries that
- * signal, and the loop simply claims again on its own clock.
+ * Claim one run (`limit=1`, FR-081): everything it excludes stays waiting,
+ * unleased and attempt-untouched.
  *
  * @returns The claim answer, or `null` when the service refused or answered
  *   something this build must not act on.
  */
 async function claimRuns(rt: PanelRuntime): Promise<ClaimAnswer | null> {
-    const fetched = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: EVENTS_PENDING_PATH });
+    const fetched = await serviceGet({ serviceRequest: rt.host.serviceRequest, path: PENDING_CLAIM_PATH });
     if (!fetched.ok || !stillRunning(rt)) {
         return null;
     }
@@ -321,22 +361,50 @@ function publishFollowUpState(rt: PanelRuntime, document: DispatchRecordDocument
 }
 
 /**
- * One relay tick: claim, dispatch each, refresh the follow-up view, deliver one
- * follow-up, and repaint. Never throws.
+ * Claim one run when a full relay interval has passed since the previous claim;
+ * the stamp records the issue, not the answer.
  */
-export async function pollRelay(rt: PanelRuntime): Promise<void> {
+async function claimIfDue(rt: PanelRuntime, atMs: number): Promise<ClaimAnswer | null> {
+    const previous = rt.state.relay.lastClaimAtMs;
+    // The arm-time claim stamps a hair after its timer is armed, and `Date.now()`
+    // floors to whole milliseconds, so the next sample can land one millisecond short.
+    if (previous !== null && atMs - previous < RELAY_POLL_INTERVAL_MS - 1) {
+        return null;
+    }
+
+    rt.state.relay.lastClaimAtMs = atMs;
+
+    return await claimRuns(rt);
+}
+
+/** Dispatch what one claim offered, and nothing when it offered nothing or the mount is gone. */
+async function dispatchOffered(rt: PanelRuntime, claim: ClaimAnswer | null): Promise<void> {
+    if (claim === null || !stillRunning(rt)) {
+        return;
+    }
+
+    for (const run of claim.runs) {
+        await dispatchClaimedRun(rt, run);
+    }
+}
+
+/**
+ * One tick: claim when paced, dispatch what it offered, refresh and deliver one
+ * follow-up. Pacing gates the claim, not the tick, so every entry point shares
+ * the one measurement. Never throws.
+ */
+export async function pollRelay(
+    rt: PanelRuntime,
+    options: { readonly now?: () => number } = {},
+): Promise<void> {
     if (rt.disposed || rt.state.relay.inFlight || rt.state.busy) {
         return;
     }
 
     rt.state.relay.inFlight = true;
     try {
-        const claim = await claimRuns(rt);
-        if (claim !== null && stillRunning(rt)) {
-            for (const run of claim.runs) {
-                await dispatchClaimedRun(rt, run);
-            }
-        }
+        const clock = options.now ?? Date.now;
+        await dispatchOffered(rt, await claimIfDue(rt, clock()));
 
         // The relay's own view, refreshed after the dispatch phase: a session
         // created by an attempt this very tick is what makes the follow-ups

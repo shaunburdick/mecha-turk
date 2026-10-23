@@ -3112,7 +3112,7 @@ function recordingOverrides(input: {
                 return { status: 200, body: JSON.stringify({ config }) };
             }
 
-            if (request.path === '/v1/events/pending') {
+            if (request.path === '/v1/events/pending?limit=1') {
                 return { status: 200, body: JSON.stringify({ events: [], status: [], auditWritten: true }) };
             }
 
@@ -4144,7 +4144,7 @@ describe('the fallback gate reads the projected engine member (span C; Gate 2 H2
                         return { status: 200, body: '{}' };
                     }
 
-                    if (request.path === '/v1/events/pending') {
+                    if (request.path === '/v1/events/pending?limit=1') {
                         return { status: 200, body: JSON.stringify({ events: [], status: [], auditWritten: true }) };
                     }
 
@@ -4660,7 +4660,7 @@ function relayHost(rows: { current: readonly RunRow[] }): {
         log: { actions, writes },
         host: fakeHost({
             serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
-                if (request.path === '/v1/events/pending') {
+                if (request.path === '/v1/events/pending?limit=1') {
                     return {
                         status: 200,
                         body: JSON.stringify({ events: [], status: [], auditWritten: true }),
@@ -4790,7 +4790,7 @@ describe("the relay's own view of the runs (FR-104's steady state)", () => {
             const values = new Map<string, JsonValue>();
             const rt = createTestRuntime(fakeHost({
                 serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
-                    if (request.path === '/v1/events/pending') {
+                    if (request.path === '/v1/events/pending?limit=1') {
                         return {
                             status: 200,
                             body: JSON.stringify({ events: [], status: [], auditWritten: true }),
@@ -5339,7 +5339,7 @@ function walkingHost(): { readonly host: PanelHost; readonly log: WalkLog } {
                     return { status: 200, body: '{}' };
                 }
 
-                if (request.path === '/v1/events/pending') {
+                if (request.path === '/v1/events/pending?limit=1') {
                     return {
                         status: 200,
                         body: JSON.stringify({ events: [], status: [], auditWritten: true }),

@@ -23,6 +23,7 @@ import {
     BINDINGS_PATH,
     EVENTS_PATH,
     EVENTS_PENDING_PATH,
+    PENDING_CLAIM_PATH,
     abandonPath,
     accountDeletePath,
     accountProfilePath,
@@ -73,6 +74,11 @@ describe('run-scoped path helpers (the correlation-id namespace)', () => {
         {
             expect(EVENTS_PENDING_PATH).toBe('/v1/events/pending');
             expect(EVENTS_PATH).toBe('/v1/events');
+        }
+        {
+            // FR-081: the panel's own claim asks for exactly one run, while the
+            // bare route stays what a manual read and the harness use.
+            expect(PENDING_CLAIM_PATH).toBe('/v1/events/pending?limit=1');
         }
         {
             expect(AUDIT_PATH).toBe('/v1/audit');

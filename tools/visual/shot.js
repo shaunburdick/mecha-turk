@@ -12,6 +12,7 @@ import { pathToFileURL } from 'node:url';
 import { assertVisibleBody } from './assert-body.js';
 import { activateTab, openHarness, restoreHarness, waitForBoot } from './boot.js';
 import { createBrowser } from './browser.js';
+import { drives } from './drives.js';
 import { align, assertLayout, bodyView, fitViewport, measure, MIN_VIEWPORT_HEIGHT, ROOT_PAD } from './layout.js';
 import { selfTest } from './png-selftest.js';
 import { startServer } from './serve.js';
@@ -188,6 +189,19 @@ function selectScene(name) {
         );
     }
 
+    const scene = SCENES[name];
+    if (scene.tab !== undefined && TABS.every((tab) => tab.id !== scene.tab)) {
+        throw new Error(
+            `scene "${name}" names an unknown tab "${scene.tab}" — try: ${TABS.map((tab) => tab.id).join(', ')}`,
+        );
+    }
+
+    if (scene.drive !== undefined && !drives.has(scene.drive)) {
+        throw new Error(
+            `scene "${name}" names an unknown drive "${scene.drive}" — try: ${[...drives.keys()].join(', ')}`,
+        );
+    }
+
     return name;
 }
 
@@ -295,6 +309,28 @@ function selectTabs(requested) {
     return chosen;
 }
 
+/**
+ * Restrict a scene run to the tab its drive was written for. A scene that names
+ * a tab captures **only** that tab: another tab would be photographed without
+ * the drive that puts it in the state the filename promises. A scene with no
+ * tab keeps the existing `--scene` behaviour.
+ */
+function restrictToSceneTab(tabs, sceneName, namedTabs) {
+    const scene = sceneName === null ? null : SCENES[sceneName];
+    if (scene === null || scene.tab === undefined) {
+        return tabs;
+    }
+
+    if (namedTabs.length > 0 && (tabs.length !== 1 || tabs[0].id !== scene.tab)) {
+        throw new Error(
+            `scene "${sceneName}" captures the "${scene.tab}" tab only — naming another tab would ` +
+                'photograph it without the scene drive',
+        );
+    }
+
+    return TABS.filter((entry) => entry.id === scene.tab);
+}
+
 /** Paint or clear the sentinel over the harness document. */
 function setSentinel(browser, color) {
     const argument = color === null ? 'null' : `'${color}'`;
@@ -364,6 +400,21 @@ async function captureFrame(input) {
 }
 
 /**
+ * Run the scene's drive once per page load, after its tab is active and before
+ * the first frame is fitted. A second press of an armed control is the
+ * confirmation and would post, so the flag clears as the drive fires; a
+ * `--width` run loads a fresh page and drives again.
+ */
+async function runSceneDrive(browser, context) {
+    if (context.drive === null || context.driven) {
+        return;
+    }
+
+    context.driven = true;
+    await browser.evaluate(`__MT__.drive('${context.drive}')`);
+}
+
+/**
  * Capture one tab: its frame at the default (or `--width`) width, then the narrow frame beside
  * it, so the tight end of the panel's real width band is always on disk next to the comfortable
  * one.
@@ -373,6 +424,7 @@ async function captureTab(input) {
     const stem = `panel-${tab.id}${scene === null ? '' : `-${scene}`}`;
 
     await activateTab({ browser, tab, refs: context.refs });
+    await runSceneDrive(browser, context);
 
     const captured = [
         await captureFrame({
@@ -554,7 +606,7 @@ async function main() {
     assertOptions(options);
     assertCodec(selfTest());
     const { scene } = options;
-    const tabs = selectTabs(options.tabs);
+    const tabs = restrictToSceneTab(selectTabs(options.tabs), scene, options.tabs);
     // A scene captures the tabs it was asked about and nothing else: a full-height frame of a
     // different scene would be a picture of the base document wearing the scene's filename.
     const includeFull = options.full && scene === null;
@@ -572,6 +624,8 @@ async function main() {
         fixture: options.fixture,
         refs: {},
         previousByWidth: new Map(),
+        drive: scene === null ? null : SCENES[scene].drive ?? null,
+        driven: false,
     };
 
     writeLine(
