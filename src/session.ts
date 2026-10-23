@@ -226,6 +226,13 @@ export function buildBoundedContext(input: BoundedContextInput): string {
         '<subject> is the issue title on the "Issue #n:" data line below — cut it at a word boundary, never reword.',
         'The default mt-run-… title is not acceptable, even though it contains the subject.',
         'Rename via `tools.opencode.session_rename` through `execute`: omit `sessionID` to rename your own session.',
+        // Requirements land in comments routinely; the excerpt below is partial by design — the block names the call.
+        'READ THE SOURCE OF RECORD',
+        'Before acting on this dispatch: read the full issue or pull request and its existing comments —',
+        'the excerpt quoted below is partial by design.',
+        'Issues: `gh issue view <n> --repo <owner>/<repo> --comments`',
+        '(pull requests: `gh pr view <n> --comments`)',
+        'A comment may carry a requirement, correction, or scope decision the body does not.',
         'Mecha Turk dispatch (automated — started by the Mecha Turk extension from a detected GitHub event).',
         `Correlation: ${input.correlationId}`,
         `Repository: ${input.repository}`,
