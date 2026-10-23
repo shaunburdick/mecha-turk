@@ -50,6 +50,17 @@ matching section below plus GitHub's generated notes.
 
 ### Fixed
 
+- **The dispatch frame now orders the agent to read the source and its
+  comments** (#69). A `READ THE SOURCE OF RECORD` block sits directly beneath
+  the `SESSION TITLE` block — an imperative to read the full issue or pull
+  request and its existing comments before acting (the quoted excerpt is
+  partial by design), the `gh issue view <n> --repo <owner>/<repo>
+  --comments` mechanism (pull requests: `gh pr view <n> --comments`), and the
+  why — a comment may carry a requirement, correction, or scope decision the
+  body does not. Requirements posted as comments were previously invisible to
+  a dispatched session unless the operator pointed at them. The block is
+  literals only, byte-identical under a hostile issue title, and follow-ups
+  do not gain it.
 - **The session-naming instruction now opens the dispatch frame** (#66). The
   naming rule moves out of the header metadata into a `SESSION TITLE` block
   that leads the frame — an imperative, the `"Issue #n: <subject>"` format
