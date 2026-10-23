@@ -1903,7 +1903,7 @@ var HEAD_TAIL = /^head~[0-9a-f]+$/;
 var REVIEW_TAIL = /^review~[0-9]+$/;
 var REVIEW_COMMENT_TAIL = /^review-comment~[0-9]+$/;
 var REVIEW_SUBMITTED_TAIL = /^review-submitted~[0-9]+$/;
-var CHECKS_TAIL = /^checks~[0-9a-f]+~(action_required|failure|timed_out|cancelled)$/;
+var CHECKS_TAIL = /^checks~[0-9a-f]+$/;
 var NUMERIC_TAILS = [
   { pattern: DECIMAL_SEGMENT, prefix: "", role: "comment" },
   { pattern: REVIEW_TAIL, prefix: "review~", role: "review" },
@@ -2630,6 +2630,26 @@ function parseSession(raw) {
     ...directory
   };
 }
+var CHECKS_VERDICTS = new Set(["watching", "passed", "failed", "expired", "none"]);
+function isChecksVerdict(value) {
+  return typeof value === "string" && CHECKS_VERDICTS.has(value);
+}
+function parseChecksWatch(raw) {
+  if (raw === undefined) {
+    return;
+  }
+  if (!isRecord(raw)) {
+    return null;
+  }
+  const headSha = readText(raw.headSha);
+  const armedAt = readStamp(raw.armedAt);
+  const polls = readCount(raw.polls);
+  const { verdict } = raw;
+  if (headSha === null || armedAt === null || polls === null || !/^[0-9a-f]+$/.test(headSha) || !isChecksVerdict(verdict)) {
+    return null;
+  }
+  return { headSha, armedAt, polls, verdict };
+}
 function parseVerification(raw) {
   if (!isRecord(raw)) {
     return null;
@@ -2832,7 +2852,8 @@ function parseRunParts(raw) {
   const references = parseList(raw.sourceReferences, { parse: parseReference, cap: MAX_SOURCE_REFERENCES });
   const attempts = parseList(raw.attempts, { parse: parseAttempt, cap: MAX_ATTEMPT_RECORDS });
   const prompt = parseStoredPromptSnapshot(raw.prompt);
-  if (scalars === null || objects === null || references === null || attempts === null || prompt === null || !runIdentityMatches(raw, scalars) || !runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
+  const checksWatch = parseChecksWatch(raw.checksWatch);
+  if (scalars === null || objects === null || references === null || attempts === null || prompt === null || checksWatch === null || !runIdentityMatches(raw, scalars) || !runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })) {
     return null;
   }
   return {
@@ -2840,11 +2861,12 @@ function parseRunParts(raw) {
     objects,
     references,
     attempts,
-    prompt: prompt.status === "set" ? prompt.snapshot : null
+    prompt: prompt.status === "set" ? prompt.snapshot : null,
+    checksWatch
   };
 }
 function runFromParts(raw, parts) {
-  const { scalars, objects, references, attempts, prompt } = parts;
+  const { scalars, objects, references, attempts, prompt, checksWatch } = parts;
   return {
     runKey: raw.runKey,
     correlationId: raw.correlationId,
@@ -2873,6 +2895,7 @@ function runFromParts(raw, parts) {
     session: objects.session,
     verification: objects.verification,
     ...scalars.lastHeadSha !== undefined && { lastHeadSha: scalars.lastHeadSha },
+    ...checksWatch !== undefined && { checksWatch },
     createdAt: scalars.createdAt,
     updatedAt: scalars.updatedAt
   };
@@ -3765,6 +3788,19 @@ function foldDelivery(input) {
   runs[index] = { ...open, updatedAt: now };
   followUps.push({ run: runs[index], deliveryId: delivery.id, kind });
 }
+function applyChecksWrites(input) {
+  const drops = new Set(input.drops);
+  for (const [position, run] of input.runs.entries()) {
+    if (drops.has(run.correlationId) && run.checksWatch !== undefined) {
+      input.runs[position] = { ...run, checksWatch: undefined, updatedAt: input.now };
+      continue;
+    }
+    const watch = input.writes?.get(run.correlationId);
+    if (watch !== undefined && run.session !== null) {
+      input.runs[position] = { ...run, checksWatch: watch, updatedAt: input.now };
+    }
+  }
+}
 function applyEnqueue(input) {
   const prompt = input.prompt ?? null;
   const runs = [...input.document.runs];
@@ -3790,6 +3826,12 @@ function applyEnqueue(input) {
   if (input.observedHeads !== undefined) {
     recordHeadSeeds(runs, input.observedHeads);
   }
+  applyChecksWrites({
+    runs,
+    writes: input.checksWrites,
+    drops: input.checksDrops,
+    now: input.now
+  });
   const auditIntents = [
     ...input.document.auditIntents ?? [],
     ...created.map((run) => ({
@@ -3909,7 +3951,7 @@ function followUpDiscriminatorOf(snapshot) {
       return `~followup~review-submitted~${snapshot.reviewId}`;
     }
     case "checks": {
-      return `~followup~checks~${snapshot.headSha}~${snapshot.conclusion}`;
+      return `~followup~checks~${snapshot.headSha}`;
     }
     case "review-comment": {
       return `~followup~review-comment~${snapshot.commentId}`;
@@ -4076,6 +4118,30 @@ async function readEvents(input) {
     return [];
   }
 }
+function hasDurableWork(input) {
+  return !(input.fresh === 0 && input.seeds === 0 && input.writes === 0 && input.drops === 0);
+}
+function enqueueApplyInput(input) {
+  return {
+    document: input.document,
+    deliveries: input.fresh,
+    now: nowIso(),
+    ...input.prompt !== undefined && { prompt: input.prompt },
+    ...input.seeds.size > 0 && { observedHeads: input.seeds },
+    ...input.checksWrites !== undefined && { checksWrites: input.checksWrites },
+    ...input.checksDrops !== undefined && { checksDrops: input.checksDrops }
+  };
+}
+function appendedRowsOf(fresh, outcome, intentAtMs) {
+  return fresh.map((event) => {
+    const runCorrelationId = outcome.links.get(event.id);
+    const linked = runCorrelationId === undefined ? event : { ...event, runCorrelationId };
+    return followUpKindOf(event.id) === null ? linked : { ...linked, engine: { state: "unknown", intentAtMs, cause: "intent" } };
+  });
+}
+function alertsBeforeRun(input) {
+  return input.fresh.some((event) => followUpKindOf(event.id) === "checks") && [...input.checksWrites?.values() ?? []].some((watch) => watch.verdict === "failed");
+}
 async function enqueueWithinChain(input) {
   const existing = await readQueue(input);
   const known = new Set(existing.map((event) => event.id));
@@ -4087,30 +4153,42 @@ async function enqueueWithinChain(input) {
     return true;
   });
   const seeds = input.observedHeads ?? new Map;
-  if (fresh.length === 0 && seeds.size === 0) {
+  const watchWrites = input.checksWrites?.size ?? 0;
+  const watchDrops = input.checksDrops?.length ?? 0;
+  if (!hasDurableWork({ fresh: fresh.length, seeds: seeds.size, writes: watchWrites, drops: watchDrops })) {
     return [];
   }
   const document = await readRunsDocument(input);
-  const outcome = applyEnqueue({
+  const outcome = applyEnqueue(enqueueApplyInput({
     document,
-    deliveries: fresh,
-    now: nowIso(),
-    ...input.prompt !== undefined && { prompt: input.prompt },
-    ...seeds.size > 0 && { observedHeads: seeds }
-  });
-  const intentAtMs = Date.now();
-  const appended = fresh.map((event) => {
-    const runCorrelationId = outcome.links.get(event.id);
-    const linked = runCorrelationId === undefined ? event : { ...event, runCorrelationId };
-    return followUpKindOf(event.id) === null ? linked : { ...linked, engine: { state: "unknown", intentAtMs, cause: "intent" } };
-  });
-  const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
+    fresh,
+    prompt: input.prompt,
+    seeds,
+    checksWrites: input.checksWrites,
+    checksDrops: input.checksDrops
+  }));
+  const appended = appendedRowsOf(fresh, outcome, Date.now());
   if (appended.length === 0) {
+    await writeRunsDocument({ ...input, document: outcome.document });
     await readRunsDocument(input);
     return [];
   }
-  const persistedIds = new Set(persistedRuns.runs.map((run) => run.correlationId));
-  await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended], persistedIds));
+  const queued = [...existing, ...appended];
+  if (alertsBeforeRun({ fresh, checksWrites: input.checksWrites })) {
+    const followUps = appended.filter((event) => followUpKindOf(event.id) !== null);
+    const triggers = appended.filter((event) => followUpKindOf(event.id) === null);
+    const retained = new Set(outcome.document.runs.map((run) => run.correlationId));
+    await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...followUps], retained));
+    const persisted = await writeRunsDocument({ ...input, document: outcome.document });
+    if (triggers.length > 0) {
+      const persistedIds = new Set(persisted.runs.map((run) => run.correlationId));
+      await input.store.writeJson(EVENTS_FILE, serializedQueue(queued, persistedIds));
+    }
+  } else {
+    const persisted = await writeRunsDocument({ ...input, document: outcome.document });
+    const retained = new Set(persisted.runs.map((run) => run.correlationId));
+    await input.store.writeJson(EVENTS_FILE, serializedQueue(queued, retained));
+  }
   await readRunsDocument(input);
   await recordEnqueueAudits({ ...input, outcome, appended });
   return appended;
@@ -10926,7 +11004,7 @@ function reviewSubmittedFollowUp(input) {
   });
 }
 function checksFollowUp(input) {
-  const { binding, pull, tracked, conclusion, names, detectedAt } = input;
+  const { binding, pull, tracked, headSha, names, detectedAt } = input;
   const actor = tracked.actorLogin;
   const attribution = tracked.actorAttribution;
   if (actor === null || attribution !== "direct") {
@@ -10942,9 +11020,8 @@ function checksFollowUp(input) {
     worktreeOption: binding.worktreeOption,
     kind: "review",
     followUp: "checks",
-    headSha: pull.headSha ?? "",
+    headSha,
     baseRef: null,
-    conclusion,
     issue: {
       issueNumber: pull.pullNumber,
       issueTitle: pull.title,
@@ -11024,7 +11101,6 @@ function headFollowUps(input) {
   const { binding, pulls, tracked, windowStart, detectedAt } = input;
   const rows = [];
   const observations = [];
-  const movements = [];
   for (const pull of pulls) {
     if (!stampInWindow(pull.updatedAt, windowStart)) {
       continue;
@@ -11038,13 +11114,12 @@ function headFollowUps(input) {
     if (seed === null || seed === pull.headSha) {
       continue;
     }
-    movements.push({ pullNumber: pull.pullNumber, headSha: pull.headSha });
     const row = headFollowUp({ binding, pull, tracked: subject, fromHeadSha: seed, detectedAt });
     if (row !== null) {
       rows.push(row);
     }
   }
-  return { rows, observations, movements };
+  return { rows, observations };
 }
 function followUpSubjects(events) {
   const issues = [];
@@ -11120,6 +11195,7 @@ function trackedOf(run) {
       correlationId: run.correlationId,
       subjectType: run.subjectType,
       lastHeadSha: run.lastHeadSha ?? null,
+      checksWatch: run.checksWatch ?? null,
       actorLogin: first?.actorLogin ?? null,
       actorAttribution: first?.actorAttribution ?? null,
       establishedAt: first?.detectedAt ?? null
@@ -11420,52 +11496,784 @@ async function assignmentEvents(input) {
   return { ok: true, events };
 }
 
-// service/poll/triggers-checks.ts
-async function triggersChecks(input) {
-  const { binding, poller, token, pace, tracked, detectedAt, movements, pulls } = input;
-  const repository = repositoryRefOf(binding.repository);
-  const byNumber = new Map(pulls.map((pull) => [pull.pullNumber, pull]));
-  const reads = new Map;
-  const events = [];
-  for (const movement of movements) {
-    let listed = reads.get(movement.headSha);
-    if (listed === undefined) {
-      listed = await poller.listHeadChecks({
-        token,
-        owner: repository.owner,
-        name: repository.name,
-        headSha: movement.headSha,
-        pace
-      });
-      reads.set(movement.headSha, listed);
+// service/poll/poller-entries.ts
+function asRecord(value) {
+  return isRecord(value) ? value : null;
+}
+function positiveIntOf2(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+function textOf(record, field) {
+  const value = record[field];
+  return typeof value === "string" ? value : null;
+}
+function readLogins(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const logins = [];
+  for (const entry of value) {
+    const login = asRecord(entry);
+    const candidate = login === null ? null : login.login;
+    if (typeof candidate !== "string" || candidate === "") {
+      return null;
     }
-    if (listed.kind !== "ok") {
-      return { ok: false, failure: listed };
-    }
-    if (listed.truncated) {
-      input.log.warn("check-runs walk truncated; this head produces nothing this cycle", {
-        headSha: movement.headSha
-      });
+    logins.push(candidate);
+  }
+  return logins;
+}
+function authorLoginOf(user) {
+  return user === null ? "" : textOf(user, "login") ?? "";
+}
+function authorTypeOf(user) {
+  return user === null ? "" : textOf(user, "type") ?? "";
+}
+function issueNumberOf2(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const lastSegment = value.slice(value.lastIndexOf("/") + 1);
+  return positiveIntOf2(Number(lastSegment));
+}
+function readIssueEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const issueNumber = positiveIntOf2(record.number);
+  const title = textOf(record, "title");
+  const url = textOf(record, "html_url");
+  const state = textOf(record, "state");
+  const assignees = readLogins(record.assignees);
+  if (issueNumber === null || title === null || url === null || state === null || assignees === null) {
+    return null;
+  }
+  const user = asRecord(record.user);
+  return {
+    issueNumber,
+    title,
+    url,
+    state,
+    body: textOf(record, "body"),
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user),
+    assignees,
+    isPullRequest: "pull_request" in record,
+    updatedAt: textOf(record, "updated_at"),
+    closedAt: textOf(record, "closed_at"),
+    stateReason: textOf(record, "state_reason")
+  };
+}
+function readCommentEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const commentId = positiveIntOf2(record.id);
+  const issueNumber = issueNumberOf2(record.issue_url);
+  const body = textOf(record, "body");
+  const url = textOf(record, "html_url");
+  const user = asRecord(record.user);
+  const authorLogin = authorLoginOf(user);
+  if (commentId === null || issueNumber === null || body === null || url === null || authorLogin === "") {
+    return null;
+  }
+  return {
+    commentId,
+    issueNumber,
+    body,
+    url,
+    authorLogin,
+    authorType: authorTypeOf(user),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readReviewCommentEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const commentId = positiveIntOf2(record.id);
+  const pullNumber = issueNumberOf2(record.pull_request_url);
+  const body = textOf(record, "body");
+  const user = asRecord(record.user);
+  const authorLogin = authorLoginOf(user);
+  if (commentId === null || pullNumber === null || body === null || authorLogin === "") {
+    return null;
+  }
+  return {
+    commentId,
+    pullNumber,
+    body,
+    authorLogin,
+    authorType: authorTypeOf(user),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readPullEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const pullNumber = positiveIntOf2(record.number);
+  const title = textOf(record, "title");
+  const url = textOf(record, "html_url");
+  const state = textOf(record, "state");
+  const requestedReviewers = readLogins(record.requested_reviewers);
+  if (pullNumber === null || title === null || url === null || state === null || requestedReviewers === null) {
+    return null;
+  }
+  const head = asRecord(record.head);
+  const base = asRecord(record.base);
+  const user = asRecord(record.user);
+  return {
+    pullNumber,
+    title,
+    url,
+    state,
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user),
+    requestedReviewers,
+    headSha: head === null ? null : textOf(head, "sha"),
+    baseRef: base === null ? null : textOf(base, "ref"),
+    merged: record.merged === true,
+    mergedAt: textOf(record, "merged_at"),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readReviewEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const reviewId = positiveIntOf2(record.id);
+  const state = textOf(record, "state");
+  if (reviewId === null || state === null) {
+    return null;
+  }
+  const user = asRecord(record.user);
+  return {
+    reviewId,
+    state,
+    submittedAt: textOf(record, "submitted_at"),
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user)
+  };
+}
+function readCheckRunEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const name = textOf(record, "name");
+  if (name === null || name === "") {
+    return null;
+  }
+  return {
+    name,
+    status: textOf(record, "status"),
+    conclusion: textOf(record, "conclusion"),
+    completedAt: readStamp(record.completed_at)
+  };
+}
+function readIssueObject(value) {
+  const issue2 = readIssueEntry(value);
+  return issue2 !== null && (issue2.state === "open" || issue2.state === "closed") ? issue2 : null;
+}
+function readPullObject(value) {
+  const pull = readPullEntry(value);
+  return pull !== null && (pull.state === "open" || pull.state === "closed") ? pull : null;
+}
+
+// service/poll/backoff.ts
+function unitFraction(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, value));
+}
+var MILLISECONDS_PER_SECOND = 1000;
+function backoffDelayMs(input) {
+  const step = Math.max(input.attempt - 2, 0);
+  const uncapped = input.policy.baseMs * 2 ** step;
+  const capped = Math.min(input.policy.maxMs, uncapped);
+  const jitter = 0.5 + 0.5 * unitFraction(input.random());
+  return Math.min(input.policy.maxMs, Math.floor(capped * jitter));
+}
+function nextWait(input) {
+  const backoffMs = backoffDelayMs({
+    policy: input.policy,
+    attempt: input.attempt,
+    random: input.random
+  });
+  if (input.guidanceSeconds === null) {
+    return { attempt: input.attempt, delayMs: backoffMs, source: "backoff" };
+  }
+  const guidedMs = Math.max(0, Math.round(input.guidanceSeconds * MILLISECONDS_PER_SECOND));
+  return guidedMs > backoffMs ? { attempt: input.attempt, delayMs: guidedMs, source: "guidance" } : { attempt: input.attempt, delayMs: backoffMs, source: "backoff" };
+}
+async function waitForRetry(input) {
+  const record = nextWait(input);
+  input.onWait(record);
+  await input.sleep(record.delayMs);
+  return record;
+}
+
+// service/poll/poller-transport.ts
+var STATUS_UNAUTHORIZED2 = 401;
+var STATUS_NOT_FOUND2 = 404;
+var STATUS_FORBIDDEN2 = 403;
+var STATUS_TOO_MANY_REQUESTS2 = 429;
+var MAX_LIST_PAGES = 2;
+var systemSleep = async (milliseconds) => {
+  await new Promise((resolve4) => {
+    setTimeout(resolve4, milliseconds);
+  });
+};
+function pollerRuntime(deps, fetchImpl) {
+  return {
+    fetchImpl,
+    log: deps.log,
+    sleep: deps.sleep ?? systemSleep,
+    random: deps.random ?? (() => Math.random())
+  };
+}
+function listUrl(input) {
+  const url = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/${input.path}`);
+  for (const [key, value] of Object.entries(input.query)) {
+    url.searchParams.set(key, value);
+  }
+  if (input.since !== null) {
+    url.searchParams.set("since", input.since);
+  }
+  return url;
+}
+function parseListPage(input) {
+  const parsed = parseJsonText(input.text);
+  if (!parsed.ok || !Array.isArray(parsed.value)) {
+    throw new Error(input.message);
+  }
+  return parsed.value.flatMap((entry) => {
+    const item = input.read(entry);
+    return item === null ? [] : [item];
+  });
+}
+function lastPageOf(link) {
+  if (link === null) {
+    return null;
+  }
+  for (const part of link.split(",")) {
+    if (!/\brel="last"/.test(part)) {
       continue;
     }
-    const pull = byNumber.get(movement.pullNumber);
-    const subject = tracked.get(movement.pullNumber);
-    if (pull === undefined || subject === undefined || listed.conclusion === null) {
+    const match = /[?&]page=(\d+)/.exec(part);
+    const page = match === null ? NaN : Number(match[1]);
+    return Number.isSafeInteger(page) && page > 0 ? page : null;
+  }
+  return null;
+}
+function parseEnvelopePage(input) {
+  const parsed = parseJsonText(input.text);
+  if (!parsed.ok || !isRecord(parsed.value)) {
+    throw new TypeError(input.message);
+  }
+  const entries = parsed.value[input.envelope];
+  if (!Array.isArray(entries)) {
+    throw new TypeError(input.message);
+  }
+  return entries.flatMap((entry) => {
+    const item = input.read(entry);
+    return item === null ? [] : [item];
+  });
+}
+async function classifyOutcome(response) {
+  if (response.status === STATUS_UNAUTHORIZED2 || response.status === STATUS_NOT_FOUND2) {
+    return { kind: "auth-failed" };
+  }
+  const rateLimitStatuses = [STATUS_FORBIDDEN2, STATUS_TOO_MANY_REQUESTS2];
+  if (rateLimitStatuses.includes(response.status) && isRateLimited(response)) {
+    return { kind: "rate-limited", retryAfterSeconds: retryAfterOf(response) };
+  }
+  return { kind: "unavailable", detail: "upstream" };
+}
+async function waitBeforeNextAttempt(context, wait) {
+  const { runtime, pace, url } = context;
+  await waitForRetry({
+    policy: pace.retry,
+    attempt: wait.attempt,
+    guidanceSeconds: wait.guidanceSeconds,
+    sleep: runtime.sleep,
+    random: runtime.random,
+    onWait: (record) => {
+      runtime.log.info("poll request waiting before its next attempt", {
+        path: url.pathname,
+        attempt: record.attempt,
+        delayMs: record.delayMs,
+        source: record.source
+      });
+    }
+  });
+}
+async function requestPage(input) {
+  const policy = input.pace.retry;
+  const attempts = Math.max(1, policy.maxAttempts);
+  let last = { kind: "unavailable", detail: "upstream" };
+  for (let attempt = 1;attempt <= attempts; attempt += 1) {
+    let response;
+    try {
+      response = await input.runtime.fetchImpl(input.url.href, {
+        method: "GET",
+        headers: requestHeaders(input.token),
+        signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
+      });
+    } catch (error) {
+      last = { kind: "unavailable", detail: transportDetail(error) };
+      if (attempt >= attempts) {
+        return { failure: last };
+      }
+      await waitBeforeNextAttempt(input, { attempt: attempt + 1, guidanceSeconds: null });
       continue;
     }
-    const row = checksFollowUp({
-      binding,
-      pull,
-      tracked: subject,
-      conclusion: listed.conclusion,
-      names: listed.names,
-      detectedAt
-    });
-    if (row !== null) {
-      events.push(row);
+    if (response.ok) {
+      return { response };
+    }
+    last = await classifyOutcome(response);
+    if (last.kind === "auth-failed" || attempt >= attempts) {
+      return { failure: last };
+    }
+    const guidanceSeconds = last.kind === "rate-limited" ? last.retryAfterSeconds : null;
+    await waitBeforeNextAttempt(input, { attempt: attempt + 1, guidanceSeconds });
+  }
+  return { failure: last };
+}
+async function readOnePage(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    return {
+      kind: "ok",
+      items: parseListPage({
+        text: await attempt.response.text(),
+        message: input.message,
+        read: input.read
+      }),
+      lastPage: lastPageOf(attempt.response.headers.get("link"))
+    };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
+async function readEnvelopePage(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    return {
+      kind: "ok",
+      items: parseEnvelopePage({
+        text: await attempt.response.text(),
+        envelope: input.envelope,
+        message: input.message,
+        read: input.read
+      })
+    };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
+async function listPages(input) {
+  const items = [];
+  for (let page = 1;page <= MAX_LIST_PAGES; page += 1) {
+    input.url.searchParams.set("page", String(page));
+    input.url.searchParams.set("per_page", String(input.pace.perPage));
+    const parsed = await readOnePage(input);
+    if (parsed.kind !== "ok") {
+      return parsed;
+    }
+    items.push(...parsed.items);
+    if (parsed.items.length < input.pace.perPage) {
+      break;
     }
   }
-  return { ok: true, events };
+  return { kind: "ok", items };
+}
+async function readOneObject(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    const parsed = parseJsonText(await attempt.response.text());
+    const object = parsed.ok ? input.read(parsed.value) : null;
+    return object === null ? { kind: "unavailable", detail: "upstream" } : { kind: "ok", object };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
+
+// service/poll/poller-checks.ts
+var FAILING_CONCLUSIONS = ["action_required", "failure", "timed_out"];
+var MAX_CHECK_NAMES = 10;
+var MAX_CHECK_PAGES = 2;
+function failingOf(value) {
+  return FAILING_CONCLUSIONS.find((conclusion) => conclusion === value) ?? null;
+}
+function failingConclusionOf(runs) {
+  for (const conclusion of FAILING_CONCLUSIONS) {
+    if (runs.some((run) => run.conclusion === conclusion)) {
+      return conclusion;
+    }
+  }
+  return null;
+}
+function failingNamesOf(runs) {
+  return runs.filter((run) => failingOf(run.conclusion) !== null).map((run) => run.name).slice(0, MAX_CHECK_NAMES);
+}
+function checksCompletedOf(runs) {
+  return runs.every((run) => run.status === "completed");
+}
+async function readHeadChecks(runtime, query) {
+  const url = new URL(`${API_ORIGIN}/repos/${query.owner}/${query.name}/commits/${query.headSha}/check-runs`);
+  url.searchParams.set("filter", "latest");
+  const runs = [];
+  for (let page = 1;page <= MAX_CHECK_PAGES; page += 1) {
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("per_page", String(query.pace.perPage));
+    const parsed = await readEnvelopePage({
+      runtime,
+      token: query.token,
+      url,
+      pace: query.pace,
+      envelope: "check_runs",
+      message: "check-runs response was not an envelope",
+      read: readCheckRunEntry
+    });
+    if (parsed.kind !== "ok") {
+      return parsed;
+    }
+    runs.push(...parsed.items);
+    if (page === MAX_CHECK_PAGES && parsed.items.length >= query.pace.perPage) {
+      return {
+        kind: "ok",
+        count: runs.length,
+        runs,
+        completed: false,
+        conclusion: null,
+        names: [],
+        truncated: true
+      };
+    }
+    if (parsed.items.length < query.pace.perPage) {
+      break;
+    }
+  }
+  return {
+    kind: "ok",
+    count: runs.length,
+    runs,
+    completed: checksCompletedOf(runs),
+    conclusion: failingConclusionOf(runs),
+    names: failingNamesOf(runs),
+    truncated: false
+  };
+}
+
+// service/poll/triggers-checks.ts
+var MAX_WATCH_POLLS = 30;
+var MAX_WATCH_MS = 30 * 60000;
+function checksAuditReason(eventType) {
+  switch (eventType) {
+    case "checks.watched": {
+      return "a check watch was armed for this head";
+    }
+    case "checks.observed": {
+      return "the check watch concluded";
+    }
+    case "checks.expired": {
+      return "the check watch expired before the suite concluded";
+    }
+    case "checks.unavailable": {
+      return "the check-runs read failed; the watch is kept";
+    }
+  }
+}
+function expiryReasonOf(watch, detectedAt) {
+  if (watch.polls >= MAX_WATCH_POLLS) {
+    return "polls";
+  }
+  return Date.parse(detectedAt) - Date.parse(watch.armedAt) >= MAX_WATCH_MS ? "elapsed" : null;
+}
+function auditOf(input) {
+  return {
+    eventType: input.eventType,
+    bindingId: input.bindingId,
+    correlationId: input.correlationId,
+    details: {
+      headSha: input.watch.headSha,
+      subjectNumber: input.subjectNumber,
+      polls: input.watch.polls,
+      armedAt: input.watch.armedAt,
+      ...input.extra
+    }
+  };
+}
+function armChange(input) {
+  const watch = { headSha: input.headSha, armedAt: input.detectedAt, polls: 0, verdict: "watching" };
+  return {
+    write: watch,
+    audit: auditOf({
+      eventType: "checks.watched",
+      bindingId: input.bindingId,
+      correlationId: input.correlationId,
+      subjectNumber: input.subjectNumber,
+      watch
+    })
+  };
+}
+function expiryChange(input) {
+  return {
+    write: { ...input.watch, verdict: "expired" },
+    audit: auditOf({
+      eventType: "checks.expired",
+      bindingId: input.bindingId,
+      correlationId: input.correlationId,
+      subjectNumber: input.subjectNumber,
+      watch: input.watch,
+      extra: { reason: input.reason }
+    })
+  };
+}
+function verdictOf(listed) {
+  if (listed.conclusion !== null) {
+    return "failed";
+  }
+  return listed.count === 0 ? "none" : "passed";
+}
+function isNewsAt(input) {
+  if (input.completedAt === null) {
+    return true;
+  }
+  const armed = Date.parse(input.armedAt);
+  if (Number.isNaN(armed)) {
+    return true;
+  }
+  return Date.parse(input.completedAt) >= armed;
+}
+function alertableOf(input) {
+  if (input.news) {
+    return true;
+  }
+  return input.listed.runs.some((run) => failingConclusionOf([run]) !== null && isNewsAt({ completedAt: run.completedAt, armedAt: input.armedAt }));
+}
+function concludedChange(input) {
+  const { listed } = input;
+  if (listed.truncated || listed.count > 0 && !listed.completed) {
+    return { write: input.spent };
+  }
+  const { conclusion } = listed;
+  const isPreExisting = conclusion !== null && !alertableOf({ listed, armedAt: input.watch.armedAt, news: input.news });
+  const isAlerted = conclusion !== null && !isPreExisting;
+  const row = isAlerted ? checksFollowUp({
+    binding: input.binding,
+    pull: input.pull,
+    tracked: input.tracked,
+    headSha: input.watch.headSha,
+    names: listed.names,
+    detectedAt: input.detectedAt
+  }) : null;
+  return {
+    write: { ...input.spent, verdict: verdictOf(listed) },
+    ...row !== null && { row },
+    audit: auditOf({
+      eventType: "checks.observed",
+      bindingId: input.bindingId,
+      correlationId: input.correlationId,
+      subjectNumber: input.subjectNumber,
+      watch: input.spent,
+      extra: {
+        conclusion,
+        preExisting: isPreExisting,
+        alerted: row !== null
+      }
+    })
+  };
+}
+function failureChange(input) {
+  if (input.failure.kind === "rate-limited") {
+    return { rateLimited: input.failure };
+  }
+  return {
+    change: {
+      write: input.spent,
+      audit: auditOf({
+        eventType: "checks.unavailable",
+        bindingId: input.bindingId,
+        correlationId: input.correlationId,
+        subjectNumber: input.subjectNumber,
+        watch: input.spent,
+        extra: { failure: input.failure.kind }
+      })
+    }
+  };
+}
+function applyChange(input) {
+  const { state, correlationId, change } = input;
+  if (change.write !== undefined) {
+    state.writes.set(correlationId, change.write);
+  }
+  if (change.audit !== undefined) {
+    state.audits.push(change.audit);
+  }
+  if (change.row !== undefined) {
+    state.events.push(change.row);
+  }
+}
+function preReadChange(input) {
+  const { watch, headSha, correlationId, subjectNumber, detectedAt } = input;
+  if (watch?.headSha !== headSha) {
+    return {
+      action: "change",
+      change: armChange({ bindingId: input.bindingId, correlationId, subjectNumber, headSha, detectedAt })
+    };
+  }
+  if (watch.verdict !== "watching") {
+    return { action: "inert" };
+  }
+  const expired = expiryReasonOf(watch, detectedAt);
+  return expired === null ? { action: "read" } : {
+    action: "change",
+    change: expiryChange({ bindingId: input.bindingId, correlationId, subjectNumber, watch, reason: expired })
+  };
+}
+async function pollWatch(input) {
+  const { pull, subject, subjectNumber, state, detectedAt } = input;
+  const { headSha } = pull;
+  const { correlationId } = subject;
+  if (headSha === null || subject.checksWatch === null) {
+    return null;
+  }
+  let listed = state.reads.get(headSha);
+  if (listed === undefined) {
+    const repository = repositoryRefOf(input.binding.repository);
+    listed = await input.poller.listHeadChecks({
+      token: input.token,
+      owner: repository.owner,
+      name: repository.name,
+      headSha,
+      pace: input.pace
+    });
+    state.reads.set(headSha, listed);
+  }
+  const spent = { ...subject.checksWatch, polls: subject.checksWatch.polls + 1 };
+  if (listed.kind !== "ok") {
+    const failed = failureChange({
+      bindingId: input.binding.bindingId,
+      failure: listed,
+      spent,
+      correlationId,
+      subjectNumber
+    });
+    if (failed.change !== undefined) {
+      applyChange({ state, correlationId, change: failed.change });
+      input.log.warn("check-runs read failed; the watch is kept", { headSha, failure: listed.kind });
+    }
+    return failed.rateLimited ?? null;
+  }
+  if (listed.truncated) {
+    input.log.warn("check-runs walk truncated; the watch is kept", { headSha });
+  }
+  applyChange({
+    state,
+    correlationId,
+    change: concludedChange({
+      bindingId: input.binding.bindingId,
+      binding: input.binding,
+      pull,
+      tracked: subject,
+      correlationId,
+      subjectNumber,
+      watch: subject.checksWatch,
+      spent,
+      listed,
+      news: subject.lastHeadSha !== subject.checksWatch.headSha,
+      detectedAt
+    })
+  });
+  return null;
+}
+async function visitTrackedPull(input) {
+  const { pull, subject, subjectNumber, state, detectedAt } = input;
+  if (pull.headSha === null) {
+    return null;
+  }
+  const early = preReadChange({
+    bindingId: input.binding.bindingId,
+    watch: subject.checksWatch,
+    headSha: pull.headSha,
+    correlationId: subject.correlationId,
+    subjectNumber,
+    detectedAt
+  });
+  if (early.action === "inert") {
+    return null;
+  }
+  if (early.action === "change") {
+    applyChange({ state, correlationId: subject.correlationId, change: early.change });
+    return null;
+  }
+  return await pollWatch({ ...input, pull, subject, subjectNumber, state, detectedAt });
+}
+function watchDropsForEnds(input) {
+  return input.ends.flatMap((end) => {
+    const subject = input.tracked.get(end.subjectNumber);
+    return subject !== undefined && subject.checksWatch !== null ? [end.correlationId] : [];
+  });
+}
+async function triggersChecks(input) {
+  const { tracked, detectedAt, pulls } = input;
+  const byNumber = new Map(pulls.map((pull) => [pull.pullNumber, pull]));
+  const state = { writes: new Map, audits: [], events: [], reads: new Map };
+  for (const [subjectNumber, subject] of tracked) {
+    const pull = byNumber.get(subjectNumber);
+    if (pull === undefined || subject.subjectType !== "pull_request") {
+      continue;
+    }
+    const failure = await visitTrackedPull({
+      ...input,
+      pull,
+      subjectNumber,
+      subject,
+      state,
+      detectedAt
+    });
+    if (failure !== null) {
+      return { ok: false, failure };
+    }
+  }
+  return {
+    ok: true,
+    events: state.events,
+    ...state.writes.size > 0 && { checksWrites: state.writes },
+    ...state.audits.length > 0 && { checksAudits: state.audits }
+  };
 }
 
 // service/poll/review-comment-mention-events.ts
@@ -11852,12 +12660,23 @@ async function listedIssues(input) {
     pace
   });
 }
-function pullsNeeded(binding) {
-  return binding.triggers.reviewRequest || binding.triggers.reviewSubmitted || binding.triggers.checks;
+function tracksPullRequest(tracked) {
+  for (const subject of tracked.values()) {
+    if (subject.subjectType === "pull_request") {
+      return true;
+    }
+  }
+  return false;
+}
+function pullsNeeded(binding, tracked) {
+  if (binding.triggers.reviewRequest || binding.triggers.reviewSubmitted) {
+    return true;
+  }
+  return binding.triggers.checks && tracksPullRequest(tracked);
 }
 async function listedPulls(input) {
-  const { poller, token, repository, pace, binding } = input;
-  if (!pullsNeeded(binding)) {
+  const { poller, token, repository, pace, binding, tracked } = input;
+  if (!pullsNeeded(binding, tracked)) {
     return { kind: "ok", pulls: [] };
   }
   return await poller.listOpenPulls({
@@ -11867,10 +12686,29 @@ async function listedPulls(input) {
     pace
   });
 }
+function checksOpsOf() {
+  return { writes: new Map, audits: [] };
+}
+function foldChecksOps(target, branch) {
+  const writes = branch.checksWrites;
+  if (writes !== undefined) {
+    for (const [correlationId, watch] of writes) {
+      target.writes.set(correlationId, watch);
+    }
+  }
+  target.audits.push(...branch.checksAudits ?? []);
+}
+function checksOpsFields(ops) {
+  return {
+    ...ops.writes.size > 0 && { checksWrites: ops.writes },
+    ...ops.audits.length > 0 && { checksAudits: ops.audits }
+  };
+}
 async function pullEventsOf(input) {
   const { scan, pulls } = input;
   const { binding } = scan;
   const events = [];
+  const checksOps = checksOpsOf();
   const pullEnds = trackedPullEnds({ binding, pulls, tracked: scan.tracked });
   const tracked = withoutEnded(scan.tracked, pullEnds);
   const heads = headFollowUps({
@@ -11898,17 +12736,19 @@ async function pullEventsOf(input) {
     events.push(...heads.rows);
   }
   if (binding.triggers.checks) {
-    const checks = await triggersChecks({ ...scan, tracked, pulls, movements: heads.movements });
+    const checks = await triggersChecks({ ...scan, tracked, pulls });
     if (!checks.ok) {
       return checks;
     }
     events.push(...checks.events);
+    foldChecksOps(checksOps, checks);
   }
   return {
     ok: true,
     events,
     observedHeads: new Map(heads.observations.flatMap((observation) => observation.headSha === null ? [] : [[observation.pullNumber, observation.headSha]])),
-    ...pullEnds.length > 0 && { ends: pullEnds }
+    ...pullEnds.length > 0 && { ends: pullEnds },
+    ...checksOpsFields(checksOps)
   };
 }
 async function triggerBranches(input) {
@@ -11920,7 +12760,7 @@ async function triggerBranches(input) {
   if (scan.binding.triggers.mention) {
     branches.push(await mentionEventsOf({ ...scan, issues }));
   }
-  if (pullsNeeded(scan.binding)) {
+  if (pullsNeeded(scan.binding, scan.tracked)) {
     branches.push(await pullEventsOf({ scan, pulls }));
   }
   return branches;
@@ -11932,7 +12772,7 @@ async function collectTriggerEvents(input) {
   if (issues.kind !== "ok") {
     return { ok: false, failure: issues };
   }
-  const pulls = await listedPulls({ poller, token, repository, pace, binding });
+  const pulls = await listedPulls({ poller, token, repository, pace, binding, tracked: input.tracked });
   if (pulls.kind !== "ok") {
     return { ok: false, failure: pulls };
   }
@@ -11943,6 +12783,7 @@ async function collectTriggerEvents(input) {
   })];
   const tracked = withoutEnded(input.tracked, ends);
   const events = [];
+  const checksOps = checksOpsOf();
   let observedHeads;
   const branches = await triggerBranches({ scan: { ...input, tracked }, issues: issues.issues, pulls: pulls.pulls });
   for (const branch of branches) {
@@ -11954,12 +12795,14 @@ async function collectTriggerEvents(input) {
     if (branch.ends !== undefined) {
       ends.push(...branch.ends);
     }
+    foldChecksOps(checksOps, branch);
   }
   return {
     ok: true,
     events,
     ...observedHeads !== undefined && { observedHeads },
-    ...ends.length > 0 && { ends }
+    ...ends.length > 0 && { ends },
+    ...checksOpsFields(checksOps)
   };
 }
 
@@ -12011,6 +12854,35 @@ async function recordTrackingEnds(input) {
     } catch (cause) {
       input.log.warn("tracking end audit row could not be appended", {
         subjectNumber: end.subjectNumber,
+        errorKind: cause instanceof Error ? cause.name : typeof cause
+      });
+    }
+  }
+}
+var unavailableBindings = new WeakMap;
+async function recordChecksAudits(input) {
+  const reported = unavailableBindings.get(input.store) ?? new Set;
+  unavailableBindings.set(input.store, reported);
+  for (const audit of input.audits) {
+    if (audit.eventType === "checks.unavailable") {
+      if (reported.has(audit.bindingId)) {
+        continue;
+      }
+      reported.add(audit.bindingId);
+    }
+    try {
+      await appendAudit(input.store, {
+        eventType: audit.eventType,
+        actorSource: "service",
+        entity: { kind: "run", id: audit.correlationId },
+        correlationId: audit.correlationId,
+        decision: null,
+        reason: checksAuditReason(audit.eventType),
+        details: audit.details
+      });
+    } catch (cause) {
+      input.log.warn("checks audit row could not be appended", {
+        eventType: audit.eventType,
         errorKind: cause instanceof Error ? cause.name : typeof cause
       });
     }
@@ -12095,11 +12967,30 @@ async function collectScanEvents(input) {
     return { ok: false, skipped: terminal.skipped };
   }
   const ends = [...collected.ends ?? [], ...terminal.ends];
+  const checksDrops = watchDropsForEnds({ tracked, ends });
   return {
     ok: true,
     events: terminal.events,
     ...collected.observedHeads !== undefined && { observedHeads: collected.observedHeads },
-    ...ends.length > 0 && { ends }
+    ...ends.length > 0 && { ends },
+    ...collected.checksWrites !== undefined && { checksWrites: collected.checksWrites },
+    ...checksDrops.length > 0 && { checksDrops },
+    ...collected.checksAudits !== undefined && { checksAudits: collected.checksAudits }
+  };
+}
+function enqueueScanInput(input) {
+  const { deps, binding, account, listed } = input;
+  const { observedHeads, checksWrites, checksDrops } = listed;
+  return {
+    store: deps.store,
+    log: deps.log,
+    incoming: listed.events,
+    prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
+    ...observedHeads !== undefined && {
+      observedHeads: observedHeadSeeds({ binding, observations: observedHeads })
+    },
+    ...checksWrites !== undefined && { checksWrites },
+    ...checksDrops !== undefined && { checksDrops }
   };
 }
 async function scanBinding(input) {
@@ -12134,15 +13025,8 @@ async function scanBinding(input) {
   if (!listed.ok) {
     return { ...blank, skipped: listed.skipped };
   }
-  const appended = await enqueueEvents({
-    store: deps.store,
-    log: deps.log,
-    incoming: listed.events,
-    prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
-    ...listed.observedHeads !== undefined && {
-      observedHeads: observedHeadSeeds({ binding, observations: listed.observedHeads })
-    }
-  });
+  const appended = await enqueueEvents(enqueueScanInput({ deps, binding, account, listed }));
+  await recordChecksAudits({ store, log, audits: listed.checksAudits ?? [] });
   await recordTrackingEnds({ store, log, binding, ends: listed.ends ?? [] });
   return { ...blank, enqueued: appended.length, windowFrom: detectedAt, openedFrom: verdict.window };
 }
@@ -12264,492 +13148,6 @@ async function runScanCycle(deps) {
     });
   }
   return { bindings: outcomes, enqueued: total };
-}
-
-// service/poll/backoff.ts
-function unitFraction(value) {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.min(1, Math.max(0, value));
-}
-var MILLISECONDS_PER_SECOND = 1000;
-function backoffDelayMs(input) {
-  const step = Math.max(input.attempt - 2, 0);
-  const uncapped = input.policy.baseMs * 2 ** step;
-  const capped = Math.min(input.policy.maxMs, uncapped);
-  const jitter = 0.5 + 0.5 * unitFraction(input.random());
-  return Math.min(input.policy.maxMs, Math.floor(capped * jitter));
-}
-function nextWait(input) {
-  const backoffMs = backoffDelayMs({
-    policy: input.policy,
-    attempt: input.attempt,
-    random: input.random
-  });
-  if (input.guidanceSeconds === null) {
-    return { attempt: input.attempt, delayMs: backoffMs, source: "backoff" };
-  }
-  const guidedMs = Math.max(0, Math.round(input.guidanceSeconds * MILLISECONDS_PER_SECOND));
-  return guidedMs > backoffMs ? { attempt: input.attempt, delayMs: guidedMs, source: "guidance" } : { attempt: input.attempt, delayMs: backoffMs, source: "backoff" };
-}
-async function waitForRetry(input) {
-  const record = nextWait(input);
-  input.onWait(record);
-  await input.sleep(record.delayMs);
-  return record;
-}
-
-// service/poll/poller-transport.ts
-var STATUS_UNAUTHORIZED2 = 401;
-var STATUS_NOT_FOUND2 = 404;
-var STATUS_FORBIDDEN2 = 403;
-var STATUS_TOO_MANY_REQUESTS2 = 429;
-var MAX_LIST_PAGES = 2;
-var systemSleep = async (milliseconds) => {
-  await new Promise((resolve4) => {
-    setTimeout(resolve4, milliseconds);
-  });
-};
-function pollerRuntime(deps, fetchImpl) {
-  return {
-    fetchImpl,
-    log: deps.log,
-    sleep: deps.sleep ?? systemSleep,
-    random: deps.random ?? (() => Math.random())
-  };
-}
-function listUrl(input) {
-  const url = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/${input.path}`);
-  for (const [key, value] of Object.entries(input.query)) {
-    url.searchParams.set(key, value);
-  }
-  if (input.since !== null) {
-    url.searchParams.set("since", input.since);
-  }
-  return url;
-}
-function parseListPage(input) {
-  const parsed = parseJsonText(input.text);
-  if (!parsed.ok || !Array.isArray(parsed.value)) {
-    throw new Error(input.message);
-  }
-  return parsed.value.flatMap((entry) => {
-    const item = input.read(entry);
-    return item === null ? [] : [item];
-  });
-}
-function lastPageOf(link) {
-  if (link === null) {
-    return null;
-  }
-  for (const part of link.split(",")) {
-    if (!/\brel="last"/.test(part)) {
-      continue;
-    }
-    const match = /[?&]page=(\d+)/.exec(part);
-    const page = match === null ? NaN : Number(match[1]);
-    return Number.isSafeInteger(page) && page > 0 ? page : null;
-  }
-  return null;
-}
-function parseEnvelopePage(input) {
-  const parsed = parseJsonText(input.text);
-  if (!parsed.ok || !isRecord(parsed.value)) {
-    throw new TypeError(input.message);
-  }
-  const entries = parsed.value[input.envelope];
-  if (!Array.isArray(entries)) {
-    throw new TypeError(input.message);
-  }
-  return entries.flatMap((entry) => {
-    const item = input.read(entry);
-    return item === null ? [] : [item];
-  });
-}
-async function classifyOutcome(response) {
-  if (response.status === STATUS_UNAUTHORIZED2 || response.status === STATUS_NOT_FOUND2) {
-    return { kind: "auth-failed" };
-  }
-  const rateLimitStatuses = [STATUS_FORBIDDEN2, STATUS_TOO_MANY_REQUESTS2];
-  if (rateLimitStatuses.includes(response.status) && isRateLimited(response)) {
-    return { kind: "rate-limited", retryAfterSeconds: retryAfterOf(response) };
-  }
-  return { kind: "unavailable", detail: "upstream" };
-}
-async function waitBeforeNextAttempt(context, wait) {
-  const { runtime, pace, url } = context;
-  await waitForRetry({
-    policy: pace.retry,
-    attempt: wait.attempt,
-    guidanceSeconds: wait.guidanceSeconds,
-    sleep: runtime.sleep,
-    random: runtime.random,
-    onWait: (record) => {
-      runtime.log.info("poll request waiting before its next attempt", {
-        path: url.pathname,
-        attempt: record.attempt,
-        delayMs: record.delayMs,
-        source: record.source
-      });
-    }
-  });
-}
-async function requestPage(input) {
-  const policy = input.pace.retry;
-  const attempts = Math.max(1, policy.maxAttempts);
-  let last = { kind: "unavailable", detail: "upstream" };
-  for (let attempt = 1;attempt <= attempts; attempt += 1) {
-    let response;
-    try {
-      response = await input.runtime.fetchImpl(input.url.href, {
-        method: "GET",
-        headers: requestHeaders(input.token),
-        signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
-      });
-    } catch (error) {
-      last = { kind: "unavailable", detail: transportDetail(error) };
-      if (attempt >= attempts) {
-        return { failure: last };
-      }
-      await waitBeforeNextAttempt(input, { attempt: attempt + 1, guidanceSeconds: null });
-      continue;
-    }
-    if (response.ok) {
-      return { response };
-    }
-    last = await classifyOutcome(response);
-    if (last.kind === "auth-failed" || attempt >= attempts) {
-      return { failure: last };
-    }
-    const guidanceSeconds = last.kind === "rate-limited" ? last.retryAfterSeconds : null;
-    await waitBeforeNextAttempt(input, { attempt: attempt + 1, guidanceSeconds });
-  }
-  return { failure: last };
-}
-async function readOnePage(input) {
-  const attempt = await requestPage({
-    runtime: input.runtime,
-    token: input.token,
-    url: input.url,
-    pace: input.pace
-  });
-  if (!("response" in attempt)) {
-    return attempt.failure;
-  }
-  try {
-    return {
-      kind: "ok",
-      items: parseListPage({
-        text: await attempt.response.text(),
-        message: input.message,
-        read: input.read
-      }),
-      lastPage: lastPageOf(attempt.response.headers.get("link"))
-    };
-  } catch {
-    return { kind: "unavailable", detail: "upstream" };
-  }
-}
-async function readEnvelopePage(input) {
-  const attempt = await requestPage({
-    runtime: input.runtime,
-    token: input.token,
-    url: input.url,
-    pace: input.pace
-  });
-  if (!("response" in attempt)) {
-    return attempt.failure;
-  }
-  try {
-    return {
-      kind: "ok",
-      items: parseEnvelopePage({
-        text: await attempt.response.text(),
-        envelope: input.envelope,
-        message: input.message,
-        read: input.read
-      })
-    };
-  } catch {
-    return { kind: "unavailable", detail: "upstream" };
-  }
-}
-async function listPages(input) {
-  const items = [];
-  for (let page = 1;page <= MAX_LIST_PAGES; page += 1) {
-    input.url.searchParams.set("page", String(page));
-    input.url.searchParams.set("per_page", String(input.pace.perPage));
-    const parsed = await readOnePage(input);
-    if (parsed.kind !== "ok") {
-      return parsed;
-    }
-    items.push(...parsed.items);
-    if (parsed.items.length < input.pace.perPage) {
-      break;
-    }
-  }
-  return { kind: "ok", items };
-}
-async function readOneObject(input) {
-  const attempt = await requestPage({
-    runtime: input.runtime,
-    token: input.token,
-    url: input.url,
-    pace: input.pace
-  });
-  if (!("response" in attempt)) {
-    return attempt.failure;
-  }
-  try {
-    const parsed = parseJsonText(await attempt.response.text());
-    const object = parsed.ok ? input.read(parsed.value) : null;
-    return object === null ? { kind: "unavailable", detail: "upstream" } : { kind: "ok", object };
-  } catch {
-    return { kind: "unavailable", detail: "upstream" };
-  }
-}
-
-// service/poll/poller-entries.ts
-function asRecord(value) {
-  return isRecord(value) ? value : null;
-}
-function positiveIntOf2(value) {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
-}
-function textOf(record, field) {
-  const value = record[field];
-  return typeof value === "string" ? value : null;
-}
-function readLogins(value) {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const logins = [];
-  for (const entry of value) {
-    const login = asRecord(entry);
-    const candidate = login === null ? null : login.login;
-    if (typeof candidate !== "string" || candidate === "") {
-      return null;
-    }
-    logins.push(candidate);
-  }
-  return logins;
-}
-function authorLoginOf(user) {
-  return user === null ? "" : textOf(user, "login") ?? "";
-}
-function authorTypeOf(user) {
-  return user === null ? "" : textOf(user, "type") ?? "";
-}
-function issueNumberOf2(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const lastSegment = value.slice(value.lastIndexOf("/") + 1);
-  return positiveIntOf2(Number(lastSegment));
-}
-function readIssueEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const issueNumber = positiveIntOf2(record.number);
-  const title = textOf(record, "title");
-  const url = textOf(record, "html_url");
-  const state = textOf(record, "state");
-  const assignees = readLogins(record.assignees);
-  if (issueNumber === null || title === null || url === null || state === null || assignees === null) {
-    return null;
-  }
-  const user = asRecord(record.user);
-  return {
-    issueNumber,
-    title,
-    url,
-    state,
-    body: textOf(record, "body"),
-    authorLogin: authorLoginOf(user),
-    authorType: authorTypeOf(user),
-    assignees,
-    isPullRequest: "pull_request" in record,
-    updatedAt: textOf(record, "updated_at"),
-    closedAt: textOf(record, "closed_at"),
-    stateReason: textOf(record, "state_reason")
-  };
-}
-function readCommentEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const commentId = positiveIntOf2(record.id);
-  const issueNumber = issueNumberOf2(record.issue_url);
-  const body = textOf(record, "body");
-  const url = textOf(record, "html_url");
-  const user = asRecord(record.user);
-  const authorLogin = authorLoginOf(user);
-  if (commentId === null || issueNumber === null || body === null || url === null || authorLogin === "") {
-    return null;
-  }
-  return {
-    commentId,
-    issueNumber,
-    body,
-    url,
-    authorLogin,
-    authorType: authorTypeOf(user),
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-function readReviewCommentEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const commentId = positiveIntOf2(record.id);
-  const pullNumber = issueNumberOf2(record.pull_request_url);
-  const body = textOf(record, "body");
-  const user = asRecord(record.user);
-  const authorLogin = authorLoginOf(user);
-  if (commentId === null || pullNumber === null || body === null || authorLogin === "") {
-    return null;
-  }
-  return {
-    commentId,
-    pullNumber,
-    body,
-    authorLogin,
-    authorType: authorTypeOf(user),
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-function readPullEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const pullNumber = positiveIntOf2(record.number);
-  const title = textOf(record, "title");
-  const url = textOf(record, "html_url");
-  const state = textOf(record, "state");
-  const requestedReviewers = readLogins(record.requested_reviewers);
-  if (pullNumber === null || title === null || url === null || state === null || requestedReviewers === null) {
-    return null;
-  }
-  const head = asRecord(record.head);
-  const base = asRecord(record.base);
-  const user = asRecord(record.user);
-  return {
-    pullNumber,
-    title,
-    url,
-    state,
-    authorLogin: authorLoginOf(user),
-    authorType: authorTypeOf(user),
-    requestedReviewers,
-    headSha: head === null ? null : textOf(head, "sha"),
-    baseRef: base === null ? null : textOf(base, "ref"),
-    merged: record.merged === true,
-    mergedAt: textOf(record, "merged_at"),
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-function readReviewEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const reviewId = positiveIntOf2(record.id);
-  const state = textOf(record, "state");
-  if (reviewId === null || state === null) {
-    return null;
-  }
-  const user = asRecord(record.user);
-  return {
-    reviewId,
-    state,
-    submittedAt: textOf(record, "submitted_at"),
-    authorLogin: authorLoginOf(user),
-    authorType: authorTypeOf(user)
-  };
-}
-function readCheckRunEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const name = textOf(record, "name");
-  if (name === null || name === "") {
-    return null;
-  }
-  return { name, conclusion: textOf(record, "conclusion") };
-}
-function readIssueObject(value) {
-  const issue2 = readIssueEntry(value);
-  return issue2 !== null && (issue2.state === "open" || issue2.state === "closed") ? issue2 : null;
-}
-function readPullObject(value) {
-  const pull = readPullEntry(value);
-  return pull !== null && (pull.state === "open" || pull.state === "closed") ? pull : null;
-}
-
-// service/poll/poller-checks.ts
-var FAILING_CONCLUSIONS = [
-  "action_required",
-  "failure",
-  "timed_out",
-  "cancelled"
-];
-var MAX_CHECK_NAMES = 10;
-var MAX_CHECK_PAGES = 2;
-function failingOf(value) {
-  return FAILING_CONCLUSIONS.find((conclusion) => conclusion === value) ?? null;
-}
-function failingConclusionOf(runs) {
-  for (const conclusion of FAILING_CONCLUSIONS) {
-    if (runs.some((run) => run.conclusion === conclusion)) {
-      return conclusion;
-    }
-  }
-  return null;
-}
-function failingNamesOf(runs) {
-  return runs.filter((run) => failingOf(run.conclusion) !== null).map((run) => run.name).slice(0, MAX_CHECK_NAMES);
-}
-async function readHeadChecks(runtime, query) {
-  const url = new URL(`${API_ORIGIN}/repos/${query.owner}/${query.name}/commits/${query.headSha}/check-runs`);
-  url.searchParams.set("filter", "latest");
-  const runs = [];
-  for (let page = 1;page <= MAX_CHECK_PAGES; page += 1) {
-    url.searchParams.set("page", String(page));
-    url.searchParams.set("per_page", String(query.pace.perPage));
-    const parsed = await readEnvelopePage({
-      runtime,
-      token: query.token,
-      url,
-      pace: query.pace,
-      envelope: "check_runs",
-      message: "check-runs response was not an envelope",
-      read: readCheckRunEntry
-    });
-    if (parsed.kind !== "ok") {
-      return parsed;
-    }
-    runs.push(...parsed.items);
-    if (page === MAX_CHECK_PAGES && parsed.items.length >= query.pace.perPage) {
-      return { kind: "ok", conclusion: null, names: [], truncated: true };
-    }
-    if (parsed.items.length < query.pace.perPage) {
-      break;
-    }
-  }
-  return {
-    kind: "ok",
-    conclusion: failingConclusionOf(runs),
-    names: failingNamesOf(runs),
-    truncated: false
-  };
 }
 
 // service/poll/poller-reviews.ts

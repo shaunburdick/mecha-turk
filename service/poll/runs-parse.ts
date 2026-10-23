@@ -9,6 +9,7 @@ import { buildCorrelationId, buildRunKey, buildSubjectKey } from './run-key.ts';
 import { parseRunAuditIntents } from './runs-audit-parse.ts';
 import {
     parseAttempt,
+    parseChecksWatch,
     parseLease,
     parseReference,
     parseReservation,
@@ -18,6 +19,7 @@ import {
 import { parseRunScalars, runTextFieldsHold } from './runs-scalars-parse.ts';
 import type { RunScalars } from './runs-scalars-parse.ts';
 import type {
+    ChecksWatch,
     DispatchAttempt,
     Run,
     RunLease,
@@ -169,6 +171,8 @@ interface ParsedRunParts {
     readonly attempts: readonly DispatchAttempt[];
     /** The prompt snapshot, or `null` when the run queued with none. */
     readonly prompt: PromptSnapshot | null;
+    /** The live check watch, or `undefined` when none is armed. */
+    readonly checksWatch: ChecksWatch | undefined;
 }
 
 /** Require attempt and session pointers to tell one consistent story. */
@@ -239,12 +243,14 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
     // credential-shaped refuses the row, and therefore the document (004
     // FR-028, FR-087, NFR-121).
     const prompt = parseStoredPromptSnapshot(raw.prompt);
+    const checksWatch = parseChecksWatch(raw.checksWatch);
     if (
         scalars === null
         || objects === null
         || references === null
         || attempts === null
         || prompt === null
+        || checksWatch === null
         || !runIdentityMatches(raw, scalars)
         || !runRelationsHold({ scalars, objects, references, attempts, attachmentId: raw.attachmentId })
     ) {
@@ -257,6 +263,7 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
         references,
         attempts,
         prompt: prompt.status === 'set' ? prompt.snapshot : null,
+        checksWatch,
     };
 }
 
@@ -264,7 +271,7 @@ function parseRunParts(raw: Record<string, unknown>): ParsedRunParts | null {
  * Project validated storage fields into the run model.
  */
 function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run {
-    const { scalars, objects, references, attempts, prompt } = parts;
+    const { scalars, objects, references, attempts, prompt, checksWatch } = parts;
     return {
         runKey: raw.runKey as string,
         correlationId: raw.correlationId as string,
@@ -296,6 +303,9 @@ function runFromParts(raw: Record<string, unknown>, parts: ParsedRunParts): Run 
         // hold, because a fabricated baseline would let the next cycle compare
         // against a value no observation ever produced (002 FR-103).
         ...(scalars.lastHeadSha !== undefined && { lastHeadSha: scalars.lastHeadSha }),
+        // Absent stays absent for the same reason: a watch no cycle armed would
+        // make the next cycle read a head it never chose to watch (FR-126).
+        ...(checksWatch !== undefined && { checksWatch }),
         createdAt: scalars.createdAt,
         updatedAt: scalars.updatedAt,
     };

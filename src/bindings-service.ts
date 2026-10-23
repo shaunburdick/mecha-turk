@@ -21,7 +21,7 @@ export interface PanelTriggers {
     readonly reviewRequest: boolean;
     /** Review-submitted polling: changes requested on the account's own pull. */
     readonly reviewSubmitted: boolean;
-    /** Failing checks on a tracked pull's new head; a follow-up switch. */
+    /** Failing checks on a tracked pull's current head; a follow-up switch. */
     readonly checks: boolean;
 }
 
