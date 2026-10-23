@@ -4140,7 +4140,7 @@ function appendedRowsOf(fresh, outcome, intentAtMs) {
   });
 }
 function alertsBeforeRun(input) {
-  return input.fresh.some((event) => followUpKindOf(event.id) === "checks") && input.fresh.every((event) => followUpKindOf(event.id) !== null) && [...input.checksWrites?.values() ?? []].some((watch) => watch.verdict === "failed");
+  return input.fresh.some((event) => followUpKindOf(event.id) === "checks") && [...input.checksWrites?.values() ?? []].some((watch) => watch.verdict === "failed");
 }
 async function enqueueWithinChain(input) {
   const existing = await readQueue(input);
@@ -4175,9 +4175,15 @@ async function enqueueWithinChain(input) {
   }
   const queued = [...existing, ...appended];
   if (alertsBeforeRun({ fresh, checksWrites: input.checksWrites })) {
+    const followUps = appended.filter((event) => followUpKindOf(event.id) !== null);
+    const triggers = appended.filter((event) => followUpKindOf(event.id) === null);
     const retained = new Set(outcome.document.runs.map((run) => run.correlationId));
-    await input.store.writeJson(EVENTS_FILE, serializedQueue(queued, retained));
-    await writeRunsDocument({ ...input, document: outcome.document });
+    await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...followUps], retained));
+    const persisted = await writeRunsDocument({ ...input, document: outcome.document });
+    if (triggers.length > 0) {
+      const persistedIds = new Set(persisted.runs.map((run) => run.correlationId));
+      await input.store.writeJson(EVENTS_FILE, serializedQueue(queued, persistedIds));
+    }
   } else {
     const persisted = await writeRunsDocument({ ...input, document: outcome.document });
     const retained = new Set(persisted.runs.map((run) => run.correlationId));

@@ -39,6 +39,7 @@ import {
 } from '../service/poll/events.ts';
 import { followUpKindOf } from '../service/poll/events-parse.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
+import { composeEngineFollowUp } from '../service/poll/engine-compose.ts';
 import type { BindingScan } from '../service/poll/loop.ts';
 import { createGitHubIssuePoller } from '../service/poll/poller-github.ts';
 import { checksCompletedOf, failingConclusionOf, failingNamesOf } from '../service/poll/poller-checks.ts';
@@ -87,6 +88,7 @@ import type { FollowUpRetryPolicy } from '../src/follow-up.ts';
 import type { PanelHost } from '../src/session.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { RunFollowUp, RunRow } from '../src/dispatches-service.ts';
+import { BEGIN_UNTRUSTED } from '../src/context-blocks.ts';
 import { byText } from './support/sort.ts';
 import { makeStoreTree, removeTempTree } from './support/temp-tree.ts';
 import { startTestService } from './support/service.ts';
@@ -340,6 +342,24 @@ interface FixtureCheckRun {
     readonly completedAt?: string;
 }
 
+/** The naming `assigned` row an assignment candidate is answered by. */
+function assignedEvent(issueNumber: number): PollItemEvent {
+    return {
+        event: 'assigned',
+        assignee: eventActor(ACCOUNT_LOGIN),
+        assigner: eventActor(HUMAN_LOGIN),
+        requestedReviewer: eventActor(''),
+        reviewRequester: eventActor(''),
+        issueNumber,
+        createdAt: STAMP,
+    };
+}
+
+/** The base (trigger) id of an assignment on the fixture repository. */
+function assignmentTriggerId(issueNumber: number): string {
+    return `evt-acme~widget~${issueNumber}~${ACCOUNT_ID}`;
+}
+
 /** A stub poller plus the feed names each call requested, in order. */
 interface RecordedPoller {
     /** The poller the cycle is given. */
@@ -472,6 +492,16 @@ function recordingPoller(feeds: {
             },
         },
     };
+}
+
+/** The mixed pass: one assignment trigger and one alerting check follow-up. */
+function mixedCheckPoller(headSha: string, issueNumber: number): RecordedPoller {
+    return recordingPoller({
+        issues: [fixtureIssue({ issueNumber, assignees: [ACCOUNT_LOGIN] })],
+        events: { [issueNumber]: [assignedEvent(issueNumber)] },
+        pulls: [fixturePull({ headSha })],
+        checks: { [headSha]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
+    });
 }
 
 /** Build one assignment snapshot for a fixture subject (a pull carries a head SHA). */
@@ -1164,6 +1194,11 @@ const MENTION_AND_CHECKS = {
     assignment: false, mention: true, reviewRequest: false, reviewSubmitted: false, checks: true,
 } as const;
 
+/** A binding whose mixed pass carries an assignment trigger beside a check alert. */
+const ASSIGNMENT_AND_CHECKS = {
+    assignment: true, mention: false, reviewRequest: false, reviewSubmitted: false, checks: true,
+} as const;
+
 /** Both pull-dependent switches a double delivery needs. */
 const REVIEW_AND_CHECKS = {
     assignment: false, mention: false, reviewRequest: true, reviewSubmitted: false, checks: true,
@@ -1819,7 +1854,10 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
             expect(followUpRowsOf(waiting)).toEqual([]);
             expect(await storedWatch()).toMatchObject({ headSha: MOVED_SHA, polls: 1 });
 
-            const names = ['build', 'docs'];
+            // The delimiter-bearing name is the untrusted-list case AC-075
+            // names: it flows through the failing names, the excerpt and the
+            // movement line, where the composition must defuse it.
+            const names = ['build', 'docs', BEGIN_UNTRUSTED];
             const concluded = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
                 pulls: [fixturePull({ headSha: MOVED_SHA })],
                 checks: {
@@ -1827,6 +1865,7 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                         { name: 'lint', status: 'completed', conclusion: 'success' },
                         { name: 'build', status: 'completed', conclusion: 'failure' },
                         { name: 'docs', status: 'completed', conclusion: 'timed_out' },
+                        { name: BEGIN_UNTRUSTED, status: 'completed', conclusion: 'failure' },
                     ],
                 },
             }));
@@ -1843,6 +1882,20 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                 triggerNote: `CI failed: ${names.join(', ')}`,
             });
             expect(await storedWatch()).toMatchObject({ verdict: 'failed' });
+
+            const runDocument = await readRunsDocument({ store, log });
+            const run = runDocument.runs.find((candidate) => candidate.subjectType === 'pull_request');
+            if (row === undefined || run === undefined) {
+                throw new Error('the check row or its run is missing');
+            }
+
+            const composed = composeEngineFollowUp({ run, row, sessionId: SESSION_ID, runRows: concluded });
+            expect(composed.ok).toBe(true);
+            if (composed.ok) {
+                const movement = composed.text.split('\n').find((line) => line.startsWith('Movement:'));
+                expect(movement).toContain('Movement: CI failed: build, docs,');
+                expect(movement).not.toContain(BEGIN_UNTRUSTED);
+            }
 
             const observed = rowsOfType(await auditRows(), 'checks.observed');
             expect(observed).toHaveLength(1);
@@ -2208,7 +2261,9 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
         }
     });
 
-    it('re-emits the alert after a failed queue write, because the verdict never landed', async () => {
+    it('makes a mixed pass\'s check alert durable before its verdict, and recovers the trigger', async () => {
+        // A checks-only pass: the early queue write is the alert's only home,
+        // so failing it leaves the watch watching for the retry.
         {
             await armWatch(MOVED_SHA);
             let shouldFailQueueWrite = true;
@@ -2232,14 +2287,83 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                 'simulated queue write interruption',
             );
 
-            // The row is the only delivery for this head and the run already
-            // exists, so the queue is written before the verdict that forecloses
-            // re-detection: a failed queue write leaves the watch watching.
             expect(await storedWatch()).toMatchObject({ verdict: 'watching', polls: 0 });
 
             const retried = await runCycle(fixtureBinding(CHECKS_ONLY), alerting());
             expect(followUpRowsOf(retried).map((row) => row.id)).toEqual([checksId(MOVED_SHA)]);
             expect(await storedWatch()).toMatchObject({ verdict: 'failed' });
+        }
+
+        // A mixed pass whose run write fails after the early queue write: the
+        // check row is durable, the trigger is not, and the watch is untouched.
+        {
+            const mixedHead = 'cccccccccccccccccccccccccccccccccccccccc';
+            const issueNumber = 11;
+            await armWatch(mixedHead);
+            let shouldFailRunWrite = true;
+            const interrupted: ServiceStore = {
+                ...store,
+                writeJson: async (path, value) => {
+                    if (path === 'runs.json' && shouldFailRunWrite) {
+                        shouldFailRunWrite = false;
+                        throw new Error('simulated run write interruption');
+                    }
+
+                    await store.writeJson(path, value);
+                },
+            };
+
+            await expect(runCycle(
+                fixtureBinding(ASSIGNMENT_AND_CHECKS),
+                mixedCheckPoller(mixedHead, issueNumber),
+                interrupted,
+            )).rejects.toThrow('simulated run write interruption');
+
+            const queue = await readEvents({ store, log });
+            expect(queue.filter((row) => row.id === checksId(mixedHead))).toHaveLength(1);
+            expect(queue.some((row) => row.id === assignmentTriggerId(issueNumber))).toBe(false);
+            expect(await storedWatch()).toMatchObject({ headSha: mixedHead, verdict: 'watching', polls: 0 });
+
+            // The retained checkpoint re-covers the trigger on the next cycle;
+            // the check id is re-emitted and deduped, and the verdict lands.
+            const recovered = await runCycle(
+                fixtureBinding(ASSIGNMENT_AND_CHECKS),
+                mixedCheckPoller(mixedHead, issueNumber),
+            );
+            expect(recovered.filter((row) => row.id === checksId(mixedHead))).toHaveLength(1);
+            expect(recovered.some((row) => row.id === assignmentTriggerId(issueNumber))).toBe(true);
+            expect(await storedWatch()).toMatchObject({ headSha: mixedHead, verdict: 'failed' });
+        }
+
+        // A mixed pass whose early queue write fails: neither row is durable
+        // and the watch stays watching for the next cycle to offer both again.
+        {
+            const earlyHead = 'dddddddddddddddddddddddddddddddddddddddd';
+            const issueNumber = 13;
+            await armWatch(earlyHead);
+            let shouldFailQueueWrite = true;
+            const interrupted: ServiceStore = {
+                ...store,
+                writeJson: async (path, value) => {
+                    if (path === 'events.json' && shouldFailQueueWrite) {
+                        shouldFailQueueWrite = false;
+                        throw new Error('simulated mixed queue write interruption');
+                    }
+
+                    await store.writeJson(path, value);
+                },
+            };
+
+            await expect(runCycle(
+                fixtureBinding(ASSIGNMENT_AND_CHECKS),
+                mixedCheckPoller(earlyHead, issueNumber),
+                interrupted,
+            )).rejects.toThrow('simulated mixed queue write interruption');
+
+            const queue = await readEvents({ store, log });
+            expect(queue.some((row) => row.id === checksId(earlyHead))).toBe(false);
+            expect(queue.some((row) => row.id === assignmentTriggerId(issueNumber))).toBe(false);
+            expect(await storedWatch()).toMatchObject({ headSha: earlyHead, verdict: 'watching', polls: 0 });
         }
     });
 

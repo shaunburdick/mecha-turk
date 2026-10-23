@@ -332,22 +332,21 @@ function appendedRowsOf(
 }
 
 /**
- * Whether this pass must land its queue row before its run write.
+ * Whether this pass must land its check follow-up before its run write.
  *
- * The one delivery of its kind for a head is the alert: the run already exists
- * and the verdict it writes forecloses re-detection, so a crash between the two
- * writes would leave an inert watch with no row and nothing left to notice it.
- * Writing the row first makes a failed queue write harmless (the watch stays
- * `watching`, the next cycle re-reads and re-emits) and a failed run write
- * dedupe (the same deterministic id lands again). Every other pass keeps
- * run-before-delivery, which is what ordering a fresh trigger's run needs.
+ * The alert rides a run that already exists, so it is safe to make durable
+ * first; a trigger row in the same pass is not, because its run may not exist
+ * yet. Writing only the follow-up rows early means a failed run write leaves
+ * the alert durable and the trigger for the retained checkpoint to recover on
+ * the next cycle — the already-healed crash state — while the `failed` verdict
+ * still forecloses re-detection. A failed early queue write is harmless: the
+ * watch stays `watching` and the next cycle re-emits the same deterministic id.
  */
 function alertsBeforeRun(input: {
     readonly fresh: readonly QueuedEvent[];
     readonly checksWrites: ReadonlyMap<string, ChecksWatch> | undefined;
 }): boolean {
     return input.fresh.some((event) => followUpKindOf(event.id) === 'checks')
-        && input.fresh.every((event) => followUpKindOf(event.id) !== null)
         && [...(input.checksWrites?.values() ?? [])].some((watch) => watch.verdict === 'failed');
 }
 
@@ -408,9 +407,17 @@ async function enqueueWithinChain(input: {
 
     const queued = [...existing, ...appended];
     if (alertsBeforeRun({ fresh, checksWrites: input.checksWrites })) {
+        // Only the follow-ups: a trigger row in this pass may be waiting on a
+        // run this write creates, and the retained checkpoint re-covers it.
+        const followUps = appended.filter((event) => followUpKindOf(event.id) !== null);
+        const triggers = appended.filter((event) => followUpKindOf(event.id) === null);
         const retained = new Set(outcome.document.runs.map((run) => run.correlationId));
-        await input.store.writeJson(EVENTS_FILE, serializedQueue(queued, retained));
-        await writeRunsDocument({ ...input, document: outcome.document });
+        await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...followUps], retained));
+        const persisted = await writeRunsDocument({ ...input, document: outcome.document });
+        if (triggers.length > 0) {
+            const persistedIds = new Set(persisted.runs.map((run) => run.correlationId));
+            await input.store.writeJson(EVENTS_FILE, serializedQueue(queued, persistedIds));
+        }
     } else {
         const persisted = await writeRunsDocument({ ...input, document: outcome.document });
         const retained = new Set(persisted.runs.map((run) => run.correlationId));
