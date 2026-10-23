@@ -189,15 +189,23 @@ async function forward(input: {
     return { status: response.status, body: await response.text() };
 }
 
+/** A stored value that is a plain JSON object, not null and not an array. */
+function isPlainRecord(value: JsonValue): value is Record<string, JsonValue> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Which dispatch-record write a stored document is, so the timeline can tell
- * the intent, the resolved outcome, and the acknowledgement apart.
+ * the placeholder, the fill, the resolved outcome, and the acknowledgement apart.
  *
  * @param value - Value the panel stored.
- * @returns `'ack'`, `'intent'`, or `'record'`.
+ * @returns `'ack'`, `'placeholder'`, `'fill'`, `'delete'`, or `'record'`.
+ *
+ * A delete is only inferred from an empty `attempts` array with no `followUps`
+ * member; a document carrying follow-ups reads as `'record'` instead.
  */
-function recordWrite(value: JsonValue): 'ack' | 'intent' | 'record' {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+function recordWrite(value: JsonValue): 'ack' | 'placeholder' | 'fill' | 'delete' | 'record' {
+    if (!isPlainRecord(value)) {
         return 'record';
     }
 
@@ -206,13 +214,21 @@ function recordWrite(value: JsonValue): 'ack' | 'intent' | 'record' {
         return 'record';
     }
 
-    const rows = attempts.filter((entry): entry is Record<string, JsonValue> =>
-        typeof entry === 'object' && entry !== null && !Array.isArray(entry));
-    if (rows.some((entry) => entry.acknowledged === true)) {
+    const rows = attempts.filter((entry): entry is Record<string, JsonValue> => isPlainRecord(entry));
+    const latest = rows.at(-1);
+    if (latest === undefined) {
+        return 'followUps' in value ? 'record' : 'delete';
+    }
+
+    if (latest.acknowledged === true) {
         return 'ack';
     }
 
-    return rows.some((entry) => entry.outcome === 'unknown') ? 'intent' : 'record';
+    if (latest.outcome !== 'unknown') {
+        return 'record';
+    }
+
+    return latest.dispatchToken === null || latest.dispatchToken === undefined ? 'placeholder' : 'fill';
 }
 
 /** Build the host one mount runs on: the loopback bridge plus a counting host. */

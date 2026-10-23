@@ -40,6 +40,7 @@ import {
     PROJECT_ID,
     SESSION_CREATED,
     SESSION_ID,
+    createStorageDouble,
     createTestRuntime,
     fakeHost,
 } from './support/panel.ts';
@@ -514,6 +515,7 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
         const calls: string[] = [];
         const host = fakeHost({
             startSession: async () => SESSION_CREATED,
+            storage: createStorageDouble().storage,
             openSession: async (id) => {
                 calls.push(`openSession:${id}`);
             },
@@ -530,7 +532,7 @@ describe('relay dispatch → verification wiring (M9 in the real path)', () => {
                     return { status: 200, body: baselineBody(EXPECTED_AGENT) };
                 }
 
-                if (request.method === 'GET' && request.path === '/v1/events/pending') {
+                if (request.method === 'GET' && request.path === '/v1/events/pending?limit=1') {
                     return {
                         status: 200,
                         body: JSON.stringify({ events: [CLAIM], status: [], auditWritten: true }),
@@ -841,6 +843,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
             const calls: string[] = [];
             const host = fakeHost({
                 startSession: async () => SESSION_CREATED,
+                storage: createStorageDouble().storage,
                 openSession: async (id) => {
                     calls.push(`openSession:${id}`);
                 },
@@ -857,7 +860,7 @@ describe('T-027 the read-back reaches the service (contract §5)', () => {
                         return { status: 200, body: baselineBody(EXPECTED_AGENT) };
                     }
 
-                    if (request.method === 'GET' && request.path === '/v1/events/pending') {
+                    if (request.method === 'GET' && request.path === '/v1/events/pending?limit=1') {
                         return {
                             status: 200,
                             body: JSON.stringify({ events: [CLAIM], status: [], auditWritten: true }),

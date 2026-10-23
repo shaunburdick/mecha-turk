@@ -22,13 +22,12 @@ import type { StartSessionRequest, StartSessionResult } from '@openchamber/sdk';
 import { drainVerifications } from '../src/agent-verify.ts';
 import { parsePendingBody } from '../src/claim-service.ts';
 import { reconcileDispatchAttempts } from '../src/reconcile.ts';
-import { dispatchClaimedRun, pollRelay } from '../src/relay.ts';
+import { RELAY_POLL_INTERVAL_MS, dispatchClaimedRun, pollRelay } from '../src/relay.ts';
 import { reservePath, servicePost } from '../src/service-calls.ts';
 import { ABANDON_PATH, DISPATCHED_PATH, RESERVE_PATH } from '../service/routes/dispatch.ts';
 import { REQUEUE_PATH, RESOLVE_PATH, RETRY_PATH } from '../service/routes/run-ops.ts';
 import { AUDIT_FILE } from '../service/audit.ts';
-import { DISPATCH_STORAGE_KEY, recordDispatchOutcome } from '../src/dispatch-record.ts';
-import { parseJsonValue } from '../src/json.ts';
+import { DISPATCH_STORAGE_KEY, recordDispatchIntent } from '../src/dispatch-record.ts';
 import type { ClaimedRun } from '../src/claim-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import type { Run } from '../service/poll/runs-types.ts';
@@ -61,14 +60,13 @@ const TRIALS = 100;
  *
  * The body does the real thing end to end — the 150 fixture issues arrive as
  * **two scan-sized enqueues** (the batched form production uses, since the
- * 2026-10-01 de-slop pass stopped driving them one subject at a time) plus two
- * relay ticks that dispatch all 100 runs sequentially over loopback HTTP
- * (~502 requests, five per run). An idle machine measures ≈1.3 s since that
- * batching; before it, the same proof measured ≈1.7 s and still crossed 5 s on
- * a loaded CI runner (run 36836694111, while a sibling run of the same commit
- * passed), so the budget keeps an order-of-magnitude margin for a shared
- * machine without weakening what the test counts: still 100 trials, still
- * exactly one run and one session each.
+ * 2026-10-01 de-slop pass stopped driving them one subject at a time) plus one
+ * relay tick per run, each claim asking for `limit=1` and dispatching the run it
+ * was offered over loopback HTTP (~500 requests, five per run). The per-tick
+ * follow-up reads add ~200 more, so the measured body is a few seconds on an
+ * idle machine; the budget keeps an order-of-magnitude margin for a shared
+ * runner without weakening what the test counts: still 100 trials, still exactly
+ * one run and one session each.
  */
 const TRIALS_BUDGET_MS = 30_000;
 
@@ -93,8 +91,12 @@ const LEASE_EXPIRED_EVENT = 'dispatch.lease-expired';
 /** The running loop every case drives. */
 let loop: DispatchLoop;
 
+/** Injected clock every relay tick in this suite advances by one interval. */
+let tickNowMs = 0;
+
 beforeEach(async () => {
     loop = await startDispatchLoop();
+    tickNowMs = 0;
 });
 
 afterEach(async () => {
@@ -213,9 +215,11 @@ async function exhaustRequeueBudget(issueNumber: number): Promise<void> {
     throw new Error(`issue ${issueNumber} never dead-lettered`);
 }
 
-/** Run one relay tick on a mount and settle the detached read-backs. */
+/** Run one relay tick on a mount, one relay interval after the previous one. */
 async function tick(rt: PanelRuntime): Promise<void> {
-    await pollRelay(rt);
+    const atMs = tickNowMs;
+    tickNowMs += RELAY_POLL_INTERVAL_MS;
+    await pollRelay(rt, { now: () => atMs });
     await drainVerifications(rt);
 }
 
@@ -282,6 +286,41 @@ describe('close permutations (NFR-102, AC-110)', () => {
 
         expect(loop.sessions).toEqual([waiting.correlationId]);
         expect(await stateOf(ISSUE)).toBe('dispatched');
+        expectAtMostOneSessionPerRun();
+    });
+
+    it('claims one of three waiting runs, leaving the rest pending and attempt-untouched', async () => {
+        await loop.enqueue({ issueNumber: ISSUE });
+        await loop.enqueue({ issueNumber: ISSUE + 1 });
+        await loop.enqueue({ issueNumber: ISSUE + 2 });
+
+        const rt = loop.mount();
+        await tick(rt);
+
+        const runs = await readRuns(loop.store);
+        expect(runs.filter((run) => run.state === 'dispatched')).toHaveLength(1);
+        const untouched = runs.filter((run) => run.state === 'pending');
+        expect(untouched).toHaveLength(2);
+        for (const run of untouched) {
+            expect(run.lease, `run ${run.correlationId} was leased`).toBeNull();
+            expect(run.attempt).toBe(1);
+        }
+
+        // The panel is torn down after its claim; the runs it never leased stay
+        // claimable with no operator action, and the sweep burns nothing.
+        loop.unmount(rt);
+        await loop.sweepAt(FAR_FUTURE);
+        const recovered = await readRuns(loop.store);
+        expect(recovered.filter((run) => run.state === 'pending')).toHaveLength(2);
+
+        const second = loop.mount();
+        await tick(second);
+        const third = loop.mount();
+        await tick(third);
+
+        expect(loop.sessions).toHaveLength(3);
+        const finalRuns = await readRuns(loop.store);
+        expect(finalRuns.filter((run) => run.state === 'dispatched')).toHaveLength(3);
         expectAtMostOneSessionPerRun();
     });
 
@@ -357,82 +396,91 @@ describe('close permutations (NFR-102, AC-110)', () => {
     });
 });
 
-describe('a teardown between the reservation and the outcome record (AC-134, AC-135)', () => {
-    it('leaves the intent, surfaces it on remount, and settles it only on the service\'s evidence', async () => {
+describe('the teardown death points around the reservation (AC-134, AC-135)', () => {
+    it('after the placeholder and before the reserve: the verdict row deletes it and the run runs once', async () => {
         await loop.enqueue({ issueNumber: ISSUE });
-
-        // The mount dies *inside* the host call: the reservation and the intent
-        // record happened, and no outcome can ever be recorded (#72's case).
-        let dying: PanelRuntime | null = null;
-        const createdSessions: string[] = [];
-        const mount = loop.mount({
-            startSession: async (request: StartSessionRequest): Promise<StartSessionResult> => {
-                createdSessions.push(request.id);
-                if (dying !== null) {
-                    loop.unmount(dying);
-                }
-                return await new Promise<StartSessionResult>(() => { /* the mount is gone */ });
-            },
-        });
-        dying = mount;
-        const [offered] = await offerFor(mount);
+        const first = loop.mount();
+        const [offered] = await offerFor(first);
         if (offered === undefined) {
             throw new Error(NO_OFFER);
         }
-        void dispatchClaimedRun(mount, offered);
-        await until(() => createdSessions.length > 0);
-
-        // The intent is durable, unknown, and unacknowledged; no outcome exists.
-        expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)).toMatchObject({
+        expect(await recordDispatchIntent(first, {
             correlationId: offered.correlationId,
+            runKey: offered.runKey,
+            attempt: offered.attempt,
+            leaseId: offered.lease.leaseId,
+            projectId: offered.projectId,
+            worktreeOption: offered.worktreeOption,
+        })).toBe(true);
+        loop.unmount(first);
+
+        // No reservation was ever requested; the sweep recovers the claim and
+        // writes the service's own verdict row for that lease.
+        await loop.sweepAt(justPast(offered.lease.expiresAt));
+        const requeued = await runOf(ISSUE);
+        expect(requeued.state).toBe('pending');
+        expect(requeued.attempt).toBe(2);
+        expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)).toMatchObject({
             attempt: 1,
+            leaseId: offered.lease.leaseId,
+            dispatchToken: null,
+            authorizedAt: null,
             outcome: 'unknown',
-            settledAt: null,
-            acknowledged: false,
         });
-        expect(createdSessions).toEqual([offered.correlationId]);
 
         const second = loop.mount();
-        const otherRun = 'mt-run-ffffffffffffffffffffffff';
-        const fixtureToken = `dtk-${'a1b2c3d4'.repeat(4)}`;
-        expect(await recordDispatchOutcome(second, {
-            correlationId: otherRun,
-            runKey: 'github|77331|acme/widget|issue|41|1',
-            attempt: 1,
-            leaseId: 'lse-ffffffffffffffffffffffff',
-            dispatchToken: fixtureToken,
-            outcome: { kind: 'dispatched', sessionId: SESSION_ID },
-        })).toBe(true);
+        const reconciled = await reconcileDispatchAttempts(second);
 
-        const mark = loop.timeline.length;
-        const surfaced = await reconcileDispatchAttempts(second);
-        const pass = loop.timeline.slice(mark);
-
-        // Before the first claim: the unknown attempt is surfaced, never
-        // reported, never re-dispatched — while the other attempt is re-reported.
-        expect(surfaced.warning).not.toBeNull();
-        expect(second.state.status.tone).toBe('warning');
-        expect(second.state.status.body).toContain(offered.correlationId);
-        expect(second.state.status.body).toContain('never recorded as producing a session');
-        expect(second.state.status.body).toContain('is not in the list this panel loaded');
-        expect(pass).not.toContain(`POST /v1/events/${offered.correlationId}/dispatched`);
-        expect(pass).not.toContain(`POST /v1/events/${offered.correlationId}/abandon`);
-        expect(pass).toContain(`POST /v1/events/${otherRun}/dispatched`);
+        // Deleted silently: no warning, no report.
+        expect(reconciled.warning).toBeNull();
+        expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)).toBeUndefined();
+        expect(loop.timeline).not.toContain(`POST /v1/events/${offered.correlationId}/dispatched`);
+        expect(loop.timeline).not.toContain(`POST /v1/events/${offered.correlationId}/abandon`);
 
         await tick(second);
-        expect(createdSessions).toHaveLength(1);
+        expect(loop.sessions).toEqual([offered.correlationId]);
+        expect(await stateOf(ISSUE)).toBe('dispatched');
+        expectAtMostOneSessionPerRun();
+    });
+
+    it('reserve answered with the fill not landed: surfaced, never reported, and settled on evidence', async () => {
+        await loop.enqueue({ issueNumber: ISSUE });
+        const first = loop.mount();
+        const [offered] = await offerFor(first);
+        if (offered === undefined) {
+            throw new Error(NO_OFFER);
+        }
+        expect(await recordDispatchIntent(first, {
+            correlationId: offered.correlationId,
+            runKey: offered.runKey,
+            attempt: offered.attempt,
+            leaseId: offered.lease.leaseId,
+            projectId: offered.projectId,
+            worktreeOption: offered.worktreeOption,
+        })).toBe(true);
+        const token = await reserveThenDie(first, offered);
+        expect(token).not.toBe('');
+
+        // The service holds a reservation; the panel's record holds no token and
+        // its host call never happened.
+        expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)).toMatchObject({
+            dispatchToken: null,
+            authorizedAt: null,
+            outcome: 'unknown',
+        });
         expect(loop.sessions).toHaveLength(0);
 
-        // The offending service has no record of the fabricated run: drop it so
-        // the bounded banner's remaining copy is about the lost attempt alone.
-        const remaining = parseJsonValue(JSON.stringify({
-            schemaVersion: 'dispatch-attempts-2',
-            attempts: storedAttempts().filter((entry) => entry.correlationId !== otherRun),
-        }));
-        loop.panelStorage.set(DISPATCH_STORAGE_KEY, remaining);
+        const second = loop.mount();
+        const surfaced = await reconcileDispatchAttempts(second);
 
-        // `dispatch.unconfirmed` is not evidence: the warning stays and says the
-        // operator's decision is what the run needs.
+        expect(surfaced.warning).not.toBeNull();
+        expect(second.state.status.body).toContain(offered.correlationId);
+        expect(second.state.status.body).toContain('never recorded as having produced a session');
+        expect(loop.timeline).not.toContain(`POST /v1/events/${offered.correlationId}/dispatched`);
+        expect(loop.timeline).not.toContain(`POST /v1/events/${offered.correlationId}/abandon`);
+
+        // No result arrives: the run goes unconfirmed at the deadline, and the
+        // warning then points at the decision the run still owes.
         const reserved = await runOf(ISSUE);
         const deadline = reserved.reservation?.resultDeadlineAt;
         if (deadline === undefined) {
@@ -447,7 +495,7 @@ describe('a teardown between the reservation and the outcome record (AC-134, AC-
         expect(third.state.status.body).toContain('still needs your decision');
         expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)?.settledAt).toBeNull();
 
-        // The service's own `dispatch.resolved` proves the attempt past.
+        // The operator's own decision is the service's `dispatch.resolved`.
         const resolve = await post({
             service: loop.service,
             path: bound(RESOLVE_PATH, offered.correlationId),
@@ -461,18 +509,108 @@ describe('a teardown between the reservation and the outcome record (AC-134, AC-
         expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)?.settledAt)
             .not.toBeNull();
 
-        // A trim of the trail cannot resurrect the warning: a settled record is
-        // never read against the audit trail again.
+        // A trim of the trail cannot resurrect the warning.
         await loop.store.writeLines(AUDIT_FILE, []);
-        const markAfterTrim = loop.timeline.length;
+        const mark = loop.timeline.length;
         const fifth = loop.mount();
         const afterTrim = await reconcileDispatchAttempts(fifth);
 
         expect(afterTrim.warning).toBeNull();
-        expect(loop.timeline.slice(markAfterTrim).filter((entry) => entry.startsWith('GET /v1/audit'))).toHaveLength(0);
+        expect(loop.timeline.slice(mark).filter((entry) => entry.startsWith('GET /v1/audit'))).toHaveLength(0);
+        expect(loop.sessions).toHaveLength(0);
+        expectAtMostOneSessionPerRun();
+    });
+
+    it('dies inside the host call: the filled record is surfaced and settles on evidence', async () => {
+        await loop.enqueue({ issueNumber: ISSUE });
+
+        // The mount dies *inside* `host.startSession()`, after a session was
+        // created: the reservation and the fill happened, and no outcome can
+        // ever be recorded — the death point #72 was written for.
+        let dying: PanelRuntime | null = null;
+        const createdSessions: string[] = [];
+        const mount = loop.mount({
+            startSession: async (request: StartSessionRequest): Promise<StartSessionResult> => {
+                createdSessions.push(request.id);
+                if (dying !== null) {
+                    loop.unmount(dying);
+                }
+
+                return await new Promise<StartSessionResult>(() => { /* the mount is gone */ });
+            },
+        });
+        dying = mount;
+        const [offered] = await offerFor(mount);
+        if (offered === undefined) {
+            throw new Error(NO_OFFER);
+        }
+        void dispatchClaimedRun(mount, offered);
+        await until(() => createdSessions.length > 0);
+
+        // The token was filled before the host call, so this is a filled record,
+        // not a placeholder: unknown, unacknowledged, and authorized.
+        const doomed = storedAttempts().find((entry) => entry.correlationId === offered.correlationId);
+        expect(doomed).toMatchObject({
+            attempt: offered.attempt,
+            leaseId: offered.lease.leaseId,
+            outcome: 'unknown',
+            settledAt: null,
+            acknowledged: false,
+        });
+        expect(doomed?.dispatchToken).toMatch(/^dtk-/);
+        expect(doomed?.authorizedAt).not.toBeNull();
+        expect(createdSessions).toEqual([offered.correlationId]);
+        expect(await stateOf(ISSUE)).toBe('starting');
+
+        const second = loop.mount();
+        const mark = loop.timeline.length;
+        const surfaced = await reconcileDispatchAttempts(second);
+
+        expect(surfaced.warning).not.toBeNull();
+        expect(second.state.status.body).toContain(offered.correlationId);
+        expect(second.state.status.body).toContain('never recorded as having produced a session');
+        expect(loop.timeline.slice(mark)).not.toContain(`POST /v1/events/${offered.correlationId}/dispatched`);
+        expect(loop.timeline.slice(mark)).not.toContain(`POST /v1/events/${offered.correlationId}/abandon`);
+
+        // The run still holds its reservation, so nothing is claimable and the
+        // remount dispatches nothing.
+        await tick(second);
+        expect(createdSessions).toEqual([offered.correlationId]);
+
+        // No result arrives: the deadline wedges the run and the operator decides.
+        const reserved = await runOf(ISSUE);
+        const deadline = reserved.reservation?.resultDeadlineAt;
+        if (deadline === undefined) {
+            throw new Error(NO_DEADLINE);
+        }
+        await loop.sweepAt(justPast(deadline));
+        expect(await stateOf(ISSUE)).toBe('unconfirmed');
+
+        const resolve = await post({
+            service: loop.service,
+            path: bound(RESOLVE_PATH, offered.correlationId),
+            body: { correlationId: offered.correlationId, decision: 'no-session', note: 'checked the session list' },
+        });
+        expectStatus({ step: 'resolve', answer: resolve, status: 200 });
+
+        const third = loop.mount();
+        const settled = await reconcileDispatchAttempts(third);
+        expect(settled.warning).toBeNull();
         expect(storedAttempts().find((entry) => entry.correlationId === offered.correlationId)?.settledAt)
             .not.toBeNull();
-        expect(loop.sessions).toHaveLength(0);
+
+        // A trim of the trail cannot resurrect the warning once settled.
+        await loop.store.writeLines(AUDIT_FILE, []);
+        const trimMark = loop.timeline.length;
+        const fourth = loop.mount();
+        const afterTrim = await reconcileDispatchAttempts(fourth);
+
+        expect(afterTrim.warning).toBeNull();
+        expect(loop.timeline.slice(trimMark).filter((entry) => entry.startsWith('GET /v1/audit'))).toHaveLength(0);
+
+        // The custom `startSession` is what records the call, so the loop's own
+        // list stays empty: the count comes from the calls the host actually saw.
+        expect(sessionsPerRun(createdSessions).get(offered.correlationId)).toBe(1);
         expectAtMostOneSessionPerRun();
     });
 });
@@ -853,10 +991,10 @@ describe('SC-101: two triggers, one run, one session (AC-101)', () => {
         );
 
         const rt = loop.mount();
-        // The claim is paginated (contract `claim-lease.md`), so one tick can
-        // never see all of them.
-        await tick(rt);
-        await tick(rt);
+        // One claim per relay interval: 100 runs take 100 ticks, never a batch.
+        for (let index = 0; index < TRIALS; index += 1) {
+            await tick(rt);
+        }
 
         const runs = await readRuns(loop.store);
         expect(runs).toHaveLength(TRIALS);

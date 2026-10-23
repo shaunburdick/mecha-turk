@@ -85,9 +85,10 @@ describe('T-036 one end-to-end dispatch on this branch', () => {
             (entry) => entry !== HISTORY_GET && entry !== FOLLOW_UP_ROWS_GET,
         );
         expect(steps).toEqual([
-            'GET /v1/events/pending',
+            'GET /v1/events/pending?limit=1',
+            'placeholder',
             `POST /v1/events/${run.correlationId}/reserve`,
-            'intent',
+            'fill',
             `startSession:${run.correlationId}`,
             'record',
             `POST /v1/events/${run.correlationId}/dispatched`,

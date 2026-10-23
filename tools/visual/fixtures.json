@@ -952,6 +952,12 @@
                     "status": []
                 }
             }
+        },
+        "selected-unconfirmed": {
+            "summary": "Dispatches with the unconfirmed run selected and its \"No session was created\" control armed",
+            "tab": "dispatches",
+            "drive": "arm-resolve-no-session",
+            "delta": {}
         }
     }
 }

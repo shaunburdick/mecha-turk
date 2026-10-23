@@ -13,6 +13,29 @@ matching section below plus GitHub's generated notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- **A dispatch batch can no longer strand a run it never reached** (#72). The
+  panel claims one run per relay interval, so a panel that stops mid-dispatch
+  leaves every run it had not reached `pending` and unleased — no attempt
+  burned, no operator action — instead of holding a lease the expiry sweep then
+  charges until the run is dead-lettered.
+- **A dispatch is recorded before it is authorized** (#72). The durable attempt
+  record is written as a placeholder before the reservation and filled with the
+  dispatch token when the reserve answers, so there is no moment at which the
+  service holds a reservation the panel has not recorded. A placeholder the
+  service's own lease-expiry or dead-letter verdict proves was never authorized
+  is deleted silently; a dispatch that never produced a session is no longer
+  indistinguishable from one that was never attempted. The panel record moves
+  to `dispatch-attempts-3` and still reads v1 and v2.
+- **The resolve controls stay where the operator pressed them.** Arming *No
+  session was created* repainted the dispatch list, and the list scrolled the
+  selected row into view — hiding the confirm label and the Selected dispatch
+  block below it. A repaint that changes neither the rows, the selection nor
+  the empty-text copy no longer repaints the list, and the list has a bounded
+  viewport so the Selected dispatch block sits directly beneath it at the
+  panel's narrowest width.
+
 ## [0.5.1] - 2026-10-23
 
 ### Fixed

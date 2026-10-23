@@ -54,6 +54,12 @@ export interface CascadeInput {
     readonly media: ReadonlySet<string>;
 }
 
+/** The inputs `cascadedProperty` takes: {@link CascadeInput} plus the property to resolve. */
+export interface PropertyCascadeInput extends CascadeInput {
+    /** CSS property to resolve, spelled as the stylesheet spells it. */
+    readonly property: string;
+}
+
 /** Token kinds, named once so no selector string is ever repeated. */
 const TAG_KIND = 'tag';
 const ID_KIND = 'id';
@@ -85,7 +91,7 @@ interface Step {
     readonly next: number;
 }
 
-/** A declaration that could set `display`, with everything a tie-break needs. */
+/** A declaration that could set the resolved property, with everything a tie-break needs. */
 interface Candidate {
     /** The declared value. */
     readonly value: string;
@@ -102,6 +108,7 @@ interface RuleInput {
     readonly rule: StyleRule;
     readonly element: ProbeElement;
     readonly media: ReadonlySet<string>;
+    readonly property: string;
     readonly current: Candidate | null;
 }
 
@@ -110,13 +117,14 @@ interface SelectorInput {
     readonly selector: string;
     readonly rule: StyleRule;
     readonly element: ProbeElement;
+    readonly property: string;
     readonly current: Candidate | null;
 }
 
 /** The universal selector, which matches anything and weighs nothing. */
 const STAR = '*';
 
-/** The one property these assertions resolve: an element's `display`. */
+/** The property `cascadedDisplay` resolves; the generic resolver takes any name. */
 const DISPLAY_PROPERTY = 'display';
 
 /** The `style` attribute, which carries declarations an element owns itself. */
@@ -483,12 +491,12 @@ function beats(candidate: Candidate, incumbent: Candidate): boolean {
 }
 
 /**
- * Fold one rule's `display` declarations into the winner so far.
+ * Fold one rule's declarations for the resolved property into the winner so far.
  *
  * @returns The incumbent, or the rule's declaration when it out-ranks it.
  */
 function applySelector(input: SelectorInput): Candidate | null {
-    const { selector, rule, element, current } = input;
+    const { selector, rule, element, property, current } = input;
 
     if (!matchesSelector(selector, element)) {
         return current;
@@ -498,7 +506,7 @@ function applySelector(input: SelectorInput): Candidate | null {
     let best = current;
 
     for (const declaration of rule.declarations) {
-        if (declaration.property !== DISPLAY_PROPERTY) {
+        if (declaration.property !== property) {
             continue;
         }
 
@@ -523,7 +531,7 @@ function applySelector(input: SelectorInput): Candidate | null {
  * @returns The incumbent, or a better declaration the rule contributes.
  */
 function applyRule(input: RuleInput): Candidate | null {
-    const { rule, element, media, current } = input;
+    const { rule, element, media, property, current } = input;
 
     if (rule.media !== null && !media.has(rule.media)) {
         return current;
@@ -532,7 +540,7 @@ function applyRule(input: RuleInput): Candidate | null {
     let best = current;
 
     for (const selector of rule.selectors) {
-        best = applySelector({ selector, rule, element, current: best });
+        best = applySelector({ selector, rule, element, property, current: best });
     }
 
     return best;
@@ -551,9 +559,9 @@ function applyRule(input: RuleInput): Candidate | null {
  * source order when importance and weight are both equal, and this candidate
  * is alone at the top of the scale.
  *
- * @returns The inline `display` candidate, or null when the attribute holds none.
+ * @returns The inline candidate, or null when the attribute holds none.
  */
-function inlineCandidate(element: ProbeElement): Candidate | null {
+function inlineCandidate(element: ProbeElement, property: string): Candidate | null {
     const text = element.attributes?.[STYLE_ATTRIBUTE];
 
     if (text === undefined) {
@@ -563,7 +571,7 @@ function inlineCandidate(element: ProbeElement): Candidate | null {
     for (const chunk of text.split(';')) {
         const declaration = toDeclaration(chunk);
 
-        if (declaration.property === DISPLAY_PROPERTY) {
+        if (declaration.property === property) {
             return { value: declaration.value, important: declaration.important, weight: STYLE_WEIGHT, order: 0 };
         }
     }
@@ -572,15 +580,31 @@ function inlineCandidate(element: ProbeElement): Candidate | null {
 }
 
 /**
+ * The value the cascade gives one element for one property, under one set of
+ * media.
+ *
+ * @returns The winning value, or null when nothing declares the property.
+ */
+export function cascadedProperty(input: PropertyCascadeInput): string | null {
+    let winner: Candidate | null = inlineCandidate(input.element, input.property);
+    for (const rule of input.rules) {
+        winner = applyRule({
+            rule,
+            element: input.element,
+            media: input.media,
+            property: input.property,
+            current: winner,
+        });
+    }
+
+    return winner === null ? null : winner.value;
+}
+
+/**
  * The `display` the cascade gives one element, under one set of media.
  *
  * @returns The winning value, or null when nothing declares `display`.
  */
 export function cascadedDisplay(input: CascadeInput): string | null {
-    let winner: Candidate | null = inlineCandidate(input.element);
-    for (const rule of input.rules) {
-        winner = applyRule({ rule, element: input.element, media: input.media, current: winner });
-    }
-
-    return winner === null ? null : winner.value;
+    return cascadedProperty({ ...input, property: DISPLAY_PROPERTY });
 }

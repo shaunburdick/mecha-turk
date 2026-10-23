@@ -4,7 +4,14 @@
  */
 
 import { mountBanner, mountButton, mountList, mountText, mountTextField } from '@openchamber/sdk/ui';
-import type { BannerHandle, ButtonHandle, ListHandle, TextHandle, TextFieldHandle } from '@openchamber/sdk/ui';
+import type {
+    BannerHandle,
+    ButtonHandle,
+    ListHandle,
+    ListItem,
+    TextHandle,
+    TextFieldHandle,
+} from '@openchamber/sdk/ui';
 import { AUDIT_BUTTON_LABEL, auditItems, auditStatusText } from './audit-view.ts';
 import type { PanelRuntime, DispatchesState } from './panel-state.ts';
 import {
@@ -47,12 +54,24 @@ interface MountInputs {
     readonly handlers: BindingsPaneHandlers;
 }
 
+/**
+ * Everything one list paint renders (FR-042). The arm repaint writes `note` and
+ * `pendingAction`, neither of which is in here, so arming leaves the list alone.
+ */
+export interface ListPaint {
+    readonly items: ListItem[];
+    readonly selectedId: string | null;
+    readonly emptyText: string;
+}
+
 /** The runs half of the pane: heading, list, actions, and notes. */
 export interface DispatchesBoard {
     /** Status line: idle, loading, ready with a count, or unavailable. */
     readonly dispatchesStatus: TextHandle;
     /** One row per recent event, newest first. */
     readonly dispatchesList: ListHandle;
+    /** Input the list was last painted from; `null` means the next repaint must paint. */
+    listPaint: ListPaint | null;
     /** Re-read `GET /v1/events`. */
     readonly refreshDispatches: ButtonHandle;
     /** Open the selected run's issue in the operator's browser. */
@@ -396,6 +415,47 @@ function repaintReoffer(input: {
 }
 
 /**
+ * One row's paint values, flattened so comparison is one table rather than a
+ * chain that a new row field could silently escape.
+ */
+function paintValues(item: ListItem): readonly unknown[] {
+    return [
+        item.id,
+        item.leading,
+        item.title,
+        item.subtitle,
+        item.meta,
+        item.badge?.label,
+        item.badge?.tone,
+        item.disabled,
+    ];
+}
+
+function sameListItem(left: ListItem, right: ListItem): boolean {
+    const leftValues = paintValues(left);
+    const rightValues = paintValues(right);
+
+    return leftValues.length === rightValues.length
+        && leftValues.every((value, index) => value === rightValues[index]);
+}
+
+function sameItems(left: readonly ListItem[], right: readonly ListItem[]): boolean {
+    return left.length === right.length && left.every((item, index) => {
+        const other = right[index];
+
+        return other !== undefined && sameListItem(item, other);
+    });
+}
+
+/** Whether a repaint would change anything the list renders. */
+function sameListPaint(left: ListPaint | null, right: ListPaint): boolean {
+    return left !== null
+        && left.selectedId === right.selectedId
+        && left.emptyText === right.emptyText
+        && sameItems(left.items, right.items);
+}
+
+/**
  * Repaint the runs half of the pane from state. The affordance table decides
  * which transition group exists: one nobody can use is hidden rather than
  * greyed out, because a disabled button still promises an action the service
@@ -412,11 +472,15 @@ export function repaintDispatchesBoard(rt: PanelRuntime, board: DispatchesBoard)
     const labelFor = (base: string): string => (selected === null ? base : rowActionLabel(base, selected));
 
     board.dispatchesStatus.update({ text: dispatchesStatusText(runs) });
-    board.dispatchesList.update({
+    const paint: ListPaint = {
         items: dispatchRows(runs),
         selectedId: runs.selectedRun,
         emptyText: dispatchEmptyText(runs),
-    });
+    };
+    if (!sameListPaint(board.listPaint, paint)) {
+        board.listPaint = paint;
+        board.dispatchesList.update(paint);
+    }
     board.refreshDispatches.update({ disabled: runs.status === 'loading' });
     board.openDispatch.update({ disabled: selected === null, label: labelFor(OPEN_ISSUE_LABEL) });
     // The block itself goes first: with no row open its heading would promise
@@ -490,6 +554,7 @@ export function mountDispatchesBoard(input: MountInputs): DispatchesBoard {
     const board: DispatchesBoard = {
         ...head,
         ...list,
+        listPaint: null,
         ...shared,
         selectedBox: selected.body,
         ...transitions,

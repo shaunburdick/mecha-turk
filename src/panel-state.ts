@@ -109,6 +109,7 @@ export function initialRelay(): Relay {
         timer: null,
         inFlight: false,
         lastPollAt: null,
+        lastClaimAtMs: null,
         dispatching: false,
         handled: [],
         lastError: null,
@@ -173,6 +174,8 @@ export interface Relay {
     timer: ReturnType<typeof setInterval> | null;
     inFlight: boolean;
     lastPollAt: string | null;
+    /** When this mount last issued a claim; in memory, so a remount claims at once. */
+    lastClaimAtMs: number | null;
     dispatching: boolean;
     /**
      * Attempts this mount has already handed to the dispatch path, keyed

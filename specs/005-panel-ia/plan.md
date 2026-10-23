@@ -178,6 +178,8 @@ GET /v1/events?limit=25&cursor=<opaque>&bindingId=<id>&state=<state>
 - **Cursor** is an opaque page-boundary token encoding the snapshot's last row key; the panel never parses it. `total` is `null` when the service cannot honestly supply one — the tab then says *total unavailable* rather than presenting the page size as a total (FR-042, NFR-112).
 - **Filters** are server-side and compose with the page: `bindingId` exact; `state` accepts one of 003's exact state tokens **or** the literal `blocked` matching the whole `blocked:*` family. An unknown token is `422 validation` with `field` + `remediation` — never silently ignored (FR-003).
 - **Previous** is served from a panel-side `cursorStack: (string | null)[]` + `pageIndex`, so position survives a refresh within the mount (FR-042; edge case "a refresh returns the operator to the page they were on").
+- **The list is a bounded viewport (FR-044, v1.23.0)**: the `div.mt-list--dispatches` that `mountDispatchesList` creates and `mountList` fills is the list's own scroll container — `max-height: clamp(9rem, 45vh, 26rem)` with `overflow-y: auto`, declared in the stylesheet's Dispatches-list group. `mountDispatchesBoard` already mounts its three blocks in the order set → **Selected dispatch** → audit trail, so the block the `unconfirmed` resolutions live in is the set block's next `section.mt-block`; the cap is what keeps the confirm copy near the control that wrote it. Bounded, the distance from the list's top to the block's top is `cap + note` whatever the page holds; unbounded it is `rows × row height` — ≈2 750 px at 320 px for the default 25-row page and ≈11 000 px at 100. The cap is viewport-relative because a *row* is not: inside the host's clamp a dispatch row is always the stacked shape — ≈110 px at 320 px, ≈90 px at 715 px — because the one-line fold is a `min-width: 900px` rule the host never reaches. Value, arithmetic, and the ceiling: §R.3 / D28.
+- **A repaint paints the list only when the list's paint input changes (FR-042, v1.23.0)**: the input is exactly `{ items, selectedId, emptyText }` — `dispatchRows(runs)`, `runs.selectedRun`, `dispatchEmptyText(runs)` — memoised on the board and compared by value, so `dispatchesList.update` is not called at all when none of the three moved. Arming a control writes `pendingAction` and `note`, neither of which is a list input, so the SDK neither rebuilds the rows nor runs `setActive`'s `scrollIntoView` on the active row. **A repaint that does change any of the three still paints** — that half is asserted, so the guard cannot pass by freezing. §R.2 / D27.
 
 ### The single state→affordance table (FR-044, FR-045)
 
@@ -1093,3 +1095,147 @@ No automatic retry or timer of any kind. No `Math.random()` or third entropy sou
 ## N.11 Phase-6 task block
 
 See [`tasks.md`](./tasks.md) → *Amendment tasks — v1.21.0 startup rendering and failure recovery* (N-01 – N-11).
+
+---
+
+# Amendment plan — 005 v1.23.0 resolve arming stays in view (2026-10-23)
+
+A dated Phase-4 record for the approved v1.23.0 amendment (GitHub issue #72, deferred **Action D**). The normative source is `spec.md`: **FR-042** (position means the page index *and* the page viewport, and names the list's three paint inputs), **FR-044** (the adjacency clause and the bounded, viewport-relative list viewport), and **`005 AC-167`**. Phases 1–3 are frozen as approved — `spec.md`, `changelog.md`, and `research.md` are not edited here; this plan and `tasks.md` are one handoff under one gate.
+
+**Baseline**: branch `multi-dispatch-bug`, off `main`, carrying the uncommitted v1.23.0 edits to `specs/003-dispatch-integrity/` and `specs/005-panel-ia/`. `node_modules` is installed here; `npm run shot` additionally needs `agent-browser` on `PATH` and takes about a minute.
+
+## R.1 What changes, and why both halves are needed
+
+Two mechanisms, one stylesheet declaration, one criterion. Neither adds behaviour the product did not already promise:
+
+1. **A repaint guard** over the list's full paint input, so the arm repaint `armControl` → `refresh` → `repaintDispatchesBoard` provokes costs the list nothing. The defect: `repaintDispatchesBoard` calls `dispatchesList.update` unconditionally, the pinned SDK's `update` merges props and calls `paint()`, and `paint()` clears the node, rebuilds every row, and runs `scrollIntoView({ block: 'nearest' })` on the active row (`node_modules/@openchamber/sdk/dist/ui/list.js`). Every repaint therefore scrolled the selected row into view — the jump that pushed the first click's confirm copy off screen.
+2. **A bounded list viewport**, so the Selected dispatch block sits below a list whose height is a share of the frame rather than a property of the page size. FR-044 already required the resolutions and the facts to check to be adjacent to the selected row; what it did not have was a limit on how much list sat between them.
+
+They are independent, and fixing only one leaves the defect reachable:
+
+- **Guard alone** — a repaint that genuinely changes the list (a landed read, a page step, a selection) still rebuilds it, and the block is still below up to 25 rows.
+- **Cap alone** — `armControl`'s own repaint still rebuilds the list and still scrolls the active row into view, so the confirm copy is still moved under the operator's hands.
+
+**Unchanged, by name**: no wire member, query parameter, route, DTO, storage key, capability, permission, manifest field, version, audit row, or `PanelState` member. **No cadence and no timer** — `SC-114(c)` stands as written (Dispatches' reads are activation and `Refresh dispatches`, nothing else), so **Action C is not taken up**. `SC-104`'s state→affordance table and `SC-108`'s one-loop/zero-orphan counts are untouched. FR-049's single `busy` gate and the one dispatch path in `src/dispatches.ts` are unmodified — which is why the second activation still posts exactly one request, asserted by `005 AC-167`(2) as a request count rather than trusted.
+
+## R.2 The guard's paint input, and where it lives (D27)
+
+The paint input is `{ items, selectedId, emptyText }`, built exactly where `repaintDispatchesBoard` already builds it:
+
+| Member | Source | Why it is in the input |
+| --- | --- | --- |
+| `items` | `dispatchRows(runs)` — the built `ListItem[]` | the rows are what `paint()` renders; anything the row builder reads is already baked into the item |
+| `selectedId` | `runs.selectedRun` | `paint` writes each row's `aria-selected` from it and `setActive` keys the `scrollIntoView` off it, so a selection change is a real paint |
+| `emptyText` | `dispatchEmptyText(runs)` | it changes with the active filter, so items + selection alone would leave the previous filter's empty sentence under a new filter line (the Gate-1 F6 correction) |
+
+**Not** `runs` object identity, **not** `busy` (a busy repaint disables buttons, not rows), **not** `note`, **not** `pendingAction` (arming writes those two, and neither is a list input — that is the whole point), and **not** `runs.rows` re-hashed into a signature: a signature would re-list the fields `dispatchRow` reads and drift from it the first time a row gains a field, which is exactly the class of bug this feature exists to end. Comparing the built items cannot drift — whatever the builder reads, the item carries.
+
+Comparison is **by value** on each item (`id`, `leading`, `title`, `subtitle`, `meta`, `badge.label`, `badge.tone`, `disabled`), because `dispatchRows` returns fresh objects and a fresh array on every call, so identity comparison would always answer "changed" and the guard would never fire. The cost is one pass over at most 100 short items per repaint.
+
+**One consequence worth stating rather than discovering**: `meta` is `elapsedSince(row.detectedAt)`, a relative age, so a repaint a minute after the last one *is* a change and does repaint — correct, and invisible in the arm case, which repaints in the same tick.
+
+**Where the memo lives**: a field on `DispatchesBoard` — `listPaint: ListPaint | null`, `null` meaning "nothing painted yet" so the first repaint always paints. Chosen over a module-level memo beside the mount because a module slot outlives the board it describes (a second board in one page, or the next test in the same file, would inherit it) and would need a reset the mounter must remember to call — an invariant nothing enforces. The board is the object that already owns the list handle, so the memo is a member of the thing it is about, and **a mount resets it by construction**: `mountDispatchesBoard` creates the board object, so there is nothing to clear and `disposeDispatchesBoard` needs no line for it. Reading the last paint back off the handle instead is not available: the SDK keeps `props` private and exposes only `update`/`dispose`.
+
+**And the half that keeps it from being a freeze**: a changed input still repaints, rebuilds, and re-runs `setActive`'s `scrollIntoView`. FR-042 scopes position preservation to the repaint that changes **none** of the three inputs, so the guard deliberately does not stash and restore the list's `scrollTop` across a changed paint: the pinned SDK's handle carries no scroll API, so restoring it would mean reaching into a node the SDK owns.
+
+## R.3 The cap: value, arithmetic, and where it lives (D28)
+
+**Declaration** — in `panel/index.html`'s single `<style>` block, in the Dispatches-list group beside `.mt-list--dispatches .oc-sdk-row`'s restacking rules, because that group is where the Dispatches list's geometry is decided:
+
+```css
+.mt-list--dispatches {
+    max-height: clamp(9rem, 45vh, 26rem);
+    overflow-y: auto;
+}
+```
+
+Scoped to `--dispatches`, not to `.mt-list`: the audit trail and the source-reference lists are inside blocks whose height the fetch already bounds, and capping every list would change Bindings and Accounts for no requirement.
+
+**Why `vh` and not a row count** — a dispatch row's height is a function of the *width*, and inside the host's clamp the row is **always the stacked shape** (the `@media (min-width: 900px)` fold that puts the row back on one line never fires below 900 px, and the host's ceiling at a 1920 window is ≈715 px):
+
+| Frame width | Row height (stacked) | 8 rows would be | Host clamp |
+| --- | --- | --- | --- |
+| 320 px (FR-082's floor) | ≈110 px — subject on its own line, subtitle wrapping, chips beneath | ≈880 px, taller than a short host region | `0.45 × region`, floor 320 |
+| ≈500 px (1440 window) | ≈95 px | ≈760 px | — |
+| ≈715 px (1920 window) | ≈90 px | ≈720 px | ceiling `region − 400` |
+
+So a row count does not survive the range FR-044 names: the same eight rows are ≈880 px at one end and ≈720 px at the other, and a short host region cannot hold either. A `vh` cap is a share of the frame whatever the frame is.
+
+**The arithmetic the cap has to satisfy.** Let `H` be the viewport the host gives the panel. Distance from the top of the list box to the top of the Selected block is `cap + note`, where `note` is empty until an action writes one and is at most the armed confirm copy (≈250 px at 320 px, ≈150 px at 715 px). Uncapped, that distance is `rows × rowHeight`: the default page of 25 is ≈2 750 px at 320 px, and the 100-row page ≈11 000 px — which is why the operator had to scroll past the page to reach the block, and why the defect got worse the narrower the frame.
+
+With `cap = clamp(9rem, 45vh, 26rem)`:
+
+- **≤ 45 % of the frame** until `H ≈ 924 px`, so the block's heading and its first control are within one screen of the list's top at the heights the host actually gives, and the ceiling takes over rather than the cap growing without bound on a very tall window.
+- **≈3 rows at 320 px and ≈3.6 at 715 px** at a 720 px-tall region (324 px) — the list is a third of the frame and the block is under it, at every width in the clamp.
+- **floor 9 rem (144 px)** is one full row plus the clipped top of the next at 320 px, so a short frame renders a scroller rather than a blank strip; a floor also keeps `max-height` finite instead of collapsing to `0` in a hand-driven harness.
+- **ceiling 26 rem (416 px)** stops the list growing past ~4 rows, so a tall window buys room for the block and its confirm copy rather than another half-screen of rows.
+
+**Interaction with paging is nil, deliberately.** The cap changes no request: `limit` stays 10/25/50/100, `dispatchRangeLine` keeps reporting the page's real range (`Showing 1–25 · 137 dispatches in this set`), and `Previous`/`Next` still move the *page*, not the box. A 100-row page now scrolls inside the list instead of putting 11 000 px between the operator and the resolutions — the page size keeps meaning "how much of the set one read returns", which is what the operator selects it for.
+
+**One cosmetic consequence, accepted**: on a platform with classic scrollbars, a list that overflows the cap is one scrollbar-width narrower than the `.mt-head--dispatches` row above it, so the age column sits ~15 px left of its label in those frames. Reserving a gutter on every frame would move the columns on the frames that never overflow, which is the worse trade; overlay-scrollbar platforms show no drift at all.
+
+## R.4 The evidence the pull request carries (D29)
+
+`005 AC-167`(5) asks for `npm run shot` with a selected-`unconfirmed` scene at `--width 320`, alongside the default capture. Two facts about the harness decide what that scene can be:
+
+1. **The fixture already holds the row.** `tools/visual/fixtures.json`'s base `events` answer carries `mt-run-a7` — `unconfirmed`, #112 in `acme/api`. So the scene needs **no delta** and `fixtures.js`'s merge path stays exactly as it is; the scene is `{ summary, tab, drive, delta: {} }`.
+2. **Selection and arming are panel state, not fixture state.** `selectedRun` is written only by `selectDispatch` (a click) and by `loadDispatches`'s drop-a-row-that-is-gone rule (a read); `pendingAction` only by `armControl` (a click). Nothing in the document can express either, so a delta alone would photograph an *unarmed* Dispatches tab under a name that promises the armed one.
+
+So the scene names `tab: "dispatches"` and `drive: "arm-resolve-no-session"`, and **the drive lives in the harness**: `tools/visual/host.js` gains one function in its `__MT__` control surface with a closed name table (the file already reads the guest document for `[role="tab"]`, `[data-body]`, and `[data-body-region]`, so two more product anchors are its own kind of knowledge, not a new engine). For `arm-resolve-no-session` it presses the list row whose badge reads `unconfirmed`, settles a paint, then presses the button whose text is `No session was created`, and settles again. `shot.js` calls it once, immediately after the scene's tab is activated and before `fitViewport`, and refuses an unknown `drive` or `tab` at the command line the way it already refuses an unknown scene — so a typo cannot publish a frame labelled with a state it does not show. Driving the real nodes rather than `agent-browser` refs is deliberate: a row press repaints the list and invalidates every ref the snapshot handed out, and the press must land on the row the frame is about. A scene that names a tab captures **that** tab — a `--scene` run naming a different tab is refused rather than photographed without its drive, since the frame's filename would otherwise promise a state it does not show.
+
+**The drive must run once per page load, not once per width.** A second activation of the same resolve control *is* the confirmation and posts the resolution, after which the row is no longer `unconfirmed` and the frame would be a picture of the resolved state — so the flag is cleared as the drive fires and a `--width` run, which loads a fresh page, drives again. That trap is named in the task.
+
+**Two runs, two output directories.** The default capture writes `panel-dispatches-selected-unconfirmed.png` (720 px) and `-narrow.png` (560 px); `--width 320` writes the *same stem*, so it takes its own `--out` or it overwrites the 720 px frame.
+
+**What the frames can and cannot show.** `layout.js`'s `assertLayout` requires `regionHeight == bodyHeight`, so the harness grows the viewport to the body and every capture is scroll-free: the jump itself is not photographable, which is why AC-167(5) calls this evidence for the pull request rather than part of the criterion. What the 320 px frame does show is the armed confirm copy and the Selected block sitting below the list, both readable at FR-082's floor; it shows two rows and no overflow, so it does not photograph the cap — T-054's cascade assertion is what proves `max-height` and `overflow-y`.
+
+**If `agent-browser` is not available in the implementing worktree**, the frames are not produced and the task says so: the PR carries T-052's cascade assertion and T-054's DOM-order assertion as the structural evidence, and AC-167(5) is recorded **unverified** rather than claimed from the suite.
+
+No new test guards the tooling: a broken `drive` fails at capture time with a message naming the scene, which is louder than a suite that re-asserts `shot.js`'s own command line.
+
+## R.5 Rejected alternatives
+
+| Alternative | Why not |
+| --- | --- |
+| **Per-row expansion** — render the resolutions inside the selected row | puts the controls where the operator is looking, but the SDK's row is a fixed `button` with `title`/`subtitle`/`badge`/`meta` slots and no expansion affordance; it would need a renderer the pinned SDK does not provide, an accessibility pass of its own, and it would break the row's single focus stop. Declined at the amendment's Gate 1 and not re-opened. |
+| **A custom row renderer** — build the rows outside `mountList` | the same cost as expansion plus the loss of the SDK's listbox semantics (roving focus, `aria-activedescendant`, keyboard traversal), all of which the panel gets for free today. |
+| **A modal or dialog over the page** | the panel has no dialog primitive (`armControl` says so in its own docblock: *the panel has no dialog primitive, so a state-changing action confirms the way Remove-account does*), so a modal would be hand-built DOM over the shell with its own focus trap — the widest of these, for a control that already exists. |
+| **A second list** — a compact "selected row" list under the set block | two lists of the same rows means two selections to keep in step, two `dispatchRows` passes (and therefore two redaction passes), and one fact rendered twice — FR-051's exactly-once rule applied to a surface that has no second home. |
+| **Freeze the list** — never repaint it while a row is selected | the cheap way to stop the jump, and it fails `005 AC-167`(3) by construction: a fetched row would never appear, and a filter change would leave the old empty sentence under the new filter line. |
+| **Restore the list's `scrollTop` after every repaint** | reaching into the SDK's own node to save and restore a scroll offset; the handle exposes no such API, and FR-042 only asks for preservation on the repaint that changes nothing. |
+
+## R.6 Constitution alignment — v1.3.0
+
+- **III (durable and idempotent work)** — *served*: confirm-then-act is the guard that keeps one operator intention from becoming two dispatches, and the change touches neither `armControl`'s arming rule nor the single `busy` gate; `005 AC-167`(2) asserts **exactly one** request from the second activation, as a count.
+- **IV (human-visible auditability)** — *served*: the operator must be able to read what a control will do before it acts, and an armed control whose confirm copy has been scrolled out of view by the panel's own repaint fails that. The copy is still written by `armControl`, unchanged; it is now readable where the click happened.
+- **VI (specification and verification before implementation)** — `005 AC-167` exists before the code, and both halves are asserted: no `update` on a no-change repaint, `update` on each of the three changed inputs.
+- **I, II, V, VII** — unaffected: no provider, contract, discovery path, credential, capability, process, or host boundary moves. Nothing is failed open: the guard decides only whether to repaint, never whether an action may run.
+- **Load-bearing `AGENTS.md` invariants** — **1** (the rebuilt `panel/main.js` committed with its sources: T-057), **7** (zero suppressions, zero `any`; the comparison helper needs no disable), **4** (no `host.storage` key added or renamed), **10** (no wire or evidence-schema change), **6** (SDK stays pinned exactly — this plan reads `dist/ui/list.js` and changes nothing about it).
+- **Exceptions**: none. No constitutional amendment is requested.
+
+## R.7 Out-of-scope guard (check before any task feels like "just one more")
+
+No timer, cadence, or scheduled re-read on Dispatches — `SC-114(c)` is untouched and Action C is not taken up. No new service read. No per-row expansion, custom renderer, modal, or second list (§R.5). No change to `armControl`, `resolveConfirmCopy`, `runAffordance`, or `SC-104`'s table. No new `PanelState` member — the memo is a board field, deliberately, so the guard cannot be persisted, journalled, or observed by another module. No service, wire, DTO, route, manifest, capability, storage, `SERVICE_VERSION`, SDK-pin, or version change. No cap on the audit trail or the source-reference lists. No site, `README.md`, or `DESIGN.md` edit. No change to the page-size default, the request grammar, or the retained order.
+
+## R.8 Risks (this amendment only)
+
+| Risk | Mitigation |
+| --- | --- |
+| The guard becomes a freeze, and a fetched or filtered row never reaches the DOM | `005 AC-167`(3) asserts three positive cases — items, selection, and empty text each repaint on their own — so a `return` placed one line too early fails the suite |
+| The guard keyed on `runs` identity, or on a re-derived signature, instead of the built items | value comparison over the items `dispatchRows` returns; a signature would be a second list of the fields the row builder reads, which drifts the first time a row gains one |
+| The cap hides rows the operator expected to see at once | the range line still reports the page's real range and the box scrolls; the page size keeps its meaning (§R.3) |
+| The cap re-tuned by hand for one width | it is `vh`-based with a floor and ceiling, so the same rule holds at 320 px and at 715 px; a row count would have to be re-tuned per width, which is why FR-044 forbids one |
+| The scene's drive posts a resolution on a second width | one shot per page load, flag cleared as the drive fires; a `--width` run loads a fresh page (§R.4) |
+| An unarmed frame published under the armed scene's filename | unknown `drive`/`tab` refused at the command line; the drive runs before `fitViewport`, so the capture measures the armed body |
+| The 320 px run overwriting the 720 px frame | separate `--out` for the narrow run (§R.4) |
+
+## R.9 Supporting artifacts skipped, and why
+
+- **`research.md`** — the one external premise this amendment rests on (what `update` does to the SDK's list) was read in this worktree from the pinned `node_modules/@openchamber/sdk/dist/ui/list.js` and is recorded in §R.1/R.2; a new research file would restate it.
+- **`data-model.md`** — no persisted entity, no wire member, and no `PanelState` member is added; the memo is a mounted board's field.
+- **`contracts/`** — nothing consumed outside this repo changes. `contracts/dispatch-list.md` §4 ("Panel-side page state") describes `cursorStack`/`pageIndex`/`limit`/`filters`, all byte-identical after this amendment; neither the guard nor the cap is a wire concern, so no contract is recut.
+- **`quickstart.md`** — no operator procedure changes; the gates are the existing `npm run verify` plus the shot command in T-055/T-056.
+
+## R.10 Phase-6 task block
+
+See [`tasks.md`](./tasks.md) → *Amendment tasks — v1.23.0 resolve-arming visibility* (`T-051` – `T-057`).

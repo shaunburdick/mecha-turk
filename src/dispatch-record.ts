@@ -11,7 +11,9 @@ import type { PanelRuntime } from './panel-state.ts';
 /** Storage key holding the attempt record (AGENTS invariant 4's prefix). */
 export const DISPATCH_STORAGE_KEY = 'mecha-turk:dispatches';
 
-export const DISPATCH_SCHEMA_VERSION = 'dispatch-attempts-2';
+export const DISPATCH_SCHEMA_VERSION = 'dispatch-attempts-3';
+
+export const PREVIOUS_DISPATCH_SCHEMA_VERSION = 'dispatch-attempts-2';
 
 export const LEGACY_DISPATCH_SCHEMA_VERSION = 'dispatch-attempts-1';
 
@@ -23,7 +25,7 @@ const DISPATCH_TOKEN_PATTERN = /^dtk-[0-9a-f]{32}$/;
 
 export type DispatchOutcomeKind = 'unknown' | 'dispatched' | 'failed';
 
-type DispatchOrigin = 'v1' | 'v2';
+type DispatchOrigin = 'v1' | 'v2' | 'v3';
 
 /**
  * The outcome of one host call, as {@link recordDispatchOutcome} requires it:
@@ -44,7 +46,10 @@ export interface DispatchAttemptRecord {
     readonly attempt: number;
     /** The reservation this record belongs to; `null` on a row written before it existed. */
     readonly leaseId: string | null;
-    readonly dispatchToken: string;
+    /**
+     * `null` means no token is durably recorded — not that no reservation exists.
+     */
+    readonly dispatchToken: string | null;
     readonly projectId: string | null;
     readonly worktreeOption: string | null;
     readonly outcome: DispatchOutcomeKind;
@@ -155,23 +160,21 @@ function readNullableText(record: Record<string, JsonValue>, field: string): str
 interface AttemptHead {
     readonly correlationId: string;
     readonly runKey: string;
-    readonly dispatchToken: string;
+    readonly dispatchToken: string | null;
     readonly recordedAt: string;
 }
 
-function readAttemptHead(record: Record<string, JsonValue>): AttemptHead | null {
+function readAttemptHead(record: Record<string, JsonValue>, origin: DispatchOrigin): AttemptHead | null {
     const correlationId = readText(record, 'correlationId');
     const runKey = readText(record, 'runKey');
-    const dispatchToken = readText(record, 'dispatchToken');
+    const dispatchToken = readNullableText(record, 'dispatchToken');
     const recordedAt = readText(record, 'recordedAt');
-    if (
-        correlationId === null ||
-        runKey === null ||
-        dispatchToken === null ||
-        recordedAt === null ||
-        !DISPATCH_TOKEN_PATTERN.test(dispatchToken) ||
-        Number.isNaN(Date.parse(recordedAt))
-    ) {
+    const hasUnusableStamp = recordedAt === null || Number.isNaN(Date.parse(recordedAt));
+    // A v1/v2 build could not write a null token, so one refuses the document.
+    const isTokenUnusable = dispatchToken === undefined
+        || (dispatchToken === null && origin !== 'v3')
+        || (dispatchToken !== null && !DISPATCH_TOKEN_PATTERN.test(dispatchToken));
+    if (correlationId === null || runKey === null || hasUnusableStamp || isTokenUnusable) {
         return null;
     }
 
@@ -286,7 +289,7 @@ function readAttempt(value: JsonValue, origin: DispatchOrigin): DispatchAttemptR
         return null;
     }
 
-    const head = readAttemptHead(record);
+    const head = readAttemptHead(record, origin);
     const flags = readAttemptFlags(record);
     const outcome = readAttemptOutcome(record);
     const context = readAttemptContext(record, origin);
@@ -447,6 +450,10 @@ function readFollowUps(value: JsonValue | undefined): readonly FollowUpDeliveryR
 
 function originOf(schema: JsonValue | undefined): DispatchOrigin | null {
     if (schema === DISPATCH_SCHEMA_VERSION) {
+        return 'v3';
+    }
+
+    if (schema === PREVIOUS_DISPATCH_SCHEMA_VERSION) {
         return 'v2';
     }
 
@@ -588,7 +595,7 @@ function withRecord(
     document: DispatchRecordDocument,
     record: DispatchAttemptRecord,
 ): DispatchRecordDocument | null {
-    if (!isJsonValue(record) || readAttempt(record, 'v2') === null) {
+    if (!isJsonValue(record) || readAttempt(record, 'v3') === null) {
         return null;
     }
 
@@ -600,7 +607,7 @@ function withOutcomeRecord(
     document: DispatchRecordDocument,
     record: DispatchAttemptRecord,
 ): DispatchRecordDocument | 'unchanged' | null {
-    if (!isJsonValue(record) || readAttempt(record, 'v2') === null) {
+    if (!isJsonValue(record) || readAttempt(record, 'v3') === null) {
         return null;
     }
 
@@ -696,7 +703,6 @@ export async function recordDispatchIntent(rt: PanelRuntime, input: {
     readonly runKey: string;
     readonly attempt: number;
     readonly leaseId: string;
-    readonly dispatchToken: string;
     readonly projectId: string;
     readonly worktreeOption: string;
 }): Promise<boolean> {
@@ -706,13 +712,13 @@ export async function recordDispatchIntent(rt: PanelRuntime, input: {
         runKey: input.runKey,
         attempt: input.attempt,
         leaseId: input.leaseId,
-        dispatchToken: input.dispatchToken,
+        dispatchToken: null,
         projectId: input.projectId,
         worktreeOption: input.worktreeOption,
         outcome: 'unknown',
         sessionId: null,
         reason: null,
-        authorizedAt: at,
+        authorizedAt: null,
         recordedAt: at,
         settledAt: null,
         acknowledged: false,
@@ -723,6 +729,71 @@ export async function recordDispatchIntent(rt: PanelRuntime, input: {
             && candidate.attempt === input.attempt);
 
         return existing?.leaseId === input.leaseId ? 'unchanged' : withRecord(document, record);
+    });
+}
+
+/** Fill the reservation's token into the placeholder; the same token is a no-op. */
+export async function fillDispatchToken(rt: PanelRuntime, input: {
+    readonly correlationId: string;
+    readonly attempt: number;
+    readonly leaseId: string;
+    readonly dispatchToken: string;
+}): Promise<boolean> {
+    const at = nowIso();
+
+    return await updateDispatchRecord(rt, (document) => {
+        const index = document.attempts.findIndex((candidate) => candidate.correlationId === input.correlationId
+            && candidate.attempt === input.attempt
+            && candidate.leaseId === input.leaseId);
+        const existing = document.attempts[index];
+        if (existing === undefined) {
+            return null;
+        }
+
+        if (existing.dispatchToken === input.dispatchToken) {
+            return 'unchanged';
+        }
+
+        const filled: DispatchAttemptRecord = {
+            ...existing,
+            dispatchToken: input.dispatchToken,
+            authorizedAt: at,
+            recordedAt: at,
+        };
+        if (!isJsonValue(filled) || readAttempt(filled, 'v3') === null) {
+            return null;
+        }
+
+        const attempts = [...document.attempts];
+        attempts[index] = filled;
+
+        return withAttempts(document, attempts);
+    });
+}
+
+/** Delete a null-token placeholder; a filled record is refused. */
+export async function deleteDispatchIntent(rt: PanelRuntime, input: {
+    readonly correlationId: string;
+    readonly attempt: number;
+    readonly leaseId: string;
+}): Promise<boolean> {
+    return await updateDispatchRecord(rt, (document) => {
+        const index = document.attempts.findIndex((candidate) => candidate.correlationId === input.correlationId
+            && candidate.attempt === input.attempt
+            && candidate.leaseId === input.leaseId);
+        const existing = document.attempts[index];
+        if (existing === undefined) {
+            return 'unchanged';
+        }
+
+        if (existing.dispatchToken !== null) {
+            return null;
+        }
+
+        const attempts = [...document.attempts];
+        attempts.splice(index, 1);
+
+        return withAttempts(document, attempts);
     });
 }
 

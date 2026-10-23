@@ -19,7 +19,7 @@ import type { GuestRequest, GuestRequestResult } from '@openchamber/sdk';
 import { loadInitialBindings } from '../src/bindings-mode.ts';
 import { bindRepository, loadBindings } from '../src/bindings.ts';
 import { stopRelayPolling } from '../src/relay.ts';
-import { ACCOUNTS_PATH, BINDINGS_PATH, EVENTS_PENDING_PATH } from '../src/service-calls.ts';
+import { ACCOUNTS_PATH, BINDINGS_PATH, PENDING_CLAIM_PATH } from '../src/service-calls.ts';
 import type { PanelBinding } from '../src/bindings-service.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import {
@@ -170,7 +170,7 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 // The arm kicks one immediate tick — the claim is on the wire
                 // without any timer advancing (no fake timers in this test).
                 await tick();
-                expect(service.requests).toContain(`GET ${EVENTS_PENDING_PATH}`);
+                expect(service.requests).toContain(`GET ${PENDING_CLAIM_PATH}`);
             });
         }
     });
@@ -231,7 +231,7 @@ describe('relay arming (bind after mount / mount-time read failure)', () => {
                 expect(rt.state.bindings.status).toBe('ready');
                 expect(rt.state.bindingsActive).toBe(0);
                 expect(rt.relayArmed).toBe(false);
-                expect(service.requests).not.toContain(`GET ${EVENTS_PENDING_PATH}`);
+                expect(service.requests).not.toContain(`GET ${PENDING_CLAIM_PATH}`);
             });
         }
     });

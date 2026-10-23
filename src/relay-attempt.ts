@@ -37,6 +37,7 @@ import {
     RELAY_LEDGER_KIND,
     RELAY_POLL_INTERVAL_MS,
     boundedText,
+    dispatchRecordRefusedNote,
     splitRepository,
     stillRunning,
 } from './relay-gates.ts';
@@ -388,8 +389,7 @@ export async function closeAttempt(input: {
         outcome: started.outcome,
     });
     if (!isRecorded && stillRunning(rt)) {
-        rt.state.bindings.note = redact(`Run ${run.correlationId}: the dispatch record could not be written, so a lost`
-            + ' report would not be recoverable from this panel.');
+        rt.state.bindings.note = dispatchRecordRefusedNote(run.correlationId);
     }
 
     await reportAndAcknowledge({ rt, run, token, outcome: started.outcome, directory: started.directory });

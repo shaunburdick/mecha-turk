@@ -258,7 +258,7 @@ function reofferHost(input: {
                     return { status: 200, body: '{}' };
                 }
 
-                if (request.path === '/v1/events/pending') {
+                if (request.path === '/v1/events/pending?limit=1') {
                     return { status: 200, body: JSON.stringify({ events: [], status: [], auditWritten: true }) };
                 }
 

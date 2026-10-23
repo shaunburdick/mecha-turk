@@ -8,6 +8,7 @@ import { parseAuditRow } from './audit-view.ts';
 import type { AuditRow } from './audit-view.ts';
 import {
     acknowledgeDispatch,
+    deleteDispatchIntent,
     loadDispatchRecord,
     settleDispatchAttempt,
     unacknowledgedAttempts,
@@ -37,6 +38,12 @@ const RESERVED_EVENT = 'dispatch.reserved';
 const RESOLVED_EVENT = 'dispatch.resolved';
 
 const UNCONFIRMED_EVENT = 'dispatch.unconfirmed';
+
+const LEASE_EXPIRED_EVENT = 'dispatch.lease-expired';
+
+const DEAD_LETTERED_EVENT = 'run.dead_lettered';
+
+const NO_EVIDENCE: SettleVerdict = 'no-evidence';
 
 /**
  * Whether one pass is still inside its budget.
@@ -98,14 +105,31 @@ function reservedSeqOf(rows: readonly AuditRow[], attempt: number, leaseId: stri
     return latest;
 }
 
-type SettleVerdict = 'settled' | 'unconfirmed' | 'no-evidence' | 'unreadable';
+type SettleVerdict = 'settled' | 'never-authorized' | 'unconfirmed' | 'no-evidence' | 'unreadable';
+
+/** Both verdict rows are written only for a run with no reservation under this lease. */
+function hasRecoveryVerdict(rows: readonly AuditRow[], leaseId: string | null): boolean {
+    if (leaseId === null) {
+        return false;
+    }
+
+    return rows.some((row) => (row.eventType === LEASE_EXPIRED_EVENT || row.eventType === DEAD_LETTERED_EVENT)
+        && row.details.leaseId === leaseId);
+}
 
 /**
  * A result or abandonment settles only after the `dispatch.reserved` row carrying
  * this attempt **and** its lease (the token repeats across cycles); so does a
- * `dispatch.resolved`. No anchor means no evidence — never a guess (NFR-112).
+ * `dispatch.resolved`. No anchor means no evidence — never a guess (NFR-112). A
+ * null-token record beside the recovery verdict was never authorized; a filled
+ * record beside it is a contradiction the panel does not resolve.
  */
-function judgeEvidence(rows: readonly AuditRow[], attempt: number, leaseId: string | null): SettleVerdict {
+function judgeEvidence(
+    rows: readonly AuditRow[],
+    attempt: number,
+    leaseId: string | null,
+    dispatchToken: string | null,
+): SettleVerdict {
     const anchor = reservedSeqOf(rows, attempt, leaseId);
     if (anchor !== null) {
         const isPast = rows.some((row) => (row.eventType === RESULT_EVENT || row.eventType === ABANDONED_EVENT)
@@ -116,11 +140,15 @@ function judgeEvidence(rows: readonly AuditRow[], attempt: number, leaseId: stri
         }
     }
 
+    if (dispatchToken === null && hasRecoveryVerdict(rows, leaseId)) {
+        return 'never-authorized';
+    }
+
     if (rows.some((row) => row.eventType === UNCONFIRMED_EVENT && attemptOf(row) === attempt)) {
         return 'unconfirmed';
     }
 
-    return 'no-evidence';
+    return NO_EVIDENCE;
 }
 
 /** Walk the correlation-filtered read to exhaustion inside the pass budget; any doubt is `unreadable`. */
@@ -157,7 +185,7 @@ async function readSettleVerdict(input: {
         isDone = cursor === null;
     }
 
-    return judgeEvidence(rows, attempt.attempt, attempt.leaseId);
+    return judgeEvidence(rows, attempt.attempt, attempt.leaseId, attempt.dispatchToken);
 }
 
 export interface ReconcileOutcome {
@@ -368,7 +396,7 @@ function unknownLine(rt: PanelRuntime, attempt: DispatchAttemptRecord, verdict: 
         : 'its row is not in the list this panel loaded — check the run\'s row in Dispatches; once the run reads '
             + 'unconfirmed that row offers "session created" or "no session created"';
 
-    return `${attempt.correlationId}: an authorized dispatch was never recorded as producing a session — `
+    return `${attempt.correlationId}: a dispatch was recorded but never recorded as having produced a session — `
         + `project ${attempt.projectId ?? 'not recorded'}, worktree option `
         + `${attempt.worktreeOption ?? 'not recorded'}, attachment ${attempt.correlationId}. `
         + `Check OpenChamber's session list; ${row}; ${checkLine(verdict)}.`;
@@ -412,6 +440,27 @@ async function surfaceUnknown(input: {
                 verdict: 'past, but not written down',
                 detail: `${attempt.correlationId}: the attempt is past, but the panel could not write the `
                     + 'settlement down, so it is surfaced again next mount.',
+            });
+
+            continue;
+        }
+
+        if (verdict === 'never-authorized') {
+            // Recovered with no reservation under this lease: deleted silently.
+            const { leaseId } = attempt;
+            // The verdict already proved a lease; the check is what narrows the type.
+            if (leaseId !== null && await deleteDispatchIntent(rt, {
+                correlationId: attempt.correlationId,
+                attempt: attempt.attempt,
+                leaseId,
+            })) {
+                continue;
+            }
+
+            pass.runs.push({
+                correlationId: attempt.correlationId,
+                verdict: verdictLabel(NO_EVIDENCE),
+                detail: unknownLine(rt, attempt, NO_EVIDENCE),
             });
 
             continue;
