@@ -235,6 +235,22 @@ describe('built service bundle', () => {
     });
 });
 
+describe('visual harness fixture', () => {
+    it('ships a fixture health version pinned to the extension package (invariant 5)', () => {
+        const { version } = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), UTF8)) as {
+            readonly version?: string;
+        };
+        const { health } = JSON.parse(
+            readFileSync(resolve(ROOT, 'tools/visual/fixtures.json'), UTF8),
+        ) as { readonly health?: { readonly version?: string } };
+
+        expect(
+            health?.version,
+            'tools/visual/fixtures.json health.version must match package.json version — update the fixture',
+        ).toBe(version);
+    });
+});
+
 /* ------------------------------------------------------------------------- *
  * 003 containment and posture scans (T-033: AC-120, AC-128, NFR-106, NFR-109)
  *
