@@ -24,9 +24,11 @@ import { previewRunsDocument } from './runs-document.ts';
 import { bindingScanOf, readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
 import type { BindingScanState, ScanState } from './scan.ts';
 import { collectTriggerEvents } from './triggers.ts';
+import { checksAuditReason, watchDropsForEnds } from './triggers-checks.ts';
+import type { ChecksAudit } from './trigger-scan.ts';
+import type { ChecksWatch, RunsDocument  } from './runs-types.ts';
 import { observedHeadSeeds, trackedIssueEnds, trackedPullEnds, trackedSubjectsOf } from './tracking.ts';
 import type { TrackedSubject, TrackingEnd } from './tracking.ts';
-import type { RunsDocument } from './runs-types.ts';
 import { answersCatchUp, baselineFor, bindingsNeedingBaseline, widenBaseline, windowFor } from './window.ts';
 import type { WindowRefusal } from './window.ts';
 
@@ -216,6 +218,60 @@ async function recordTrackingEnds(input: {
 }
 
 /**
+ * Bindings whose `checks.unavailable` row this process has already written,
+ * per store handle.
+ *
+ * Keyed by the handle too: a restarted service writes the row again only after
+ * a fresh read of the same store, which is the per-process posture the queue's
+ * quarantine recovery takes.
+ */
+const unavailableBindings = new WeakMap<ServiceStore, Set<string>>();
+
+/**
+ * Write the checks audit rows a cycle asked for, best-effort after the run
+ * document landed: a failed append is logged rather than failing a scan whose
+ * watch write already succeeded (FR-126, NFR-007). `checks.unavailable` is
+ * deduped per binding per process here rather than at detection, because this
+ * is the one place that writes it: a credential missing the Checks scope fails
+ * every cycle, and a row per cycle would bury the trail it explains.
+ */
+async function recordChecksAudits(input: {
+    readonly store: ServiceStore;
+    readonly log: ServiceLogger;
+    readonly audits: readonly ChecksAudit[];
+}): Promise<void> {
+    const reported = unavailableBindings.get(input.store) ?? new Set<string>();
+    unavailableBindings.set(input.store, reported);
+
+    for (const audit of input.audits) {
+        if (audit.eventType === 'checks.unavailable') {
+            if (reported.has(audit.bindingId)) {
+                continue;
+            }
+
+            reported.add(audit.bindingId);
+        }
+
+        try {
+            await appendAudit(input.store, {
+                eventType: audit.eventType,
+                actorSource: 'service',
+                entity: { kind: 'run', id: audit.correlationId },
+                correlationId: audit.correlationId,
+                decision: null,
+                reason: checksAuditReason(audit.eventType),
+                details: audit.details,
+            });
+        } catch (cause) {
+            input.log.warn('checks audit row could not be appended', {
+                eventType: audit.eventType,
+                errorKind: cause instanceof Error ? cause.name : typeof cause,
+            });
+        }
+    }
+}
+
+/**
  * Read the run document for the tracked-subject view, answering a refusal
  * rather than throwing one: the scan cycle never throws, while the run layer's
  * reader is fail-closed by throwing, and a `runs.json` that exists but cannot
@@ -245,6 +301,12 @@ type ScanListing =
         readonly observedHeads?: ReadonlyMap<number, string>;
         /** Tracked subjects whose own list row reported a terminal state (FR-106). */
         readonly ends?: readonly TrackingEnd[];
+        /** Check watches armed or advanced this cycle, by run correlation id. */
+        readonly checksWrites?: ReadonlyMap<string, ChecksWatch>;
+        /** Check watches dropped this cycle, by run correlation id. */
+        readonly checksDrops?: readonly string[];
+        /** Check audit rows the cycle writes after the run document lands. */
+        readonly checksAudits?: readonly ChecksAudit[];
     }
     | { readonly ok: false; readonly skipped: ScanSkip };
 
@@ -369,13 +431,54 @@ async function collectScanEvents(input: {
         return { ok: false, skipped: terminal.skipped };
     }
 
+    // The one place a tracking-end drop is decided, over the ends both reads
+    // reported: an end observed on either is what clears the watch, however the
+    // same cycle's watch write turned out (FR-126).
     const ends = [...(collected.ends ?? []), ...terminal.ends];
+    const checksDrops = watchDropsForEnds({ tracked, ends });
 
     return {
         ok: true,
         events: terminal.events,
         ...(collected.observedHeads !== undefined && { observedHeads: collected.observedHeads }),
         ...(ends.length > 0 && { ends }),
+        ...(collected.checksWrites !== undefined && { checksWrites: collected.checksWrites }),
+        ...(checksDrops.length > 0 && { checksDrops }),
+        ...(collected.checksAudits !== undefined && { checksAudits: collected.checksAudits }),
+    };
+}
+
+/** The enqueue's own input, built once so the scan body stays flat. */
+function enqueueScanInput(input: {
+    readonly deps: ScanContext;
+    readonly binding: BindingRecord;
+    readonly account: Awaited<ReturnType<typeof readAccount>>;
+    readonly listed: Extract<ScanListing, { readonly ok: true }>;
+}): Parameters<typeof enqueueEvents>[0] {
+    const { deps, binding, account, listed } = input;
+    const { observedHeads, checksWrites, checksDrops } = listed;
+
+    return {
+        store: deps.store,
+        log: deps.log,
+        incoming: listed.events,
+        // The same records that produced `projectId`/`worktreeOption` for
+        // these events resolve this snapshot — this cycle's configuration
+        // (global tier), the account this scan read (account tier), and the
+        // binding being scanned (binding tier) — so resolution and project
+        // resolution cannot disagree (004 FR-015: "at the same moment";
+        // FR-080: resolved once, at detection). A tier the records do not
+        // carry is unset and contributes nothing.
+        prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
+        // The heads this cycle observed, mapped from the pull-request numbers the
+        // pulls feed reported onto the run document's own subject keys, so a run
+        // with no seed records its baseline inside the same two writes its
+        // follow-up row lands in (FR-103(b)) — never a second write path.
+        ...(observedHeads !== undefined && {
+            observedHeads: observedHeadSeeds({ binding, observations: observedHeads }),
+        }),
+        ...(checksWrites !== undefined && { checksWrites }),
+        ...(checksDrops !== undefined && { checksDrops }),
     };
 }
 
@@ -446,26 +549,9 @@ async function scanBinding(input: {
         return { ...blank, skipped: listed.skipped };
     }
 
-    const appended = await enqueueEvents({
-        store: deps.store,
-        log: deps.log,
-        incoming: listed.events,
-        // The same records that produced `projectId`/`worktreeOption` for
-        // these events resolve this snapshot — this cycle's configuration
-        // (global tier), the account this scan read (account tier), and the
-        // binding being scanned (binding tier) — so resolution and project
-        // resolution cannot disagree (004 FR-015: "at the same moment";
-        // FR-080: resolved once, at detection). A tier the records do not
-        // carry is unset and contributes nothing.
-        prompt: resolvePromptSnapshot({ global: deps.config, account, binding }),
-        // The heads this cycle observed, mapped from the pull-request numbers the
-        // pulls feed reported onto the run document's own subject keys, so a run
-        // with no seed records its baseline inside the same two writes its
-        // follow-up row lands in (FR-103(b)) — never a second write path.
-        ...(listed.observedHeads !== undefined && {
-            observedHeads: observedHeadSeeds({ binding, observations: listed.observedHeads }),
-        }),
-    });
+    const appended = await enqueueEvents(enqueueScanInput({ deps, binding, account, listed }));
+
+    await recordChecksAudits({ store, log, audits: listed.checksAudits ?? [] });
 
     // The end of tracking is recorded for every tracked subject whose own
     // terminal read reported a terminal state (FR-106). One-directional by

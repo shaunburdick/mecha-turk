@@ -8,7 +8,7 @@ Dev, build, test, and verification for the production package (panel + service).
 1. **OpenChamber desktop or web** running (unattended operation = "while OpenChamber is up"). VS Code/mobile do not spawn services → the panel shows the unsupported state there.
 2. **Settings → Sessions → Session Defaults → Default Agent** — set it to **the agent your dispatches should run on** (`project-manager` is the usual choice; the extension cannot set it), and set the matching **`expectedAgent`** baseline on **Settings** so post-dispatch verification has something to compare against. With the baseline blank (the shipped default), a read-back records the observed agent and compares nothing — 002 FR-029 as amended at v1.10.0.
 3. A **registered OpenChamber project** for each repository you will bind (command palette → Add project, sidebar **+**, or folder browser — the extension cannot create projects).
-4. **GitHub fine-grained PATs**, one per account, with `Metadata: read`, `Issues: read`, `Pull requests: read` (+ `Contents: read` only if repository metadata is passed to OpenChamber). **No write scopes.** Organization approval granted where required. The Notifications API is not used.
+4. **GitHub fine-grained PATs**, one per account, with `Metadata: read`, `Issues: read`, `Pull requests: read`, plus `Checks: read` only when a binding has the **Checks** switch on (+ `Contents: read` only if repository metadata is passed to OpenChamber). **No write scopes.** Organization approval granted where required. The Notifications API is not used.
 5. Toolchain for development: Node ≥ 20.19, npm, `bun` (for `openchamber-guest-bundle`).
 
 ## 1. Build

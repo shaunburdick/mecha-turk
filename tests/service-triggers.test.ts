@@ -34,6 +34,7 @@ import { writeBindings } from '../service/bindings.ts';
 import { createLogger } from '../service/log.ts';
 import { createEvent, parseStoredEvent, readEvents } from '../service/poll/events.ts';
 import { runScanCycle } from '../service/poll/loop.ts';
+import { checksCompletedOf, failingConclusionOf, failingNamesOf } from '../service/poll/poller-checks.ts';
 import { readRunsDocument } from '../service/poll/runs.ts';
 import { writeScanState } from '../service/poll/scan.ts';
 import { isAttributableAuthor, isAttributableCommentAuthor } from '../service/poll/attribution.ts';
@@ -53,7 +54,6 @@ import type { Run } from '../service/poll/runs-types.ts';
 import type { TrackedSubject } from '../service/poll/tracking.ts';
 import type { ServiceLogger } from '../service/log.ts';
 import type {
-    CheckConclusion,
     GitHubIssuePoller,
     PollComment,
     PollFailure,
@@ -475,11 +475,12 @@ function recordingPoller(feeds: {
     readonly reviewsFailure?: PollFailure;
     /** Pull numbers whose reviews read answers truncation. */
     readonly reviewsTruncated?: readonly number[];
-    /** The check verdict each head answers, keyed by SHA. */
-    readonly checks?: Readonly<Record<string, {
-        readonly conclusion: CheckConclusion | null;
-        readonly names: readonly string[];
-    }>>;
+    /** The check runs each head answers, keyed by SHA. */
+    readonly checks?: Readonly<Record<string, readonly {
+        readonly name: string;
+        readonly conclusion?: string | null;
+        readonly completedAt?: string;
+    }[]>>;
     readonly checksFailure?: PollFailure;
     /** SHAs whose check-runs walk answers truncation. */
     readonly checksTruncated?: readonly string[];
@@ -529,13 +530,21 @@ function recordingPoller(feeds: {
                 return feeds.checksFailure;
             }
 
-            const verdict = feeds.checks?.[query.headSha];
+            const runs = (feeds.checks?.[query.headSha] ?? []).map((run) => ({
+                name: run.name,
+                status: 'completed',
+                conclusion: run.conclusion ?? null,
+                completedAt: run.completedAt ?? null,
+            }));
             const isTruncated = feeds.checksTruncated?.includes(query.headSha) === true;
 
             return {
                 kind: 'ok',
-                conclusion: isTruncated ? null : (verdict?.conclusion ?? null),
-                names: isTruncated ? [] : (verdict?.names ?? []),
+                count: runs.length,
+                runs,
+                completed: !isTruncated && checksCompletedOf(runs),
+                conclusion: isTruncated ? null : failingConclusionOf(runs),
+                names: isTruncated ? [] : failingNamesOf(runs),
                 truncated: isTruncated,
             };
         },
@@ -1155,6 +1164,7 @@ describe('the bound account\'s own text is refused at every comment author gate 
             correlationId: 'run_self_comment',
             subjectType: 'issue',
             lastHeadSha: null,
+            checksWatch: null,
             actorLogin: null,
             actorAttribution: null,
             establishedAt: STAMP,
@@ -1166,6 +1176,7 @@ describe('the bound account\'s own text is refused at every comment author gate 
             correlationId: 'run_self_comment',
             subjectType: 'pull_request',
             lastHeadSha: null,
+            checksWatch: null,
             actorLogin: null,
             actorAttribution: null,
             establishedAt: STAMP,
@@ -1481,7 +1492,7 @@ describe('review-submitted detection (FR-120 – FR-124)', () => {
         {
             const checksOnly = recordingPoller({
                 pulls: [fixtureOwnPull({ pullNumber: 12 })],
-                checks: { [HEAD_SHA]: { conclusion: 'failure', names: ['build'] } },
+                checks: { [HEAD_SHA]: [{ name: 'build', conclusion: 'failure' }] },
             });
             const events = await scan(fixtureBinding('bnd-checks-only', {
                 assignment: false,
@@ -1491,7 +1502,9 @@ describe('review-submitted detection (FR-120 – FR-124)', () => {
                 checks: true,
             }), checksOnly);
 
-            expect(checksOnly.calls).toEqual(['pulls']);
+            // Nothing is tracked, so the watch has no head to sit on and the one
+            // read a `checks`-only binding pays is not made at all (FR-130).
+            expect(checksOnly.calls).toEqual([]);
             expect(events).toEqual([]);
         }
     });

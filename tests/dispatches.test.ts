@@ -698,7 +698,7 @@ describe('the follow-up queue on the surfaces (002 FR-036, FR-105)', () => {
                 sourceUrl: pullUrl,
             };
             const checks = {
-                deliveryId: 'evt-acme~widget~7~77331~followup~checks~deadbeef~failure',
+                deliveryId: 'evt-acme~widget~7~77331~followup~checks~deadbeef',
                 kind: 'checks',
                 excerpt: 'build, lint',
                 actorLogin: 'ray',

@@ -9,7 +9,14 @@ import type { FollowUpKind, QueuedEvent, SubjectType } from './events-parse.ts';
 import { isTerminalRun } from './runs-document.ts';
 import { buildAttachmentId, buildCorrelationId, buildRunKey, buildSubjectKey } from './run-key.ts';
 import { MAX_SOURCE_REFERENCES, RUNS_SCHEMA_VERSION } from './runs-parse.ts';
-import type { ReferenceOrigin, Run, RunAuditIntent, RunsDocument, SourceReference } from './runs-types.ts';
+import type {
+    ChecksWatch,
+    ReferenceOrigin,
+    Run,
+    RunAuditIntent,
+    RunsDocument,
+    SourceReference,
+} from './runs-types.ts';
 
 /** The subject coordinates one delivery resolves to, when it resolves at all. */
 interface SubjectShape {
@@ -363,6 +370,14 @@ export interface EnqueueInput {
      * FR-103(b)). Absent reads as *no head was observed*.
      */
     readonly observedHeads?: ReadonlyMap<string, string>;
+    /**
+     * Check watches this cycle armed or re-counted, keyed by the run's
+     * correlation id. Applied in the same chain write as the deliveries, so a
+     * cycle that only advanced a watch still persists atomically (FR-126).
+     */
+    readonly checksWrites?: ReadonlyMap<string, ChecksWatch>;
+    /** Check watches this cycle dropped, by run correlation id. */
+    readonly checksDrops?: readonly string[];
 }
 
 /**
@@ -511,6 +526,35 @@ function foldDelivery(input: {
 }
 
 /**
+ * Apply this cycle's check-watch drops and writes to the runs they name.
+ *
+ * Drops first: a watch that concluded on the same cycle its subject's tracking
+ * ended must not survive as inert state on an ended run. A write is refused for
+ * a run without a recorded session — the defensive arm FR-100's predicate
+ * already implies — and a drop clears the member so the next cycle cannot read a
+ * head the run no longer follows (FR-126).
+ */
+function applyChecksWrites(input: {
+    readonly runs: Run[];
+    readonly writes: ReadonlyMap<string, ChecksWatch> | undefined;
+    readonly drops: readonly string[] | undefined;
+    readonly now: string;
+}): void {
+    const drops = new Set(input.drops);
+    for (const [position, run] of input.runs.entries()) {
+        if (drops.has(run.correlationId) && run.checksWatch !== undefined) {
+            input.runs[position] = { ...run, checksWatch: undefined, updatedAt: input.now };
+            continue;
+        }
+
+        const watch = input.writes?.get(run.correlationId);
+        if (watch !== undefined && run.session !== null) {
+            input.runs[position] = { ...run, checksWatch: watch, updatedAt: input.now };
+        }
+    }
+}
+
+/**
  * Fold fresh deliveries into runs: join the subject's open run, else create
  * the next ordinal. Pure — the caller owns the chain, the two
  * writes, and the audit rows, in that order.
@@ -542,6 +586,13 @@ export function applyEnqueue(input: EnqueueInput): EnqueueOutcome {
     if (input.observedHeads !== undefined) {
         recordHeadSeeds(runs, input.observedHeads);
     }
+
+    applyChecksWrites({
+        runs,
+        writes: input.checksWrites,
+        drops: input.checksDrops,
+        now: input.now,
+    });
 
     const auditIntents: RunAuditIntent[] = [
         ...(input.document.auditIntents ?? []),

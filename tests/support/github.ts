@@ -235,6 +235,8 @@ export function offlinePoller(): GitHubIssuePoller {
             throw new Error('the terminal read is F-9-only; this suite detects no follow-up');
         },
         listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
-        listHeadChecks: async () => ({ kind: 'ok', conclusion: null, names: [], truncated: false }),
+        listHeadChecks: async () => ({
+            kind: 'ok', count: 0, runs: [], completed: true, conclusion: null, names: [], truncated: false,
+        }),
     };
 }

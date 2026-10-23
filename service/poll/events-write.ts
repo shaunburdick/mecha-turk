@@ -3,7 +3,6 @@
  */
 
 import type { ActorAttribution, QueuedEvent, SubjectType } from './events-parse.ts';
-import type { CheckConclusion } from './poller-checks.ts';
 
 interface BaseEventSnapshot {
     readonly bindingId: string;
@@ -222,22 +221,19 @@ export interface FollowUpReviewSubmittedSnapshot extends BaseEventSnapshot {
 }
 
 /**
- * A **follow-up**: failing checks on a tracked pull request's new head
+ * A **follow-up**: failing checks on a tracked pull request's watched head
  * (FR-126 – FR-127).
  *
- * The id is the head SHA plus the aggregate conclusion, never the names: a
- * re-run whose failing job set changes but whose most blocking conclusion does
- * not stays silent, so the same check set always mints the same id.
+ * The id is the head SHA alone: the watch is dropped once it concludes, so a
+ * given head alerts at most once however many re-runs it later carries.
  */
 export interface FollowUpChecksSnapshot extends BaseEventSnapshot {
     readonly kind: 'review';
     readonly followUp: 'checks';
-    /** The head SHA observed at detection. */
+    /** The watched head the aggregate verdict names. */
     readonly headSha: string;
     /** `null` always: a check verdict restates no base ref. */
     readonly baseRef: string | null;
-    /** The most blocking failing conclusion present. */
-    readonly conclusion: CheckConclusion;
     /** The tracked subject's shape, required exactly as on a comment follow-up. */
     readonly subjectType: SubjectType;
 }
@@ -313,7 +309,7 @@ function followUpDiscriminatorOf(snapshot: FollowUpSnapshot): string {
             return `~followup~review-submitted~${snapshot.reviewId}`;
         }
         case 'checks': {
-            return `~followup~checks~${snapshot.headSha}~${snapshot.conclusion}`;
+            return `~followup~checks~${snapshot.headSha}`;
         }
         case 'review-comment': {
             return `~followup~review-comment~${snapshot.commentId}`;

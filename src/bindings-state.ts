@@ -69,7 +69,7 @@ export interface BindingsTabState {
     triggerReviewRequest: boolean;
     /** Draft review-submitted trigger (a changes-requested review on an own pull). */
     triggerReviewSubmitted: boolean;
-    /** Draft checks trigger (failing checks on a tracked pull's new head). */
+    /** Draft checks trigger (failing checks on a tracked pull's current head). */
     triggerChecks: boolean;
     /** Draft worktree option. */
     worktreeSelection: 'none' | 'generated' | 'new';

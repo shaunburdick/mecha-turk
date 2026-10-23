@@ -149,8 +149,8 @@ export interface GitHubIssuePoller {
      * Read **one head's** check runs with `filter=latest` (FR-126).
      *
      * Bounded to two content pages; a second page that fills its cap is
-     * truncation, and the head then produces no row. Issued at most once per
-     * new SHA per cycle and only for a tracked head movement.
+     * truncation, and the head then produces no verdict. Issued at most once
+     * per armed watch per cycle, starting the cycle after the watch is armed.
      */
     listHeadChecks(query: HeadChecksQuery): Promise<HeadChecksOutcome>;
 

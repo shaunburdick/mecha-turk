@@ -176,6 +176,32 @@ export interface RunVerification {
  */
 export type BaselineProvenance = 'configured' | 'defaulted' | 'unset';
 
+/**
+ * How a check watch ended, or that it is still waiting.
+ *
+ * `'none'` is *the walk returned zero check runs* — not a pass, because
+ * nothing ran; it is inert like every other concluded verdict.
+ */
+export type ChecksVerdict = 'watching' | 'passed' | 'failed' | 'expired' | 'none';
+
+/**
+ * The bounded check watch one tracked pull request's run carries (FR-126).
+ *
+ * It belongs to the run, not to a registry: a head move replaces it, and a
+ * concluded verdict stays as **inert state** so the same head is never polled
+ * (or audited) again.
+ */
+export interface ChecksWatch {
+    /** The current head the watch belongs to. */
+    readonly headSha: string;
+    /** RFC 3339 arm stamp, service clock. */
+    readonly armedAt: string;
+    /** Check-runs reads spent on this watch, `0` at arm. */
+    readonly polls: number;
+    /** `'watching'` until the watch concludes; a concluded verdict is never read. */
+    readonly verdict: ChecksVerdict;
+}
+
 /** One run: the unit of dispatch (FR-010, data-model §2.2). */
 export interface Run {
     /** FR-010 tuple, human-readable by design. */
@@ -253,6 +279,12 @@ export interface Run {
      * produces a head follow-up, so the member is absent on every issue run forever.
      */
     readonly lastHeadSha?: string;
+    /**
+     * The live check watch, or absent when none is armed. **Absentable and
+     * validated when present**: absent means *no watch*, never *the suite
+     * passed* (FR-126).
+     */
+    readonly checksWatch?: ChecksWatch | undefined;
     readonly verification: RunVerification | null;
     /** RFC 3339 creation stamp. */
     readonly createdAt: string;
