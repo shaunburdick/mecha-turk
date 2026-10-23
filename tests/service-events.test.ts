@@ -318,7 +318,7 @@ function recordingPoller(issues: readonly PollIssue[]): RecordedPoller {
         },
         listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
         listHeadChecks: async () => ({
-            kind: 'ok', count: 0, completed: true, conclusion: null, names: [], truncated: false,
+            kind: 'ok', count: 0, runs: [], completed: true, conclusion: null, names: [], truncated: false,
         }),
     };
 
@@ -1725,7 +1725,7 @@ describe('002 AC-027 identity: the policy never enters the event id (FR-046, FR-
                 },
                 listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
                 listHeadChecks: async () => ({
-                    kind: 'ok', count: 0, completed: true, conclusion: null, names: [], truncated: false,
+                    kind: 'ok', count: 0, runs: [], completed: true, conclusion: null, names: [], truncated: false,
                 }),
             };
             await runScanCycle({ store, log, poller });

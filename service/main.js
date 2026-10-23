@@ -2630,6 +2630,10 @@ function parseSession(raw) {
     ...directory
   };
 }
+var CHECKS_VERDICTS = new Set(["watching", "passed", "failed", "expired", "none"]);
+function isChecksVerdict(value) {
+  return typeof value === "string" && CHECKS_VERDICTS.has(value);
+}
 function parseChecksWatch(raw) {
   if (raw === undefined) {
     return;
@@ -2640,10 +2644,11 @@ function parseChecksWatch(raw) {
   const headSha = readText(raw.headSha);
   const armedAt = readStamp(raw.armedAt);
   const polls = readCount(raw.polls);
-  if (headSha === null || armedAt === null || polls === null || !/^[0-9a-f]+$/.test(headSha)) {
+  const { verdict } = raw;
+  if (headSha === null || armedAt === null || polls === null || !/^[0-9a-f]+$/.test(headSha) || !isChecksVerdict(verdict)) {
     return null;
   }
-  return { headSha, armedAt, polls };
+  return { headSha, armedAt, polls, verdict };
 }
 function parseVerification(raw) {
   if (!isRecord(raw)) {
@@ -11469,6 +11474,506 @@ async function assignmentEvents(input) {
   return { ok: true, events };
 }
 
+// service/poll/poller-entries.ts
+function asRecord(value) {
+  return isRecord(value) ? value : null;
+}
+function positiveIntOf2(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+function textOf(record, field) {
+  const value = record[field];
+  return typeof value === "string" ? value : null;
+}
+function readLogins(value) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const logins = [];
+  for (const entry of value) {
+    const login = asRecord(entry);
+    const candidate = login === null ? null : login.login;
+    if (typeof candidate !== "string" || candidate === "") {
+      return null;
+    }
+    logins.push(candidate);
+  }
+  return logins;
+}
+function authorLoginOf(user) {
+  return user === null ? "" : textOf(user, "login") ?? "";
+}
+function authorTypeOf(user) {
+  return user === null ? "" : textOf(user, "type") ?? "";
+}
+function issueNumberOf2(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const lastSegment = value.slice(value.lastIndexOf("/") + 1);
+  return positiveIntOf2(Number(lastSegment));
+}
+function readIssueEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const issueNumber = positiveIntOf2(record.number);
+  const title = textOf(record, "title");
+  const url = textOf(record, "html_url");
+  const state = textOf(record, "state");
+  const assignees = readLogins(record.assignees);
+  if (issueNumber === null || title === null || url === null || state === null || assignees === null) {
+    return null;
+  }
+  const user = asRecord(record.user);
+  return {
+    issueNumber,
+    title,
+    url,
+    state,
+    body: textOf(record, "body"),
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user),
+    assignees,
+    isPullRequest: "pull_request" in record,
+    updatedAt: textOf(record, "updated_at"),
+    closedAt: textOf(record, "closed_at"),
+    stateReason: textOf(record, "state_reason")
+  };
+}
+function readCommentEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const commentId = positiveIntOf2(record.id);
+  const issueNumber = issueNumberOf2(record.issue_url);
+  const body = textOf(record, "body");
+  const url = textOf(record, "html_url");
+  const user = asRecord(record.user);
+  const authorLogin = authorLoginOf(user);
+  if (commentId === null || issueNumber === null || body === null || url === null || authorLogin === "") {
+    return null;
+  }
+  return {
+    commentId,
+    issueNumber,
+    body,
+    url,
+    authorLogin,
+    authorType: authorTypeOf(user),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readReviewCommentEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const commentId = positiveIntOf2(record.id);
+  const pullNumber = issueNumberOf2(record.pull_request_url);
+  const body = textOf(record, "body");
+  const user = asRecord(record.user);
+  const authorLogin = authorLoginOf(user);
+  if (commentId === null || pullNumber === null || body === null || authorLogin === "") {
+    return null;
+  }
+  return {
+    commentId,
+    pullNumber,
+    body,
+    authorLogin,
+    authorType: authorTypeOf(user),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readPullEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const pullNumber = positiveIntOf2(record.number);
+  const title = textOf(record, "title");
+  const url = textOf(record, "html_url");
+  const state = textOf(record, "state");
+  const requestedReviewers = readLogins(record.requested_reviewers);
+  if (pullNumber === null || title === null || url === null || state === null || requestedReviewers === null) {
+    return null;
+  }
+  const head = asRecord(record.head);
+  const base = asRecord(record.base);
+  const user = asRecord(record.user);
+  return {
+    pullNumber,
+    title,
+    url,
+    state,
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user),
+    requestedReviewers,
+    headSha: head === null ? null : textOf(head, "sha"),
+    baseRef: base === null ? null : textOf(base, "ref"),
+    merged: record.merged === true,
+    mergedAt: textOf(record, "merged_at"),
+    updatedAt: textOf(record, "updated_at")
+  };
+}
+function readReviewEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const reviewId = positiveIntOf2(record.id);
+  const state = textOf(record, "state");
+  if (reviewId === null || state === null) {
+    return null;
+  }
+  const user = asRecord(record.user);
+  return {
+    reviewId,
+    state,
+    submittedAt: textOf(record, "submitted_at"),
+    authorLogin: authorLoginOf(user),
+    authorType: authorTypeOf(user)
+  };
+}
+function readCheckRunEntry(value) {
+  const record = asRecord(value);
+  if (record === null) {
+    return null;
+  }
+  const name = textOf(record, "name");
+  if (name === null || name === "") {
+    return null;
+  }
+  return {
+    name,
+    status: textOf(record, "status"),
+    conclusion: textOf(record, "conclusion"),
+    completedAt: readStamp(record.completed_at)
+  };
+}
+function readIssueObject(value) {
+  const issue2 = readIssueEntry(value);
+  return issue2 !== null && (issue2.state === "open" || issue2.state === "closed") ? issue2 : null;
+}
+function readPullObject(value) {
+  const pull = readPullEntry(value);
+  return pull !== null && (pull.state === "open" || pull.state === "closed") ? pull : null;
+}
+
+// service/poll/backoff.ts
+function unitFraction(value) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.min(1, Math.max(0, value));
+}
+var MILLISECONDS_PER_SECOND = 1000;
+function backoffDelayMs(input) {
+  const step = Math.max(input.attempt - 2, 0);
+  const uncapped = input.policy.baseMs * 2 ** step;
+  const capped = Math.min(input.policy.maxMs, uncapped);
+  const jitter = 0.5 + 0.5 * unitFraction(input.random());
+  return Math.min(input.policy.maxMs, Math.floor(capped * jitter));
+}
+function nextWait(input) {
+  const backoffMs = backoffDelayMs({
+    policy: input.policy,
+    attempt: input.attempt,
+    random: input.random
+  });
+  if (input.guidanceSeconds === null) {
+    return { attempt: input.attempt, delayMs: backoffMs, source: "backoff" };
+  }
+  const guidedMs = Math.max(0, Math.round(input.guidanceSeconds * MILLISECONDS_PER_SECOND));
+  return guidedMs > backoffMs ? { attempt: input.attempt, delayMs: guidedMs, source: "guidance" } : { attempt: input.attempt, delayMs: backoffMs, source: "backoff" };
+}
+async function waitForRetry(input) {
+  const record = nextWait(input);
+  input.onWait(record);
+  await input.sleep(record.delayMs);
+  return record;
+}
+
+// service/poll/poller-transport.ts
+var STATUS_UNAUTHORIZED2 = 401;
+var STATUS_NOT_FOUND2 = 404;
+var STATUS_FORBIDDEN2 = 403;
+var STATUS_TOO_MANY_REQUESTS2 = 429;
+var MAX_LIST_PAGES = 2;
+var systemSleep = async (milliseconds) => {
+  await new Promise((resolve4) => {
+    setTimeout(resolve4, milliseconds);
+  });
+};
+function pollerRuntime(deps, fetchImpl) {
+  return {
+    fetchImpl,
+    log: deps.log,
+    sleep: deps.sleep ?? systemSleep,
+    random: deps.random ?? (() => Math.random())
+  };
+}
+function listUrl(input) {
+  const url = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/${input.path}`);
+  for (const [key, value] of Object.entries(input.query)) {
+    url.searchParams.set(key, value);
+  }
+  if (input.since !== null) {
+    url.searchParams.set("since", input.since);
+  }
+  return url;
+}
+function parseListPage(input) {
+  const parsed = parseJsonText(input.text);
+  if (!parsed.ok || !Array.isArray(parsed.value)) {
+    throw new Error(input.message);
+  }
+  return parsed.value.flatMap((entry) => {
+    const item = input.read(entry);
+    return item === null ? [] : [item];
+  });
+}
+function lastPageOf(link) {
+  if (link === null) {
+    return null;
+  }
+  for (const part of link.split(",")) {
+    if (!/\brel="last"/.test(part)) {
+      continue;
+    }
+    const match = /[?&]page=(\d+)/.exec(part);
+    const page = match === null ? NaN : Number(match[1]);
+    return Number.isSafeInteger(page) && page > 0 ? page : null;
+  }
+  return null;
+}
+function parseEnvelopePage(input) {
+  const parsed = parseJsonText(input.text);
+  if (!parsed.ok || !isRecord(parsed.value)) {
+    throw new TypeError(input.message);
+  }
+  const entries = parsed.value[input.envelope];
+  if (!Array.isArray(entries)) {
+    throw new TypeError(input.message);
+  }
+  return entries.flatMap((entry) => {
+    const item = input.read(entry);
+    return item === null ? [] : [item];
+  });
+}
+async function classifyOutcome(response) {
+  if (response.status === STATUS_UNAUTHORIZED2 || response.status === STATUS_NOT_FOUND2) {
+    return { kind: "auth-failed" };
+  }
+  const rateLimitStatuses = [STATUS_FORBIDDEN2, STATUS_TOO_MANY_REQUESTS2];
+  if (rateLimitStatuses.includes(response.status) && isRateLimited(response)) {
+    return { kind: "rate-limited", retryAfterSeconds: retryAfterOf(response) };
+  }
+  return { kind: "unavailable", detail: "upstream" };
+}
+async function waitBeforeNextAttempt(context, wait) {
+  const { runtime, pace, url } = context;
+  await waitForRetry({
+    policy: pace.retry,
+    attempt: wait.attempt,
+    guidanceSeconds: wait.guidanceSeconds,
+    sleep: runtime.sleep,
+    random: runtime.random,
+    onWait: (record) => {
+      runtime.log.info("poll request waiting before its next attempt", {
+        path: url.pathname,
+        attempt: record.attempt,
+        delayMs: record.delayMs,
+        source: record.source
+      });
+    }
+  });
+}
+async function requestPage(input) {
+  const policy = input.pace.retry;
+  const attempts = Math.max(1, policy.maxAttempts);
+  let last = { kind: "unavailable", detail: "upstream" };
+  for (let attempt = 1;attempt <= attempts; attempt += 1) {
+    let response;
+    try {
+      response = await input.runtime.fetchImpl(input.url.href, {
+        method: "GET",
+        headers: requestHeaders(input.token),
+        signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
+      });
+    } catch (error) {
+      last = { kind: "unavailable", detail: transportDetail(error) };
+      if (attempt >= attempts) {
+        return { failure: last };
+      }
+      await waitBeforeNextAttempt(input, { attempt: attempt + 1, guidanceSeconds: null });
+      continue;
+    }
+    if (response.ok) {
+      return { response };
+    }
+    last = await classifyOutcome(response);
+    if (last.kind === "auth-failed" || attempt >= attempts) {
+      return { failure: last };
+    }
+    const guidanceSeconds = last.kind === "rate-limited" ? last.retryAfterSeconds : null;
+    await waitBeforeNextAttempt(input, { attempt: attempt + 1, guidanceSeconds });
+  }
+  return { failure: last };
+}
+async function readOnePage(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    return {
+      kind: "ok",
+      items: parseListPage({
+        text: await attempt.response.text(),
+        message: input.message,
+        read: input.read
+      }),
+      lastPage: lastPageOf(attempt.response.headers.get("link"))
+    };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
+async function readEnvelopePage(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    return {
+      kind: "ok",
+      items: parseEnvelopePage({
+        text: await attempt.response.text(),
+        envelope: input.envelope,
+        message: input.message,
+        read: input.read
+      })
+    };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
+async function listPages(input) {
+  const items = [];
+  for (let page = 1;page <= MAX_LIST_PAGES; page += 1) {
+    input.url.searchParams.set("page", String(page));
+    input.url.searchParams.set("per_page", String(input.pace.perPage));
+    const parsed = await readOnePage(input);
+    if (parsed.kind !== "ok") {
+      return parsed;
+    }
+    items.push(...parsed.items);
+    if (parsed.items.length < input.pace.perPage) {
+      break;
+    }
+  }
+  return { kind: "ok", items };
+}
+async function readOneObject(input) {
+  const attempt = await requestPage({
+    runtime: input.runtime,
+    token: input.token,
+    url: input.url,
+    pace: input.pace
+  });
+  if (!("response" in attempt)) {
+    return attempt.failure;
+  }
+  try {
+    const parsed = parseJsonText(await attempt.response.text());
+    const object = parsed.ok ? input.read(parsed.value) : null;
+    return object === null ? { kind: "unavailable", detail: "upstream" } : { kind: "ok", object };
+  } catch {
+    return { kind: "unavailable", detail: "upstream" };
+  }
+}
+
+// service/poll/poller-checks.ts
+var FAILING_CONCLUSIONS = ["action_required", "failure", "timed_out"];
+var MAX_CHECK_NAMES = 10;
+var MAX_CHECK_PAGES = 2;
+function failingOf(value) {
+  return FAILING_CONCLUSIONS.find((conclusion) => conclusion === value) ?? null;
+}
+function failingConclusionOf(runs) {
+  for (const conclusion of FAILING_CONCLUSIONS) {
+    if (runs.some((run) => run.conclusion === conclusion)) {
+      return conclusion;
+    }
+  }
+  return null;
+}
+function failingNamesOf(runs) {
+  return runs.filter((run) => failingOf(run.conclusion) !== null).map((run) => run.name).slice(0, MAX_CHECK_NAMES);
+}
+function checksCompletedOf(runs) {
+  return runs.every((run) => run.status === "completed");
+}
+async function readHeadChecks(runtime, query) {
+  const url = new URL(`${API_ORIGIN}/repos/${query.owner}/${query.name}/commits/${query.headSha}/check-runs`);
+  url.searchParams.set("filter", "latest");
+  const runs = [];
+  for (let page = 1;page <= MAX_CHECK_PAGES; page += 1) {
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("per_page", String(query.pace.perPage));
+    const parsed = await readEnvelopePage({
+      runtime,
+      token: query.token,
+      url,
+      pace: query.pace,
+      envelope: "check_runs",
+      message: "check-runs response was not an envelope",
+      read: readCheckRunEntry
+    });
+    if (parsed.kind !== "ok") {
+      return parsed;
+    }
+    runs.push(...parsed.items);
+    if (page === MAX_CHECK_PAGES && parsed.items.length >= query.pace.perPage) {
+      return {
+        kind: "ok",
+        count: runs.length,
+        runs,
+        completed: false,
+        conclusion: null,
+        names: [],
+        truncated: true
+      };
+    }
+    if (parsed.items.length < query.pace.perPage) {
+      break;
+    }
+  }
+  return {
+    kind: "ok",
+    count: runs.length,
+    runs,
+    completed: checksCompletedOf(runs),
+    conclusion: failingConclusionOf(runs),
+    names: failingNamesOf(runs),
+    truncated: false
+  };
+}
+
 // service/poll/triggers-checks.ts
 var MAX_WATCH_POLLS = 30;
 var MAX_WATCH_MS = 30 * 60000;
@@ -11508,7 +12013,7 @@ function auditOf(input) {
   };
 }
 function armChange(input) {
-  const watch = { headSha: input.headSha, armedAt: input.detectedAt, polls: 0 };
+  const watch = { headSha: input.headSha, armedAt: input.detectedAt, polls: 0, verdict: "watching" };
   return {
     write: watch,
     audit: auditOf({
@@ -11521,7 +12026,7 @@ function armChange(input) {
 }
 function expiryChange(input) {
   return {
-    drop: true,
+    write: { ...input.watch, verdict: "expired" },
     audit: auditOf({
       eventType: "checks.expired",
       correlationId: input.correlationId,
@@ -11531,26 +12036,51 @@ function expiryChange(input) {
     })
   };
 }
+function verdictOf(listed) {
+  if (listed.conclusion !== null) {
+    return "failed";
+  }
+  return listed.count === 0 ? "none" : "passed";
+}
+function isNewsAt(input) {
+  if (input.completedAt === null) {
+    return true;
+  }
+  const armed = Date.parse(input.armedAt);
+  if (Number.isNaN(armed)) {
+    return true;
+  }
+  return Date.parse(input.completedAt) >= armed;
+}
+function alertableOf(input) {
+  if (input.news) {
+    return true;
+  }
+  return input.listed.runs.some((run) => failingConclusionOf([run]) !== null && isNewsAt({ completedAt: run.completedAt, armedAt: input.armedAt }));
+}
 function concludedChange(input) {
   const { listed } = input;
   if (listed.truncated || listed.count > 0 && !listed.completed) {
     return { write: input.spent };
   }
-  if (listed.count === 0) {
-    return { drop: true };
-  }
+  const { conclusion } = listed;
+  const isPreExisting = conclusion !== null && !alertableOf({ listed, armedAt: input.watch.armedAt, news: input.news });
+  const isAlerted = conclusion !== null && !isPreExisting;
+  const verdict = verdictOf(listed);
   return {
-    drop: true,
-    alert: listed.conclusion !== null,
+    write: { ...input.spent, verdict },
+    alert: isAlerted,
     audit: auditOf({
       eventType: "checks.observed",
       correlationId: input.correlationId,
       subjectNumber: input.subjectNumber,
       watch: input.spent,
       extra: {
-        conclusion: listed.conclusion,
+        conclusion,
         completed: true,
-        failing: listed.conclusion !== null
+        failing: conclusion !== null,
+        preExisting: isPreExisting,
+        alerted: isAlerted
       }
     })
   };
@@ -11589,9 +12119,6 @@ function applyChange(input) {
   if (change.write !== undefined) {
     state.writes.set(correlationId, change.write);
   }
-  if (change.drop === true) {
-    state.drops.push(correlationId);
-  }
   if (change.audit !== undefined) {
     state.audits.push(change.audit);
   }
@@ -11599,10 +12126,16 @@ function applyChange(input) {
 function preReadChange(input) {
   const { watch, headSha, correlationId, subjectNumber, detectedAt } = input;
   if (watch?.headSha !== headSha) {
-    return armChange({ correlationId, subjectNumber, headSha, detectedAt });
+    return {
+      action: "change",
+      change: armChange({ correlationId, subjectNumber, headSha, detectedAt })
+    };
+  }
+  if (watch.verdict !== "watching") {
+    return { action: "inert" };
   }
   const expired = expiryReasonOf(watch, detectedAt);
-  return expired === null ? null : expiryChange({ correlationId, subjectNumber, watch, reason: expired });
+  return expired === null ? { action: "read" } : { action: "change", change: expiryChange({ correlationId, subjectNumber, watch, reason: expired }) };
 }
 async function pollWatch(input) {
   const { pull, subject, subjectNumber, state, detectedAt } = input;
@@ -11642,7 +12175,14 @@ async function pollWatch(input) {
   if (listed.truncated) {
     input.log.warn("check-runs walk truncated; the watch is kept", { headSha });
   }
-  const change = concludedChange({ correlationId, subjectNumber, spent, listed });
+  const change = concludedChange({
+    correlationId,
+    subjectNumber,
+    watch: subject.checksWatch,
+    spent,
+    listed,
+    news: subject.lastHeadSha !== subject.checksWatch.headSha
+  });
   applyChange({ state, correlationId, change });
   if (change.alert === true) {
     const row = checksFollowUp({
@@ -11671,8 +12211,11 @@ async function visitTrackedPull(input) {
     subjectNumber,
     detectedAt
   });
-  if (early !== null) {
-    applyChange({ state, correlationId: subject.correlationId, change: early });
+  if (early.action === "inert") {
+    return null;
+  }
+  if (early.action === "change") {
+    applyChange({ state, correlationId: subject.correlationId, change: early.change });
     return null;
   }
   return await pollWatch({ ...input, pull, subject, subjectNumber, state, detectedAt });
@@ -12574,492 +13117,6 @@ async function runScanCycle(deps) {
     });
   }
   return { bindings: outcomes, enqueued: total };
-}
-
-// service/poll/backoff.ts
-function unitFraction(value) {
-  if (!Number.isFinite(value)) {
-    return 0;
-  }
-  return Math.min(1, Math.max(0, value));
-}
-var MILLISECONDS_PER_SECOND = 1000;
-function backoffDelayMs(input) {
-  const step = Math.max(input.attempt - 2, 0);
-  const uncapped = input.policy.baseMs * 2 ** step;
-  const capped = Math.min(input.policy.maxMs, uncapped);
-  const jitter = 0.5 + 0.5 * unitFraction(input.random());
-  return Math.min(input.policy.maxMs, Math.floor(capped * jitter));
-}
-function nextWait(input) {
-  const backoffMs = backoffDelayMs({
-    policy: input.policy,
-    attempt: input.attempt,
-    random: input.random
-  });
-  if (input.guidanceSeconds === null) {
-    return { attempt: input.attempt, delayMs: backoffMs, source: "backoff" };
-  }
-  const guidedMs = Math.max(0, Math.round(input.guidanceSeconds * MILLISECONDS_PER_SECOND));
-  return guidedMs > backoffMs ? { attempt: input.attempt, delayMs: guidedMs, source: "guidance" } : { attempt: input.attempt, delayMs: backoffMs, source: "backoff" };
-}
-async function waitForRetry(input) {
-  const record = nextWait(input);
-  input.onWait(record);
-  await input.sleep(record.delayMs);
-  return record;
-}
-
-// service/poll/poller-transport.ts
-var STATUS_UNAUTHORIZED2 = 401;
-var STATUS_NOT_FOUND2 = 404;
-var STATUS_FORBIDDEN2 = 403;
-var STATUS_TOO_MANY_REQUESTS2 = 429;
-var MAX_LIST_PAGES = 2;
-var systemSleep = async (milliseconds) => {
-  await new Promise((resolve4) => {
-    setTimeout(resolve4, milliseconds);
-  });
-};
-function pollerRuntime(deps, fetchImpl) {
-  return {
-    fetchImpl,
-    log: deps.log,
-    sleep: deps.sleep ?? systemSleep,
-    random: deps.random ?? (() => Math.random())
-  };
-}
-function listUrl(input) {
-  const url = new URL(`${API_ORIGIN}/repos/${input.owner}/${input.name}/${input.path}`);
-  for (const [key, value] of Object.entries(input.query)) {
-    url.searchParams.set(key, value);
-  }
-  if (input.since !== null) {
-    url.searchParams.set("since", input.since);
-  }
-  return url;
-}
-function parseListPage(input) {
-  const parsed = parseJsonText(input.text);
-  if (!parsed.ok || !Array.isArray(parsed.value)) {
-    throw new Error(input.message);
-  }
-  return parsed.value.flatMap((entry) => {
-    const item = input.read(entry);
-    return item === null ? [] : [item];
-  });
-}
-function lastPageOf(link) {
-  if (link === null) {
-    return null;
-  }
-  for (const part of link.split(",")) {
-    if (!/\brel="last"/.test(part)) {
-      continue;
-    }
-    const match = /[?&]page=(\d+)/.exec(part);
-    const page = match === null ? NaN : Number(match[1]);
-    return Number.isSafeInteger(page) && page > 0 ? page : null;
-  }
-  return null;
-}
-function parseEnvelopePage(input) {
-  const parsed = parseJsonText(input.text);
-  if (!parsed.ok || !isRecord(parsed.value)) {
-    throw new TypeError(input.message);
-  }
-  const entries = parsed.value[input.envelope];
-  if (!Array.isArray(entries)) {
-    throw new TypeError(input.message);
-  }
-  return entries.flatMap((entry) => {
-    const item = input.read(entry);
-    return item === null ? [] : [item];
-  });
-}
-async function classifyOutcome(response) {
-  if (response.status === STATUS_UNAUTHORIZED2 || response.status === STATUS_NOT_FOUND2) {
-    return { kind: "auth-failed" };
-  }
-  const rateLimitStatuses = [STATUS_FORBIDDEN2, STATUS_TOO_MANY_REQUESTS2];
-  if (rateLimitStatuses.includes(response.status) && isRateLimited(response)) {
-    return { kind: "rate-limited", retryAfterSeconds: retryAfterOf(response) };
-  }
-  return { kind: "unavailable", detail: "upstream" };
-}
-async function waitBeforeNextAttempt(context, wait) {
-  const { runtime, pace, url } = context;
-  await waitForRetry({
-    policy: pace.retry,
-    attempt: wait.attempt,
-    guidanceSeconds: wait.guidanceSeconds,
-    sleep: runtime.sleep,
-    random: runtime.random,
-    onWait: (record) => {
-      runtime.log.info("poll request waiting before its next attempt", {
-        path: url.pathname,
-        attempt: record.attempt,
-        delayMs: record.delayMs,
-        source: record.source
-      });
-    }
-  });
-}
-async function requestPage(input) {
-  const policy = input.pace.retry;
-  const attempts = Math.max(1, policy.maxAttempts);
-  let last = { kind: "unavailable", detail: "upstream" };
-  for (let attempt = 1;attempt <= attempts; attempt += 1) {
-    let response;
-    try {
-      response = await input.runtime.fetchImpl(input.url.href, {
-        method: "GET",
-        headers: requestHeaders(input.token),
-        signal: AbortSignal.timeout(GITHUB_TIMEOUT_MS)
-      });
-    } catch (error) {
-      last = { kind: "unavailable", detail: transportDetail(error) };
-      if (attempt >= attempts) {
-        return { failure: last };
-      }
-      await waitBeforeNextAttempt(input, { attempt: attempt + 1, guidanceSeconds: null });
-      continue;
-    }
-    if (response.ok) {
-      return { response };
-    }
-    last = await classifyOutcome(response);
-    if (last.kind === "auth-failed" || attempt >= attempts) {
-      return { failure: last };
-    }
-    const guidanceSeconds = last.kind === "rate-limited" ? last.retryAfterSeconds : null;
-    await waitBeforeNextAttempt(input, { attempt: attempt + 1, guidanceSeconds });
-  }
-  return { failure: last };
-}
-async function readOnePage(input) {
-  const attempt = await requestPage({
-    runtime: input.runtime,
-    token: input.token,
-    url: input.url,
-    pace: input.pace
-  });
-  if (!("response" in attempt)) {
-    return attempt.failure;
-  }
-  try {
-    return {
-      kind: "ok",
-      items: parseListPage({
-        text: await attempt.response.text(),
-        message: input.message,
-        read: input.read
-      }),
-      lastPage: lastPageOf(attempt.response.headers.get("link"))
-    };
-  } catch {
-    return { kind: "unavailable", detail: "upstream" };
-  }
-}
-async function readEnvelopePage(input) {
-  const attempt = await requestPage({
-    runtime: input.runtime,
-    token: input.token,
-    url: input.url,
-    pace: input.pace
-  });
-  if (!("response" in attempt)) {
-    return attempt.failure;
-  }
-  try {
-    return {
-      kind: "ok",
-      items: parseEnvelopePage({
-        text: await attempt.response.text(),
-        envelope: input.envelope,
-        message: input.message,
-        read: input.read
-      })
-    };
-  } catch {
-    return { kind: "unavailable", detail: "upstream" };
-  }
-}
-async function listPages(input) {
-  const items = [];
-  for (let page = 1;page <= MAX_LIST_PAGES; page += 1) {
-    input.url.searchParams.set("page", String(page));
-    input.url.searchParams.set("per_page", String(input.pace.perPage));
-    const parsed = await readOnePage(input);
-    if (parsed.kind !== "ok") {
-      return parsed;
-    }
-    items.push(...parsed.items);
-    if (parsed.items.length < input.pace.perPage) {
-      break;
-    }
-  }
-  return { kind: "ok", items };
-}
-async function readOneObject(input) {
-  const attempt = await requestPage({
-    runtime: input.runtime,
-    token: input.token,
-    url: input.url,
-    pace: input.pace
-  });
-  if (!("response" in attempt)) {
-    return attempt.failure;
-  }
-  try {
-    const parsed = parseJsonText(await attempt.response.text());
-    const object = parsed.ok ? input.read(parsed.value) : null;
-    return object === null ? { kind: "unavailable", detail: "upstream" } : { kind: "ok", object };
-  } catch {
-    return { kind: "unavailable", detail: "upstream" };
-  }
-}
-
-// service/poll/poller-entries.ts
-function asRecord(value) {
-  return isRecord(value) ? value : null;
-}
-function positiveIntOf2(value) {
-  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
-}
-function textOf(record, field) {
-  const value = record[field];
-  return typeof value === "string" ? value : null;
-}
-function readLogins(value) {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const logins = [];
-  for (const entry of value) {
-    const login = asRecord(entry);
-    const candidate = login === null ? null : login.login;
-    if (typeof candidate !== "string" || candidate === "") {
-      return null;
-    }
-    logins.push(candidate);
-  }
-  return logins;
-}
-function authorLoginOf(user) {
-  return user === null ? "" : textOf(user, "login") ?? "";
-}
-function authorTypeOf(user) {
-  return user === null ? "" : textOf(user, "type") ?? "";
-}
-function issueNumberOf2(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const lastSegment = value.slice(value.lastIndexOf("/") + 1);
-  return positiveIntOf2(Number(lastSegment));
-}
-function readIssueEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const issueNumber = positiveIntOf2(record.number);
-  const title = textOf(record, "title");
-  const url = textOf(record, "html_url");
-  const state = textOf(record, "state");
-  const assignees = readLogins(record.assignees);
-  if (issueNumber === null || title === null || url === null || state === null || assignees === null) {
-    return null;
-  }
-  const user = asRecord(record.user);
-  return {
-    issueNumber,
-    title,
-    url,
-    state,
-    body: textOf(record, "body"),
-    authorLogin: authorLoginOf(user),
-    authorType: authorTypeOf(user),
-    assignees,
-    isPullRequest: "pull_request" in record,
-    updatedAt: textOf(record, "updated_at"),
-    closedAt: textOf(record, "closed_at"),
-    stateReason: textOf(record, "state_reason")
-  };
-}
-function readCommentEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const commentId = positiveIntOf2(record.id);
-  const issueNumber = issueNumberOf2(record.issue_url);
-  const body = textOf(record, "body");
-  const url = textOf(record, "html_url");
-  const user = asRecord(record.user);
-  const authorLogin = authorLoginOf(user);
-  if (commentId === null || issueNumber === null || body === null || url === null || authorLogin === "") {
-    return null;
-  }
-  return {
-    commentId,
-    issueNumber,
-    body,
-    url,
-    authorLogin,
-    authorType: authorTypeOf(user),
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-function readReviewCommentEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const commentId = positiveIntOf2(record.id);
-  const pullNumber = issueNumberOf2(record.pull_request_url);
-  const body = textOf(record, "body");
-  const user = asRecord(record.user);
-  const authorLogin = authorLoginOf(user);
-  if (commentId === null || pullNumber === null || body === null || authorLogin === "") {
-    return null;
-  }
-  return {
-    commentId,
-    pullNumber,
-    body,
-    authorLogin,
-    authorType: authorTypeOf(user),
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-function readPullEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const pullNumber = positiveIntOf2(record.number);
-  const title = textOf(record, "title");
-  const url = textOf(record, "html_url");
-  const state = textOf(record, "state");
-  const requestedReviewers = readLogins(record.requested_reviewers);
-  if (pullNumber === null || title === null || url === null || state === null || requestedReviewers === null) {
-    return null;
-  }
-  const head = asRecord(record.head);
-  const base = asRecord(record.base);
-  const user = asRecord(record.user);
-  return {
-    pullNumber,
-    title,
-    url,
-    state,
-    authorLogin: authorLoginOf(user),
-    authorType: authorTypeOf(user),
-    requestedReviewers,
-    headSha: head === null ? null : textOf(head, "sha"),
-    baseRef: base === null ? null : textOf(base, "ref"),
-    merged: record.merged === true,
-    mergedAt: textOf(record, "merged_at"),
-    updatedAt: textOf(record, "updated_at")
-  };
-}
-function readReviewEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const reviewId = positiveIntOf2(record.id);
-  const state = textOf(record, "state");
-  if (reviewId === null || state === null) {
-    return null;
-  }
-  const user = asRecord(record.user);
-  return {
-    reviewId,
-    state,
-    submittedAt: textOf(record, "submitted_at"),
-    authorLogin: authorLoginOf(user),
-    authorType: authorTypeOf(user)
-  };
-}
-function readCheckRunEntry(value) {
-  const record = asRecord(value);
-  if (record === null) {
-    return null;
-  }
-  const name = textOf(record, "name");
-  if (name === null || name === "") {
-    return null;
-  }
-  return { name, status: textOf(record, "status"), conclusion: textOf(record, "conclusion") };
-}
-function readIssueObject(value) {
-  const issue2 = readIssueEntry(value);
-  return issue2 !== null && (issue2.state === "open" || issue2.state === "closed") ? issue2 : null;
-}
-function readPullObject(value) {
-  const pull = readPullEntry(value);
-  return pull !== null && (pull.state === "open" || pull.state === "closed") ? pull : null;
-}
-
-// service/poll/poller-checks.ts
-var FAILING_CONCLUSIONS = ["action_required", "failure", "timed_out"];
-var MAX_CHECK_NAMES = 10;
-var MAX_CHECK_PAGES = 2;
-function failingOf(value) {
-  return FAILING_CONCLUSIONS.find((conclusion) => conclusion === value) ?? null;
-}
-function failingConclusionOf(runs) {
-  for (const conclusion of FAILING_CONCLUSIONS) {
-    if (runs.some((run) => run.conclusion === conclusion)) {
-      return conclusion;
-    }
-  }
-  return null;
-}
-function failingNamesOf(runs) {
-  return runs.filter((run) => failingOf(run.conclusion) !== null).map((run) => run.name).slice(0, MAX_CHECK_NAMES);
-}
-function checksCompletedOf(runs) {
-  return runs.every((run) => run.status === "completed");
-}
-async function readHeadChecks(runtime, query) {
-  const url = new URL(`${API_ORIGIN}/repos/${query.owner}/${query.name}/commits/${query.headSha}/check-runs`);
-  url.searchParams.set("filter", "latest");
-  const runs = [];
-  for (let page = 1;page <= MAX_CHECK_PAGES; page += 1) {
-    url.searchParams.set("page", String(page));
-    url.searchParams.set("per_page", String(query.pace.perPage));
-    const parsed = await readEnvelopePage({
-      runtime,
-      token: query.token,
-      url,
-      pace: query.pace,
-      envelope: "check_runs",
-      message: "check-runs response was not an envelope",
-      read: readCheckRunEntry
-    });
-    if (parsed.kind !== "ok") {
-      return parsed;
-    }
-    runs.push(...parsed.items);
-    if (page === MAX_CHECK_PAGES && parsed.items.length >= query.pace.perPage) {
-      return { kind: "ok", count: runs.length, completed: false, conclusion: null, names: [], truncated: true };
-    }
-    if (parsed.items.length < query.pace.perPage) {
-      break;
-    }
-  }
-  return {
-    kind: "ok",
-    count: runs.length,
-    completed: checksCompletedOf(runs),
-    conclusion: failingConclusionOf(runs),
-    names: failingNamesOf(runs),
-    truncated: false
-  };
 }
 
 // service/poll/poller-reviews.ts

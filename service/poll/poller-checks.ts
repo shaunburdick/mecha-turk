@@ -35,6 +35,8 @@ export type HeadChecksOutcome =
         readonly kind: 'ok';
         /** How many check runs the walk read; zero is *nothing to wait for*. */
         readonly count: number;
+        /** Every read run, in list order, for the watch's completion-time test. */
+        readonly runs: readonly PollCheckRun[];
         /** Whether every read run has concluded. */
         readonly completed: boolean;
         /** The most blocking failing conclusion present, or `null` when none is. */
@@ -113,7 +115,15 @@ export async function readHeadChecks(
 
         runs.push(...parsed.items);
         if (page === MAX_CHECK_PAGES && parsed.items.length >= query.pace.perPage) {
-            return { kind: 'ok', count: runs.length, completed: false, conclusion: null, names: [], truncated: true };
+            return {
+                kind: 'ok',
+                count: runs.length,
+                runs,
+                completed: false,
+                conclusion: null,
+                names: [],
+                truncated: true,
+            };
         }
 
         if (parsed.items.length < query.pace.perPage) {
@@ -124,6 +134,7 @@ export async function readHeadChecks(
     return {
         kind: 'ok',
         count: runs.length,
+        runs,
         completed: checksCompletedOf(runs),
         conclusion: failingConclusionOf(runs),
         names: failingNamesOf(runs),

@@ -7,6 +7,7 @@ import { repositoryRefOf } from '../../src/config.ts';
 import type { ServiceStore } from '../store/index.ts';
 import { checksFollowUp } from './follow-up.ts';
 import type { PollPull, PollFailure  } from './poller-github.ts';
+import { failingConclusionOf } from './poller-checks.ts';
 import type { HeadChecksOutcome } from './poller-checks.ts';
 import type { QueuedEvent } from './events.ts';
 import type { ChecksWatch } from './runs-types.ts';
@@ -25,7 +26,6 @@ type ListedChecks = Extract<HeadChecksOutcome, { readonly kind: 'ok' }>;
 /** What one subject's watch asks the scan to persist, row or drop. */
 interface WatchChange {
     readonly write?: ChecksWatch;
-    readonly drop?: boolean;
     readonly audit?: ChecksAudit;
     readonly alert?: boolean;
 }
@@ -98,7 +98,7 @@ function armChange(input: {
     readonly headSha: string;
     readonly detectedAt: string;
 }): WatchChange {
-    const watch: ChecksWatch = { headSha: input.headSha, armedAt: input.detectedAt, polls: 0 };
+    const watch: ChecksWatch = { headSha: input.headSha, armedAt: input.detectedAt, polls: 0, verdict: 'watching' };
 
     return {
         write: watch,
@@ -119,7 +119,7 @@ function expiryChange(input: {
     readonly reason: 'polls' | 'elapsed';
 }): WatchChange {
     return {
-        drop: true,
+        write: { ...input.watch, verdict: 'expired' },
         audit: auditOf({
             eventType: 'checks.expired',
             correlationId: input.correlationId,
@@ -130,34 +130,82 @@ function expiryChange(input: {
     };
 }
 
-/** A completed read's change: keep while inconclusive, drop on a verdict. */
+/** The inert verdict a completed read concludes with. */
+function verdictOf(listed: ListedChecks): ChecksWatch['verdict'] {
+    if (listed.conclusion !== null) {
+        return 'failed';
+    }
+
+    return listed.count === 0 ? 'none' : 'passed';
+}
+
+/** Whether one failing run is at least as new as the watch that saw it. */
+function isNewsAt(input: { readonly completedAt: string | null; readonly armedAt: string }): boolean {
+    if (input.completedAt === null) {
+        // An unreadable fact must not hide a failure.
+        return true;
+    }
+
+    const armed = Date.parse(input.armedAt);
+    if (Number.isNaN(armed)) {
+        return true;
+    }
+
+    return Date.parse(input.completedAt) >= armed;
+}
+
+/**
+ * Whether a concluded red suite is alertable: a moved head is news whatever
+ * completed first, while a dispatch-head watch alerts only for a failure that
+ * completed at or after it was armed (FR-126).
+ */
+function alertableOf(input: {
+    readonly listed: ListedChecks;
+    readonly armedAt: string;
+    readonly news: boolean;
+}): boolean {
+    if (input.news) {
+        return true;
+    }
+
+    return input.listed.runs.some((run) =>
+        failingConclusionOf([run]) !== null && isNewsAt({ completedAt: run.completedAt, armedAt: input.armedAt }));
+}
+
+/** A completed read's change: conclude into inert state, or keep watching. */
 function concludedChange(input: {
     readonly correlationId: string;
     readonly subjectNumber: number;
+    readonly watch: ChecksWatch;
     readonly spent: ChecksWatch;
     readonly listed: ListedChecks;
+    readonly news: boolean;
 }): WatchChange {
     const { listed } = input;
     if (listed.truncated || (listed.count > 0 && !listed.completed)) {
         return { write: input.spent };
     }
 
-    if (listed.count === 0) {
-        return { drop: true };
-    }
+    const { conclusion } = listed;
+    const isPreExisting = conclusion !== null
+        && !alertableOf({ listed, armedAt: input.watch.armedAt, news: input.news });
+    const isAlerted = conclusion !== null && !isPreExisting;
+    const verdict = verdictOf(listed);
 
     return {
-        drop: true,
-        alert: listed.conclusion !== null,
+        write: { ...input.spent, verdict },
+        alert: isAlerted,
         audit: auditOf({
             eventType: 'checks.observed',
             correlationId: input.correlationId,
             subjectNumber: input.subjectNumber,
             watch: input.spent,
             extra: {
-                conclusion: listed.conclusion,
+                conclusion,
                 completed: true,
-                failing: listed.conclusion !== null,
+                failing: conclusion !== null,
+                preExisting: isPreExisting,
+                alerted: isAlerted,
             },
         }),
     };
@@ -223,31 +271,42 @@ function applyChange(input: {
         state.writes.set(correlationId, change.write);
     }
 
-    if (change.drop === true) {
-        state.drops.push(correlationId);
-    }
-
     if (change.audit !== undefined) {
         state.audits.push(change.audit);
     }
 }
 
-/** The change a watch needs before any read: arm, expire, or nothing. */
+/** What one pre-read decision asks for: do nothing more, read, or apply a change. */
+type PreRead =
+    | { readonly action: 'read' }
+    | { readonly action: 'inert' }
+    | { readonly action: 'change'; readonly change: WatchChange };
+
+/** The change a watch needs before any read: arm, expire, read, or stay inert. */
 function preReadChange(input: {
     readonly watch: ChecksWatch | null;
     readonly headSha: string;
     readonly correlationId: string;
     readonly subjectNumber: number;
     readonly detectedAt: string;
-}): WatchChange | null {
+}): PreRead {
     const { watch, headSha, correlationId, subjectNumber, detectedAt } = input;
     if (watch?.headSha !== headSha) {
-        return armChange({ correlationId, subjectNumber, headSha, detectedAt });
+        return {
+            action: 'change',
+            change: armChange({ correlationId, subjectNumber, headSha, detectedAt }),
+        };
+    }
+
+    if (watch.verdict !== 'watching') {
+        return { action: 'inert' };
     }
 
     const expired = expiryReasonOf(watch, detectedAt);
 
-    return expired === null ? null : expiryChange({ correlationId, subjectNumber, watch, reason: expired });
+    return expired === null
+        ? { action: 'read' }
+        : { action: 'change', change: expiryChange({ correlationId, subjectNumber, watch, reason: expired }) };
 }
 
 async function pollWatch(input: TriggerScanInput & {
@@ -299,7 +358,14 @@ async function pollWatch(input: TriggerScanInput & {
         input.log.warn('check-runs walk truncated; the watch is kept', { headSha });
     }
 
-    const change = concludedChange({ correlationId, subjectNumber, spent, listed });
+    const change = concludedChange({
+        correlationId,
+        subjectNumber,
+        watch: subject.checksWatch,
+        spent,
+        listed,
+        news: subject.lastHeadSha !== subject.checksWatch.headSha,
+    });
     applyChange({ state, correlationId, change });
     if (change.alert === true) {
         const row = checksFollowUp({
@@ -337,8 +403,12 @@ async function visitTrackedPull(input: TriggerScanInput & {
         subjectNumber,
         detectedAt,
     });
-    if (early !== null) {
-        applyChange({ state, correlationId: subject.correlationId, change: early });
+    if (early.action === 'inert') {
+        return null;
+    }
+
+    if (early.action === 'change') {
+        applyChange({ state, correlationId: subject.correlationId, change: early.change });
 
         return null;
     }
@@ -367,9 +437,10 @@ export function watchDropsForEnds(input: {
  * Arm, expire, or poll each tracked pull's watch over the cycle's one pulls
  * list, and report the rows and run-document operations the scan must persist.
  *
- * Arming is silent: a watch is first polled the cycle after it is written, so a
- * failure already visible at arm never alerts from that cycle (FR-126). A head
- * change replaces the watch, so a superseded SHA is never read.
+ * Arming is silent: a watch is first polled the cycle after it is written. A
+ * concluded watch stays on the run as inert state — never read, audited, or
+ * alerted again — and a dispatch-head watch ignores failures that completed
+ * before it armed (FR-126). A head change replaces the watch.
  */
 export async function triggersChecks(
     input: TriggerScanInput & {

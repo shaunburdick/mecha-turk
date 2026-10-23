@@ -231,7 +231,7 @@ function idlePoller(): GitHubIssuePoller {
         },
         listPullReviews: async () => ({ kind: 'ok', reviews: [], truncated: false }),
         listHeadChecks: async () => ({
-            kind: 'ok', count: 0, completed: true, conclusion: null, names: [], truncated: false,
+            kind: 'ok', count: 0, runs: [], completed: true, conclusion: null, names: [], truncated: false,
         }),
     };
 }

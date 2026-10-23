@@ -479,6 +479,7 @@ function recordingPoller(feeds: {
     readonly checks?: Readonly<Record<string, readonly {
         readonly name: string;
         readonly conclusion?: string | null;
+        readonly completedAt?: string;
     }[]>>;
     readonly checksFailure?: PollFailure;
     /** SHAs whose check-runs walk answers truncation. */
@@ -533,12 +534,14 @@ function recordingPoller(feeds: {
                 name: run.name,
                 status: 'completed',
                 conclusion: run.conclusion ?? null,
+                completedAt: run.completedAt ?? null,
             }));
             const isTruncated = feeds.checksTruncated?.includes(query.headSha) === true;
 
             return {
                 kind: 'ok',
                 count: runs.length,
+                runs,
                 completed: !isTruncated && checksCompletedOf(runs),
                 conclusion: isTruncated ? null : failingConclusionOf(runs),
                 names: isTruncated ? [] : failingNamesOf(runs),

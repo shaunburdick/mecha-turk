@@ -38,10 +38,14 @@ matching section below plus GitHub's generated notes.
   polled at most once per cycle for up to 30 minutes or 30 reads. One
   `CI failed: <names>` follow-up is raised only when every check run has
   completed and at least one failed: a pending run is waited for,
-  `success`/`neutral`/`skipped`/`cancelled` is silence, and one head alerts at
-  most once. A missing `Checks: read` scope audits once per binding and never
-  stops assignment, review, or mention polling; an inconclusive watch expires
-  with its own audit row. The failing-check id is now
+  `success`/`neutral`/`skipped`/`cancelled` is silence, a failure already
+  completed on the dispatch head stays silent (`completed_at` against the arm
+  stamp) while a moved head's failure always alerts, and one head alerts at
+  most once. A concluded watch is inert state, so a static head is never polled
+  again; only a head move or the end of tracking removes it. A missing
+  `Checks: read` scope audits once per binding and never stops assignment,
+  review, or mention polling; an inconclusive watch expires with its own audit
+  row. The failing-check id is now
   `~followup~checks~<headSha>`, and `Checks: read` joins the token
   prerequisite when the Checks switch is on.
 

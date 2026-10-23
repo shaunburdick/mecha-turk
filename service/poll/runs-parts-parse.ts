@@ -6,6 +6,7 @@ import { isRecord, readCount, readFlag, readPositiveInt, readStamp, readString, 
 import { actorFieldsOf, readActorAttributionField, readActorLoginField } from './attribution.ts';
 import type { EventKind } from './events-parse.ts';
 import type {
+    ChecksVerdict,
     ChecksWatch,
     DispatchAttempt,
     ReferenceOrigin,
@@ -266,12 +267,23 @@ export function parseSession(raw: unknown): SessionRef | null {
         };
 }
 
+/** The five words a stored watch verdict may carry (FR-126). */
+const CHECKS_VERDICTS: ReadonlySet<string> = new Set(['watching', 'passed', 'failed', 'expired', 'none']);
+
+/**
+ * Narrow a value to a stored verdict.
+ */
+function isChecksVerdict(value: unknown): value is ChecksVerdict {
+    return typeof value === 'string' && CHECKS_VERDICTS.has(value);
+}
+
 /**
  * Validate one recorded check watch.
  *
  * Absent is *no watch*; a present value that cannot be read refuses the run,
  * because a watch this build cannot trust must not decide whether a red suite
- * is still unseen (FR-126, constitution II).
+ * is still unseen (FR-126, constitution II). `verdict` is required — a watch
+ * was never written without it.
  */
 export function parseChecksWatch(raw: unknown): ChecksWatch | undefined | null {
     if (raw === undefined) {
@@ -285,11 +297,16 @@ export function parseChecksWatch(raw: unknown): ChecksWatch | undefined | null {
     const headSha = readText(raw.headSha);
     const armedAt = readStamp(raw.armedAt);
     const polls = readCount(raw.polls);
-    if (headSha === null || armedAt === null || polls === null || !/^[0-9a-f]+$/.test(headSha)) {
+    const { verdict } = raw;
+    if (
+        headSha === null || armedAt === null || polls === null
+        || !/^[0-9a-f]+$/.test(headSha)
+        || !isChecksVerdict(verdict)
+    ) {
         return null;
     }
 
-    return { headSha, armedAt, polls };
+    return { headSha, armedAt, polls, verdict };
 }
 
 /**

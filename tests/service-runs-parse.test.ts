@@ -487,11 +487,13 @@ describe('fail-closed document and row validation', () => {
                 ['attempts', [{ ...attemptRecord(), attempt: 0 }]],
                 ['attempts', [{ ...attemptRecord(), outcome: 'exploded' }]],
                 ['checksWatch', null],
-                ['checksWatch', { headSha: '', armedAt: STAMP, polls: 0 }],
-                ['checksWatch', { headSha: 'not-a-sha', armedAt: STAMP, polls: 0 }],
-                ['checksWatch', { headSha: 'deadbeef', armedAt: 'never', polls: 0 }],
-                ['checksWatch', { headSha: 'deadbeef', armedAt: STAMP, polls: -1 }],
-                ['checksWatch', { headSha: 'deadbeef', armedAt: STAMP, polls: 1.5 }],
+                ['checksWatch', { headSha: '', armedAt: STAMP, polls: 0, verdict: 'watching' }],
+                ['checksWatch', { headSha: 'not-a-sha', armedAt: STAMP, polls: 0, verdict: 'watching' }],
+                ['checksWatch', { headSha: 'deadbeef', armedAt: 'never', polls: 0, verdict: 'watching' }],
+                ['checksWatch', { headSha: 'deadbeef', armedAt: STAMP, polls: -1, verdict: 'watching' }],
+                ['checksWatch', { headSha: 'deadbeef', armedAt: STAMP, polls: 1.5, verdict: 'watching' }],
+                ['checksWatch', { headSha: 'deadbeef', armedAt: STAMP, polls: 0 }],
+                ['checksWatch', { headSha: 'deadbeef', armedAt: STAMP, polls: 0, verdict: 'red' }],
             ];
 
             for (const [field, value] of patches) {
@@ -516,7 +518,7 @@ describe('fail-closed document and row validation', () => {
 
     it('round-trips a live check watch and leaves an absent one absent', async () => {
         {
-            const watch = { headSha: 'deadbeef', armedAt: STAMP, polls: 2 };
+            const watch = { headSha: 'deadbeef', armedAt: STAMP, polls: 2, verdict: 'watching' as const };
             const parsed = parseRun(fixtureRun({ checksWatch: watch }));
 
             expect(parsed?.checksWatch).toEqual(watch);

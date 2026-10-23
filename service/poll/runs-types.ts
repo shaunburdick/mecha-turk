@@ -177,10 +177,19 @@ export interface RunVerification {
 export type BaselineProvenance = 'configured' | 'defaulted' | 'unset';
 
 /**
+ * How a check watch ended, or that it is still waiting.
+ *
+ * `'none'` is *the walk returned zero check runs* — not a pass, because
+ * nothing ran; it is inert like every other concluded verdict.
+ */
+export type ChecksVerdict = 'watching' | 'passed' | 'failed' | 'expired' | 'none';
+
+/**
  * The bounded check watch one tracked pull request's run carries (FR-126).
  *
- * It belongs to the run, not to a registry: arming replaces it for a new head,
- * and dropping it is the only way it ends short of the run's own eviction.
+ * It belongs to the run, not to a registry: a head move replaces it, and a
+ * concluded verdict stays as **inert state** so the same head is never polled
+ * (or audited) again.
  */
 export interface ChecksWatch {
     /** The current head the watch belongs to. */
@@ -189,6 +198,8 @@ export interface ChecksWatch {
     readonly armedAt: string;
     /** Check-runs reads spent on this watch, `0` at arm. */
     readonly polls: number;
+    /** `'watching'` until the watch concludes; a concluded verdict is never read. */
+    readonly verdict: ChecksVerdict;
 }
 
 /** One run: the unit of dispatch (FR-010, data-model §2.2). */

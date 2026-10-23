@@ -336,6 +336,8 @@ interface FixtureCheckRun {
     /** GitHub's run status; `completed` unless a case is about a pending run. */
     readonly status?: string;
     readonly conclusion?: string | null;
+    /** `completed_at`, for the dispatch-head pre-existing test. */
+    readonly completedAt?: string;
 }
 
 /** A stub poller plus the feed names each call requested, in order. */
@@ -454,12 +456,14 @@ function recordingPoller(feeds: {
                     name: run.name,
                     status: run.status ?? 'completed',
                     conclusion: run.conclusion ?? null,
+                    completedAt: run.completedAt ?? null,
                 }));
                 const isTruncated = feeds.checksTruncated?.includes(query.headSha) === true;
 
                 return {
                     kind: 'ok',
                     count: runs.length,
+                    runs,
                     completed: !isTruncated && checksCompletedOf(runs),
                     conclusion: isTruncated ? null : failingConclusionOf(runs),
                     names: isTruncated ? [] : failingNamesOf(runs),
@@ -1584,7 +1588,12 @@ function checksId(headSha: string): string {
 }
 
 /** The stored check watch of the fixture's tracked pull run, or `null` when none is armed. */
-async function storedWatch(): Promise<{ headSha: string; armedAt: string; polls: number } | null> {
+async function storedWatch(): Promise<{
+    headSha: string;
+    armedAt: string;
+    polls: number;
+    verdict: 'watching' | 'passed' | 'failed' | 'expired' | 'none';
+} | null> {
     const document = await readRunsDocument({ store, log });
     const run = document.runs.find((candidate) => candidate.subjectType === 'pull_request');
 
@@ -1604,6 +1613,7 @@ async function rewriteWatch(watch: {
     readonly headSha: string;
     readonly armedAt: string;
     readonly polls: number;
+    readonly verdict: 'watching' | 'passed' | 'failed' | 'expired' | 'none';
 }): Promise<void> {
     const document = await readRunsDocument({ store, log });
     const index = document.runs.findIndex((run) => run.subjectType === 'pull_request');
@@ -1705,6 +1715,93 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
         }
     });
 
+    it('concludes a pre-existing dispatch-head failure silently, even beside a later pass', async () => {
+        {
+            await armWatch(SEED_SHA);
+            const watch = await storedWatch();
+            const armedAt = watch?.armedAt;
+            if (armedAt === undefined) {
+                throw new Error('the watch did not arm');
+            }
+
+            const completedAt = new Date(Date.parse(armedAt) - 60_000).toISOString();
+            const later = new Date(Date.parse(armedAt) + 60_000).toISOString();
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: SEED_SHA })],
+                checks: {
+                    [SEED_SHA]: [
+                        { name: 'build', status: 'completed', conclusion: 'failure', completedAt },
+                        { name: 'docs', status: 'completed', conclusion: 'success', completedAt: later },
+                    ],
+                },
+            }));
+
+            expect(followUpRowsOf(queue)).toEqual([]);
+            expect(await storedWatch()).toMatchObject({ verdict: 'failed' });
+            const observed = rowsOfType(await auditRows(), 'checks.observed');
+            expect(observed).toHaveLength(1);
+            expect(observed[0]?.details).toMatchObject({
+                conclusion: 'failure', preExisting: true, alerted: false,
+            });
+
+            const quiet = recordingPoller({ pulls: [fixturePull({ headSha: SEED_SHA })] });
+            await runCycle(fixtureBinding(CHECKS_ONLY), quiet);
+            expect(quiet.calls).toEqual(['pulls']);
+        }
+    });
+
+    it('alerts when a dispatch-head run was pending at arm and failed after it', async () => {
+        {
+            await armWatch(SEED_SHA);
+            const watch = await storedWatch();
+            const armedAt = watch?.armedAt;
+            if (armedAt === undefined) {
+                throw new Error('the watch did not arm');
+            }
+
+            const waiting = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: SEED_SHA })],
+                checks: {
+                    [SEED_SHA]: [{ name: 'build', status: 'in_progress', conclusion: null }],
+                },
+            }));
+            expect(followUpRowsOf(waiting)).toEqual([]);
+            expect(await storedWatch()).toMatchObject({ verdict: 'watching', polls: 1 });
+
+            const completedAt = new Date(Date.parse(armedAt) + 5_000).toISOString();
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: SEED_SHA })],
+                checks: {
+                    [SEED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure', completedAt }],
+                },
+            }));
+
+            expect(followUpRowsOf(queue).map((row) => row.id)).toEqual([checksId(SEED_SHA)]);
+            expect(await storedWatch()).toMatchObject({ verdict: 'failed' });
+        }
+    });
+
+    it('alerts for a moved head even when its failing run completed before the arm', async () => {
+        {
+            await armWatch(MOVED_SHA);
+            const watch = await storedWatch();
+            const armedAt = watch?.armedAt;
+            if (armedAt === undefined) {
+                throw new Error('the watch did not arm');
+            }
+
+            const completedAt = new Date(Date.parse(armedAt) - 60_000).toISOString();
+            const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+                pulls: [fixturePull({ headSha: MOVED_SHA })],
+                checks: {
+                    [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure', completedAt }],
+                },
+            }));
+
+            expect(followUpRowsOf(queue).map((row) => row.id)).toEqual([checksId(MOVED_SHA)]);
+        }
+    });
+
     it('is pending-aware, then alerts once when the whole suite concludes red', async () => {
         {
             await armWatch(MOVED_SHA);
@@ -1745,7 +1842,7 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                 issueBodyExcerpt: names.join(', '),
                 triggerNote: `CI failed: ${names.join(', ')}`,
             });
-            expect(await storedWatch()).toBeNull();
+            expect(await storedWatch()).toMatchObject({ verdict: 'failed' });
 
             const observed = rowsOfType(await auditRows(), 'checks.observed');
             expect(observed).toHaveLength(1);
@@ -1754,7 +1851,7 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
         }
     });
 
-    it('drops the watch silently for a green suite, and cancelled is not failing', async () => {
+    it('concludes a green suite as inert, and cancelled is not failing', async () => {
         {
             await armWatch(MOVED_SHA);
             const green = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
@@ -1767,7 +1864,14 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                 },
             }));
             expect(followUpRowsOf(green)).toEqual([]);
-            expect(await storedWatch()).toBeNull();
+            expect(await storedWatch()).toMatchObject({ verdict: 'passed' });
+
+            // A concluded watch is inert: the next cycle reads nothing and
+            // writes no second audit.
+            const quiet = recordingPoller({ pulls: [fixturePull({ headSha: MOVED_SHA })] });
+            await runCycle(fixtureBinding(CHECKS_ONLY), quiet);
+            expect(quiet.calls).toEqual(['pulls']);
+            expect(rowsOfType(await auditRows(), 'checks.observed')).toHaveLength(1);
 
             await armWatch(MOVED_SHA);
             const cancelled = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
@@ -1780,7 +1884,7 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                 },
             }));
             expect(followUpRowsOf(cancelled)).toEqual([]);
-            expect(await storedWatch()).toBeNull();
+            expect(await storedWatch()).toMatchObject({ verdict: 'passed' });
         }
     });
 
@@ -1792,10 +1896,11 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                 checks: { [MOVED_SHA]: [{ name: 'gate', status: 'completed', conclusion: 'action_required' }] },
             }));
             expect(followUpRowsOf(blocked).map((row) => row.id)).toEqual([checksId(MOVED_SHA)]);
+            expect(await storedWatch()).toMatchObject({ verdict: 'failed' });
         }
     });
 
-    it('drops the watch for a head with no check runs', async () => {
+    it('concludes a head with no check runs as none, not passed', async () => {
         {
             await armWatch(MOVED_SHA);
             const empty = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
@@ -1803,7 +1908,7 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                 checks: { [MOVED_SHA]: [] },
             }));
             expect(followUpRowsOf(empty)).toEqual([]);
-            expect(await storedWatch()).toBeNull();
+            expect(await storedWatch()).toMatchObject({ verdict: 'none' });
         }
     });
 
@@ -1815,19 +1920,26 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                 checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
             }));
 
-            const replayed = await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+            const replaying = recordingPoller({
                 pulls: [fixturePull({ headSha: MOVED_SHA })],
                 checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'timed_out' }] },
-            }));
+            });
+            const replayed = await runCycle(fixtureBinding(CHECKS_ONLY), replaying);
             expect(followUpRowsOf(replayed).map((row) => row.id)).toEqual([checksId(MOVED_SHA)]);
+            // The concluded watch is inert: a different conclusion cannot be
+            // read at all, so it cannot mint a second row.
+            expect(replaying.calls).toEqual(['pulls']);
 
             const restarted = await openStore({ dataDir });
-            await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+            const restartPoller = recordingPoller({
                 pulls: [fixturePull({ headSha: MOVED_SHA })],
                 checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
-            }), restarted);
+            });
+            await runCycle(fixtureBinding(CHECKS_ONLY), restartPoller, restarted);
+            expect(restartPoller.calls).toEqual(['pulls']);
             expect(followUpRowsOf(await readEvents({ store: restarted, log })).map((row) => row.id))
                 .toEqual([checksId(MOVED_SHA)]);
+            expect(rowsOfType(await auditRows(), 'checks.observed')).toHaveLength(1);
         }
     });
 
@@ -1862,7 +1974,7 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
     it('expires by read count and by elapsed time, each with an audit row and no read', async () => {
         {
             await armWatch(MOVED_SHA);
-            await rewriteWatch({ headSha: MOVED_SHA, armedAt: STAMP, polls: 30 });
+            await rewriteWatch({ headSha: MOVED_SHA, armedAt: STAMP, polls: 30, verdict: 'watching' });
             const byPolls = recordingPoller({
                 pulls: [fixturePull({ headSha: MOVED_SHA })],
                 checks: { [MOVED_SHA]: [{ name: 'build', status: 'completed', conclusion: 'failure' }] },
@@ -1870,13 +1982,18 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
 
             await runCycle(fixtureBinding(CHECKS_ONLY), byPolls);
             expect(byPolls.calls).toEqual(['pulls']);
-            expect(await storedWatch()).toBeNull();
+            expect(await storedWatch()).toMatchObject({ verdict: 'expired' });
+
+            const afterPolls = recordingPoller({ pulls: [fixturePull({ headSha: MOVED_SHA })] });
+            await runCycle(fixtureBinding(CHECKS_ONLY), afterPolls);
+            expect(afterPolls.calls).toEqual(['pulls']);
 
             await armWatch(MOVED_SHA);
             await rewriteWatch({
                 headSha: MOVED_SHA,
                 armedAt: new Date(Date.now() - 31 * 60_000).toISOString(),
                 polls: 0,
+                verdict: 'watching',
             });
             const byTime = recordingPoller({
                 pulls: [fixturePull({ headSha: MOVED_SHA })],
@@ -1885,8 +2002,13 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
 
             await runCycle(fixtureBinding(CHECKS_ONLY), byTime);
             expect(byTime.calls).toEqual(['pulls']);
-            expect(await storedWatch()).toBeNull();
+            expect(await storedWatch()).toMatchObject({ verdict: 'expired' });
 
+            const afterTime = recordingPoller({ pulls: [fixturePull({ headSha: MOVED_SHA })] });
+            await runCycle(fixtureBinding(CHECKS_ONLY), afterTime);
+            expect(afterTime.calls).toEqual(['pulls']);
+
+            // One expiry audit per watch: the inert verdict prevents a second.
             const reasons = rowsOfType(await auditRows(), 'checks.expired')
                 .map((row) => row.details.reason);
             expect(reasons).toEqual(['polls', 'elapsed']);
@@ -1905,7 +2027,7 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
             const queue = await runCycle(fixtureBinding(CHECKS_ONLY), recorded);
 
             expect(followUpRowsOf(queue)).toEqual([]);
-            expect(await storedWatch()).toMatchObject({ headSha: MOVED_SHA, polls: 1 });
+            expect(await storedWatch()).toMatchObject({ headSha: MOVED_SHA, polls: 1, verdict: 'watching' });
         }
     });
 
@@ -1956,7 +2078,7 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
         }
     });
 
-    it('shares one read for two tracked pulls at one SHA, and pays two for two heads', async () => {
+    it('shares one read for two tracked pulls at one SHA', async () => {
         {
             await plantDispatchedRuns([reviewSnapshot(SEED_SHA, 7), reviewSnapshot(SEED_SHA, 8)]);
             const arm = recordingPoller({
@@ -1982,16 +2104,20 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
                 `evt-acme~widget~8~${ACCOUNT_ID}~followup~checks~${MOVED_SHA}`,
             ].toSorted(byText));
         }
+    });
 
+    it('pays one read per moving head', async () => {
         {
             await plantDispatchedRuns([reviewSnapshot(SEED_SHA, 7), reviewSnapshot(SEED_SHA, 8)]);
             const other = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-            await runCycle(fixtureBinding(CHECKS_ONLY), recordingPoller({
+            const arm = recordingPoller({
                 pulls: [
                     fixturePull({ pullNumber: 7, headSha: MOVED_SHA }),
                     fixturePull({ pullNumber: 8, headSha: other }),
                 ],
-            }));
+            });
+            await runCycle(fixtureBinding(CHECKS_ONLY), arm);
+            expect(arm.calls).toEqual(['pulls']);
 
             const two = recordingPoller({
                 pulls: [
@@ -2113,7 +2239,7 @@ describe('FR-120 – FR-130 the review-submitted and checks signals', () => {
             }));
 
             expect(followUpRowsOf(queue)).toEqual([]);
-            expect(await storedWatch()).toBeNull();
+            expect(await storedWatch()).toMatchObject({ verdict: 'failed' });
         }
     });
 });

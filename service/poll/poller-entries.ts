@@ -4,7 +4,7 @@
  * gate.
  */
 
-import { isRecord } from '../json.ts';
+import { isRecord, readStamp } from '../json.ts';
 
 /**
  * Minimal GitHub issue shape the poller normalizes.
@@ -163,6 +163,13 @@ export interface PollCheckRun {
     readonly status: string | null;
     /** GitHub's conclusion word, or `null` while the run has not concluded. */
     readonly conclusion: string | null;
+    /**
+     * `completed_at` as GitHub sent it, or `null` when it is absent/unreadable.
+     *
+     * The watch compares it against its own `armedAt` to tell a pre-existing
+     * failure from one the observed head caused (FR-126).
+     */
+    readonly completedAt: string | null;
 }
 
 /**
@@ -419,7 +426,8 @@ export function readReviewEntry(value: unknown): PollReview | null {
  *
  * A check with no readable name cannot be named in the follow-up, so it is
  * dropped; an unreadable status or conclusion is no status or conclusion,
- * which reads as *not completed* / *not failing* respectively.
+ * which reads as *not completed* / *not failing* respectively. An unparseable
+ * `completed_at` is `null`, never a guessed instant.
  */
 export function readCheckRunEntry(value: unknown): PollCheckRun | null {
     const record = asRecord(value);
@@ -432,7 +440,12 @@ export function readCheckRunEntry(value: unknown): PollCheckRun | null {
         return null;
     }
 
-    return { name, status: textOf(record, 'status'), conclusion: textOf(record, 'conclusion') };
+    return {
+        name,
+        status: textOf(record, 'status'),
+        conclusion: textOf(record, 'conclusion'),
+        completedAt: readStamp(record.completed_at),
+    };
 }
 
 /**

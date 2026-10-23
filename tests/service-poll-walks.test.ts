@@ -59,12 +59,16 @@ function review(reviewId: number, state = 'CHANGES_REQUESTED', submittedAt: stri
 }
 
 /** One check-run body. */
+/** GitHub's own completion field name, carried once under a computed key. */
+const COMPLETED_AT_FIELD = 'completed_at';
+
 function checkRun(
     name: string,
     conclusion: string | null,
     status = 'completed',
-): { readonly name: string; readonly status: string; readonly conclusion: string | null } {
-    return { name, status, conclusion };
+    completedAt: string | null = null,
+) {
+    return { name, status, conclusion, [COMPLETED_AT_FIELD]: completedAt };
 }
 
 /** The `Link` header naming one last page. */
@@ -224,7 +228,7 @@ describe('the check-runs walk (FR-126, FR-127)', () => {
 
             const result = await poller.listHeadChecks(checksQuery);
 
-            expect(result).toEqual({
+            expect(result).toMatchObject({
                 kind: 'ok',
                 count: 3,
                 completed: true,
@@ -268,8 +272,9 @@ describe('the check-runs walk (FR-126, FR-127)', () => {
                 body: JSON.stringify({ check_runs: [checkRun('cancel', 'cancelled')] }),
             }, { body: JSON.stringify({ check_runs: [] }) }]);
 
-            expect(await poller.listHeadChecks(checksQuery))
-                .toEqual({ kind: 'ok', count: 1, completed: true, conclusion: null, names: [], truncated: false });
+            expect(await poller.listHeadChecks(checksQuery)).toMatchObject({
+                kind: 'ok', count: 1, completed: true, conclusion: null, names: [], truncated: false,
+            });
         }
     });
 
@@ -302,7 +307,7 @@ describe('the check-runs walk (FR-126, FR-127)', () => {
 
             const result = await poller.listHeadChecks(checksQuery);
 
-            expect(result).toEqual({
+            expect(result).toMatchObject({
                 kind: 'ok', count: 4, completed: false, conclusion: null, names: [], truncated: true,
             });
             expect(urls.map((url) => url.searchParams.get('page'))).toEqual(['1', '2']);
@@ -318,7 +323,7 @@ describe('the check-runs walk (FR-126, FR-127)', () => {
 
             const result = await poller.listHeadChecks(checksQuery);
 
-            expect(result).toEqual({
+            expect(result).toMatchObject({
                 kind: 'ok', count: 1, completed: true, conclusion: null, names: [], truncated: false,
             });
             expect(urls).toHaveLength(1);
@@ -331,8 +336,9 @@ describe('the check-runs walk (FR-126, FR-127)', () => {
                 body: JSON.stringify({ check_runs: [checkRun('build', 'success'), checkRun('docs', 'skipped')] }),
             }, { body: JSON.stringify({ check_runs: [] }) }]);
 
-            expect(await poller.listHeadChecks(checksQuery))
-                .toEqual({ kind: 'ok', count: 2, completed: true, conclusion: null, names: [], truncated: false });
+            expect(await poller.listHeadChecks(checksQuery)).toMatchObject({
+                kind: 'ok', count: 2, completed: true, conclusion: null, names: [], truncated: false,
+            });
         }
     });
 });
