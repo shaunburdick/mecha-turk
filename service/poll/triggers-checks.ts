@@ -4,7 +4,7 @@
  */
 
 import { repositoryRefOf } from '../../src/config.ts';
-import type { ServiceStore } from '../store/index.ts';
+import type { BindingRecord } from '../bindings.ts';
 import { checksFollowUp } from './follow-up.ts';
 import type { PollPull, PollFailure  } from './poller-github.ts';
 import { failingConclusionOf } from './poller-checks.ts';
@@ -27,13 +27,13 @@ type ListedChecks = Extract<HeadChecksOutcome, { readonly kind: 'ok' }>;
 interface WatchChange {
     readonly write?: ChecksWatch;
     readonly audit?: ChecksAudit;
-    readonly alert?: boolean;
+    /** The one alert this change delivers, when the concluded aggregate is news. */
+    readonly row?: QueuedEvent;
 }
 
 /** Everything one cycle accumulates while it walks the tracked pulls. */
 interface ScanState {
     readonly writes: Map<string, ChecksWatch>;
-    readonly drops: string[];
     readonly audits: ChecksAudit[];
     readonly events: QueuedEvent[];
     readonly reads: Map<string, HeadChecksOutcome>;
@@ -73,6 +73,7 @@ function expiryReasonOf(watch: ChecksWatch, detectedAt: string): 'polls' | 'elap
 /** The audit row one watch state change asks for. */
 function auditOf(input: {
     readonly eventType: ChecksAudit['eventType'];
+    readonly bindingId: string;
     readonly correlationId: string;
     readonly subjectNumber: number;
     readonly watch: ChecksWatch;
@@ -80,6 +81,7 @@ function auditOf(input: {
 }): ChecksAudit {
     return {
         eventType: input.eventType,
+        bindingId: input.bindingId,
         correlationId: input.correlationId,
         details: {
             headSha: input.watch.headSha,
@@ -93,6 +95,7 @@ function auditOf(input: {
 
 /** A watch armed at a newly observed head; the arming cycle never reads. */
 function armChange(input: {
+    readonly bindingId: string;
     readonly correlationId: string;
     readonly subjectNumber: number;
     readonly headSha: string;
@@ -104,6 +107,7 @@ function armChange(input: {
         write: watch,
         audit: auditOf({
             eventType: 'checks.watched',
+            bindingId: input.bindingId,
             correlationId: input.correlationId,
             subjectNumber: input.subjectNumber,
             watch,
@@ -113,6 +117,7 @@ function armChange(input: {
 
 /** A watch that spent its window before it could conclude. */
 function expiryChange(input: {
+    readonly bindingId: string;
     readonly correlationId: string;
     readonly subjectNumber: number;
     readonly watch: ChecksWatch;
@@ -122,6 +127,7 @@ function expiryChange(input: {
         write: { ...input.watch, verdict: 'expired' },
         audit: auditOf({
             eventType: 'checks.expired',
+            bindingId: input.bindingId,
             correlationId: input.correlationId,
             subjectNumber: input.subjectNumber,
             watch: input.watch,
@@ -174,12 +180,17 @@ function alertableOf(input: {
 
 /** A completed read's change: conclude into inert state, or keep watching. */
 function concludedChange(input: {
+    readonly bindingId: string;
+    readonly binding: BindingRecord;
+    readonly pull: PollPull;
+    readonly tracked: TrackedSubject;
     readonly correlationId: string;
     readonly subjectNumber: number;
     readonly watch: ChecksWatch;
     readonly spent: ChecksWatch;
     readonly listed: ListedChecks;
     readonly news: boolean;
+    readonly detectedAt: string;
 }): WatchChange {
     const { listed } = input;
     if (listed.truncated || (listed.count > 0 && !listed.completed)) {
@@ -190,22 +201,32 @@ function concludedChange(input: {
     const isPreExisting = conclusion !== null
         && !alertableOf({ listed, armedAt: input.watch.armedAt, news: input.news });
     const isAlerted = conclusion !== null && !isPreExisting;
-    const verdict = verdictOf(listed);
+    // The row is composed before the audit so `alerted` can only ever name a row
+    // that exists: an actor-gated subject concludes inert with no delivery.
+    const row = isAlerted
+        ? checksFollowUp({
+            binding: input.binding,
+            pull: input.pull,
+            tracked: input.tracked,
+            headSha: input.watch.headSha,
+            names: listed.names,
+            detectedAt: input.detectedAt,
+        })
+        : null;
 
     return {
-        write: { ...input.spent, verdict },
-        alert: isAlerted,
+        write: { ...input.spent, verdict: verdictOf(listed) },
+        ...(row !== null && { row }),
         audit: auditOf({
             eventType: 'checks.observed',
+            bindingId: input.bindingId,
             correlationId: input.correlationId,
             subjectNumber: input.subjectNumber,
             watch: input.spent,
             extra: {
                 conclusion,
-                completed: true,
-                failing: conclusion !== null,
                 preExisting: isPreExisting,
-                alerted: isAlerted,
+                alerted: row !== null,
             },
         }),
     };
@@ -213,11 +234,11 @@ function concludedChange(input: {
 
 /** A failed read's change, with the one class that still ends the scan. */
 function failureChange(input: {
+    readonly bindingId: string;
     readonly failure: PollFailure;
     readonly spent: ChecksWatch;
     readonly correlationId: string;
     readonly subjectNumber: number;
-    readonly claimed: boolean;
 }): { readonly change?: WatchChange; readonly rateLimited?: PollFailure } {
     if (input.failure.kind === 'rate-limited') {
         return { rateLimited: input.failure };
@@ -226,39 +247,16 @@ function failureChange(input: {
     return {
         change: {
             write: input.spent,
-            ...(!input.claimed && {
-                audit: auditOf({
-                    eventType: 'checks.unavailable',
-                    correlationId: input.correlationId,
-                    subjectNumber: input.subjectNumber,
-                    watch: input.spent,
-                    extra: { failure: input.failure.kind },
-                }),
+            audit: auditOf({
+                eventType: 'checks.unavailable',
+                bindingId: input.bindingId,
+                correlationId: input.correlationId,
+                subjectNumber: input.subjectNumber,
+                watch: input.spent,
+                extra: { failure: input.failure.kind },
             }),
         },
     };
-}
-
-/** Per-store binding ids that have already written a `checks.unavailable` row. */
-const unavailableClaims = new WeakMap<ServiceStore, Set<string>>();
-
-/**
- * Read the process-long claim set for one store handle.
- *
- * Keyed by the handle, not the binding id alone: a restarted service writes the
- * row again only after a fresh read of the same store, which is the same
- * per-process posture the queue's quarantine recovery takes.
- */
-export function checksUnavailableClaimFor(store: ServiceStore): Set<string> {
-    const existing = unavailableClaims.get(store);
-    if (existing !== undefined) {
-        return existing;
-    }
-
-    const claimed = new Set<string>();
-    unavailableClaims.set(store, claimed);
-
-    return claimed;
 }
 
 function applyChange(input: {
@@ -274,6 +272,10 @@ function applyChange(input: {
     if (change.audit !== undefined) {
         state.audits.push(change.audit);
     }
+
+    if (change.row !== undefined) {
+        state.events.push(change.row);
+    }
 }
 
 /** What one pre-read decision asks for: do nothing more, read, or apply a change. */
@@ -284,6 +286,7 @@ type PreRead =
 
 /** The change a watch needs before any read: arm, expire, read, or stay inert. */
 function preReadChange(input: {
+    readonly bindingId: string;
     readonly watch: ChecksWatch | null;
     readonly headSha: string;
     readonly correlationId: string;
@@ -294,7 +297,7 @@ function preReadChange(input: {
     if (watch?.headSha !== headSha) {
         return {
             action: 'change',
-            change: armChange({ correlationId, subjectNumber, headSha, detectedAt }),
+            change: armChange({ bindingId: input.bindingId, correlationId, subjectNumber, headSha, detectedAt }),
         };
     }
 
@@ -306,7 +309,10 @@ function preReadChange(input: {
 
     return expired === null
         ? { action: 'read' }
-        : { action: 'change', change: expiryChange({ correlationId, subjectNumber, watch, reason: expired }) };
+        : {
+            action: 'change',
+            change: expiryChange({ bindingId: input.bindingId, correlationId, subjectNumber, watch, reason: expired }),
+        };
 }
 
 async function pollWatch(input: TriggerScanInput & {
@@ -339,15 +345,14 @@ async function pollWatch(input: TriggerScanInput & {
     const spent: ChecksWatch = { ...subject.checksWatch, polls: subject.checksWatch.polls + 1 };
     if (listed.kind !== 'ok') {
         const failed = failureChange({
+            bindingId: input.binding.bindingId,
             failure: listed,
             spent,
             correlationId,
             subjectNumber,
-            claimed: input.checksUnavailableClaim.has(input.binding.bindingId),
         });
         if (failed.change !== undefined) {
             applyChange({ state, correlationId, change: failed.change });
-            input.checksUnavailableClaim.add(input.binding.bindingId);
             input.log.warn('check-runs read failed; the watch is kept', { headSha, failure: listed.kind });
         }
 
@@ -358,28 +363,23 @@ async function pollWatch(input: TriggerScanInput & {
         input.log.warn('check-runs walk truncated; the watch is kept', { headSha });
     }
 
-    const change = concludedChange({
+    applyChange({
+        state,
         correlationId,
-        subjectNumber,
-        watch: subject.checksWatch,
-        spent,
-        listed,
-        news: subject.lastHeadSha !== subject.checksWatch.headSha,
-    });
-    applyChange({ state, correlationId, change });
-    if (change.alert === true) {
-        const row = checksFollowUp({
+        change: concludedChange({
+            bindingId: input.binding.bindingId,
             binding: input.binding,
             pull,
             tracked: subject,
-            headSha,
-            names: listed.names,
+            correlationId,
+            subjectNumber,
+            watch: subject.checksWatch,
+            spent,
+            listed,
+            news: subject.lastHeadSha !== subject.checksWatch.headSha,
             detectedAt,
-        });
-        if (row !== null) {
-            state.events.push(row);
-        }
-    }
+        }),
+    });
 
     return null;
 }
@@ -397,6 +397,7 @@ async function visitTrackedPull(input: TriggerScanInput & {
     }
 
     const early = preReadChange({
+        bindingId: input.binding.bindingId,
         watch: subject.checksWatch,
         headSha: pull.headSha,
         correlationId: subject.correlationId,
@@ -435,7 +436,7 @@ export function watchDropsForEnds(input: {
 
 /**
  * Arm, expire, or poll each tracked pull's watch over the cycle's one pulls
- * list, and report the rows and run-document operations the scan must persist.
+ * list, and report the writes and audit rows the scan must persist.
  *
  * Arming is silent: a watch is first polled the cycle after it is written. A
  * concluded watch stays on the run as inert state — never read, audited, or
@@ -445,17 +446,11 @@ export function watchDropsForEnds(input: {
 export async function triggersChecks(
     input: TriggerScanInput & {
         readonly pulls: readonly PollPull[];
-        /** Pull subjects whose tracking ended this cycle, whose watches drop. */
-        readonly ends: readonly TrackingEnd[];
     },
 ): Promise<TriggerEvents> {
-    const { tracked, detectedAt, ends, pulls } = input;
+    const { tracked, detectedAt, pulls } = input;
     const byNumber = new Map(pulls.map((pull) => [pull.pullNumber, pull]));
-    const state: ScanState = { writes: new Map(), drops: [], audits: [], events: [], reads: new Map() };
-
-    for (const end of ends) {
-        state.drops.push(end.correlationId);
-    }
+    const state: ScanState = { writes: new Map(), audits: [], events: [], reads: new Map() };
 
     for (const [subjectNumber, subject] of tracked) {
         const pull = byNumber.get(subjectNumber);
@@ -480,7 +475,6 @@ export async function triggersChecks(
         ok: true,
         events: state.events,
         ...(state.writes.size > 0 && { checksWrites: state.writes }),
-        ...(state.drops.length > 0 && { checksDrops: state.drops }),
         ...(state.audits.length > 0 && { checksAudits: state.audits }),
     };
 }

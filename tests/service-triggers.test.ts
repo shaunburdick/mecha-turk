@@ -1502,7 +1502,9 @@ describe('review-submitted detection (FR-120 – FR-124)', () => {
                 checks: true,
             }), checksOnly);
 
-            expect(checksOnly.calls).toEqual(['pulls']);
+            // Nothing is tracked, so the watch has no head to sit on and the one
+            // read a `checks`-only binding pays is not made at all (FR-130).
+            expect(checksOnly.calls).toEqual([]);
             expect(events).toEqual([]);
         }
     });

@@ -3791,13 +3791,13 @@ function foldDelivery(input) {
 function applyChecksWrites(input) {
   const drops = new Set(input.drops);
   for (const [position, run] of input.runs.entries()) {
+    if (drops.has(run.correlationId) && run.checksWatch !== undefined) {
+      input.runs[position] = { ...run, checksWatch: undefined, updatedAt: input.now };
+      continue;
+    }
     const watch = input.writes?.get(run.correlationId);
     if (watch !== undefined && run.session !== null) {
       input.runs[position] = { ...run, checksWatch: watch, updatedAt: input.now };
-      continue;
-    }
-    if (drops.has(run.correlationId) && run.checksWatch !== undefined) {
-      input.runs[position] = { ...run, checksWatch: undefined, updatedAt: input.now };
     }
   }
 }
@@ -4139,6 +4139,9 @@ function appendedRowsOf(fresh, outcome, intentAtMs) {
     return followUpKindOf(event.id) === null ? linked : { ...linked, engine: { state: "unknown", intentAtMs, cause: "intent" } };
   });
 }
+function alertsBeforeRun(input) {
+  return input.fresh.some((event) => followUpKindOf(event.id) === "checks") && input.fresh.every((event) => followUpKindOf(event.id) !== null) && [...input.checksWrites?.values() ?? []].some((watch) => watch.verdict === "failed");
+}
 async function enqueueWithinChain(input) {
   const existing = await readQueue(input);
   const known = new Set(existing.map((event) => event.id));
@@ -4165,13 +4168,21 @@ async function enqueueWithinChain(input) {
     checksDrops: input.checksDrops
   }));
   const appended = appendedRowsOf(fresh, outcome, Date.now());
-  const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
   if (appended.length === 0) {
+    await writeRunsDocument({ ...input, document: outcome.document });
     await readRunsDocument(input);
     return [];
   }
-  const persistedIds = new Set(persistedRuns.runs.map((run) => run.correlationId));
-  await input.store.writeJson(EVENTS_FILE, serializedQueue([...existing, ...appended], persistedIds));
+  const queued = [...existing, ...appended];
+  if (alertsBeforeRun({ fresh, checksWrites: input.checksWrites })) {
+    const retained = new Set(outcome.document.runs.map((run) => run.correlationId));
+    await input.store.writeJson(EVENTS_FILE, serializedQueue(queued, retained));
+    await writeRunsDocument({ ...input, document: outcome.document });
+  } else {
+    const persisted = await writeRunsDocument({ ...input, document: outcome.document });
+    const retained = new Set(persisted.runs.map((run) => run.correlationId));
+    await input.store.writeJson(EVENTS_FILE, serializedQueue(queued, retained));
+  }
   await readRunsDocument(input);
   await recordEnqueueAudits({ ...input, outcome, appended });
   return appended;
@@ -12002,6 +12013,7 @@ function expiryReasonOf(watch, detectedAt) {
 function auditOf(input) {
   return {
     eventType: input.eventType,
+    bindingId: input.bindingId,
     correlationId: input.correlationId,
     details: {
       headSha: input.watch.headSha,
@@ -12018,6 +12030,7 @@ function armChange(input) {
     write: watch,
     audit: auditOf({
       eventType: "checks.watched",
+      bindingId: input.bindingId,
       correlationId: input.correlationId,
       subjectNumber: input.subjectNumber,
       watch
@@ -12029,6 +12042,7 @@ function expiryChange(input) {
     write: { ...input.watch, verdict: "expired" },
     audit: auditOf({
       eventType: "checks.expired",
+      bindingId: input.bindingId,
       correlationId: input.correlationId,
       subjectNumber: input.subjectNumber,
       watch: input.watch,
@@ -12066,21 +12080,27 @@ function concludedChange(input) {
   const { conclusion } = listed;
   const isPreExisting = conclusion !== null && !alertableOf({ listed, armedAt: input.watch.armedAt, news: input.news });
   const isAlerted = conclusion !== null && !isPreExisting;
-  const verdict = verdictOf(listed);
+  const row = isAlerted ? checksFollowUp({
+    binding: input.binding,
+    pull: input.pull,
+    tracked: input.tracked,
+    headSha: input.watch.headSha,
+    names: listed.names,
+    detectedAt: input.detectedAt
+  }) : null;
   return {
-    write: { ...input.spent, verdict },
-    alert: isAlerted,
+    write: { ...input.spent, verdict: verdictOf(listed) },
+    ...row !== null && { row },
     audit: auditOf({
       eventType: "checks.observed",
+      bindingId: input.bindingId,
       correlationId: input.correlationId,
       subjectNumber: input.subjectNumber,
       watch: input.spent,
       extra: {
         conclusion,
-        completed: true,
-        failing: conclusion !== null,
         preExisting: isPreExisting,
-        alerted: isAlerted
+        alerted: row !== null
       }
     })
   };
@@ -12092,27 +12112,16 @@ function failureChange(input) {
   return {
     change: {
       write: input.spent,
-      ...!input.claimed && {
-        audit: auditOf({
-          eventType: "checks.unavailable",
-          correlationId: input.correlationId,
-          subjectNumber: input.subjectNumber,
-          watch: input.spent,
-          extra: { failure: input.failure.kind }
-        })
-      }
+      audit: auditOf({
+        eventType: "checks.unavailable",
+        bindingId: input.bindingId,
+        correlationId: input.correlationId,
+        subjectNumber: input.subjectNumber,
+        watch: input.spent,
+        extra: { failure: input.failure.kind }
+      })
     }
   };
-}
-var unavailableClaims = new WeakMap;
-function checksUnavailableClaimFor(store) {
-  const existing = unavailableClaims.get(store);
-  if (existing !== undefined) {
-    return existing;
-  }
-  const claimed = new Set;
-  unavailableClaims.set(store, claimed);
-  return claimed;
 }
 function applyChange(input) {
   const { state, correlationId, change } = input;
@@ -12122,20 +12131,26 @@ function applyChange(input) {
   if (change.audit !== undefined) {
     state.audits.push(change.audit);
   }
+  if (change.row !== undefined) {
+    state.events.push(change.row);
+  }
 }
 function preReadChange(input) {
   const { watch, headSha, correlationId, subjectNumber, detectedAt } = input;
   if (watch?.headSha !== headSha) {
     return {
       action: "change",
-      change: armChange({ correlationId, subjectNumber, headSha, detectedAt })
+      change: armChange({ bindingId: input.bindingId, correlationId, subjectNumber, headSha, detectedAt })
     };
   }
   if (watch.verdict !== "watching") {
     return { action: "inert" };
   }
   const expired = expiryReasonOf(watch, detectedAt);
-  return expired === null ? { action: "read" } : { action: "change", change: expiryChange({ correlationId, subjectNumber, watch, reason: expired }) };
+  return expired === null ? { action: "read" } : {
+    action: "change",
+    change: expiryChange({ bindingId: input.bindingId, correlationId, subjectNumber, watch, reason: expired })
+  };
 }
 async function pollWatch(input) {
   const { pull, subject, subjectNumber, state, detectedAt } = input;
@@ -12159,15 +12174,14 @@ async function pollWatch(input) {
   const spent = { ...subject.checksWatch, polls: subject.checksWatch.polls + 1 };
   if (listed.kind !== "ok") {
     const failed = failureChange({
+      bindingId: input.binding.bindingId,
       failure: listed,
       spent,
       correlationId,
-      subjectNumber,
-      claimed: input.checksUnavailableClaim.has(input.binding.bindingId)
+      subjectNumber
     });
     if (failed.change !== undefined) {
       applyChange({ state, correlationId, change: failed.change });
-      input.checksUnavailableClaim.add(input.binding.bindingId);
       input.log.warn("check-runs read failed; the watch is kept", { headSha, failure: listed.kind });
     }
     return failed.rateLimited ?? null;
@@ -12175,28 +12189,23 @@ async function pollWatch(input) {
   if (listed.truncated) {
     input.log.warn("check-runs walk truncated; the watch is kept", { headSha });
   }
-  const change = concludedChange({
+  applyChange({
+    state,
     correlationId,
-    subjectNumber,
-    watch: subject.checksWatch,
-    spent,
-    listed,
-    news: subject.lastHeadSha !== subject.checksWatch.headSha
-  });
-  applyChange({ state, correlationId, change });
-  if (change.alert === true) {
-    const row = checksFollowUp({
+    change: concludedChange({
+      bindingId: input.binding.bindingId,
       binding: input.binding,
       pull,
       tracked: subject,
-      headSha,
-      names: listed.names,
+      correlationId,
+      subjectNumber,
+      watch: subject.checksWatch,
+      spent,
+      listed,
+      news: subject.lastHeadSha !== subject.checksWatch.headSha,
       detectedAt
-    });
-    if (row !== null) {
-      state.events.push(row);
-    }
-  }
+    })
+  });
   return null;
 }
 async function visitTrackedPull(input) {
@@ -12205,6 +12214,7 @@ async function visitTrackedPull(input) {
     return null;
   }
   const early = preReadChange({
+    bindingId: input.binding.bindingId,
     watch: subject.checksWatch,
     headSha: pull.headSha,
     correlationId: subject.correlationId,
@@ -12227,12 +12237,9 @@ function watchDropsForEnds(input) {
   });
 }
 async function triggersChecks(input) {
-  const { tracked, detectedAt, ends, pulls } = input;
+  const { tracked, detectedAt, pulls } = input;
   const byNumber = new Map(pulls.map((pull) => [pull.pullNumber, pull]));
-  const state = { writes: new Map, drops: [], audits: [], events: [], reads: new Map };
-  for (const end of ends) {
-    state.drops.push(end.correlationId);
-  }
+  const state = { writes: new Map, audits: [], events: [], reads: new Map };
   for (const [subjectNumber, subject] of tracked) {
     const pull = byNumber.get(subjectNumber);
     if (pull === undefined || subject.subjectType !== "pull_request") {
@@ -12254,7 +12261,6 @@ async function triggersChecks(input) {
     ok: true,
     events: state.events,
     ...state.writes.size > 0 && { checksWrites: state.writes },
-    ...state.drops.length > 0 && { checksDrops: state.drops },
     ...state.audits.length > 0 && { checksAudits: state.audits }
   };
 }
@@ -12643,12 +12649,23 @@ async function listedIssues(input) {
     pace
   });
 }
-function pullsNeeded(binding) {
-  return binding.triggers.reviewRequest || binding.triggers.reviewSubmitted || binding.triggers.checks;
+function tracksPullRequest(tracked) {
+  for (const subject of tracked.values()) {
+    if (subject.subjectType === "pull_request") {
+      return true;
+    }
+  }
+  return false;
+}
+function pullsNeeded(binding, tracked) {
+  if (binding.triggers.reviewRequest || binding.triggers.reviewSubmitted) {
+    return true;
+  }
+  return binding.triggers.checks && tracksPullRequest(tracked);
 }
 async function listedPulls(input) {
-  const { poller, token, repository, pace, binding } = input;
-  if (!pullsNeeded(binding)) {
+  const { poller, token, repository, pace, binding, tracked } = input;
+  if (!pullsNeeded(binding, tracked)) {
     return { kind: "ok", pulls: [] };
   }
   return await poller.listOpenPulls({
@@ -12659,7 +12676,7 @@ async function listedPulls(input) {
   });
 }
 function checksOpsOf() {
-  return { writes: new Map, drops: [], audits: [] };
+  return { writes: new Map, audits: [] };
 }
 function foldChecksOps(target, branch) {
   const writes = branch.checksWrites;
@@ -12668,13 +12685,11 @@ function foldChecksOps(target, branch) {
       target.writes.set(correlationId, watch);
     }
   }
-  target.drops.push(...branch.checksDrops ?? []);
   target.audits.push(...branch.checksAudits ?? []);
 }
 function checksOpsFields(ops) {
   return {
     ...ops.writes.size > 0 && { checksWrites: ops.writes },
-    ...ops.drops.length > 0 && { checksDrops: ops.drops },
     ...ops.audits.length > 0 && { checksAudits: ops.audits }
   };
 }
@@ -12710,7 +12725,7 @@ async function pullEventsOf(input) {
     events.push(...heads.rows);
   }
   if (binding.triggers.checks) {
-    const checks = await triggersChecks({ ...scan, tracked, pulls, ends: pullEnds });
+    const checks = await triggersChecks({ ...scan, tracked, pulls });
     if (!checks.ok) {
       return checks;
     }
@@ -12734,7 +12749,7 @@ async function triggerBranches(input) {
   if (scan.binding.triggers.mention) {
     branches.push(await mentionEventsOf({ ...scan, issues }));
   }
-  if (pullsNeeded(scan.binding)) {
+  if (pullsNeeded(scan.binding, scan.tracked)) {
     branches.push(await pullEventsOf({ scan, pulls }));
   }
   return branches;
@@ -12746,7 +12761,7 @@ async function collectTriggerEvents(input) {
   if (issues.kind !== "ok") {
     return { ok: false, failure: issues };
   }
-  const pulls = await listedPulls({ poller, token, repository, pace, binding });
+  const pulls = await listedPulls({ poller, token, repository, pace, binding, tracked: input.tracked });
   if (pulls.kind !== "ok") {
     return { ok: false, failure: pulls };
   }
@@ -12833,8 +12848,17 @@ async function recordTrackingEnds(input) {
     }
   }
 }
+var unavailableBindings = new WeakMap;
 async function recordChecksAudits(input) {
+  const reported = unavailableBindings.get(input.store) ?? new Set;
+  unavailableBindings.set(input.store, reported);
   for (const audit of input.audits) {
+    if (audit.eventType === "checks.unavailable") {
+      if (reported.has(audit.bindingId)) {
+        continue;
+      }
+      reported.add(audit.bindingId);
+    }
     try {
       await appendAudit(input.store, {
         eventType: audit.eventType,
@@ -12916,8 +12940,7 @@ async function collectScanEvents(input) {
     windowStart,
     detectedAt,
     pace: deps.pace,
-    tracked,
-    checksUnavailableClaim: checksUnavailableClaimFor(deps.store)
+    tracked
   });
   if (!collected.ok) {
     return { ok: false, skipped: skipOf(collected.failure) };
@@ -12933,10 +12956,7 @@ async function collectScanEvents(input) {
     return { ok: false, skipped: terminal.skipped };
   }
   const ends = [...collected.ends ?? [], ...terminal.ends];
-  const checksDrops = [...new Set([
-    ...collected.checksDrops ?? [],
-    ...watchDropsForEnds({ tracked, ends: terminal.ends })
-  ])];
+  const checksDrops = watchDropsForEnds({ tracked, ends });
   return {
     ok: true,
     events: terminal.events,

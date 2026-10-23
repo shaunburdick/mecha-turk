@@ -526,11 +526,13 @@ function foldDelivery(input: {
 }
 
 /**
- * Apply this cycle's check-watch writes and drops to the runs they name.
+ * Apply this cycle's check-watch drops and writes to the runs they name.
  *
- * A write is refused for a run without a recorded session — the defensive arm
- * FR-100's predicate already implies — and a drop clears the member so the next
- * cycle cannot read a head the run no longer follows (FR-126).
+ * Drops first: a watch that concluded on the same cycle its subject's tracking
+ * ended must not survive as inert state on an ended run. A write is refused for
+ * a run without a recorded session — the defensive arm FR-100's predicate
+ * already implies — and a drop clears the member so the next cycle cannot read a
+ * head the run no longer follows (FR-126).
  */
 function applyChecksWrites(input: {
     readonly runs: Run[];
@@ -540,14 +542,14 @@ function applyChecksWrites(input: {
 }): void {
     const drops = new Set(input.drops);
     for (const [position, run] of input.runs.entries()) {
-        const watch = input.writes?.get(run.correlationId);
-        if (watch !== undefined && run.session !== null) {
-            input.runs[position] = { ...run, checksWatch: watch, updatedAt: input.now };
+        if (drops.has(run.correlationId) && run.checksWatch !== undefined) {
+            input.runs[position] = { ...run, checksWatch: undefined, updatedAt: input.now };
             continue;
         }
 
-        if (drops.has(run.correlationId) && run.checksWatch !== undefined) {
-            input.runs[position] = { ...run, checksWatch: undefined, updatedAt: input.now };
+        const watch = input.writes?.get(run.correlationId);
+        if (watch !== undefined && run.session !== null) {
+            input.runs[position] = { ...run, checksWatch: watch, updatedAt: input.now };
         }
     }
 }

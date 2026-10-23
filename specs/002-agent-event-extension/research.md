@@ -651,7 +651,7 @@ Every claim below was re-read in the shipped source on **2026-10-09** with the f
 | **3a. Newly opened** | `GET /repos/{o}/{r}/issues` (already read) | 0 when the issues list is read; +600/h when it is the only reason to read | Trigger | `triggers.opened` + a `labels[]` filter | `~opened` | **build-with-caveat** | M |
 | **3b. Reopened** | `GET /repos/{o}/{r}/issues/{n}/events` | 0 quiet **only** with a `state_reason` prefilter; otherwise 1 per updated open item · up to ~12,000/h | Trigger — but undeliverable today | `triggers.reopened` | `~reopened~<eventId>` | **defer** (run-model decision) | M |
 | **3c. Labeled** | `GET /repos/{o}/{r}/issues/{n}/events` | 0 quiet with the client-side `labels[]` filter; 1 per candidate · ≤ ~50/h with a dedicated label | Trigger, follow-up when tracked | `triggers.labeled` + `labels[]` | `~labeled~<eventId>` | **build-with-caveat** | L |
-| **6a. CI / checks** | `GET /repos/{o}/{r}/commits/{sha}/check-runs` (+ legacy `/status`) | 0 quiet if gated on a head movement; 1 per movement · ≤ ~50/h. Every cycle costs 60 × tracked PRs · ~1,800/h | Follow-up on a tracked PR | `triggers.checks` | `~followup~checks~<sha>~<conclusion>` | **build-with-caveat** | M |
+| **6a. CI / checks** | `GET /repos/{o}/{r}/commits/{sha}/check-runs` (+ legacy `/status`) | 0 quiet if gated on a head movement; 1 per movement · ≤ ~50/h. Every cycle costs 60 × tracked PRs · ~1,800/h | Follow-up on a tracked PR | `triggers.checks` | `~followup~checks~<sha>~<conclusion>` (v1.22.0: `~followup~checks~<headSha>`; §6a.1) | **build-with-caveat** | M |
 | **6b. Commit comments** | `GET /repos/{o}/{r}/comments` | 1 repo-wide + pages every cycle · 600+/h; plus 1 per commented commit for a PR lookup | Neither (no issue/PR number) | — | — | **reject** | S to price |
 | **6c. Releases** | `GET /repos/{o}/{r}/releases` | 1 repo-wide per cycle · 600/h | Notification outside the run model | — | — | **reject** | S |
 | **6d. Discussions** | GraphQL `repository.discussions` | 1 query per repo per cycle · 600 queries/h = 600–5,400 points/h | Trigger/follow-up, but needs a third subject type | `triggers.discussion` | `~discussion~<number>~…` | **reject** | L |
@@ -851,6 +851,8 @@ Two ways to detect:
 ### 6. Surfaces outside the assignment/review/mention shape
 
 #### 6a. CI / checks failures
+
+**Superseded at v1.22.0 (GitHub issue #62).** The body below is the 2026-10-20 record and stays as written; the shipped rule is a persisted per-head watch — one bounded read per **armed watch** per cycle, no movement gate, `cancelled` not failing, and the id `~followup~checks~<headSha>` with no conclusion — stated in FR-126 – FR-129 and verified in §6a.1.
 
 **GitHub surface — verified.**
 - `GET /repos/{owner}/{repo}/commits/{ref}/check-runs` — `ref` is a SHA, branch or tag; params `check_name`, `status` (`queued`/`in_progress`/`completed`), `filter` (`latest` default, `all`), `per_page`, `page`, `app_id`. Response `total_count` and `check_runs[]` with `id`, `head_sha`, `status` (`queued|in_progress|completed|waiting|requested|pending`), `conclusion` (`success|failure|neutral|cancelled|skipped|timed_out|action_required|null`), `name`, `started_at`, `completed_at`, `output`, `check_suite.id`, `app`, and `pull_requests[]` (`number`, `head`, `base`). Read access is available to OAuth/PAT classic with `repo` on a private repository (write is GitHub-App-only); fine-grained tokens need read access to checks (the exact permission name is not stated on this page — unverified). Core bucket.

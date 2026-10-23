@@ -47,14 +47,6 @@ export interface TriggerScanInput {
      * and every branch simply produces no follow-ups.
      */
     readonly tracked: ReadonlyMap<number, TrackedSubject>;
-    /**
-     * Bindings whose `checks.unavailable` row this process has already written.
-     *
-     * Per store and per binding: a credential missing the Checks scope fails
-     * every cycle, and a row per cycle would bury the trail it is meant to
-     * explain. The same posture the queue's quarantine recovery takes.
-     */
-    readonly checksUnavailableClaim: Set<string>;
 }
 
 /** The checks audit vocabulary, written best-effort after the run write. */
@@ -63,6 +55,8 @@ export type ChecksAuditEvent = 'checks.watched' | 'checks.observed' | 'checks.ex
 /** One checks audit row a cycle asks for, named by the run it explains (NFR-007). */
 export interface ChecksAudit {
     readonly eventType: ChecksAuditEvent;
+    /** The binding whose read produced the row; `checks.unavailable` is deduped per binding per process. */
+    readonly bindingId: string;
     readonly correlationId: string;
     readonly details: RunAuditDetails;
 }
@@ -94,8 +88,6 @@ export type TriggerEvents =
          * write that folds deliveries and seeds (FR-126).
          */
         readonly checksWrites?: ReadonlyMap<string, ChecksWatch>;
-        /** Check watches this branch dropped, by run correlation id. */
-        readonly checksDrops?: readonly string[];
         /** Audit rows the cycle writes after the run document lands. */
         readonly checksAudits?: readonly ChecksAudit[];
     }

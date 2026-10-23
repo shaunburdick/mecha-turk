@@ -24,7 +24,7 @@ import { previewRunsDocument } from './runs-document.ts';
 import { bindingScanOf, readScanState, serializeScan, withBindingScanState, writeScanState } from './scan.ts';
 import type { BindingScanState, ScanState } from './scan.ts';
 import { collectTriggerEvents } from './triggers.ts';
-import { checksAuditReason, checksUnavailableClaimFor, watchDropsForEnds } from './triggers-checks.ts';
+import { checksAuditReason, watchDropsForEnds } from './triggers-checks.ts';
 import type { ChecksAudit } from './trigger-scan.ts';
 import type { ChecksWatch, RunsDocument  } from './runs-types.ts';
 import { observedHeadSeeds, trackedIssueEnds, trackedPullEnds, trackedSubjectsOf } from './tracking.ts';
@@ -218,16 +218,40 @@ async function recordTrackingEnds(input: {
 }
 
 /**
+ * Bindings whose `checks.unavailable` row this process has already written,
+ * per store handle.
+ *
+ * Keyed by the handle too: a restarted service writes the row again only after
+ * a fresh read of the same store, which is the per-process posture the queue's
+ * quarantine recovery takes.
+ */
+const unavailableBindings = new WeakMap<ServiceStore, Set<string>>();
+
+/**
  * Write the checks audit rows a cycle asked for, best-effort after the run
  * document landed: a failed append is logged rather than failing a scan whose
- * watch write already succeeded (FR-126, NFR-007).
+ * watch write already succeeded (FR-126, NFR-007). `checks.unavailable` is
+ * deduped per binding per process here rather than at detection, because this
+ * is the one place that writes it: a credential missing the Checks scope fails
+ * every cycle, and a row per cycle would bury the trail it explains.
  */
 async function recordChecksAudits(input: {
     readonly store: ServiceStore;
     readonly log: ServiceLogger;
     readonly audits: readonly ChecksAudit[];
 }): Promise<void> {
+    const reported = unavailableBindings.get(input.store) ?? new Set<string>();
+    unavailableBindings.set(input.store, reported);
+
     for (const audit of input.audits) {
+        if (audit.eventType === 'checks.unavailable') {
+            if (reported.has(audit.bindingId)) {
+                continue;
+            }
+
+            reported.add(audit.bindingId);
+        }
+
         try {
             await appendAudit(input.store, {
                 eventType: audit.eventType,
@@ -387,7 +411,6 @@ async function collectScanEvents(input: {
         detectedAt,
         pace: deps.pace,
         tracked,
-        checksUnavailableClaim: checksUnavailableClaimFor(deps.store),
     });
     if (!collected.ok) {
         return { ok: false, skipped: skipOf(collected.failure) };
@@ -408,11 +431,11 @@ async function collectScanEvents(input: {
         return { ok: false, skipped: terminal.skipped };
     }
 
+    // The one place a tracking-end drop is decided, over the ends both reads
+    // reported: an end observed on either is what clears the watch, however the
+    // same cycle's watch write turned out (FR-126).
     const ends = [...(collected.ends ?? []), ...terminal.ends];
-    const checksDrops = [...new Set([
-        ...(collected.checksDrops ?? []),
-        ...watchDropsForEnds({ tracked, ends: terminal.ends }),
-    ])];
+    const checksDrops = watchDropsForEnds({ tracked, ends });
 
     return {
         ok: true,

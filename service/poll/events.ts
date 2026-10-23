@@ -331,6 +331,26 @@ function appendedRowsOf(
     });
 }
 
+/**
+ * Whether this pass must land its queue row before its run write.
+ *
+ * The one delivery of its kind for a head is the alert: the run already exists
+ * and the verdict it writes forecloses re-detection, so a crash between the two
+ * writes would leave an inert watch with no row and nothing left to notice it.
+ * Writing the row first makes a failed queue write harmless (the watch stays
+ * `watching`, the next cycle re-reads and re-emits) and a failed run write
+ * dedupe (the same deterministic id lands again). Every other pass keeps
+ * run-before-delivery, which is what ordering a fresh trigger's run needs.
+ */
+function alertsBeforeRun(input: {
+    readonly fresh: readonly QueuedEvent[];
+    readonly checksWrites: ReadonlyMap<string, ChecksWatch> | undefined;
+}): boolean {
+    return input.fresh.some((event) => followUpKindOf(event.id) === 'checks')
+        && input.fresh.every((event) => followUpKindOf(event.id) !== null)
+        && [...(input.checksWrites?.values() ?? [])].some((watch) => watch.verdict === 'failed');
+}
+
 /** Perform one serialized enqueue, preserving run-before-delivery durability. */
 async function enqueueWithinChain(input: {
     readonly store: ServiceStore;
@@ -376,8 +396,8 @@ async function enqueueWithinChain(input: {
     // The engine member is written here, in the same chain write that appends the row:
     // a fresh row is never observable with the member absent, so no reader can attempt it beside the pass.
     const appended = appendedRowsOf(fresh, outcome, Date.now());
-    const persistedRuns = await writeRunsDocument({ ...input, document: outcome.document });
     if (appended.length === 0) {
+        await writeRunsDocument({ ...input, document: outcome.document });
         // Nothing reached the queue, so the queue file is already correct and
         // rewriting it could only put it in a different order than the one the
         // operator's rows are in.
@@ -386,11 +406,17 @@ async function enqueueWithinChain(input: {
         return [];
     }
 
-    const persistedIds = new Set(persistedRuns.runs.map((run) => run.correlationId));
-    await input.store.writeJson(
-        EVENTS_FILE,
-        serializedQueue([...existing, ...appended], persistedIds),
-    );
+    const queued = [...existing, ...appended];
+    if (alertsBeforeRun({ fresh, checksWrites: input.checksWrites })) {
+        const retained = new Set(outcome.document.runs.map((run) => run.correlationId));
+        await input.store.writeJson(EVENTS_FILE, serializedQueue(queued, retained));
+        await writeRunsDocument({ ...input, document: outcome.document });
+    } else {
+        const persisted = await writeRunsDocument({ ...input, document: outcome.document });
+        const retained = new Set(persisted.runs.map((run) => run.correlationId));
+        await input.store.writeJson(EVENTS_FILE, serializedQueue(queued, retained));
+    }
+
     // Creation audits are backed by intents in runs.json; draining after both
     // durable state writes closes the crash window without changing audit row
     // vocabulary or rolling back either state file.
