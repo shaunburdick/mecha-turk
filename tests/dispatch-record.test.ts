@@ -4,29 +4,35 @@
  * The record is the only thing a remount has to reconcile from, so these
  * tests hold four promises: an absent key reads as empty rather than as a
  * failure (wipe semantics), a present-but-corrupt key refuses rather than
- * half-applying (fail closed), the cap evicts the oldest *acknowledged*
- * attempt while never taking an unacknowledged one, and a stored
+ * half-applying (fail closed), the cap evicts the oldest *acknowledged or
+ * settled* attempt while never taking a record that is neither, and a stored
  * `dispatchToken` passes the redaction guard byte-identically while a real
  * credential beside it still throws.
  *
  * Everything runs offline against the storage double; no host, no network.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { JsonValue } from '@openchamber/sdk';
 import {
     DISPATCH_SCHEMA_VERSION,
     DISPATCH_STORAGE_KEY,
+    LEGACY_DISPATCH_SCHEMA_VERSION,
     MAX_RECORDED_ATTEMPTS,
-    acknowledgeAttempt,
     acknowledgeDispatch,
     appendAttempt,
     loadDispatchRecord,
     readDispatchRecord,
+    recordDispatchIntent,
     recordDispatchOutcome,
+    settleAttempt,
     unacknowledgedAttempts,
 } from '../src/dispatch-record.ts';
-import type { DispatchAttemptRecord, DispatchRecordDocument } from '../src/dispatch-record.ts';
+import type {
+    DispatchAttemptRecord,
+    DispatchRecordDocument,
+    FollowUpDeliveryRecord,
+} from '../src/dispatch-record.ts';
 import { parseJsonValue } from '../src/json.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import { RedactionError, assertRedacted } from '../src/redaction.ts';
@@ -43,6 +49,12 @@ const RUN_KEY = 'github|77331|acme/widget|issue|7|0';
 /** A token in the exact shape the service mints (`dtk-` + 32 hex). */
 const TOKEN = `dtk-${'a1b2c3d4'.repeat(4)}`;
 
+/** The reservation the fixture attempt belongs to. */
+const LEASE_ID = 'lse-0123456789abcdef01234567';
+
+/** A later reservation cycle reusing the same attempt number. */
+const OTHER_LEASE_ID = 'lse-89abcdef89abcdef89abcdef';
+
 /** A credential-shaped value the redaction guard must keep refusing. */
 const PAT = 'ghp_abcdefghijklmnopqrstuvwx';
 
@@ -57,11 +69,16 @@ function attempt(overrides: Partial<DispatchAttemptRecord> = {}): DispatchAttemp
         correlationId: CORRELATION,
         runKey: RUN_KEY,
         attempt: 1,
+        leaseId: LEASE_ID,
         dispatchToken: TOKEN,
+        projectId: 'prj_42',
+        worktreeOption: 'generated',
         outcome: 'dispatched',
         sessionId: 'ses_1',
         reason: null,
+        authorizedAt: RECORDED_AT,
         recordedAt: RECORDED_AT,
+        settledAt: null,
         acknowledged: false,
         ...overrides,
     };
@@ -117,6 +134,136 @@ function runtimeWith(initial: Readonly<Record<string, JsonValue>> = {}): {
     return { rt: createTestRuntime(fakeHost({ storage: storage.storage })), storage };
 }
 
+/** One follow-up delivery record, as the panel stores it. */
+function followUp(): FollowUpDeliveryRecord {
+    return {
+        deliveryId: 'dlv-1',
+        correlationId: CORRELATION,
+        sessionId: null,
+        attempt: 1,
+        nextAttemptAtMs: null,
+        delivered: false,
+        reason: null,
+        parked: false,
+        updatedAt: RECORDED_AT,
+    };
+}
+
+/** The intent writer's input for the fixture attempt. */
+const INTENT_INPUT = {
+    correlationId: CORRELATION,
+    runKey: RUN_KEY,
+    attempt: 1,
+    leaseId: LEASE_ID,
+    dispatchToken: TOKEN,
+    projectId: 'prj_42',
+    worktreeOption: 'new:mt-{number}',
+} as const;
+
+describe('v1 → v2 reading (FR-024, AC-134)', () => {
+    it('reads a dispatch-attempts-1 document as v2 with every attempt intact and no invented stamp', async () => {
+        {
+            const legacy = parseJsonValue(JSON.stringify({
+                schemaVersion: LEGACY_DISPATCH_SCHEMA_VERSION,
+                attempts: [
+                    {
+                        correlationId: CORRELATION,
+                        runKey: RUN_KEY,
+                        attempt: 1,
+                        dispatchToken: TOKEN,
+                        outcome: 'failed',
+                        sessionId: null,
+                        reason: 'no-session',
+                        recordedAt: RECORDED_AT,
+                        acknowledged: false,
+                    },
+                    {
+                        correlationId: OTHER_CORRELATION,
+                        runKey: RUN_KEY,
+                        attempt: 2,
+                        dispatchToken: TOKEN,
+                        outcome: 'dispatched',
+                        sessionId: 'ses_9',
+                        reason: null,
+                        recordedAt: RECORDED_AT,
+                        acknowledged: true,
+                    },
+                ],
+            }));
+            const { rt } = runtimeWith({ [DISPATCH_STORAGE_KEY]: legacy });
+
+            const read = await loadDispatchRecord(rt);
+
+            expect(read.ok).toBe(true);
+            if (!read.ok) {
+                return;
+            }
+
+            expect(read.document.schemaVersion).toBe(DISPATCH_SCHEMA_VERSION);
+            expect(read.document.attempts).toHaveLength(2);
+            expect(read.document.attempts.map((row) => row.outcome)).toEqual(['failed', 'dispatched']);
+            for (const row of read.document.attempts) {
+                expect(row.authorizedAt).toBeNull();
+                expect(row.leaseId).toBeNull();
+                expect(row.projectId).toBeNull();
+                expect(row.worktreeOption).toBeNull();
+                expect(row.settledAt).toBeNull();
+            }
+
+            // The v1 stamp stays what it was — the outcome write's time — and is
+            // never presented as the authorization time the row never held.
+            expect(read.document.attempts[0]?.recordedAt).toBe(RECORDED_AT);
+            expect(unacknowledgedAttempts(read.document).map((row) => row.attempt)).toEqual([1]);
+        }
+    });
+
+    it('refuses a dispatch-attempts-1 document carrying an unknown row whole', () => {
+        const legacy = parseJsonValue(JSON.stringify({
+            schemaVersion: LEGACY_DISPATCH_SCHEMA_VERSION,
+            attempts: [{
+                correlationId: CORRELATION,
+                runKey: RUN_KEY,
+                attempt: 1,
+                dispatchToken: TOKEN,
+                outcome: 'unknown',
+                sessionId: null,
+                reason: null,
+                recordedAt: RECORDED_AT,
+                acknowledged: false,
+            }],
+        }));
+
+        // v1 could not record an unknown outcome, so the document is not a v1
+        // document this build may half-apply.
+        expect(readDispatchRecord(legacy)).toBeNull();
+    });
+
+    it('reads a pre-amendment v2 row with a null lease rather than refusing it', () => {
+        const preAmendment = parseJsonValue(JSON.stringify({
+            schemaVersion: DISPATCH_SCHEMA_VERSION,
+            attempts: [{
+                correlationId: CORRELATION,
+                runKey: RUN_KEY,
+                attempt: 1,
+                dispatchToken: TOKEN,
+                projectId: 'prj_42',
+                worktreeOption: 'generated',
+                outcome: 'failed',
+                sessionId: null,
+                reason: 'no-session',
+                authorizedAt: RECORDED_AT,
+                recordedAt: RECORDED_AT,
+                settledAt: null,
+                acknowledged: false,
+            }],
+        }));
+
+        const preAmendmentRead = readDispatchRecord(preAmendment);
+
+        expect(preAmendmentRead?.attempts[0]).toMatchObject({ leaseId: null, outcome: 'failed' });
+    });
+});
+
 describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
     it('reads a wiped or never-written key as an empty record', async () => {
         {
@@ -166,7 +313,7 @@ describe('loadDispatchRecord (absent is empty, corrupt is refused)', () => {
 });
 
 describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
-    it('stores the outcome with acknowledged false, before any report', async () => {
+    it('appends an outcome when the attempt holds no record', async () => {
         {
             const { rt, storage } = runtimeWith();
 
@@ -174,6 +321,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 correlationId: CORRELATION,
                 runKey: RUN_KEY,
                 attempt: 1,
+                leaseId: LEASE_ID,
                 dispatchToken: TOKEN,
                 outcome: { kind: 'dispatched', sessionId: 'ses_1' },
             });
@@ -192,6 +340,12 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                     reason: null,
                     acknowledged: false,
                 });
+                // Nothing to copy from: the append invents no context.
+                expect(read.document.attempts[0]).toMatchObject({
+                    projectId: null,
+                    worktreeOption: null,
+                    authorizedAt: null,
+                });
             }
         }
     });
@@ -204,6 +358,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 correlationId: CORRELATION,
                 runKey: RUN_KEY,
                 attempt: 1,
+                leaseId: LEASE_ID,
                 dispatchToken: TOKEN,
                 outcome: { kind: 'failed', reason: 'bootstrap-failed' },
             });
@@ -228,6 +383,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                 correlationId: CORRELATION,
                 runKey: RUN_KEY,
                 attempt: 1,
+                leaseId: LEASE_ID,
                 dispatchToken: 'not-a-token',
                 outcome: { kind: 'dispatched', sessionId: 'ses_1' },
             });
@@ -245,6 +401,7 @@ describe('recordDispatchOutcome (FR-024 ordering, write, read back)', () => {
                     correlationId: CORRELATION,
                     runKey: RUN_KEY,
                     attempt: attemptNumber,
+                    leaseId: LEASE_ID,
                     dispatchToken: TOKEN,
                     outcome: { kind: 'failed', reason: 'no-session' },
                 });
@@ -273,7 +430,12 @@ describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
                 ),
             });
 
-            expect(await acknowledgeDispatch({ rt, correlationId: CORRELATION, attempt: 1 })).toBe(true);
+            expect(await acknowledgeDispatch({
+                rt,
+                correlationId: CORRELATION,
+                attempt: 1,
+                leaseId: LEASE_ID,
+            })).toBe(true);
 
             const read = await loadDispatchRecord(rt);
             expect(read.ok).toBe(true);
@@ -289,7 +451,12 @@ describe('acknowledgeDispatch (2xx flips exactly one attempt)', () => {
                 [DISPATCH_STORAGE_KEY]: storedAttempts(attempt({ attempt: 3, acknowledged: false })),
             });
 
-            expect(await acknowledgeDispatch({ rt, correlationId: CORRELATION, attempt: 4 })).toBe(false);
+            expect(await acknowledgeDispatch({
+                rt,
+                correlationId: CORRELATION,
+                attempt: 4,
+                leaseId: LEASE_ID,
+            })).toBe(false);
             expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
         }
     });
@@ -338,6 +505,34 @@ describe('cap and eviction (NFR-107, FR-024 durability)', () => {
             expect(capped.attempts.every((entry) => !entry.acknowledged)).toBe(true);
         }
     });
+
+    it('evicts a settled unacknowledged record and never one that is both unacknowledged and unsettled', () => {
+        {
+            const full = document([
+                attempt({ attempt: 1, acknowledged: false, settledAt: RECORDED_AT }),
+                ...Array.from({ length: MAX_RECORDED_ATTEMPTS - 1 }, (_unused, index) =>
+                    attempt({ attempt: index + 2, acknowledged: true })),
+            ]);
+
+            const capped = appendAttempt(full, attempt({ attempt: 99 }));
+
+            expect(capped.attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
+            expect(capped.attempts.some((entry) => entry.attempt === 1)).toBe(false);
+        }
+        {
+            const open = document([
+                attempt({ attempt: 1, acknowledged: false, settledAt: null }),
+                ...Array.from({ length: MAX_RECORDED_ATTEMPTS - 1 }, (_unused, index) =>
+                    attempt({ attempt: index + 2, acknowledged: true })),
+            ]);
+
+            const capped = appendAttempt(open, attempt({ attempt: 99 }));
+
+            expect(capped.attempts).toHaveLength(MAX_RECORDED_ATTEMPTS);
+            expect(capped.attempts[0]).toMatchObject({ attempt: 1, settledAt: null });
+            expect(capped.attempts.some((entry) => entry.attempt === 2)).toBe(false);
+        }
+    });
 });
 
 describe('redaction posture (T-019, research §R3)', () => {
@@ -361,17 +556,18 @@ describe('redaction posture (T-019, research §R3)', () => {
     it('refuses to write a document the guard rejects', async () => {
         {
             const { rt, storage } = runtimeWith({
-                // Hand-edited storage carrying a credential: the record still parses
-                // (a reason is a reason), and the redaction guard is what stops it
-                // from being written back out.
+                // Hand-edited storage carrying a credential on another attempt: the
+                // record still parses (a reason is a reason), and the redaction guard
+                // is what stops it from being written back out beside the new one.
                 [DISPATCH_STORAGE_KEY]: storedAttempts(attempt({
-                    outcome: 'failed', sessionId: null, reason: PAT })),
+                    attempt: 2, outcome: 'failed', sessionId: null, reason: PAT })),
             });
 
             expect(await recordDispatchOutcome(rt, {
                 correlationId: CORRELATION,
                 runKey: RUN_KEY,
                 attempt: 1,
+                leaseId: LEASE_ID,
                 dispatchToken: TOKEN,
                 outcome: { kind: 'failed', reason: 'no-session' },
             })).toBe(false);
@@ -381,13 +577,237 @@ describe('redaction posture (T-019, research §R3)', () => {
 
 });
 
-describe('acknowledgeAttempt (pure flip)', () => {
-    it('keys the flip on correlation id and attempt together', () => {
-        const start = document([attempt({ attempt: 1 }), attempt({ correlationId: OTHER_CORRELATION, attempt: 1 })]);
+describe('recordDispatchIntent and the outcome that replaces it (FR-024, AC-134)', () => {
+    it('records the authorization as unknown, then replaces it in place, keeping authorizedAt', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(new Date('2026-09-29T10:00:00.000Z'));
+            const { rt } = runtimeWith();
 
-        const next = acknowledgeAttempt({ document: start, correlationId: OTHER_CORRELATION, attempt: 1 });
+            expect(await recordDispatchIntent(rt, INTENT_INPUT)).toBe(true);
+            const intent = await loadDispatchRecord(rt);
+            expect(intent.ok).toBe(true);
+            if (!intent.ok) {
+                return;
+            }
 
-        expect(next.attempts.map((entry) => entry.acknowledged)).toEqual([false, true]);
+            expect(intent.document.attempts).toHaveLength(1);
+            expect(intent.document.attempts[0]).toMatchObject({
+                correlationId: CORRELATION,
+                attempt: 1,
+                outcome: 'unknown',
+                sessionId: null,
+                reason: null,
+                projectId: 'prj_42',
+                worktreeOption: 'new:mt-{number}',
+                authorizedAt: '2026-09-29T10:00:00.000Z',
+                recordedAt: '2026-09-29T10:00:00.000Z',
+                settledAt: null,
+                acknowledged: false,
+            });
+
+            vi.setSystemTime(new Date('2026-09-29T10:00:05.000Z'));
+            expect(await recordDispatchOutcome(rt, {
+                correlationId: CORRELATION,
+                runKey: RUN_KEY,
+                attempt: 1,
+                leaseId: LEASE_ID,
+                dispatchToken: TOKEN,
+                outcome: { kind: 'dispatched', sessionId: 'ses_1' },
+            })).toBe(true);
+
+            const resolved = await loadDispatchRecord(rt);
+            expect(resolved.ok).toBe(true);
+            if (!resolved.ok) {
+                return;
+            }
+
+            // One attempt is one record, never two: the outcome replaced the intent.
+            expect(resolved.document.attempts).toHaveLength(1);
+            expect(resolved.document.attempts[0]).toMatchObject({
+                outcome: 'dispatched',
+                sessionId: 'ses_1',
+                authorizedAt: '2026-09-29T10:00:00.000Z',
+                recordedAt: '2026-09-29T10:00:05.000Z',
+            });
+
+            // The same reservation written again is an idempotent success and never
+            // downgrades the resolved outcome to `unknown`.
+            expect(await recordDispatchIntent(rt, INTENT_INPUT)).toBe(true);
+            const reread = await loadDispatchRecord(rt);
+            expect(reread.ok).toBe(true);
+            if (reread.ok) {
+                expect(reread.document.attempts[0]).toMatchObject({ outcome: 'dispatched', sessionId: 'ses_1' });
+            }
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('leaves the record byte-identical when the same reservation writes again', async () => {
+        const { rt, storage } = runtimeWith();
+
+        expect(await recordDispatchIntent(rt, INTENT_INPUT)).toBe(true);
+        const before = JSON.stringify(storage.values.get(DISPATCH_STORAGE_KEY));
+        const writes = storage.operations.filter((operation) => operation.startsWith('set:')).length;
+
+        expect(await recordDispatchIntent(rt, INTENT_INPUT)).toBe(true);
+
+        expect(storage.operations.filter((operation) => operation.startsWith('set:'))).toHaveLength(writes);
+        expect(JSON.stringify(storage.values.get(DISPATCH_STORAGE_KEY))).toBe(before);
+    });
+
+    it('replaces a same-attempt record carrying a different lease instead of refusing it', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        try {
+            vi.setSystemTime(new Date('2026-09-29T10:00:00.000Z'));
+            const { rt } = runtimeWith();
+            await recordDispatchIntent(rt, INTENT_INPUT);
+
+            vi.setSystemTime(new Date('2026-09-29T11:00:00.000Z'));
+            expect(await recordDispatchIntent(rt, { ...INTENT_INPUT, leaseId: OTHER_LEASE_ID })).toBe(true);
+
+            const read = await loadDispatchRecord(rt);
+            expect(read.ok).toBe(true);
+            if (!read.ok) {
+                return;
+            }
+
+            expect(read.document.attempts).toHaveLength(1);
+            expect(read.document.attempts[0]).toMatchObject({
+                attempt: 1,
+                leaseId: OTHER_LEASE_ID,
+                outcome: 'unknown',
+                authorizedAt: '2026-09-29T11:00:00.000Z',
+                acknowledged: false,
+            });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('does not persist a second record at an attempt whose record carries another lease', async () => {
+        const { rt, storage } = runtimeWith();
+        await recordDispatchIntent(rt, { ...INTENT_INPUT, leaseId: OTHER_LEASE_ID });
+        const writes = storage.operations.filter((operation) => operation.startsWith('set:')).length;
+
+        expect(await recordDispatchOutcome(rt, {
+            correlationId: CORRELATION,
+            runKey: RUN_KEY,
+            attempt: 1,
+            leaseId: LEASE_ID,
+            dispatchToken: TOKEN,
+            outcome: { kind: 'dispatched', sessionId: 'ses_old' },
+        })).toBe(true);
+
+        const read = await loadDispatchRecord(rt);
+        expect(read.ok).toBe(true);
+        if (!read.ok) {
+            return;
+        }
+
+        // One attempt is one record: the newer cycle's intent stands intact and
+        // the superseded outcome was reported, never stored beside it.
+        expect(storage.operations.filter((operation) => operation.startsWith('set:'))).toHaveLength(writes);
+        expect(read.document.attempts).toHaveLength(1);
+        expect(read.document.attempts[0]).toMatchObject({
+            attempt: 1,
+            leaseId: OTHER_LEASE_ID,
+            outcome: 'unknown',
+            sessionId: null,
+        });
+    });
+
+    it('refuses to persist an intent its own parser would reject', async () => {
+        {
+            const { rt, storage } = runtimeWith();
+
+            expect(await recordDispatchIntent(rt, { ...INTENT_INPUT, dispatchToken: 'not-a-token' })).toBe(false);
+            expect(storage.operations).not.toContain(`set:${DISPATCH_STORAGE_KEY}`);
+        }
+    });
+
+});
+
+describe('follow-up preservation (FR-024, AC-134)', () => {
+    it('carries the document\'s follow-ups unchanged through an intent and an outcome write', async () => {
+        const record = followUp();
+        const initial = parseJsonValue(JSON.stringify({
+            schemaVersion: DISPATCH_SCHEMA_VERSION,
+            attempts: [],
+            followUps: [record],
+        }));
+        const { rt, storage } = runtimeWith({ [DISPATCH_STORAGE_KEY]: initial });
+        const before = readDispatchRecord(initial)?.followUps;
+
+        await recordDispatchIntent(rt, INTENT_INPUT);
+        await recordDispatchOutcome(rt, {
+            correlationId: CORRELATION,
+            runKey: RUN_KEY,
+            attempt: 1,
+            leaseId: LEASE_ID,
+            dispatchToken: TOKEN,
+            outcome: { kind: 'failed', reason: 'no-session' },
+        });
+
+        const after = readDispatchRecord(storage.values.get(DISPATCH_STORAGE_KEY))?.followUps;
+        expect(after).toEqual([record]);
+        expect(JSON.stringify(after)).toBe(JSON.stringify(before));
+    });
+
+    it('keeps them through the pure writers too', () => {
+        const start: DispatchRecordDocument = {
+            schemaVersion: DISPATCH_SCHEMA_VERSION,
+            attempts: [attempt()],
+            followUps: [followUp()],
+        };
+        const unknown: DispatchRecordDocument = {
+            ...start,
+            attempts: [attempt({ outcome: 'unknown', sessionId: null, reason: null, settledAt: null })],
+        };
+
+        expect(appendAttempt(start, attempt({ attempt: 2 })).followUps).toEqual([followUp()]);
+        const settled = settleAttempt({
+            document: unknown,
+            correlationId: CORRELATION,
+            attempt: 1,
+            leaseId: LEASE_ID,
+            at: RECORDED_AT,
+        });
+        expect(settled?.followUps).toEqual([followUp()]);
+    });
+});
+
+describe('settleAttempt (FR-045)', () => {
+    it('writes settledAt only onto an unsettled unknown record, leaving its outcome unknown', () => {
+        const unknown = attempt({ outcome: 'unknown', sessionId: null, reason: null, settledAt: null });
+
+        const settled = settleAttempt({
+            document: document([unknown]),
+            correlationId: CORRELATION,
+            attempt: 1,
+            leaseId: LEASE_ID,
+            at: RECORDED_AT,
+        });
+
+        const alreadyResolved = settleAttempt({
+            document: document([attempt()]),
+            correlationId: CORRELATION,
+            attempt: 1,
+            leaseId: LEASE_ID,
+            at: RECORDED_AT,
+        });
+        const alreadySettled = settleAttempt({
+            document: document([{ ...unknown, settledAt: RECORDED_AT }]),
+            correlationId: CORRELATION,
+            attempt: 1,
+            leaseId: LEASE_ID,
+            at: RECORDED_AT,
+        });
+
+        expect(settled?.attempts[0]).toMatchObject({ outcome: 'unknown', settledAt: RECORDED_AT });
+        expect(alreadyResolved).toBeNull();
+        expect(alreadySettled).toBeNull();
     });
 });
 

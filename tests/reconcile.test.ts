@@ -21,10 +21,18 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import type { GuestRequest, GuestRequestResult, JsonValue } from '@openchamber/sdk';
+import type { GuestRequest, GuestRequestResult, HostReadyContext, JsonValue } from '@openchamber/sdk';
+import { begin, teardown } from '../src/app.ts';
 import { RECONCILE_BUDGET_MS, reconcileDispatchAttempts } from '../src/reconcile.ts';
-import { DISPATCH_STORAGE_KEY, recordDispatchOutcome } from '../src/dispatch-record.ts';
-import { dispatchedPath } from '../src/service-calls.ts';
+import {
+    DISPATCH_SCHEMA_VERSION,
+    DISPATCH_STORAGE_KEY,
+    loadDispatchRecord,
+    recordDispatchIntent,
+    recordDispatchOutcome,
+} from '../src/dispatch-record.ts';
+import type { DispatchAttemptRecord } from '../src/dispatch-record.ts';
+import { auditPath, dispatchedPath } from '../src/service-calls.ts';
 import { settleReconciliation, startRelayPolling, stopRelayPolling } from '../src/relay.ts';
 import type { PanelRuntime } from '../src/panel-state.ts';
 import {
@@ -33,6 +41,7 @@ import {
     LOGIN,
     PROJECT_ID,
     createStorageDouble,
+    createPushHarness,
     createTestRuntime,
     fakeHost,
 } from './support/panel.ts';
@@ -51,6 +60,12 @@ const RUN_KEY_B = 'github|77331|acme/widget|issue|7|1';
 
 /** Single-use token the fixture records carry. */
 const TOKEN = `dtk-${'a1b2c3d4'.repeat(4)}`;
+
+/** The reservation the fixture attempt belongs to. */
+const LEASE_A = 'lse-aaaaaaaaaaaaaaaaaaaaaaaa';
+
+/** A later reservation cycle reusing the same attempt number. */
+const LEASE_B = 'lse-bbbbbbbbbbbbbbbbbbbbbbbb';
 
 /** Session id the fixture's dispatched outcome reports. */
 const SESSION_ID = 'ses_1';
@@ -186,8 +201,82 @@ async function record(rt: PanelRuntime, input: {
     /** What the host call produced. */
     readonly outcome: { readonly kind: 'dispatched'; readonly sessionId: string };
 }): Promise<void> {
-    const isWritten = await recordDispatchOutcome(rt, { dispatchToken: TOKEN, ...input });
+    const isWritten = await recordDispatchOutcome(rt, {
+        leaseId: LEASE_A,
+        dispatchToken: TOKEN,
+        ...input,
+    });
     expect(isWritten).toBe(true);
+}
+
+/** Record one authorization whose outcome never landed, the way a teardown leaves it. */
+async function recordUnknown(rt: PanelRuntime, input: {
+    readonly correlationId: string;
+    readonly runKey: string;
+    readonly attempt?: number;
+    readonly leaseId?: string;
+    readonly projectId?: string;
+    readonly worktreeOption?: string;
+}): Promise<void> {
+    const isWritten = await recordDispatchIntent(rt, {
+        correlationId: input.correlationId,
+        runKey: input.runKey,
+        attempt: input.attempt ?? 1,
+        leaseId: input.leaseId ?? LEASE_A,
+        dispatchToken: TOKEN,
+        projectId: input.projectId ?? PROJECT_ID,
+        worktreeOption: input.worktreeOption ?? 'generated',
+    });
+    expect(isWritten).toBe(true);
+}
+
+/** The stored attempts, read back through the panel's own reader. */
+async function storedAttempts(rt: PanelRuntime): Promise<readonly DispatchAttemptRecord[]> {
+    const read = await loadDispatchRecord(rt);
+
+    expect(read.ok).toBe(true);
+
+    return read.ok ? read.document.attempts : [];
+}
+
+/** One attempt's settlement stamp, or `undefined` when the panel holds no such row. */
+async function settledAtOf(rt: PanelRuntime, correlationId: string): Promise<string | null | undefined> {
+    const attempts = await storedAttempts(rt);
+    const row = attempts.find((entry) => entry.correlationId === correlationId);
+
+    return row?.settledAt;
+}
+
+/** One correlation-filtered audit row, shaped as the route answers it. */
+function auditRow(input: {
+    readonly correlationId: string;
+    readonly seq: number;
+    readonly eventType: string;
+    readonly details?: Readonly<Record<string, JsonValue>>;
+}): Record<string, JsonValue> {
+    return {
+        seq: input.seq,
+        timestamp: FIXTURE_TIMESTAMP,
+        correlationId: input.correlationId,
+        eventType: input.eventType,
+        actorSource: 'panel',
+        decision: null,
+        reason: null,
+        details: input.details ?? {},
+    };
+}
+
+/** One correlation-filtered audit page body. */
+function auditBody(
+    entries: readonly Record<string, JsonValue>[],
+    nextCursor: number | null = null,
+): string {
+    return JSON.stringify({ entries, nextCursor, count: entries.length });
+}
+
+/** The route key the settle read asks for, cursor included (T-048's query-string fixture). */
+function auditKey(correlationId: string, cursor: number | null = null): string {
+    return `GET ${auditPath(correlationId, { limit: 200, cursor })}`;
 }
 
 describe('reconcile mount order (FR-025, AC-111)', () => {
@@ -362,5 +451,541 @@ describe('reconciliation of nothing (FR-025 wipe permutation)', () => {
         expect(outcome).toEqual({ attempted: 0, acknowledged: 0, outstanding: [], warning: null });
         expect(relay.timeline).toEqual([]);
         expect(relay.timeline.filter((entry) => entry.startsWith('startSession'))).toHaveLength(0);
+    });
+});
+
+describe('unknown records are surfaced, never reported (FR-025, AC-135)', () => {
+    it('posts nothing for an unknown record while a resolved attempt in the same pass is re-reported', async () => {
+        const relay = harness();
+        await record(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, attempt: 1, outcome: {
+            kind: 'dispatched',
+            sessionId: SESSION_ID,
+        } });
+        await recordUnknown(relay.rt, { correlationId: RUN_B, runKey: RUN_KEY_B });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        // RUN_B's audit read has no route, so it fails; the re-report of RUN_A
+        // must still have happened, and RUN_B must not have been reported.
+        expect(outcome.attempted).toBe(1);
+        expect(outcome.acknowledged).toBe(1);
+        expect(relay.postBodies).toHaveLength(1);
+        expect(JSON.parse(relay.postBodies[0] ?? '{}')).toMatchObject({ correlationId: RUN_A });
+        expect(relay.timeline).toContain(`POST ${dispatchedPath(RUN_A)}`);
+        expect(relay.timeline).not.toContain(`POST ${dispatchedPath(RUN_B)}`);
+        expect(outcome.outstanding).toEqual([RUN_B]);
+        expect(relay.rt.state.status.body).toContain(RUN_B);
+        expect(relay.rt.state.status.body).toContain('could not check');
+        expect(await settledAtOf(relay.rt, RUN_B)).toBeNull();
+    });
+
+    it('warns with the run first, the record\'s target, the derived attachment id, and both resolutions', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: { status: 200, body: auditBody([]) },
+        });
+        await recordUnknown(relay.rt, {
+            correlationId: RUN_A,
+            runKey: RUN_KEY_A,
+            projectId: PROJECT_ID,
+            worktreeOption: 'new:mt-7',
+        });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+        const { body } = relay.rt.state.status;
+
+        expect(outcome.warning).toBe(body);
+        expect(relay.rt.state.status.tone).toBe('warning');
+        expect(relay.postBodies).toHaveLength(0);
+        expect(body.indexOf(RUN_A)).toBeLessThan(body.indexOf(`project ${PROJECT_ID}`));
+        expect(body).toContain('never recorded as producing a session');
+        expect(body).toContain(`project ${PROJECT_ID}`);
+        expect(body).toContain('worktree option new:mt-7');
+        expect(body).toContain(`attachment ${RUN_A}`);
+        expect(body).toContain('session created');
+        expect(body).toContain('no session created');
+        expect(body).toContain('once the run reads unconfirmed');
+        expect(body).toContain('is not in the list this panel loaded');
+        expect(body).toContain('Dispatches');
+    });
+
+    it('says the panel could not check when the audit read fails', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: { status: 503, body: JSON.stringify({ error: { code: 'storage-unavailable' } }) },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).not.toBeNull();
+        expect(relay.rt.state.status.body).toContain('could not check');
+        expect(await settledAtOf(relay.rt, RUN_A)).toBeNull();
+    });
+
+    it('does not settle when the budget stops the pass before the check, and says so', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: { status: 200, body: auditBody([]) },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        let ticks = 0;
+        const clock = (): number => {
+            ticks += 1;
+
+            return ticks <= 1 ? 0 : RECONCILE_BUDGET_MS + 1_000;
+        };
+        const outcome = await reconcileDispatchAttempts(relay.rt, { now: clock });
+
+        expect(outcome.warning).not.toBeNull();
+        expect(relay.rt.state.status.body).toContain('could not check');
+        expect(relay.timeline.filter((entry) => entry.startsWith('GET /v1/audit'))).toHaveLength(0);
+        expect(await settledAtOf(relay.rt, RUN_A)).toBeNull();
+    });
+});
+
+describe('settling an unknown record on the service\'s evidence (FR-045, AC-135)', () => {
+    it('settles on dispatch.result naming the attempt and never surfaces the record again', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.reserved',
+                        details: { attempt: 1, leaseId: LEASE_A },
+                    }),
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 2,
+                        eventType: 'dispatch.result',
+                        details: { attempt: 1, sessionId: SESSION_ID },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).toBeNull();
+        expect(outcome.outstanding).toEqual([]);
+        const settled = await storedAttempts(relay.rt);
+        expect(settled[0]).toMatchObject({ outcome: 'unknown' });
+        expect(settled[0]?.settledAt).not.toBeNull();
+        expect(relay.postBodies).toHaveLength(0);
+
+        // The trail is trimmed and the panel remounts: a settled record is not
+        // consulted again, so nothing can resurrect the warning.
+        relay.setRoutes(okRoutes());
+        const second = await reconcileDispatchAttempts(relay.rt);
+
+        expect(second.warning).toBeNull();
+        expect(relay.timeline.filter((entry) => entry.startsWith('GET /v1/audit'))).toHaveLength(1);
+    });
+
+    it('settles on dispatch.abandoned naming the attempt', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.reserved',
+                        details: { attempt: 1, leaseId: LEASE_A },
+                    }),
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 2,
+                        eventType: 'dispatch.abandoned',
+                        details: { attempt: 1, leaseId: LEASE_A },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).toBeNull();
+        expect(await settledAtOf(relay.rt, RUN_A)).not.toBeNull();
+    });
+
+    it('settles on a dispatch.resolved sequenced after the reserved row naming the attempt', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.reserved',
+                        details: { attempt: 1, leaseId: LEASE_A },
+                    }),
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 2,
+                        eventType: 'dispatch.resolved',
+                        details: { priorState: 'unconfirmed' },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).toBeNull();
+        expect(await settledAtOf(relay.rt, RUN_A)).not.toBeNull();
+    });
+
+    it('does not settle on a dispatch.resolved it cannot order against a reserved row in the same read', async () => {
+        {
+            const relay = harness({
+                ...okRoutes(),
+                [auditKey(RUN_A)]: {
+                    status: 200,
+                    body: auditBody([
+                        auditRow({ correlationId: RUN_A, seq: 2, eventType: 'dispatch.resolved', details: {} }),
+                    ]),
+                },
+            });
+            await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+            const outcome = await reconcileDispatchAttempts(relay.rt);
+
+            expect(outcome.warning).not.toBeNull();
+            expect(await settledAtOf(relay.rt, RUN_A)).toBeNull();
+        }
+        {
+            const relay = harness({
+                ...okRoutes(),
+                [auditKey(RUN_A)]: {
+                    status: 200,
+                    body: auditBody([
+                        auditRow({
+                            correlationId: RUN_A,
+                            seq: 1,
+                            eventType: 'dispatch.resolved',
+                            details: {},
+                        }),
+                        auditRow({
+                            correlationId: RUN_A,
+                            seq: 2,
+                            eventType: 'dispatch.reserved',
+                            details: { attempt: 1, leaseId: LEASE_A },
+                        }),
+                    ]),
+                },
+            });
+            await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+            const outcome = await reconcileDispatchAttempts(relay.rt);
+
+            expect(outcome.warning).not.toBeNull();
+            expect(await settledAtOf(relay.rt, RUN_A)).toBeNull();
+        }
+    });
+
+    it('does not treat dispatch.unconfirmed as evidence, and says the decision is still owed', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.reserved',
+                        details: { attempt: 1, leaseId: LEASE_A },
+                    }),
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 2,
+                        eventType: 'dispatch.unconfirmed',
+                        details: { attempt: 1, leaseId: LEASE_A },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).not.toBeNull();
+        expect(relay.rt.state.status.body).toContain('still needs your decision');
+        expect(await settledAtOf(relay.rt, RUN_A)).toBeNull();
+    });
+
+    it('does not treat a missing or non-numeric attempt reference as evidence', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.result',
+                        details: {},
+                    }),
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 2,
+                        eventType: 'dispatch.abandoned',
+                        details: { attempt: '1' },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).not.toBeNull();
+        expect(await settledAtOf(relay.rt, RUN_A)).toBeNull();
+    });
+
+    it('pages past the audit view\'s 100-row display cap until the settling row', async () => {
+        const filler = Array.from({ length: 204 }, (_unused, index) =>
+            auditRow({ correlationId: RUN_A, seq: index + 1, eventType: 'dispatch.claimed' }));
+        const rows = [
+            ...filler,
+            auditRow({
+                correlationId: RUN_A,
+                seq: 205,
+                eventType: 'dispatch.reserved',
+                details: { attempt: 1, leaseId: LEASE_A },
+            }),
+            auditRow({
+                correlationId: RUN_A,
+                seq: 206,
+                eventType: 'dispatch.result',
+                details: { attempt: 1, sessionId: SESSION_ID },
+            }),
+        ];
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: { status: 200, body: auditBody(rows.slice(0, 200), 200) },
+            [auditKey(RUN_A, 200)]: { status: 200, body: auditBody(rows.slice(200)) },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).toBeNull();
+        expect(await settledAtOf(relay.rt, RUN_A)).not.toBeNull();
+        expect(relay.timeline.filter((entry) => entry.startsWith('GET /v1/audit'))).toHaveLength(2);
+    });
+});
+
+describe('the reservation is the settle anchor (FR-045, AC-135)', () => {
+    it('ignores a prior cycle\'s result at the same attempt, before the lease-matched reservation', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.reserved',
+                        details: { attempt: 1, leaseId: LEASE_A },
+                    }),
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 2,
+                        eventType: 'dispatch.result',
+                        details: { attempt: 1, sessionId: SESSION_ID },
+                    }),
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 3,
+                        eventType: 'dispatch.reserved',
+                        details: { attempt: 1, leaseId: LEASE_B },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, leaseId: LEASE_B });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).not.toBeNull();
+        expect(outcome.outstanding).toEqual([RUN_A]);
+        expect(relay.rt.state.status.body).toContain('no outcome recorded yet');
+        expect(await settledAtOf(relay.rt, RUN_A)).toBeNull();
+    });
+
+    it('does not anchor on a reservation carrying a different lease', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.reserved',
+                        details: { attempt: 1, leaseId: LEASE_A },
+                    }),
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 2,
+                        eventType: 'dispatch.result',
+                        details: { attempt: 1, sessionId: SESSION_ID },
+                    }),
+                ]),
+            },
+        });
+        await recordUnknown(relay.rt, { correlationId: RUN_A, runKey: RUN_KEY_A, leaseId: LEASE_B });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).not.toBeNull();
+        expect(relay.rt.state.status.body).toContain('could not check');
+        expect(await settledAtOf(relay.rt, RUN_A)).toBeNull();
+    });
+
+    it('surfaces a null-lease unknown record and never settles it', async () => {
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: {
+                status: 200,
+                body: auditBody([
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 1,
+                        eventType: 'dispatch.reserved',
+                        details: { attempt: 1, leaseId: LEASE_A },
+                    }),
+                    auditRow({
+                        correlationId: RUN_A,
+                        seq: 2,
+                        eventType: 'dispatch.result',
+                        details: { attempt: 1, sessionId: SESSION_ID },
+                    }),
+                ]),
+            },
+        });
+        await relay.rt.host.storage.set(DISPATCH_STORAGE_KEY, {
+            schemaVersion: DISPATCH_SCHEMA_VERSION,
+            attempts: [{
+                correlationId: RUN_A,
+                runKey: RUN_KEY_A,
+                attempt: 1,
+                dispatchToken: TOKEN,
+                projectId: PROJECT_ID,
+                worktreeOption: 'generated',
+                outcome: 'unknown',
+                sessionId: null,
+                reason: null,
+                authorizedAt: FIXTURE_TIMESTAMP,
+                recordedAt: FIXTURE_TIMESTAMP,
+                settledAt: null,
+                acknowledged: false,
+            }],
+        });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+
+        expect(outcome.warning).not.toBeNull();
+        expect(relay.rt.state.status.body).toContain('could not check');
+        expect(await settledAtOf(relay.rt, RUN_A)).toBeNull();
+    });
+});
+
+describe('the banner cannot lose a run (FR-025, AC-135)', () => {
+    it('shows two unsettled runs and both verdicts, bounding each detail line visibly', async () => {
+        const longProject = `prj_${'a'.repeat(700)}`;
+        const relay = harness({
+            ...okRoutes(),
+            [auditKey(RUN_A)]: { status: 200, body: auditBody([]) },
+            [auditKey(RUN_B)]: { status: 200, body: auditBody([]) },
+        });
+        await recordUnknown(relay.rt, {
+            correlationId: RUN_A,
+            runKey: RUN_KEY_A,
+            leaseId: LEASE_A,
+            projectId: longProject,
+        });
+        await recordUnknown(relay.rt, {
+            correlationId: RUN_B,
+            runKey: RUN_KEY_B,
+            leaseId: LEASE_B,
+            projectId: longProject,
+        });
+
+        const outcome = await reconcileDispatchAttempts(relay.rt);
+        const { body } = relay.rt.state.status;
+
+        expect(outcome.outstanding).toEqual([RUN_A, RUN_B]);
+        expect(body).toContain(`${RUN_A} (could not check)`);
+        expect(body).toContain(`${RUN_B} (could not check)`);
+        expect(body.length).toBeGreaterThan(600);
+        expect(body).toContain(`… See ${RUN_A}'s row in Dispatches for the full detail.`);
+        expect(body).toContain(`… See ${RUN_B}'s row in Dispatches for the full detail.`);
+    });
+});
+
+describe('mount order (FR-025, AC-135)', () => {
+    it('awaits the Dispatches list before reconciling', async () => {
+        const timeline: string[] = [];
+        const storage = createStorageDouble();
+        const eventsPage = JSON.stringify({
+            events: [],
+            page: {
+                limit: 25,
+                nextCursor: null,
+                hasMore: false,
+                total: 0,
+                snapshotAt: FIXTURE_TIMESTAMP,
+                filter: { bindingId: null, state: null },
+            },
+        });
+        const push = createPushHarness({
+            serviceRequest: async (request: GuestRequest): Promise<GuestRequestResult> => {
+                timeline.push(`${request.method} ${request.path}`);
+                if (request.path.startsWith('/v1/events?')) {
+                    return { status: 200, body: eventsPage };
+                }
+
+                if (request.path.startsWith('/v1/audit?')) {
+                    return { status: 200, body: auditBody([]) };
+                }
+
+                return { status: 404, body: '{"error":{"code":"not-found","message":"unrouted"}}' };
+            },
+            storage: storage.storage,
+        });
+        const rt = createTestRuntime(push.host);
+        rt.started = true;
+        const capture: { ready: HostReadyContext | null } = { ready: null };
+        push.host.onReady((context): void => {
+            capture.ready = context;
+        });
+        push.emitReady(null);
+        if (capture.ready === null) {
+            throw new Error('the harness never fired ready');
+        }
+
+        await recordUnknown(rt, { correlationId: RUN_A, runKey: RUN_KEY_A });
+        try {
+            await begin(rt, capture.ready);
+        } finally {
+            teardown(rt);
+        }
+
+        const listAt = timeline.findIndex((entry) => entry.startsWith('GET /v1/events?'));
+        const auditAt = timeline.findIndex((entry) => entry.startsWith('GET /v1/audit?'));
+
+        expect(listAt).toBeGreaterThanOrEqual(0);
+        expect(auditAt).toBeGreaterThan(listAt);
     });
 });

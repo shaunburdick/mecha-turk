@@ -89,3 +89,30 @@ path.
 
 **Task ids refer to the consolidated list** at
 [`002-agent-event-extension/tasks.md` §"Issue #9 block (2026-10-03)"](../002-agent-event-extension/tasks.md).
+
+---
+
+## Amendment note — 2026-10-22 (spec v1.13.0: the attempt-intent record; GitHub issue #72; **met**)
+
+The tables above remain the record of what proved what through v1.12.0. **v1.13.0 adds two criteria and re-cuts AC-111; all three are met by T-046 … T-049.** Nothing above changes: the amendment re-cuts FR-024 and FR-025 in place, allocates FR-045 and FR-046, and adds no service route, wire member, audit event type, storage key, or capability.
+
+| Criterion | Status | Will be discharged by |
+| --- | --- | --- |
+| **AC-111** *(re-report the resolved, surface the unknown)* | **met** | `T-048` (`tests/reconcile.test.ts`): the re-report set is exactly the resolved, unacknowledged records, an unknown record is surfaced and never reported, and the repeat-and-bound clauses are unchanged |
+| **003 AC-134** *(intent before the act, and fail-closed)* | **met** | `T-046` + `T-047` (`tests/dispatch-record.test.ts`, `tests/relay-integrity.test.ts`): the `unknown` record exists before the host call with a non-null `authorizedAt`, `projectId`, and `worktreeOption`; the resolved outcome replaces it with `authorizedAt` preserved and `recordedAt` moved; a `dispatch-attempts-1` document reads with `authorizedAt` null and no stamp invented; an intent and an outcome write leave a follow-up record intact; a refused intent write issues no host call, abandons with the storage refusal as its reason, records it in the ledger, and is upgraded through the acknowledging write when the outcome write failed but the report landed |
+| **003 AC-135** *(unknown surfaced, never reported, settles on evidence and stays settled)* | **met** | `T-048` + `T-049` (`tests/reconcile.test.ts`, `tests/crash-permutations.test.ts`): the warning before the first claim, no result or abandonment for the attempt, the other unacknowledged attempts still re-reported, the warning naming the record's project and worktree option plus the derived attachment identifier and saying the run's row is not in the list the panel loaded when it is absent, pointing at it in Dispatches, and settlement on `dispatch.result` / `dispatch.abandoned` naming the attempt or a `dispatch.resolved` sequenced after the service's `dispatch.reserved` row — written as `settledAt` so a trimmed trail cannot resurface it, never on `dispatch.unconfirmed`, never on a non-numeric attempt reference, never on a failed read or a budget that stops the walk, and never through the 100-row display cap (the >100-row fixture pages to exhaustion) |
+
+**Task ids refer to [tasks.md](./tasks.md) §"Issue #72 block"**, which carries the bounded implementation list.
+
+---
+
+## Amendment note — 2026-10-23 (spec v1.14.0: Gate 3 conformance; **met**)
+
+The tables above remain the record of what proved what through v1.13.0. **v1.14.0 extends two criteria in place, and both extensions are met by `T-046` … `T-049`.** Nothing above changes: the amendment is panel-only, re-cuts FR-024, FR-025 and FR-045 in place, and adds no service route, wire member, audit event type, storage key, or capability.
+
+| Criterion | Status | Discharged by |
+| --- | --- | --- |
+| **003 AC-134** *(intent before the act, and fail-closed)* — extended | **met** | `T-046` v1.14.0 with `T-047`: the intent record carries the claim's `leaseId` (null on a v1 or pre-amendment row); the intent writer is idempotent for the same reservation and replaces a same-attempt record carrying a different lease; the outcome writer replaces the record carrying its own lease, appends only when the attempt holds no record, and persists nothing for a superseded lease; a v1 document reads whole; follow-ups survive both writes; a refused intent write issues no host call and abandons with the storage refusal as its reason |
+| **003 AC-135** *(unknown surfaced, never reported, settles on evidence and stays settled)* — extended | **met** | `T-048` v1.14.0 with `T-049`: settlement is anchored to the `dispatch.reserved` row carrying that attempt **and** the record's lease identifier, with no anchor leaving the record unsettled and the panel saying it could not check; the run list survives the banner bound with both runs and both verdicts, each detail line bounded and pointing at its row; the detail line says the run's row is not in the list the panel loaded when it is absent; the Dispatches read is awaited before reconciliation |
+
+Per the Gate 3 round-3 cut, this note cites the task that discharges each criterion rather than restating test titles: the titles already live in `tasks.md`, and a third verbatim copy drifts.

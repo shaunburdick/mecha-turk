@@ -330,7 +330,13 @@ export async function reportAndAcknowledge(input: {
         body,
     });
     if (answer.ok) {
-        await acknowledgeDispatch({ rt, correlationId: run.correlationId, attempt: run.attempt });
+        await acknowledgeDispatch({
+            rt,
+            correlationId: run.correlationId,
+            attempt: run.attempt,
+            leaseId: run.lease.leaseId,
+            resolved: { runKey: run.runKey, dispatchToken: token, outcome },
+        });
     }
 
     if (!stillRunning(rt)) {
@@ -377,6 +383,7 @@ export async function closeAttempt(input: {
         correlationId: run.correlationId,
         runKey: run.runKey,
         attempt: run.attempt,
+        leaseId: run.lease.leaseId,
         dispatchToken: token,
         outcome: started.outcome,
     });

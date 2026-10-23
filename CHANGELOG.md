@@ -63,6 +63,23 @@ matching section below plus GitHub's generated notes.
 
 ### Fixed
 
+- **A dispatch attempt is recorded before the host call, so a lost dispatch is
+  surfaced instead of vanishing** (#72). The panel now writes an
+  `unknown`-outcome intent record under `mecha-turk:dispatches` after the
+  reservation and before `host.startSession()`, carrying the run's project and
+  worktree option plus an `authorizedAt` stamp; the resolved outcome replaces
+  that record in place, so one attempt is one record and the authorization
+  stamp survives. A stored `dispatch-attempts-1` document still reads, its rows
+  gaining no authorization stamp they never held, and every attempts-side write
+  now carries the document's follow-up records through instead of erasing them.
+  When the intent cannot be written the panel starts no session and abandons
+  the reservation with that storage refusal as its reason; when a panel is torn
+  down before the outcome record, reconciliation surfaces the attempt — never
+  reports it — and settles it only on the service's own audit trail, walked to
+  exhaustion in 200-row pages, writing the settlement down so a trimmed trail
+  cannot resurrect the warning. Actions B (host-call budget/timeout), C
+  (Dispatches list re-read on a passed deadline) and D (resolve-control
+  arming) of issue #72 are **not** in this change.
 - **The dispatch frame now orders the agent to read the source and its
   comments** (#69). A `READ THE SOURCE OF RECORD` block sits directly beneath
   the `SESSION TITLE` block — an imperative to read the full issue or pull

@@ -272,9 +272,13 @@ export function verificationPath(correlationId: string): string {
     return runOperationPath(correlationId, 'verification');
 }
 
-/**
- * Build the correlation-filtered audit-read path.
- */
-export function auditPath(correlationId: string): string {
-    return `${AUDIT_PATH}?correlationId=${encodeURIComponent(correlationId)}`;
+/** The correlation-filtered audit-read path; `limit`/`cursor` are the settle read's paging (FR-045). */
+export function auditPath(
+    correlationId: string,
+    options: { readonly limit?: number; readonly cursor?: number | null } = {},
+): string {
+    const page = options.limit === undefined ? '' : `&limit=${options.limit}`;
+    const cursor = options.cursor === null || options.cursor === undefined ? '' : `&cursor=${options.cursor}`;
+
+    return `${AUDIT_PATH}?correlationId=${encodeURIComponent(correlationId)}${page}${cursor}`;
 }

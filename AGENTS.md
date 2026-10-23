@@ -240,6 +240,12 @@ changing it. The shape:
   and `orchestration` skills), so a new feature creates a file rather than
   editing these — and **nothing validates relative links in `specs/`**, so a
   deletion that breaks a citation is silent.
+- `.agents/skills/mecha-turk-troubleshooting/` — the repo's own operator-
+  troubleshooting skill for agents: the three parties, where the store and panel
+  evidence lives, the run-state and audit vocabulary, playbooks for the recurring
+  dispatch signatures, and how to reproduce a dispatch bug offline. It is
+  first-party, so it is **not** recorded in `skills-lock.json` (which tracks
+  installed third-party skills).
 
 ## Spec workflow
 
